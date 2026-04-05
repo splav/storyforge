@@ -1,0 +1,11 @@
+[[weapons]]
+id         = 1
+name       = "Короткий меч"
+dice_count = 1
+dice_sides = 6
+
+[[weapons]]
+id         = 2
+name       = "Длинный меч"
+dice_count = 1
+dice_sides = 8

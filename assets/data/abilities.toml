@@ -1,0 +1,14 @@
+[[abilities]]
+id          = 1
+name        = "Атака мечом"
+target_type = "single_enemy"
+effect      = "weapon_attack"
+
+[[abilities]]
+id             = 2
+name           = "Блок щитом"
+target_type    = "myself"
+effect         = "apply_status"
+status_id      = 1
+duration_rounds = 1
+

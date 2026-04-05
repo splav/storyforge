@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 use crate::core::{AbilityId, StatusId, WeaponId};
-use crate::content::abilities::{AbilityDef, default_abilities};
-use crate::content::statuses::{StatusDef, default_statuses};
-use crate::content::weapons::{WeaponDef, default_weapons};
+use crate::content::abilities::{AbilityDef, load_abilities};
+use crate::content::statuses::{StatusDef, load_statuses};
+use crate::content::weapons::{WeaponDef, load_weapons};
 
 // ── Combat runtime ───────────────────────────────────────────────────────────
 
@@ -107,9 +107,9 @@ pub struct GameDb {
 impl Default for GameDb {
     fn default() -> Self {
         Self {
-            abilities: default_abilities().into_iter().map(|a| (a.id, a)).collect(),
-            statuses:  default_statuses().into_iter().map(|s| (s.id, s)).collect(),
-            weapons:   default_weapons().into_iter().map(|w| (w.id, w)).collect(),
+            abilities: load_abilities().into_iter().map(|a| (a.id, a)).collect(),
+            statuses:  load_statuses().into_iter().map(|s| (s.id, s)).collect(),
+            weapons:   load_weapons().into_iter().map(|w| (w.id, w)).collect(),
         }
     }
 }

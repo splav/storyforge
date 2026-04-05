@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bevy = "0.18"
+bevy  = "0.18"
+serde = { version = "1", features = ["derive"] }
+toml  = "0.8"
 
 [profile.dev]
 opt-level = 1

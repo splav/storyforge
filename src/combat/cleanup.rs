@@ -1,9 +1,8 @@
 use bevy::prelude::*;
 use crate::app_state::CombatPhase;
-use crate::content::statuses::{DEFENDING_ARMOR_BONUS, STATUS_DEFENDING};
 use crate::game::components::{ActionPoints, ActiveStatus, Combatant, Dead, Faction, StatusEffects, Team, Vital};
 use crate::game::messages::{ApplyDamage, ApplyStatus, EndTurn};
-use crate::game::resources::{CombatContext, CombatEvent, CombatLog, TurnQueue};
+use crate::game::resources::{CombatContext, CombatEvent, CombatLog, GameDb, TurnQueue};
 
 pub fn cleanup_system(
     mut commands: Commands,
@@ -20,6 +19,7 @@ pub fn cleanup_system(
     mut ctx: ResMut<CombatContext>,
     mut log: ResMut<CombatLog>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
+    db: Res<GameDb>,
 ) {
     let damages: Vec<(Entity, i32)> =
         dmg_events.read().map(|e| (e.target, e.amount)).collect();
@@ -36,9 +36,12 @@ pub fn cleanup_system(
 
             let defending_bonus = statuses
                 .get(*target)
-                .map(|se| if se.0.iter().any(|s| s.id == STATUS_DEFENDING) {
-                    DEFENDING_ARMOR_BONUS
-                } else { 0 })
+                .map(|se| {
+                    se.0.iter()
+                        .filter_map(|s| db.statuses.get(&s.id))
+                        .map(|def| def.armor_bonus)
+                        .sum::<i32>()
+                })
                 .unwrap_or(0);
 
             let mitigated = (raw - v.armor - defending_bonus).max(1);

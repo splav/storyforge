@@ -8,7 +8,7 @@ mod game;
 mod ui;
 
 use app_state::{AppState, CombatPhase};
-use content::abilities::ABILITY_GOBLIN_ATTACK;
+use content::abilities::ABILITY_SWORD_ATTACK;
 use content::classes::warrior;
 use content::weapons::{WEAPON_LONG_SWORD, WEAPON_SHORT_SWORD};
 use core::DiceRng;
@@ -92,7 +92,7 @@ fn setup_demo(
         Name::new("Goblin Guard"),
         enemy_bundle(
             CombatStats { max_hp: 14, armor: 5, damage: 0, initiative: 10 },
-            vec![ABILITY_GOBLIN_ATTACK],
+            vec![ABILITY_SWORD_ATTACK],
             WEAPON_LONG_SWORD,
         ),
     ));
@@ -102,7 +102,7 @@ fn setup_demo(
         Name::new("Goblin Ravager"),
         enemy_bundle(
             CombatStats { max_hp: 8, armor: 1, damage: 4, initiative: 3 },
-            vec![ABILITY_GOBLIN_ATTACK],
+            vec![ABILITY_SWORD_ATTACK],
             WEAPON_SHORT_SWORD,
         ),
     ));
