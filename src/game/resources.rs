@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 use crate::core::{AbilityId, StatusId, WeaponId};
 use crate::content::abilities::{AbilityDef, load_abilities};
+use crate::content::classes::{ClassDef, load_classes};
 use crate::content::encounters::{EncounterDef, load_encounters};
 use crate::content::statuses::{StatusDef, load_statuses};
 use crate::content::weapons::{WeaponDef, load_weapons};
@@ -117,6 +118,7 @@ pub struct GameDb {
     pub statuses:   HashMap<StatusId, StatusDef>,
     pub weapons:    HashMap<WeaponId, WeaponDef>,
     pub encounters: HashMap<String, EncounterDef>,
+    pub classes:    HashMap<String, ClassDef>,
 }
 
 impl Default for GameDb {
@@ -126,6 +128,7 @@ impl Default for GameDb {
             statuses:   load_statuses().into_iter().map(|s| (s.id.clone(), s)).collect(),
             weapons:    load_weapons().into_iter().map(|w| (w.id.clone(), w)).collect(),
             encounters: load_encounters().into_iter().map(|e| (e.id.clone(), e)).collect(),
+            classes:    load_classes().into_iter().map(|c| (c.id.clone(), c)).collect(),
         }
     }
 }

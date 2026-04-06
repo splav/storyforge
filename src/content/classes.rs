@@ -1,33 +1,54 @@
+use serde::Deserialize;
 use crate::core::{AbilityId, WeaponId};
-use crate::content::abilities::{ABILITY_FIREBALL, ABILITY_HEAL, ABILITY_SHIELD_BLOCK, ABILITY_SWORD_ATTACK};
-use crate::content::weapons::{WEAPON_LONG_SWORD, WEAPON_STAFF};
 use crate::game::components::CombatStats;
 
 pub struct ClassDef {
-    pub name:      &'static str,
-    pub stats:     CombatStats,
+    pub id:       String,
+    pub name:     String,
+    pub stats:    CombatStats,
     pub abilities: Vec<AbilityId>,
-    pub weapon:    WeaponId,
+    pub weapon:   WeaponId,
 }
 
-pub fn warrior() -> ClassDef {
-    ClassDef {
-        name: "Warrior",
-        stats: CombatStats { max_hp: 20, armor: 3, damage: 4, initiative: 6, intelligence: 0 },
-        abilities: vec![ABILITY_SWORD_ATTACK.into(), ABILITY_SHIELD_BLOCK.into()],
-        weapon:    WEAPON_LONG_SWORD.into(),
-    }
+// ── TOML loading ──────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ClassFile {
+    classes: Vec<ClassRecord>,
 }
 
-pub fn mage() -> ClassDef {
-    ClassDef {
-        name: "Mage",
-        stats: CombatStats { max_hp: 12, armor: 0, damage: 0, initiative: 5, intelligence: 2 },
-        abilities: vec![
-            ABILITY_SWORD_ATTACK.into(),
-            ABILITY_FIREBALL.into(),
-            ABILITY_HEAL.into(),
-        ],
-        weapon: WEAPON_STAFF.into(),
-    }
+#[derive(Deserialize)]
+struct ClassRecord {
+    id:           String,
+    name:         String,
+    max_hp:       i32,
+    armor:        i32,
+    damage:       i32,
+    initiative:   i32,
+    intelligence: i32,
+    weapon_id:    String,
+    ability_ids:  Vec<String>,
+}
+
+const CLASSES_PATH: &str = "assets/data/classes.toml";
+
+pub fn load_classes() -> Vec<ClassDef> {
+    let src = std::fs::read_to_string(CLASSES_PATH)
+        .unwrap_or_else(|e| panic!("Cannot read {CLASSES_PATH}: {e}"));
+    let file: ClassFile = toml::from_str(&src)
+        .unwrap_or_else(|e| panic!("Cannot parse {CLASSES_PATH}: {e}"));
+
+    file.classes.into_iter().map(|r| ClassDef {
+        id:       r.id,
+        name:     r.name,
+        stats:    CombatStats {
+            max_hp:       r.max_hp,
+            armor:        r.armor,
+            damage:       r.damage,
+            initiative:   r.initiative,
+            intelligence: r.intelligence,
+        },
+        abilities: r.ability_ids.iter().map(|id| AbilityId::from(id.as_str())).collect(),
+        weapon:    WeaponId::from(r.weapon_id.as_str()),
+    }).collect()
 }

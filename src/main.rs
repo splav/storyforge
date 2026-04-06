@@ -8,7 +8,6 @@ mod game;
 mod ui;
 
 use app_state::{AppState, CombatPhase};
-use content::classes::{mage, warrior};
 use core::DiceRng;
 use game::bundles::{enemy_bundle, warrior_bundle};
 use game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, StartCombat, UseAbility, ValidatedAction};
@@ -80,11 +79,12 @@ fn setup_demo(
 ) {
     commands.spawn(Camera2d);
 
-    // Spawn players.
-    let w = warrior();
-    commands.spawn((Name::new("Aldric"), warrior_bundle(w.stats, w.abilities, w.weapon)));
-    let m = mage();
-    commands.spawn((Name::new("Lyra"), warrior_bundle(m.stats, m.abilities, m.weapon)));
+    // Spawn players from class definitions.
+    for (name, class_id) in [("Aldric", "warrior"), ("Lyra", "mage")] {
+        let cls = db.classes.get(class_id)
+            .unwrap_or_else(|| panic!("Class '{class_id}' not found in {}", "assets/data/classes.toml"));
+        commands.spawn((Name::new(name), warrior_bundle(cls.stats.clone(), cls.abilities.clone(), cls.weapon.clone())));
+    }
 
     // Spawn enemies from the first encounter in the database.
     let enc = db.encounters.get("goblin_patrol")

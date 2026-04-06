@@ -1,10 +1,6 @@
 use serde::Deserialize;
 use crate::core::{DiceExpr, WeaponId};
 
-pub const WEAPON_SHORT_SWORD: &str = "short_sword";
-pub const WEAPON_LONG_SWORD:  &str = "long_sword";
-pub const WEAPON_STAFF:       &str = "staff";
-
 #[derive(Debug, Clone)]
 pub struct WeaponDef {
     pub id:          WeaponId,

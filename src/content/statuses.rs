@@ -1,8 +1,6 @@
 use serde::Deserialize;
 use crate::core::StatusId;
 
-pub const STATUS_DEFENDING: &str = "defending";
-
 #[derive(Debug, Clone)]
 pub struct StatusDef {
     pub id:          StatusId,

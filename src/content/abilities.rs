@@ -1,11 +1,6 @@
 use serde::Deserialize;
 use crate::core::{AbilityId, DiceExpr, StatusId};
 
-pub const ABILITY_SWORD_ATTACK: &str = "sword_attack";
-pub const ABILITY_SHIELD_BLOCK: &str = "shield_block";
-pub const ABILITY_FIREBALL:     &str = "fireball";
-pub const ABILITY_HEAL:         &str = "heal";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetType {
     SingleEnemy,

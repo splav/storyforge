@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use crate::app_state::CombatPhase;
 use crate::content::abilities::TargetType;
-use crate::content::statuses::STATUS_DEFENDING;
 use crate::game::components::{
     ActionPoints, Abilities, Combatant, CombatStats, Dead, EquippedWeapon, Faction,
     Initiative, StatusEffects, Team, Vital,
@@ -162,8 +161,11 @@ fn fmt_row(row: &Row, ctx: &CombatContext, sel: &SelectionState, db: &GameDb) ->
     let active = if ctx.active == Some(*entity) { "▶" } else { " " };
     let target = if sel.selected_target == Some(*entity) { "→" } else { " " };
     let action = if ap.action { "●" } else { "○" };
-    let dead   = if *is_dead { "  [мертв]" } else { "" };
-    let defend = if statuses.0.iter().any(|s| s.id.0 == STATUS_DEFENDING) { " [щит]" } else { "" };
+    let dead = if *is_dead { "  [мертв]" } else { "" };
+    let status_tags: String = statuses.0.iter()
+        .filter_map(|s| db.statuses.get(&s.id))
+        .map(|def| format!(" [{}]", def.name))
+        .collect();
 
     let weapon_str = weapon
         .and_then(|w| db.weapons.get(&w.0))
@@ -174,7 +176,7 @@ fn fmt_row(row: &Row, ctx: &CombatContext, sel: &SelectionState, db: &GameDb) ->
         .unwrap_or_default();
 
     format!(
-        " {active} {target} {name:<15} HP:{:>2}/{:<2}  ARM:{:<2}{weapon_str}  {action}{dead}{defend}\n",
+        " {active} {target} {name:<15} HP:{:>2}/{:<2}  ARM:{:<2}{weapon_str}  {action}{dead}{status_tags}\n",
         vital.hp, vital.max_hp, stats.armor,
     )
 }
