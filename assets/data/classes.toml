@@ -7,7 +7,7 @@ damage       = 4
 initiative   = 6
 intelligence = 0
 weapon_id    = "long_sword"
-ability_ids  = ["sword_attack", "shield_block"]
+ability_ids  = ["melee_attack", "shield_block"]
 
 [[classes]]
 id           = "mage"
@@ -18,4 +18,4 @@ damage       = 0
 initiative   = 5
 intelligence = 2
 weapon_id    = "staff"
-ability_ids  = ["sword_attack", "fireball", "heal"]
+ability_ids  = ["melee_attack", "fireball", "heal"]

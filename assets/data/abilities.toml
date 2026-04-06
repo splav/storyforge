@@ -1,6 +1,6 @@
 [[abilities]]
-id          = "sword_attack"
-name        = "Атака мечом"
+id          = "melee_attack"
+name        = "Атака оружием ближнего боя"
 target_type = "single_enemy"
 effect      = "weapon_attack"
 

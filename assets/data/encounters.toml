@@ -9,7 +9,7 @@ armor       = 5
 damage      = 0
 initiative  = 10
 weapon_id   = "long_sword"
-ability_ids = ["sword_attack"]
+ability_ids = ["melee_attack"]
 
 [[encounters.enemies]]
 name        = "Goblin Ravager"
@@ -18,4 +18,4 @@ armor       = 1
 damage      = 4
 initiative  = 3
 weapon_id   = "short_sword"
-ability_ids = ["sword_attack"]
+ability_ids = ["melee_attack"]
