@@ -29,9 +29,10 @@ pub struct ValidatedAction {
 
 #[derive(Message)]
 pub struct ApplyDamage {
-    pub source: Entity,
-    pub target: Entity,
-    pub amount: i32,
+    pub source:    Entity,
+    pub target:    Entity,
+    pub amount:    i32,     // raw, before armor
+    pub breakdown: String,  // e.g. "1d8=6 + 4(атк) = 10"
 }
 
 #[derive(Message)]
@@ -39,6 +40,14 @@ pub struct ApplyStatus {
     pub target: Entity,
     pub status: StatusId,
     pub duration_rounds: u32,
+}
+
+#[derive(Message)]
+pub struct ApplyHeal {
+    pub source:    Entity,
+    pub target:    Entity,
+    pub amount:    i32,
+    pub breakdown: String,  // e.g. "1d4=2 + 1(сила) + 2(инт) = 5"
 }
 
 #[derive(Message)]

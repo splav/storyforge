@@ -24,12 +24,13 @@ pub enum Team {
 pub struct Faction(pub Team);
 
 /// The core combat stats.
-#[derive(Component, Clone)]
+#[derive(Component, Clone, Debug)]
 pub struct CombatStats {
-    pub max_hp:     i32,
-    pub armor:      i32,
-    pub damage:     i32,
-    pub initiative: i32,   // base value; rolled initiative = initiative + d20
+    pub max_hp:       i32,
+    pub armor:        i32,
+    pub damage:       i32,
+    pub initiative:   i32,   // base value; rolled initiative = initiative + d20
+    pub intelligence: i32,   // boosts spell damage and healing
 }
 
 #[derive(Component)]
@@ -71,7 +72,7 @@ impl Default for ActionPoints {
 pub struct Abilities(pub Vec<AbilityId>);
 
 /// The weapon currently equipped by this combatant.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone)]
 pub struct EquippedWeapon(pub WeaponId);
 
 #[derive(Component, Default)]

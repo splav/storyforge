@@ -20,7 +20,7 @@ pub fn enemy_ai_system(
 
     // Random ability.
     let ability_idx = rng.roll_d(abilities.0.len() as u32) as usize - 1;
-    let ability = abilities.0[ability_idx];
+    let ability = abilities.0[ability_idx].clone();
 
     // Collect living players, pick one at random.
     let players: Vec<Entity> = combatants

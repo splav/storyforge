@@ -1,11 +1,18 @@
 [[weapons]]
-id         = 1
-name       = "Короткий меч"
-dice_count = 1
-dice_sides = 6
+id          = "short_sword"
+name        = "Короткий меч"
+dice_count  = 1
+dice_sides  = 6
 
 [[weapons]]
-id         = 2
-name       = "Длинный меч"
-dice_count = 1
-dice_sides = 8
+id          = "long_sword"
+name        = "Длинный меч"
+dice_count  = 1
+dice_sides  = 8
+
+[[weapons]]
+id          = "staff"
+name        = "Посох"
+dice_count  = 1
+dice_sides  = 4
+spell_power = 1

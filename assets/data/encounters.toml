@@ -1,0 +1,21 @@
+[[encounters]]
+id   = "goblin_patrol"
+name = "Гоблинский патруль"
+
+[[encounters.enemies]]
+name        = "Goblin Guard"
+max_hp      = 14
+armor       = 5
+damage      = 0
+initiative  = 10
+weapon_id   = "long_sword"
+ability_ids = ["sword_attack"]
+
+[[encounters.enemies]]
+name        = "Goblin Ravager"
+max_hp      = 8
+armor       = 1
+damage      = 4
+initiative  = 3
+weapon_id   = "short_sword"
+ability_ids = ["sword_attack"]

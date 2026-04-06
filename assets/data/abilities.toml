@@ -1,14 +1,29 @@
 [[abilities]]
-id          = 1
+id          = "sword_attack"
 name        = "Атака мечом"
 target_type = "single_enemy"
 effect      = "weapon_attack"
 
 [[abilities]]
-id             = 2
-name           = "Блок щитом"
-target_type    = "myself"
-effect         = "apply_status"
-status_id      = 1
+id              = "shield_block"
+name            = "Блок щитом"
+target_type     = "myself"
+effect          = "apply_status"
+status_id       = "defending"
 duration_rounds = 1
 
+[[abilities]]
+id          = "fireball"
+name        = "Огненный шар"
+target_type = "single_enemy"
+effect      = "spell_damage"
+dice_count  = 1
+dice_sides  = 6
+
+[[abilities]]
+id          = "heal"
+name        = "Исцеление"
+target_type = "single_ally"
+effect      = "heal"
+dice_count  = 1
+dice_sides  = 4

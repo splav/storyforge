@@ -163,7 +163,7 @@ fn fmt_row(row: &Row, ctx: &CombatContext, sel: &SelectionState, db: &GameDb) ->
     let target = if sel.selected_target == Some(*entity) { "→" } else { " " };
     let action = if ap.action { "●" } else { "○" };
     let dead   = if *is_dead { "  [мертв]" } else { "" };
-    let defend = if statuses.0.iter().any(|s| s.id == STATUS_DEFENDING) { " [щит]" } else { "" };
+    let defend = if statuses.0.iter().any(|s| s.id.0 == STATUS_DEFENDING) { " [щит]" } else { "" };
 
     let weapon_str = weapon
         .and_then(|w| db.weapons.get(&w.0))
@@ -203,7 +203,7 @@ pub fn update_ability_panel(
 
     for (slot, mut node, mut border, mut bg, mut vis) in &mut slots {
         let idx = slot.0;
-        let ability_id = abilities.get(idx).copied();
+        let ability_id = abilities.get(idx).cloned();
         let selected = ability_id.is_some() && sel.selected_ability == ability_id;
 
         *vis = if ability_id.is_some() { Visibility::Visible } else { Visibility::Hidden };
@@ -219,10 +219,11 @@ pub fn update_ability_panel(
 
     for (label, mut text, mut color) in &mut labels {
         let idx = label.0;
-        if let Some(id) = abilities.get(idx).copied() {
+        if let Some(id) = abilities.get(idx).cloned() {
             if let Some(def) = db.abilities.get(&id) {
                 let target_hint = match def.target_type {
                     TargetType::SingleEnemy => "Tab → враг",
+                    TargetType::SingleAlly  => "Tab → союзник",
                     TargetType::Myself      => "на себя",
                 };
                 text.0 = format!("[{}] {}\n    {}", idx + 1, def.name, target_hint);

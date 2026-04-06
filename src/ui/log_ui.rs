@@ -1,11 +1,13 @@
 use bevy::prelude::*;
 use crate::game::resources::CombatLog;
 use super::HudLog;
+use super::console_log::fmt_event;
 
 const MAX_LINES: usize = 6;
 
 pub fn update_log(
     log: Res<CombatLog>,
+    names: Query<&Name>,
     mut q: Query<&mut Text, With<HudLog>>,
 ) {
     if !log.is_changed() { return; }
@@ -15,7 +17,7 @@ pub fn update_log(
         .iter()
         .rev()
         .take(MAX_LINES)
-        .map(|e| format!("• {:?}\n", e))
+        .map(|e| format!("{}\n", fmt_event(e, &names)))
         .collect::<Vec<_>>()
         .into_iter()
         .rev()

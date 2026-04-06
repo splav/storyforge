@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 use crate::app_state::CombatPhase;
 use crate::game::components::{ActionPoints, ActiveStatus, Combatant, Dead, Faction, StatusEffects, Team, Vital};
-use crate::game::messages::{ApplyDamage, ApplyStatus, EndTurn};
+use crate::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn};
 use crate::game::resources::{CombatContext, CombatEvent, CombatLog, GameDb, TurnQueue};
 
 pub fn cleanup_system(
     mut commands: Commands,
     mut dmg_events: MessageReader<ApplyDamage>,
+    mut heal_events: MessageReader<ApplyHeal>,
     mut status_events: MessageReader<ApplyStatus>,
     mut end_turn_events: MessageReader<EndTurn>,
     mut queries: ParamSet<(
@@ -21,17 +22,19 @@ pub fn cleanup_system(
     mut next_phase: ResMut<NextState<CombatPhase>>,
     db: Res<GameDb>,
 ) {
-    let damages: Vec<(Entity, i32)> =
-        dmg_events.read().map(|e| (e.target, e.amount)).collect();
+    let damages: Vec<(Entity, i32, String)> =
+        dmg_events.read().map(|e| (e.target, e.amount, e.breakdown.clone())).collect();
+    let heals: Vec<(Entity, i32, String)> =
+        heal_events.read().map(|e| (e.target, e.amount, e.breakdown.clone())).collect();
     let status_apps: Vec<(Entity, crate::core::StatusId, u32)> =
-        status_events.read().map(|e| (e.target, e.status, e.duration_rounds)).collect();
+        status_events.read().map(|e| (e.target, e.status.clone(), e.duration_rounds)).collect();
     let end_turns: Vec<Entity> =
         end_turn_events.read().map(|e| e.actor).collect();
 
     // Apply damage with armor + defending mitigation; mark dead units.
     {
         let mut vitals = queries.p0();
-        for (target, raw) in &damages {
+        for (target, raw, formula) in &damages {
             let Ok(mut v) = vitals.get_mut(*target) else { continue };
 
             let defending_bonus = statuses
@@ -44,12 +47,34 @@ pub fn cleanup_system(
                 })
                 .unwrap_or(0);
 
-            let mitigated = (raw - v.armor - defending_bonus).max(1);
-            v.apply_damage(mitigated);
+            let total_armor = v.armor + defending_bonus;
+            let final_damage = (raw - total_armor).max(1);
+            v.apply_damage(final_damage);
+
+            log.push(CombatEvent::DamageResult {
+                target: *target,
+                formula: formula.clone(),
+                armor_reduced: total_armor,
+                final_damage,
+            });
 
             if !v.is_alive() {
                 commands.entity(*target).insert(Dead);
                 log.push(CombatEvent::UnitDied { entity: *target });
+            }
+        }
+
+        // Apply heals (no armor reduction).
+        for (target, amount, formula) in &heals {
+            if let Ok(mut v) = vitals.get_mut(*target) {
+                let before = v.hp;
+                v.apply_heal(*amount);
+                let actual = v.hp - before;
+                log.push(CombatEvent::HealResult {
+                    target: *target,
+                    formula: formula.clone(),
+                    amount: actual,
+                });
             }
         }
     }
@@ -58,7 +83,7 @@ pub fn cleanup_system(
     for (target, status, duration) in &status_apps {
         if let Ok(mut se) = statuses.get_mut(*target) {
             se.0.retain(|s| s.id != *status);
-            se.0.push(ActiveStatus { id: *status, rounds_remaining: *duration });
+            se.0.push(ActiveStatus { id: status.clone(), rounds_remaining: *duration });
         }
     }
 

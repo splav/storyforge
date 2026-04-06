@@ -16,7 +16,7 @@ pub fn validate_action_system(
         if !is_valid(ev, &ctx, &actors, &targets) {
             continue;
         }
-        validated.write(ValidatedAction { actor: ev.actor, ability: ev.ability, target: ev.target });
+        validated.write(ValidatedAction { actor: ev.actor, ability: ev.ability.clone(), target: ev.target });
     }
 }
 

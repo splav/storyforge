@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 use crate::core::{AbilityId, StatusId, WeaponId};
 use crate::content::abilities::{AbilityDef, load_abilities};
+use crate::content::encounters::{EncounterDef, load_encounters};
 use crate::content::statuses::{StatusDef, load_statuses};
 use crate::content::weapons::{WeaponDef, load_weapons};
 
@@ -78,7 +79,20 @@ pub enum CombatEvent {
     CombatStarted,
     RoundStarted { round: u32 },
     TurnStarted { actor: Entity },
-    DamageDealt { source: Entity, target: Entity, amount: i32 },
+    AbilityUsed { actor: Entity, ability_name: String, target: Entity },
+    /// Full damage summary: formula + armor reduction + final HP lost.
+    DamageResult {
+        target:        Entity,
+        formula:       String,  // e.g. "1d8=6 + 4(атк) = 10"
+        armor_reduced: i32,     // total absorption (armor + statuses)
+        final_damage:  i32,     // HP actually lost
+    },
+    /// Full heal summary: formula + HP actually restored.
+    HealResult {
+        target:  Entity,
+        formula: String,  // e.g. "1d4=2 + 1(сила) + 2(инт) = 5"
+        amount:  i32,     // HP actually restored (capped at max_hp)
+    },
     Missed { actor: Entity, target: Entity },
     StatusApplied { target: Entity, status: StatusId },
     TurnEnded { actor: Entity },
@@ -99,17 +113,19 @@ impl CombatLog {
 
 #[derive(Resource)]
 pub struct GameDb {
-    pub abilities: HashMap<AbilityId, AbilityDef>,
-    pub statuses:  HashMap<StatusId, StatusDef>,
-    pub weapons:   HashMap<WeaponId, WeaponDef>,
+    pub abilities:  HashMap<AbilityId, AbilityDef>,
+    pub statuses:   HashMap<StatusId, StatusDef>,
+    pub weapons:    HashMap<WeaponId, WeaponDef>,
+    pub encounters: HashMap<String, EncounterDef>,
 }
 
 impl Default for GameDb {
     fn default() -> Self {
         Self {
-            abilities: load_abilities().into_iter().map(|a| (a.id, a)).collect(),
-            statuses:  load_statuses().into_iter().map(|s| (s.id, s)).collect(),
-            weapons:   load_weapons().into_iter().map(|w| (w.id, w)).collect(),
+            abilities:  load_abilities().into_iter().map(|a| (a.id.clone(), a)).collect(),
+            statuses:   load_statuses().into_iter().map(|s| (s.id.clone(), s)).collect(),
+            weapons:    load_weapons().into_iter().map(|w| (w.id.clone(), w)).collect(),
+            encounters: load_encounters().into_iter().map(|e| (e.id.clone(), e)).collect(),
         }
     }
 }

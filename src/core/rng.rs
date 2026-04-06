@@ -35,6 +35,16 @@ impl DiceRng {
         }
         total
     }
+
+    /// Rolls only the dice part of `expr` (ignores `expr.bonus`).
+    /// Returns `(total, "NdS=X")` for use in breakdown strings.
+    pub fn roll_dice(&mut self, expr: &DiceExpr) -> (i32, String) {
+        let mut total = 0i32;
+        for _ in 0..expr.count {
+            total += self.roll_d(expr.sides);
+        }
+        (total, format!("{}d{}={}", expr.count, expr.sides, total))
+    }
 }
 
 #[derive(Debug, Clone)]
