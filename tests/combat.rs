@@ -4,7 +4,10 @@ use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 
 use storyforge::app_state::{AppState, CombatPhase};
-use storyforge::combat::{cleanup::cleanup_system, validation::validate_action_system};
+use storyforge::combat::{
+    advance_turn::advance_turn_system, apply_effects::apply_effects_system,
+    validation::validate_action_system,
+};
 const MELEE_ATTACK: &str = "melee_attack";
 const SHORT_SWORD: &str = "short_sword";
 use storyforge::core::DiceRng;
@@ -51,7 +54,7 @@ fn validation_app() -> App {
     app
 }
 
-fn cleanup_app() -> App {
+fn effects_app() -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, StatesPlugin))
         .init_state::<AppState>()
@@ -68,9 +71,11 @@ fn cleanup_app() -> App {
         .add_message::<EndTurn>()
         .add_systems(
             Update,
-            cleanup_system.run_if(in_state(CombatPhase::Cleanup)),
+            (apply_effects_system, advance_turn_system)
+                .chain()
+                .run_if(in_state(CombatPhase::AwaitCommand)),
         );
-    enter_cleanup(&mut app);
+    enter_await_command(&mut app);
     app
 }
 
@@ -82,17 +87,6 @@ fn enter_await_command(app: &mut App) {
     app.world_mut()
         .resource_mut::<NextState<CombatPhase>>()
         .set(CombatPhase::AwaitCommand);
-    app.update();
-}
-
-fn enter_cleanup(app: &mut App) {
-    app.world_mut()
-        .resource_mut::<NextState<AppState>>()
-        .set(AppState::Combat);
-    app.update();
-    app.world_mut()
-        .resource_mut::<NextState<CombatPhase>>()
-        .set(CombatPhase::Cleanup);
     app.update();
 }
 
@@ -221,7 +215,7 @@ fn no_action_point_use_ability_is_rejected() {
 
 #[test]
 fn apply_damage_reduces_hp() {
-    let mut app = cleanup_app();
+    let mut app = effects_app();
     let hero = app
         .world_mut()
         .spawn((
@@ -263,7 +257,7 @@ fn apply_damage_reduces_hp() {
 
 #[test]
 fn killing_all_enemies_sets_victory_phase() {
-    let mut app = cleanup_app();
+    let mut app = effects_app();
     let hero = app
         .world_mut()
         .spawn((
@@ -334,7 +328,7 @@ fn killing_all_enemies_sets_victory_phase() {
 
 #[test]
 fn killing_all_heroes_sets_defeat_phase() {
-    let mut app = cleanup_app();
+    let mut app = effects_app();
     let hero = app
         .world_mut()
         .spawn((

@@ -1,17 +1,15 @@
-use crate::core::{DiceRng, StatusId};
+use crate::core::DiceRng;
 use crate::game::components::{Abilities, Combatant, Faction, StatusEffects, Team, Vital};
 use crate::game::messages::UseAbility;
-use crate::game::resources::CombatContext;
+use crate::game::resources::{CombatContext, GameDb};
 use bevy::prelude::*;
-
-static TAUNTED: std::sync::LazyLock<StatusId> =
-    std::sync::LazyLock::new(|| StatusId::from("taunted"));
 
 /// Automatically acts on behalf of enemy-controlled combatants.
 /// Picks a random ability and a random living player target.
-/// Targets a taunted player first if one exists.
+/// Targets players with forces_targeting statuses first.
 pub fn enemy_ai_system(
     ctx: Res<CombatContext>,
+    db: Res<GameDb>,
     mut rng: ResMut<DiceRng>,
     mut use_ability: MessageWriter<UseAbility>,
     combatants: Query<(Entity, &Faction, &Abilities, &Vital), With<Combatant>>,
@@ -46,18 +44,22 @@ pub fn enemy_ai_system(
         return;
     }
 
-    // If any living player has Provocation, enemies must target them.
-    let taunted: Vec<Entity> = players
+    // If any living player has a forces_targeting status, enemies must target them.
+    let forced: Vec<Entity> = players
         .iter()
         .copied()
         .filter(|&e| {
-            statuses
-                .get(e)
-                .map_or(false, |se| se.0.iter().any(|s| s.id == *TAUNTED))
+            statuses.get(e).map_or(false, |se| {
+                se.0.iter().any(|s| {
+                    db.statuses
+                        .get(&s.id)
+                        .map_or(false, |def| def.forces_targeting)
+                })
+            })
         })
         .collect();
 
-    let pool = if taunted.is_empty() { &players } else { &taunted };
+    let pool = if forced.is_empty() { &players } else { &forced };
     let target_idx = rng.roll_d(pool.len() as u32) as usize - 1;
     let target = pool[target_idx];
 

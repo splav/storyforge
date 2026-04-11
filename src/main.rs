@@ -66,13 +66,15 @@ fn main() {
         .add_systems(
             Update,
             (
+                combat::turn_start::turn_start_system,
                 combat::skip_dead::skip_dead_turn_system,
                 combat::skip_dead::skip_stunned_turn_system,
                 combat::command_input::player_command_system,
                 combat::enemy_ai::enemy_ai_system,
                 combat::validation::validate_action_system,
                 combat::resolution::resolve_action_system,
-                combat::cleanup::cleanup_system,
+                combat::apply_effects::apply_effects_system,
+                combat::advance_turn::advance_turn_system,
             )
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand)),

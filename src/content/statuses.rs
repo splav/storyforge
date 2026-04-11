@@ -8,6 +8,7 @@ pub struct StatusDef {
     pub armor_bonus: i32,        // снижает урон от физических атак
     pub damage_taken_bonus: i32, // увеличивает весь получаемый урон (применяется после брони)
     pub skips_turn: bool,
+    pub forces_targeting: bool, // враги вынуждены атаковать цель с этим статусом
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -27,6 +28,8 @@ struct StatusRecord {
     damage_taken_bonus: i32,
     #[serde(default)]
     skips_turn: bool,
+    #[serde(default)]
+    forces_targeting: bool,
 }
 
 const STATUSES_PATH: &str = "assets/data/statuses.toml";
@@ -45,6 +48,7 @@ pub fn load_statuses() -> Vec<StatusDef> {
             armor_bonus: r.armor_bonus,
             damage_taken_bonus: r.damage_taken_bonus,
             skips_turn: r.skips_turn,
+            forces_targeting: r.forces_targeting,
         })
         .collect()
 }

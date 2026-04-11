@@ -1,6 +1,6 @@
 use super::{AbilitySlot, AbilitySlotLabel, HudCombatants, HudLog, HudPhase, HudTurnOrder, UiFont};
 use crate::app_state::CombatPhase;
-use crate::content::abilities::{EffectDef, TargetType};
+use crate::content::abilities::{AbilityDef, EffectDef, StatusOn, TargetType};
 use crate::content::weapons::WeaponDef;
 use crate::core::{modifier, DiceExpr};
 use crate::game::components::{
@@ -319,7 +319,7 @@ pub fn update_ability_panel(
                     TargetType::SingleAlly => "Tab → союзник",
                     TargetType::Myself => "на себя",
                 };
-                let effect_str = ability_effect_str(&def.effect, &stats, weapon_def, &db);
+                let effect_str = ability_effect_str(def, &stats, weapon_def, &db);
                 let mut costs = String::new();
                 if def.rage_cost > 0 {
                     costs += &format!("  ярость:{}", def.rage_cost);
@@ -347,41 +347,62 @@ pub fn update_ability_panel(
 }
 
 fn ability_effect_str(
-    effect: &EffectDef,
+    def: &AbilityDef,
     stats: &CombatStats,
     weapon_def: Option<&WeaponDef>,
     db: &GameDb,
 ) -> String {
     let str_mod = modifier(stats.strength);
     let int_mod = modifier(stats.intelligence);
-    match effect {
+
+    let mut lines: Vec<String> = Vec::new();
+
+    match &def.effect {
+        EffectDef::None => {}
         EffectDef::WeaponAttack => {
-            if let Some(wd) = weapon_def {
+            let s = if let Some(wd) = weapon_def {
                 format!("{} урон", dice_bonus_str(&wd.dice, str_mod))
             } else {
                 format!("{str_mod} урон")
-            }
+            };
+            lines.push(s);
         }
-        EffectDef::Damage { dice } => format!("{} урон", dice_bonus_str(dice, str_mod)),
+        EffectDef::Damage { dice } => {
+            lines.push(format!("{} урон", dice_bonus_str(dice, str_mod)));
+        }
         EffectDef::SpellDamage { dice } => {
             let sp = weapon_def.map_or(0, |wd| wd.spell_power);
-            format!("{} урон (заклинание)", dice_bonus_str(dice, sp + int_mod))
+            lines.push(format!(
+                "{} урон (закл.)",
+                dice_bonus_str(dice, sp + int_mod)
+            ));
         }
         EffectDef::Heal { dice } => {
             let sp = weapon_def.map_or(0, |wd| wd.spell_power);
-            format!("{} лечение", dice_bonus_str(dice, sp + int_mod))
+            lines.push(format!("{} лечение", dice_bonus_str(dice, sp + int_mod)));
         }
-        EffectDef::ApplyStatus {
-            status,
-            duration_rounds,
-        } => {
-            let status_name = db
-                .statuses
-                .get(status)
-                .map(|s| s.name.as_str())
-                .unwrap_or("?");
-            format!("→ {status_name} ({duration_rounds} ход.)")
-        }
+    }
+
+    for sa in &def.statuses {
+        let status_name = db
+            .statuses
+            .get(&sa.status)
+            .map(|s| s.name.as_str())
+            .unwrap_or("?");
+        let on_str = match sa.on {
+            StatusOn::MySelf => "себя",
+            StatusOn::Target => "цель",
+        };
+        lines.push(format!(
+            "→ {} на {} ({} ход.)",
+            status_name, on_str, sa.duration_rounds
+        ));
+    }
+
+    if lines.is_empty() {
+        "—".into()
+    } else {
+        lines.join("\n    ")
     }
 }
 

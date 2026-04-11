@@ -8,29 +8,43 @@ pub enum TargetType {
     Myself,
 }
 
+/// To whom a status is applied when the ability resolves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusOn {
+    /// The ability's resolved target (enemy, ally, or self depending on target_type).
+    Target,
+    /// Always the actor who used the ability.
+    MySelf,
+}
+
+#[derive(Debug, Clone)]
+pub struct StatusApplication {
+    pub status: StatusId,
+    pub duration_rounds: u32,
+    pub on: StatusOn,
+}
+
 #[derive(Debug, Clone)]
 pub struct AbilityDef {
     pub id: AbilityId,
     pub name: String,
     pub target_type: TargetType,
     pub effect: EffectDef,
-    pub rage_cost: i32, // 0 — нет стоимости
+    pub rage_cost: i32,
     pub mana_cost: i32,
-    /// Optional status always applied to the actor (self), regardless of target_type.
-    pub self_status: Option<(StatusId, u32)>,
+    /// Status effects applied when the ability resolves.
+    pub statuses: Vec<StatusApplication>,
 }
 
 #[derive(Debug, Clone)]
 pub enum EffectDef {
+    /// No direct damage or heal — ability only applies statuses.
+    None,
     WeaponAttack,
     Damage {
         dice: DiceExpr,
     },
-    ApplyStatus {
-        status: StatusId,
-        duration_rounds: u32,
-    },
-    /// spell_power + intelligence + dice
+    /// spell_power + intelligence + dice, bypasses armor
     SpellDamage {
         dice: DiceExpr,
     },
@@ -52,18 +66,23 @@ struct AbilityRecord {
     id: String,
     name: String,
     target_type: String,
+    #[serde(default)]
     effect: String,
     dice_count: Option<u32>,
     dice_sides: Option<u32>,
-    status_id: Option<String>,
-    duration_rounds: Option<u32>,
     #[serde(default)]
     rage_cost: i32,
     #[serde(default)]
     mana_cost: i32,
-    self_status_id: Option<String>,
     #[serde(default)]
-    self_status_duration: u32,
+    statuses: Vec<StatusRecord>,
+}
+
+#[derive(Deserialize)]
+struct StatusRecord {
+    id: String,
+    on: String,
+    duration: u32,
 }
 
 const ABILITIES_PATH: &str = "assets/data/abilities.toml";
@@ -91,19 +110,10 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 )
             };
             let effect = match r.effect.as_str() {
+                "" | "none" => EffectDef::None,
                 "weapon_attack" => EffectDef::WeaponAttack,
                 "damage" => EffectDef::Damage {
                     dice: need_dice(&r.id, r.dice_count, r.dice_sides),
-                },
-                "apply_status" => EffectDef::ApplyStatus {
-                    status: StatusId::from(
-                        r.status_id
-                            .unwrap_or_else(|| panic!("ability '{}' missing status_id", r.id))
-                            .as_str(),
-                    ),
-                    duration_rounds: r
-                        .duration_rounds
-                        .unwrap_or_else(|| panic!("ability '{}' missing duration_rounds", r.id)),
                 },
                 "spell_damage" => EffectDef::SpellDamage {
                     dice: need_dice(&r.id, r.dice_count, r.dice_sides),
@@ -113,9 +123,22 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 },
                 other => panic!("{ABILITIES_PATH}: unknown effect '{other}'"),
             };
-            let self_status = r.self_status_id.map(|id| {
-                (StatusId::from(id.as_str()), r.self_status_duration)
-            });
+            let statuses = r
+                .statuses
+                .into_iter()
+                .map(|s| {
+                    let on = match s.on.as_str() {
+                        "target" => StatusOn::Target,
+                        "self" => StatusOn::MySelf,
+                        other => panic!("{ABILITIES_PATH}: unknown status 'on' value '{other}'"),
+                    };
+                    StatusApplication {
+                        status: StatusId::from(s.id.as_str()),
+                        duration_rounds: s.duration,
+                        on,
+                    }
+                })
+                .collect();
             AbilityDef {
                 id: AbilityId::from(r.id.as_str()),
                 name: r.name,
@@ -123,7 +146,7 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 effect,
                 rage_cost: r.rage_cost,
                 mana_cost: r.mana_cost,
-                self_status,
+                statuses,
             }
         })
         .collect()

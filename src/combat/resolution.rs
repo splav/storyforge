@@ -1,4 +1,4 @@
-use crate::content::abilities::{EffectDef, TargetType};
+use crate::content::abilities::{EffectDef, StatusOn, TargetType};
 use crate::core::{modifier, DiceRng};
 use crate::game::components::{ActionPoints, CombatStats, EquippedWeapon, Mana, Rage};
 use crate::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, ValidatedAction};
@@ -38,10 +38,35 @@ pub fn resolve_action_system(
             TargetType::SingleAlly => ev.target,
         };
 
+        let cost_str = {
+            let mut parts = Vec::new();
+            if def.mana_cost > 0 {
+                if let Some(ref m) = mana {
+                    parts.push(format!(
+                        "мана: {} - {} = {}",
+                        m.current,
+                        def.mana_cost,
+                        m.current - def.mana_cost
+                    ));
+                }
+            }
+            if def.rage_cost > 0 {
+                if let Some(ref r) = rage {
+                    parts.push(format!(
+                        "ярость: {} - {} = {}",
+                        r.current,
+                        def.rage_cost,
+                        r.current - def.rage_cost
+                    ));
+                }
+            }
+            parts.join(", ")
+        };
         log.push(CombatEvent::AbilityUsed {
             actor: ev.actor,
             ability_name: def.name.clone(),
             target,
+            cost_str,
         });
 
         match &def.effect {
@@ -117,33 +142,23 @@ pub fn resolve_action_system(
                     breakdown,
                 });
             }
-            EffectDef::ApplyStatus {
-                status,
-                duration_rounds,
-            } => {
-                status_writer.write(ApplyStatus {
-                    source: ev.actor,
-                    target,
-                    status: status.clone(),
-                    duration_rounds: *duration_rounds,
-                });
-                log.push(CombatEvent::StatusApplied {
-                    target,
-                    status: status.clone(),
-                });
-            }
+            EffectDef::None => {}
         }
 
-        if let Some((ref status_id, duration)) = def.self_status {
+        for sa in &def.statuses {
+            let status_target = match sa.on {
+                StatusOn::Target => target,
+                StatusOn::MySelf => ev.actor,
+            };
             status_writer.write(ApplyStatus {
                 source: ev.actor,
-                target: ev.actor,
-                status: status_id.clone(),
-                duration_rounds: duration,
+                target: status_target,
+                status: sa.status.clone(),
+                duration_rounds: sa.duration_rounds,
             });
             log.push(CombatEvent::StatusApplied {
-                target: ev.actor,
-                status: status_id.clone(),
+                target: status_target,
+                status: sa.status.clone(),
             });
         }
 

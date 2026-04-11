@@ -4,8 +4,9 @@ name        = "Защита"
 armor_bonus = 4
 
 [[statuses]]
-id   = "taunted"
-name = "Провокация"
+id               = "taunted"
+name             = "Провокация"
+forces_targeting = true
 
 [[statuses]]
 id          = "stunned"

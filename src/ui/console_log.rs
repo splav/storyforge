@@ -59,12 +59,21 @@ pub fn fmt_event(event: &CombatEvent, names: &Query<&Name>, db: &GameDb) -> Stri
             actor,
             ability_name,
             target,
-        } => format!(
-            "  {} использует «{}» → {}",
-            name(*actor),
-            ability_name,
-            name(*target)
-        ),
+            cost_str,
+        } => {
+            let costs = if cost_str.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", cost_str)
+            };
+            format!(
+                "  {} использует «{}» → {}{}",
+                name(*actor),
+                ability_name,
+                name(*target),
+                costs,
+            )
+        }
         CombatEvent::DamageResult {
             target,
             formula,

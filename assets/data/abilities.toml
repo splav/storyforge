@@ -5,14 +5,13 @@ target_type = "single_enemy"
 effect      = "weapon_attack"
 
 [[abilities]]
-id                   = "taunt"
-name                 = "Провокация"
-target_type          = "myself"
-effect               = "apply_status"
-status_id            = "defending"
-duration_rounds      = 1
-self_status_id       = "taunted"
-self_status_duration = 1
+id          = "taunt"
+name        = "Провокация"
+target_type = "myself"
+statuses    = [
+    { id = "defending", on = "target", duration = 1 },
+    { id = "taunted",   on = "self",   duration = 1 },
+]
 
 [[abilities]]
 id          = "fireball"
@@ -41,19 +40,19 @@ dice_count  = 1
 dice_sides  = 2
 
 [[abilities]]
-id              = "burn"
-name            = "Ожог"
-target_type     = "single_enemy"
-effect          = "apply_status"
-status_id       = "burning"
-duration_rounds = 2
-mana_cost       = 1
+id          = "burn"
+name        = "Ожог"
+target_type = "single_enemy"
+mana_cost   = 1
+statuses    = [
+    { id = "burning", on = "target", duration = 2 },
+]
 
 [[abilities]]
-id              = "stun"
-name            = "Оглушить"
-target_type     = "single_enemy"
-effect          = "apply_status"
-status_id       = "stunned"
-duration_rounds = 1
-rage_cost       = 3
+id          = "stun"
+name        = "Оглушить"
+target_type = "single_enemy"
+rage_cost   = 3
+statuses    = [
+    { id = "stunned", on = "target", duration = 1 },
+]

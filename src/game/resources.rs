@@ -14,6 +14,8 @@ pub struct CombatContext {
     pub round: u32,
     pub active: Option<Entity>,
     pub encounter: Option<Entity>,
+    /// Tracks who was active last frame; used by turn_start_system to detect a new turn.
+    pub last_active: Option<Entity>,
 }
 
 #[derive(Resource, Default)]
@@ -100,6 +102,7 @@ pub enum CombatEvent {
         actor: Entity,
         ability_name: String,
         target: Entity,
+        cost_str: String,
     },
     /// Full damage summary: formula + armor reduction + final HP lost.
     DamageResult {
