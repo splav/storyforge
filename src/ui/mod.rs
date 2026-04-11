@@ -7,8 +7,17 @@ use bevy::prelude::*;
 
 #[derive(Component)]
 pub struct HudPhase;
+/// Marker on the clip container that handles overflow clipping.
 #[derive(Component)]
-pub struct HudLog;
+pub struct LogScrollClip;
+
+/// Marker on the Text node inside the scroll clip.
+#[derive(Component)]
+pub struct LogText;
+
+/// Marker on the scrollbar thumb.
+#[derive(Component)]
+pub struct LogScrollThumb;
 #[derive(Component)]
 pub struct HudTurnOrder;
 

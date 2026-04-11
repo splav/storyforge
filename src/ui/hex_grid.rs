@@ -1,4 +1,5 @@
 use crate::game::components::{Combatant, Dead, Faction, Mana, Rage, StatusEffects, Team, Vital};
+use crate::game::messages::UseAbility;
 use crate::game::resources::{CombatContext, GameDb, SelectionState};
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
@@ -114,6 +115,15 @@ pub struct HexPositions(pub HashMap<Entity, (i32, i32)>);
 
 #[derive(Resource, Default)]
 pub struct HexHover(pub Option<(i32, i32)>);
+
+const DOUBLE_CLICK_SECS: f64 = 0.35;
+
+/// Tracks the last click for double-click detection.
+#[derive(Resource, Default)]
+pub struct HexLastClick {
+    pub pos: Option<(i32, i32)>,
+    pub time: f64,
+}
 
 /// Cached material handles used by hex cells.
 #[derive(Resource)]
@@ -546,8 +556,12 @@ pub fn update_hex_tooltip(
 pub fn hex_click_target(
     hover: Res<HexHover>,
     mouse: Res<ButtonInput<MouseButton>>,
+    time: Res<Time>,
+    ctx: Res<CombatContext>,
     cells: Query<(&HexCell, &HexOccupant)>,
     mut sel: ResMut<SelectionState>,
+    mut last_click: ResMut<HexLastClick>,
+    mut use_ability: MessageWriter<UseAbility>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
         return;
@@ -559,7 +573,24 @@ pub fn hex_click_target(
         .find(|(c, _)| c.q == hq && c.r == hr)
         .and_then(|(_, occ)| occ.0);
 
+    let now = time.elapsed_secs_f64();
+    let is_double = last_click.pos == Some((hq, hr))
+        && (now - last_click.time) <= DOUBLE_CLICK_SECS;
+
     if let Some(entity) = occupant {
         sel.selected_target = Some(entity);
+
+        if is_double {
+            if let (Some(actor), Some(ability)) = (ctx.active, sel.selected_ability.clone()) {
+                use_ability.write(UseAbility {
+                    actor,
+                    ability,
+                    target: entity,
+                });
+            }
+        }
     }
+
+    last_click.pos = Some((hq, hr));
+    last_click.time = now;
 }

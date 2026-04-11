@@ -37,6 +37,7 @@ fn main() {
         .init_resource::<ui::console_log::ConsoleCursor>()
         .init_resource::<ui::hex_grid::HexPositions>()
         .init_resource::<ui::hex_grid::HexHover>()
+        .init_resource::<ui::hex_grid::HexLastClick>()
         .add_message::<StartCombat>()
         .add_message::<UseAbility>()
         .add_message::<ValidatedAction>()
@@ -62,11 +63,14 @@ fn main() {
                 ui::combat_ui::update_phase_hint,
                 ui::combat_ui::update_turn_order,
                 ui::combat_ui::update_ability_panel,
+                ui::combat_ui::ability_slot_click_system,
                 ui::hex_grid::hex_hover_system,
                 ui::hex_grid::update_hex_visuals,
                 ui::hex_grid::update_hex_tooltip,
                 ui::hex_grid::hex_click_target,
                 ui::log_ui::update_log,
+                ui::log_ui::log_scroll_input,
+                ui::log_ui::log_scrollbar_update,
                 ui::console_log::print_log_system,
             )
                 .run_if(in_state(AppState::Combat)),
