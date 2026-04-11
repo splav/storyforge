@@ -1,0 +1,565 @@
+use crate::game::components::{Combatant, Dead, Faction, Mana, Rage, StatusEffects, Team, Vital};
+use crate::game::resources::{CombatContext, GameDb, SelectionState};
+use bevy::prelude::*;
+use bevy::sprite::Anchor;
+use std::collections::HashMap;
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const HEX_SIZE: f32 = 34.0;
+const GRID_COLS: i32 = 7;
+const GRID_ROWS: i32 = 7;
+/// Y offset to push grid up so bottom UI has room.
+const GRID_Y_OFFSET: f32 = 40.0;
+
+// ── Colors ───────────────────────────────────────────────────────────────────
+
+const CLR_EMPTY: Color = Color::srgb(0.12, 0.12, 0.14);
+const CLR_PLAYER: Color = Color::srgb(0.10, 0.14, 0.22);
+const CLR_ENEMY: Color = Color::srgb(0.22, 0.10, 0.10);
+const CLR_DEAD: Color = Color::srgb(0.15, 0.15, 0.15);
+const CLR_BORDER_ACTIVE: Color = Color::srgb(0.85, 0.75, 0.20);
+const CLR_BORDER_TARGET: Color = Color::srgb(0.85, 0.20, 0.20);
+
+// ── Hex math ─────────────────────────────────────────────────────────────────
+
+/// Flat-top hex, odd-q offset → pixel position (world-space, y-up).
+fn hex_to_pixel(q: i32, r: i32) -> Vec2 {
+    let x = HEX_SIZE * 1.5 * q as f32;
+    let y = HEX_SIZE * 3.0_f32.sqrt() * (r as f32 + 0.5 * (q & 1) as f32);
+    Vec2::new(x, -y)
+}
+
+/// Grid center offset (so grid is centered at origin).
+fn grid_center() -> Vec2 {
+    let min = hex_to_pixel(0, 0);
+    let max = hex_to_pixel(GRID_COLS - 1, GRID_ROWS - 1);
+    (min + max) * 0.5
+}
+
+/// World position → nearest hex (q, r) in odd-q offset. May be out of bounds.
+fn pixel_to_hex(world_pos: Vec2, grid_offset: Vec2) -> (i32, i32) {
+    let pos = world_pos - grid_offset;
+    let x = pos.x;
+    let y = -pos.y; // un-negate for hex math
+
+    // Convert to axial (flat-top).
+    let q_frac = (2.0 / 3.0 * x) / HEX_SIZE;
+    let r_frac = (-1.0 / 3.0 * x + 3.0_f32.sqrt() / 3.0 * y) / HEX_SIZE;
+    let (aq, ar) = axial_round(q_frac, r_frac);
+
+    // Axial → odd-q offset.
+    let oq = aq;
+    let or_val = ar + (aq - (aq & 1)) / 2;
+    (oq, or_val)
+}
+
+fn axial_round(q: f32, r: f32) -> (i32, i32) {
+    let s = -q - r;
+    let mut rq = q.round();
+    let mut rr = r.round();
+    let rs = s.round();
+    let dq = (rq - q).abs();
+    let dr = (rr - r).abs();
+    let ds = (rs - s).abs();
+    if dq > dr && dq > ds {
+        rq = -rr - rs;
+    } else if dr > ds {
+        rr = -rq - rs;
+    }
+    (rq as i32, rr as i32)
+}
+
+fn in_bounds(q: i32, r: i32) -> bool {
+    (0..GRID_COLS).contains(&q) && (0..GRID_ROWS).contains(&r)
+}
+
+// ── Mesh ─────────────────────────────────────────────────────────────────────
+// Using Bevy's built-in RegularPolygon primitive for hexagon meshes.
+
+// ── Components ───────────────────────────────────────────────────────────────
+
+#[derive(Component)]
+pub struct HexCell {
+    pub q: i32,
+    pub r: i32,
+}
+
+#[derive(Component, Default)]
+pub struct HexOccupant(pub Option<Entity>);
+
+#[derive(Component)]
+pub struct HexBorder;
+
+/// Links a standalone label entity to its hex cell entity.
+#[derive(Component)]
+pub struct HexCellLink(pub Entity);
+
+#[derive(Component)]
+pub struct HexNameLabel;
+
+#[derive(Component)]
+pub struct HexHpLabel;
+
+#[derive(Component)]
+pub struct HexManaLabel;
+
+#[derive(Component)]
+pub struct HexTooltip;
+
+// ── Resources ────────────────────────────────────────────────────────────────
+
+#[derive(Resource, Default)]
+pub struct HexPositions(pub HashMap<Entity, (i32, i32)>);
+
+#[derive(Resource, Default)]
+pub struct HexHover(pub Option<(i32, i32)>);
+
+/// Cached material handles used by hex cells.
+#[derive(Resource)]
+pub struct HexMaterials {
+    empty: Handle<ColorMaterial>,
+    player: Handle<ColorMaterial>,
+    enemy: Handle<ColorMaterial>,
+    dead: Handle<ColorMaterial>,
+    border_active: Handle<ColorMaterial>,
+    border_target: Handle<ColorMaterial>,
+}
+
+/// Grid parent transform offset, cached once at setup.
+#[derive(Resource)]
+pub struct HexGridOffset(pub Vec2);
+
+// ── System 1: Setup ──────────────────────────────────────────────────────────
+
+pub fn setup_hex_grid(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    asset_server: Res<AssetServer>,
+) {
+    let hex_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 0.97, 6));
+    let border_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 1.06, 6));
+
+    let mats = HexMaterials {
+        empty: materials.add(ColorMaterial::from_color(CLR_EMPTY)),
+        player: materials.add(ColorMaterial::from_color(CLR_PLAYER)),
+        enemy: materials.add(ColorMaterial::from_color(CLR_ENEMY)),
+        dead: materials.add(ColorMaterial::from_color(CLR_DEAD)),
+        border_active: materials.add(ColorMaterial::from_color(CLR_BORDER_ACTIVE)),
+        border_target: materials.add(ColorMaterial::from_color(CLR_BORDER_TARGET)),
+    };
+
+    let center = grid_center();
+    let offset = Vec2::new(-center.x, -center.y + GRID_Y_OFFSET);
+    commands.insert_resource(HexGridOffset(offset));
+
+    let font: Handle<Font> = asset_server.load("fonts/unicode.ttf");
+
+    for q in 0..GRID_COLS {
+        for r in 0..GRID_ROWS {
+            let pixel = hex_to_pixel(q, r) + offset;
+
+            let cell_id = commands
+                .spawn((
+                    HexCell { q, r },
+                    HexOccupant::default(),
+                    Mesh2d(hex_mesh.clone()),
+                    MeshMaterial2d(mats.empty.clone()),
+                    Transform::from_xyz(pixel.x, pixel.y, 0.1)
+                        .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_6)),
+                ))
+                .with_children(|parent| {
+                    // Border (behind the fill).
+                    parent.spawn((
+                        HexBorder,
+                        Mesh2d(border_mesh.clone()),
+                        MeshMaterial2d(mats.border_active.clone()),
+                        Transform::from_xyz(0.0, 0.0, -0.05),
+                        Visibility::Hidden,
+                    ));
+                })
+                .id();
+
+            // Labels — independent entities in world space (no rotation).
+            commands.spawn((
+                HexCellLink(cell_id),
+                HexNameLabel,
+                Text2d::new(""),
+                TextFont {
+                    font: font.clone(),
+                    font_size: 11.0,
+                    ..default()
+                },
+                TextLayout::new_with_justify(Justify::Center),
+                TextColor(Color::WHITE),
+                Anchor::CENTER,
+                Transform::from_xyz(pixel.x, pixel.y + 10.0, 0.2),
+                Visibility::Hidden,
+            ));
+            commands.spawn((
+                HexCellLink(cell_id),
+                HexHpLabel,
+                Text2d::new(""),
+                TextFont {
+                    font: font.clone(),
+                    font_size: 10.0,
+                    ..default()
+                },
+                TextLayout::new_with_justify(Justify::Center),
+                TextColor(Color::srgb(0.6, 0.9, 0.6)),
+                Anchor::CENTER,
+                Transform::from_xyz(pixel.x, pixel.y - 4.0, 0.2),
+                Visibility::Hidden,
+            ));
+            commands.spawn((
+                HexCellLink(cell_id),
+                HexManaLabel,
+                Text2d::new(""),
+                TextFont {
+                    font: font.clone(),
+                    font_size: 9.0,
+                    ..default()
+                },
+                TextLayout::new_with_justify(Justify::Center),
+                TextColor(Color::srgb(0.5, 0.6, 1.0)),
+                Anchor::CENTER,
+                Transform::from_xyz(pixel.x, pixel.y - 16.0, 0.2),
+                Visibility::Hidden,
+            ));
+        }
+    }
+
+    // Tooltip UI node (screen-space, hidden by default).
+    commands.spawn((
+        HexTooltip,
+        Text::new(""),
+        TextFont {
+            font,
+            font_size: 12.0,
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
+            padding: UiRect::all(Val::Px(6.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.08, 0.08, 0.10, 0.92)),
+        Visibility::Hidden,
+        // High z-index so it's on top of everything.
+        ZIndex(100),
+    ));
+
+    commands.insert_resource(mats);
+}
+
+// ── System 2: Assign positions ───────────────────────────────────────────────
+
+pub fn assign_hex_positions(
+    mut positions: ResMut<HexPositions>,
+    mut cells: Query<(&HexCell, &mut HexOccupant)>,
+    combatants: Query<(Entity, &Faction), With<Combatant>>,
+) {
+    // Clear old positions.
+    positions.0.clear();
+    for (_, mut occ) in &mut cells {
+        occ.0 = None;
+    }
+
+    let (mut players, mut enemies): (Vec<_>, Vec<_>) =
+        combatants.iter().partition(|(_, f)| f.0 == Team::Player);
+    players.sort_by_key(|(e, _)| *e);
+    enemies.sort_by_key(|(e, _)| *e);
+
+    // Players → column 1, vertically centered.
+    let p_col = 1i32;
+    let p_start = (GRID_ROWS - players.len() as i32) / 2;
+    for (i, &(entity, _)) in players.iter().enumerate() {
+        let pos = (p_col, p_start + i as i32);
+        positions.0.insert(entity, pos);
+    }
+
+    // Enemies → column 5, vertically centered.
+    let e_col = 5i32;
+    let e_start = (GRID_ROWS - enemies.len() as i32) / 2;
+    for (i, &(entity, _)) in enemies.iter().enumerate() {
+        let pos = (e_col, e_start + i as i32);
+        positions.0.insert(entity, pos);
+    }
+
+    // Write occupants to cells.
+    for (cell, mut occ) in &mut cells {
+        occ.0 = positions
+            .0
+            .iter()
+            .find(|(_, &(q, r))| q == cell.q && r == cell.r)
+            .map(|(&e, _)| e);
+    }
+}
+
+// ── System 3: Update visuals ─────────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub fn update_hex_visuals(
+    ctx: Res<CombatContext>,
+    sel: Res<SelectionState>,
+    mats: Res<HexMaterials>,
+    cells: Query<(Entity, &HexOccupant, &Children), With<HexCell>>,
+    combatant_q: Query<(
+        &Name,
+        &Vital,
+        &Faction,
+        Option<&Mana>,
+        Option<&Rage>,
+        Has<Dead>,
+    )>,
+    mut borders: Query<
+        (&mut Visibility, &mut MeshMaterial2d<ColorMaterial>),
+        (With<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>, Without<HexManaLabel>),
+    >,
+    mut name_labels: Query<
+        (&HexCellLink, &mut Text2d, &mut Visibility),
+        (With<HexNameLabel>, Without<HexBorder>, Without<HexHpLabel>, Without<HexManaLabel>),
+    >,
+    mut hp_labels: Query<
+        (&HexCellLink, &mut Text2d, &mut Visibility),
+        (With<HexHpLabel>, Without<HexBorder>, Without<HexNameLabel>, Without<HexManaLabel>),
+    >,
+    mut mana_labels: Query<
+        (&HexCellLink, &mut Text2d, &mut Visibility),
+        (With<HexManaLabel>, Without<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>),
+    >,
+    mut cell_mats: Query<&mut MeshMaterial2d<ColorMaterial>, (With<HexCell>, Without<HexBorder>)>,
+) {
+    // Update cell fill + border.
+    for (cell_entity, occupant, children) in &cells {
+        let is_active = occupant.0.is_some_and(|e| ctx.active == Some(e));
+        let is_target = occupant.0.is_some_and(|e| sel.selected_target == Some(e));
+
+        if let Ok(mut mat) = cell_mats.get_mut(cell_entity) {
+            mat.0 = match &occupant.0 {
+                None => mats.empty.clone(),
+                Some(e) => {
+                    if let Ok((_, _, faction, _, _, is_dead)) = combatant_q.get(*e) {
+                        if is_dead {
+                            mats.dead.clone()
+                        } else if faction.0 == Team::Player {
+                            mats.player.clone()
+                        } else {
+                            mats.enemy.clone()
+                        }
+                    } else {
+                        mats.empty.clone()
+                    }
+                }
+            };
+        }
+
+        for child in children.iter() {
+            if let Ok((mut vis, mut bmat)) = borders.get_mut(child) {
+                if is_active || is_target {
+                    *vis = Visibility::Visible;
+                    bmat.0 = if is_active {
+                        mats.border_active.clone()
+                    } else {
+                        mats.border_target.clone()
+                    };
+                } else {
+                    *vis = Visibility::Hidden;
+                }
+            }
+        }
+    }
+
+    // Update standalone labels.
+    for (link, mut text, mut vis) in &mut name_labels {
+        let occupant = cells.get(link.0).ok().and_then(|(_, occ, _)| occ.0);
+        if let Some(e) = occupant {
+            if let Ok((name, _, _, _, _, _)) = combatant_q.get(e) {
+                let n = name.as_str();
+                text.0 = if n.chars().count() > 8 {
+                    n.chars().take(7).collect::<String>() + "."
+                } else {
+                    n.to_string()
+                };
+                *vis = Visibility::Visible;
+                continue;
+            }
+        }
+        *vis = Visibility::Hidden;
+    }
+
+    for (link, mut text, mut vis) in &mut hp_labels {
+        let occupant = cells.get(link.0).ok().and_then(|(_, occ, _)| occ.0);
+        if let Some(e) = occupant {
+            if let Ok((_, vital, _, _, _, _)) = combatant_q.get(e) {
+                text.0 = format!("{}/{}", vital.hp, vital.max_hp);
+                *vis = Visibility::Visible;
+                continue;
+            }
+        }
+        *vis = Visibility::Hidden;
+    }
+
+    for (link, mut text, mut vis) in &mut mana_labels {
+        let occupant = cells.get(link.0).ok().and_then(|(_, occ, _)| occ.0);
+        if let Some(e) = occupant {
+            if let Ok((_, _, _, mana, rage, _)) = combatant_q.get(e) {
+                if let Some(m) = mana {
+                    text.0 = format!("M:{}/{}", m.current, m.max);
+                    *vis = Visibility::Visible;
+                } else if let Some(r) = rage {
+                    text.0 = format!("R:{}/{}", r.current, r.max);
+                    *vis = Visibility::Visible;
+                } else {
+                    *vis = Visibility::Hidden;
+                }
+                continue;
+            }
+        }
+        *vis = Visibility::Hidden;
+    }
+}
+
+// ── System 4: Hover detection ────────────────────────────────────────────────
+
+pub fn hex_hover_system(
+    windows: Query<&Window>,
+    camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+    grid_offset: Res<HexGridOffset>,
+    mut hover: ResMut<HexHover>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        hover.0 = None;
+        return;
+    };
+    let Ok((camera, cam_transform)) = camera_q.single() else {
+        return;
+    };
+    let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor) else {
+        hover.0 = None;
+        return;
+    };
+
+    let (q, r) = pixel_to_hex(world_pos, grid_offset.0);
+    hover.0 = if in_bounds(q, r) { Some((q, r)) } else { None };
+}
+
+// ── System 5: Tooltip ────────────────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+pub fn update_hex_tooltip(
+    hover: Res<HexHover>,
+    db: Res<GameDb>,
+    cells: Query<(&HexCell, &HexOccupant)>,
+    combatant_q: Query<(
+        &Name,
+        &Vital,
+        &Faction,
+        &StatusEffects,
+        Option<&Mana>,
+        Option<&Rage>,
+        Has<Dead>,
+    )>,
+    mut tooltip_q: Query<(&mut Text, &mut Node, &mut Visibility), With<HexTooltip>>,
+    windows: Query<&Window>,
+) {
+    let Ok((mut text, mut node, mut vis)) = tooltip_q.single_mut() else {
+        return;
+    };
+
+    let Some((hq, hr)) = hover.0 else {
+        *vis = Visibility::Hidden;
+        return;
+    };
+
+    // Find occupant of hovered cell.
+    let occupant = cells
+        .iter()
+        .find(|(c, _)| c.q == hq && c.r == hr)
+        .and_then(|(_, occ)| occ.0);
+
+    let Some(entity) = occupant else {
+        *vis = Visibility::Hidden;
+        return;
+    };
+
+    let Ok((name, vital, faction, statuses, mana, rage, is_dead)) = combatant_q.get(entity) else {
+        *vis = Visibility::Hidden;
+        return;
+    };
+
+    // Build tooltip text.
+    let team = if faction.0 == Team::Player {
+        "союзник"
+    } else {
+        "враг"
+    };
+    let dead_str = if is_dead { " [мертв]" } else { "" };
+    let mut lines = vec![format!("{} ({}){}", name.as_str(), team, dead_str)];
+    lines.push(format!(
+        "HP: {}/{}  ARM: {}",
+        vital.hp, vital.max_hp, vital.armor
+    ));
+    if let Some(m) = mana {
+        lines.push(format!("Мана: {}/{}", m.current, m.max));
+    }
+    if let Some(r) = rage {
+        lines.push(format!("Ярость: {}/{}", r.current, r.max));
+    }
+    if !statuses.0.is_empty() {
+        let status_strs: Vec<String> = statuses
+            .0
+            .iter()
+            .map(|s| {
+                let name = db
+                    .statuses
+                    .get(&s.id)
+                    .map(|d| d.name.as_str())
+                    .unwrap_or("?");
+                format!("{} ({} ход.)", name, s.rounds_remaining)
+            })
+            .collect();
+        lines.push(format!("Статусы: {}", status_strs.join(", ")));
+    }
+
+    text.0 = lines.join("\n");
+    *vis = Visibility::Visible;
+
+    // Position tooltip near cursor.
+    if let Ok(window) = windows.single() {
+        if let Some(cursor) = window.cursor_position() {
+            node.left = Val::Px((cursor.x + 16.0).min(window.width() - 200.0));
+            node.top = Val::Px((cursor.y + 16.0).min(window.height() - 100.0));
+        }
+    }
+}
+
+// ── System 6: Click targeting ────────────────────────────────────────────────
+
+pub fn hex_click_target(
+    hover: Res<HexHover>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    cells: Query<(&HexCell, &HexOccupant)>,
+    mut sel: ResMut<SelectionState>,
+) {
+    if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Some((hq, hr)) = hover.0 else { return };
+
+    let occupant = cells
+        .iter()
+        .find(|(c, _)| c.q == hq && c.r == hr)
+        .and_then(|(_, occ)| occ.0);
+
+    if let Some(entity) = occupant {
+        sel.selected_target = Some(entity);
+    }
+}

@@ -1,11 +1,10 @@
-use super::{AbilitySlot, AbilitySlotLabel, HudCombatants, HudLog, HudPhase, HudTurnOrder, UiFont};
+use super::{AbilitySlot, AbilitySlotLabel, HudLog, HudPhase, HudTurnOrder, UiFont};
 use crate::app_state::CombatPhase;
 use crate::content::abilities::{AbilityDef, EffectDef, StatusOn, TargetType};
 use crate::content::weapons::WeaponDef;
 use crate::core::{modifier, DiceExpr};
 use crate::game::components::{
-    Abilities, ActionPoints, CombatStats, Combatant, Dead, EquippedWeapon, Faction, Initiative,
-    Mana, Rage, StatusEffects, Team, Vital,
+    Abilities, CombatStats, Combatant, Dead, EquippedWeapon, Faction, Initiative, Team, Vital,
 };
 use crate::game::resources::{CombatContext, GameDb, SelectionState, TurnQueue};
 use bevy::prelude::*;
@@ -57,19 +56,11 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                 TextColor(Color::srgb(0.75, 0.75, 0.75)),
             ));
 
-            // ── Combatants list ──────────────────────────────────────────
-            let (tf, tc) = txt(15.0);
-            root.spawn((
-                HudCombatants,
-                Text::new(""),
-                tf,
-                tc,
-                Node {
-                    flex_grow: 1.0,
-                    align_self: AlignSelf::FlexStart,
-                    ..default()
-                },
-            ));
+            // ── Spacer (hex grid shows through) ──────────────────────────
+            root.spawn(Node {
+                flex_grow: 1.0,
+                ..default()
+            });
 
             // ── Ability panel ────────────────────────────────────────────
             root.spawn(Node {
@@ -145,109 +136,6 @@ pub fn update_phase_hint(
 }
 
 // ── Update: combatants list ───────────────────────────────────────────────────
-
-pub fn update_combatants(
-    ctx: Res<CombatContext>,
-    sel: Res<SelectionState>,
-    db: Res<GameDb>,
-    combatants: Query<
-        (
-            Entity,
-            &Name,
-            &Vital,
-            &CombatStats,
-            &Faction,
-            &ActionPoints,
-            &StatusEffects,
-            Option<&EquippedWeapon>,
-            Option<&Rage>,
-            Option<&Mana>,
-            Has<Dead>,
-        ),
-        With<Combatant>,
-    >,
-    mut text_q: Query<&mut Text, With<HudCombatants>>,
-) {
-    let Ok(mut t) = text_q.single_mut() else {
-        return;
-    };
-
-    let (mut players, mut enemies): (Vec<_>, Vec<_>) = combatants
-        .iter()
-        .partition(|(_, _, _, _, f, _, _, _, _, _, _)| f.0 == Team::Player);
-    players.sort_by_key(|(e, ..)| *e);
-    enemies.sort_by_key(|(e, ..)| *e);
-
-    let mut s = String::new();
-    s.push_str("── ОТРЯД ────────────────────────────────\n");
-    for row in &players {
-        s.push_str(&fmt_row(row, &ctx, &sel, &db));
-    }
-    s.push_str("\n── ВРАГИ ────────────────────────────────\n");
-    for row in &enemies {
-        s.push_str(&fmt_row(row, &ctx, &sel, &db));
-    }
-    t.0 = s;
-}
-
-type Row<'a> = (
-    Entity,
-    &'a Name,
-    &'a Vital,
-    &'a CombatStats,
-    &'a Faction,
-    &'a ActionPoints,
-    &'a StatusEffects,
-    Option<&'a EquippedWeapon>,
-    Option<&'a Rage>,
-    Option<&'a Mana>,
-    bool,
-);
-
-fn fmt_row(row: &Row, ctx: &CombatContext, sel: &SelectionState, db: &GameDb) -> String {
-    let (entity, name, vital, stats, _, ap, statuses, weapon, rage, mana, is_dead) = row;
-    let active = if ctx.active == Some(*entity) {
-        "▶"
-    } else {
-        " "
-    };
-    let target = if sel.selected_target == Some(*entity) {
-        "→"
-    } else {
-        " "
-    };
-    let action = if ap.action { "●" } else { "○" };
-    let dead = if *is_dead { "  [мертв]" } else { "" };
-    let rage_str = rage
-        .map(|r| {
-            let filled = "★".repeat(r.current as usize);
-            let empty = "☆".repeat((r.max - r.current) as usize);
-            format!("  ярость:{filled}{empty}")
-        })
-        .unwrap_or_default();
-    let mana_str = mana
-        .map(|m| format!("  мана:{}/{}", m.current, m.max))
-        .unwrap_or_default();
-    let status_tags: String = statuses
-        .0
-        .iter()
-        .filter_map(|s| db.statuses.get(&s.id))
-        .map(|def| format!(" [{}]", def.name))
-        .collect();
-
-    let weapon_str = weapon
-        .and_then(|w| db.weapons.get(&w.0))
-        .map(|wd| {
-            let d = &wd.dice;
-            format!(" [{}  {}d{}+{}]", wd.name, d.count, d.sides, stats.strength)
-        })
-        .unwrap_or_default();
-
-    format!(
-        " {active} {target} {name:<15} HP:{:>2}/{:<2}  ARM:{:<2}{weapon_str}  {action}{dead}{rage_str}{mana_str}{status_tags}\n",
-        vital.hp, vital.max_hp, stats.armor,
-    )
-}
 
 // ── Update: ability panel ─────────────────────────────────────────────────────
 

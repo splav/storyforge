@@ -1,11 +1,10 @@
 pub mod combat_ui;
 pub mod console_log;
+pub mod hex_grid;
 pub mod log_ui;
 
 use bevy::prelude::*;
 
-#[derive(Component)]
-pub struct HudCombatants;
 #[derive(Component)]
 pub struct HudPhase;
 #[derive(Component)]

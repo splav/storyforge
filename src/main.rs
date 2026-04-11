@@ -35,6 +35,8 @@ fn main() {
         .init_resource::<SelectionState>()
         .init_resource::<DiceRng>()
         .init_resource::<ui::console_log::ConsoleCursor>()
+        .init_resource::<ui::hex_grid::HexPositions>()
+        .init_resource::<ui::hex_grid::HexHover>()
         .add_message::<StartCombat>()
         .add_message::<UseAbility>()
         .add_message::<ValidatedAction>()
@@ -42,14 +44,28 @@ fn main() {
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()
         .add_message::<EndTurn>()
-        .add_systems(Startup, (setup_demo, ui::combat_ui::setup_hud))
+        .add_systems(
+            Startup,
+            (
+                setup_demo,
+                ui::combat_ui::setup_hud,
+                ui::hex_grid::setup_hex_grid,
+            ),
+        )
+        .add_systems(
+            OnEnter(AppState::Combat),
+            ui::hex_grid::assign_hex_positions,
+        )
         .add_systems(
             Update,
             (
                 ui::combat_ui::update_phase_hint,
                 ui::combat_ui::update_turn_order,
-                ui::combat_ui::update_combatants,
                 ui::combat_ui::update_ability_panel,
+                ui::hex_grid::hex_hover_system,
+                ui::hex_grid::update_hex_visuals,
+                ui::hex_grid::update_hex_tooltip,
+                ui::hex_grid::hex_click_target,
                 ui::log_ui::update_log,
                 ui::console_log::print_log_system,
             )
