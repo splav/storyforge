@@ -2,17 +2,17 @@
 id          = "short_sword"
 name        = "Короткий меч"
 dice_count  = 1
-dice_sides  = 6
+dice_sides  = 8
 
 [[weapons]]
 id          = "long_sword"
 name        = "Длинный меч"
-dice_count  = 1
-dice_sides  = 8
+dice_count  = 2
+dice_sides  = 6
 
 [[weapons]]
 id          = "staff"
 name        = "Посох"
 dice_count  = 1
-dice_sides  = 4
+dice_sides  = 6
 spell_power = 1

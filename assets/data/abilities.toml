@@ -5,20 +5,23 @@ target_type = "single_enemy"
 effect      = "weapon_attack"
 
 [[abilities]]
-id              = "shield_block"
-name            = "Блок щитом"
-target_type     = "myself"
-effect          = "apply_status"
-status_id       = "defending"
-duration_rounds = 1
+id                   = "taunt"
+name                 = "Провокация"
+target_type          = "myself"
+effect               = "apply_status"
+status_id            = "defending"
+duration_rounds      = 1
+self_status_id       = "taunted"
+self_status_duration = 1
 
 [[abilities]]
 id          = "fireball"
 name        = "Огненный шар"
 target_type = "single_enemy"
 effect      = "spell_damage"
-dice_count  = 1
-dice_sides  = 6
+dice_count  = 2
+dice_sides  = 3
+mana_cost   = 3
 
 [[abilities]]
 id          = "heal"
@@ -27,3 +30,30 @@ target_type = "single_ally"
 effect      = "heal"
 dice_count  = 1
 dice_sides  = 4
+mana_cost   = 2
+
+[[abilities]]
+id          = "flash"
+name        = "Вспышка"
+target_type = "single_enemy"
+effect      = "spell_damage"
+dice_count  = 1
+dice_sides  = 2
+
+[[abilities]]
+id              = "burn"
+name            = "Ожог"
+target_type     = "single_enemy"
+effect          = "apply_status"
+status_id       = "burning"
+duration_rounds = 2
+mana_cost       = 1
+
+[[abilities]]
+id              = "stun"
+name            = "Оглушить"
+target_type     = "single_enemy"
+effect          = "apply_status"
+status_id       = "stunned"
+duration_rounds = 1
+rage_cost       = 3

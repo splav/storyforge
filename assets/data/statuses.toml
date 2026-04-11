@@ -2,3 +2,17 @@
 id          = "defending"
 name        = "Защита"
 armor_bonus = 4
+
+[[statuses]]
+id   = "taunted"
+name = "Провокация"
+
+[[statuses]]
+id          = "stunned"
+name        = "Оглушён"
+skips_turn  = true
+
+[[statuses]]
+id                 = "burning"
+name               = "Ожог"
+damage_taken_bonus = 1

@@ -6,15 +6,21 @@ macro_rules! string_id {
         pub struct $name(pub String);
 
         impl From<&str> for $name {
-            fn from(s: &str) -> Self { $name(s.to_string()) }
+            fn from(s: &str) -> Self {
+                $name(s.to_string())
+            }
         }
 
         impl From<String> for $name {
-            fn from(s: String) -> Self { $name(s) }
+            fn from(s: String) -> Self {
+                $name(s)
+            }
         }
 
         impl Borrow<str> for $name {
-            fn borrow(&self) -> &str { &self.0 }
+            fn borrow(&self) -> &str {
+                &self.0
+            }
         }
 
         impl std::fmt::Display for $name {

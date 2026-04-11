@@ -4,10 +4,14 @@ pub mod log_ui;
 
 use bevy::prelude::*;
 
-#[derive(Component)] pub struct HudCombatants;
-#[derive(Component)] pub struct HudPhase;
-#[derive(Component)] pub struct HudLog;
-#[derive(Component)] pub struct HudTurnOrder;
+#[derive(Component)]
+pub struct HudCombatants;
+#[derive(Component)]
+pub struct HudPhase;
+#[derive(Component)]
+pub struct HudLog;
+#[derive(Component)]
+pub struct HudTurnOrder;
 
 /// Marker on the ability slot container node (index = slot position).
 #[derive(Component)]

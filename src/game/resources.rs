@@ -1,11 +1,11 @@
+use crate::content::abilities::{load_abilities, AbilityDef};
+use crate::content::classes::{load_classes, ClassDef};
+use crate::content::encounters::{load_encounters, EncounterDef};
+use crate::content::statuses::{load_statuses, StatusDef};
+use crate::content::weapons::{load_weapons, WeaponDef};
+use crate::core::{AbilityId, StatusId, WeaponId};
 use bevy::prelude::*;
 use std::collections::HashMap;
-use crate::core::{AbilityId, StatusId, WeaponId};
-use crate::content::abilities::{AbilityDef, load_abilities};
-use crate::content::classes::{ClassDef, load_classes};
-use crate::content::encounters::{EncounterDef, load_encounters};
-use crate::content::statuses::{StatusDef, load_statuses};
-use crate::content::weapons::{WeaponDef, load_weapons};
 
 // ── Combat runtime ───────────────────────────────────────────────────────────
 
@@ -53,7 +53,10 @@ mod queue_tests {
 
     #[test]
     fn advance_wraps_around() {
-        let mut q = TurnQueue { order: vec![dummy(0), dummy(1)], index: 1 };
+        let mut q = TurnQueue {
+            order: vec![dummy(0), dummy(1)],
+            index: 1,
+        };
         q.advance();
         assert_eq!(q.index, 0);
     }
@@ -68,7 +71,10 @@ mod queue_tests {
     #[test]
     fn current_returns_active_entity() {
         let e = dummy(42);
-        let q = TurnQueue { order: vec![e], index: 0 };
+        let q = TurnQueue {
+            order: vec![e],
+            index: 0,
+        };
         assert_eq!(q.current(), Some(e));
     }
 }
@@ -78,27 +84,70 @@ mod queue_tests {
 #[derive(Debug, Clone)]
 pub enum CombatEvent {
     CombatStarted,
-    RoundStarted { round: u32 },
-    TurnStarted { actor: Entity },
-    AbilityUsed { actor: Entity, ability_name: String, target: Entity },
+    RoundStarted {
+        round: u32,
+    },
+    InitiativeRolled {
+        actor: Entity,
+        dex_mod: i32,
+        roll: i32,
+        total: i32,
+    },
+    TurnStarted {
+        actor: Entity,
+    },
+    AbilityUsed {
+        actor: Entity,
+        ability_name: String,
+        target: Entity,
+    },
     /// Full damage summary: formula + armor reduction + final HP lost.
     DamageResult {
-        target:        Entity,
-        formula:       String,  // e.g. "1d8=6 + 4(атк) = 10"
-        armor_reduced: i32,     // total absorption (armor + statuses)
-        final_damage:  i32,     // HP actually lost
+        target: Entity,
+        formula: String,    // e.g. "1d8=6 + 4(сил) = 10"
+        armor_reduced: i32, // total absorption (armor + statuses)
+        final_damage: i32,  // HP actually lost
     },
     /// Full heal summary: formula + HP actually restored.
     HealResult {
-        target:  Entity,
-        formula: String,  // e.g. "1d4=2 + 1(сила) + 2(инт) = 5"
-        amount:  i32,     // HP actually restored (capped at max_hp)
+        target: Entity,
+        formula: String, // e.g. "1d4=2 + 1(сила) + 2(инт) = 5"
+        amount: i32,     // HP actually restored (capped at max_hp)
     },
-    Missed { actor: Entity, target: Entity },
-    StatusApplied { target: Entity, status: StatusId },
-    TurnEnded { actor: Entity },
-    CombatEnded { victory: bool },
-    UnitDied { entity: Entity },
+    Missed {
+        actor: Entity,
+        target: Entity,
+    },
+    StatusApplied {
+        target: Entity,
+        status: StatusId,
+    },
+    StatusExpired {
+        target: Entity,
+        status: StatusId,
+    },
+    TurnSkipped {
+        actor: Entity,
+    },
+    TurnEnded {
+        actor: Entity,
+    },
+    RageGained {
+        actor: Entity,
+        current: i32,
+        max: i32,
+    },
+    ManaChanged {
+        actor: Entity,
+        current: i32,
+        max: i32,
+    },
+    CombatEnded {
+        victory: bool,
+    },
+    UnitDied {
+        entity: Entity,
+    },
 }
 
 #[derive(Resource, Default)]
@@ -114,21 +163,36 @@ impl CombatLog {
 
 #[derive(Resource)]
 pub struct GameDb {
-    pub abilities:  HashMap<AbilityId, AbilityDef>,
-    pub statuses:   HashMap<StatusId, StatusDef>,
-    pub weapons:    HashMap<WeaponId, WeaponDef>,
+    pub abilities: HashMap<AbilityId, AbilityDef>,
+    pub statuses: HashMap<StatusId, StatusDef>,
+    pub weapons: HashMap<WeaponId, WeaponDef>,
     pub encounters: HashMap<String, EncounterDef>,
-    pub classes:    HashMap<String, ClassDef>,
+    pub classes: HashMap<String, ClassDef>,
 }
 
 impl Default for GameDb {
     fn default() -> Self {
         Self {
-            abilities:  load_abilities().into_iter().map(|a| (a.id.clone(), a)).collect(),
-            statuses:   load_statuses().into_iter().map(|s| (s.id.clone(), s)).collect(),
-            weapons:    load_weapons().into_iter().map(|w| (w.id.clone(), w)).collect(),
-            encounters: load_encounters().into_iter().map(|e| (e.id.clone(), e)).collect(),
-            classes:    load_classes().into_iter().map(|c| (c.id.clone(), c)).collect(),
+            abilities: load_abilities()
+                .into_iter()
+                .map(|a| (a.id.clone(), a))
+                .collect(),
+            statuses: load_statuses()
+                .into_iter()
+                .map(|s| (s.id.clone(), s))
+                .collect(),
+            weapons: load_weapons()
+                .into_iter()
+                .map(|w| (w.id.clone(), w))
+                .collect(),
+            encounters: load_encounters()
+                .into_iter()
+                .map(|e| (e.id.clone(), e))
+                .collect(),
+            classes: load_classes()
+                .into_iter()
+                .map(|c| (c.id.clone(), c))
+                .collect(),
         }
     }
 }

@@ -6,10 +6,10 @@ pub mod skip_dead;
 pub mod turn_order;
 pub mod validation;
 
-use bevy::prelude::*;
 use crate::app_state::AppState;
 use crate::game::messages::StartCombat;
 use crate::game::resources::{CombatContext, CombatEvent, CombatLog};
+use bevy::prelude::*;
 
 /// Listens for StartCombat events while in Overworld and transitions to Combat.
 pub fn start_combat_system(

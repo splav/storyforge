@@ -8,7 +8,9 @@ pub struct DiceRng {
 
 impl Default for DiceRng {
     fn default() -> Self {
-        Self { state: 0xDEAD_BEEF_CAFE_1337 }
+        Self {
+            state: 0xDEAD_BEEF_CAFE_1337,
+        }
     }
 }
 
@@ -17,7 +19,8 @@ impl DiceRng {
         Self { state: seed }
     }
     fn next_u64(&mut self) -> u64 {
-        self.state = self.state
+        self.state = self
+            .state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
         self.state
@@ -56,7 +59,11 @@ pub struct DiceExpr {
 
 impl DiceExpr {
     pub fn new(count: u32, sides: u32, bonus: i32) -> Self {
-        Self { count, sides, bonus }
+        Self {
+            count,
+            sides,
+            bonus,
+        }
     }
 }
 

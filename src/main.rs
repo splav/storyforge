@@ -10,7 +10,10 @@ mod ui;
 use app_state::{AppState, CombatPhase};
 use core::DiceRng;
 use game::bundles::{enemy_bundle, warrior_bundle};
-use game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, StartCombat, UseAbility, ValidatedAction};
+use game::components::{Mana, Rage};
+use game::messages::{
+    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, StartCombat, UseAbility, ValidatedAction,
+};
 use game::resources::{CombatContext, CombatEvent, CombatLog, GameDb, SelectionState, TurnQueue};
 
 fn main() {
@@ -40,24 +43,31 @@ fn main() {
         .add_message::<ApplyStatus>()
         .add_message::<EndTurn>()
         .add_systems(Startup, (setup_demo, ui::combat_ui::setup_hud))
-        .add_systems(Update, (
-            ui::combat_ui::update_phase_hint,
-            ui::combat_ui::update_turn_order,
-            ui::combat_ui::update_combatants,
-            ui::combat_ui::update_ability_panel,
-            ui::log_ui::update_log,
-            ui::console_log::print_log_system,
-        ).run_if(in_state(AppState::Combat)))
-        .add_systems(Update,
+        .add_systems(
+            Update,
+            (
+                ui::combat_ui::update_phase_hint,
+                ui::combat_ui::update_turn_order,
+                ui::combat_ui::update_combatants,
+                ui::combat_ui::update_ability_panel,
+                ui::log_ui::update_log,
+                ui::console_log::print_log_system,
+            )
+                .run_if(in_state(AppState::Combat)),
+        )
+        .add_systems(
+            Update,
             combat::start_combat_system.run_if(in_state(AppState::Overworld)),
         )
-        .add_systems(Update,
-            combat::turn_order::build_turn_order
-                .run_if(in_state(CombatPhase::StartRound)),
+        .add_systems(
+            Update,
+            combat::turn_order::build_turn_order.run_if(in_state(CombatPhase::StartRound)),
         )
-        .add_systems(Update,
+        .add_systems(
+            Update,
             (
                 combat::skip_dead::skip_dead_turn_system,
+                combat::skip_dead::skip_stunned_turn_system,
                 combat::command_input::player_command_system,
                 combat::enemy_ai::enemy_ai_system,
                 combat::validation::validate_action_system,
@@ -81,19 +91,37 @@ fn setup_demo(
 
     // Spawn players from class definitions.
     for (name, class_id) in [("Aldric", "warrior"), ("Lyra", "mage")] {
-        let cls = db.classes.get(class_id)
-            .unwrap_or_else(|| panic!("Class '{class_id}' not found in {}", "assets/data/classes.toml"));
-        commands.spawn((Name::new(name), warrior_bundle(cls.stats.clone(), cls.abilities.clone(), cls.weapon.clone())));
+        let cls = db.classes.get(class_id).unwrap_or_else(|| {
+            panic!(
+                "Class '{class_id}' not found in {}",
+                "assets/data/classes.toml"
+            )
+        });
+        let mut ec = commands.spawn((
+            Name::new(name),
+            warrior_bundle(cls.stats.clone(), cls.abilities.clone(), cls.weapon.clone()),
+        ));
+        if cls.rage_max > 0 {
+            ec.insert(Rage::new(cls.rage_max));
+        }
+        if cls.mana_max > 0 {
+            ec.insert(Mana::new(cls.mana_max));
+        }
     }
 
     // Spawn enemies from the first encounter in the database.
-    let enc = db.encounters.get("goblin_patrol")
-        .unwrap_or_else(|| panic!("Encounter 'goblin_patrol' not found in assets/data/encounters.toml"));
+    let enc = db.encounters.get("goblin_patrol").unwrap_or_else(|| {
+        panic!("Encounter 'goblin_patrol' not found in assets/data/encounters.toml")
+    });
 
     for enemy in &enc.enemies {
         commands.spawn((
             Name::new(enemy.name.clone()),
-            enemy_bundle(enemy.stats.clone(), enemy.ability_ids.clone(), enemy.weapon_id.clone()),
+            enemy_bundle(
+                enemy.stats.clone(),
+                enemy.ability_ids.clone(),
+                enemy.weapon_id.clone(),
+            ),
         ));
     }
 

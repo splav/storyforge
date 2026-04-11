@@ -1,31 +1,41 @@
-use bevy::prelude::*;
 use crate::content::abilities::{EffectDef, TargetType};
-use crate::core::DiceRng;
-use crate::game::components::{ActionPoints, CombatStats, EquippedWeapon};
+use crate::core::{modifier, DiceRng};
+use crate::game::components::{ActionPoints, CombatStats, EquippedWeapon, Mana, Rage};
 use crate::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, ValidatedAction};
 use crate::game::resources::{CombatEvent, CombatLog, GameDb};
+use bevy::prelude::*;
 
 pub fn resolve_action_system(
     db: Res<GameDb>,
     mut rng: ResMut<DiceRng>,
     mut log: ResMut<CombatLog>,
     mut events: MessageReader<ValidatedAction>,
-    mut actors: Query<(&CombatStats, &mut ActionPoints, Option<&EquippedWeapon>)>,
+    mut actors: Query<(
+        &CombatStats,
+        &mut ActionPoints,
+        Option<&EquippedWeapon>,
+        Option<&mut Rage>,
+        Option<&mut Mana>,
+    )>,
     mut dmg_writer: MessageWriter<ApplyDamage>,
     mut heal_writer: MessageWriter<ApplyHeal>,
     mut status_writer: MessageWriter<ApplyStatus>,
     mut end_turn: MessageWriter<EndTurn>,
 ) {
     for ev in events.read() {
-        let Some(def) = db.abilities.get(&ev.ability) else { continue };
-        let Ok((stats, mut ap, weapon)) = actors.get_mut(ev.actor) else { continue };
+        let Some(def) = db.abilities.get(&ev.ability) else {
+            continue;
+        };
+        let Ok((stats, mut ap, weapon, mut rage, mut mana)) = actors.get_mut(ev.actor) else {
+            continue;
+        };
 
         ap.action = false;
 
         let target = match def.target_type {
-            TargetType::Myself      => ev.actor,
+            TargetType::Myself => ev.actor,
             TargetType::SingleEnemy => ev.target,
-            TargetType::SingleAlly  => ev.target,
+            TargetType::SingleAlly => ev.target,
         };
 
         log.push(CombatEvent::AbilityUsed {
@@ -39,51 +49,112 @@ pub fn resolve_action_system(
                 let weapon_def = weapon.and_then(|w| db.weapons.get(&w.0));
                 let (raw, breakdown) = if let Some(wd) = weapon_def {
                     let (dice_total, dice_str) = rng.roll_dice(&wd.dice);
-                    let raw = dice_total + stats.damage;
-                    let s = if stats.damage != 0 {
-                        format!("{} + {}(атк) = {}", dice_str, stats.damage, raw)
+                    let str_mod = modifier(stats.strength);
+                    let raw = dice_total + str_mod;
+                    let s = if str_mod != 0 {
+                        format!("{} + {}(сил) = {}", dice_str, str_mod, raw)
                     } else {
                         format!("{} = {}", dice_str, raw)
                     };
                     (raw, s)
                 } else {
-                    (stats.damage, format!("{}(атк)", stats.damage))
+                    let str_mod = modifier(stats.strength);
+                    (str_mod, format!("{}(сил)", str_mod))
                 };
-                dmg_writer.write(ApplyDamage { source: ev.actor, target, amount: raw, breakdown });
+                dmg_writer.write(ApplyDamage {
+                    source: ev.actor,
+                    target,
+                    amount: raw,
+                    breakdown,
+                    pierces_armor: false,
+                });
             }
             EffectDef::Damage { dice } => {
                 let (dice_total, dice_str) = rng.roll_dice(dice);
-                let raw = dice_total + stats.damage;
-                let breakdown = if stats.damage != 0 {
-                    format!("{} + {}(атк) = {}", dice_str, stats.damage, raw)
+                let str_mod = modifier(stats.strength);
+                let raw = dice_total + str_mod;
+                let breakdown = if str_mod != 0 {
+                    format!("{} + {}(сил) = {}", dice_str, str_mod, raw)
                 } else {
                     format!("{} = {}", dice_str, raw)
                 };
-                dmg_writer.write(ApplyDamage { source: ev.actor, target, amount: raw, breakdown });
+                dmg_writer.write(ApplyDamage {
+                    source: ev.actor,
+                    target,
+                    amount: raw,
+                    breakdown,
+                    pierces_armor: false,
+                });
             }
             EffectDef::SpellDamage { dice } => {
                 let (dice_total, dice_str) = rng.roll_dice(dice);
-                let sp = weapon.and_then(|w| db.weapons.get(&w.0)).map_or(0, |wd| wd.spell_power);
-                let intel = stats.intelligence;
+                let sp = weapon
+                    .and_then(|w| db.weapons.get(&w.0))
+                    .map_or(0, |wd| wd.spell_power);
+                let intel = modifier(stats.intelligence);
                 let raw = dice_total + sp + intel;
                 let breakdown = spell_breakdown(&dice_str, sp, intel, raw);
-                dmg_writer.write(ApplyDamage { source: ev.actor, target, amount: raw, breakdown });
+                dmg_writer.write(ApplyDamage {
+                    source: ev.actor,
+                    target,
+                    amount: raw,
+                    breakdown,
+                    pierces_armor: true,
+                });
             }
             EffectDef::Heal { dice } => {
                 let (dice_total, dice_str) = rng.roll_dice(dice);
-                let sp = weapon.and_then(|w| db.weapons.get(&w.0)).map_or(0, |wd| wd.spell_power);
-                let intel = stats.intelligence;
+                let sp = weapon
+                    .and_then(|w| db.weapons.get(&w.0))
+                    .map_or(0, |wd| wd.spell_power);
+                let intel = modifier(stats.intelligence);
                 let amount = dice_total + sp + intel;
                 let breakdown = spell_breakdown(&dice_str, sp, intel, amount);
-                heal_writer.write(ApplyHeal { source: ev.actor, target, amount, breakdown });
+                heal_writer.write(ApplyHeal {
+                    source: ev.actor,
+                    target,
+                    amount,
+                    breakdown,
+                });
             }
-            EffectDef::ApplyStatus { status, duration_rounds } => {
+            EffectDef::ApplyStatus {
+                status,
+                duration_rounds,
+            } => {
                 status_writer.write(ApplyStatus {
+                    source: ev.actor,
                     target,
                     status: status.clone(),
                     duration_rounds: *duration_rounds,
                 });
-                log.push(CombatEvent::StatusApplied { target, status: status.clone() });
+                log.push(CombatEvent::StatusApplied {
+                    target,
+                    status: status.clone(),
+                });
+            }
+        }
+
+        if let Some((ref status_id, duration)) = def.self_status {
+            status_writer.write(ApplyStatus {
+                source: ev.actor,
+                target: ev.actor,
+                status: status_id.clone(),
+                duration_rounds: duration,
+            });
+            log.push(CombatEvent::StatusApplied {
+                target: ev.actor,
+                status: status_id.clone(),
+            });
+        }
+
+        if def.rage_cost > 0 {
+            if let Some(ref mut r) = rage {
+                r.spend(def.rage_cost);
+            }
+        }
+        if def.mana_cost > 0 {
+            if let Some(ref mut m) = mana {
+                m.spend(def.mana_cost);
             }
         }
 
@@ -93,7 +164,11 @@ pub fn resolve_action_system(
 
 fn spell_breakdown(dice_str: &str, spell_power: i32, intelligence: i32, total: i32) -> String {
     let mut parts = vec![dice_str.to_string()];
-    if spell_power != 0 { parts.push(format!("{}(сила)", spell_power)); }
-    if intelligence != 0 { parts.push(format!("{}(инт)", intelligence)); }
+    if spell_power != 0 {
+        parts.push(format!("{}(маг)", spell_power));
+    }
+    if intelligence != 0 {
+        parts.push(format!("{}(инт)", intelligence));
+    }
     format!("{} = {}", parts.join(" + "), total)
 }

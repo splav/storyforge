@@ -3,8 +3,8 @@
 //! Input → UseAbility → validation → resolution → ApplyDamage/ApplyStatus → EndTurn
 //! Each step is a separate system reacting to these messages.
 
-use bevy::prelude::*;
 use crate::core::{AbilityId, StatusId};
+use bevy::prelude::*;
 
 #[derive(Message)]
 pub struct StartCombat {
@@ -29,14 +29,16 @@ pub struct ValidatedAction {
 
 #[derive(Message)]
 pub struct ApplyDamage {
-    pub source:    Entity,
-    pub target:    Entity,
-    pub amount:    i32,     // raw, before armor
-    pub breakdown: String,  // e.g. "1d8=6 + 4(атк) = 10"
+    pub source: Entity,
+    pub target: Entity,
+    pub amount: i32,         // raw, before armor
+    pub breakdown: String,   // e.g. "1d8=6 + 4(сил) = 10"
+    pub pierces_armor: bool, // true for spells: armor and status bonuses are ignored
 }
 
 #[derive(Message)]
 pub struct ApplyStatus {
+    pub source: Entity, // whose EndTurn ticks this status
     pub target: Entity,
     pub status: StatusId,
     pub duration_rounds: u32,
@@ -44,10 +46,10 @@ pub struct ApplyStatus {
 
 #[derive(Message)]
 pub struct ApplyHeal {
-    pub source:    Entity,
-    pub target:    Entity,
-    pub amount:    i32,
-    pub breakdown: String,  // e.g. "1d4=2 + 1(сила) + 2(инт) = 5"
+    pub source: Entity,
+    pub target: Entity,
+    pub amount: i32,
+    pub breakdown: String, // e.g. "1d4=2 + 1(сила) + 2(инт) = 5"
 }
 
 #[derive(Message)]

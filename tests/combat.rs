@@ -5,18 +5,29 @@ use bevy::state::app::StatesPlugin;
 
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{cleanup::cleanup_system, validation::validate_action_system};
-use storyforge::content::abilities::ABILITY_SWORD_ATTACK;
-use storyforge::content::weapons::WEAPON_SHORT_SWORD;
+const MELEE_ATTACK: &str = "melee_attack";
+const SHORT_SWORD: &str = "short_sword";
 use storyforge::core::DiceRng;
 use storyforge::game::bundles::{enemy_bundle, warrior_bundle};
 use storyforge::game::components::{CombatStats, Vital};
-use storyforge::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, UseAbility, ValidatedAction};
+use storyforge::game::messages::{
+    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, UseAbility, ValidatedAction,
+};
 use storyforge::game::resources::{CombatContext, CombatLog, GameDb, SelectionState, TurnQueue};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 fn base_stats() -> CombatStats {
-    CombatStats { max_hp: 10, armor: 0, damage: 5, initiative: 5, intelligence: 0 }
+    CombatStats {
+        max_hp: 10,
+        armor: 0,
+        strength: 5,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
+    }
 }
 
 fn validation_app() -> App {
@@ -64,16 +75,24 @@ fn cleanup_app() -> App {
 }
 
 fn enter_await_command(app: &mut App) {
-    app.world_mut().resource_mut::<NextState<AppState>>().set(AppState::Combat);
+    app.world_mut()
+        .resource_mut::<NextState<AppState>>()
+        .set(AppState::Combat);
     app.update();
-    app.world_mut().resource_mut::<NextState<CombatPhase>>().set(CombatPhase::AwaitCommand);
+    app.world_mut()
+        .resource_mut::<NextState<CombatPhase>>()
+        .set(CombatPhase::AwaitCommand);
     app.update();
 }
 
 fn enter_cleanup(app: &mut App) {
-    app.world_mut().resource_mut::<NextState<AppState>>().set(AppState::Combat);
+    app.world_mut()
+        .resource_mut::<NextState<AppState>>()
+        .set(AppState::Combat);
     app.update();
-    app.world_mut().resource_mut::<NextState<CombatPhase>>().set(CombatPhase::Cleanup);
+    app.world_mut()
+        .resource_mut::<NextState<CombatPhase>>()
+        .set(CombatPhase::Cleanup);
     app.update();
 }
 
@@ -93,15 +112,30 @@ fn message_count<M: Message>(app: &App) -> usize {
 #[test]
 fn valid_use_ability_emits_validated_action() {
     let mut app = validation_app();
-    let actor = app.world_mut()
-        .spawn((Name::new("Hero"), warrior_bundle(base_stats(), vec![ABILITY_SWORD_ATTACK.into()], WEAPON_SHORT_SWORD.into())))
+    let actor = app
+        .world_mut()
+        .spawn((
+            Name::new("Hero"),
+            warrior_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
         .id();
-    let target = app.world_mut()
-        .spawn((Name::new("Goblin"), enemy_bundle(base_stats(), vec![ABILITY_SWORD_ATTACK.into()], WEAPON_SHORT_SWORD.into())))
+    let target = app
+        .world_mut()
+        .spawn((
+            Name::new("Goblin"),
+            enemy_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
         .id();
 
     app.world_mut().resource_mut::<CombatContext>().active = Some(actor);
-    write_message(&mut app, UseAbility { actor, ability: ABILITY_SWORD_ATTACK.into(), target });
+    write_message(
+        &mut app,
+        UseAbility {
+            actor,
+            ability: MELEE_ATTACK.into(),
+            target,
+        },
+    );
     app.update();
 
     assert_eq!(message_count::<ValidatedAction>(&app), 1);
@@ -110,18 +144,37 @@ fn valid_use_ability_emits_validated_action() {
 #[test]
 fn wrong_actor_use_ability_is_rejected() {
     let mut app = validation_app();
-    let actor = app.world_mut()
-        .spawn((Name::new("Hero"), warrior_bundle(base_stats(), vec![ABILITY_SWORD_ATTACK.into()], WEAPON_SHORT_SWORD.into())))
+    let actor = app
+        .world_mut()
+        .spawn((
+            Name::new("Hero"),
+            warrior_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
         .id();
-    let other = app.world_mut()
-        .spawn((Name::new("Hero2"), warrior_bundle(base_stats(), vec![ABILITY_SWORD_ATTACK.into()], WEAPON_SHORT_SWORD.into())))
+    let other = app
+        .world_mut()
+        .spawn((
+            Name::new("Hero2"),
+            warrior_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
         .id();
-    let target = app.world_mut()
-        .spawn((Name::new("Goblin"), enemy_bundle(base_stats(), vec![ABILITY_SWORD_ATTACK.into()], WEAPON_SHORT_SWORD.into())))
+    let target = app
+        .world_mut()
+        .spawn((
+            Name::new("Goblin"),
+            enemy_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
         .id();
 
     app.world_mut().resource_mut::<CombatContext>().active = Some(other);
-    write_message(&mut app, UseAbility { actor, ability: ABILITY_SWORD_ATTACK.into(), target });
+    write_message(
+        &mut app,
+        UseAbility {
+            actor,
+            ability: MELEE_ATTACK.into(),
+            target,
+        },
+    );
     app.update();
 
     assert_eq!(message_count::<ValidatedAction>(&app), 0);
@@ -130,11 +183,19 @@ fn wrong_actor_use_ability_is_rejected() {
 #[test]
 fn no_action_point_use_ability_is_rejected() {
     let mut app = validation_app();
-    let actor = app.world_mut()
-        .spawn((Name::new("Hero"), warrior_bundle(base_stats(), vec![ABILITY_SWORD_ATTACK.into()], WEAPON_SHORT_SWORD.into())))
+    let actor = app
+        .world_mut()
+        .spawn((
+            Name::new("Hero"),
+            warrior_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
         .id();
-    let target = app.world_mut()
-        .spawn((Name::new("Goblin"), enemy_bundle(base_stats(), vec![ABILITY_SWORD_ATTACK.into()], WEAPON_SHORT_SWORD.into())))
+    let target = app
+        .world_mut()
+        .spawn((
+            Name::new("Goblin"),
+            enemy_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
         .id();
 
     app.world_mut()
@@ -143,7 +204,14 @@ fn no_action_point_use_ability_is_rejected() {
         .action = false;
 
     app.world_mut().resource_mut::<CombatContext>().active = Some(actor);
-    write_message(&mut app, UseAbility { actor, ability: ABILITY_SWORD_ATTACK.into(), target });
+    write_message(
+        &mut app,
+        UseAbility {
+            actor,
+            ability: MELEE_ATTACK.into(),
+            target,
+        },
+    );
     app.update();
 
     assert_eq!(message_count::<ValidatedAction>(&app), 0);
@@ -154,11 +222,19 @@ fn no_action_point_use_ability_is_rejected() {
 #[test]
 fn apply_damage_reduces_hp() {
     let mut app = cleanup_app();
-    let hero = app.world_mut()
-        .spawn((Name::new("Hero"), warrior_bundle(base_stats(), vec![ABILITY_SWORD_ATTACK.into()], WEAPON_SHORT_SWORD.into())))
+    let hero = app
+        .world_mut()
+        .spawn((
+            Name::new("Hero"),
+            warrior_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
         .id();
-    let goblin = app.world_mut()
-        .spawn((Name::new("Goblin"), enemy_bundle(base_stats(), vec![ABILITY_SWORD_ATTACK.into()], WEAPON_SHORT_SWORD.into())))
+    let goblin = app
+        .world_mut()
+        .spawn((
+            Name::new("Goblin"),
+            enemy_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
         .id();
 
     {
@@ -169,7 +245,16 @@ fn apply_damage_reduces_hp() {
     app.world_mut().resource_mut::<CombatContext>().active = Some(hero);
 
     // armor=0 so full 4 damage applied
-    write_message(&mut app, ApplyDamage { source: hero, target: goblin, amount: 4, breakdown: String::new() });
+    write_message(
+        &mut app,
+        ApplyDamage {
+            source: hero,
+            target: goblin,
+            amount: 4,
+            breakdown: String::new(),
+            pierces_armor: false,
+        },
+    );
     write_message(&mut app, EndTurn { actor: hero });
     app.update();
 
@@ -179,19 +264,45 @@ fn apply_damage_reduces_hp() {
 #[test]
 fn killing_all_enemies_sets_victory_phase() {
     let mut app = cleanup_app();
-    let hero = app.world_mut()
-        .spawn((Name::new("Hero"), warrior_bundle(
-            CombatStats { max_hp: 10, armor: 0, damage: 5, initiative: 5, intelligence: 0 },
-            vec![ABILITY_SWORD_ATTACK.into()],
-            WEAPON_SHORT_SWORD.into(),
-        )))
+    let hero = app
+        .world_mut()
+        .spawn((
+            Name::new("Hero"),
+            warrior_bundle(
+                CombatStats {
+                    max_hp: 10,
+                    armor: 0,
+                    strength: 5,
+                    dexterity: 5,
+                    constitution: 10,
+                    intelligence: 0,
+                    wisdom: 10,
+                    charisma: 10,
+                },
+                vec![MELEE_ATTACK.into()],
+                SHORT_SWORD.into(),
+            ),
+        ))
         .id();
-    let goblin = app.world_mut()
-        .spawn((Name::new("Goblin"), enemy_bundle(
-            CombatStats { max_hp: 1, armor: 0, damage: 3, initiative: 5, intelligence: 0 },
-            vec![ABILITY_SWORD_ATTACK.into()],
-            WEAPON_SHORT_SWORD.into(),
-        )))
+    let goblin = app
+        .world_mut()
+        .spawn((
+            Name::new("Goblin"),
+            enemy_bundle(
+                CombatStats {
+                    max_hp: 1,
+                    armor: 0,
+                    strength: 3,
+                    dexterity: 5,
+                    constitution: 10,
+                    intelligence: 0,
+                    wisdom: 10,
+                    charisma: 10,
+                },
+                vec![MELEE_ATTACK.into()],
+                SHORT_SWORD.into(),
+            ),
+        ))
         .id();
 
     {
@@ -201,30 +312,68 @@ fn killing_all_enemies_sets_victory_phase() {
     }
     app.world_mut().resource_mut::<CombatContext>().active = Some(hero);
 
-    write_message(&mut app, ApplyDamage { source: hero, target: goblin, amount: 1, breakdown: String::new() });
+    write_message(
+        &mut app,
+        ApplyDamage {
+            source: hero,
+            target: goblin,
+            amount: 1,
+            breakdown: String::new(),
+            pierces_armor: false,
+        },
+    );
     write_message(&mut app, EndTurn { actor: hero });
     app.update();
     app.update(); // state transition frame
 
-    assert_eq!(*app.world().resource::<State<CombatPhase>>(), CombatPhase::Victory);
+    assert_eq!(
+        *app.world().resource::<State<CombatPhase>>(),
+        CombatPhase::Victory
+    );
 }
 
 #[test]
 fn killing_all_heroes_sets_defeat_phase() {
     let mut app = cleanup_app();
-    let hero = app.world_mut()
-        .spawn((Name::new("Hero"), warrior_bundle(
-            CombatStats { max_hp: 1, armor: 0, damage: 5, initiative: 5, intelligence: 0 },
-            vec![ABILITY_SWORD_ATTACK.into()],
-            WEAPON_SHORT_SWORD.into(),
-        )))
+    let hero = app
+        .world_mut()
+        .spawn((
+            Name::new("Hero"),
+            warrior_bundle(
+                CombatStats {
+                    max_hp: 1,
+                    armor: 0,
+                    strength: 5,
+                    dexterity: 5,
+                    constitution: 10,
+                    intelligence: 0,
+                    wisdom: 10,
+                    charisma: 10,
+                },
+                vec![MELEE_ATTACK.into()],
+                SHORT_SWORD.into(),
+            ),
+        ))
         .id();
-    let goblin = app.world_mut()
-        .spawn((Name::new("Goblin"), enemy_bundle(
-            CombatStats { max_hp: 10, armor: 0, damage: 3, initiative: 5, intelligence: 0 },
-            vec![ABILITY_SWORD_ATTACK.into()],
-            WEAPON_SHORT_SWORD.into(),
-        )))
+    let goblin = app
+        .world_mut()
+        .spawn((
+            Name::new("Goblin"),
+            enemy_bundle(
+                CombatStats {
+                    max_hp: 10,
+                    armor: 0,
+                    strength: 3,
+                    dexterity: 5,
+                    constitution: 10,
+                    intelligence: 0,
+                    wisdom: 10,
+                    charisma: 10,
+                },
+                vec![MELEE_ATTACK.into()],
+                SHORT_SWORD.into(),
+            ),
+        ))
         .id();
 
     {
@@ -234,10 +383,22 @@ fn killing_all_heroes_sets_defeat_phase() {
     }
     app.world_mut().resource_mut::<CombatContext>().active = Some(goblin);
 
-    write_message(&mut app, ApplyDamage { source: goblin, target: hero, amount: 1, breakdown: String::new() });
+    write_message(
+        &mut app,
+        ApplyDamage {
+            source: goblin,
+            target: hero,
+            amount: 1,
+            breakdown: String::new(),
+            pierces_armor: false,
+        },
+    );
     write_message(&mut app, EndTurn { actor: goblin });
     app.update();
     app.update();
 
-    assert_eq!(*app.world().resource::<State<CombatPhase>>(), CombatPhase::Defeat);
+    assert_eq!(
+        *app.world().resource::<State<CombatPhase>>(),
+        CombatPhase::Defeat
+    );
 }
