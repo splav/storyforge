@@ -13,8 +13,11 @@ pub struct EncounterDef {
 pub struct EnemyDef {
     pub name: String,
     pub stats: CombatStats,
+    pub speed: i32,
     pub weapon_id: WeaponId,
     pub ability_ids: Vec<AbilityId>,
+    /// Starting hex cell (col, row).
+    pub hex_pos: (i32, i32),
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -45,8 +48,11 @@ struct EnemyRecord {
     wisdom: i32,
     #[serde(default)]
     charisma: i32,
+    speed: i32,
     weapon_id: String,
     ability_ids: Vec<String>,
+    hex_col: i32,
+    hex_row: i32,
 }
 
 const ENCOUNTERS_PATH: &str = "assets/data/encounters.toml";
@@ -67,6 +73,7 @@ pub fn load_encounters() -> Vec<EncounterDef> {
                 .into_iter()
                 .map(|e| EnemyDef {
                     name: e.name,
+                    speed: e.speed,
                     stats: CombatStats {
                         max_hp: e.max_hp,
                         armor: e.armor,
@@ -83,6 +90,7 @@ pub fn load_encounters() -> Vec<EncounterDef> {
                         .iter()
                         .map(|s| AbilityId::from(s.as_str()))
                         .collect(),
+                    hex_pos: (e.hex_col, e.hex_row),
                 })
                 .collect(),
         })

@@ -12,8 +12,11 @@ constitution = 2    # мод +1
 intelligence = -4   # мод -2
 wisdom       = -2   # мод -1
 charisma     = -4   # мод -2
+speed        = 4
 weapon_id    = "long_sword"
 ability_ids  = ["melee_attack"]
+hex_col      = 6
+hex_row      = 2
 
 [[encounters.enemies]]
 name         = "Goblin Ravager"
@@ -25,8 +28,11 @@ constitution = 2    # мод +1
 intelligence = -4   # мод -2
 wisdom       = -4   # мод -2
 charisma     = -4   # мод -2
+speed        = 5
 weapon_id    = "short_sword"
 ability_ids  = ["melee_attack"]
+hex_col      = 6
+hex_row      = 4
 
 [[encounters]]
 id   = "orc_camp"
@@ -42,8 +48,11 @@ constitution = 5    # мод +3
 intelligence = -4   # мод -2
 wisdom       = -2   # мод -1
 charisma     = -4   # мод -2
+speed        = 3
 weapon_id    = "long_sword"
 ability_ids  = ["melee_attack"]
+hex_col      = 6
+hex_row      = 2
 
 [[encounters.enemies]]
 name         = "Orc Mage"
@@ -55,5 +64,8 @@ constitution = 2    # мод +1
 intelligence = 4    # мод +2 — начинающий маг
 wisdom       = 2    # мод +1
 charisma     = -2   # мод -1
+speed        = 4
 weapon_id    = "staff"
 ability_ids  = ["melee_attack", "fireball", "heal"]
+hex_col      = 6
+hex_row      = 4

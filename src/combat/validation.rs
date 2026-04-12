@@ -1,11 +1,13 @@
 use crate::game::components::{Abilities, ActionPoints, Mana, Rage, Vital};
+use crate::game::hex::hex_distance;
 use crate::game::messages::{UseAbility, ValidatedAction};
-use crate::game::resources::{CombatContext, GameDb};
+use crate::game::resources::{CombatContext, GameDb, HexPositions};
 use bevy::prelude::*;
 
 pub fn validate_action_system(
     ctx: Res<CombatContext>,
     db: Res<GameDb>,
+    positions: Res<HexPositions>,
     mut events: MessageReader<UseAbility>,
     actors: Query<(
         &Vital,
@@ -18,7 +20,7 @@ pub fn validate_action_system(
     mut validated: MessageWriter<ValidatedAction>,
 ) {
     for ev in events.read() {
-        if !is_valid(ev, &ctx, &db, &actors, &targets) {
+        if !is_valid(ev, &ctx, &db, &positions, &actors, &targets) {
             continue;
         }
         validated.write(ValidatedAction {
@@ -33,6 +35,7 @@ fn is_valid(
     ev: &UseAbility,
     ctx: &CombatContext,
     db: &GameDb,
+    positions: &HexPositions,
     actors: &Query<(
         &Vital,
         &ActionPoints,
@@ -62,6 +65,19 @@ fn is_valid(
         }
         if def.mana_cost > 0 && mana.map_or(0, |m| m.current) < def.mana_cost {
             return false;
+        }
+
+        // Range check (skip for self-targeted / range-0 abilities).
+        if def.range > 0 {
+            if let (Some(&actor_pos), Some(&target_pos)) =
+                (positions.0.get(&ev.actor), positions.0.get(&ev.target))
+            {
+                if hex_distance(actor_pos.0, actor_pos.1, target_pos.0, target_pos.1)
+                    > def.range as i32
+                {
+                    return false;
+                }
+            }
         }
     }
 

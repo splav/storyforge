@@ -33,6 +33,7 @@ pub fn skip_stunned_turn_system(
     if is_stunned {
         if let Ok(mut ap) = action_points.get_mut(actor) {
             ap.action = false;
+            ap.movement = false;
         }
         log.push(CombatEvent::TurnSkipped { actor });
         end_turn.write(EndTurn { actor });

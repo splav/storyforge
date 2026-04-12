@@ -29,6 +29,10 @@ pub struct AbilitySlot(pub usize);
 #[derive(Component)]
 pub struct AbilitySlotLabel(pub usize);
 
+/// Marker on the "Move" button in the ability panel.
+#[derive(Component)]
+pub struct MoveButton;
+
 /// Loaded font with Cyrillic support, shared across all HUD text nodes.
 #[derive(Resource)]
 pub struct UiFont(pub Handle<Font>);

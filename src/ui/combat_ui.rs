@@ -1,15 +1,15 @@
 use super::log_ui::LogScrollState;
 use super::{
     AbilitySlot, AbilitySlotLabel, HudPhase, HudTurnOrder, LogScrollClip, LogScrollThumb, LogText,
-    UiFont,
+    MoveButton, UiFont,
 };
 use crate::app_state::CombatPhase;
 use crate::content::abilities::{AbilityDef, EffectDef, StatusOn, TargetType};
 use crate::content::weapons::WeaponDef;
 use crate::core::{modifier, DiceExpr};
 use crate::game::components::{
-    Abilities, CombatStats, Combatant, Dead, EquippedWeapon, Faction, Initiative, Mana, Rage,
-    Team, Vital,
+    Abilities, ActionPoints, CombatStats, Combatant, Dead, EquippedWeapon, Faction, Initiative,
+    Mana, Rage, Team, Vital,
 };
 use crate::game::resources::{CombatContext, GameDb, SelectionState, TurnQueue};
 use bevy::prelude::*;
@@ -59,6 +59,29 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ..default()
             })
             .with_children(|panel| {
+                // Move button.
+                panel
+                    .spawn((
+                        MoveButton,
+                        Button,
+                        Node {
+                            border: UiRect::all(Val::Px(1.5)),
+                            padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                            width: Val::Percent(100.0),
+                            height: Val::Px(36.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        BorderColor::all(CLR_SLOT_BORDER),
+                        BackgroundColor(CLR_SLOT_BG),
+                        Visibility::Hidden,
+                    ))
+                    .with_children(|btn| {
+                        let (tf, tc) = txt(12.0);
+                        btn.spawn((Text::new("[M] Движение"), tf, tc));
+                    });
+
                 for i in 0..MAX_SLOTS {
                     panel
                         .spawn((
@@ -182,7 +205,7 @@ pub fn update_phase_hint(
     phase: Res<State<CombatPhase>>,
     ctx: Res<CombatContext>,
     sel: Res<SelectionState>,
-    combatants: Query<(&Name, &Faction), With<Combatant>>,
+    combatants: Query<(&Name, &Faction, &ActionPoints), With<Combatant>>,
     mut phase_q: Query<&mut Text, With<HudPhase>>,
 ) {
     let Ok(mut t) = phase_q.single_mut() else {
@@ -190,18 +213,33 @@ pub fn update_phase_hint(
     };
     t.0 = match phase.get() {
         CombatPhase::AwaitCommand => {
-            let actor_name = ctx
+            let actor_info = ctx
                 .active
                 .and_then(|e| combatants.get(e).ok())
-                .filter(|(_, f)| f.0 == Team::Player)
-                .map(|(n, _)| n.as_str())
+                .filter(|(_, f, _)| f.0 == Team::Player);
+            let actor_name = actor_info
+                .map(|(n, _, _)| n.as_str())
                 .unwrap_or("Враг");
-            let confirm = if sel.selected_ability.is_some() && sel.selected_target.is_some() {
-                "  Enter: подтвердить"
+
+            if actor_info.is_none() {
+                format!("Ход: {actor_name}")
             } else {
-                ""
-            };
-            format!("Ход: {actor_name}  |  [1-5]: способность   Tab: выбор цели{confirm}")
+                let ap = actor_info.unwrap().2;
+                let mut hints = Vec::new();
+                if ap.movement {
+                    hints.push("[M]: движение");
+                }
+                if ap.action {
+                    hints.push("[1-5]: способность");
+                }
+                hints.push("[E]: конец хода");
+                if sel.move_mode {
+                    hints.push("Клик: выбрать клетку");
+                } else if sel.selected_ability.is_some() && sel.selected_target.is_some() {
+                    hints.push("Enter: подтвердить");
+                }
+                format!("Ход: {actor_name}  |  {}", hints.join("  "))
+            }
         }
         CombatPhase::Victory => "★  ПОБЕДА".into(),
         CombatPhase::Defeat => "✗  ПОРАЖЕНИЕ".into(),
@@ -468,6 +506,78 @@ pub fn ability_slot_click_system(
         }
         if let Some(id) = abilities.0.get(slot.0).cloned() {
             sel.selected_ability = Some(id);
+            sel.move_mode = false;
+        }
+    }
+}
+
+// ── Move button ─────────────────────────────────────────────────────────────
+
+pub fn update_move_button(
+    ctx: Res<CombatContext>,
+    sel: Res<SelectionState>,
+    combatants: Query<(&Faction, &ActionPoints), (With<Combatant>, Without<Dead>)>,
+    mut move_btn: Query<
+        (&mut BorderColor, &mut BackgroundColor, &mut Visibility),
+        With<MoveButton>,
+    >,
+) {
+    let Ok((mut border, mut bg, mut vis)) = move_btn.single_mut() else {
+        return;
+    };
+
+    let is_player_turn = ctx
+        .active
+        .and_then(|e| combatants.get(e).ok())
+        .is_some_and(|(f, _)| f.0 == Team::Player);
+
+    if !is_player_turn {
+        *vis = Visibility::Hidden;
+        return;
+    }
+    *vis = Visibility::Visible;
+
+    let has_movement = ctx
+        .active
+        .and_then(|e| combatants.get(e).ok())
+        .map_or(false, |(_, ap)| ap.movement);
+
+    if sel.move_mode {
+        *border = BorderColor::all(CLR_SLOT_SEL_BORDER);
+        *bg = BackgroundColor(CLR_SLOT_SEL_BG);
+    } else if has_movement {
+        *border = BorderColor::all(CLR_SLOT_BORDER);
+        *bg = BackgroundColor(CLR_SLOT_BG);
+    } else {
+        *border = BorderColor::all(CLR_SLOT_DIM_BORDER);
+        *bg = BackgroundColor(CLR_SLOT_DIM_BG);
+    }
+}
+
+pub fn move_button_click_system(
+    ctx: Res<CombatContext>,
+    mut sel: ResMut<SelectionState>,
+    move_btn: Query<&Interaction, (Changed<Interaction>, With<MoveButton>)>,
+    combatants: Query<(&Faction, &ActionPoints), (With<Combatant>, Without<Dead>)>,
+) {
+    for interaction in &move_btn {
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+        let Some(active) = ctx.active else { continue };
+        let Ok((faction, ap)) = combatants.get(active) else {
+            continue;
+        };
+        if faction.0 != Team::Player || !ap.movement {
+            continue;
+        }
+
+        if sel.move_mode {
+            sel.move_mode = false;
+        } else {
+            sel.move_mode = true;
+            sel.selected_ability = None;
+            sel.selected_target = None;
         }
     }
 }

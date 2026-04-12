@@ -3,6 +3,7 @@ id          = "melee_attack"
 name        = "Атака оружием ближнего боя"
 target_type = "single_enemy"
 effect      = "weapon_attack"
+range       = 1
 
 [[abilities]]
 id          = "taunt"
@@ -21,6 +22,7 @@ effect      = "spell_damage"
 dice_count  = 2
 dice_sides  = 3
 mana_cost   = 3
+range       = 5
 
 [[abilities]]
 id          = "heal"
@@ -30,6 +32,7 @@ effect      = "heal"
 dice_count  = 1
 dice_sides  = 4
 mana_cost   = 2
+range       = 3
 
 [[abilities]]
 id          = "flash"
@@ -38,12 +41,14 @@ target_type = "single_enemy"
 effect      = "spell_damage"
 dice_count  = 1
 dice_sides  = 2
+range       = 3
 
 [[abilities]]
 id          = "burn"
 name        = "Ожог"
 target_type = "single_enemy"
 mana_cost   = 1
+range       = 2
 statuses    = [
     { id = "burning", on = "target", duration = 2 },
 ]
@@ -53,6 +58,7 @@ id          = "stun"
 name        = "Оглушить"
 target_type = "single_enemy"
 rage_cost   = 3
+range       = 1
 statuses    = [
     { id = "stunned", on = "target", duration = 1 },
 ]

@@ -45,6 +45,16 @@ pub fn fmt_event(event: &CombatEvent, names: &Query<&Name>, db: &GameDb) -> Stri
             format!("  ○ {} пропускает ход [оглушён]", name(*actor))
         }
         CombatEvent::TurnEnded { actor } => format!("  ○ {} завершил ход", name(*actor)),
+        CombatEvent::UnitMoved { actor, from, to } => {
+            format!(
+                "  ↦ {} переместился ({},{}) → ({},{})",
+                name(*actor),
+                from.0,
+                from.1,
+                to.0,
+                to.1
+            )
+        }
         CombatEvent::RageGained {
             actor,
             current,

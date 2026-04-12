@@ -6,6 +6,7 @@ pub struct ClassDef {
     pub id: String,
     pub name: String,
     pub stats: CombatStats,
+    pub speed: i32,
     pub abilities: Vec<AbilityId>,
     pub weapon: WeaponId,
     pub rage_max: i32, // 0 — нет механики ярости
@@ -31,6 +32,7 @@ struct ClassRecord {
     intelligence: i32,
     wisdom: i32,
     charisma: i32,
+    speed: i32,
     weapon_id: String,
     ability_ids: Vec<String>,
     #[serde(default)]
@@ -52,6 +54,7 @@ pub fn load_classes() -> Vec<ClassDef> {
         .map(|r| ClassDef {
             id: r.id,
             name: r.name,
+            speed: r.speed,
             stats: CombatStats {
                 max_hp: r.max_hp,
                 armor: r.armor,

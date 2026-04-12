@@ -4,6 +4,10 @@ use bevy::prelude::*;
 #[derive(Component, Default)]
 pub struct Combatant;
 
+/// Starting hex grid position (col, row) assigned at spawn.
+#[derive(Component, Clone, Copy)]
+pub struct StartingHexPos(pub i32, pub i32);
+
 /// Inserted when hp reaches 0. Skips the unit's turn and prevents acting.
 #[derive(Component, Default)]
 pub struct Dead;
@@ -65,17 +69,25 @@ impl Vital {
     }
 }
 
+/// How many hex cells the unit can move per turn.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Speed(pub i32);
+
 #[derive(Component)]
 pub struct Initiative(pub i32);
 
 #[derive(Component)]
 pub struct ActionPoints {
     pub action: bool,
+    pub movement: bool,
 }
 
 impl Default for ActionPoints {
     fn default() -> Self {
-        Self { action: true }
+        Self {
+            action: true,
+            movement: true,
+        }
     }
 }
 

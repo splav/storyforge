@@ -2,6 +2,7 @@ pub mod advance_turn;
 pub mod apply_effects;
 pub mod command_input;
 pub mod enemy_ai;
+pub mod movement;
 pub mod resolution;
 pub mod skip_dead;
 pub mod turn_order;

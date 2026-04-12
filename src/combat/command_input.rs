@@ -1,6 +1,6 @@
 use crate::content::abilities::TargetType;
-use crate::game::components::{Abilities, Combatant, Dead, Faction, Team, Vital};
-use crate::game::messages::UseAbility;
+use crate::game::components::{Abilities, ActionPoints, Combatant, Dead, Faction, Team, Vital};
+use crate::game::messages::{EndTurn, UseAbility};
 use crate::game::resources::{CombatContext, GameDb, SelectionState};
 use bevy::prelude::*;
 
@@ -10,20 +10,32 @@ pub fn player_command_system(
     db: Res<GameDb>,
     mut selection: ResMut<SelectionState>,
     mut use_ability: MessageWriter<UseAbility>,
-    combatants: Query<(Entity, &Vital, &Faction, &Abilities), (With<Combatant>, Without<Dead>)>,
+    mut end_turn: MessageWriter<EndTurn>,
+    combatants: Query<
+        (Entity, &Vital, &Faction, &Abilities, &ActionPoints),
+        (With<Combatant>, Without<Dead>),
+    >,
 ) {
     let Some(actor) = ctx.active else { return };
 
-    let Ok((_, _, faction, abilities)) = combatants.get(actor) else {
+    let Ok((_, _, faction, abilities, ap)) = combatants.get(actor) else {
         return;
     };
     if faction.0 != Team::Player {
         return;
     }
 
+    // Auto-end turn if both resources are spent.
+    if !ap.action && !ap.movement {
+        end_turn.write(EndTurn { actor });
+        selection.clear();
+        return;
+    }
+
     if selection.selected_actor != Some(actor) {
         selection.selected_actor = Some(actor);
         selection.selected_ability = abilities.0.first().cloned();
+        selection.move_mode = false;
         if let Some(ref id) = selection.selected_ability.clone() {
             if let Some(def) = db.abilities.get(id.0.as_str()) {
                 if def.target_type == TargetType::Myself {
@@ -50,13 +62,36 @@ pub fn player_command_system(
                     }
                 }
                 selection.selected_ability = Some(ability_id);
+                selection.move_mode = false;
             }
         }
     }
 
+    // M → toggle move mode.
+    if keyboard.just_pressed(KeyCode::KeyM) && ap.movement {
+        if selection.move_mode {
+            selection.move_mode = false;
+        } else {
+            selection.move_mode = true;
+            selection.selected_ability = None;
+            selection.selected_target = None;
+        }
+    }
+
+    // Escape → cancel move mode.
+    if keyboard.just_pressed(KeyCode::Escape) && selection.move_mode {
+        selection.move_mode = false;
+    }
+
+    // E → end turn manually.
+    if keyboard.just_pressed(KeyCode::KeyE) {
+        end_turn.write(EndTurn { actor });
+        selection.clear();
+        return;
+    }
+
     // Tab → cycle living targets (enemies for most abilities, allies for SingleAlly).
-    // No-op for self-targeted abilities.
-    if keyboard.just_pressed(KeyCode::Tab) {
+    if keyboard.just_pressed(KeyCode::Tab) && !selection.move_mode {
         let target_type = selection
             .selected_ability
             .as_ref()
@@ -71,14 +106,14 @@ pub fn player_command_system(
             let candidates: Vec<Entity> = if is_single_ally {
                 combatants
                     .iter()
-                    .filter(|(_, v, f, _)| v.is_alive() && f.0 == Team::Player)
-                    .map(|(e, _, _, _)| e)
+                    .filter(|(_, v, f, _, _)| v.is_alive() && f.0 == Team::Player)
+                    .map(|(e, _, _, _, _)| e)
                     .collect()
             } else {
                 combatants
                     .iter()
-                    .filter(|(e, v, f, _)| *e != actor && v.is_alive() && f.0 == Team::Enemy)
-                    .map(|(e, _, _, _)| e)
+                    .filter(|(e, v, f, _, _)| *e != actor && v.is_alive() && f.0 == Team::Enemy)
+                    .map(|(e, _, _, _, _)| e)
                     .collect()
             };
 
@@ -90,10 +125,10 @@ pub fn player_command_system(
                 selection.selected_target =
                     Some(candidates[(current_idx.wrapping_add(1)) % candidates.len()]);
             }
-        } // else (not Myself)
+        }
     }
 
-    // Enter → confirm.
+    // Enter → confirm ability.
     if keyboard.just_pressed(KeyCode::Enter) {
         if let (Some(ability), Some(target)) = (
             selection.selected_ability.clone(),

@@ -29,6 +29,8 @@ pub struct AbilityDef {
     pub id: AbilityId,
     pub name: String,
     pub target_type: TargetType,
+    /// Max range in hex steps. 0 = ignored (for Myself target_type).
+    pub range: u32,
     pub effect: EffectDef,
     pub rage_cost: i32,
     pub mana_cost: i32,
@@ -68,6 +70,8 @@ struct AbilityRecord {
     target_type: String,
     #[serde(default)]
     effect: String,
+    #[serde(default)]
+    range: u32,
     dice_count: Option<u32>,
     dice_sides: Option<u32>,
     #[serde(default)]
@@ -143,6 +147,7 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 id: AbilityId::from(r.id.as_str()),
                 name: r.name,
                 target_type,
+                range: r.range,
                 effect,
                 rage_cost: r.rage_cost,
                 mana_cost: r.mana_cost,

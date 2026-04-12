@@ -91,6 +91,7 @@ pub fn advance_turn_system(
         } else if let Some(next_actor) = queue.current() {
             if let Ok(mut ap) = action_points.get_mut(next_actor) {
                 ap.action = true;
+                ap.movement = true;
             }
             ctx.active = Some(next_actor);
             log.push(CombatEvent::TurnStarted { actor: next_actor });

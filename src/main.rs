@@ -10,11 +10,14 @@ mod ui;
 use app_state::{AppState, CombatPhase};
 use core::DiceRng;
 use game::bundles::{enemy_bundle, warrior_bundle};
-use game::components::{Mana, Rage};
+use game::components::{Mana, Rage, StartingHexPos};
 use game::messages::{
-    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, StartCombat, UseAbility, ValidatedAction,
+    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, StartCombat, UseAbility,
+    ValidatedAction,
 };
-use game::resources::{CombatContext, CombatEvent, CombatLog, GameDb, SelectionState, TurnQueue};
+use game::resources::{
+    CombatContext, CombatEvent, CombatLog, GameDb, HexPositions, SelectionState, TurnQueue,
+};
 
 fn main() {
     App::new()
@@ -35,7 +38,7 @@ fn main() {
         .init_resource::<SelectionState>()
         .init_resource::<DiceRng>()
         .init_resource::<ui::console_log::ConsoleCursor>()
-        .init_resource::<ui::hex_grid::HexPositions>()
+        .init_resource::<HexPositions>()
         .init_resource::<ui::hex_grid::HexHover>()
         .init_resource::<ui::hex_grid::HexLastClick>()
         .add_message::<StartCombat>()
@@ -44,6 +47,7 @@ fn main() {
         .add_message::<ApplyDamage>()
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()
+        .add_message::<MoveUnit>()
         .add_message::<EndTurn>()
         .add_systems(
             Startup,
@@ -64,6 +68,8 @@ fn main() {
                 ui::combat_ui::update_turn_order,
                 ui::combat_ui::update_ability_panel,
                 ui::combat_ui::ability_slot_click_system,
+                ui::combat_ui::move_button_click_system,
+                ui::combat_ui::update_move_button,
                 ui::hex_grid::hex_hover_system,
                 ui::hex_grid::update_hex_visuals,
                 ui::hex_grid::update_hex_tooltip,
@@ -91,6 +97,7 @@ fn main() {
                 combat::skip_dead::skip_stunned_turn_system,
                 combat::command_input::player_command_system,
                 combat::enemy_ai::enemy_ai_system,
+                combat::movement::movement_system,
                 combat::validation::validate_action_system,
                 combat::resolution::resolve_action_system,
                 combat::apply_effects::apply_effects_system,
@@ -111,8 +118,11 @@ fn setup_demo(
 ) {
     commands.spawn(Camera2d);
 
-    // Spawn players from class definitions.
-    for (name, class_id) in [("Aldric", "warrior"), ("Lyra", "mage")] {
+    // Spawn players with hardcoded starting positions.
+    for (name, class_id, hex_pos) in [
+        ("Aldric", "warrior", StartingHexPos(1, 2)),
+        ("Lyra",   "mage",    StartingHexPos(1, 4)),
+    ] {
         let cls = db.classes.get(class_id).unwrap_or_else(|| {
             panic!(
                 "Class '{class_id}' not found in {}",
@@ -121,7 +131,8 @@ fn setup_demo(
         });
         let mut ec = commands.spawn((
             Name::new(name),
-            warrior_bundle(cls.stats.clone(), cls.abilities.clone(), cls.weapon.clone()),
+            warrior_bundle(cls.stats.clone(), cls.speed, cls.abilities.clone(), cls.weapon.clone()),
+            hex_pos,
         ));
         if cls.rage_max > 0 {
             ec.insert(Rage::new(cls.rage_max));
@@ -131,7 +142,7 @@ fn setup_demo(
         }
     }
 
-    // Spawn enemies from the first encounter in the database.
+    // Spawn enemies from encounter config (positions come from TOML).
     let enc = db.encounters.get("goblin_patrol").unwrap_or_else(|| {
         panic!("Encounter 'goblin_patrol' not found in assets/data/encounters.toml")
     });
@@ -141,9 +152,11 @@ fn setup_demo(
             Name::new(enemy.name.clone()),
             enemy_bundle(
                 enemy.stats.clone(),
+                enemy.speed,
                 enemy.ability_ids.clone(),
                 enemy.weapon_id.clone(),
             ),
+            StartingHexPos(enemy.hex_pos.0, enemy.hex_pos.1),
         ));
     }
 

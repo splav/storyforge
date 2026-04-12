@@ -16,7 +16,9 @@ use storyforge::game::components::{CombatStats, Vital};
 use storyforge::game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, UseAbility, ValidatedAction,
 };
-use storyforge::game::resources::{CombatContext, CombatLog, GameDb, SelectionState, TurnQueue};
+use storyforge::game::resources::{
+    CombatContext, CombatLog, GameDb, HexPositions, SelectionState, TurnQueue,
+};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -43,6 +45,7 @@ fn validation_app() -> App {
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
         .init_resource::<SelectionState>()
+        .init_resource::<HexPositions>()
         .init_resource::<DiceRng>()
         .add_message::<UseAbility>()
         .add_message::<ValidatedAction>()
@@ -110,14 +113,14 @@ fn valid_use_ability_emits_validated_action() {
         .world_mut()
         .spawn((
             Name::new("Hero"),
-            warrior_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            warrior_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
     let target = app
         .world_mut()
         .spawn((
             Name::new("Goblin"),
-            enemy_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
 
@@ -142,21 +145,21 @@ fn wrong_actor_use_ability_is_rejected() {
         .world_mut()
         .spawn((
             Name::new("Hero"),
-            warrior_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            warrior_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
     let other = app
         .world_mut()
         .spawn((
             Name::new("Hero2"),
-            warrior_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            warrior_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
     let target = app
         .world_mut()
         .spawn((
             Name::new("Goblin"),
-            enemy_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
 
@@ -181,14 +184,14 @@ fn no_action_point_use_ability_is_rejected() {
         .world_mut()
         .spawn((
             Name::new("Hero"),
-            warrior_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            warrior_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
     let target = app
         .world_mut()
         .spawn((
             Name::new("Goblin"),
-            enemy_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
 
@@ -220,14 +223,14 @@ fn apply_damage_reduces_hp() {
         .world_mut()
         .spawn((
             Name::new("Hero"),
-            warrior_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            warrior_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
     let goblin = app
         .world_mut()
         .spawn((
             Name::new("Goblin"),
-            enemy_bundle(base_stats(), vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
 
@@ -273,6 +276,7 @@ fn killing_all_enemies_sets_victory_phase() {
                     wisdom: 10,
                     charisma: 10,
                 },
+                3,
                 vec![MELEE_ATTACK.into()],
                 SHORT_SWORD.into(),
             ),
@@ -293,6 +297,7 @@ fn killing_all_enemies_sets_victory_phase() {
                     wisdom: 10,
                     charisma: 10,
                 },
+                3,
                 vec![MELEE_ATTACK.into()],
                 SHORT_SWORD.into(),
             ),
@@ -344,6 +349,7 @@ fn killing_all_heroes_sets_defeat_phase() {
                     wisdom: 10,
                     charisma: 10,
                 },
+                3,
                 vec![MELEE_ATTACK.into()],
                 SHORT_SWORD.into(),
             ),
@@ -364,6 +370,7 @@ fn killing_all_heroes_sets_defeat_phase() {
                     wisdom: 10,
                     charisma: 10,
                 },
+                3,
                 vec![MELEE_ATTACK.into()],
                 SHORT_SWORD.into(),
             ),

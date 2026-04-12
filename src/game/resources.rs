@@ -135,6 +135,11 @@ pub enum CombatEvent {
     TurnEnded {
         actor: Entity,
     },
+    UnitMoved {
+        actor: Entity,
+        from: (i32, i32),
+        to: (i32, i32),
+    },
     RageGained {
         actor: Entity,
         current: i32,
@@ -200,6 +205,12 @@ impl Default for GameDb {
     }
 }
 
+// ── Hex positions ────────────────────────────────────────────────────────────
+
+/// Maps combatant entity → current hex position (col, row).
+#[derive(Resource, Default)]
+pub struct HexPositions(pub HashMap<Entity, (i32, i32)>);
+
 // ── UI selection ─────────────────────────────────────────────────────────────
 
 #[derive(Resource, Default)]
@@ -207,6 +218,7 @@ pub struct SelectionState {
     pub selected_actor: Option<Entity>,
     pub selected_ability: Option<AbilityId>,
     pub selected_target: Option<Entity>,
+    pub move_mode: bool,
 }
 
 impl SelectionState {

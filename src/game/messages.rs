@@ -53,6 +53,12 @@ pub struct ApplyHeal {
 }
 
 #[derive(Message)]
+pub struct MoveUnit {
+    pub actor: Entity,
+    pub path: Vec<(i32, i32)>,
+}
+
+#[derive(Message)]
 pub struct EndTurn {
     pub actor: Entity,
 }

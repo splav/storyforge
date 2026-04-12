@@ -1,15 +1,16 @@
-use crate::game::components::{Combatant, Dead, Faction, Mana, Rage, StatusEffects, Team, Vital};
-use crate::game::messages::UseAbility;
-use crate::game::resources::{CombatContext, GameDb, SelectionState};
+use crate::content::abilities::TargetType;
+use crate::game::components::{ActionPoints, Combatant, Dead, Faction, Mana, Rage, Speed, StartingHexPos, StatusEffects, Team, Vital};
+use crate::game::hex::{hex_distance, in_bounds, row_cols, GRID_COLS, GRID_ROWS};
+use crate::game::messages::{MoveUnit, UseAbility};
+use crate::game::pathfinding::{find_path, reachable_cells};
+use crate::game::resources::{CombatContext, GameDb, HexPositions, SelectionState};
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const HEX_SIZE: f32 = 34.0;
-const GRID_COLS: i32 = 7;
-const GRID_ROWS: i32 = 7;
 /// Y offset to push grid up so bottom UI has room.
 const GRID_Y_OFFSET: f32 = 40.0;
 
@@ -21,59 +22,54 @@ const CLR_ENEMY: Color = Color::srgb(0.22, 0.10, 0.10);
 const CLR_DEAD: Color = Color::srgb(0.15, 0.15, 0.15);
 const CLR_BORDER_ACTIVE: Color = Color::srgb(0.85, 0.75, 0.20);
 const CLR_BORDER_TARGET: Color = Color::srgb(0.85, 0.20, 0.20);
+const CLR_IN_RANGE: Color = Color::srgb(0.10, 0.20, 0.18);
+const CLR_BORDER_IN_RANGE: Color = Color::srgb(0.20, 0.60, 0.52);
+const CLR_MOVE_RANGE: Color = Color::srgb(0.12, 0.20, 0.10);
+const CLR_BORDER_MOVE: Color = Color::srgb(0.30, 0.65, 0.25);
 
 // ── Hex math ─────────────────────────────────────────────────────────────────
 
-/// Flat-top hex, odd-q offset → pixel position (world-space, y-up).
+/// Pointy-top hex, even rows shift right 0.5 → odd rows are longer on both sides.
 fn hex_to_pixel(q: i32, r: i32) -> Vec2 {
-    let x = HEX_SIZE * 1.5 * q as f32;
-    let y = HEX_SIZE * 3.0_f32.sqrt() * (r as f32 + 0.5 * (q & 1) as f32);
+    let shift = if r & 1 == 0 { 0.5 } else { 0.0 };
+    let x = HEX_SIZE * 3.0_f32.sqrt() * (q as f32 + shift);
+    let y = HEX_SIZE * 1.5 * r as f32;
     Vec2::new(x, -y)
 }
 
-/// Grid center offset (so grid is centered at origin).
+/// Grid center: odd rows span 0..(GRID_COLS-1)*spacing, both row types centered the same.
 fn grid_center() -> Vec2 {
-    let min = hex_to_pixel(0, 0);
-    let max = hex_to_pixel(GRID_COLS - 1, GRID_ROWS - 1);
-    (min + max) * 0.5
+    let cx = (GRID_COLS - 1) as f32 * 0.5 * HEX_SIZE * 3.0_f32.sqrt();
+    let cy = (GRID_ROWS - 1) as f32 * 0.5 * HEX_SIZE * 1.5;
+    Vec2::new(cx, -cy)
 }
 
-/// World position → nearest hex (q, r) in odd-q offset. May be out of bounds.
+/// World position → nearest hex (col, row). May be out of bounds.
 fn pixel_to_hex(world_pos: Vec2, grid_offset: Vec2) -> (i32, i32) {
     let pos = world_pos - grid_offset;
     let x = pos.x;
-    let y = -pos.y; // un-negate for hex math
+    let y = -pos.y;
 
-    // Convert to axial (flat-top).
-    let q_frac = (2.0 / 3.0 * x) / HEX_SIZE;
-    let r_frac = (-1.0 / 3.0 * x + 3.0_f32.sqrt() / 3.0 * y) / HEX_SIZE;
-    let (aq, ar) = axial_round(q_frac, r_frac);
+    let r_est = (y / (HEX_SIZE * 1.5)).round() as i32;
 
-    // Axial → odd-q offset.
-    let oq = aq;
-    let or_val = ar + (aq - (aq & 1)) / 2;
-    (oq, or_val)
-}
+    let mut best = (0, 0);
+    let mut best_dist_sq = f32::MAX;
 
-fn axial_round(q: f32, r: f32) -> (i32, i32) {
-    let s = -q - r;
-    let mut rq = q.round();
-    let mut rr = r.round();
-    let rs = s.round();
-    let dq = (rq - q).abs();
-    let dr = (rr - r).abs();
-    let ds = (rs - s).abs();
-    if dq > dr && dq > ds {
-        rq = -rr - rs;
-    } else if dr > ds {
-        rr = -rq - rs;
+    for r in (r_est - 1)..=(r_est + 1) {
+        let shift = if r & 1 == 0 { 0.5 } else { 0.0 };
+        let q = (x / (HEX_SIZE * 3.0_f32.sqrt()) - shift).round() as i32;
+        let hx = HEX_SIZE * 3.0_f32.sqrt() * (q as f32 + shift);
+        let hy = HEX_SIZE * 1.5 * r as f32;
+        let dist_sq = (x - hx).powi(2) + (y - hy).powi(2);
+        if dist_sq < best_dist_sq {
+            best_dist_sq = dist_sq;
+            best = (q, r);
+        }
     }
-    (rq as i32, rr as i32)
+
+    best
 }
 
-fn in_bounds(q: i32, r: i32) -> bool {
-    (0..GRID_COLS).contains(&q) && (0..GRID_ROWS).contains(&r)
-}
 
 // ── Mesh ─────────────────────────────────────────────────────────────────────
 // Using Bevy's built-in RegularPolygon primitive for hexagon meshes.
@@ -111,9 +107,6 @@ pub struct HexTooltip;
 // ── Resources ────────────────────────────────────────────────────────────────
 
 #[derive(Resource, Default)]
-pub struct HexPositions(pub HashMap<Entity, (i32, i32)>);
-
-#[derive(Resource, Default)]
 pub struct HexHover(pub Option<(i32, i32)>);
 
 const DOUBLE_CLICK_SECS: f64 = 0.35;
@@ -132,8 +125,12 @@ pub struct HexMaterials {
     player: Handle<ColorMaterial>,
     enemy: Handle<ColorMaterial>,
     dead: Handle<ColorMaterial>,
+    in_range: Handle<ColorMaterial>,
+    move_range: Handle<ColorMaterial>,
     border_active: Handle<ColorMaterial>,
     border_target: Handle<ColorMaterial>,
+    border_in_range: Handle<ColorMaterial>,
+    border_move: Handle<ColorMaterial>,
 }
 
 /// Grid parent transform offset, cached once at setup.
@@ -156,8 +153,12 @@ pub fn setup_hex_grid(
         player: materials.add(ColorMaterial::from_color(CLR_PLAYER)),
         enemy: materials.add(ColorMaterial::from_color(CLR_ENEMY)),
         dead: materials.add(ColorMaterial::from_color(CLR_DEAD)),
+        in_range: materials.add(ColorMaterial::from_color(CLR_IN_RANGE)),
+        move_range: materials.add(ColorMaterial::from_color(CLR_MOVE_RANGE)),
         border_active: materials.add(ColorMaterial::from_color(CLR_BORDER_ACTIVE)),
         border_target: materials.add(ColorMaterial::from_color(CLR_BORDER_TARGET)),
+        border_in_range: materials.add(ColorMaterial::from_color(CLR_BORDER_IN_RANGE)),
+        border_move: materials.add(ColorMaterial::from_color(CLR_BORDER_MOVE)),
     };
 
     let center = grid_center();
@@ -166,8 +167,8 @@ pub fn setup_hex_grid(
 
     let font: Handle<Font> = asset_server.load("fonts/unicode.ttf");
 
-    for q in 0..GRID_COLS {
-        for r in 0..GRID_ROWS {
+    for r in 0..GRID_ROWS {
+        for q in 0..row_cols(r) {
             let pixel = hex_to_pixel(q, r) + offset;
 
             let cell_id = commands
@@ -176,8 +177,7 @@ pub fn setup_hex_grid(
                     HexOccupant::default(),
                     Mesh2d(hex_mesh.clone()),
                     MeshMaterial2d(mats.empty.clone()),
-                    Transform::from_xyz(pixel.x, pixel.y, 0.1)
-                        .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_6)),
+                    Transform::from_xyz(pixel.x, pixel.y, 0.1),
                 ))
                 .with_children(|parent| {
                     // Border (behind the fill).
@@ -271,36 +271,17 @@ pub fn setup_hex_grid(
 pub fn assign_hex_positions(
     mut positions: ResMut<HexPositions>,
     mut cells: Query<(&HexCell, &mut HexOccupant)>,
-    combatants: Query<(Entity, &Faction), With<Combatant>>,
+    combatants: Query<(Entity, &StartingHexPos), With<Combatant>>,
 ) {
-    // Clear old positions.
     positions.0.clear();
     for (_, mut occ) in &mut cells {
         occ.0 = None;
     }
 
-    let (mut players, mut enemies): (Vec<_>, Vec<_>) =
-        combatants.iter().partition(|(_, f)| f.0 == Team::Player);
-    players.sort_by_key(|(e, _)| *e);
-    enemies.sort_by_key(|(e, _)| *e);
-
-    // Players → column 1, vertically centered.
-    let p_col = 1i32;
-    let p_start = (GRID_ROWS - players.len() as i32) / 2;
-    for (i, &(entity, _)) in players.iter().enumerate() {
-        let pos = (p_col, p_start + i as i32);
-        positions.0.insert(entity, pos);
+    for (entity, hex_pos) in &combatants {
+        positions.0.insert(entity, (hex_pos.0, hex_pos.1));
     }
 
-    // Enemies → column 5, vertically centered.
-    let e_col = 5i32;
-    let e_start = (GRID_ROWS - enemies.len() as i32) / 2;
-    for (i, &(entity, _)) in enemies.iter().enumerate() {
-        let pos = (e_col, e_start + i as i32);
-        positions.0.insert(entity, pos);
-    }
-
-    // Write occupants to cells.
     for (cell, mut occ) in &mut cells {
         occ.0 = positions
             .0
@@ -316,8 +297,10 @@ pub fn assign_hex_positions(
 pub fn update_hex_visuals(
     ctx: Res<CombatContext>,
     sel: Res<SelectionState>,
+    db: Res<GameDb>,
+    positions: Res<HexPositions>,
     mats: Res<HexMaterials>,
-    cells: Query<(Entity, &HexOccupant, &Children), With<HexCell>>,
+    cells: Query<(Entity, &HexCell, &HexOccupant, &Children)>,
     combatant_q: Query<(
         &Name,
         &Vital,
@@ -326,6 +309,7 @@ pub fn update_hex_visuals(
         Option<&Rage>,
         Has<Dead>,
     )>,
+    speed_q: Query<&Speed>,
     mut borders: Query<
         (&mut Visibility, &mut MeshMaterial2d<ColorMaterial>),
         (With<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>, Without<HexManaLabel>),
@@ -344,14 +328,88 @@ pub fn update_hex_visuals(
     >,
     mut cell_mats: Query<&mut MeshMaterial2d<ColorMaterial>, (With<HexCell>, Without<HexBorder>)>,
 ) {
+    // Compute ability range cells.
+    let range_cells: HashSet<(i32, i32)> = if !sel.move_mode {
+        let info = ctx.active
+            .and_then(|e| positions.0.get(&e).copied())
+            .zip(
+                sel.selected_ability.as_ref()
+                    .and_then(|id| db.abilities.get(id))
+                    .filter(|ab| ab.target_type != TargetType::Myself && ab.range > 0),
+            );
+        if let Some(((aq, ar), ab)) = info {
+            cells
+                .iter()
+                .filter(|(_, hc, _, _)| hex_distance(aq, ar, hc.q, hc.r) <= ab.range as i32)
+                .map(|(_, hc, _, _)| (hc.q, hc.r))
+                .collect()
+        } else {
+            HashSet::new()
+        }
+    } else {
+        HashSet::new()
+    };
+
+    // Compute movement-reachable cells.
+    let move_cells: HashSet<(i32, i32)> = if sel.move_mode {
+        if let Some(actor) = ctx.active {
+            if let (Some(&actor_pos), Ok(speed)) =
+                (positions.0.get(&actor), speed_q.get(actor))
+            {
+                let enemy_pos: HashSet<(i32, i32)> = positions
+                    .0
+                    .iter()
+                    .filter(|(&e, _)| {
+                        e != actor
+                            && combatant_q
+                                .get(e)
+                                .map_or(false, |(_, _, f, _, _, dead)| {
+                                    f.0 == Team::Enemy && !dead
+                                })
+                    })
+                    .map(|(_, &p)| p)
+                    .collect();
+                let all_occupied: HashSet<(i32, i32)> = positions
+                    .0
+                    .iter()
+                    .filter(|(&e, _)| e != actor)
+                    .map(|(_, &p)| p)
+                    .collect();
+
+                reachable_cells(
+                    actor_pos,
+                    speed.0,
+                    |q, r| in_bounds(q, r) && !enemy_pos.contains(&(q, r)),
+                    |q, r| !all_occupied.contains(&(q, r)),
+                )
+            } else {
+                HashSet::new()
+            }
+        } else {
+            HashSet::new()
+        }
+    } else {
+        HashSet::new()
+    };
+
     // Update cell fill + border.
-    for (cell_entity, occupant, children) in &cells {
+    for (cell_entity, hex_cell, occupant, children) in &cells {
         let is_active = occupant.0.is_some_and(|e| ctx.active == Some(e));
         let is_target = occupant.0.is_some_and(|e| sel.selected_target == Some(e));
+        let is_in_range = range_cells.contains(&(hex_cell.q, hex_cell.r));
+        let is_in_move = move_cells.contains(&(hex_cell.q, hex_cell.r));
 
         if let Ok(mut mat) = cell_mats.get_mut(cell_entity) {
             mat.0 = match &occupant.0 {
-                None => mats.empty.clone(),
+                None => {
+                    if is_in_move {
+                        mats.move_range.clone()
+                    } else if is_in_range {
+                        mats.in_range.clone()
+                    } else {
+                        mats.empty.clone()
+                    }
+                }
                 Some(e) => {
                     if let Ok((_, _, faction, _, _, is_dead)) = combatant_q.get(*e) {
                         if is_dead {
@@ -370,12 +428,16 @@ pub fn update_hex_visuals(
 
         for child in children.iter() {
             if let Ok((mut vis, mut bmat)) = borders.get_mut(child) {
-                if is_active || is_target {
+                if is_active || is_target || is_in_move || is_in_range {
                     *vis = Visibility::Visible;
                     bmat.0 = if is_active {
                         mats.border_active.clone()
-                    } else {
+                    } else if is_target {
                         mats.border_target.clone()
+                    } else if is_in_move {
+                        mats.border_move.clone()
+                    } else {
+                        mats.border_in_range.clone()
                     };
                 } else {
                     *vis = Visibility::Hidden;
@@ -386,7 +448,7 @@ pub fn update_hex_visuals(
 
     // Update standalone labels.
     for (link, mut text, mut vis) in &mut name_labels {
-        let occupant = cells.get(link.0).ok().and_then(|(_, occ, _)| occ.0);
+        let occupant = cells.get(link.0).ok().and_then(|(_, _, occ, _)| occ.0);
         if let Some(e) = occupant {
             if let Ok((name, _, _, _, _, _)) = combatant_q.get(e) {
                 let n = name.as_str();
@@ -403,7 +465,7 @@ pub fn update_hex_visuals(
     }
 
     for (link, mut text, mut vis) in &mut hp_labels {
-        let occupant = cells.get(link.0).ok().and_then(|(_, occ, _)| occ.0);
+        let occupant = cells.get(link.0).ok().and_then(|(_, _, occ, _)| occ.0);
         if let Some(e) = occupant {
             if let Ok((_, vital, _, _, _, _)) = combatant_q.get(e) {
                 text.0 = format!("{}/{}", vital.hp, vital.max_hp);
@@ -415,7 +477,7 @@ pub fn update_hex_visuals(
     }
 
     for (link, mut text, mut vis) in &mut mana_labels {
-        let occupant = cells.get(link.0).ok().and_then(|(_, occ, _)| occ.0);
+        let occupant = cells.get(link.0).ok().and_then(|(_, _, occ, _)| occ.0);
         if let Some(e) = occupant {
             if let Ok((_, _, _, mana, rage, _)) = combatant_q.get(e) {
                 if let Some(m) = mana {
@@ -558,10 +620,14 @@ pub fn hex_click_target(
     mouse: Res<ButtonInput<MouseButton>>,
     time: Res<Time>,
     ctx: Res<CombatContext>,
+    positions: Res<HexPositions>,
     cells: Query<(&HexCell, &HexOccupant)>,
+    move_query: Query<(&Faction, &ActionPoints, &Speed)>,
+    combatant_q2: Query<(&Faction, &Vital), With<Combatant>>,
     mut sel: ResMut<SelectionState>,
     mut last_click: ResMut<HexLastClick>,
     mut use_ability: MessageWriter<UseAbility>,
+    mut move_unit: MessageWriter<MoveUnit>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
         return;
@@ -574,6 +640,47 @@ pub fn hex_click_target(
         .and_then(|(_, occ)| occ.0);
 
     let now = time.elapsed_secs_f64();
+
+    // Move mode: clicking an empty cell sends MoveUnit.
+    if sel.move_mode && occupant.is_none() {
+        let Some(actor) = ctx.active else { return };
+        let Ok((faction, ap, speed)) = move_query.get(actor) else {
+            return;
+        };
+        if faction.0 != Team::Player || !ap.movement {
+            return;
+        }
+        let Some(&actor_pos) = positions.0.get(&actor) else {
+            return;
+        };
+
+        // Build passability: enemies block, allies pass-through.
+        let enemy_pos: HashSet<(i32, i32)> = positions
+            .0
+            .iter()
+            .filter(|(&e, _)| {
+                e != actor
+                    && combatant_q2
+                        .get(e)
+                        .map_or(false, |(f, v)| f.0 == Team::Enemy && v.is_alive())
+            })
+            .map(|(_, &p)| p)
+            .collect();
+        let is_passable =
+            |q: i32, r: i32| in_bounds(q, r) && !enemy_pos.contains(&(q, r));
+
+        if let Some(path) = find_path(actor_pos, (hq, hr), is_passable) {
+            if path.len() as i32 <= speed.0 {
+                move_unit.write(MoveUnit { actor, path });
+                sel.move_mode = false;
+            }
+        }
+
+        last_click.pos = Some((hq, hr));
+        last_click.time = now;
+        return;
+    }
+
     let is_double = last_click.pos == Some((hq, hr))
         && (now - last_click.time) <= DOUBLE_CLICK_SECS;
 

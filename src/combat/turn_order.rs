@@ -43,6 +43,7 @@ pub fn build_turn_order(
                 init_rolls.push((e, dex_mod, roll, init.0));
             }
             ap.action = true;
+            ap.movement = true;
             (e, init.0)
         })
         .collect();

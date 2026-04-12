@@ -8,6 +8,7 @@ pub struct CombatantBundle {
     pub faction: Faction,
     pub stats: CombatStats,
     pub vital: Vital,
+    pub speed: Speed,
     pub initiative: Initiative,
     pub action_points: ActionPoints,
     pub abilities: Abilities,
@@ -19,6 +20,7 @@ impl CombatantBundle {
     pub fn new(
         team: Team,
         stats: CombatStats,
+        speed: i32,
         abilities: Vec<AbilityId>,
         weapon: WeaponId,
     ) -> Self {
@@ -28,6 +30,7 @@ impl CombatantBundle {
             faction: Faction(team),
             vital,
             stats,
+            speed: Speed(speed),
             initiative: Initiative(0),
             action_points: ActionPoints::default(),
             abilities: Abilities(abilities),
@@ -39,22 +42,24 @@ impl CombatantBundle {
 
 pub fn warrior_bundle(
     stats: CombatStats,
+    speed: i32,
     abilities: Vec<AbilityId>,
     weapon: WeaponId,
 ) -> impl Bundle {
     (
         PartyMember,
-        CombatantBundle::new(Team::Player, stats, abilities, weapon),
+        CombatantBundle::new(Team::Player, stats, speed, abilities, weapon),
     )
 }
 
 pub fn enemy_bundle(
     stats: CombatStats,
+    speed: i32,
     abilities: Vec<AbilityId>,
     weapon: WeaponId,
 ) -> impl Bundle {
     (
         Enemy,
-        CombatantBundle::new(Team::Enemy, stats, abilities, weapon),
+        CombatantBundle::new(Team::Enemy, stats, speed, abilities, weapon),
     )
 }
