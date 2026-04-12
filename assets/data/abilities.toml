@@ -62,3 +62,43 @@ range       = 1
 statuses    = [
     { id = "stunned", on = "target", duration = 1 },
 ]
+
+[[abilities]]
+id          = "rush"
+name        = "Рывок"
+target_type = "myself"
+effect      = "grant_movement"
+distance    = 2
+rage_cost   = 2
+
+[[abilities]]
+id          = "field_medic"
+name        = "Боевая медицина"
+target_type = "single_ally"
+effect      = "heal"
+dice_count  = 1
+dice_sides  = 6
+mana_cost   = 1
+range       = 1
+
+[[abilities]]
+id          = "bow_shot"
+name        = "Выстрел из лука"
+target_type = "single_enemy"
+effect      = "damage"
+dice_count  = 1
+dice_sides  = 8
+range       = 4
+
+[[abilities]]
+id          = "paralyzing_shot"
+name        = "Парализующий выстрел"
+target_type = "single_enemy"
+effect      = "damage"
+dice_count  = 1
+dice_sides  = 4
+mana_cost   = 2
+range       = 3
+statuses    = [
+    { id = "paralyzed", on = "target", duration = 1 },
+]

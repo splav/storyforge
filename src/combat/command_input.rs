@@ -1,5 +1,5 @@
 use crate::content::abilities::TargetType;
-use crate::game::components::{Abilities, ActionPoints, Combatant, Dead, Faction, Team, Vital};
+use crate::game::components::{Abilities, ActionPoints, BonusMovement, Combatant, Dead, Faction, Team, Vital};
 use crate::game::messages::{EndTurn, UseAbility};
 use crate::game::resources::{CombatContext, GameDb, SelectionState};
 use bevy::prelude::*;
@@ -12,17 +12,24 @@ pub fn player_command_system(
     mut use_ability: MessageWriter<UseAbility>,
     mut end_turn: MessageWriter<EndTurn>,
     combatants: Query<
-        (Entity, &Vital, &Faction, &Abilities, &ActionPoints),
+        (Entity, &Vital, &Faction, &Abilities, &ActionPoints, Has<BonusMovement>),
         (With<Combatant>, Without<Dead>),
     >,
 ) {
     let Some(actor) = ctx.active else { return };
 
-    let Ok((_, _, faction, abilities, ap)) = combatants.get(actor) else {
+    let Ok((_, _, faction, abilities, ap, has_bonus_move)) = combatants.get(actor) else {
         return;
     };
     if faction.0 != Team::Player {
         return;
+    }
+
+    // Auto-enter move mode after GrantMovement (e.g. Rush).
+    if has_bonus_move && ap.movement && !selection.move_mode {
+        selection.move_mode = true;
+        selection.selected_ability = None;
+        selection.selected_target = None;
     }
 
     // Auto-end turn if both resources are spent.
@@ -106,14 +113,14 @@ pub fn player_command_system(
             let candidates: Vec<Entity> = if is_single_ally {
                 combatants
                     .iter()
-                    .filter(|(_, v, f, _, _)| v.is_alive() && f.0 == Team::Player)
-                    .map(|(e, _, _, _, _)| e)
+                    .filter(|(_, v, f, _, _, _)| v.is_alive() && f.0 == Team::Player)
+                    .map(|(e, _, _, _, _, _)| e)
                     .collect()
             } else {
                 combatants
                     .iter()
-                    .filter(|(e, v, f, _, _)| *e != actor && v.is_alive() && f.0 == Team::Enemy)
-                    .map(|(e, _, _, _, _)| e)
+                    .filter(|(e, v, f, _, _, _)| *e != actor && v.is_alive() && f.0 == Team::Enemy)
+                    .map(|(e, _, _, _, _, _)| e)
                     .collect()
             };
 

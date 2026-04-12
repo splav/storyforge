@@ -11,7 +11,7 @@ wisdom       = 0    # мод  0
 charisma     = 0    # мод  0
 speed        = 3
 weapon_id    = "long_sword"
-ability_ids  = ["melee_attack", "taunt", "stun"]
+ability_ids  = ["melee_attack", "taunt", "stun", "rush"]
 rage_max     = 5
 
 [[classes]]
@@ -29,3 +29,19 @@ speed        = 4
 weapon_id    = "staff"
 ability_ids  = ["melee_attack", "flash", "burn", "fireball", "heal"]
 mana_max     = 10
+
+[[classes]]
+id           = "ranger"
+name         = "Следопыт"
+max_hp       = 14
+armor        = 1
+strength     = 2    # мод +1 — слабая ближняя атака
+dexterity    = 6    # мод +3 — быстрый, ловкий
+constitution = 2    # мод +1
+intelligence = 0    # мод  0
+wisdom       = 4    # мод +2 — опытный следопыт
+charisma     = 0    # мод  0
+speed        = 5
+weapon_id    = "dagger"
+ability_ids  = ["melee_attack", "bow_shot", "paralyzing_shot", "field_medic"]
+mana_max     = 4

@@ -16,3 +16,9 @@ name        = "Посох"
 dice_count  = 1
 dice_sides  = 6
 spell_power = 1
+
+[[weapons]]
+id          = "dagger"
+name        = "Кинжал"
+dice_count  = 1
+dice_sides  = 4

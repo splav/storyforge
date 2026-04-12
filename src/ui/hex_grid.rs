@@ -1,5 +1,5 @@
 use crate::content::abilities::TargetType;
-use crate::game::components::{ActionPoints, Combatant, Dead, Faction, Mana, Rage, Speed, StartingHexPos, StatusEffects, Team, Vital};
+use crate::game::components::{ActionPoints, BonusMovement, Combatant, Dead, Faction, Mana, Rage, Speed, StartingHexPos, StatusEffects, Team, Vital};
 use crate::game::hex::{hex_distance, in_bounds, row_cols, GRID_COLS, GRID_ROWS};
 use crate::game::messages::{MoveUnit, UseAbility};
 use crate::game::pathfinding::{find_path, reachable_cells};
@@ -309,7 +309,7 @@ pub fn update_hex_visuals(
         Option<&Rage>,
         Has<Dead>,
     )>,
-    speed_q: Query<&Speed>,
+    speed_q: Query<(&Speed, Option<&BonusMovement>)>,
     mut borders: Query<
         (&mut Visibility, &mut MeshMaterial2d<ColorMaterial>),
         (With<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>, Without<HexManaLabel>),
@@ -353,9 +353,10 @@ pub fn update_hex_visuals(
     // Compute movement-reachable cells.
     let move_cells: HashSet<(i32, i32)> = if sel.move_mode {
         if let Some(actor) = ctx.active {
-            if let (Some(&actor_pos), Ok(speed)) =
+            if let (Some(&actor_pos), Ok((speed, bonus))) =
                 (positions.0.get(&actor), speed_q.get(actor))
             {
+                let max_steps = bonus.map_or(speed.0, |b| b.0);
                 let enemy_pos: HashSet<(i32, i32)> = positions
                     .0
                     .iter()
@@ -378,7 +379,7 @@ pub fn update_hex_visuals(
 
                 reachable_cells(
                     actor_pos,
-                    speed.0,
+                    max_steps,
                     |q, r| in_bounds(q, r) && !enemy_pos.contains(&(q, r)),
                     |q, r| !all_occupied.contains(&(q, r)),
                 )
@@ -622,7 +623,7 @@ pub fn hex_click_target(
     ctx: Res<CombatContext>,
     positions: Res<HexPositions>,
     cells: Query<(&HexCell, &HexOccupant)>,
-    move_query: Query<(&Faction, &ActionPoints, &Speed)>,
+    move_query: Query<(&Faction, &ActionPoints, &Speed, Option<&BonusMovement>)>,
     combatant_q2: Query<(&Faction, &Vital), With<Combatant>>,
     mut sel: ResMut<SelectionState>,
     mut last_click: ResMut<HexLastClick>,
@@ -644,7 +645,7 @@ pub fn hex_click_target(
     // Move mode: clicking an empty cell sends MoveUnit.
     if sel.move_mode && occupant.is_none() {
         let Some(actor) = ctx.active else { return };
-        let Ok((faction, ap, speed)) = move_query.get(actor) else {
+        let Ok((faction, ap, speed, bonus)) = move_query.get(actor) else {
             return;
         };
         if faction.0 != Team::Player || !ap.movement {
@@ -653,6 +654,7 @@ pub fn hex_click_target(
         let Some(&actor_pos) = positions.0.get(&actor) else {
             return;
         };
+        let max_steps = bonus.map_or(speed.0, |b| b.0);
 
         // Build passability: enemies block, allies pass-through.
         let enemy_pos: HashSet<(i32, i32)> = positions
@@ -670,7 +672,7 @@ pub fn hex_click_target(
             |q: i32, r: i32| in_bounds(q, r) && !enemy_pos.contains(&(q, r));
 
         if let Some(path) = find_path(actor_pos, (hq, hr), is_passable) {
-            if path.len() as i32 <= speed.0 {
+            if path.len() as i32 <= max_steps {
                 move_unit.write(MoveUnit { actor, path });
                 sel.move_mode = false;
             }

@@ -54,6 +54,10 @@ pub enum EffectDef {
     Heal {
         dice: DiceExpr,
     },
+    /// Grants bonus movement to the actor. Does NOT end the turn.
+    GrantMovement {
+        distance: i32,
+    },
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -74,6 +78,8 @@ struct AbilityRecord {
     range: u32,
     dice_count: Option<u32>,
     dice_sides: Option<u32>,
+    #[serde(default)]
+    distance: i32,
     #[serde(default)]
     rage_cost: i32,
     #[serde(default)]
@@ -124,6 +130,9 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 },
                 "heal" => EffectDef::Heal {
                     dice: need_dice(&r.id, r.dice_count, r.dice_sides),
+                },
+                "grant_movement" => EffectDef::GrantMovement {
+                    distance: r.distance,
                 },
                 other => panic!("{ABILITIES_PATH}: unknown effect '{other}'"),
             };

@@ -122,6 +122,7 @@ fn setup_demo(
     for (name, class_id, hex_pos) in [
         ("Aldric", "warrior", StartingHexPos(1, 2)),
         ("Lyra",   "mage",    StartingHexPos(1, 4)),
+        ("Kael",   "ranger",  StartingHexPos(0, 3)),
     ] {
         let cls = db.classes.get(class_id).unwrap_or_else(|| {
             panic!(

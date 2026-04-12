@@ -405,6 +405,9 @@ fn ability_effect_str(
             let sp = weapon_def.map_or(0, |wd| wd.spell_power);
             lines.push(format!("{} лечение", dice_bonus_str(dice, sp + int_mod)));
         }
+        EffectDef::GrantMovement { distance } => {
+            lines.push(format!("движение +{distance}"));
+        }
     }
 
     for sa in &def.statuses {

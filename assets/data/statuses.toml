@@ -17,3 +17,8 @@ skips_turn  = true
 id                 = "burning"
 name               = "Ожог"
 damage_taken_bonus = 1
+
+[[statuses]]
+id          = "paralyzed"
+name        = "Паралич"
+skips_turn  = true

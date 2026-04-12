@@ -1,11 +1,12 @@
 use crate::content::abilities::{EffectDef, StatusOn, TargetType};
 use crate::core::{modifier, DiceRng};
-use crate::game::components::{ActionPoints, CombatStats, EquippedWeapon, Mana, Rage};
+use crate::game::components::{ActionPoints, BonusMovement, CombatStats, EquippedWeapon, Mana, Rage};
 use crate::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, ValidatedAction};
 use crate::game::resources::{CombatEvent, CombatLog, GameDb};
 use bevy::prelude::*;
 
 pub fn resolve_action_system(
+    mut commands: Commands,
     db: Res<GameDb>,
     mut rng: ResMut<DiceRng>,
     mut log: ResMut<CombatLog>,
@@ -143,6 +144,10 @@ pub fn resolve_action_system(
                 });
             }
             EffectDef::None => {}
+            EffectDef::GrantMovement { distance } => {
+                ap.movement = true;
+                commands.entity(ev.actor).insert(BonusMovement(*distance));
+            }
         }
 
         for sa in &def.statuses {
@@ -173,7 +178,9 @@ pub fn resolve_action_system(
             }
         }
 
-        end_turn.write(EndTurn { actor: ev.actor });
+        if !matches!(def.effect, EffectDef::GrantMovement { .. }) {
+            end_turn.write(EndTurn { actor: ev.actor });
+        }
     }
 }
 

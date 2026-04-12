@@ -1,4 +1,4 @@
-use crate::game::components::ActionPoints;
+use crate::game::components::{ActionPoints, BonusMovement, Speed};
 use crate::game::hex::in_bounds;
 use crate::game::messages::MoveUnit;
 use crate::game::resources::{CombatContext, CombatEvent, CombatLog, HexPositions};
@@ -6,10 +6,11 @@ use crate::ui::hex_grid::{HexCell, HexOccupant};
 use bevy::prelude::*;
 
 pub fn movement_system(
+    mut commands: Commands,
     ctx: Res<CombatContext>,
     mut events: MessageReader<MoveUnit>,
     mut positions: ResMut<HexPositions>,
-    mut action_points: Query<&mut ActionPoints>,
+    mut movers: Query<(&mut ActionPoints, &Speed, Option<&BonusMovement>)>,
     mut cells: Query<(&HexCell, &mut HexOccupant)>,
     mut log: ResMut<CombatLog>,
 ) {
@@ -21,10 +22,17 @@ pub fn movement_system(
             continue;
         }
 
-        let Ok(mut ap) = action_points.get_mut(ev.actor) else {
+        let Ok((mut ap, speed, bonus)) = movers.get_mut(ev.actor) else {
             continue;
         };
         if !ap.movement {
+            continue;
+        }
+
+        // Use BonusMovement as speed limit if present, otherwise base Speed.
+        let max_steps = bonus.map_or(speed.0, |b| b.0);
+
+        if ev.path.len() as i32 > max_steps {
             continue;
         }
 
@@ -60,6 +68,11 @@ pub fn movement_system(
         }
 
         ap.movement = false;
+
+        // Remove BonusMovement component after use.
+        if bonus.is_some() {
+            commands.entity(ev.actor).remove::<BonusMovement>();
+        }
 
         log.push(CombatEvent::UnitMoved {
             actor: ev.actor,

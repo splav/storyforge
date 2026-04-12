@@ -73,6 +73,11 @@ impl Vital {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Speed(pub i32);
 
+/// Temporary extra movement granted by abilities (e.g. Rush).
+/// Removed after the bonus move is spent.
+#[derive(Component)]
+pub struct BonusMovement(pub i32);
+
 #[derive(Component)]
 pub struct Initiative(pub i32);
 
