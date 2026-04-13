@@ -40,7 +40,7 @@ impl CombatantBundle {
     }
 }
 
-pub fn warrior_bundle(
+pub fn hero_bundle(
     stats: CombatStats,
     speed: i32,
     abilities: Vec<AbilityId>,

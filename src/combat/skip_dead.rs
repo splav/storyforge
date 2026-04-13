@@ -1,6 +1,7 @@
 use crate::game::components::{ActionPoints, Dead, StatusEffects};
 use crate::game::messages::EndTurn;
-use crate::game::resources::{CombatContext, CombatEvent, CombatLog, GameDb};
+use crate::game::combat_log::{CombatEvent, CombatLog};
+use crate::game::resources::{CombatContext, GameDb};
 use bevy::prelude::*;
 
 /// If the active combatant is dead, immediately end their turn.

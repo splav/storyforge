@@ -1,5 +1,6 @@
 use crate::content::abilities::TargetType;
-use crate::game::components::{ActionPoints, BonusMovement, Combatant, Dead, Faction, Mana, Rage, Speed, StartingHexPos, StatusEffects, Team, Vital};
+use crate::game::components::{ActionPoints, BonusMovement, Combatant, Dead, Faction, HexCell, Mana, Rage, Speed, StartingHexPos, StatusEffects, Team, UnitToken, Vital};
+use crate::ui::animation::MovePath;
 use crate::game::hex::{hex_distance, in_bounds, row_cols, GRID_COLS, GRID_ROWS};
 use crate::game::messages::{MoveUnit, UseAbility};
 use crate::game::pathfinding::{find_path, reachable_cells};
@@ -77,15 +78,6 @@ fn pixel_to_hex(world_pos: Vec2, grid_offset: Vec2) -> (i32, i32) {
 // ── Components ───────────────────────────────────────────────────────────────
 
 #[derive(Component)]
-pub struct HexCell {
-    pub q: i32,
-    pub r: i32,
-}
-
-#[derive(Component, Default)]
-pub struct HexOccupant(pub Option<Entity>);
-
-#[derive(Component)]
 pub struct HexBorder;
 
 /// Links a standalone label entity to its hex cell entity.
@@ -131,7 +123,14 @@ pub struct HexMaterials {
     border_target: Handle<ColorMaterial>,
     border_in_range: Handle<ColorMaterial>,
     border_move: Handle<ColorMaterial>,
+    token_player: Handle<ColorMaterial>,
+    token_enemy: Handle<ColorMaterial>,
+    token_dead: Handle<ColorMaterial>,
 }
+
+/// Cached token circle mesh handle.
+#[derive(Resource)]
+pub struct TokenMesh(pub Handle<Mesh>);
 
 /// Grid parent transform offset, cached once at setup.
 #[derive(Resource)]
@@ -147,6 +146,7 @@ pub fn setup_hex_grid(
 ) {
     let hex_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 0.97, 6));
     let border_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 1.06, 6));
+    let token_mesh = meshes.add(Circle::new(HEX_SIZE * 0.75));
 
     let mats = HexMaterials {
         empty: materials.add(ColorMaterial::from_color(CLR_EMPTY)),
@@ -159,6 +159,9 @@ pub fn setup_hex_grid(
         border_target: materials.add(ColorMaterial::from_color(CLR_BORDER_TARGET)),
         border_in_range: materials.add(ColorMaterial::from_color(CLR_BORDER_IN_RANGE)),
         border_move: materials.add(ColorMaterial::from_color(CLR_BORDER_MOVE)),
+        token_player: materials.add(ColorMaterial::from_color(Color::srgb(0.12, 0.22, 0.45))),
+        token_enemy: materials.add(ColorMaterial::from_color(Color::srgb(0.45, 0.10, 0.08))),
+        token_dead: materials.add(ColorMaterial::from_color(Color::srgb(0.3, 0.3, 0.3))),
     };
 
     let center = grid_center();
@@ -174,7 +177,6 @@ pub fn setup_hex_grid(
             let cell_id = commands
                 .spawn((
                     HexCell { q, r },
-                    HexOccupant::default(),
                     Mesh2d(hex_mesh.clone()),
                     MeshMaterial2d(mats.empty.clone()),
                     Transform::from_xyz(pixel.x, pixel.y, 0.1),
@@ -232,7 +234,7 @@ pub fn setup_hex_grid(
                     ..default()
                 },
                 TextLayout::new_with_justify(Justify::Center),
-                TextColor(Color::srgb(0.5, 0.6, 1.0)),
+                TextColor(Color::srgb(0.85, 0.90, 1.0)),
                 Anchor::CENTER,
                 Transform::from_xyz(pixel.x, pixel.y - 16.0, 0.2),
                 Visibility::Hidden,
@@ -264,30 +266,36 @@ pub fn setup_hex_grid(
     ));
 
     commands.insert_resource(mats);
+    commands.insert_resource(TokenMesh(token_mesh));
 }
 
 // ── System 2: Assign positions ───────────────────────────────────────────────
 
 pub fn assign_hex_positions(
+    mut commands: Commands,
     mut positions: ResMut<HexPositions>,
-    mut cells: Query<(&HexCell, &mut HexOccupant)>,
-    combatants: Query<(Entity, &StartingHexPos), With<Combatant>>,
+    combatants: Query<(Entity, &StartingHexPos, &Faction), With<Combatant>>,
+    grid_offset: Res<HexGridOffset>,
+    mats: Res<HexMaterials>,
+    token_mesh: Res<TokenMesh>,
 ) {
-    positions.0.clear();
-    for (_, mut occ) in &mut cells {
-        occ.0 = None;
-    }
+    positions.clear();
+    for (entity, hex_pos, faction) in &combatants {
+        positions.insert(entity, (hex_pos.0, hex_pos.1));
+        commands.entity(entity).remove::<StartingHexPos>();
 
-    for (entity, hex_pos) in &combatants {
-        positions.0.insert(entity, (hex_pos.0, hex_pos.1));
-    }
-
-    for (cell, mut occ) in &mut cells {
-        occ.0 = positions
-            .0
-            .iter()
-            .find(|(_, &(q, r))| q == cell.q && r == cell.r)
-            .map(|(&e, _)| e);
+        let pixel = hex_to_pixel(hex_pos.0, hex_pos.1) + grid_offset.0;
+        let mat = if faction.0 == Team::Player {
+            mats.token_player.clone()
+        } else {
+            mats.token_enemy.clone()
+        };
+        commands.spawn((
+            UnitToken(entity),
+            Mesh2d(token_mesh.0.clone()),
+            MeshMaterial2d(mat),
+            Transform::from_xyz(pixel.x, pixel.y, 0.15),
+        ));
     }
 }
 
@@ -300,7 +308,7 @@ pub fn update_hex_visuals(
     db: Res<GameDb>,
     positions: Res<HexPositions>,
     mats: Res<HexMaterials>,
-    cells: Query<(Entity, &HexCell, &HexOccupant, &Children)>,
+    cells: Query<(Entity, &HexCell, &Children)>,
     combatant_q: Query<(
         &Name,
         &Vital,
@@ -331,7 +339,7 @@ pub fn update_hex_visuals(
     // Compute ability range cells.
     let range_cells: HashSet<(i32, i32)> = if !sel.move_mode {
         let info = ctx.active
-            .and_then(|e| positions.0.get(&e).copied())
+            .and_then(|e| positions.get(&e))
             .zip(
                 sel.selected_ability.as_ref()
                     .and_then(|id| db.abilities.get(id))
@@ -340,8 +348,8 @@ pub fn update_hex_visuals(
         if let Some(((aq, ar), ab)) = info {
             cells
                 .iter()
-                .filter(|(_, hc, _, _)| hex_distance(aq, ar, hc.q, hc.r) <= ab.range as i32)
-                .map(|(_, hc, _, _)| (hc.q, hc.r))
+                .filter(|(_, hc, _)| hex_distance(aq, ar, hc.q, hc.r) <= ab.range as i32)
+                .map(|(_, hc, _)| (hc.q, hc.r))
                 .collect()
         } else {
             HashSet::new()
@@ -353,12 +361,11 @@ pub fn update_hex_visuals(
     // Compute movement-reachable cells.
     let move_cells: HashSet<(i32, i32)> = if sel.move_mode {
         if let Some(actor) = ctx.active {
-            if let (Some(&actor_pos), Ok((speed, bonus))) =
-                (positions.0.get(&actor), speed_q.get(actor))
+            if let (Some(actor_pos), Ok((speed, bonus))) =
+                (positions.get(&actor), speed_q.get(actor))
             {
                 let max_steps = bonus.map_or(speed.0, |b| b.0);
                 let enemy_pos: HashSet<(i32, i32)> = positions
-                    .0
                     .iter()
                     .filter(|(&e, _)| {
                         e != actor
@@ -371,7 +378,6 @@ pub fn update_hex_visuals(
                     .map(|(_, &p)| p)
                     .collect();
                 let all_occupied: HashSet<(i32, i32)> = positions
-                    .0
                     .iter()
                     .filter(|(&e, _)| e != actor)
                     .map(|(_, &p)| p)
@@ -394,14 +400,15 @@ pub fn update_hex_visuals(
     };
 
     // Update cell fill + border.
-    for (cell_entity, hex_cell, occupant, children) in &cells {
-        let is_active = occupant.0.is_some_and(|e| ctx.active == Some(e));
-        let is_target = occupant.0.is_some_and(|e| sel.selected_target == Some(e));
+    for (cell_entity, hex_cell, children) in &cells {
+        let occupant = positions.entity_at(hex_cell.q, hex_cell.r);
+        let is_active = occupant.is_some_and(|e| ctx.active == Some(e));
+        let is_target = occupant.is_some_and(|e| sel.selected_target == Some(e));
         let is_in_range = range_cells.contains(&(hex_cell.q, hex_cell.r));
         let is_in_move = move_cells.contains(&(hex_cell.q, hex_cell.r));
 
         if let Ok(mut mat) = cell_mats.get_mut(cell_entity) {
-            mat.0 = match &occupant.0 {
+            mat.0 = match occupant {
                 None => {
                     if is_in_move {
                         mats.move_range.clone()
@@ -412,7 +419,7 @@ pub fn update_hex_visuals(
                     }
                 }
                 Some(e) => {
-                    if let Ok((_, _, faction, _, _, is_dead)) = combatant_q.get(*e) {
+                    if let Ok((_, _, faction, _, _, is_dead)) = combatant_q.get(e) {
                         if is_dead {
                             mats.dead.clone()
                         } else if faction.0 == Team::Player {
@@ -449,7 +456,7 @@ pub fn update_hex_visuals(
 
     // Update standalone labels.
     for (link, mut text, mut vis) in &mut name_labels {
-        let occupant = cells.get(link.0).ok().and_then(|(_, _, occ, _)| occ.0);
+        let occupant = cells.get(link.0).ok().and_then(|(_, hc, _)| positions.entity_at(hc.q, hc.r));
         if let Some(e) = occupant {
             if let Ok((name, _, _, _, _, _)) = combatant_q.get(e) {
                 let n = name.as_str();
@@ -466,7 +473,7 @@ pub fn update_hex_visuals(
     }
 
     for (link, mut text, mut vis) in &mut hp_labels {
-        let occupant = cells.get(link.0).ok().and_then(|(_, _, occ, _)| occ.0);
+        let occupant = cells.get(link.0).ok().and_then(|(_, hc, _)| positions.entity_at(hc.q, hc.r));
         if let Some(e) = occupant {
             if let Ok((_, vital, _, _, _, _)) = combatant_q.get(e) {
                 text.0 = format!("{}/{}", vital.hp, vital.max_hp);
@@ -478,7 +485,7 @@ pub fn update_hex_visuals(
     }
 
     for (link, mut text, mut vis) in &mut mana_labels {
-        let occupant = cells.get(link.0).ok().and_then(|(_, _, occ, _)| occ.0);
+        let occupant = cells.get(link.0).ok().and_then(|(_, hc, _)| positions.entity_at(hc.q, hc.r));
         if let Some(e) = occupant {
             if let Ok((_, _, _, mana, rage, _)) = combatant_q.get(e) {
                 if let Some(m) = mana {
@@ -530,7 +537,7 @@ pub fn hex_hover_system(
 pub fn update_hex_tooltip(
     hover: Res<HexHover>,
     db: Res<GameDb>,
-    cells: Query<(&HexCell, &HexOccupant)>,
+    positions: Res<HexPositions>,
     combatant_q: Query<(
         &Name,
         &Vital,
@@ -553,10 +560,7 @@ pub fn update_hex_tooltip(
     };
 
     // Find occupant of hovered cell.
-    let occupant = cells
-        .iter()
-        .find(|(c, _)| c.q == hq && c.r == hr)
-        .and_then(|(_, occ)| occ.0);
+    let occupant = positions.entity_at(hq, hr);
 
     let Some(entity) = occupant else {
         *vis = Visibility::Hidden;
@@ -622,7 +626,6 @@ pub fn hex_click_target(
     time: Res<Time>,
     ctx: Res<CombatContext>,
     positions: Res<HexPositions>,
-    cells: Query<(&HexCell, &HexOccupant)>,
     move_query: Query<(&Faction, &ActionPoints, &Speed, Option<&BonusMovement>)>,
     combatant_q2: Query<(&Faction, &Vital), With<Combatant>>,
     mut sel: ResMut<SelectionState>,
@@ -635,10 +638,7 @@ pub fn hex_click_target(
     }
     let Some((hq, hr)) = hover.0 else { return };
 
-    let occupant = cells
-        .iter()
-        .find(|(c, _)| c.q == hq && c.r == hr)
-        .and_then(|(_, occ)| occ.0);
+    let occupant = positions.entity_at(hq, hr);
 
     let now = time.elapsed_secs_f64();
 
@@ -651,14 +651,13 @@ pub fn hex_click_target(
         if faction.0 != Team::Player || !ap.movement {
             return;
         }
-        let Some(&actor_pos) = positions.0.get(&actor) else {
+        let Some(actor_pos) = positions.get(&actor) else {
             return;
         };
         let max_steps = bonus.map_or(speed.0, |b| b.0);
 
         // Build passability: enemies block, allies pass-through.
         let enemy_pos: HashSet<(i32, i32)> = positions
-            .0
             .iter()
             .filter(|(&e, _)| {
                 e != actor
@@ -702,4 +701,57 @@ pub fn hex_click_target(
 
     last_click.pos = Some((hq, hr));
     last_click.time = now;
+}
+
+// ── System 7: Update token positions ────────────────────────────────────────
+
+/// Syncs UnitToken transforms with HexPositions (when not animating).
+/// Also hides tokens of dead units and updates material color.
+pub fn update_token_positions(
+    positions: Res<HexPositions>,
+    grid_offset: Res<HexGridOffset>,
+    mats: Res<HexMaterials>,
+    mut tokens: Query<(
+        &UnitToken,
+        &mut Transform,
+        &mut MeshMaterial2d<ColorMaterial>,
+        &mut Visibility,
+        Has<MovePath>,
+    )>,
+    combatant_q: Query<(&Faction, Has<Dead>)>,
+) {
+    for (token, mut transform, mut mat, mut vis, is_moving) in &mut tokens {
+        // Skip tokens currently animating.
+        if is_moving {
+            *vis = Visibility::Visible;
+            continue;
+        }
+
+        let Some(pos) = positions.get(&token.0) else {
+            *vis = Visibility::Hidden;
+            continue;
+        };
+
+        let Ok((faction, is_dead)) = combatant_q.get(token.0) else {
+            *vis = Visibility::Hidden;
+            continue;
+        };
+
+        if is_dead {
+            *vis = Visibility::Hidden;
+            continue;
+        }
+
+        let pixel = hex_to_pixel(pos.0, pos.1) + grid_offset.0;
+        transform.translation.x = pixel.x;
+        transform.translation.y = pixel.y;
+
+        mat.0 = if faction.0 == Team::Player {
+            mats.token_player.clone()
+        } else {
+            mats.token_enemy.clone()
+        };
+
+        *vis = Visibility::Visible;
+    }
 }

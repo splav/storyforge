@@ -2,7 +2,8 @@ use crate::content::abilities::{EffectDef, StatusOn, TargetType};
 use crate::core::{modifier, DiceRng};
 use crate::game::components::{ActionPoints, BonusMovement, CombatStats, EquippedWeapon, Mana, Rage};
 use crate::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, ValidatedAction};
-use crate::game::resources::{CombatEvent, CombatLog, GameDb};
+use crate::game::combat_log::{CombatEvent, CombatLog};
+use crate::game::resources::GameDb;
 use bevy::prelude::*;
 
 pub fn resolve_action_system(

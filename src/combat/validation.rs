@@ -20,7 +20,12 @@ pub fn validate_action_system(
     mut validated: MessageWriter<ValidatedAction>,
 ) {
     for ev in events.read() {
-        if !is_valid(ev, &ctx, &db, &positions, &actors, &targets) {
+        let valid = is_valid(ev, &ctx, &db, &positions, &actors, &targets);
+        info!(
+            "[VALID] UseAbility: actor={:?}, ability={:?}, target={:?} → valid={}",
+            ev.actor, ev.ability, ev.target, valid
+        );
+        if !valid {
             continue;
         }
         validated.write(ValidatedAction {
@@ -46,16 +51,20 @@ fn is_valid(
     targets: &Query<&Vital>,
 ) -> bool {
     if ctx.active != Some(ev.actor) {
+        info!("[VALID]   FAIL: ctx.active={:?} != actor={:?}", ctx.active, ev.actor);
         return false;
     }
 
     let Ok((vital, ap, abilities, rage, mana)) = actors.get(ev.actor) else {
+        info!("[VALID]   FAIL: actor query failed");
         return false;
     };
     if !vital.is_alive() || !ap.action {
+        info!("[VALID]   FAIL: alive={} ap.action={}", vital.is_alive(), ap.action);
         return false;
     }
     if !abilities.0.contains(&ev.ability) {
+        info!("[VALID]   FAIL: ability {:?} not in {:?}", ev.ability, abilities.0);
         return false;
     }
 
@@ -69,8 +78,8 @@ fn is_valid(
 
         // Range check (skip for self-targeted / range-0 abilities).
         if def.range > 0 {
-            if let (Some(&actor_pos), Some(&target_pos)) =
-                (positions.0.get(&ev.actor), positions.0.get(&ev.target))
+            if let (Some(actor_pos), Some(target_pos)) =
+                (positions.get(&ev.actor), positions.get(&ev.target))
             {
                 if hex_distance(actor_pos.0, actor_pos.1, target_pos.0, target_pos.1)
                     > def.range as i32

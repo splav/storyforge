@@ -1,5 +1,6 @@
 use crate::game::components::Mana;
-use crate::game::resources::{CombatContext, CombatEvent, CombatLog};
+use crate::game::combat_log::{CombatEvent, CombatLog};
+use crate::game::resources::CombatContext;
 use bevy::prelude::*;
 
 /// Runs at the start of every AwaitCommand frame.

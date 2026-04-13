@@ -1,6 +1,7 @@
 use crate::game::components::{Combatant, Dead, Rage, StatusEffects, Vital};
 use crate::game::messages::{ApplyDamage, ApplyHeal};
-use crate::game::resources::{CombatEvent, CombatLog, GameDb};
+use crate::game::combat_log::{CombatEvent, CombatLog};
+use crate::game::resources::GameDb;
 use bevy::prelude::*;
 
 /// Consumes ApplyDamage and ApplyHeal messages.

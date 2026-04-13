@@ -11,13 +11,14 @@ use storyforge::combat::{
 const MELEE_ATTACK: &str = "melee_attack";
 const SHORT_SWORD: &str = "short_sword";
 use storyforge::core::DiceRng;
-use storyforge::game::bundles::{enemy_bundle, warrior_bundle};
+use storyforge::game::bundles::{enemy_bundle, hero_bundle};
 use storyforge::game::components::{CombatStats, Vital};
 use storyforge::game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, UseAbility, ValidatedAction,
 };
+use storyforge::game::combat_log::CombatLog;
 use storyforge::game::resources::{
-    CombatContext, CombatLog, GameDb, HexPositions, SelectionState, TurnQueue,
+    CombatContext, GameDb, HexPositions, SelectionState, TurnQueue,
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -113,7 +114,7 @@ fn valid_use_ability_emits_validated_action() {
         .world_mut()
         .spawn((
             Name::new("Hero"),
-            warrior_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
     let target = app
@@ -145,14 +146,14 @@ fn wrong_actor_use_ability_is_rejected() {
         .world_mut()
         .spawn((
             Name::new("Hero"),
-            warrior_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
     let other = app
         .world_mut()
         .spawn((
             Name::new("Hero2"),
-            warrior_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
     let target = app
@@ -184,7 +185,7 @@ fn no_action_point_use_ability_is_rejected() {
         .world_mut()
         .spawn((
             Name::new("Hero"),
-            warrior_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
     let target = app
@@ -223,7 +224,7 @@ fn apply_damage_reduces_hp() {
         .world_mut()
         .spawn((
             Name::new("Hero"),
-            warrior_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
         ))
         .id();
     let goblin = app
@@ -265,7 +266,7 @@ fn killing_all_enemies_sets_victory_phase() {
         .world_mut()
         .spawn((
             Name::new("Hero"),
-            warrior_bundle(
+            hero_bundle(
                 CombatStats {
                     max_hp: 10,
                     armor: 0,
@@ -338,7 +339,7 @@ fn killing_all_heroes_sets_defeat_phase() {
         .world_mut()
         .spawn((
             Name::new("Hero"),
-            warrior_bundle(
+            hero_bundle(
                 CombatStats {
                     max_hp: 1,
                     armor: 0,

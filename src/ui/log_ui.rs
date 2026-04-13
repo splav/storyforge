@@ -1,6 +1,6 @@
-use super::console_log::fmt_event;
 use super::{LogScrollClip, LogScrollThumb, LogText};
-use crate::game::resources::{CombatLog, GameDb};
+use crate::game::combat_log::CombatLog;
+use crate::game::resources::GameDb;
 use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
 
@@ -35,10 +35,11 @@ pub fn update_log(
         return;
     };
 
+    let name = |e: Entity| names.get(e).map(|n| n.as_str()).unwrap_or("?").to_string();
     t.0 = log
         .0
         .iter()
-        .map(|e| format!("{}\n", fmt_event(e, &names, &db)))
+        .map(|e| format!("{}\n", e.format(&name, &db)))
         .collect();
 }
 

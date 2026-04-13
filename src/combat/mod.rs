@@ -2,6 +2,7 @@ pub mod advance_turn;
 pub mod apply_effects;
 pub mod command_input;
 pub mod enemy_ai;
+pub mod enemy_popup;
 pub mod movement;
 pub mod resolution;
 pub mod skip_dead;
@@ -11,7 +12,8 @@ pub mod validation;
 
 use crate::app_state::AppState;
 use crate::game::messages::StartCombat;
-use crate::game::resources::{CombatContext, CombatEvent, CombatLog};
+use crate::game::combat_log::{CombatEvent, CombatLog};
+use crate::game::resources::CombatContext;
 use bevy::prelude::*;
 
 /// Listens for StartCombat events while in Overworld and transitions to Combat.

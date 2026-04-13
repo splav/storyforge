@@ -17,9 +17,6 @@ pub enum CombatPhase {
     #[default]
     StartRound,
     AwaitCommand,
-    ResolveAction,
-    EnemyTurn,
-    Cleanup,
     Victory,
     Defeat,
 }

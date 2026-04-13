@@ -5,7 +5,7 @@ use crate::game::components::{
 };
 use crate::game::hex::{hex_distance, in_bounds};
 use crate::game::messages::{EndTurn, MoveUnit, UseAbility};
-use crate::game::pathfinding::{find_path, reachable_cells};
+use crate::game::pathfinding::reachable_with_paths;
 use crate::game::resources::{CombatContext, GameDb, HexPositions};
 use bevy::prelude::*;
 use std::collections::HashSet;
@@ -44,10 +44,11 @@ pub fn enemy_ai_system(
         return;
     }
     if !ap.action && !ap.movement {
+        end_turn.write(EndTurn { actor });
         return;
     }
 
-    let Some(&actor_pos) = positions.0.get(&actor) else {
+    let Some(actor_pos) = positions.get(&actor) else {
         return;
     };
 
@@ -58,7 +59,7 @@ pub fn enemy_ai_system(
     let players: Vec<(Entity, (i32, i32))> = combatants
         .iter()
         .filter(|(_, f, _, v, _, _, _, _)| f.0 == Team::Player && v.is_alive())
-        .filter_map(|(e, _, _, _, _, _, _, _)| positions.0.get(&e).map(|&p| (e, p)))
+        .filter_map(|(e, _, _, _, _, _, _, _)| positions.get(&e).map(|p| (e, p)))
         .collect();
 
     if players.is_empty() {
@@ -90,7 +91,7 @@ pub fn enemy_ai_system(
         .iter()
         .filter(|(_, f, _, v, _, _, _, _)| f.0 == Team::Enemy && v.is_alive())
         .filter_map(|(e, _, _, v, _, _, _, _)| {
-            positions.0.get(&e).map(|&p| (e, p, v.hp, v.max_hp))
+            positions.get(&e).map(|p| (e, p, v.hp, v.max_hp))
         })
         .collect();
 
@@ -142,9 +143,16 @@ pub fn enemy_ai_system(
         }
     }
 
+    info!(
+        "[AI] actor={:?}: best_in_range={:?}, best_any={:?}, ap.action={}, ap.movement={}",
+        actor, best_in_range, best_any, ap.action, ap.movement,
+    );
+
     // If we have an ability+target in range, use it.
+    // Note: resolve_action_system sends EndTurn after resolving the ability.
     if let Some((ability, target, _)) = best_in_range {
         if ap.action {
+            info!("[AI] → UseAbility (in range): {:?} → {:?}", ability, target);
             use_ability.write(UseAbility {
                 actor,
                 ability,
@@ -154,8 +162,9 @@ pub fn enemy_ai_system(
         }
     }
 
-    // Not in range. Try to move closer for the best ability.
+    // Not in range (or action already spent). Try to move closer for the best ability.
     if !ap.movement {
+        info!("[AI] → EndTurn (no movement left)");
         end_turn.write(EndTurn { actor });
         return;
     }
@@ -166,10 +175,9 @@ pub fn enemy_ai_system(
     let enemy_positions: HashSet<(i32, i32)> = combatants
         .iter()
         .filter(|(e, f, _, v, _, _, _, _)| *e != actor && f.0 == Team::Enemy && v.is_alive())
-        .filter_map(|(e, _, _, _, _, _, _, _)| positions.0.get(&e).copied())
+        .filter_map(|(e, _, _, _, _, _, _, _)| positions.get(&e))
         .collect();
     let all_occupied: HashSet<(i32, i32)> = positions
-        .0
         .iter()
         .filter(|(&e, _)| e != actor)
         .map(|(_, &p)| p)
@@ -178,7 +186,7 @@ pub fn enemy_ai_system(
     let is_passable =
         |q: i32, r: i32| -> bool { in_bounds(q, r) && !enemy_positions.contains(&(q, r)) };
 
-    let reachable = reachable_cells(
+    let reach = reachable_with_paths(
         actor_pos,
         speed.0,
         &is_passable,
@@ -187,8 +195,7 @@ pub fn enemy_ai_system(
 
     // Find best reachable cell that puts us within ability range of a target.
     let move_targets: Vec<(Entity, (i32, i32))> = if let Some((_, target, _, _)) = &best_any {
-        // Try to reach the specific best target.
-        if let Some(&pos) = positions.0.get(target) {
+        if let Some(pos) = positions.get(target) {
             vec![(*target, pos)]
         } else {
             enemy_pool.to_vec()
@@ -200,48 +207,48 @@ pub fn enemy_ai_system(
     let mut best_move: Option<(Vec<(i32, i32)>, Entity)> = None;
 
     for &(target_entity, target_pos) in &move_targets {
-        for &cell in &reachable {
+        for &cell in &reach.destinations {
             if hex_distance(cell.0, cell.1, target_pos.0, target_pos.1) > target_range {
                 continue;
             }
-            if let Some(path) = find_path(actor_pos, cell, &is_passable) {
-                if path.len() as i32 <= speed.0 {
-                    let is_better = best_move
-                        .as_ref()
-                        .map_or(true, |(bp, _)| path.len() < bp.len());
-                    if is_better {
-                        best_move = Some((path, target_entity));
-                    }
+            if let Some(path) = reach.path_to(cell) {
+                let is_better = best_move
+                    .as_ref()
+                    .map_or(true, |(bp, _)| path.len() < bp.len());
+                if is_better {
+                    best_move = Some((path, target_entity));
                 }
             }
         }
     }
 
+    info!("[AI] best_move={:?}", best_move.as_ref().map(|(p, t)| (p.len(), t)));
+
     if let Some((path, target)) = best_move {
         let dest = *path.last().unwrap();
-        move_unit.write(MoveUnit {
-            actor,
-            path,
-        });
+        move_unit.write(MoveUnit { actor, path: path.clone() });
         if ap.action {
-            // Re-pick best ability for this target from new position.
             let best_ability = pick_best_for_target(
                 actor, target, dest, abilities, &db, mana_cur, rage_cur, &allies,
             );
+            info!("[AI] → move to {:?}, pick_best_for_target={:?}", dest, best_ability);
             if let Some(ability) = best_ability {
+                // resolve_action_system will send EndTurn after resolving.
                 use_ability.write(UseAbility {
                     actor,
                     ability,
                     target,
                 });
+                return;
             }
         }
+        end_turn.write(EndTurn { actor });
         return;
     }
 
     // Can't reach attack range — move as close as possible.
     let mut best_approach: Option<((i32, i32), i32)> = None;
-    for &cell in &reachable {
+    for &cell in &reach.destinations {
         for &(_, target_pos) in enemy_pool {
             let dist = hex_distance(cell.0, cell.1, target_pos.0, target_pos.1);
             if best_approach.map_or(true, |(_, bd)| dist < bd) {
@@ -251,10 +258,8 @@ pub fn enemy_ai_system(
     }
 
     if let Some((dest, _)) = best_approach {
-        if let Some(path) = find_path(actor_pos, dest, &is_passable) {
-            if path.len() as i32 <= speed.0 {
-                move_unit.write(MoveUnit { actor, path });
-            }
+        if let Some(path) = reach.path_to(dest) {
+            move_unit.write(MoveUnit { actor, path });
         }
     }
 
@@ -272,6 +277,17 @@ fn can_afford(def: &AbilityDef, mana: i32, rage: i32) -> bool {
 }
 
 /// Score an ability for a given target. Higher = better. 0 = skip.
+// ── AI scoring weights ──────────────────────────────────────────────────────
+
+const HEAL_THRESHOLD_PCT: i32 = 60;
+const HEAL_PER_HP_MISSING: i32 = 10;
+const HEAL_BASE_BONUS: i32 = 50;
+const SCORE_SPELL_DAMAGE_BONUS: i32 = 20;
+const SCORE_PHYSICAL_DAMAGE_BONUS: i32 = 5;
+const SCORE_WEAPON_ATTACK: i32 = 8;
+const SCORE_STUN_STATUS: i32 = 40;
+const SCORE_VULNERABILITY_STATUS: i32 = 15;
+
 fn score_ability(
     def: &AbilityDef,
     target: Entity,
@@ -280,42 +296,40 @@ fn score_ability(
 ) -> i32 {
     match &def.effect {
         EffectDef::Heal { dice } => {
-            // Only heal if target is below 60% HP.
             let (hp, max_hp) = allies
                 .iter()
                 .find(|(e, _, _, _)| *e == target)
                 .map(|(_, _, hp, max_hp)| (*hp, *max_hp))
                 .unwrap_or((1, 1));
-            if max_hp == 0 || hp * 100 / max_hp > 60 {
-                return 0; // Not worth healing.
+            if max_hp == 0 || hp * 100 / max_hp > HEAL_THRESHOLD_PCT {
+                return 0;
             }
             let missing = max_hp - hp;
             let avg_heal = (dice.count * dice.sides / 2) as i32;
-            // Higher priority the more HP is missing.
-            missing.min(avg_heal) * 10 + 50
+            missing.min(avg_heal) * HEAL_PER_HP_MISSING + HEAL_BASE_BONUS
         }
         EffectDef::SpellDamage { dice } => {
-            // Pierces armor — very valuable.
-            (dice.count * dice.sides) as i32 + 20
+            (dice.count * dice.sides) as i32 + SCORE_SPELL_DAMAGE_BONUS
         }
-        EffectDef::Damage { dice } => (dice.count * dice.sides) as i32 + 5,
-        EffectDef::WeaponAttack => 8, // Base melee, always works.
+        EffectDef::Damage { dice } => {
+            (dice.count * dice.sides) as i32 + SCORE_PHYSICAL_DAMAGE_BONUS
+        }
+        EffectDef::WeaponAttack => SCORE_WEAPON_ATTACK,
         EffectDef::None => {
-            // Status-only ability. Score based on status effects.
             let mut s = 0i32;
             for sa in &def.statuses {
                 if let Some(sd) = db.statuses.get(&sa.status) {
                     if sd.skips_turn {
-                        s += 40; // Stun/paralyze is very valuable.
+                        s += SCORE_STUN_STATUS;
                     }
                     if sd.damage_taken_bonus > 0 {
-                        s += 15;
+                        s += SCORE_VULNERABILITY_STATUS;
                     }
                 }
             }
             s
         }
-        EffectDef::GrantMovement { .. } => 0, // Enemies don't need this.
+        EffectDef::GrantMovement { .. } => 0,
     }
 }
 

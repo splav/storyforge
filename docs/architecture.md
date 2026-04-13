@@ -32,7 +32,10 @@ StartRound → AwaitCommand → Victory / Defeat
 ```
 src/
   app_state.rs      AppState + CombatPhase enums
-  scenario.rs       Scenario runner: start, spawn, despawn, advance, victory/defeat input
+  scenario/
+    mod.rs          AdvanceScenario message, start_scenario, advance_scenario_system
+    combat_scene.rs spawn_combat_scene, despawn_combatants
+    input.rs        victory_input_system, defeat_input_system
   lib.rs            Re-exports all modules
   main.rs           App builder: resources, messages, system registration
 
@@ -42,12 +45,12 @@ src/
     rng.rs          DiceRng (LCG), DiceExpr { count, sides, bonus }
 
   game/
-    components.rs   ECS components: Vital, CombatStats, Speed, ActionPoints, Mana, Rage, StatusEffects, etc.
-    resources.rs    CombatContext, TurnQueue, CombatLog, GameDb, SelectionState, ScenarioState, HexPositions
+    components.rs   ECS components: HexCell, Vital, CombatStats, Speed, ActionPoints, Mana, Rage, StatusEffects, etc.
+    resources.rs    CombatContext, TurnQueue, CombatLog, GameDb (with validation), SelectionState, ScenarioState, HexPositions (bidirectional)
     messages.rs     UseAbility, ValidatedAction, ApplyDamage, ApplyHeal, ApplyStatus, MoveUnit, EndTurn, etc.
-    bundles.rs      CombatantBundle, warrior_bundle(), enemy_bundle()
+    bundles.rs      CombatantBundle, hero_bundle(), enemy_bundle()
     hex.rs          Grid constants, hex_distance, hex_neighbors, in_bounds
-    pathfinding.rs  find_path (BFS), reachable_cells (flood fill)
+    pathfinding.rs  find_path (BFS), reachable_cells, reachable_with_paths (BFS + path reconstruction)
 
   content/
     abilities.rs    AbilityDef, EffectDef, TargetType + TOML loader
@@ -63,7 +66,7 @@ src/
     skip_dead.rs    Skip dead / stunned turns
     command_input.rs  Player keyboard input (1-5, M, Tab, Enter, E, Escape)
     enemy_ai.rs     AI: ability scoring, pathfinding, movement
-    movement.rs     MoveUnit processing, HexPositions/HexOccupant updates
+    movement.rs     MoveUnit processing, HexPositions updates
     validation.rs   UseAbility → ValidatedAction (resources, range, target alive)
     resolution.rs   Dice rolls, damage/heal/status emission, resource costs
     apply_effects.rs  Damage (armor), healing, rage gain, death marking

@@ -3,7 +3,8 @@ use crate::game::components::{
     ActionPoints, ActiveStatus, Combatant, Faction, StatusEffects, Team, Vital,
 };
 use crate::game::messages::{ApplyStatus, EndTurn};
-use crate::game::resources::{CombatContext, CombatEvent, CombatLog, TurnQueue};
+use crate::game::combat_log::{CombatEvent, CombatLog};
+use crate::game::resources::{CombatContext, TurnQueue};
 use bevy::prelude::*;
 
 /// Consumes EndTurn and ApplyStatus messages.

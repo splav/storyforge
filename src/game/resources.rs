@@ -82,92 +82,6 @@ mod queue_tests {
     }
 }
 
-// ── Combat log ───────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone)]
-pub enum CombatEvent {
-    CombatStarted,
-    RoundStarted {
-        round: u32,
-    },
-    InitiativeRolled {
-        actor: Entity,
-        dex_mod: i32,
-        roll: i32,
-        total: i32,
-    },
-    TurnStarted {
-        actor: Entity,
-    },
-    AbilityUsed {
-        actor: Entity,
-        ability_name: String,
-        target: Entity,
-        cost_str: String,
-    },
-    /// Full damage summary: formula + armor reduction + final HP lost.
-    DamageResult {
-        target: Entity,
-        formula: String,    // e.g. "1d8=6 + 4(сил) = 10"
-        armor_reduced: i32, // total absorption (armor + statuses)
-        final_damage: i32,  // HP actually lost
-    },
-    /// Full heal summary: formula + HP actually restored.
-    HealResult {
-        target: Entity,
-        formula: String, // e.g. "1d4=2 + 1(сила) + 2(инт) = 5"
-        amount: i32,     // HP actually restored (capped at max_hp)
-    },
-    Missed {
-        actor: Entity,
-        target: Entity,
-    },
-    StatusApplied {
-        target: Entity,
-        status: StatusId,
-    },
-    StatusExpired {
-        target: Entity,
-        status: StatusId,
-    },
-    TurnSkipped {
-        actor: Entity,
-    },
-    TurnEnded {
-        actor: Entity,
-    },
-    UnitMoved {
-        actor: Entity,
-        from: (i32, i32),
-        to: (i32, i32),
-    },
-    RageGained {
-        actor: Entity,
-        current: i32,
-        max: i32,
-    },
-    ManaChanged {
-        actor: Entity,
-        current: i32,
-        max: i32,
-    },
-    CombatEnded {
-        victory: bool,
-    },
-    UnitDied {
-        entity: Entity,
-    },
-}
-
-#[derive(Resource, Default)]
-pub struct CombatLog(pub Vec<CombatEvent>);
-
-impl CombatLog {
-    pub fn push(&mut self, event: CombatEvent) {
-        self.0.push(event);
-    }
-}
-
 // ── Game rules database ──────────────────────────────────────────────────────
 
 #[derive(Resource)]
@@ -182,7 +96,7 @@ pub struct GameDb {
 
 impl Default for GameDb {
     fn default() -> Self {
-        Self {
+        let db = Self {
             abilities: load_abilities()
                 .into_iter()
                 .map(|a| (a.id.clone(), a))
@@ -207,6 +121,89 @@ impl Default for GameDb {
                 .into_iter()
                 .map(|s| (s.id.clone(), s))
                 .collect(),
+        };
+        db.validate();
+        db
+    }
+}
+
+impl GameDb {
+    /// Validate cross-references between TOML data files.
+    /// Panics with a clear message if any reference is broken.
+    fn validate(&self) {
+        // Abilities → statuses
+        for (id, def) in &self.abilities {
+            for sa in &def.statuses {
+                assert!(
+                    self.statuses.contains_key(&sa.status),
+                    "ability '{}' references unknown status '{}'",
+                    id,
+                    sa.status
+                );
+            }
+        }
+
+        // Classes → weapons, abilities
+        for (id, cls) in &self.classes {
+            assert!(
+                self.weapons.contains_key(&cls.weapon),
+                "class '{}' references unknown weapon '{}'",
+                id,
+                cls.weapon
+            );
+            for aid in &cls.abilities {
+                assert!(
+                    self.abilities.contains_key(aid),
+                    "class '{}' references unknown ability '{}'",
+                    id,
+                    aid
+                );
+            }
+        }
+
+        // Encounters → weapons, abilities
+        for (id, enc) in &self.encounters {
+            for enemy in &enc.enemies {
+                assert!(
+                    self.weapons.contains_key(&enemy.weapon_id),
+                    "encounter '{}' enemy '{}' references unknown weapon '{}'",
+                    id,
+                    enemy.name,
+                    enemy.weapon_id
+                );
+                for aid in &enemy.ability_ids {
+                    assert!(
+                        self.abilities.contains_key(aid),
+                        "encounter '{}' enemy '{}' references unknown ability '{}'",
+                        id,
+                        enemy.name,
+                        aid
+                    );
+                }
+            }
+        }
+
+        // Scenarios → encounters, classes
+        for (id, scen) in &self.scenarios {
+            for member in &scen.party {
+                assert!(
+                    self.classes.contains_key(&member.class_id),
+                    "scenario '{}' party member '{}' references unknown class '{}'",
+                    id,
+                    member.name,
+                    member.class_id
+                );
+            }
+            for scene in &scen.scenes {
+                if let crate::content::scenarios::SceneDef::Combat { encounter_id } = scene {
+                    assert!(
+                        self.encounters.contains_key(encounter_id.as_str()),
+                        "scenario '{}' references unknown encounter '{}'",
+                        id,
+                        encounter_id
+                    );
+                }
+            }
         }
     }
 }
@@ -221,9 +218,45 @@ pub struct ScenarioState {
 
 // ── Hex positions ────────────────────────────────────────────────────────────
 
-/// Maps combatant entity → current hex position (col, row).
+/// Bidirectional map: entity ↔ hex position (col, row).
 #[derive(Resource, Default)]
-pub struct HexPositions(pub HashMap<Entity, (i32, i32)>);
+pub struct HexPositions {
+    by_entity: HashMap<Entity, (i32, i32)>,
+    by_pos: HashMap<(i32, i32), Entity>,
+}
+
+impl HexPositions {
+    pub fn insert(&mut self, entity: Entity, pos: (i32, i32)) {
+        if let Some(&old_pos) = self.by_entity.get(&entity) {
+            self.by_pos.remove(&old_pos);
+        }
+        self.by_entity.insert(entity, pos);
+        self.by_pos.insert(pos, entity);
+    }
+
+    pub fn remove(&mut self, entity: &Entity) {
+        if let Some(pos) = self.by_entity.remove(entity) {
+            self.by_pos.remove(&pos);
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.by_entity.clear();
+        self.by_pos.clear();
+    }
+
+    pub fn get(&self, entity: &Entity) -> Option<(i32, i32)> {
+        self.by_entity.get(entity).copied()
+    }
+
+    pub fn entity_at(&self, q: i32, r: i32) -> Option<Entity> {
+        self.by_pos.get(&(q, r)).copied()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&Entity, &(i32, i32))> {
+        self.by_entity.iter()
+    }
+}
 
 // ── UI selection ─────────────────────────────────────────────────────────────
 

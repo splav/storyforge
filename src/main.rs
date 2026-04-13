@@ -14,7 +14,9 @@ use game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, StartCombat, UseAbility,
     ValidatedAction,
 };
-use game::resources::{CombatContext, CombatLog, GameDb, HexPositions, SelectionState, TurnQueue};
+use game::combat_log::CombatLog;
+use game::resources::{CombatContext, GameDb, HexPositions, SelectionState, TurnQueue};
+use ui::animation::AnimationQueue;
 
 fn main() {
     App::new()
@@ -38,6 +40,8 @@ fn main() {
         .init_resource::<HexPositions>()
         .init_resource::<ui::hex_grid::HexHover>()
         .init_resource::<ui::hex_grid::HexLastClick>()
+        .init_resource::<AnimationQueue>()
+        .init_resource::<combat::enemy_popup::PopupCursor>()
         .add_message::<StartCombat>()
         .add_message::<UseAbility>()
         .add_message::<ValidatedAction>()
@@ -69,14 +73,14 @@ fn main() {
         .add_systems(
             OnEnter(AppState::Combat),
             (
-                scenario::spawn_combat_scene,
+                scenario::combat_scene::spawn_combat_scene,
                 ui::hex_grid::assign_hex_positions,
             )
                 .chain(),
         )
         .add_systems(
             OnExit(AppState::Combat),
-            scenario::despawn_combatants,
+            scenario::combat_scene::despawn_combatants,
         )
         // ── Combat UI (runs every frame during combat) ───────────────────
         .add_systems(
@@ -92,6 +96,7 @@ fn main() {
                 ui::hex_grid::update_hex_visuals,
                 ui::hex_grid::update_hex_tooltip,
                 ui::hex_grid::hex_click_target,
+                ui::hex_grid::update_token_positions,
                 ui::log_ui::update_log,
                 ui::log_ui::log_scroll_input,
                 ui::log_ui::log_scrollbar_update,
@@ -99,19 +104,29 @@ fn main() {
             )
                 .run_if(in_state(AppState::Combat)),
         )
+        // ── Animation systems (run independently, not in chain) ─────────
+        .add_systems(
+            Update,
+            (
+                ui::animation::process_animation_queue,
+                ui::animation::animate_movement,
+                ui::animation::enemy_popup_input,
+            )
+                .run_if(in_state(AppState::Combat)),
+        )
         // ── Scenario advancement (always active) ─────────────────────────
         .add_systems(
             Update,
-            scenario::victory_input_system.run_if(in_state(CombatPhase::Victory)),
+            scenario::input::victory_input_system.run_if(in_state(CombatPhase::Victory)),
         )
         .add_systems(
             Update,
-            scenario::defeat_input_system.run_if(in_state(CombatPhase::Defeat)),
+            scenario::input::defeat_input_system.run_if(in_state(CombatPhase::Defeat)),
         )
         .add_systems(
             Update,
             scenario::advance_scenario_system
-                .after(scenario::victory_input_system)
+                .after(scenario::input::victory_input_system)
                 .after(ui::story_ui::story_input_system),
         )
         // ── Combat pipeline ──────────────────────────────────────────────
@@ -135,10 +150,12 @@ fn main() {
                 combat::validation::validate_action_system,
                 combat::resolution::resolve_action_system,
                 combat::apply_effects::apply_effects_system,
+                combat::enemy_popup::queue_enemy_popup,
                 combat::advance_turn::advance_turn_system,
             )
                 .chain()
-                .run_if(in_state(CombatPhase::AwaitCommand)),
+                .run_if(in_state(CombatPhase::AwaitCommand))
+                .run_if(ui::animation::combat_ready),
         )
         .run();
 }

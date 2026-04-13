@@ -79,8 +79,20 @@ pub fn reachable_cells(
     is_passable: impl Fn(i32, i32) -> bool,
     can_stop: impl Fn(i32, i32) -> bool,
 ) -> HashSet<(i32, i32)> {
+    reachable_with_paths(start, max_steps, is_passable, can_stop).destinations
+}
+
+/// Same as `reachable_cells` but also stores `came_from` so paths can be reconstructed
+/// via `ReachableMap::path_to` without a second BFS.
+pub fn reachable_with_paths(
+    start: (i32, i32),
+    max_steps: i32,
+    is_passable: impl Fn(i32, i32) -> bool,
+    can_stop: impl Fn(i32, i32) -> bool,
+) -> ReachableMap {
     let mut visited: HashSet<(i32, i32)> = HashSet::new();
-    let mut result: HashSet<(i32, i32)> = HashSet::new();
+    let mut destinations: HashSet<(i32, i32)> = HashSet::new();
+    let mut came_from: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
     let mut queue: VecDeque<((i32, i32), i32)> = VecDeque::new();
 
     visited.insert(start);
@@ -98,14 +110,46 @@ pub fn reachable_cells(
                 continue;
             }
             visited.insert(nb);
+            came_from.insert(nb, current);
             if can_stop(nb.0, nb.1) {
-                result.insert(nb);
+                destinations.insert(nb);
             }
             queue.push_back((nb, dist + 1));
         }
     }
 
-    result
+    ReachableMap {
+        start,
+        destinations,
+        came_from,
+    }
+}
+
+pub struct ReachableMap {
+    pub start: (i32, i32),
+    pub destinations: HashSet<(i32, i32)>,
+    came_from: HashMap<(i32, i32), (i32, i32)>,
+}
+
+impl ReachableMap {
+    /// Reconstruct the path from start to `goal`. Returns start-exclusive, goal-inclusive.
+    /// Returns `None` if `goal` is not in the BFS tree.
+    pub fn path_to(&self, goal: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+        if !self.came_from.contains_key(&goal) {
+            return None;
+        }
+        let mut path = vec![goal];
+        let mut cur = goal;
+        while let Some(&prev) = self.came_from.get(&cur) {
+            if prev == self.start {
+                break;
+            }
+            path.push(prev);
+            cur = prev;
+        }
+        path.reverse();
+        Some(path)
+    }
 }
 
 #[cfg(test)]

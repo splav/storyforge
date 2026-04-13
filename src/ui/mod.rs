@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod combat_ui;
 pub mod console_log;
 pub mod hex_grid;

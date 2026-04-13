@@ -8,6 +8,13 @@ pub struct Combatant;
 #[derive(Component, Clone, Copy)]
 pub struct StartingHexPos(pub i32, pub i32);
 
+/// Hex grid cell identity (col, row). Attached to each grid cell entity.
+#[derive(Component)]
+pub struct HexCell {
+    pub q: i32,
+    pub r: i32,
+}
+
 /// Inserted when hp reaches 0. Skips the unit's turn and prevents acting.
 #[derive(Component, Default)]
 pub struct Dead;
@@ -156,6 +163,10 @@ impl Rage {
         true
     }
 }
+
+/// Visual token circle entity linked to a combatant.
+#[derive(Component)]
+pub struct UnitToken(pub Entity);
 
 /// The weapon currently equipped by this combatant.
 #[derive(Component, Clone)]

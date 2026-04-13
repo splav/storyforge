@@ -1,9 +1,20 @@
-use crate::game::components::{ActionPoints, BonusMovement, Speed};
+use crate::game::components::{ActionPoints, BonusMovement, Speed, UnitToken};
 use crate::game::hex::in_bounds;
 use crate::game::messages::MoveUnit;
-use crate::game::resources::{CombatContext, CombatEvent, CombatLog, HexPositions};
-use crate::ui::hex_grid::{HexCell, HexOccupant};
+use crate::game::combat_log::{CombatEvent, CombatLog};
+use crate::game::resources::{CombatContext, HexPositions};
+use crate::ui::animation::{AnimationQueue, PendingAnim};
+use crate::ui::hex_grid::HexGridOffset;
 use bevy::prelude::*;
+
+/// Hex-to-pixel for animation waypoints (duplicated from hex_grid for layering).
+fn hex_to_pixel(q: i32, r: i32) -> Vec2 {
+    const HEX_SIZE: f32 = 34.0;
+    let shift = if r & 1 == 0 { 0.5 } else { 0.0 };
+    let x = HEX_SIZE * 3.0_f32.sqrt() * (q as f32 + shift);
+    let y = HEX_SIZE * 1.5 * r as f32;
+    Vec2::new(x, -y)
+}
 
 pub fn movement_system(
     mut commands: Commands,
@@ -11,8 +22,10 @@ pub fn movement_system(
     mut events: MessageReader<MoveUnit>,
     mut positions: ResMut<HexPositions>,
     mut movers: Query<(&mut ActionPoints, &Speed, Option<&BonusMovement>)>,
-    mut cells: Query<(&HexCell, &mut HexOccupant)>,
     mut log: ResMut<CombatLog>,
+    tokens: Query<(Entity, &UnitToken)>,
+    grid_offset: Res<HexGridOffset>,
+    mut anim_queue: ResMut<AnimationQueue>,
 ) {
     for ev in events.read() {
         if ctx.active != Some(ev.actor) {
@@ -29,9 +42,7 @@ pub fn movement_system(
             continue;
         }
 
-        // Use BonusMovement as speed limit if present, otherwise base Speed.
         let max_steps = bonus.map_or(speed.0, |b| b.0);
-
         if ev.path.len() as i32 > max_steps {
             continue;
         }
@@ -41,35 +52,34 @@ pub fn movement_system(
             continue;
         }
 
-        // Destination must not be occupied by another entity.
         let dest_occupied = positions
-            .0
-            .iter()
-            .any(|(&e, &pos)| e != ev.actor && pos == dest);
+            .entity_at(dest.0, dest.1)
+            .is_some_and(|e| e != ev.actor);
         if dest_occupied {
             continue;
         }
 
-        let old_pos = positions.0.get(&ev.actor).copied().unwrap_or((-1, -1));
+        let old_pos = positions.get(&ev.actor).unwrap_or((-1, -1));
 
-        // Update resource.
-        positions.0.insert(ev.actor, dest);
+        // Build pixel waypoints for animation: start from old position, then path steps.
+        let offset = grid_offset.0;
+        let mut waypoints = vec![hex_to_pixel(old_pos.0, old_pos.1) + offset];
+        for &(q, r) in &ev.path {
+            waypoints.push(hex_to_pixel(q, r) + offset);
+        }
 
-        // Update cell occupants.
-        for (cell, mut occ) in &mut cells {
-            if cell.q == old_pos.0 && cell.r == old_pos.1 && occ.0 == Some(ev.actor) {
-                occ.0 = None;
-            }
+        // Find the token entity for this actor.
+        if let Some((token_entity, _)) = tokens.iter().find(|(_, t)| t.0 == ev.actor) {
+            anim_queue.0.push_back(PendingAnim::Movement {
+                token: token_entity,
+                waypoints,
+            });
         }
-        for (cell, mut occ) in &mut cells {
-            if cell.q == dest.0 && cell.r == dest.1 {
-                occ.0 = Some(ev.actor);
-            }
-        }
+
+        positions.insert(ev.actor, dest);
 
         ap.movement = false;
 
-        // Remove BonusMovement component after use.
         if bonus.is_some() {
             commands.entity(ev.actor).remove::<BonusMovement>();
         }

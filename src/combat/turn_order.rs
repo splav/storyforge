@@ -1,7 +1,8 @@
 use crate::app_state::CombatPhase;
 use crate::core::{modifier, DiceRng};
 use crate::game::components::{ActionPoints, CombatStats, Combatant, Initiative, Vital};
-use crate::game::resources::{CombatContext, CombatEvent, CombatLog, TurnQueue};
+use crate::game::combat_log::{CombatEvent, CombatLog};
+use crate::game::resources::{CombatContext, TurnQueue};
 use bevy::prelude::*;
 
 /// Build the turn order for a new round.
