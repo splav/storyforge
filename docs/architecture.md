@@ -46,7 +46,7 @@ src/
 
   game/
     components.rs   ECS components: HexCell, Vital, CombatStats, Speed, ActionPoints, Mana, Rage, StatusEffects, UnitToken, etc.
-    resources.rs    CombatContext, TurnQueue, GameDb (with validation), SelectionState, ScenarioState, HexPositions (bidirectional), UiDirty/UiDirtyFlags
+    resources.rs    CombatContext (+ turn_ending flag), TurnQueue, GameDb (with validation), SelectionState, ScenarioState, HexPositions (+ generation counter), UiDirty/UiDirtyFlags
     combat_log.rs   CombatEvent enum (16 variants) + CombatLog resource + CombatEvent::format() method
     messages.rs     UseAbility, ValidatedAction, ApplyDamage, ApplyHeal, ApplyStatus, MoveUnit, EndTurn, etc.
     bundles.rs      CombatantBundle, hero_bundle(), enemy_bundle()
@@ -66,7 +66,7 @@ src/
     turn_start.rs   Mana +1 at turn start
     skip_dead.rs    Skip dead / stunned turns
     command_input.rs  Player keyboard input (1-5, M, Tab, Enter, E, Escape)
-    enemy_ai.rs     AI: ability scoring, pathfinding, movement
+    enemy_ai.rs     AI: ability scoring, pathfinding, movement. CombatantQ (QueryData struct)
     movement.rs     MoveUnit processing, HexPositions updates, movement animation queueing
     enemy_popup.rs  PopupCursor + queue_enemy_popup: detects enemy ability use, queues popup
     validation.rs   UseAbility → ValidatedAction (resources, range, target alive)

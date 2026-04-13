@@ -1,27 +1,14 @@
 use crate::content::abilities::{AbilityDef, EffectDef, TargetType};
 use crate::core::{AbilityId, DiceRng};
 use crate::game::components::{
-    Abilities, ActionPoints, Combatant, Faction, Mana, Rage, Speed, StatusEffects, Team, Vital,
+    Abilities, AiCombatantQ, Combatant, Faction, Mana, Rage, StatusEffects, Team, Vital,
 };
 use crate::game::hex::{hex_distance, in_bounds};
 use crate::game::messages::{EndTurn, MoveUnit, UseAbility};
 use crate::game::pathfinding::reachable_with_paths;
 use crate::game::resources::{CombatContext, GameDb, HexPositions};
-use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 use std::collections::HashSet;
-
-#[derive(QueryData)]
-pub struct CombatantQ {
-    entity: Entity,
-    faction: &'static Faction,
-    abilities: &'static Abilities,
-    vital: &'static Vital,
-    speed: &'static Speed,
-    ap: &'static ActionPoints,
-    mana: Option<&'static Mana>,
-    rage: Option<&'static Rage>,
-}
 
 /// Automatically acts on behalf of enemy-controlled combatants.
 /// Picks the best affordable ability, prefers healing wounded allies,
@@ -34,7 +21,7 @@ pub fn enemy_ai_system(
     mut use_ability: MessageWriter<UseAbility>,
     mut move_unit: MessageWriter<MoveUnit>,
     mut end_turn: MessageWriter<EndTurn>,
-    combatants: Query<CombatantQ, With<Combatant>>,
+    combatants: Query<AiCombatantQ, With<Combatant>>,
     statuses: Query<&StatusEffects>,
 ) {
     let Some(actor) = ctx.active else { return };

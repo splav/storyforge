@@ -1,5 +1,5 @@
 use crate::content::abilities::TargetType;
-use crate::game::components::{Abilities, ActionPoints, BonusMovement, Combatant, Dead, Faction, Team, Vital};
+use crate::game::components::{Combatant, Dead, PlayerCombatantQ, Team};
 use crate::game::messages::{EndTurn, UseAbility};
 use crate::game::resources::{CombatContext, GameDb, SelectionState};
 use bevy::prelude::*;
@@ -11,29 +11,26 @@ pub fn player_command_system(
     mut selection: ResMut<SelectionState>,
     mut use_ability: MessageWriter<UseAbility>,
     mut end_turn: MessageWriter<EndTurn>,
-    combatants: Query<
-        (Entity, &Vital, &Faction, &Abilities, &ActionPoints, Has<BonusMovement>),
-        (With<Combatant>, Without<Dead>),
-    >,
+    combatants: Query<PlayerCombatantQ, (With<Combatant>, Without<Dead>)>,
 ) {
     let Some(actor) = ctx.active else { return };
 
-    let Ok((_, _, faction, abilities, ap, has_bonus_move)) = combatants.get(actor) else {
+    let Ok(c) = combatants.get(actor) else {
         return;
     };
-    if faction.0 != Team::Player {
+    if c.faction.0 != Team::Player {
         return;
     }
 
     // Auto-enter move mode after GrantMovement (e.g. Rush).
-    if has_bonus_move && ap.movement && !selection.move_mode {
+    if c.has_bonus_move && c.ap.movement && !selection.move_mode {
         selection.move_mode = true;
         selection.selected_ability = None;
         selection.selected_target = None;
     }
 
     // Auto-end turn if both resources are spent (and no EndTurn already sent).
-    if !ap.action && !ap.movement && !ctx.turn_ending {
+    if !c.ap.action && !c.ap.movement && !ctx.turn_ending {
         end_turn.write(EndTurn { actor });
         selection.clear();
         return;
@@ -41,7 +38,7 @@ pub fn player_command_system(
 
     if selection.selected_actor != Some(actor) {
         selection.selected_actor = Some(actor);
-        selection.selected_ability = abilities.0.first().cloned();
+        selection.selected_ability = c.abilities.0.first().cloned();
         selection.move_mode = false;
         if let Some(ref id) = selection.selected_ability.clone() {
             if let Some(def) = db.abilities.get(id.0.as_str()) {
@@ -62,7 +59,7 @@ pub fn player_command_system(
     ];
     for (i, &key) in slot_keys.iter().enumerate() {
         if keyboard.just_pressed(key) {
-            if let Some(ability_id) = abilities.0.get(i).cloned() {
+            if let Some(ability_id) = c.abilities.0.get(i).cloned() {
                 if let Some(def) = db.abilities.get(ability_id.0.as_str()) {
                     if def.target_type == TargetType::Myself {
                         selection.selected_target = Some(actor);
@@ -75,7 +72,7 @@ pub fn player_command_system(
     }
 
     // M → toggle move mode (preserves selected ability).
-    if keyboard.just_pressed(KeyCode::KeyM) && ap.movement {
+    if keyboard.just_pressed(KeyCode::KeyM) && c.ap.movement {
         selection.move_mode = !selection.move_mode;
     }
 
@@ -107,14 +104,14 @@ pub fn player_command_system(
             let candidates: Vec<Entity> = if is_single_ally {
                 combatants
                     .iter()
-                    .filter(|(_, v, f, _, _, _)| v.is_alive() && f.0 == Team::Player)
-                    .map(|(e, _, _, _, _, _)| e)
+                    .filter(|c| c.vital.is_alive() && c.faction.0 == Team::Player)
+                    .map(|c| c.entity)
                     .collect()
             } else {
                 combatants
                     .iter()
-                    .filter(|(e, v, f, _, _, _)| *e != actor && v.is_alive() && f.0 == Team::Enemy)
-                    .map(|(e, _, _, _, _, _)| e)
+                    .filter(|c| c.entity != actor && c.vital.is_alive() && c.faction.0 == Team::Enemy)
+                    .map(|c| c.entity)
                     .collect()
             };
 

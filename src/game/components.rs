@@ -1,4 +1,5 @@
 use crate::core::{AbilityId, StatusId, WeaponId};
+use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 
 #[derive(Component, Default)]
@@ -182,6 +183,44 @@ pub struct ActiveStatus {
     pub rounds_remaining: u32,
     /// Entity whose EndTurn ticks this counter down.
     pub applier: Entity,
+}
+
+// ── Query data structs ──────────────────────────────────────────────────────
+
+/// Hex grid display: labels, cell colors, tooltip.
+#[derive(QueryData)]
+pub struct HexCombatantQ {
+    pub entity: Entity,
+    pub name: &'static Name,
+    pub vital: &'static Vital,
+    pub faction: &'static Faction,
+    pub mana: Option<&'static Mana>,
+    pub rage: Option<&'static Rage>,
+    pub is_dead: Has<Dead>,
+}
+
+/// Enemy AI: full combatant data for scoring, pathfinding, ability selection.
+#[derive(QueryData)]
+pub struct AiCombatantQ {
+    pub entity: Entity,
+    pub faction: &'static Faction,
+    pub abilities: &'static Abilities,
+    pub vital: &'static Vital,
+    pub speed: &'static Speed,
+    pub ap: &'static ActionPoints,
+    pub mana: Option<&'static Mana>,
+    pub rage: Option<&'static Rage>,
+}
+
+/// Player command input: ability selection, target cycling.
+#[derive(QueryData)]
+pub struct PlayerCombatantQ {
+    pub entity: Entity,
+    pub vital: &'static Vital,
+    pub faction: &'static Faction,
+    pub abilities: &'static Abilities,
+    pub ap: &'static ActionPoints,
+    pub has_bonus_move: Has<BonusMovement>,
 }
 
 #[cfg(test)]

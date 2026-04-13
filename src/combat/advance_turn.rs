@@ -91,6 +91,8 @@ pub fn advance_turn_system(
             }
         }
 
+        ctx.turn_ending = false;
+
         if queue.index == 0 {
             next_phase.set(CombatPhase::StartRound);
         } else if let Some(next_actor) = queue.current() {
@@ -98,7 +100,6 @@ pub fn advance_turn_system(
                 ap.action = true;
                 ap.movement = true;
             }
-            ctx.turn_ending = false;
             ctx.active = Some(next_actor);
             log.push(CombatEvent::TurnStarted { actor: next_actor });
         }

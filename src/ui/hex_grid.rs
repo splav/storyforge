@@ -1,5 +1,5 @@
 use crate::content::abilities::TargetType;
-use crate::game::components::{ActionPoints, BonusMovement, Combatant, Dead, Faction, HexCell, Mana, Rage, Speed, StartingHexPos, StatusEffects, Team, UnitToken, Vital};
+use crate::game::components::{ActionPoints, BonusMovement, Combatant, Dead, Faction, HexCell, HexCombatantQ, Mana, Rage, Speed, StartingHexPos, StatusEffects, Team, UnitToken, Vital};
 use crate::ui::animation::MovePath;
 use crate::game::hex::{hex_distance, in_bounds, row_cols, GRID_COLS, GRID_ROWS};
 use crate::game::messages::{MoveUnit, UseAbility};
@@ -410,14 +410,7 @@ pub fn update_hex_visuals(
     positions: Res<HexPositions>,
     mats: Res<HexMaterials>,
     cells: Query<(Entity, &HexCell, &Children)>,
-    combatant_q: Query<(
-        &Name,
-        &Vital,
-        &Faction,
-        Option<&Mana>,
-        Option<&Rage>,
-        Has<Dead>,
-    )>,
+    combatant_q: Query<HexCombatantQ>,
     speed_q: Query<(&Speed, Option<&BonusMovement>)>,
     mut borders: Query<
         (&mut Visibility, &mut MeshMaterial2d<ColorMaterial>),
@@ -481,9 +474,7 @@ pub fn update_hex_visuals(
                             e != actor
                                 && combatant_q
                                     .get(e)
-                                    .map_or(false, |(_, _, f, _, _, dead)| {
-                                        f.0 == Team::Enemy && !dead
-                                    })
+                                    .map_or(false, |c| c.faction.0 == Team::Enemy && !c.is_dead)
                         })
                         .map(|(_, &p)| p)
                         .collect();
@@ -533,10 +524,10 @@ pub fn update_hex_visuals(
                     }
                 }
                 Some(e) => {
-                    if let Ok((_, _, faction, _, _, is_dead)) = combatant_q.get(e) {
-                        if is_dead {
+                    if let Ok(c) = combatant_q.get(e) {
+                        if c.is_dead {
                             mats.dead.clone()
-                        } else if faction.0 == Team::Player {
+                        } else if c.faction.0 == Team::Player {
                             mats.player.clone()
                         } else {
                             mats.enemy.clone()
@@ -575,8 +566,8 @@ pub fn update_hex_visuals(
     for (link, mut text, mut vis) in &mut name_labels {
         let occupant = cells.get(link.0).ok().and_then(|(_, hc, _)| positions.entity_at(hc.q, hc.r));
         if let Some(e) = occupant {
-            if let Ok((name, _, _, _, _, _)) = combatant_q.get(e) {
-                let n = name.as_str();
+            if let Ok(c) = combatant_q.get(e) {
+                let n = c.name.as_str();
                 text.0 = if n.chars().count() > 8 {
                     n.chars().take(7).collect::<String>() + "."
                 } else {
@@ -592,8 +583,8 @@ pub fn update_hex_visuals(
     for (link, mut text, mut vis) in &mut hp_labels {
         let occupant = cells.get(link.0).ok().and_then(|(_, hc, _)| positions.entity_at(hc.q, hc.r));
         if let Some(e) = occupant {
-            if let Ok((_, vital, _, _, _, _)) = combatant_q.get(e) {
-                text.0 = format!("{}/{}", vital.hp, vital.max_hp);
+            if let Ok(c) = combatant_q.get(e) {
+                text.0 = format!("{}/{}", c.vital.hp, c.vital.max_hp);
                 *vis = Visibility::Visible;
                 continue;
             }
@@ -604,11 +595,11 @@ pub fn update_hex_visuals(
     for (link, mut text, mut vis) in &mut mana_labels {
         let occupant = cells.get(link.0).ok().and_then(|(_, hc, _)| positions.entity_at(hc.q, hc.r));
         if let Some(e) = occupant {
-            if let Ok((_, _, _, mana, rage, _)) = combatant_q.get(e) {
-                if let Some(m) = mana {
+            if let Ok(c) = combatant_q.get(e) {
+                if let Some(m) = c.mana {
                     text.0 = format!("M:{}/{}", m.current, m.max);
                     *vis = Visibility::Visible;
-                } else if let Some(r) = rage {
+                } else if let Some(r) = c.rage {
                     text.0 = format!("R:{}/{}", r.current, r.max);
                     *vis = Visibility::Visible;
                 } else {
@@ -760,24 +751,29 @@ pub fn hex_click_target(
     let Some((hq, hr)) = hover.0 else { return };
 
     let occupant = positions.entity_at(hq, hr);
-
     let now = time.elapsed_secs_f64();
 
-    // Move mode: clicking an empty cell sends MoveUnit.
-    if sel.move_mode && occupant.is_none() {
-        let Some(actor) = ctx.active else { return };
+    /// Try to move the active player actor to (tq, tr). Returns true if MoveUnit was sent.
+    fn try_move(
+        tq: i32,
+        tr: i32,
+        ctx: &CombatContext,
+        positions: &HexPositions,
+        move_query: &Query<(&Faction, &ActionPoints, &Speed, Option<&BonusMovement>)>,
+        combatant_q2: &Query<(&Faction, &Vital), With<Combatant>>,
+        move_unit: &mut MessageWriter<MoveUnit>,
+    ) -> bool {
+        let Some(actor) = ctx.active else { return false };
         let Ok((faction, ap, speed, bonus)) = move_query.get(actor) else {
-            return;
+            return false;
         };
         if faction.0 != Team::Player || !ap.movement {
-            return;
+            return false;
         }
         let Some(actor_pos) = positions.get(&actor) else {
-            return;
+            return false;
         };
         let max_steps = bonus.map_or(speed.0, |b| b.0);
-
-        // Build passability: enemies block, allies pass-through.
         let enemy_pos: HashSet<(i32, i32)> = positions
             .iter()
             .filter(|(&e, _)| {
@@ -788,16 +784,21 @@ pub fn hex_click_target(
             })
             .map(|(_, &p)| p)
             .collect();
-        let is_passable =
-            |q: i32, r: i32| in_bounds(q, r) && !enemy_pos.contains(&(q, r));
-
-        if let Some(path) = find_path(actor_pos, (hq, hr), is_passable) {
+        let is_passable = |q: i32, r: i32| in_bounds(q, r) && !enemy_pos.contains(&(q, r));
+        if let Some(path) = find_path(actor_pos, (tq, tr), is_passable) {
             if path.len() as i32 <= max_steps {
                 move_unit.write(MoveUnit { actor, path });
-                sel.move_mode = false;
+                return true;
             }
         }
+        false
+    }
 
+    // Move mode: clicking an empty cell sends MoveUnit.
+    if sel.move_mode && occupant.is_none() {
+        if try_move(hq, hr, &ctx, &positions, &move_query, &combatant_q2, &mut move_unit) {
+            sel.move_mode = false;
+        }
         last_click.pos = Some((hq, hr));
         last_click.time = now;
         return;
@@ -808,7 +809,6 @@ pub fn hex_click_target(
 
     if let Some(entity) = occupant {
         sel.selected_target = Some(entity);
-
         if is_double {
             if let (Some(actor), Some(ability)) = (ctx.active, sel.selected_ability.clone()) {
                 use_ability.write(UseAbility {
@@ -820,42 +820,7 @@ pub fn hex_click_target(
         }
     } else if is_double {
         // Double-click empty cell → move there (without entering move mode).
-        let Some(actor) = ctx.active else {
-            last_click.pos = Some((hq, hr));
-            last_click.time = now;
-            return;
-        };
-        let Ok((faction, ap, speed, bonus)) = move_query.get(actor) else {
-            last_click.pos = Some((hq, hr));
-            last_click.time = now;
-            return;
-        };
-        if faction.0 == Team::Player && ap.movement {
-            let Some(actor_pos) = positions.get(&actor) else {
-                last_click.pos = Some((hq, hr));
-                last_click.time = now;
-                return;
-            };
-            let max_steps = bonus.map_or(speed.0, |b| b.0);
-            let enemy_pos: HashSet<(i32, i32)> = positions
-                .iter()
-                .filter(|(&e, _)| {
-                    e != actor
-                        && combatant_q2
-                            .get(e)
-                            .map_or(false, |(f, v)| f.0 == Team::Enemy && v.is_alive())
-                })
-                .map(|(_, &p)| p)
-                .collect();
-            let is_passable =
-                |q: i32, r: i32| in_bounds(q, r) && !enemy_pos.contains(&(q, r));
-
-            if let Some(path) = find_path(actor_pos, (hq, hr), is_passable) {
-                if path.len() as i32 <= max_steps {
-                    move_unit.write(MoveUnit { actor, path });
-                }
-            }
-        }
+        try_move(hq, hr, &ctx, &positions, &move_query, &combatant_q2, &mut move_unit);
     }
 
     last_click.pos = Some((hq, hr));

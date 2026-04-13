@@ -57,7 +57,13 @@ Only for `Team::Player`. Handles:
 - **E**: end turn manually → `EndTurn`
 - **Escape**: cancel move mode
 - Auto-enters move_mode when `BonusMovement` is present
-- Auto-ends turn when both `action` and `movement` are false
+- Auto-ends turn when both `action` and `movement` are false (guarded by `ctx.turn_ending`)
+
+Mouse input (via `hex_click_target`):
+- **Click occupied hex**: select target
+- **Double-click occupied hex**: UseAbility on target
+- **Click empty hex in move_mode**: move there
+- **Double-click empty hex**: move there (without entering move_mode)
 
 ### enemy_ai_system
 Only for `Team::Enemy`. Smart ability selection:
@@ -119,37 +125,30 @@ Enemy popup: `queue_enemy_popup` pushes `PendingAnim::Popup` → spawned as UI o
 
 ## EndTurn Ownership
 
-`EndTurn` is sent from exactly one place per turn:
+EndTurn отправляется из нескольких систем. Дублирование предотвращается через `CombatContext.turn_ending: bool` — мгновенно виден всем системам в цепочке (в отличие от Commands-based компонентов, которые применяются отложенно).
 
-| Scenario | Who sends EndTurn |
-|----------|-------------------|
-| Ability used (any effect except GrantMovement) | `resolve_action_system` (line 182) |
-| GrantMovement ability | NOT sent — turn continues for bonus movement |
-| Enemy AI: move only, no ability in range | `enemy_ai_system` |
-| Enemy AI: both resources spent, no action taken | `enemy_ai_system` |
-| Player presses E (manual end) | `player_command_system` |
-| Player: both action + movement spent | `player_command_system` (auto) |
-| Dead/stunned actor | `skip_dead_turn_system` / `skip_stunned_turn_system` |
+| Scenario | Who sends EndTurn | Sets turn_ending |
+|----------|-------------------|-----------------|
+| Dead actor | `skip_dead_turn_system` | yes |
+| Stunned actor | `skip_stunned_turn_system` | yes |
+| Ability used (non-GrantMovement) | `resolve_action_system` | yes |
+| Player presses E | `player_command_system` | no (unique) |
+| Player: both AP spent | `player_command_system` | no (guarded by `!ctx.turn_ending`) |
+| Enemy: both AP spent | `enemy_ai_system` | no (guarded by `!ctx.turn_ending`) |
+| Enemy: move-only / approach | `enemy_ai_system` | no (unique) |
 
-**Rule:** AI and player systems must NOT send EndTurn when they also send UseAbility — `resolve_action_system` handles that.
+**Lifecycle:** системы-источники ставят `ctx.turn_ending = true` → последующие системы проверяют флаг и не дублируют EndTurn → `advance_turn` сбрасывает `ctx.turn_ending = false` при передаче хода → `spawn_combat_scene` и `start_combat_system` сбрасывают при входе в новый бой.
+
+**Rule:** AI и player системы НЕ отправляют EndTurn когда шлют UseAbility — `resolve_action_system` это делает. AI и player проверяют `ctx.turn_ending` перед auto-end.
 
 ## Status Duration
 
 - Duration ticks on **applier's** EndTurn (not target's)
 - At ability use: stored as `duration + 1` to compensate tick in same frame
 - Duration 1 = active until end of applier's next turn
+- `advance_turn` пропускает Dead-таргеты при наложении новых статусов
 
-## Known Weaknesses & Edge Cases
-
-### EndTurn из множества мест (архитектурная проблема)
-
-EndTurn отправляется из 5 систем. `advance_turn` дедуплицирует по actor через HashSet — это пластырь, а не решение. Причина: при оглушении `skip_stunned` ставит `ap = false/false` и шлёт EndTurn, но `enemy_ai` видит `!ap.action && !ap.movement` и шлёт второй. Dedup спасает, но скрывает баги.
-
-**Идеальный рефакторинг:** один EndTurn writer. Например: отдельная система `auto_end_turn` в конце цепочки, которая проверяет "были ли потрачены все ресурсы или пришёл EndTurn от команды" и отправляет единственный EndTurn. Все остальные системы ставят флаг "хочу завершить ход" вместо прямого EndTurn.
-
-### Статус на мёртвого юнита
-
-`apply_effects_system` может пометить цель Dead, а `resolve_action_system` (раньше в кадре) уже отправил `ApplyStatus` для той же цели. `advance_turn` применит статус к трупу. Безвредно пока нет механики воскрешения, но если появится — статусы на трупах станут багом.
+## Known Edge Cases
 
 ### Порядок movement → validation (намеренный)
 
@@ -157,15 +156,15 @@ Movement стоит до validation в цепочке **намеренно**: AI
 
 ### skip_stunned ставит AP = false (необходимо)
 
-`skip_stunned` обнуляет `ap.action` и `ap.movement` перед EndTurn. Без этого `enemy_ai` (для врагов) или `player_command` (для игроков) попытаются действовать: AI найдёт способности, player_command выведет UI. Обнуление AP — способ сказать остальным системам "не трогай".
+`skip_stunned` обнуляет `ap.action` и `ap.movement` перед EndTurn. Без этого `enemy_ai` (для врагов) или `player_command` (для игроков) попытаются действовать. Обнуление AP — дополнительная защита помимо `ctx.turn_ending`.
 
 ### Самоубийство через способность
 
-Если способность наносит урон кастеру (или AoE задевает союзников), `apply_effects` пометит Dead, `advance_turn` корректно определит победу/поражение. Работает благодаря тому, что apply_effects идёт после resolution в цепочке.
+Если способность наносит урон кастеру, `apply_effects` пометит Dead, `advance_turn` корректно определит победу/поражение. Работает благодаря порядку систем в цепочке.
 
 ### Все враги умирают в один ход
 
-`advance_turn` проверяет `enemies_alive` / `players_alive` после каждого EndTurn. Если последний враг умер — фаза Victory выставляется немедленно, дальнейшие EndTurn не обрабатываются (`return` в цикле).
+`advance_turn` проверяет `enemies_alive` / `players_alive` после каждого EndTurn. Если последний враг умер — фаза Victory немедленно, `return` из цикла.
 
 ## Тесты
 
@@ -177,6 +176,6 @@ Movement стоит до validation в цепочке **намеренно**: AI
 | `apply_damage_reduces_hp` | Урон уменьшает HP (armor=0) |
 | `killing_all_enemies_sets_victory_phase` | Все враги мертвы → Victory |
 | `killing_all_heroes_sets_defeat_phase` | Все герои мертвы → Defeat |
-| `duplicate_end_turn_is_deduplicated` | Два EndTurn одного actor → один advance |
+| `turn_ending_flag_cleared_on_advance` | EndTurn продвигает ход, turn_ending сбрасывается |
 | `stunned_unit_skips_turn_and_stun_expires` | Стан пропускает ход, тикается на EndTurn наложившего |
 | `stunned_enemy_no_duplicate_end_turn` | Оглушённый враг не проскакивает следующий ход |

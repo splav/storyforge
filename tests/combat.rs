@@ -6,7 +6,8 @@ use bevy::state::app::StatesPlugin;
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
     advance_turn::advance_turn_system, apply_effects::apply_effects_system,
-    skip_dead::skip_stunned_turn_system, validation::validate_action_system,
+    enemy_ai::enemy_ai_system, skip_dead::skip_stunned_turn_system,
+    validation::validate_action_system,
 };
 const MELEE_ATTACK: &str = "melee_attack";
 const SHORT_SWORD: &str = "short_sword";
@@ -14,7 +15,7 @@ use storyforge::core::DiceRng;
 use storyforge::game::bundles::{enemy_bundle, hero_bundle};
 use storyforge::game::components::{ActionPoints, ActiveStatus, CombatStats, StatusEffects, Vital};
 use storyforge::game::messages::{
-    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, UseAbility, ValidatedAction,
+    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, UseAbility, ValidatedAction,
 };
 use storyforge::content::statuses::StatusDef;
 use storyforge::game::combat_log::CombatLog;
@@ -433,15 +434,19 @@ fn stun_app() -> App {
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
         .init_resource::<SelectionState>()
+        .init_resource::<HexPositions>()
         .init_resource::<DiceRng>()
         .add_message::<ApplyDamage>()
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()
         .add_message::<EndTurn>()
+        .add_message::<UseAbility>()
+        .add_message::<MoveUnit>()
         .add_systems(
             Update,
             (
                 skip_stunned_turn_system,
+                enemy_ai_system,
                 apply_effects_system,
                 advance_turn_system,
             )
