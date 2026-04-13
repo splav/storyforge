@@ -301,6 +301,17 @@ pub fn assign_hex_positions(
 
 // ── System: UI dirty bridge ──────────────────────────────────────────────────
 
+#[derive(Default)]
+pub struct DirtyBridgePrev {
+    active: Option<Entity>,
+    ability: Option<crate::core::AbilityId>,
+    move_mode: bool,
+    target: Option<Entity>,
+    hover: Option<(i32, i32)>,
+    pos_gen: u64,
+    initialized: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn ui_dirty_bridge(
     ctx: Res<CombatContext>,
@@ -313,15 +324,24 @@ pub fn ui_dirty_bridge(
     mana_q: Query<(), Changed<Mana>>,
     rage_q: Query<(), Changed<Rage>>,
     mut dirty: ResMut<UiDirty>,
-    mut prev_active: Local<Option<Entity>>,
-    mut prev_ability: Local<Option<crate::core::AbilityId>>,
-    mut prev_move_mode: Local<bool>,
-    mut prev_target: Local<Option<Entity>>,
+    mut prev: Local<DirtyBridgePrev>,
 ) {
+    if !prev.initialized {
+        prev.initialized = true;
+        dirty.0 = UiDirtyFlags::all();
+        prev.active = ctx.active;
+        prev.ability = sel.selected_ability.clone();
+        prev.move_mode = sel.move_mode;
+        prev.target = sel.selected_target;
+        prev.hover = hover.0;
+        prev.pos_gen = positions.generation;
+        return;
+    }
+
     dirty.0 = UiDirtyFlags::empty();
 
-    if ctx.active != *prev_active {
-        *prev_active = ctx.active;
+    if ctx.active != prev.active {
+        prev.active = ctx.active;
         dirty.0 |= UiDirtyFlags::OVERLAY
             | UiDirtyFlags::HEX_FILL
             | UiDirtyFlags::LABELS
@@ -331,25 +351,26 @@ pub fn ui_dirty_bridge(
             | UiDirtyFlags::MOVE_BTN;
     }
 
-    if sel.selected_ability != *prev_ability {
-        *prev_ability = sel.selected_ability.clone();
+    if sel.selected_ability != prev.ability {
+        prev.ability = sel.selected_ability.clone();
         dirty.0 |= UiDirtyFlags::OVERLAY | UiDirtyFlags::ABILITY_PANEL | UiDirtyFlags::PHASE_HINT;
     }
 
-    if sel.move_mode != *prev_move_mode {
-        *prev_move_mode = sel.move_mode;
+    if sel.move_mode != prev.move_mode {
+        prev.move_mode = sel.move_mode;
         dirty.0 |= UiDirtyFlags::OVERLAY
             | UiDirtyFlags::PHASE_HINT
             | UiDirtyFlags::MOVE_BTN
             | UiDirtyFlags::HEX_FILL;
     }
 
-    if sel.selected_target != *prev_target {
-        *prev_target = sel.selected_target;
+    if sel.selected_target != prev.target {
+        prev.target = sel.selected_target;
         dirty.0 |= UiDirtyFlags::HEX_FILL;
     }
 
-    if positions.is_changed() {
+    if positions.generation != prev.pos_gen {
+        prev.pos_gen = positions.generation;
         dirty.0 |= UiDirtyFlags::OVERLAY
             | UiDirtyFlags::HEX_FILL
             | UiDirtyFlags::LABELS
@@ -372,7 +393,8 @@ pub fn ui_dirty_bridge(
         dirty.0 |= UiDirtyFlags::ABILITY_PANEL | UiDirtyFlags::LABELS;
     }
 
-    if hover.is_changed() {
+    if hover.0 != prev.hover {
+        prev.hover = hover.0;
         dirty.0 |= UiDirtyFlags::TOOLTIP;
     }
 }
@@ -794,6 +816,44 @@ pub fn hex_click_target(
                     ability,
                     target: entity,
                 });
+            }
+        }
+    } else if is_double {
+        // Double-click empty cell → move there (without entering move mode).
+        let Some(actor) = ctx.active else {
+            last_click.pos = Some((hq, hr));
+            last_click.time = now;
+            return;
+        };
+        let Ok((faction, ap, speed, bonus)) = move_query.get(actor) else {
+            last_click.pos = Some((hq, hr));
+            last_click.time = now;
+            return;
+        };
+        if faction.0 == Team::Player && ap.movement {
+            let Some(actor_pos) = positions.get(&actor) else {
+                last_click.pos = Some((hq, hr));
+                last_click.time = now;
+                return;
+            };
+            let max_steps = bonus.map_or(speed.0, |b| b.0);
+            let enemy_pos: HashSet<(i32, i32)> = positions
+                .iter()
+                .filter(|(&e, _)| {
+                    e != actor
+                        && combatant_q2
+                            .get(e)
+                            .map_or(false, |(f, v)| f.0 == Team::Enemy && v.is_alive())
+                })
+                .map(|(_, &p)| p)
+                .collect();
+            let is_passable =
+                |q: i32, r: i32| in_bounds(q, r) && !enemy_pos.contains(&(q, r));
+
+            if let Some(path) = find_path(actor_pos, (hq, hr), is_passable) {
+                if path.len() as i32 <= max_steps {
+                    move_unit.write(MoveUnit { actor, path });
+                }
             }
         }
     }

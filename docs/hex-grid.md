@@ -64,3 +64,21 @@ Returns `HashSet<(i32, i32)>` of valid destinations.
 - Enemies block movement
 - Speed component defines max steps per turn
 - BonusMovement overrides Speed when present (from GrantMovement abilities)
+
+## Visual Tokens
+
+Each combatant has a `UnitToken(Entity)` component linking to a colored circle mesh spawned in `assign_hex_positions`:
+- Player: dark blue `srgb(0.12, 0.22, 0.45)`, Enemy: dark red `srgb(0.45, 0.10, 0.08)`
+- Radius: `HEX_SIZE * 0.75`, z-layer 0.15 (between hex fill at 0.1 and labels at 0.2)
+- `update_token_positions` syncs Transform with `HexPositions` when no `MovePath` is active
+- Dead tokens are hidden (`Visibility::Hidden`)
+
+### Movement Animation
+
+Game state (HexPositions) updates instantly. `movement_system` pushes `PendingAnim::Movement` to `AnimationQueue` with pixel waypoints. `process_animation_queue` pops it, inserts `MovePath` component on the token. `animate_movement` lerps at 0.12s per hex step. When done, `MovePath` is removed and `combat_ready()` unblocks the pipeline.
+
+## UI Dirty Flags (Optimization)
+
+`update_hex_visuals` caches range and move cell sets in `Local<HashSet>`. Recomputation (BFS for move, distance loop for range) only occurs when `OVERLAY` flag is set by `ui_dirty_bridge`. Cell colors update on `HEX_FILL`, labels on `LABELS`. Without dirty flags, BFS ran every frame (~60 fps); now only on actual state changes.
+
+`HexPositions` exposes a `generation: u64` counter (incremented on insert/remove/clear) for precise change detection without false positives from `ResMut` access.

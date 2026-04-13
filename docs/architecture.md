@@ -23,7 +23,7 @@ StartRound → AwaitCommand → Victory / Defeat
 ```
 
 - `StartRound` — builds turn order (initiative d20 + DEX mod, round 1 only), transitions to AwaitCommand
-- `AwaitCommand` — 10 chained systems execute: input → AI → movement → validation → resolution → effects → turn advance
+- `AwaitCommand` — 11 chained systems execute: input → AI → movement → validation → resolution → effects → enemy popup → turn advance. Chain blocked by `combat_ready()` while animations or popups active
 - `Victory` — all enemies dead. Space → advance scenario
 - `Defeat` — all heroes dead. Space → MainMenu
 
@@ -45,8 +45,9 @@ src/
     rng.rs          DiceRng (LCG), DiceExpr { count, sides, bonus }
 
   game/
-    components.rs   ECS components: HexCell, Vital, CombatStats, Speed, ActionPoints, Mana, Rage, StatusEffects, etc.
-    resources.rs    CombatContext, TurnQueue, CombatLog, GameDb (with validation), SelectionState, ScenarioState, HexPositions (bidirectional)
+    components.rs   ECS components: HexCell, Vital, CombatStats, Speed, ActionPoints, Mana, Rage, StatusEffects, UnitToken, etc.
+    resources.rs    CombatContext, TurnQueue, GameDb (with validation), SelectionState, ScenarioState, HexPositions (bidirectional), UiDirty/UiDirtyFlags
+    combat_log.rs   CombatEvent enum (16 variants) + CombatLog resource + CombatEvent::format() method
     messages.rs     UseAbility, ValidatedAction, ApplyDamage, ApplyHeal, ApplyStatus, MoveUnit, EndTurn, etc.
     bundles.rs      CombatantBundle, hero_bundle(), enemy_bundle()
     hex.rs          Grid constants, hex_distance, hex_neighbors, in_bounds
@@ -66,7 +67,8 @@ src/
     skip_dead.rs    Skip dead / stunned turns
     command_input.rs  Player keyboard input (1-5, M, Tab, Enter, E, Escape)
     enemy_ai.rs     AI: ability scoring, pathfinding, movement
-    movement.rs     MoveUnit processing, HexPositions updates
+    movement.rs     MoveUnit processing, HexPositions updates, movement animation queueing
+    enemy_popup.rs  PopupCursor + queue_enemy_popup: detects enemy ability use, queues popup
     validation.rs   UseAbility → ValidatedAction (resources, range, target alive)
     resolution.rs   Dice rolls, damage/heal/status emission, resource costs
     apply_effects.rs  Damage (armor), healing, rage gain, death marking
@@ -74,10 +76,11 @@ src/
 
   ui/
     mod.rs          UI marker components
-    combat_ui.rs    HUD: phase hint, turn order, ability panel, move button
-    hex_grid.rs     Hex grid rendering, hover, click, range/move highlighting
+    animation.rs    AnimationQueue, PendingAnim, MovePath, combat_ready(), process_animation_queue, animate_movement, EnemyActionPopup + popup UI
+    combat_ui.rs    HUD: phase hint, turn order, ability panel, move button (all guarded by UiDirtyFlags)
+    hex_grid.rs     Hex grid rendering, hover, click, range/move highlighting, ui_dirty_bridge, UnitToken spawning
     log_ui.rs       Combat log display + scrollbar
-    console_log.rs  CombatEvent → text formatting (Russian)
+    console_log.rs  CombatEvent → text (delegates to CombatEvent::format())
     story_ui.rs     Story screen: text overlay + continue button
 ```
 
@@ -93,8 +96,33 @@ assets/data/
   scenarios.toml    Scenario definitions (1 demo scenario)
 ```
 
+## UI Optimization: Dirty Flags
+
+`ui_dirty_bridge` runs first in Combat UI. Compares resource fields via `Local<DirtyBridgePrev>` struct (not `Res::is_changed()` — avoids false positives and two-frame window). Sets bitflags in `UiDirty` resource. Each UI system checks its flag and early-returns if not dirty. First frame sets `UiDirtyFlags::all()` to initialize UI. Flags:
+
+| Flag | Systems | Triggers |
+|------|---------|----------|
+| `OVERLAY` | update_hex_visuals (BFS recompute) | actor/ability/move_mode/positions/death |
+| `HEX_FILL` | update_hex_visuals (cell colors) | actor/move_mode/target/positions/death |
+| `LABELS` | update_hex_visuals (HP/mana text) | actor/positions/vitals/mana/rage |
+| `ABILITY_PANEL` | update_ability_panel | actor/ability/mana/rage |
+| `TURN_ORDER` | update_turn_order | actor/queue/vitals/death |
+| `PHASE_HINT` | update_phase_hint | actor/ability/move_mode |
+| `MOVE_BTN` | update_move_button | actor/move_mode |
+| `TOOLTIP` | update_hex_tooltip | hover |
+| `TOKENS` | update_token_positions | positions/death |
+
+## Animation System
+
+`AnimationQueue` (VecDeque<PendingAnim>) decouples visual animations from game logic. Game state updates instantly; visuals catch up via:
+- `PendingAnim::Movement` — smooth token lerp along hex path (0.12s/step)
+- `PendingAnim::Popup` — enemy action popup (dismissed by Space/Esc)
+
+`combat_ready()` run condition blocks AwaitCommand chain while animations/popups are active.
+
 ## Dependencies
 
 - `bevy 0.18` — ECS game engine
 - `serde 1` + `toml 0.8` — TOML deserialization
+- `bitflags 2` — UI dirty flags
 - No external RNG (custom LCG in `core/rng.rs`)

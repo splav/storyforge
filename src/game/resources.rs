@@ -223,6 +223,7 @@ pub struct ScenarioState {
 pub struct HexPositions {
     by_entity: HashMap<Entity, (i32, i32)>,
     by_pos: HashMap<(i32, i32), Entity>,
+    pub generation: u64,
 }
 
 impl HexPositions {
@@ -232,17 +233,20 @@ impl HexPositions {
         }
         self.by_entity.insert(entity, pos);
         self.by_pos.insert(pos, entity);
+        self.generation += 1;
     }
 
     pub fn remove(&mut self, entity: &Entity) {
         if let Some(pos) = self.by_entity.remove(entity) {
             self.by_pos.remove(&pos);
         }
+        self.generation += 1;
     }
 
     pub fn clear(&mut self) {
         self.by_entity.clear();
         self.by_pos.clear();
+        self.generation += 1;
     }
 
     pub fn get(&self, entity: &Entity) -> Option<(i32, i32)> {

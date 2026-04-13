@@ -186,20 +186,12 @@ pub fn enemy_ai_system(
         |q, r| !all_occupied.contains(&(q, r)),
     );
 
-    // Find best reachable cell that puts us within ability range of a target.
-    let move_targets: Vec<(Entity, (i32, i32))> = if let Some((_, target, _, _)) = &best_any {
-        if let Some(pos) = positions.get(target) {
-            vec![(*target, pos)]
-        } else {
-            enemy_pool.to_vec()
-        }
-    } else {
-        enemy_pool.to_vec()
-    };
+    // Find best reachable cell that puts us within ability range of ANY target.
+    let move_targets: &[(Entity, (i32, i32))] = enemy_pool;
 
     let mut best_move: Option<(Vec<(i32, i32)>, Entity)> = None;
 
-    for &(target_entity, target_pos) in &move_targets {
+    for &(target_entity, target_pos) in move_targets {
         for &cell in &reach.destinations {
             if hex_distance(cell.0, cell.1, target_pos.0, target_pos.1) > target_range {
                 continue;
