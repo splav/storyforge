@@ -32,8 +32,8 @@ pub fn player_command_system(
         selection.selected_target = None;
     }
 
-    // Auto-end turn if both resources are spent.
-    if !ap.action && !ap.movement {
+    // Auto-end turn if both resources are spent (and no EndTurn already sent).
+    if !ap.action && !ap.movement && !ctx.turn_ending {
         end_turn.write(EndTurn { actor });
         selection.clear();
         return;

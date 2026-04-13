@@ -6,12 +6,13 @@ use bevy::prelude::*;
 
 /// If the active combatant is dead, immediately end their turn.
 pub fn skip_dead_turn_system(
-    ctx: Res<CombatContext>,
+    mut ctx: ResMut<CombatContext>,
     dead: Query<(), With<Dead>>,
     mut end_turn: MessageWriter<EndTurn>,
 ) {
     let Some(actor) = ctx.active else { return };
     if dead.get(actor).is_ok() {
+        ctx.turn_ending = true;
         end_turn.write(EndTurn { actor });
     }
 }
@@ -19,7 +20,7 @@ pub fn skip_dead_turn_system(
 /// If the active combatant is stunned (has a status with skips_turn), skip their turn.
 /// Sets ap.action = false so that enemy_ai's UseAbility is rejected by validation.
 pub fn skip_stunned_turn_system(
-    ctx: Res<CombatContext>,
+    mut ctx: ResMut<CombatContext>,
     statuses: Query<&StatusEffects>,
     mut action_points: Query<&mut ActionPoints>,
     db: Res<GameDb>,
@@ -37,6 +38,7 @@ pub fn skip_stunned_turn_system(
             ap.movement = false;
         }
         log.push(CombatEvent::TurnSkipped { actor });
+        ctx.turn_ending = true;
         end_turn.write(EndTurn { actor });
     }
 }

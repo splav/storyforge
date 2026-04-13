@@ -7,8 +7,21 @@ use crate::game::hex::{hex_distance, in_bounds};
 use crate::game::messages::{EndTurn, MoveUnit, UseAbility};
 use crate::game::pathfinding::reachable_with_paths;
 use crate::game::resources::{CombatContext, GameDb, HexPositions};
+use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 use std::collections::HashSet;
+
+#[derive(QueryData)]
+pub struct CombatantQ {
+    entity: Entity,
+    faction: &'static Faction,
+    abilities: &'static Abilities,
+    vital: &'static Vital,
+    speed: &'static Speed,
+    ap: &'static ActionPoints,
+    mana: Option<&'static Mana>,
+    rage: Option<&'static Rage>,
+}
 
 /// Automatically acts on behalf of enemy-controlled combatants.
 /// Picks the best affordable ability, prefers healing wounded allies,
@@ -21,45 +34,39 @@ pub fn enemy_ai_system(
     mut use_ability: MessageWriter<UseAbility>,
     mut move_unit: MessageWriter<MoveUnit>,
     mut end_turn: MessageWriter<EndTurn>,
-    combatants: Query<
-        (
-            Entity,
-            &Faction,
-            &Abilities,
-            &Vital,
-            &Speed,
-            &ActionPoints,
-            Option<&Mana>,
-            Option<&Rage>,
-        ),
-        With<Combatant>,
-    >,
+    combatants: Query<CombatantQ, With<Combatant>>,
     statuses: Query<&StatusEffects>,
 ) {
     let Some(actor) = ctx.active else { return };
-    let Ok((_, faction, abilities, vital, speed, ap, mana, rage)) = combatants.get(actor) else {
+    let Ok(c) = combatants.get(actor) else {
         return;
     };
-    if faction.0 != Team::Enemy || !vital.is_alive() || abilities.0.is_empty() {
+    if c.faction.0 != Team::Enemy || !c.vital.is_alive() || c.abilities.0.is_empty() {
         return;
     }
-    if !ap.action && !ap.movement {
+    // Turn already ending (e.g. stunned by skip_stunned) — don't act or send EndTurn.
+    if ctx.turn_ending {
+        return;
+    }
+    if !c.ap.action && !c.ap.movement {
         end_turn.write(EndTurn { actor });
         return;
     }
+
+    let (abilities, ap, speed) = (c.abilities, c.ap, c.speed);
 
     let Some(actor_pos) = positions.get(&actor) else {
         return;
     };
 
-    let mana_cur = mana.map(|m| m.current).unwrap_or(0);
-    let rage_cur = rage.map(|r| r.current).unwrap_or(0);
+    let mana_cur = c.mana.map(|m| m.current).unwrap_or(0);
+    let rage_cur = c.rage.map(|r| r.current).unwrap_or(0);
 
     // Collect living players with positions.
     let players: Vec<(Entity, (i32, i32))> = combatants
         .iter()
-        .filter(|(_, f, _, v, _, _, _, _)| f.0 == Team::Player && v.is_alive())
-        .filter_map(|(e, _, _, _, _, _, _, _)| positions.get(&e).map(|p| (e, p)))
+        .filter(|c| c.faction.0 == Team::Player && c.vital.is_alive())
+        .filter_map(|c| positions.get(&c.entity).map(|p| (c.entity, p)))
         .collect();
 
     if players.is_empty() {
@@ -89,9 +96,9 @@ pub fn enemy_ai_system(
     // Collect living allies (same team, for healing).
     let allies: Vec<(Entity, (i32, i32), i32, i32)> = combatants
         .iter()
-        .filter(|(_, f, _, v, _, _, _, _)| f.0 == Team::Enemy && v.is_alive())
-        .filter_map(|(e, _, _, v, _, _, _, _)| {
-            positions.get(&e).map(|p| (e, p, v.hp, v.max_hp))
+        .filter(|c| c.faction.0 == Team::Enemy && c.vital.is_alive())
+        .filter_map(|c| {
+            positions.get(&c.entity).map(|p| (c.entity, p, c.vital.hp, c.vital.max_hp))
         })
         .collect();
 
@@ -167,8 +174,8 @@ pub fn enemy_ai_system(
     // Build passability sets.
     let enemy_positions: HashSet<(i32, i32)> = combatants
         .iter()
-        .filter(|(e, f, _, v, _, _, _, _)| *e != actor && f.0 == Team::Enemy && v.is_alive())
-        .filter_map(|(e, _, _, _, _, _, _, _)| positions.get(&e))
+        .filter(|c| c.entity != actor && c.faction.0 == Team::Enemy && c.vital.is_alive())
+        .filter_map(|c| positions.get(&c.entity))
         .collect();
     let all_occupied: HashSet<(i32, i32)> = positions
         .iter()

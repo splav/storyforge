@@ -17,6 +17,9 @@ pub struct CombatContext {
     pub encounter: Option<Entity>,
     /// Tracks who was active last frame; used by turn_start_system to detect a new turn.
     pub last_active: Option<Entity>,
+    /// Set by any system that sends EndTurn. Visible immediately to later systems in the chain.
+    /// Cleared by advance_turn when setting up the next actor.
+    pub turn_ending: bool,
 }
 
 #[derive(Resource, Default)]

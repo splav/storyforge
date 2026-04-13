@@ -6,16 +6,17 @@ use bevy::state::app::StatesPlugin;
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
     advance_turn::advance_turn_system, apply_effects::apply_effects_system,
-    validation::validate_action_system,
+    skip_dead::skip_stunned_turn_system, validation::validate_action_system,
 };
 const MELEE_ATTACK: &str = "melee_attack";
 const SHORT_SWORD: &str = "short_sword";
 use storyforge::core::DiceRng;
 use storyforge::game::bundles::{enemy_bundle, hero_bundle};
-use storyforge::game::components::{CombatStats, Vital};
+use storyforge::game::components::{ActionPoints, ActiveStatus, CombatStats, StatusEffects, Vital};
 use storyforge::game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, UseAbility, ValidatedAction,
 };
+use storyforge::content::statuses::StatusDef;
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::resources::{
     CombatContext, GameDb, HexPositions, SelectionState, TurnQueue,
@@ -403,4 +404,201 @@ fn killing_all_heroes_sets_defeat_phase() {
         *app.world().resource::<State<CombatPhase>>(),
         CombatPhase::Defeat
     );
+}
+
+// ── EndTurn dedup + stun ─────────────────────────────────────────────────────
+
+/// Build an app with skip_stunned → apply_effects → advance_turn chained.
+fn insert_stun_status(app: &mut App) {
+    app.world_mut().resource_mut::<GameDb>().statuses.insert(
+        "stun".into(),
+        StatusDef {
+            id: "stun".into(),
+            name: "Stun".into(),
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            skips_turn: true,
+            forces_targeting: false,
+        },
+    );
+}
+
+fn stun_app() -> App {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, StatesPlugin))
+        .init_state::<AppState>()
+        .add_sub_state::<CombatPhase>()
+        .init_resource::<CombatContext>()
+        .init_resource::<TurnQueue>()
+        .init_resource::<CombatLog>()
+        .init_resource::<GameDb>()
+        .init_resource::<SelectionState>()
+        .init_resource::<DiceRng>()
+        .add_message::<ApplyDamage>()
+        .add_message::<ApplyHeal>()
+        .add_message::<ApplyStatus>()
+        .add_message::<EndTurn>()
+        .add_systems(
+            Update,
+            (
+                skip_stunned_turn_system,
+                apply_effects_system,
+                advance_turn_system,
+            )
+                .chain()
+                .run_if(in_state(CombatPhase::AwaitCommand)),
+        );
+    enter_await_command(&mut app);
+    app
+}
+
+#[test]
+fn turn_ending_flag_cleared_on_advance() {
+    let mut app = effects_app();
+    let hero = app
+        .world_mut()
+        .spawn((
+            Name::new("Hero"),
+            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
+        .id();
+    let goblin = app
+        .world_mut()
+        .spawn((
+            Name::new("Goblin"),
+            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
+        .id();
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![hero, goblin];
+        q.index = 0;
+    }
+    app.world_mut().resource_mut::<CombatContext>().active = Some(hero);
+    app.world_mut().resource_mut::<CombatContext>().turn_ending = true;
+
+    write_message(&mut app, EndTurn { actor: hero });
+    app.update();
+
+    let ctx = app.world().resource::<CombatContext>();
+    assert_eq!(ctx.active, Some(goblin));
+    assert!(!ctx.turn_ending, "turn_ending should be cleared for the new active actor");
+}
+
+#[test]
+fn stunned_unit_skips_turn_and_stun_expires_on_applier_end_turn() {
+    let mut app = stun_app();
+    insert_stun_status(&mut app);
+
+    let hero = app
+        .world_mut()
+        .spawn((
+            Name::new("Hero"),
+            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
+        .id();
+    let goblin = app
+        .world_mut()
+        .spawn((
+            Name::new("Goblin"),
+            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
+        .id();
+
+    // Apply stun on goblin, applied by hero, duration 1.
+    app.world_mut()
+        .get_mut::<StatusEffects>(goblin)
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: "stun".into(),
+            rounds_remaining: 1,
+            applier: hero,
+        });
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![goblin, hero];
+        q.index = 0;
+    }
+    app.world_mut().resource_mut::<CombatContext>().active = Some(goblin);
+
+    // Frame 1: goblin's turn — skip_stunned sends EndTurn, advance to hero.
+    app.update();
+
+    let ctx = app.world().resource::<CombatContext>();
+    assert_eq!(ctx.active, Some(hero), "stunned goblin should be skipped, hero is next");
+
+    // Goblin should still have stun (ticks on HERO's EndTurn, not goblin's).
+    let se = app.world().get::<StatusEffects>(goblin).unwrap();
+    assert_eq!(se.0.len(), 1, "stun should still be active after goblin's skipped turn");
+    assert_eq!(se.0[0].rounds_remaining, 1);
+
+    // Frame 2: hero's turn — send EndTurn for hero. Stun ticks (applier=hero).
+    write_message(&mut app, EndTurn { actor: hero });
+    app.update();
+
+    let se = app.world().get::<StatusEffects>(goblin).unwrap();
+    assert!(se.0.is_empty(), "stun should have expired after hero's EndTurn");
+}
+
+#[test]
+fn stunned_enemy_does_not_produce_duplicate_end_turn() {
+    let mut app = stun_app();
+    insert_stun_status(&mut app);
+
+    let hero = app
+        .world_mut()
+        .spawn((
+            Name::new("Hero"),
+            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
+        .id();
+    let goblin = app
+        .world_mut()
+        .spawn((
+            Name::new("Goblin"),
+            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
+        .id();
+    let goblin2 = app
+        .world_mut()
+        .spawn((
+            Name::new("Goblin2"),
+            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
+        ))
+        .id();
+
+    // Stun goblin (applied by hero).
+    app.world_mut()
+        .get_mut::<StatusEffects>(goblin)
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: "stun".into(),
+            rounds_remaining: 1,
+            applier: hero,
+        });
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![goblin, goblin2, hero];
+        q.index = 0;
+    }
+    app.world_mut().resource_mut::<CombatContext>().active = Some(goblin);
+
+    // Goblin is stunned → skip_stunned sends EndTurn.
+    // enemy_ai would also send EndTurn (ap=0) but advance_turn deduplicates.
+    // Should advance to goblin2, NOT skip goblin2.
+    app.update();
+
+    let ctx = app.world().resource::<CombatContext>();
+    assert_eq!(
+        ctx.active,
+        Some(goblin2),
+        "stunned goblin's turn should advance to goblin2, not skip it"
+    );
+    let queue = app.world().resource::<TurnQueue>();
+    assert_eq!(queue.index, 1);
 }

@@ -74,6 +74,7 @@ pub fn spawn_combat_scene(
     ctx.active = None;
     ctx.last_active = None;
     ctx.encounter = None;
+    ctx.turn_ending = false;
     log.0.clear();
     log.push(CombatEvent::CombatStarted);
     cursor.0 = 0;

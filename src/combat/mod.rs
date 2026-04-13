@@ -27,6 +27,7 @@ pub fn start_combat_system(
         ctx.round = 0;
         ctx.encounter = Some(ev.encounter);
         ctx.active = None;
+        ctx.turn_ending = false;
         log.0.clear();
         log.push(CombatEvent::CombatStarted);
         next.set(AppState::Combat);

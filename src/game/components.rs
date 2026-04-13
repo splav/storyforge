@@ -19,6 +19,7 @@ pub struct HexCell {
 #[derive(Component, Default)]
 pub struct Dead;
 
+
 #[derive(Component, Default)]
 pub struct PartyMember;
 

@@ -1,6 +1,6 @@
 use crate::app_state::CombatPhase;
 use crate::game::components::{
-    ActionPoints, ActiveStatus, Combatant, Faction, StatusEffects, Team, Vital,
+    ActionPoints, ActiveStatus, Combatant, Dead, Faction, StatusEffects, Team, Vital,
 };
 use crate::game::messages::{ApplyStatus, EndTurn};
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -19,6 +19,7 @@ pub fn advance_turn_system(
     )>,
     mut action_points: Query<&mut ActionPoints>,
     mut statuses: Query<(Entity, &mut StatusEffects)>,
+    dead_q: Query<(), With<Dead>>,
     mut queue: ResMut<TurnQueue>,
     mut ctx: ResMut<CombatContext>,
     mut log: ResMut<CombatLog>,
@@ -39,8 +40,11 @@ pub fn advance_turn_system(
             log.push(CombatEvent::StatusExpired { target, status });
         }
 
-        // 2. Apply NEW statuses (no +1: tick already happened above, won't touch these).
+        // 2. Apply NEW statuses (skip dead targets).
         for (source, target, status, duration) in &status_apps {
+            if dead_q.get(*target).is_ok() {
+                continue;
+            }
             if let Ok((_, mut se)) = statuses.get_mut(*target) {
                 se.0.retain(|s| s.id != *status);
                 se.0.push(ActiveStatus {
@@ -94,6 +98,7 @@ pub fn advance_turn_system(
                 ap.action = true;
                 ap.movement = true;
             }
+            ctx.turn_ending = false;
             ctx.active = Some(next_actor);
             log.push(CombatEvent::TurnStarted { actor: next_actor });
         }

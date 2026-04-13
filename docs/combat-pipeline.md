@@ -138,3 +138,45 @@ Enemy popup: `queue_enemy_popup` pushes `PendingAnim::Popup` → spawned as UI o
 - Duration ticks on **applier's** EndTurn (not target's)
 - At ability use: stored as `duration + 1` to compensate tick in same frame
 - Duration 1 = active until end of applier's next turn
+
+## Known Weaknesses & Edge Cases
+
+### EndTurn из множества мест (архитектурная проблема)
+
+EndTurn отправляется из 5 систем. `advance_turn` дедуплицирует по actor через HashSet — это пластырь, а не решение. Причина: при оглушении `skip_stunned` ставит `ap = false/false` и шлёт EndTurn, но `enemy_ai` видит `!ap.action && !ap.movement` и шлёт второй. Dedup спасает, но скрывает баги.
+
+**Идеальный рефакторинг:** один EndTurn writer. Например: отдельная система `auto_end_turn` в конце цепочки, которая проверяет "были ли потрачены все ресурсы или пришёл EndTurn от команды" и отправляет единственный EndTurn. Все остальные системы ставят флаг "хочу завершить ход" вместо прямого EndTurn.
+
+### Статус на мёртвого юнита
+
+`apply_effects_system` может пометить цель Dead, а `resolve_action_system` (раньше в кадре) уже отправил `ApplyStatus` для той же цели. `advance_turn` применит статус к трупу. Безвредно пока нет механики воскрешения, но если появится — статусы на трупах станут багом.
+
+### Порядок movement → validation (намеренный)
+
+Movement стоит до validation в цепочке **намеренно**: AI считает позицию назначения и пишет MoveUnit + UseAbility в одном кадре. movement обновляет HexPositions, затем validation проверяет range с новой позиции. Если переставить — range проверится со старой позиции и reject'нет валидную атаку.
+
+### skip_stunned ставит AP = false (необходимо)
+
+`skip_stunned` обнуляет `ap.action` и `ap.movement` перед EndTurn. Без этого `enemy_ai` (для врагов) или `player_command` (для игроков) попытаются действовать: AI найдёт способности, player_command выведет UI. Обнуление AP — способ сказать остальным системам "не трогай".
+
+### Самоубийство через способность
+
+Если способность наносит урон кастеру (или AoE задевает союзников), `apply_effects` пометит Dead, `advance_turn` корректно определит победу/поражение. Работает благодаря тому, что apply_effects идёт после resolution в цепочке.
+
+### Все враги умирают в один ход
+
+`advance_turn` проверяет `enemies_alive` / `players_alive` после каждого EndTurn. Если последний враг умер — фаза Victory выставляется немедленно, дальнейшие EndTurn не обрабатываются (`return` в цикле).
+
+## Тесты
+
+| Тест | Что проверяет |
+|------|--------------|
+| `valid_use_ability_emits_validated_action` | Валидная UseAbility → ValidatedAction |
+| `wrong_actor_use_ability_is_rejected` | Чужой актор → reject |
+| `no_action_point_use_ability_is_rejected` | ap.action=false → reject |
+| `apply_damage_reduces_hp` | Урон уменьшает HP (armor=0) |
+| `killing_all_enemies_sets_victory_phase` | Все враги мертвы → Victory |
+| `killing_all_heroes_sets_defeat_phase` | Все герои мертвы → Defeat |
+| `duplicate_end_turn_is_deduplicated` | Два EndTurn одного actor → один advance |
+| `stunned_unit_skips_turn_and_stun_expires` | Стан пропускает ход, тикается на EndTurn наложившего |
+| `stunned_enemy_no_duplicate_end_turn` | Оглушённый враг не проскакивает следующий ход |

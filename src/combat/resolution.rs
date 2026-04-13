@@ -3,11 +3,12 @@ use crate::core::{modifier, DiceRng};
 use crate::game::components::{ActionPoints, BonusMovement, CombatStats, EquippedWeapon, Mana, Rage};
 use crate::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, ValidatedAction};
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::resources::GameDb;
+use crate::game::resources::{CombatContext, GameDb};
 use bevy::prelude::*;
 
 pub fn resolve_action_system(
     mut commands: Commands,
+    mut ctx: ResMut<CombatContext>,
     db: Res<GameDb>,
     mut rng: ResMut<DiceRng>,
     mut log: ResMut<CombatLog>,
@@ -180,6 +181,7 @@ pub fn resolve_action_system(
         }
 
         if !matches!(def.effect, EffectDef::GrantMovement { .. }) {
+            ctx.turn_ending = true;
             end_turn.write(EndTurn { actor: ev.actor });
         }
     }
