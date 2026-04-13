@@ -11,7 +11,7 @@ use crate::game::components::{
     Abilities, ActionPoints, CombatStats, Combatant, Dead, EquippedWeapon, Faction, Initiative,
     Mana, Rage, Team, Vital,
 };
-use crate::game::resources::{CombatContext, GameDb, SelectionState, TurnQueue};
+use crate::game::resources::{CombatContext, GameDb, SelectionState, TurnQueue, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
 const MAX_SLOTS: usize = 5;
@@ -202,12 +202,16 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
 // ── Update: phase hint ────────────────────────────────────────────────────────
 
 pub fn update_phase_hint(
+    dirty: Res<UiDirty>,
     phase: Res<State<CombatPhase>>,
     ctx: Res<CombatContext>,
     sel: Res<SelectionState>,
     combatants: Query<(&Name, &Faction, &ActionPoints), With<Combatant>>,
     mut phase_q: Query<&mut Text, With<HudPhase>>,
 ) {
+    if !dirty.0.contains(UiDirtyFlags::PHASE_HINT) {
+        return;
+    }
     let Ok(mut t) = phase_q.single_mut() else {
         return;
     };
@@ -252,6 +256,7 @@ pub fn update_phase_hint(
 // ── Update: ability panel ─────────────────────────────────────────────────────
 
 pub fn update_ability_panel(
+    dirty: Res<UiDirty>,
     ctx: Res<CombatContext>,
     sel: Res<SelectionState>,
     db: Res<GameDb>,
@@ -275,6 +280,9 @@ pub fn update_ability_panel(
     )>,
     mut labels: Query<(&AbilitySlotLabel, &mut Text, &mut TextColor)>,
 ) {
+    if !dirty.0.contains(UiDirtyFlags::ABILITY_PANEL) {
+        return;
+    }
     let actor_data = ctx
         .active
         .and_then(|e| combatants.get(e).ok())
@@ -444,10 +452,14 @@ fn dice_bonus_str(dice: &DiceExpr, bonus: i32) -> String {
 // ── Update: turn order strip ──────────────────────────────────────────────────
 
 pub fn update_turn_order(
+    dirty: Res<UiDirty>,
     queue: Res<TurnQueue>,
     combatants: Query<(&Name, &Vital, &Initiative, &Faction, Has<Dead>), With<Combatant>>,
     mut text_q: Query<&mut Text, With<HudTurnOrder>>,
 ) {
+    if !dirty.0.contains(UiDirtyFlags::TURN_ORDER) {
+        return;
+    }
     let Ok(mut t) = text_q.single_mut() else {
         return;
     };
@@ -517,6 +529,7 @@ pub fn ability_slot_click_system(
 // ── Move button ─────────────────────────────────────────────────────────────
 
 pub fn update_move_button(
+    dirty: Res<UiDirty>,
     ctx: Res<CombatContext>,
     sel: Res<SelectionState>,
     combatants: Query<(&Faction, &ActionPoints), (With<Combatant>, Without<Dead>)>,
@@ -525,6 +538,9 @@ pub fn update_move_button(
         With<MoveButton>,
     >,
 ) {
+    if !dirty.0.contains(UiDirtyFlags::MOVE_BTN) {
+        return;
+    }
     let Ok((mut border, mut bg, mut vis)) = move_btn.single_mut() else {
         return;
     };

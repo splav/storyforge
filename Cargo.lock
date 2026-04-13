@@ -4507,6 +4507,7 @@ name = "storyforge"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bitflags 2.11.0",
  "serde",
  "toml",
 ]

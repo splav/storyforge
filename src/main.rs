@@ -15,7 +15,7 @@ use game::messages::{
     ValidatedAction,
 };
 use game::combat_log::CombatLog;
-use game::resources::{CombatContext, GameDb, HexPositions, SelectionState, TurnQueue};
+use game::resources::{CombatContext, GameDb, HexPositions, SelectionState, TurnQueue, UiDirty};
 use ui::animation::AnimationQueue;
 
 fn main() {
@@ -42,6 +42,7 @@ fn main() {
         .init_resource::<ui::hex_grid::HexLastClick>()
         .init_resource::<AnimationQueue>()
         .init_resource::<combat::enemy_popup::PopupCursor>()
+        .init_resource::<UiDirty>()
         .add_message::<StartCombat>()
         .add_message::<UseAbility>()
         .add_message::<ValidatedAction>()
@@ -85,6 +86,10 @@ fn main() {
         // ── Combat UI (runs every frame during combat) ───────────────────
         .add_systems(
             Update,
+            ui::hex_grid::ui_dirty_bridge.run_if(in_state(AppState::Combat)),
+        )
+        .add_systems(
+            Update,
             (
                 ui::combat_ui::update_phase_hint,
                 ui::combat_ui::update_turn_order,
@@ -102,6 +107,7 @@ fn main() {
                 ui::log_ui::log_scrollbar_update,
                 ui::console_log::print_log_system,
             )
+                .after(ui::hex_grid::ui_dirty_bridge)
                 .run_if(in_state(AppState::Combat)),
         )
         // ── Animation systems (run independently, not in chain) ─────────

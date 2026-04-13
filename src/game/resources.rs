@@ -273,3 +273,23 @@ impl SelectionState {
         *self = Self::default();
     }
 }
+
+// ── UI dirty flags ──────────────────────────────────────────────────────────
+
+bitflags::bitflags! {
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct UiDirtyFlags: u16 {
+        const OVERLAY       = 0b0000_0001;
+        const HEX_FILL      = 0b0000_0010;
+        const LABELS        = 0b0000_0100;
+        const ABILITY_PANEL = 0b0000_1000;
+        const TURN_ORDER    = 0b0001_0000;
+        const PHASE_HINT    = 0b0010_0000;
+        const MOVE_BTN      = 0b0100_0000;
+        const TOOLTIP       = 0b1000_0000;
+        const TOKENS        = 0b1_0000_0000;
+    }
+}
+
+#[derive(Resource, Default)]
+pub struct UiDirty(pub UiDirtyFlags);

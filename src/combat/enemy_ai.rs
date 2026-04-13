@@ -143,16 +143,10 @@ pub fn enemy_ai_system(
         }
     }
 
-    info!(
-        "[AI] actor={:?}: best_in_range={:?}, best_any={:?}, ap.action={}, ap.movement={}",
-        actor, best_in_range, best_any, ap.action, ap.movement,
-    );
-
     // If we have an ability+target in range, use it.
     // Note: resolve_action_system sends EndTurn after resolving the ability.
     if let Some((ability, target, _)) = best_in_range {
         if ap.action {
-            info!("[AI] → UseAbility (in range): {:?} → {:?}", ability, target);
             use_ability.write(UseAbility {
                 actor,
                 ability,
@@ -164,7 +158,6 @@ pub fn enemy_ai_system(
 
     // Not in range (or action already spent). Try to move closer for the best ability.
     if !ap.movement {
-        info!("[AI] → EndTurn (no movement left)");
         end_turn.write(EndTurn { actor });
         return;
     }
@@ -222,8 +215,6 @@ pub fn enemy_ai_system(
         }
     }
 
-    info!("[AI] best_move={:?}", best_move.as_ref().map(|(p, t)| (p.len(), t)));
-
     if let Some((path, target)) = best_move {
         let dest = *path.last().unwrap();
         move_unit.write(MoveUnit { actor, path: path.clone() });
@@ -231,7 +222,6 @@ pub fn enemy_ai_system(
             let best_ability = pick_best_for_target(
                 actor, target, dest, abilities, &db, mana_cur, rage_cur, &allies,
             );
-            info!("[AI] → move to {:?}, pick_best_for_target={:?}", dest, best_ability);
             if let Some(ability) = best_ability {
                 // resolve_action_system will send EndTurn after resolving.
                 use_ability.write(UseAbility {

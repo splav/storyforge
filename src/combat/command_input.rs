@@ -131,27 +131,16 @@ pub fn player_command_system(
 
     // Enter → confirm ability.
     if keyboard.just_pressed(KeyCode::Enter) {
-        info!(
-            "[CMD] Enter pressed: ability={:?}, target={:?}, ap.action={}, ap.movement={}, move_mode={}",
-            selection.selected_ability,
-            selection.selected_target,
-            ap.action,
-            ap.movement,
-            selection.move_mode,
-        );
         if let (Some(ability), Some(target)) = (
             selection.selected_ability.clone(),
             selection.selected_target,
         ) {
-            info!("[CMD] → writing UseAbility: ability={:?}, target={:?}", ability, target);
             use_ability.write(UseAbility {
                 actor,
                 ability,
                 target,
             });
             selection.clear();
-        } else {
-            info!("[CMD] → UseAbility NOT sent (missing ability or target)");
         }
     }
 }
