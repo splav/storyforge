@@ -5,19 +5,16 @@ mod combat;
 mod content;
 mod core;
 mod game;
+mod scenario;
 mod ui;
 
 use app_state::{AppState, CombatPhase};
 use core::DiceRng;
-use game::bundles::{enemy_bundle, warrior_bundle};
-use game::components::{Mana, Rage, StartingHexPos};
 use game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, StartCombat, UseAbility,
     ValidatedAction,
 };
-use game::resources::{
-    CombatContext, CombatEvent, CombatLog, GameDb, HexPositions, SelectionState, TurnQueue,
-};
+use game::resources::{CombatContext, CombatLog, GameDb, HexPositions, SelectionState, TurnQueue};
 
 fn main() {
     App::new()
@@ -49,18 +46,39 @@ fn main() {
         .add_message::<ApplyStatus>()
         .add_message::<MoveUnit>()
         .add_message::<EndTurn>()
+        .add_message::<scenario::AdvanceScenario>()
         .add_systems(
             Startup,
             (
-                setup_demo,
+                scenario::start_scenario,
                 ui::combat_ui::setup_hud,
                 ui::hex_grid::setup_hex_grid,
             ),
         )
+        // ── Story ────────────────────────────────────────────────────────
+        .add_systems(OnEnter(AppState::Story), ui::story_ui::setup_story_screen)
+        .add_systems(
+            Update,
+            ui::story_ui::story_input_system.run_if(in_state(AppState::Story)),
+        )
+        .add_systems(
+            OnExit(AppState::Story),
+            ui::story_ui::cleanup_story_screen,
+        )
+        // ── Combat enter / exit ──────────────────────────────────────────
         .add_systems(
             OnEnter(AppState::Combat),
-            ui::hex_grid::assign_hex_positions,
+            (
+                scenario::spawn_combat_scene,
+                ui::hex_grid::assign_hex_positions,
+            )
+                .chain(),
         )
+        .add_systems(
+            OnExit(AppState::Combat),
+            scenario::despawn_combatants,
+        )
+        // ── Combat UI (runs every frame during combat) ───────────────────
         .add_systems(
             Update,
             (
@@ -81,6 +99,22 @@ fn main() {
             )
                 .run_if(in_state(AppState::Combat)),
         )
+        // ── Scenario advancement (always active) ─────────────────────────
+        .add_systems(
+            Update,
+            scenario::victory_input_system.run_if(in_state(CombatPhase::Victory)),
+        )
+        .add_systems(
+            Update,
+            scenario::defeat_input_system.run_if(in_state(CombatPhase::Defeat)),
+        )
+        .add_systems(
+            Update,
+            scenario::advance_scenario_system
+                .after(scenario::victory_input_system)
+                .after(ui::story_ui::story_input_system),
+        )
+        // ── Combat pipeline ──────────────────────────────────────────────
         .add_systems(
             Update,
             combat::start_combat_system.run_if(in_state(AppState::Overworld)),
@@ -107,62 +141,4 @@ fn main() {
                 .run_if(in_state(CombatPhase::AwaitCommand)),
         )
         .run();
-}
-
-fn setup_demo(
-    mut commands: Commands,
-    db: Res<GameDb>,
-    mut ctx: ResMut<CombatContext>,
-    mut log: ResMut<CombatLog>,
-    mut next_state: ResMut<NextState<AppState>>,
-) {
-    commands.spawn(Camera2d);
-
-    // Spawn players with hardcoded starting positions.
-    for (name, class_id, hex_pos) in [
-        ("Aldric", "warrior", StartingHexPos(1, 2)),
-        ("Lyra",   "mage",    StartingHexPos(1, 4)),
-        ("Kael",   "ranger",  StartingHexPos(0, 3)),
-    ] {
-        let cls = db.classes.get(class_id).unwrap_or_else(|| {
-            panic!(
-                "Class '{class_id}' not found in {}",
-                "assets/data/classes.toml"
-            )
-        });
-        let mut ec = commands.spawn((
-            Name::new(name),
-            warrior_bundle(cls.stats.clone(), cls.speed, cls.abilities.clone(), cls.weapon.clone()),
-            hex_pos,
-        ));
-        if cls.rage_max > 0 {
-            ec.insert(Rage::new(cls.rage_max));
-        }
-        if cls.mana_max > 0 {
-            ec.insert(Mana::new(cls.mana_max));
-        }
-    }
-
-    // Spawn enemies from encounter config (positions come from TOML).
-    let enc = db.encounters.get("goblin_patrol").unwrap_or_else(|| {
-        panic!("Encounter 'goblin_patrol' not found in assets/data/encounters.toml")
-    });
-
-    for enemy in &enc.enemies {
-        commands.spawn((
-            Name::new(enemy.name.clone()),
-            enemy_bundle(
-                enemy.stats.clone(),
-                enemy.speed,
-                enemy.ability_ids.clone(),
-                enemy.weapon_id.clone(),
-            ),
-            StartingHexPos(enemy.hex_pos.0, enemy.hex_pos.1),
-        ));
-    }
-
-    let encounter_entity = commands.spawn(Name::new(enc.name.clone())).id();
-    ctx.encounter = Some(encounter_entity);
-    log.push(CombatEvent::CombatStarted);
-    next_state.set(AppState::Combat);
 }

@@ -241,8 +241,8 @@ pub fn update_phase_hint(
                 format!("Ход: {actor_name}  |  {}", hints.join("  "))
             }
         }
-        CombatPhase::Victory => "★  ПОБЕДА".into(),
-        CombatPhase::Defeat => "✗  ПОРАЖЕНИЕ".into(),
+        CombatPhase::Victory => "★  ПОБЕДА  (Space)".into(),
+        CombatPhase::Defeat => "✗  ПОРАЖЕНИЕ  (Space)".into(),
         p => format!("{p:?}"),
     };
 }

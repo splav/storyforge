@@ -1,6 +1,7 @@
 use crate::content::abilities::{load_abilities, AbilityDef};
 use crate::content::classes::{load_classes, ClassDef};
 use crate::content::encounters::{load_encounters, EncounterDef};
+use crate::content::scenarios::{load_scenarios, ScenarioDef};
 use crate::content::statuses::{load_statuses, StatusDef};
 use crate::content::weapons::{load_weapons, WeaponDef};
 use crate::core::{AbilityId, StatusId, WeaponId};
@@ -176,6 +177,7 @@ pub struct GameDb {
     pub weapons: HashMap<WeaponId, WeaponDef>,
     pub encounters: HashMap<String, EncounterDef>,
     pub classes: HashMap<String, ClassDef>,
+    pub scenarios: HashMap<String, ScenarioDef>,
 }
 
 impl Default for GameDb {
@@ -201,8 +203,20 @@ impl Default for GameDb {
                 .into_iter()
                 .map(|c| (c.id.clone(), c))
                 .collect(),
+            scenarios: load_scenarios()
+                .into_iter()
+                .map(|s| (s.id.clone(), s))
+                .collect(),
         }
     }
+}
+
+// ── Scenario state ──────────────────────────────────────────────────────────
+
+#[derive(Resource)]
+pub struct ScenarioState {
+    pub scenario_id: String,
+    pub scene_index: usize,
 }
 
 // ── Hex positions ────────────────────────────────────────────────────────────

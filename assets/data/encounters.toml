@@ -67,5 +67,23 @@ charisma     = -2   # мод -1
 speed        = 4
 weapon_id    = "staff"
 ability_ids  = ["melee_attack", "fireball", "heal"]
+mana_max     = 8
 hex_col      = 6
 hex_row      = 4
+
+[[encounters.enemies]]
+name         = "Orc Shaman"
+max_hp       = 22
+armor        = 3
+strength     = 4    # мод +2
+dexterity    = -2   # мод -1
+constitution = 6    # мод +3 — очень вынослив
+intelligence = 2    # мод +1
+wisdom       = 4    # мод +2 — шаман
+charisma     = 0    # мод  0
+speed        = 3
+weapon_id    = "staff"
+ability_ids  = ["melee_attack", "heal", "burn"]
+mana_max     = 6
+hex_col      = 5
+hex_row      = 3

@@ -1,0 +1,41 @@
+[[scenarios]]
+id   = "demo"
+name = "Засада гоблинов"
+
+[[scenarios.party]]
+name    = "Aldric"
+class   = "warrior"
+hex_col = 1
+hex_row = 2
+
+[[scenarios.party]]
+name    = "Lyra"
+class   = "mage"
+hex_col = 1
+hex_row = 4
+
+[[scenarios.party]]
+name    = "Kael"
+class   = "ranger"
+hex_col = 0
+hex_row = 3
+
+[[scenarios.scenes]]
+type = "story"
+text = "Отряд пробирается через тёмный лес.\nВ воздухе висит запах дыма..."
+
+[[scenarios.scenes]]
+type      = "combat"
+encounter = "goblin_patrol"
+
+[[scenarios.scenes]]
+type = "story"
+text = "Гоблины повержены.\nНо вдали слышны боевые барабаны..."
+
+[[scenarios.scenes]]
+type      = "combat"
+encounter = "orc_camp"
+
+[[scenarios.scenes]]
+type = "story"
+text = "Лагерь орков зачищен. Лес снова безопасен.\n\nКонец демо."

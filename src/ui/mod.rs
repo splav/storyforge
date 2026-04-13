@@ -2,6 +2,7 @@ pub mod combat_ui;
 pub mod console_log;
 pub mod hex_grid;
 pub mod log_ui;
+pub mod story_ui;
 
 use bevy::prelude::*;
 
@@ -32,6 +33,14 @@ pub struct AbilitySlotLabel(pub usize);
 /// Marker on the "Move" button in the ability panel.
 #[derive(Component)]
 pub struct MoveButton;
+
+/// Root node of the story screen (despawned on exit).
+#[derive(Component)]
+pub struct StoryScreenRoot;
+
+/// "Continue" button on the story screen.
+#[derive(Component)]
+pub struct StoryContinueButton;
 
 /// Loaded font with Cyrillic support, shared across all HUD text nodes.
 #[derive(Resource)]
