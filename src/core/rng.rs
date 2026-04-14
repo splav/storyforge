@@ -59,11 +59,12 @@ pub struct DiceExpr {
 
 impl DiceExpr {
     pub fn new(count: u32, sides: u32, bonus: i32) -> Self {
-        Self {
-            count,
-            sides,
-            bonus,
-        }
+        Self { count, sides, bonus }
+    }
+
+    /// Expected value: E[NdS + bonus] = N*(S+1)/2 + bonus.
+    pub fn expected(&self) -> f32 {
+        self.count as f32 * (self.sides as f32 + 1.0) / 2.0 + self.bonus as f32
     }
 }
 

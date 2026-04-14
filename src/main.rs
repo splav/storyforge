@@ -37,6 +37,7 @@ fn main() {
         .init_resource::<GameDb>()
         .init_resource::<SelectionState>()
         .init_resource::<DiceRng>()
+        .init_resource::<combat::ai_difficulty::DifficultyProfile>()
         .init_resource::<ui::console_log::ConsoleCursor>()
         .init_resource::<HexPositions>()
         .init_resource::<ui::hex_grid::HexHover>()

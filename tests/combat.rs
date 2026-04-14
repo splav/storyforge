@@ -5,9 +5,9 @@ use bevy::state::app::StatesPlugin;
 
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
-    advance_turn::advance_turn_system, apply_effects::apply_effects_system,
-    enemy_ai::enemy_ai_system, skip_dead::skip_stunned_turn_system,
-    validation::validate_action_system,
+    advance_turn::advance_turn_system, ai_difficulty::DifficultyProfile,
+    apply_effects::apply_effects_system, enemy_ai::enemy_ai_system,
+    skip_dead::skip_stunned_turn_system, validation::validate_action_system,
 };
 const MELEE_ATTACK: &str = "melee_attack";
 const SHORT_SWORD: &str = "short_sword";
@@ -436,6 +436,7 @@ fn stun_app() -> App {
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
         .init_resource::<DiceRng>()
+        .init_resource::<DifficultyProfile>()
         .add_message::<ApplyDamage>()
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()
@@ -458,7 +459,8 @@ fn stun_app() -> App {
 }
 
 #[test]
-fn turn_ending_flag_cleared_on_advance() {
+fn duplicate_end_turn_does_not_double_advance() {
+    // Two EndTurn messages for the same actor in one frame must not advance twice.
     let mut app = effects_app();
     let hero = app
         .world_mut()
@@ -481,14 +483,15 @@ fn turn_ending_flag_cleared_on_advance() {
         q.index = 0;
     }
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
-    app.world_mut().resource_mut::<CombatContext>().turn_ending = true;
 
+    // Send EndTurn twice for the same actor.
+    write_message(&mut app, EndTurn { actor: hero });
     write_message(&mut app, EndTurn { actor: hero });
     app.update();
 
+    // Goblin should be active — not wrapped back to hero.
     assert!(app.world().get::<ActiveCombatant>(goblin).is_some(), "goblin should be active");
-    let ctx = app.world().resource::<CombatContext>();
-    assert!(!ctx.turn_ending, "turn_ending should be cleared for the new active actor");
+    assert!(app.world().get::<ActiveCombatant>(hero).is_none(), "hero should not be active");
 }
 
 #[test]

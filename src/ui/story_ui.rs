@@ -17,7 +17,9 @@ pub fn setup_story_screen(
     };
 
     let font: Handle<Font> = asset_server.load("fonts/unicode.ttf");
-    let bg_image: Handle<Image> = asset_server.load("images/story_background.png");
+    let is_last_scene = scenario.scene_index + 1 >= scen.scenes.len();
+    let bg_path = if is_last_scene { "images/victory_background.png" } else { "images/story_background.png" };
+    let bg_image: Handle<Image> = asset_server.load(bg_path);
 
     // Background image layer.
     commands

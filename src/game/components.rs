@@ -212,6 +212,8 @@ pub struct AiCombatantQ {
     pub vital: &'static Vital,
     pub speed: &'static Speed,
     pub ap: &'static ActionPoints,
+    pub stats: &'static CombatStats,
+    pub weapon: Option<&'static EquippedWeapon>,
     pub mana: Option<&'static Mana>,
     pub rage: Option<&'static Rage>,
 }

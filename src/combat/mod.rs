@@ -1,4 +1,6 @@
 pub mod advance_turn;
+pub mod ai_difficulty;
+pub mod ai_scoring;
 pub mod apply_effects;
 pub mod command_input;
 pub mod enemy_ai;
@@ -30,7 +32,6 @@ pub fn start_combat_system(
         ctx.round = 0;
         ctx.encounter = Some(ev.encounter);
         for e in &active_q { commands.entity(e).remove::<ActiveCombatant>(); }
-        ctx.turn_ending = false;
         log.0.clear();
         log.push(CombatEvent::CombatStarted);
         next.set(AppState::Combat);

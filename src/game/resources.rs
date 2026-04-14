@@ -21,9 +21,6 @@ pub struct PresetInitiative(pub HashMap<String, i32>);
 pub struct CombatContext {
     pub round: u32,
     pub encounter: Option<Entity>,
-    /// Set by any system that sends EndTurn. Visible immediately to later systems in the chain.
-    /// Cleared by advance_turn when setting up the next actor.
-    pub turn_ending: bool,
 }
 
 #[derive(Resource, Default)]

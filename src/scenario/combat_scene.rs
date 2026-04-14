@@ -59,7 +59,6 @@ fn reset_combat_state(
 ) {
     ctx.round = 0;
     ctx.encounter = None;
-    ctx.turn_ending = false;
     log.0.clear();
     log.push(CombatEvent::CombatStarted);
     cursor.0 = 0;

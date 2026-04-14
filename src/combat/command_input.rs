@@ -1,12 +1,11 @@
 use crate::content::abilities::TargetType;
 use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, Team};
 use crate::game::messages::{EndTurn, UseAbility};
-use crate::game::resources::{CombatContext, GameDb, SelectionState};
+use crate::game::resources::{GameDb, SelectionState};
 use bevy::prelude::*;
 
 pub fn player_command_system(
     keyboard: Res<ButtonInput<KeyCode>>,
-    ctx: Res<CombatContext>,
     db: Res<GameDb>,
     mut selection: ResMut<SelectionState>,
     mut use_ability: MessageWriter<UseAbility>,
@@ -30,8 +29,8 @@ pub fn player_command_system(
         selection.selected_target = None;
     }
 
-    // Auto-end turn if both resources are spent (and no EndTurn already sent).
-    if !c.ap.action && !c.ap.movement && !ctx.turn_ending {
+    // Auto-end turn if both resources are spent.
+    if !c.ap.action && !c.ap.movement {
         end_turn.write(EndTurn { actor });
         selection.clear();
         return;
