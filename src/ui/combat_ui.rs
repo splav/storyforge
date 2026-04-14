@@ -1,17 +1,19 @@
 use super::log_ui::LogScrollState;
 use super::{
-    AbilitySlot, AbilitySlotLabel, HudPhase, HudTurnOrder, LogScrollClip, LogScrollThumb, LogText,
-    MoveButton, UiFont,
+    AbilitySlot, AbilitySlotLabel, DefeatOverlay, HudPhase, HudTurnOrder, LogScrollClip,
+    LogScrollThumb, LogText, MoveButton, RestartButton, UiFont,
 };
+use super::turn_order_ui::spawn_turn_order_panel;
 use crate::app_state::CombatPhase;
-use crate::content::abilities::{AbilityDef, EffectDef, StatusOn, TargetType};
+use crate::content::abilities::{AbilityDef, EffectDef, StatusOn};
 use crate::content::weapons::WeaponDef;
 use crate::core::{modifier, DiceExpr};
 use crate::game::components::{
-    Abilities, ActionPoints, CombatStats, Combatant, Dead, EquippedWeapon, Faction, Initiative,
-    Mana, Rage, Team, Vital,
+    Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, EquippedWeapon, Faction,
+    Mana, Rage, Team,
 };
-use crate::game::resources::{CombatContext, GameDb, SelectionState, TurnQueue, UiDirty, UiDirtyFlags};
+use crate::game::messages::RestartCombat;
+use crate::game::resources::{GameDb, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
 const MAX_SLOTS: usize = 5;
@@ -121,14 +123,8 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                 let (tf, _) = txt(14.0);
                 center.spawn((HudPhase, Text::new(""), tf, TextColor(CLR_HINT)));
 
-                // Turn order strip
-                let (tf, _) = txt(13.0);
-                center.spawn((
-                    HudTurnOrder,
-                    Text::new(""),
-                    tf,
-                    TextColor(Color::srgb(0.75, 0.75, 0.75)),
-                ));
+                // Hidden legacy marker (kept so update_turn_order can find it)
+                center.spawn((HudTurnOrder, Node { display: Display::None, ..default() }));
 
                 center.spawn(Node {
                     flex_grow: 1.0,
@@ -196,6 +192,9 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                         });
                 }
             });
+
+            // ── Right panel: turn order cards ─────────────────────────────
+            spawn_turn_order_panel(root, &font);
         });
 }
 
@@ -204,7 +203,7 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
 pub fn update_phase_hint(
     dirty: Res<UiDirty>,
     phase: Res<State<CombatPhase>>,
-    ctx: Res<CombatContext>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     sel: Res<SelectionState>,
     combatants: Query<(&Name, &Faction, &ActionPoints), With<Combatant>>,
     mut phase_q: Query<&mut Text, With<HudPhase>>,
@@ -217,8 +216,9 @@ pub fn update_phase_hint(
     };
     t.0 = match phase.get() {
         CombatPhase::AwaitCommand => {
-            let actor_info = ctx
-                .active
+            let actor_info = active_q
+                .single()
+                .ok()
                 .and_then(|e| combatants.get(e).ok())
                 .filter(|(_, f, _)| f.0 == Team::Player);
             let actor_name = actor_info
@@ -257,7 +257,7 @@ pub fn update_phase_hint(
 
 pub fn update_ability_panel(
     dirty: Res<UiDirty>,
-    ctx: Res<CombatContext>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     sel: Res<SelectionState>,
     db: Res<GameDb>,
     combatants: Query<
@@ -283,8 +283,9 @@ pub fn update_ability_panel(
     if !dirty.0.contains(UiDirtyFlags::ABILITY_PANEL) {
         return;
     }
-    let actor_data = ctx
-        .active
+    let actor_data = active_q
+        .single()
+        .ok()
         .and_then(|e| combatants.get(e).ok())
         .filter(|(f, _, _, _, _, _)| f.0 == Team::Player)
         .map(|(_, abilities, stats, weapon, mana, rage)| {
@@ -449,61 +450,10 @@ fn dice_bonus_str(dice: &DiceExpr, bonus: i32) -> String {
     }
 }
 
-// ── Update: turn order strip ──────────────────────────────────────────────────
-
-pub fn update_turn_order(
-    dirty: Res<UiDirty>,
-    queue: Res<TurnQueue>,
-    combatants: Query<(&Name, &Vital, &Initiative, &Faction, Has<Dead>), With<Combatant>>,
-    mut text_q: Query<&mut Text, With<HudTurnOrder>>,
-) {
-    if !dirty.0.contains(UiDirtyFlags::TURN_ORDER) {
-        return;
-    }
-    let Ok(mut t) = text_q.single_mut() else {
-        return;
-    };
-    if queue.order.is_empty() {
-        t.0.clear();
-        return;
-    }
-
-    let len = queue.order.len();
-    let mut s = String::from("Ход: ");
-
-    for i in 0..len {
-        let idx = (queue.index + i) % len;
-        let entity = queue.order[idx];
-
-        let Ok((name, vital, init, faction, is_dead)) = combatants.get(entity) else {
-            continue;
-        };
-
-        let marker = if i == 0 { "▶ " } else { "" };
-        let dead_mark = if is_dead { " ✗" } else { "" };
-        let team_icon = match faction.0 {
-            Team::Player => "🗡",
-            Team::Enemy => "👹",
-        };
-        let hp_str = format!("HP:{}/{}", vital.hp, vital.max_hp);
-
-        s.push_str(&format!(
-            "{marker}{team_icon}{name} {hp_str} (ini:{init_val}){dead_mark}",
-            init_val = init.0
-        ));
-
-        if i < len - 1 {
-            s.push_str(" → ");
-        }
-    }
-
-    t.0 = s;
-}
-
 // ── Ability slot click ────────────────────────────────────────────────────────
 
 pub fn ability_slot_click_system(
-    ctx: Res<CombatContext>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     mut sel: ResMut<SelectionState>,
     slots: Query<(&AbilitySlot, &Interaction), Changed<Interaction>>,
     combatants: Query<(&Faction, &Abilities), (With<Combatant>, Without<Dead>)>,
@@ -512,7 +462,7 @@ pub fn ability_slot_click_system(
         if *interaction != Interaction::Pressed {
             continue;
         }
-        let Some(active) = ctx.active else { continue };
+        let Ok(active) = active_q.single() else { continue };
         let Ok((faction, abilities)) = combatants.get(active) else {
             continue;
         };
@@ -530,7 +480,7 @@ pub fn ability_slot_click_system(
 
 pub fn update_move_button(
     dirty: Res<UiDirty>,
-    ctx: Res<CombatContext>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     sel: Res<SelectionState>,
     combatants: Query<(&Faction, &ActionPoints), (With<Combatant>, Without<Dead>)>,
     mut move_btn: Query<
@@ -545,8 +495,9 @@ pub fn update_move_button(
         return;
     };
 
-    let is_player_turn = ctx
-        .active
+    let is_player_turn = active_q
+        .single()
+        .ok()
         .and_then(|e| combatants.get(e).ok())
         .is_some_and(|(f, _)| f.0 == Team::Player);
 
@@ -556,8 +507,9 @@ pub fn update_move_button(
     }
     *vis = Visibility::Visible;
 
-    let has_movement = ctx
-        .active
+    let has_movement = active_q
+        .single()
+        .ok()
         .and_then(|e| combatants.get(e).ok())
         .map_or(false, |(_, ap)| ap.movement);
 
@@ -574,7 +526,7 @@ pub fn update_move_button(
 }
 
 pub fn move_button_click_system(
-    ctx: Res<CombatContext>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     mut sel: ResMut<SelectionState>,
     move_btn: Query<&Interaction, (Changed<Interaction>, With<MoveButton>)>,
     combatants: Query<(&Faction, &ActionPoints), (With<Combatant>, Without<Dead>)>,
@@ -583,7 +535,7 @@ pub fn move_button_click_system(
         if *interaction != Interaction::Pressed {
             continue;
         }
-        let Some(active) = ctx.active else { continue };
+        let Ok(active) = active_q.single() else { continue };
         let Ok((faction, ap)) = combatants.get(active) else {
             continue;
         };
@@ -597,6 +549,134 @@ pub fn move_button_click_system(
             sel.move_mode = true;
             sel.selected_ability = None;
             sel.selected_target = None;
+        }
+    }
+}
+
+// ── Defeat overlay ────────────────────────────────────────────────────────────
+
+const CLR_OVERLAY_BG: Color = Color::srgba(0.0, 0.0, 0.0, 0.72);
+const CLR_BTN_BG: Color = Color::srgb(0.14, 0.08, 0.08);
+const CLR_BTN_BORDER: Color = Color::srgb(0.60, 0.18, 0.18);
+const CLR_BTN_HOV_BG: Color = Color::srgb(0.22, 0.10, 0.10);
+const CLR_BTN_HOV_BORDER: Color = Color::srgb(0.85, 0.25, 0.25);
+const CLR_MENU_BG: Color = Color::srgb(0.08, 0.06, 0.06);
+const CLR_MENU_BORDER: Color = Color::srgb(0.35, 0.20, 0.20);
+
+pub fn setup_defeat_overlay(mut commands: Commands, font: Res<UiFont>) {
+    let font = font.0.clone();
+
+    commands
+        .spawn((
+            DefeatOverlay,
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(CLR_OVERLAY_BG),
+            ZIndex(100),
+        ))
+        .with_children(|root| {
+            // Central panel
+            root.spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    padding: UiRect::axes(Val::Px(48.0), Val::Px(36.0)),
+                    row_gap: Val::Px(20.0),
+                    border: UiRect::all(Val::Px(1.5)),
+                    ..default()
+                },
+                BorderColor::all(CLR_MENU_BORDER),
+                BackgroundColor(CLR_MENU_BG),
+            ))
+            .with_children(|panel| {
+                // Title
+                panel.spawn((
+                    Text::new("✗  ПОРАЖЕНИЕ"),
+                    TextFont { font: font.clone(), font_size: 28.0, ..default() },
+                    TextColor(Color::srgb(0.85, 0.25, 0.20)),
+                ));
+
+                // "Сразиться ещё раз" button
+                panel
+                    .spawn((
+                        RestartButton,
+                        Button,
+                        Node {
+                            padding: UiRect::axes(Val::Px(28.0), Val::Px(12.0)),
+                            border: UiRect::all(Val::Px(1.5)),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        BorderColor::all(CLR_BTN_BORDER),
+                        BackgroundColor(CLR_BTN_BG),
+                    ))
+                    .with_children(|btn| {
+                        btn.spawn((
+                            Text::new("Сразиться ещё раз"),
+                            TextFont { font: font.clone(), font_size: 16.0, ..default() },
+                            TextColor(Color::WHITE),
+                        ));
+                    });
+
+                // Hint
+                panel.spawn((
+                    Text::new("[R] — сразиться ещё раз   [Esc] — главное меню"),
+                    TextFont { font, font_size: 12.0, ..default() },
+                    TextColor(Color::srgb(0.45, 0.45, 0.45)),
+                ));
+            });
+        });
+}
+
+pub fn cleanup_defeat_overlay(
+    mut commands: Commands,
+    overlays: Query<Entity, With<DefeatOverlay>>,
+) {
+    for entity in &overlays {
+        commands.entity(entity).despawn();
+    }
+}
+
+pub fn defeat_overlay_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    buttons: Query<&Interaction, (Changed<Interaction>, With<RestartButton>)>,
+    mut restart_writer: MessageWriter<RestartCombat>,
+    mut next_state: ResMut<NextState<crate::app_state::AppState>>,
+) {
+    let restart = keys.just_pressed(KeyCode::KeyR)
+        || buttons.iter().any(|i| *i == Interaction::Pressed);
+    let to_menu = keys.just_pressed(KeyCode::Escape);
+
+    if restart {
+        restart_writer.write(RestartCombat);
+    } else if to_menu {
+        next_state.set(crate::app_state::AppState::MainMenu);
+    }
+}
+
+pub fn defeat_button_hover(
+    mut buttons: Query<
+        (&Interaction, &mut BorderColor, &mut BackgroundColor),
+        (Changed<Interaction>, With<RestartButton>),
+    >,
+) {
+    for (interaction, mut border, mut bg) in &mut buttons {
+        match interaction {
+            Interaction::Hovered => {
+                *border = BorderColor::all(CLR_BTN_HOV_BORDER);
+                *bg = BackgroundColor(CLR_BTN_HOV_BG);
+            }
+            _ => {
+                *border = BorderColor::all(CLR_BTN_BORDER);
+                *bg = BackgroundColor(CLR_BTN_BG);
+            }
         }
     }
 }

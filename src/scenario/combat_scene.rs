@@ -1,25 +1,21 @@
+use crate::app_state::CombatPhase;
 use crate::content::scenarios::SceneDef;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
-use crate::game::components::{Combatant, Mana, Rage, StartingHexPos, UnitToken};
+use crate::game::components::{Combatant, Initiative, Mana, Rage, StartingHexPos, UnitToken};
 use crate::game::combat_log::{CombatEvent, CombatLog};
+use crate::game::messages::RestartCombat;
 use crate::game::resources::{
-    CombatContext, GameDb, HexPositions, ScenarioState, SelectionState, TurnQueue,
+    CombatContext, GameDb, HexPositions, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
 };
 use crate::combat::enemy_popup::PopupCursor;
 use crate::ui::animation::AnimationQueue;
 use crate::ui::console_log::ConsoleCursor;
 use bevy::prelude::*;
 
-pub fn spawn_combat_scene(
-    mut commands: Commands,
-    db: Res<GameDb>,
-    scenario: Res<ScenarioState>,
-    mut ctx: ResMut<CombatContext>,
-    mut log: ResMut<CombatLog>,
-    mut cursor: ResMut<ConsoleCursor>,
-    mut popup_cursor: ResMut<PopupCursor>,
-    mut anim_queue: ResMut<AnimationQueue>,
-) {
+// ── Shared helpers ──────────────────────────────────────────────────────────
+
+/// Спаунит героев и врагов по текущему сценарию/энкаунтеру. Только Commands.
+fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioState) {
     let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
     let encounter_id = match &scen.scenes[scenario.scene_index] {
         SceneDef::Combat { encounter_id } => encounter_id,
@@ -35,44 +31,33 @@ pub fn spawn_combat_scene(
         });
         let mut ec = commands.spawn((
             Name::new(member.name.clone()),
-            hero_bundle(
-                cls.stats.clone(),
-                cls.speed,
-                cls.abilities.clone(),
-                cls.weapon.clone(),
-            ),
+            hero_bundle(cls.stats.clone(), cls.speed, cls.abilities.clone(), cls.weapon.clone()),
             StartingHexPos(member.hex_pos.0, member.hex_pos.1),
         ));
-        if cls.rage_max > 0 {
-            ec.insert(Rage::new(cls.rage_max));
-        }
-        if cls.mana_max > 0 {
-            ec.insert(Mana::new(cls.mana_max));
-        }
+        if cls.rage_max > 0 { ec.insert(Rage::new(cls.rage_max)); }
+        if cls.mana_max > 0 { ec.insert(Mana::new(cls.mana_max)); }
     }
 
     for enemy in &enc.enemies {
         let mut ec = commands.spawn((
             Name::new(enemy.name.clone()),
-            enemy_bundle(
-                enemy.stats.clone(),
-                enemy.speed,
-                enemy.ability_ids.clone(),
-                enemy.weapon_id.clone(),
-            ),
+            enemy_bundle(enemy.stats.clone(), enemy.speed, enemy.ability_ids.clone(), enemy.weapon_id.clone()),
             StartingHexPos(enemy.hex_pos.0, enemy.hex_pos.1),
         ));
-        if enemy.rage_max > 0 {
-            ec.insert(Rage::new(enemy.rage_max));
-        }
-        if enemy.mana_max > 0 {
-            ec.insert(Mana::new(enemy.mana_max));
-        }
+        if enemy.rage_max > 0 { ec.insert(Rage::new(enemy.rage_max)); }
+        if enemy.mana_max > 0 { ec.insert(Mana::new(enemy.mana_max)); }
     }
+}
 
+/// Сбрасывает все ресурсы боя в начальное состояние.
+fn reset_combat_state(
+    ctx: &mut CombatContext,
+    log: &mut CombatLog,
+    cursor: &mut ConsoleCursor,
+    popup_cursor: &mut PopupCursor,
+    anim_queue: &mut AnimationQueue,
+) {
     ctx.round = 0;
-    ctx.active = None;
-    ctx.last_active = None;
     ctx.encounter = None;
     ctx.turn_ending = false;
     log.0.clear();
@@ -80,6 +65,22 @@ pub fn spawn_combat_scene(
     cursor.0 = 0;
     popup_cursor.0 = 0;
     anim_queue.0.clear();
+}
+
+// ── Systems ─────────────────────────────────────────────────────────────────
+
+pub fn spawn_combat_scene(
+    mut commands: Commands,
+    db: Res<GameDb>,
+    scenario: Res<ScenarioState>,
+    mut ctx: ResMut<CombatContext>,
+    mut log: ResMut<CombatLog>,
+    mut cursor: ResMut<ConsoleCursor>,
+    mut popup_cursor: ResMut<PopupCursor>,
+    mut anim_queue: ResMut<AnimationQueue>,
+) {
+    spawn_combatants(&mut commands, &db, &scenario);
+    reset_combat_state(&mut ctx, &mut log, &mut cursor, &mut popup_cursor, &mut anim_queue);
 }
 
 pub fn despawn_combatants(
@@ -93,21 +94,66 @@ pub fn despawn_combatants(
     mut anim_queue: ResMut<AnimationQueue>,
     popups: Query<Entity, With<crate::ui::animation::EnemyActionPopup>>,
 ) {
-    for entity in &combatants {
-        commands.entity(entity).despawn();
-    }
-    for entity in &tokens {
+    for entity in combatants.iter().chain(tokens.iter()).chain(popups.iter()) {
         commands.entity(entity).despawn();
     }
     positions.clear();
     queue.order.clear();
     queue.index = 0;
-    ctx.active = None;
-    ctx.last_active = None;
     ctx.encounter = None;
     sel.clear();
     anim_queue.0.clear();
-    for entity in &popups {
+}
+
+// ── Restart combat ──────────────────────────────────────────────────────────
+
+/// Сохраняет инициативу в `PresetInitiative`, полностью пересоздаёт сцену.
+/// `build_turn_order` подхватит сохранённые значения вместо бросков кубика.
+pub fn restart_combat_system(
+    mut reader: MessageReader<RestartCombat>,
+    mut commands: Commands,
+    db: Res<GameDb>,
+    scenario: Res<ScenarioState>,
+    combatants: Query<(Entity, &Name, &Initiative), With<Combatant>>,
+    cleanup: Query<Entity, Or<(With<UnitToken>, With<crate::ui::animation::EnemyActionPopup>)>>,
+    mut preset: ResMut<PresetInitiative>,
+    mut positions: ResMut<HexPositions>,
+    mut queue: ResMut<TurnQueue>,
+    mut ctx: ResMut<CombatContext>,
+    mut log: ResMut<CombatLog>,
+    mut cursor: ResMut<ConsoleCursor>,
+    mut popup_cursor: ResMut<PopupCursor>,
+    mut anim_queue: ResMut<AnimationQueue>,
+    mut sel: ResMut<SelectionState>,
+    mut next_phase: ResMut<NextState<CombatPhase>>,
+) {
+    if reader.read().next().is_none() {
+        return;
+    }
+
+    // 1. Save initiative by name.
+    preset.0.clear();
+    for (_, name, init) in &combatants {
+        preset.0.insert(name.as_str().to_string(), init.0);
+    }
+
+    // 2. Despawn combatants, tokens, popups.
+    for (entity, _, _) in &combatants {
         commands.entity(entity).despawn();
     }
+    for entity in &cleanup {
+        commands.entity(entity).despawn();
+    }
+    positions.clear();
+    queue.order.clear();
+    queue.index = 0;
+    sel.clear();
+
+    // 3. Spawn fresh combatants + reset state.
+    spawn_combatants(&mut commands, &db, &scenario);
+    reset_combat_state(&mut ctx, &mut log, &mut cursor, &mut popup_cursor, &mut anim_queue);
+
+    // 4. → StartRound, где assign_hex_positions создаст токены,
+    //    а build_turn_order возьмёт инициативу из PresetInitiative.
+    next_phase.set(CombatPhase::StartRound);
 }

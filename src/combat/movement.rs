@@ -1,24 +1,16 @@
-use crate::game::components::{ActionPoints, BonusMovement, Speed, UnitToken};
-use crate::game::hex::in_bounds;
+use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Speed, UnitToken};
+use crate::game::hex::{hex_to_pixel, in_bounds};
 use crate::game::messages::MoveUnit;
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::resources::{CombatContext, HexPositions};
+use crate::game::resources::HexPositions;
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::HexGridOffset;
 use bevy::prelude::*;
 
-/// Hex-to-pixel for animation waypoints (duplicated from hex_grid for layering).
-fn hex_to_pixel(q: i32, r: i32) -> Vec2 {
-    const HEX_SIZE: f32 = 34.0;
-    let shift = if r & 1 == 0 { 0.5 } else { 0.0 };
-    let x = HEX_SIZE * 3.0_f32.sqrt() * (q as f32 + shift);
-    let y = HEX_SIZE * 1.5 * r as f32;
-    Vec2::new(x, -y)
-}
 
 pub fn movement_system(
     mut commands: Commands,
-    ctx: Res<CombatContext>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     mut events: MessageReader<MoveUnit>,
     mut positions: ResMut<HexPositions>,
     mut movers: Query<(&mut ActionPoints, &Speed, Option<&BonusMovement>)>,
@@ -27,8 +19,9 @@ pub fn movement_system(
     grid_offset: Res<HexGridOffset>,
     mut anim_queue: ResMut<AnimationQueue>,
 ) {
+    let active = active_q.single().ok();
     for ev in events.read() {
-        if ctx.active != Some(ev.actor) {
+        if active != Some(ev.actor) {
             continue;
         }
         if ev.path.is_empty() {

@@ -1,11 +1,11 @@
-use crate::game::components::{Abilities, ActionPoints, Mana, Rage, Vital};
+use crate::game::components::{Abilities, ActionPoints, ActiveCombatant, Mana, Rage, Vital};
 use crate::game::hex::hex_distance;
 use crate::game::messages::{UseAbility, ValidatedAction};
-use crate::game::resources::{CombatContext, GameDb, HexPositions};
+use crate::game::resources::{GameDb, HexPositions};
 use bevy::prelude::*;
 
 pub fn validate_action_system(
-    ctx: Res<CombatContext>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     db: Res<GameDb>,
     positions: Res<HexPositions>,
     mut events: MessageReader<UseAbility>,
@@ -19,8 +19,9 @@ pub fn validate_action_system(
     targets: Query<&Vital>,
     mut validated: MessageWriter<ValidatedAction>,
 ) {
+    let active = active_q.single().ok();
     for ev in events.read() {
-        if !is_valid(ev, &ctx, &db, &positions, &actors, &targets) {
+        if !is_valid(ev, active, &db, &positions, &actors, &targets) {
             continue;
         }
         validated.write(ValidatedAction {
@@ -33,7 +34,7 @@ pub fn validate_action_system(
 
 fn is_valid(
     ev: &UseAbility,
-    ctx: &CombatContext,
+    active: Option<Entity>,
     db: &GameDb,
     positions: &HexPositions,
     actors: &Query<(
@@ -45,7 +46,7 @@ fn is_valid(
     )>,
     targets: &Query<&Vital>,
 ) -> bool {
-    if ctx.active != Some(ev.actor) {
+    if active != Some(ev.actor) {
         return false;
     }
 

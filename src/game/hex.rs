@@ -1,5 +1,16 @@
+use bevy::math::Vec2;
+
 pub const GRID_COLS: i32 = 8;
 pub const GRID_ROWS: i32 = 7;
+pub const HEX_SIZE: f32 = 34.0;
+
+/// Pointy-top hex, even rows shift right 0.5 → pixel position for cell (q, r).
+pub fn hex_to_pixel(q: i32, r: i32) -> Vec2 {
+    let shift = if r & 1 == 0 { 0.5 } else { 0.0 };
+    let x = HEX_SIZE * 3.0_f32.sqrt() * (q as f32 + shift);
+    let y = HEX_SIZE * 1.5 * r as f32;
+    Vec2::new(x, -y)
+}
 
 /// Odd rows are one cell longer (protrude on both sides); even rows have GRID_COLS-1 cells.
 pub fn row_cols(r: i32) -> i32 {

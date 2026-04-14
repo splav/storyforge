@@ -1,5 +1,5 @@
 use crate::content::abilities::TargetType;
-use crate::game::components::{Combatant, Dead, PlayerCombatantQ, Team};
+use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, Team};
 use crate::game::messages::{EndTurn, UseAbility};
 use crate::game::resources::{CombatContext, GameDb, SelectionState};
 use bevy::prelude::*;
@@ -11,9 +11,10 @@ pub fn player_command_system(
     mut selection: ResMut<SelectionState>,
     mut use_ability: MessageWriter<UseAbility>,
     mut end_turn: MessageWriter<EndTurn>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     combatants: Query<PlayerCombatantQ, (With<Combatant>, Without<Dead>)>,
 ) {
-    let Some(actor) = ctx.active else { return };
+    let Ok(actor) = active_q.single() else { return };
 
     let Ok(c) = combatants.get(actor) else {
         return;

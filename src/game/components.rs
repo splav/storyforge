@@ -5,6 +5,10 @@ use bevy::prelude::*;
 #[derive(Component, Default)]
 pub struct Combatant;
 
+/// Marker: the combatant whose turn it is right now.
+#[derive(Component)]
+pub struct ActiveCombatant;
+
 /// Starting hex grid position (col, row) assigned at spawn.
 #[derive(Component, Clone, Copy)]
 pub struct StartingHexPos(pub i32, pub i32);

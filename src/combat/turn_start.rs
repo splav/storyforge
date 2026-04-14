@@ -1,21 +1,22 @@
-use crate::game::components::Mana;
+use crate::game::components::{ActiveCombatant, Mana};
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::resources::CombatContext;
 use bevy::prelude::*;
 
 /// Runs at the start of every AwaitCommand frame.
-/// Fires once per turn: when ctx.active differs from ctx.last_active.
+/// Fires once per turn: when active combatant differs from last seen.
 pub fn turn_start_system(
-    mut ctx: ResMut<CombatContext>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     mut mana_query: Query<&mut Mana>,
     mut log: ResMut<CombatLog>,
+    mut last_active: Local<Option<Entity>>,
 ) {
-    if ctx.active == ctx.last_active {
+    let current = active_q.single().ok();
+    if current == *last_active {
         return;
     }
-    ctx.last_active = ctx.active;
+    *last_active = current;
 
-    let Some(actor) = ctx.active else { return };
+    let Some(actor) = current else { return };
 
     // Mana: restore 1 at the start of the actor's own turn.
     if let Ok(mut mana) = mana_query.get_mut(actor) {

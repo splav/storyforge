@@ -62,3 +62,7 @@ pub struct MoveUnit {
 pub struct EndTurn {
     pub actor: Entity,
 }
+
+/// Перезапустить текущий бой: восстановить всех участников, сохранив инициативу.
+#[derive(Message)]
+pub struct RestartCombat;

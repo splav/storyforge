@@ -18,13 +18,13 @@
 ### Physical (weapon_attack, damage)
 ```
 raw = dice_roll + STR_mod
-actual = max(1, raw - armor - armor_bonus) + damage_taken_bonus
+actual = max(1, raw - armor - armor_bonus + damage_taken_bonus)
 ```
 
 ### Magical (spell_damage)
 ```
 raw = dice_roll + INT_mod + spell_power
-actual = raw + damage_taken_bonus
+actual = max(1, raw + damage_taken_bonus)
 ```
 Pierces armor: ignores `armor` and `armor_bonus`.
 
@@ -69,7 +69,7 @@ hp = min(hp + amount, max_hp)
 
 ### Duration
 - Ticks on **applier's** EndTurn, not target's
-- Internal: stored as `duration + 1` at application time
+- New statuses applied AFTER existing ones are ticked (no +1 compensation needed)
 - Duration 1 = active until end of applier's next turn
 
 ## Enemy AI

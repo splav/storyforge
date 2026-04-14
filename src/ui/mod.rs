@@ -4,6 +4,7 @@ pub mod console_log;
 pub mod hex_grid;
 pub mod log_ui;
 pub mod story_ui;
+pub mod turn_order_ui;
 
 use bevy::prelude::*;
 
@@ -23,6 +24,18 @@ pub struct LogScrollThumb;
 #[derive(Component)]
 pub struct HudTurnOrder;
 
+/// Marker on each turn-order card slot (index = display position).
+#[derive(Component)]
+pub struct TurnOrderCard(pub usize);
+
+/// Marker on the name text inside a TurnOrderCard.
+#[derive(Component)]
+pub struct TurnOrderCardName(pub usize);
+
+/// Marker on the HP text inside a TurnOrderCard.
+#[derive(Component)]
+pub struct TurnOrderCardHp(pub usize);
+
 /// Marker on the ability slot container node (index = slot position).
 #[derive(Component)]
 pub struct AbilitySlot(pub usize);
@@ -34,6 +47,14 @@ pub struct AbilitySlotLabel(pub usize);
 /// Marker on the "Move" button in the ability panel.
 #[derive(Component)]
 pub struct MoveButton;
+
+/// Root of the defeat overlay (despawned on phase exit).
+#[derive(Component)]
+pub struct DefeatOverlay;
+
+/// "Сразиться ещё раз" button inside the defeat overlay.
+#[derive(Component)]
+pub struct RestartButton;
 
 /// Root node of the story screen (despawned on exit).
 #[derive(Component)]

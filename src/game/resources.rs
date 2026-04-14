@@ -8,15 +8,19 @@ use crate::core::{AbilityId, StatusId, WeaponId};
 use bevy::prelude::*;
 use std::collections::HashMap;
 
+// ── Initiative preset (carry initiative across a combat restart) ─────────────
+
+/// Populated before a combat restart. Maps combatant name → saved initiative value.
+/// `build_turn_order` reads this on round 1 instead of rolling, then clears it.
+#[derive(Resource, Default)]
+pub struct PresetInitiative(pub HashMap<String, i32>);
+
 // ── Combat runtime ───────────────────────────────────────────────────────────
 
 #[derive(Resource, Default)]
 pub struct CombatContext {
     pub round: u32,
-    pub active: Option<Entity>,
     pub encounter: Option<Entity>,
-    /// Tracks who was active last frame; used by turn_start_system to detect a new turn.
-    pub last_active: Option<Entity>,
     /// Set by any system that sends EndTurn. Visible immediately to later systems in the chain.
     /// Cleared by advance_turn when setting up the next actor.
     pub turn_ending: bool,

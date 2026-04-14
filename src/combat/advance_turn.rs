@@ -1,6 +1,6 @@
 use crate::app_state::CombatPhase;
 use crate::game::components::{
-    ActionPoints, ActiveStatus, Combatant, Dead, Faction, StatusEffects, Team, Vital,
+    ActionPoints, ActiveCombatant, ActiveStatus, Combatant, Dead, Faction, StatusEffects, Team, Vital,
 };
 use crate::game::messages::{ApplyStatus, EndTurn};
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -11,6 +11,7 @@ use bevy::prelude::*;
 /// Ticks existing statuses FIRST, then applies new ones (no +1 hack needed).
 /// Checks win/lose, advances the turn queue.
 pub fn advance_turn_system(
+    mut commands: Commands,
     mut end_turn_events: MessageReader<EndTurn>,
     mut status_events: MessageReader<ApplyStatus>,
     mut queries: ParamSet<(
@@ -20,6 +21,7 @@ pub fn advance_turn_system(
     mut action_points: Query<&mut ActionPoints>,
     mut statuses: Query<(Entity, &mut StatusEffects)>,
     dead_q: Query<(), With<Dead>>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     mut queue: ResMut<TurnQueue>,
     mut ctx: ResMut<CombatContext>,
     mut log: ResMut<CombatLog>,
@@ -75,15 +77,23 @@ pub fn advance_turn_system(
         }
 
         // 4. Advance to next living combatant.
+        // Dead entities are skipped, but we still tick their orphaned statuses
+        // so that effects they applied continue to expire on schedule.
         let start_idx = queue.index;
         queue.advance();
         loop {
-            let alive = queue
-                .current()
+            let current = queue.current();
+            let alive = current
                 .and_then(|e| queries.p0().get(e).ok().map(|v| v.is_alive()))
                 .unwrap_or(false);
             if alive {
                 break;
+            }
+            if let Some(dead_entity) = current {
+                let expired = tick_status_durations(dead_entity, &mut statuses);
+                for (target, status) in expired {
+                    log.push(CombatEvent::StatusExpired { target, status });
+                }
             }
             queue.advance();
             if queue.index == start_idx {
@@ -92,6 +102,7 @@ pub fn advance_turn_system(
         }
 
         ctx.turn_ending = false;
+        for e in &active_q { commands.entity(e).remove::<ActiveCombatant>(); }
 
         if queue.index == 0 {
             next_phase.set(CombatPhase::StartRound);
@@ -100,7 +111,7 @@ pub fn advance_turn_system(
                 ap.action = true;
                 ap.movement = true;
             }
-            ctx.active = Some(next_actor);
+            commands.entity(next_actor).insert(ActiveCombatant);
             log.push(CombatEvent::TurnStarted { actor: next_actor });
         }
     }

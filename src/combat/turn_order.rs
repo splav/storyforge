@@ -1,18 +1,21 @@
 use crate::app_state::CombatPhase;
 use crate::core::{modifier, DiceRng};
-use crate::game::components::{ActionPoints, CombatStats, Combatant, Initiative, Vital};
+use crate::game::components::{ActionPoints, ActiveCombatant, CombatStats, Combatant, Initiative, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::resources::{CombatContext, TurnQueue};
+use crate::game::resources::{CombatContext, PresetInitiative, TurnQueue};
 use bevy::prelude::*;
 
 /// Build the turn order for a new round.
 /// Initiative is rolled once (round 1) and reused in all subsequent rounds.
 pub fn build_turn_order(
+    mut commands: Commands,
     mut queue: ResMut<TurnQueue>,
     mut ctx: ResMut<CombatContext>,
     mut log: ResMut<CombatLog>,
     mut rng: ResMut<DiceRng>,
+    mut preset: ResMut<PresetInitiative>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     mut combatants: Query<
         (
             Entity,
@@ -29,6 +32,7 @@ pub fn build_turn_order(
     log.push(CombatEvent::RoundStarted { round: ctx.round });
 
     let first_round = ctx.round == 1;
+    let use_preset = first_round && !preset.0.is_empty();
 
     // (entity, total) for ordering; (entity, dex_mod, roll, total) for logging on round 1.
     let mut init_rolls: Vec<(Entity, i32, i32, i32)> = Vec::new();
@@ -36,12 +40,25 @@ pub fn build_turn_order(
     let mut order: Vec<(Entity, i32)> = combatants
         .iter_mut()
         .filter(|(_, _, _, _, _, v)| v.is_alive())
-        .map(|(e, _, mut init, mut ap, stats, _)| {
+        .map(|(e, name, mut init, mut ap, stats, _)| {
             if first_round {
-                let dex_mod = modifier(stats.dexterity);
-                let roll = rng.roll_d(20);
-                init.0 = dex_mod + roll;
-                init_rolls.push((e, dex_mod, roll, init.0));
+                if use_preset {
+                    // Restore saved initiative value instead of rolling.
+                    if let Some(&saved) = preset.0.get(name.as_str()) {
+                        init.0 = saved;
+                    } else {
+                        // New combatant not in preset — roll normally.
+                        let dex_mod = modifier(stats.dexterity);
+                        let roll = rng.roll_d(20);
+                        init.0 = dex_mod + roll;
+                        init_rolls.push((e, dex_mod, roll, init.0));
+                    }
+                } else {
+                    let dex_mod = modifier(stats.dexterity);
+                    let roll = rng.roll_d(20);
+                    init.0 = dex_mod + roll;
+                    init_rolls.push((e, dex_mod, roll, init.0));
+                }
             }
             ap.action = true;
             ap.movement = true;
@@ -49,7 +66,9 @@ pub fn build_turn_order(
         })
         .collect();
 
-    if first_round {
+    if use_preset {
+        preset.0.clear();
+    } else if first_round {
         init_rolls.sort_by(|a, b| b.3.cmp(&a.3));
         for (actor, dex_mod, roll, total) in init_rolls {
             log.push(CombatEvent::InitiativeRolled {
@@ -65,8 +84,9 @@ pub fn build_turn_order(
     queue.order = order.into_iter().map(|(e, _)| e).collect();
     queue.index = 0;
 
+    for e in &active_q { commands.entity(e).remove::<ActiveCombatant>(); }
     if let Some(first) = queue.current() {
-        ctx.active = Some(first);
+        commands.entity(first).insert(ActiveCombatant);
         log.push(CombatEvent::TurnStarted { actor: first });
     }
 

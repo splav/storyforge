@@ -13,7 +13,7 @@ const MELEE_ATTACK: &str = "melee_attack";
 const SHORT_SWORD: &str = "short_sword";
 use storyforge::core::DiceRng;
 use storyforge::game::bundles::{enemy_bundle, hero_bundle};
-use storyforge::game::components::{ActionPoints, ActiveStatus, CombatStats, StatusEffects, Vital};
+use storyforge::game::components::{ActionPoints, ActiveCombatant, ActiveStatus, CombatStats, StatusEffects, Vital};
 use storyforge::game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, UseAbility, ValidatedAction,
 };
@@ -127,7 +127,7 @@ fn valid_use_ability_emits_validated_action() {
         ))
         .id();
 
-    app.world_mut().resource_mut::<CombatContext>().active = Some(actor);
+    app.world_mut().entity_mut(actor).insert(ActiveCombatant);
     write_message(
         &mut app,
         UseAbility {
@@ -166,7 +166,7 @@ fn wrong_actor_use_ability_is_rejected() {
         ))
         .id();
 
-    app.world_mut().resource_mut::<CombatContext>().active = Some(other);
+    app.world_mut().entity_mut(other).insert(ActiveCombatant);
     write_message(
         &mut app,
         UseAbility {
@@ -203,7 +203,7 @@ fn no_action_point_use_ability_is_rejected() {
         .unwrap()
         .action = false;
 
-    app.world_mut().resource_mut::<CombatContext>().active = Some(actor);
+    app.world_mut().entity_mut(actor).insert(ActiveCombatant);
     write_message(
         &mut app,
         UseAbility {
@@ -242,7 +242,7 @@ fn apply_damage_reduces_hp() {
         q.order = vec![hero, goblin];
         q.index = 0;
     }
-    app.world_mut().resource_mut::<CombatContext>().active = Some(hero);
+    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
 
     // armor=0 so full 4 damage applied
     write_message(
@@ -312,7 +312,7 @@ fn killing_all_enemies_sets_victory_phase() {
         q.order = vec![hero, goblin];
         q.index = 0;
     }
-    app.world_mut().resource_mut::<CombatContext>().active = Some(hero);
+    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
 
     write_message(
         &mut app,
@@ -385,7 +385,7 @@ fn killing_all_heroes_sets_defeat_phase() {
         q.order = vec![goblin, hero];
         q.index = 0;
     }
-    app.world_mut().resource_mut::<CombatContext>().active = Some(goblin);
+    app.world_mut().entity_mut(goblin).insert(ActiveCombatant);
 
     write_message(
         &mut app,
@@ -480,14 +480,14 @@ fn turn_ending_flag_cleared_on_advance() {
         q.order = vec![hero, goblin];
         q.index = 0;
     }
-    app.world_mut().resource_mut::<CombatContext>().active = Some(hero);
+    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     app.world_mut().resource_mut::<CombatContext>().turn_ending = true;
 
     write_message(&mut app, EndTurn { actor: hero });
     app.update();
 
+    assert!(app.world().get::<ActiveCombatant>(goblin).is_some(), "goblin should be active");
     let ctx = app.world().resource::<CombatContext>();
-    assert_eq!(ctx.active, Some(goblin));
     assert!(!ctx.turn_ending, "turn_ending should be cleared for the new active actor");
 }
 
@@ -527,13 +527,12 @@ fn stunned_unit_skips_turn_and_stun_expires_on_applier_end_turn() {
         q.order = vec![goblin, hero];
         q.index = 0;
     }
-    app.world_mut().resource_mut::<CombatContext>().active = Some(goblin);
+    app.world_mut().entity_mut(goblin).insert(ActiveCombatant);
 
     // Frame 1: goblin's turn — skip_stunned sends EndTurn, advance to hero.
     app.update();
 
-    let ctx = app.world().resource::<CombatContext>();
-    assert_eq!(ctx.active, Some(hero), "stunned goblin should be skipped, hero is next");
+    assert!(app.world().get::<ActiveCombatant>(hero).is_some(), "stunned goblin should be skipped, hero is next");
 
     // Goblin should still have stun (ticks on HERO's EndTurn, not goblin's).
     let se = app.world().get::<StatusEffects>(goblin).unwrap();
@@ -591,17 +590,15 @@ fn stunned_enemy_does_not_produce_duplicate_end_turn() {
         q.order = vec![goblin, goblin2, hero];
         q.index = 0;
     }
-    app.world_mut().resource_mut::<CombatContext>().active = Some(goblin);
+    app.world_mut().entity_mut(goblin).insert(ActiveCombatant);
 
     // Goblin is stunned → skip_stunned sends EndTurn.
     // enemy_ai would also send EndTurn (ap=0) but advance_turn deduplicates.
     // Should advance to goblin2, NOT skip goblin2.
     app.update();
 
-    let ctx = app.world().resource::<CombatContext>();
-    assert_eq!(
-        ctx.active,
-        Some(goblin2),
+    assert!(
+        app.world().get::<ActiveCombatant>(goblin2).is_some(),
         "stunned goblin's turn should advance to goblin2, not skip it"
     );
     let queue = app.world().resource::<TurnQueue>();

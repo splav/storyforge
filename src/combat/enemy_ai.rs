@@ -1,7 +1,7 @@
 use crate::content::abilities::{AbilityDef, EffectDef, TargetType};
 use crate::core::{AbilityId, DiceRng};
 use crate::game::components::{
-    Abilities, AiCombatantQ, Combatant, Faction, Mana, Rage, StatusEffects, Team, Vital,
+    Abilities, ActionPoints, ActiveCombatant, AiCombatantQ, Combatant, Speed, StatusEffects, Team,
 };
 use crate::game::hex::{hex_distance, in_bounds};
 use crate::game::messages::{EndTurn, MoveUnit, UseAbility};
@@ -10,6 +10,38 @@ use crate::game::resources::{CombatContext, GameDb, HexPositions};
 use bevy::prelude::*;
 use std::collections::HashSet;
 
+// ── AI scoring weights ─────────────────────────────────────────────────────
+
+const HEAL_THRESHOLD_PCT: i32 = 60;
+const HEAL_PER_HP_MISSING: i32 = 10;
+const HEAL_BASE_BONUS: i32 = 50;
+const SCORE_SPELL_DAMAGE_BONUS: i32 = 20;
+const SCORE_PHYSICAL_DAMAGE_BONUS: i32 = 5;
+const SCORE_WEAPON_ATTACK: i32 = 8;
+const SCORE_STUN_STATUS: i32 = 40;
+const SCORE_VULNERABILITY_STATUS: i32 = 15;
+
+// ── Data types ─────────────────────────────────────────────────────────────
+
+struct EvalResult {
+    best_in_range: Option<(AbilityId, Entity, i32)>,
+    best_any: Option<(AbilityId, Entity, i32, i32)>, // + range needed
+}
+
+enum MoveDecision {
+    MoveAndAttack {
+        path: Vec<(i32, i32)>,
+        ability: AbilityId,
+        target: Entity,
+    },
+    MoveCloser {
+        path: Vec<(i32, i32)>,
+    },
+    Stay,
+}
+
+// ── Main system ────────────────────────────────────────────────────────────
+
 /// Automatically acts on behalf of enemy-controlled combatants.
 /// Picks the best affordable ability, prefers healing wounded allies,
 /// then strongest ranged/melee attacks. Moves toward targets when out of range.
@@ -17,21 +49,21 @@ pub fn enemy_ai_system(
     ctx: Res<CombatContext>,
     db: Res<GameDb>,
     positions: Res<HexPositions>,
-    mut rng: ResMut<DiceRng>,
+    _rng: ResMut<DiceRng>,
     mut use_ability: MessageWriter<UseAbility>,
     mut move_unit: MessageWriter<MoveUnit>,
     mut end_turn: MessageWriter<EndTurn>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     combatants: Query<AiCombatantQ, With<Combatant>>,
     statuses: Query<&StatusEffects>,
 ) {
-    let Some(actor) = ctx.active else { return };
+    let Ok(actor) = active_q.single() else { return };
     let Ok(c) = combatants.get(actor) else {
         return;
     };
     if c.faction.0 != Team::Enemy || !c.vital.is_alive() || c.abilities.0.is_empty() {
         return;
     }
-    // Turn already ending (e.g. stunned by skip_stunned) — don't act or send EndTurn.
     if ctx.turn_ending {
         return;
     }
@@ -41,11 +73,9 @@ pub fn enemy_ai_system(
     }
 
     let (abilities, ap, speed) = (c.abilities, c.ap, c.speed);
-
     let Some(actor_pos) = positions.get(&actor) else {
         return;
     };
-
     let mana_cur = c.mana.map(|m| m.current).unwrap_or(0);
     let rage_cur = c.rage.map(|r| r.current).unwrap_or(0);
 
@@ -85,13 +115,83 @@ pub fn enemy_ai_system(
         .iter()
         .filter(|c| c.faction.0 == Team::Enemy && c.vital.is_alive())
         .filter_map(|c| {
-            positions.get(&c.entity).map(|p| (c.entity, p, c.vital.hp, c.vital.max_hp))
+            positions
+                .get(&c.entity)
+                .map(|p| (c.entity, p, c.vital.hp, c.vital.max_hp))
         })
         .collect();
 
-    // Score all (ability, target) pairs.
-    let mut best_in_range: Option<(AbilityId, Entity, i32)> = None; // (ability, target, score)
-    let mut best_any: Option<(AbilityId, Entity, i32, i32)> = None; // + range needed
+    // Evaluate all (ability, target) pairs.
+    let eval = evaluate_targets(actor_pos, abilities, enemy_pool, &allies, &db, mana_cur, rage_cur);
+
+    // If we have an ability+target in range, use it.
+    if let Some((ref ability, target, _)) = eval.best_in_range {
+        if ap.action {
+            use_ability.write(UseAbility {
+                actor,
+                ability: ability.clone(),
+                target,
+            });
+            return;
+        }
+    }
+
+    // Try to move closer and/or attack after moving.
+    if ap.movement {
+        let decision = plan_movement(
+            actor,
+            actor_pos,
+            speed,
+            abilities,
+            enemy_pool,
+            &allies,
+            &eval,
+            ap,
+            &db,
+            mana_cur,
+            rage_cur,
+            &positions,
+            &combatants,
+        );
+
+        match decision {
+            MoveDecision::MoveAndAttack {
+                path,
+                ability,
+                target,
+            } => {
+                move_unit.write(MoveUnit { actor, path });
+                use_ability.write(UseAbility {
+                    actor,
+                    ability,
+                    target,
+                });
+                return;
+            }
+            MoveDecision::MoveCloser { path } => {
+                move_unit.write(MoveUnit { actor, path });
+            }
+            MoveDecision::Stay => {}
+        }
+    }
+
+    end_turn.write(EndTurn { actor });
+}
+
+// ── Evaluator ──────────────────────────────────────────────────────────────
+
+/// Score all (ability, target) pairs and return the best in-range and best overall.
+fn evaluate_targets(
+    actor_pos: (i32, i32),
+    abilities: &Abilities,
+    enemy_pool: &[(Entity, (i32, i32))],
+    allies: &[(Entity, (i32, i32), i32, i32)],
+    db: &GameDb,
+    mana_cur: i32,
+    rage_cur: i32,
+) -> EvalResult {
+    let mut best_in_range: Option<(AbilityId, Entity, i32)> = None;
+    let mut best_any: Option<(AbilityId, Entity, i32, i32)> = None;
 
     for ability_id in &abilities.0 {
         let Some(def) = db.abilities.get(ability_id) else {
@@ -101,21 +201,14 @@ pub fn enemy_ai_system(
             continue;
         }
 
-        let candidates = match def.target_type {
-            TargetType::SingleEnemy => {
-                enemy_pool
-                    .iter()
-                    .map(|&(e, pos)| (e, pos))
-                    .collect::<Vec<_>>()
-            }
-            TargetType::SingleAlly => {
-                allies.iter().map(|&(e, pos, _, _)| (e, pos)).collect()
-            }
-            TargetType::Myself => vec![(actor, actor_pos)],
+        let candidates: Vec<(Entity, (i32, i32))> = match def.target_type {
+            TargetType::SingleEnemy => enemy_pool.to_vec(),
+            TargetType::SingleAlly => allies.iter().map(|&(e, pos, _, _)| (e, pos)).collect(),
+            TargetType::Myself => vec![(Entity::PLACEHOLDER, actor_pos)],
         };
 
         for (target, target_pos) in candidates {
-            let score = score_ability(def, target, &allies, &db);
+            let score = score_ability(def, target, allies, db);
             if score <= 0 {
                 continue;
             }
@@ -123,12 +216,10 @@ pub fn enemy_ai_system(
             let dist = hex_distance(actor_pos.0, actor_pos.1, target_pos.0, target_pos.1);
             let range = def.range as i32;
 
-            // Track best overall (for movement planning).
             if best_any.as_ref().map_or(true, |b| score > b.2) {
                 best_any = Some((ability_id.clone(), target, score, range));
             }
 
-            // Track best in range from current position.
             if dist <= range || range == 0 {
                 if best_in_range.as_ref().map_or(true, |b| score > b.2) {
                     best_in_range = Some((ability_id.clone(), target, score));
@@ -137,26 +228,32 @@ pub fn enemy_ai_system(
         }
     }
 
-    // If we have an ability+target in range, use it.
-    // Note: resolve_action_system sends EndTurn after resolving the ability.
-    if let Some((ability, target, _)) = best_in_range {
-        if ap.action {
-            use_ability.write(UseAbility {
-                actor,
-                ability,
-                target,
-            });
-            return;
-        }
+    EvalResult {
+        best_in_range,
+        best_any,
     }
+}
 
-    // Not in range (or action already spent). Try to move closer for the best ability.
-    if !ap.movement {
-        end_turn.write(EndTurn { actor });
-        return;
-    }
+// ── Movement planner ───────────────────────────────────────────────────────
 
-    let target_range = best_any.as_ref().map(|b| b.3).unwrap_or(1);
+/// Given evaluation results, plan the best movement: move into attack range,
+/// or approach the nearest enemy if attack range is unreachable.
+fn plan_movement(
+    actor: Entity,
+    actor_pos: (i32, i32),
+    speed: &Speed,
+    abilities: &Abilities,
+    enemy_pool: &[(Entity, (i32, i32))],
+    allies: &[(Entity, (i32, i32), i32, i32)],
+    eval: &EvalResult,
+    ap: &ActionPoints,
+    db: &GameDb,
+    mana_cur: i32,
+    rage_cur: i32,
+    positions: &HexPositions,
+    combatants: &Query<AiCombatantQ, With<Combatant>>,
+) -> MoveDecision {
+    let target_range = eval.best_any.as_ref().map(|b| b.3).unwrap_or(1);
 
     // Build passability sets.
     let enemy_positions: HashSet<(i32, i32)> = combatants
@@ -180,12 +277,10 @@ pub fn enemy_ai_system(
         |q, r| !all_occupied.contains(&(q, r)),
     );
 
-    // Find best reachable cell that puts us within ability range of ANY target.
-    let move_targets: &[(Entity, (i32, i32))] = enemy_pool;
-
+    // Find best reachable cell that puts us within ability range of any target.
     let mut best_move: Option<(Vec<(i32, i32)>, Entity)> = None;
 
-    for &(target_entity, target_pos) in move_targets {
+    for &(target_entity, target_pos) in enemy_pool {
         for &cell in &reach.destinations {
             if hex_distance(cell.0, cell.1, target_pos.0, target_pos.1) > target_range {
                 continue;
@@ -203,23 +298,19 @@ pub fn enemy_ai_system(
 
     if let Some((path, target)) = best_move {
         let dest = *path.last().unwrap();
-        move_unit.write(MoveUnit { actor, path: path.clone() });
         if ap.action {
             let best_ability = pick_best_for_target(
-                actor, target, dest, abilities, &db, mana_cur, rage_cur, &allies,
+                actor, target, dest, abilities, db, mana_cur, rage_cur, allies,
             );
             if let Some(ability) = best_ability {
-                // resolve_action_system will send EndTurn after resolving.
-                use_ability.write(UseAbility {
-                    actor,
+                return MoveDecision::MoveAndAttack {
+                    path,
                     ability,
                     target,
-                });
-                return;
+                };
             }
         }
-        end_turn.write(EndTurn { actor });
-        return;
+        return MoveDecision::MoveCloser { path };
     }
 
     // Can't reach attack range — move as close as possible.
@@ -235,12 +326,14 @@ pub fn enemy_ai_system(
 
     if let Some((dest, _)) = best_approach {
         if let Some(path) = reach.path_to(dest) {
-            move_unit.write(MoveUnit { actor, path });
+            return MoveDecision::MoveCloser { path };
         }
     }
 
-    end_turn.write(EndTurn { actor });
+    MoveDecision::Stay
 }
+
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 fn can_afford(def: &AbilityDef, mana: i32, rage: i32) -> bool {
     if def.mana_cost > 0 && mana < def.mana_cost {
@@ -253,21 +346,10 @@ fn can_afford(def: &AbilityDef, mana: i32, rage: i32) -> bool {
 }
 
 /// Score an ability for a given target. Higher = better. 0 = skip.
-// ── AI scoring weights ──────────────────────────────────────────────────────
-
-const HEAL_THRESHOLD_PCT: i32 = 60;
-const HEAL_PER_HP_MISSING: i32 = 10;
-const HEAL_BASE_BONUS: i32 = 50;
-const SCORE_SPELL_DAMAGE_BONUS: i32 = 20;
-const SCORE_PHYSICAL_DAMAGE_BONUS: i32 = 5;
-const SCORE_WEAPON_ATTACK: i32 = 8;
-const SCORE_STUN_STATUS: i32 = 40;
-const SCORE_VULNERABILITY_STATUS: i32 = 15;
-
 fn score_ability(
     def: &AbilityDef,
     target: Entity,
-    allies: &[(Entity, (i32, i32), i32, i32)], // (entity, pos, hp, max_hp)
+    allies: &[(Entity, (i32, i32), i32, i32)],
     db: &GameDb,
 ) -> i32 {
     match &def.effect {
@@ -311,7 +393,7 @@ fn score_ability(
 
 /// Pick the best affordable ability for a specific target from a given position.
 fn pick_best_for_target(
-    actor: Entity,
+    _actor: Entity,
     target: Entity,
     from: (i32, i32),
     abilities: &Abilities,
@@ -324,7 +406,6 @@ fn pick_best_for_target(
         .iter()
         .find(|(e, _, _, _)| *e == target)
         .map(|(_, pos, _, _)| *pos);
-    // For enemy targets we don't have them in allies, estimate distance from position.
 
     let mut best: Option<(AbilityId, i32)> = None;
 
@@ -335,7 +416,6 @@ fn pick_best_for_target(
         if !can_afford(def, mana, rage) {
             continue;
         }
-        // Check range from the destination cell.
         if def.range > 0 {
             if let Some(tp) = target_pos {
                 if hex_distance(from.0, from.1, tp.0, tp.1) > def.range as i32 {

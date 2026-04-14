@@ -23,9 +23,9 @@ StartRound → AwaitCommand → Victory / Defeat
 ```
 
 - `StartRound` — builds turn order (initiative d20 + DEX mod, round 1 only), transitions to AwaitCommand
-- `AwaitCommand` — 11 chained systems execute: input → AI → movement → validation → resolution → effects → enemy popup → turn advance. Chain blocked by `combat_ready()` while animations or popups active
+- `AwaitCommand` — 11 systems with explicit `.after()` ordering (player_command ∥ enemy_ai, queue_enemy_popup ∥ advance_turn). Blocked by `combat_ready()` while animations or popups active
 - `Victory` — all enemies dead. Space → advance scenario
-- `Defeat` — all heroes dead. Space → MainMenu
+- `Defeat` — all heroes dead. Показывает оверлей с двумя вариантами: **R / кнопка** → `RestartCombat` (перезапуск боя с сохранённой инициативой), **Esc** → MainMenu
 
 ## Module Map
 
@@ -34,8 +34,8 @@ src/
   app_state.rs      AppState + CombatPhase enums
   scenario/
     mod.rs          AdvanceScenario message, start_scenario, advance_scenario_system
-    combat_scene.rs spawn_combat_scene, despawn_combatants
-    input.rs        victory_input_system, defeat_input_system
+    combat_scene.rs spawn_combat_scene, despawn_combatants, restart_combat_system
+    input.rs        victory_input_system
   lib.rs            Re-exports all modules
   main.rs           App builder: resources, messages, system registration
 
@@ -45,10 +45,10 @@ src/
     rng.rs          DiceRng (LCG), DiceExpr { count, sides, bonus }
 
   game/
-    components.rs   ECS components: HexCell, Vital, CombatStats, Speed, ActionPoints, Mana, Rage, StatusEffects, UnitToken, etc.
-    resources.rs    CombatContext (+ turn_ending flag), TurnQueue, GameDb (with validation), SelectionState, ScenarioState, HexPositions (+ generation counter), UiDirty/UiDirtyFlags
+    components.rs   ECS components: HexCell, Vital, CombatStats, Speed, ActionPoints, Mana, Rage, StatusEffects, ActiveCombatant (marker), UnitToken, etc.
+    resources.rs    CombatContext (round, encounter, turn_ending), TurnQueue, GameDb (with validation), SelectionState, ScenarioState, HexPositions (+ generation counter), UiDirty/UiDirtyFlags
     combat_log.rs   CombatEvent enum (16 variants) + CombatLog resource + CombatEvent::format() method
-    messages.rs     UseAbility, ValidatedAction, ApplyDamage, ApplyHeal, ApplyStatus, MoveUnit, EndTurn, etc.
+    messages.rs     UseAbility, ValidatedAction, ApplyDamage, ApplyHeal, ApplyStatus, MoveUnit, EndTurn, RestartCombat
     bundles.rs      CombatantBundle, hero_bundle(), enemy_bundle()
     hex.rs          Grid constants, hex_distance, hex_neighbors, in_bounds
     pathfinding.rs  find_path (BFS), reachable_cells, reachable_with_paths (BFS + path reconstruction)
@@ -75,10 +75,11 @@ src/
     advance_turn.rs  Status ticks, victory/defeat, queue advance, AP reset
 
   ui/
-    mod.rs          UI marker components
+    mod.rs          UI marker components (HudPhase, TurnOrderCard*, DefeatOverlay, RestartButton, …)
     animation.rs    AnimationQueue, PendingAnim, MovePath, combat_ready(), process_animation_queue, animate_movement, EnemyActionPopup + popup UI
-    combat_ui.rs    HUD: phase hint, turn order, ability panel, move button (all guarded by UiDirtyFlags)
-    hex_grid.rs     Hex grid rendering, hover, click, range/move highlighting, ui_dirty_bridge, UnitToken spawning
+    combat_ui.rs    HUD: phase hint, ability panel, move button (all guarded by UiDirtyFlags); defeat overlay (setup/cleanup/input/hover)
+    turn_order_ui.rs  Правая панель порядка ходов: spawn_turn_order_panel, update_turn_order, update_turn_order_hp
+    hex_grid/       Hex grid module (render, input, visuals): rendering, hover, click, range/move highlighting, ui_dirty_bridge, UnitToken spawning
     log_ui.rs       Combat log display + scrollbar
     console_log.rs  CombatEvent → text (delegates to CombatEvent::format())
     story_ui.rs     Story screen: text overlay + continue button

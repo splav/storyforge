@@ -1,4 +1,4 @@
-use crate::game::components::{ActionPoints, Dead, StatusEffects};
+use crate::game::components::{ActionPoints, ActiveCombatant, Dead, StatusEffects};
 use crate::game::messages::EndTurn;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{CombatContext, GameDb};
@@ -7,10 +7,11 @@ use bevy::prelude::*;
 /// If the active combatant is dead, immediately end their turn.
 pub fn skip_dead_turn_system(
     mut ctx: ResMut<CombatContext>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     dead: Query<(), With<Dead>>,
     mut end_turn: MessageWriter<EndTurn>,
 ) {
-    let Some(actor) = ctx.active else { return };
+    let Ok(actor) = active_q.single() else { return };
     if dead.get(actor).is_ok() {
         ctx.turn_ending = true;
         end_turn.write(EndTurn { actor });
@@ -21,13 +22,14 @@ pub fn skip_dead_turn_system(
 /// Sets ap.action = false so that enemy_ai's UseAbility is rejected by validation.
 pub fn skip_stunned_turn_system(
     mut ctx: ResMut<CombatContext>,
+    active_q: Query<Entity, With<ActiveCombatant>>,
     statuses: Query<&StatusEffects>,
     mut action_points: Query<&mut ActionPoints>,
     db: Res<GameDb>,
     mut log: ResMut<CombatLog>,
     mut end_turn: MessageWriter<EndTurn>,
 ) {
-    let Some(actor) = ctx.active else { return };
+    let Ok(actor) = active_q.single() else { return };
     let Ok(se) = statuses.get(actor) else { return };
     let is_stunned =
         se.0.iter()
