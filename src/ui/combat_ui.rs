@@ -5,11 +5,10 @@ use super::{
 };
 use super::turn_order_ui::spawn_turn_order_panel;
 use crate::app_state::CombatPhase;
-use crate::content::abilities::{AbilityDef, EffectDef, StatusOn};
-use crate::content::weapons::WeaponDef;
-use crate::core::{modifier, DiceExpr};
+use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, StatusOn};
+use crate::core::DiceExpr;
 use crate::game::components::{
-    Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, EquippedWeapon, Faction,
+    Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, Equipment, Faction,
     Mana, Rage, Team,
 };
 use crate::game::messages::RestartCombat;
@@ -265,7 +264,7 @@ pub fn update_ability_panel(
             &Faction,
             &Abilities,
             &CombatStats,
-            Option<&EquippedWeapon>,
+            Option<&Equipment>,
             Option<&Mana>,
             Option<&Rage>,
         ),
@@ -288,18 +287,17 @@ pub fn update_ability_panel(
         .ok()
         .and_then(|e| combatants.get(e).ok())
         .filter(|(f, _, _, _, _, _)| f.0 == Team::Player)
-        .map(|(_, abilities, stats, weapon, mana, rage)| {
-            let weapon_def = weapon.and_then(|w| db.weapons.get(&w.0));
+        .map(|(_, abilities, stats, equip, mana, rage)| {
+            let ctx = CasterContext::new(stats, equip, &db.weapons);
             (
                 abilities.0.clone(),
-                stats.clone(),
-                weapon_def,
+                ctx,
                 mana.map(|m| m.current),
                 rage.map(|r| r.current),
             )
         });
 
-    let (abilities, stats, weapon_def, mana_cur, rage_cur) = match actor_data {
+    let (abilities, caster_ctx, mana_cur, rage_cur) = match actor_data {
         Some(d) => d,
         None => return,
     };
@@ -356,7 +354,7 @@ pub fn update_ability_panel(
         let idx = label.0;
         if let Some(id) = abilities.get(idx).cloned() {
             if let Some(def) = db.abilities.get(&id) {
-                let effect_str = ability_effect_str(def, &stats, weapon_def, &db);
+                let effect_str = ability_effect_str(def, &caster_ctx, &db);
                 let mut costs = String::new();
                 if def.rage_cost > 0 {
                     costs += &format!(" R:{}", def.rage_cost);
@@ -381,42 +379,27 @@ pub fn update_ability_panel(
 
 fn ability_effect_str(
     def: &AbilityDef,
-    stats: &CombatStats,
-    weapon_def: Option<&WeaponDef>,
+    ctx: &CasterContext,
     db: &GameDb,
 ) -> String {
-    let str_mod = modifier(stats.strength);
-    let int_mod = modifier(stats.intelligence);
-
     let mut lines: Vec<String> = Vec::new();
 
-    match &def.effect {
-        EffectDef::None => {}
-        EffectDef::WeaponAttack => {
-            let s = if let Some(wd) = weapon_def {
-                format!("{} урон", dice_bonus_str(&wd.dice, str_mod))
-            } else {
-                format!("{str_mod} урон")
-            };
-            lines.push(s);
-        }
-        EffectDef::Damage { dice } => {
-            lines.push(format!("{} урон", dice_bonus_str(dice, str_mod)));
-        }
-        EffectDef::SpellDamage { dice } => {
-            let sp = weapon_def.map_or(0, |wd| wd.spell_power);
-            lines.push(format!(
-                "{} урон (закл.)",
-                dice_bonus_str(dice, sp + int_mod)
-            ));
-        }
-        EffectDef::Heal { dice } => {
-            let sp = weapon_def.map_or(0, |wd| wd.spell_power);
-            lines.push(format!("{} лечение", dice_bonus_str(dice, sp + int_mod)));
-        }
-        EffectDef::GrantMovement { distance } => {
-            lines.push(format!("движение +{distance}"));
-        }
+    if let Some(calc) = def.effect.calc(ctx) {
+        let label = if calc.is_heal {
+            "лечение"
+        } else if calc.pierces_armor {
+            "урон (закл.)"
+        } else {
+            "урон"
+        };
+        let s = if let Some(ref dice) = calc.dice {
+            format!("{} {label}", dice_bonus_str(dice, calc.bonus))
+        } else {
+            format!("{} {label}", calc.bonus)
+        };
+        lines.push(s);
+    } else if let EffectDef::GrantMovement { distance } = &def.effect {
+        lines.push(format!("движение +{distance}"));
     }
 
     for sa in &def.statuses {

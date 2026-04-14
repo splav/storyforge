@@ -1,0 +1,14 @@
+[[items]]
+id    = "plate_greaves"
+name  = "Латные поножи"
+armor = 1
+
+[[items]]
+id    = "leather_pants"
+name  = "Кожаные штаны"
+armor = 0
+
+[[items]]
+id    = "cloth_pants"
+name  = "Тканевые штаны"
+armor = 0

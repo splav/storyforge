@@ -1,4 +1,4 @@
-use crate::core::{AbilityId, WeaponId};
+use crate::core::{AbilityId, ArmorId, WeaponId};
 use crate::game::components::CombatStats;
 use serde::Deserialize;
 
@@ -8,7 +8,11 @@ pub struct ClassDef {
     pub stats: CombatStats,
     pub speed: i32,
     pub abilities: Vec<AbilityId>,
-    pub weapon: WeaponId,
+    pub main_hand: WeaponId,
+    pub off_hand: Option<WeaponId>,
+    pub chest: ArmorId,
+    pub legs: ArmorId,
+    pub feet: ArmorId,
     pub rage_max: i32, // 0 — нет механики ярости
     pub mana_max: i32, // 0 — нет механики маны
 }
@@ -25,7 +29,6 @@ struct ClassRecord {
     id: String,
     name: String,
     max_hp: i32,
-    armor: i32,
     strength: i32,
     dexterity: i32,
     constitution: i32,
@@ -33,7 +36,12 @@ struct ClassRecord {
     wisdom: i32,
     charisma: i32,
     speed: i32,
-    weapon_id: String,
+    main_hand: String,
+    #[serde(default)]
+    off_hand: Option<String>,
+    chest: String,
+    legs: String,
+    feet: String,
     ability_ids: Vec<String>,
     #[serde(default)]
     rage_max: i32,
@@ -57,7 +65,6 @@ pub fn load_classes() -> Vec<ClassDef> {
             speed: r.speed,
             stats: CombatStats {
                 max_hp: r.max_hp,
-                armor: r.armor,
                 strength: r.strength,
                 dexterity: r.dexterity,
                 constitution: r.constitution,
@@ -70,7 +77,11 @@ pub fn load_classes() -> Vec<ClassDef> {
                 .iter()
                 .map(|id| AbilityId::from(id.as_str()))
                 .collect(),
-            weapon: WeaponId::from(r.weapon_id.as_str()),
+            main_hand: WeaponId::from(r.main_hand.as_str()),
+            off_hand: r.off_hand.map(|s| WeaponId::from(s.as_str())),
+            chest: ArmorId::from(r.chest.as_str()),
+            legs: ArmorId::from(r.legs.as_str()),
+            feet: ArmorId::from(r.feet.as_str()),
             rage_max: r.rage_max,
             mana_max: r.mana_max,
         })

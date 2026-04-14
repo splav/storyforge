@@ -1,7 +1,7 @@
 pub mod ids;
 pub mod rng;
 
-pub use ids::{AbilityId, StatusId, WeaponId};
+pub use ids::{AbilityId, ArmorId, StatusId, WeaponId};
 pub use rng::{DiceExpr, DiceRng};
 
 /// Модификатор характеристики: floor(stat / 2).

@@ -10,10 +10,9 @@ use storyforge::combat::{
     skip_dead::skip_stunned_turn_system, validation::validate_action_system,
 };
 const MELEE_ATTACK: &str = "melee_attack";
-const SHORT_SWORD: &str = "short_sword";
 use storyforge::core::DiceRng;
 use storyforge::game::bundles::{enemy_bundle, hero_bundle};
-use storyforge::game::components::{ActionPoints, ActiveCombatant, ActiveStatus, CombatStats, StatusEffects, Vital};
+use storyforge::game::components::{ActiveCombatant, ActiveStatus, CombatStats, Equipment, StatusEffects, Vital};
 use storyforge::game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, UseAbility, ValidatedAction,
 };
@@ -28,7 +27,6 @@ use storyforge::game::resources::{
 fn base_stats() -> CombatStats {
     CombatStats {
         max_hp: 10,
-        armor: 0,
         strength: 5,
         dexterity: 5,
         constitution: 10,
@@ -36,6 +34,24 @@ fn base_stats() -> CombatStats {
         wisdom: 10,
         charisma: 10,
     }
+}
+
+fn test_equipment() -> Equipment {
+    Equipment {
+        main_hand: Some("short_sword".into()),
+        off_hand: None,
+        chest: "mage_robe".into(),
+        legs: "cloth_pants".into(),
+        feet: "cloth_shoes".into(),
+    }
+}
+
+fn test_hero(stats: CombatStats) -> impl Bundle {
+    hero_bundle(stats, 0, 3, vec![MELEE_ATTACK.into()], test_equipment())
+}
+
+fn test_enemy(stats: CombatStats) -> impl Bundle {
+    enemy_bundle(stats, 0, 3, vec![MELEE_ATTACK.into()], test_equipment())
 }
 
 fn validation_app() -> App {
@@ -114,17 +130,11 @@ fn valid_use_ability_emits_validated_action() {
     let mut app = validation_app();
     let actor = app
         .world_mut()
-        .spawn((
-            Name::new("Hero"),
-            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
         .id();
     let target = app
         .world_mut()
-        .spawn((
-            Name::new("Goblin"),
-            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
         .id();
 
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
@@ -146,24 +156,15 @@ fn wrong_actor_use_ability_is_rejected() {
     let mut app = validation_app();
     let actor = app
         .world_mut()
-        .spawn((
-            Name::new("Hero"),
-            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
         .id();
     let other = app
         .world_mut()
-        .spawn((
-            Name::new("Hero2"),
-            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Hero2"), test_hero(base_stats())))
         .id();
     let target = app
         .world_mut()
-        .spawn((
-            Name::new("Goblin"),
-            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
         .id();
 
     app.world_mut().entity_mut(other).insert(ActiveCombatant);
@@ -185,17 +186,11 @@ fn no_action_point_use_ability_is_rejected() {
     let mut app = validation_app();
     let actor = app
         .world_mut()
-        .spawn((
-            Name::new("Hero"),
-            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
         .id();
     let target = app
         .world_mut()
-        .spawn((
-            Name::new("Goblin"),
-            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
         .id();
 
     app.world_mut()
@@ -224,17 +219,11 @@ fn apply_damage_reduces_hp() {
     let mut app = effects_app();
     let hero = app
         .world_mut()
-        .spawn((
-            Name::new("Hero"),
-            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
         .id();
     let goblin = app
         .world_mut()
-        .spawn((
-            Name::new("Goblin"),
-            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
         .id();
 
     {
@@ -266,44 +255,21 @@ fn killing_all_enemies_sets_victory_phase() {
     let mut app = effects_app();
     let hero = app
         .world_mut()
-        .spawn((
-            Name::new("Hero"),
-            hero_bundle(
-                CombatStats {
-                    max_hp: 10,
-                    armor: 0,
-                    strength: 5,
-                    dexterity: 5,
-                    constitution: 10,
-                    intelligence: 0,
-                    wisdom: 10,
-                    charisma: 10,
-                },
-                3,
-                vec![MELEE_ATTACK.into()],
-                SHORT_SWORD.into(),
-            ),
-        ))
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
         .id();
     let goblin = app
         .world_mut()
         .spawn((
             Name::new("Goblin"),
-            enemy_bundle(
-                CombatStats {
-                    max_hp: 1,
-                    armor: 0,
-                    strength: 3,
-                    dexterity: 5,
-                    constitution: 10,
-                    intelligence: 0,
-                    wisdom: 10,
-                    charisma: 10,
-                },
-                3,
-                vec![MELEE_ATTACK.into()],
-                SHORT_SWORD.into(),
-            ),
+            test_enemy(CombatStats {
+                max_hp: 1,
+                strength: 3,
+                dexterity: 5,
+                constitution: 10,
+                intelligence: 0,
+                wisdom: 10,
+                charisma: 10,
+            }),
         ))
         .id();
 
@@ -341,43 +307,20 @@ fn killing_all_heroes_sets_defeat_phase() {
         .world_mut()
         .spawn((
             Name::new("Hero"),
-            hero_bundle(
-                CombatStats {
-                    max_hp: 1,
-                    armor: 0,
-                    strength: 5,
-                    dexterity: 5,
-                    constitution: 10,
-                    intelligence: 0,
-                    wisdom: 10,
-                    charisma: 10,
-                },
-                3,
-                vec![MELEE_ATTACK.into()],
-                SHORT_SWORD.into(),
-            ),
+            test_hero(CombatStats {
+                max_hp: 1,
+                strength: 5,
+                dexterity: 5,
+                constitution: 10,
+                intelligence: 0,
+                wisdom: 10,
+                charisma: 10,
+            }),
         ))
         .id();
     let goblin = app
         .world_mut()
-        .spawn((
-            Name::new("Goblin"),
-            enemy_bundle(
-                CombatStats {
-                    max_hp: 10,
-                    armor: 0,
-                    strength: 3,
-                    dexterity: 5,
-                    constitution: 10,
-                    intelligence: 0,
-                    wisdom: 10,
-                    charisma: 10,
-                },
-                3,
-                vec![MELEE_ATTACK.into()],
-                SHORT_SWORD.into(),
-            ),
-        ))
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
         .id();
 
     {
@@ -464,17 +407,11 @@ fn duplicate_end_turn_does_not_double_advance() {
     let mut app = effects_app();
     let hero = app
         .world_mut()
-        .spawn((
-            Name::new("Hero"),
-            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
         .id();
     let goblin = app
         .world_mut()
-        .spawn((
-            Name::new("Goblin"),
-            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
         .id();
 
     {
@@ -501,17 +438,11 @@ fn stunned_unit_skips_turn_and_stun_expires_on_applier_end_turn() {
 
     let hero = app
         .world_mut()
-        .spawn((
-            Name::new("Hero"),
-            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
         .id();
     let goblin = app
         .world_mut()
-        .spawn((
-            Name::new("Goblin"),
-            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
         .id();
 
     // Apply stun on goblin, applied by hero, duration 1.
@@ -557,24 +488,15 @@ fn stunned_enemy_does_not_produce_duplicate_end_turn() {
 
     let hero = app
         .world_mut()
-        .spawn((
-            Name::new("Hero"),
-            hero_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
         .id();
     let goblin = app
         .world_mut()
-        .spawn((
-            Name::new("Goblin"),
-            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
         .id();
     let goblin2 = app
         .world_mut()
-        .spawn((
-            Name::new("Goblin2"),
-            enemy_bundle(base_stats(), 3, vec![MELEE_ATTACK.into()], SHORT_SWORD.into()),
-        ))
+        .spawn((Name::new("Goblin2"), test_enemy(base_stats())))
         .id();
 
     // Stun goblin (applied by hero).

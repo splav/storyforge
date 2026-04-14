@@ -1,0 +1,19 @@
+[[items]]
+id    = "iron_boots"
+name  = "Железные сапоги"
+armor = 1
+
+[[items]]
+id    = "heavy_boots"
+name  = "Тяжёлые сапоги"
+armor = 0
+
+[[items]]
+id    = "leather_boots"
+name  = "Кожаные ботинки"
+armor = 0
+
+[[items]]
+id    = "cloth_shoes"
+name  = "Тканевая обувь"
+armor = 0

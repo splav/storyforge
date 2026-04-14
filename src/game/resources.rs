@@ -1,10 +1,11 @@
 use crate::content::abilities::{load_abilities, AbilityDef};
+use crate::content::armor::{load_chest, load_feet, load_legs, ArmorDef};
 use crate::content::classes::{load_classes, ClassDef};
 use crate::content::encounters::{load_encounters, EncounterDef};
 use crate::content::scenarios::{load_scenarios, ScenarioDef};
 use crate::content::statuses::{load_statuses, StatusDef};
-use crate::content::weapons::{load_weapons, WeaponDef};
-use crate::core::{AbilityId, StatusId, WeaponId};
+use crate::content::weapons::{load_weapons, HandType, WeaponDef};
+use crate::core::{AbilityId, ArmorId, StatusId, WeaponId};
 use bevy::prelude::*;
 use std::collections::HashMap;
 
@@ -93,13 +94,72 @@ pub struct GameDb {
     pub abilities: HashMap<AbilityId, AbilityDef>,
     pub statuses: HashMap<StatusId, StatusDef>,
     pub weapons: HashMap<WeaponId, WeaponDef>,
+    pub armor: HashMap<ArmorId, ArmorDef>,
     pub encounters: HashMap<String, EncounterDef>,
     pub classes: HashMap<String, ClassDef>,
     pub scenarios: HashMap<String, ScenarioDef>,
 }
 
+impl GameDb {
+    /// Effective CombatStats = base + sum of all equipment stat bonuses.
+    pub fn effective_stats(
+        &self,
+        base: &crate::game::components::CombatStats,
+        equipment: &crate::game::components::Equipment,
+    ) -> crate::game::components::CombatStats {
+        let mut s = base.clone();
+        // Weapon bonuses
+        for weapon_id in [&equipment.main_hand, &equipment.off_hand].into_iter().flatten() {
+            if let Some(w) = self.weapons.get(weapon_id) {
+                s.max_hp += w.max_hp;
+                s.strength += w.strength;
+                s.dexterity += w.dexterity;
+                s.constitution += w.constitution;
+                s.intelligence += w.intelligence;
+                s.wisdom += w.wisdom;
+                s.charisma += w.charisma;
+            }
+        }
+        // Armor piece bonuses
+        for armor_id in [&equipment.chest, &equipment.legs, &equipment.feet] {
+            if let Some(a) = self.armor.get(armor_id) {
+                s.max_hp += a.max_hp;
+                s.strength += a.strength;
+                s.dexterity += a.dexterity;
+                s.constitution += a.constitution;
+                s.intelligence += a.intelligence;
+                s.wisdom += a.wisdom;
+                s.charisma += a.charisma;
+            }
+        }
+        s
+    }
+
+    /// Total armor from all equipment pieces (armor items + weapons like shields).
+    pub fn equipment_armor(&self, equipment: &crate::game::components::Equipment) -> i32 {
+        let mut total = 0;
+        for weapon_id in [&equipment.main_hand, &equipment.off_hand].into_iter().flatten() {
+            if let Some(w) = self.weapons.get(weapon_id) {
+                total += w.armor;
+            }
+        }
+        for armor_id in [&equipment.chest, &equipment.legs, &equipment.feet] {
+            if let Some(a) = self.armor.get(armor_id) {
+                total += a.armor;
+            }
+        }
+        total
+    }
+}
+
 impl Default for GameDb {
     fn default() -> Self {
+        let armor_items: Vec<ArmorDef> = load_chest()
+            .into_iter()
+            .chain(load_legs())
+            .chain(load_feet())
+            .collect();
+
         let db = Self {
             abilities: load_abilities()
                 .into_iter()
@@ -112,6 +172,10 @@ impl Default for GameDb {
             weapons: load_weapons()
                 .into_iter()
                 .map(|w| (w.id.clone(), w))
+                .collect(),
+            armor: armor_items
+                .into_iter()
+                .map(|a| (a.id.clone(), a))
                 .collect(),
             encounters: load_encounters()
                 .into_iter()
@@ -147,13 +211,50 @@ impl GameDb {
             }
         }
 
-        // Classes → weapons, abilities
+        // Classes → weapons, armor, abilities
         for (id, cls) in &self.classes {
             assert!(
-                self.weapons.contains_key(&cls.weapon),
+                self.weapons.contains_key(&cls.main_hand),
                 "class '{}' references unknown weapon '{}'",
                 id,
-                cls.weapon
+                cls.main_hand
+            );
+            if let Some(ref oh) = cls.off_hand {
+                assert!(
+                    self.weapons.contains_key(oh),
+                    "class '{}' references unknown off-hand weapon '{}'",
+                    id,
+                    oh
+                );
+            }
+            // Two-handed weapons must not have an off-hand
+            if let Some(w) = self.weapons.get(&cls.main_hand) {
+                if w.hand == HandType::TwoHanded {
+                    assert!(
+                        cls.off_hand.is_none(),
+                        "class '{}': weapon '{}' is two-handed but off_hand is set",
+                        id,
+                        cls.main_hand
+                    );
+                }
+            }
+            assert!(
+                self.armor.contains_key(&cls.chest),
+                "class '{}' references unknown chest armor '{}'",
+                id,
+                cls.chest
+            );
+            assert!(
+                self.armor.contains_key(&cls.legs),
+                "class '{}' references unknown legs armor '{}'",
+                id,
+                cls.legs
+            );
+            assert!(
+                self.armor.contains_key(&cls.feet),
+                "class '{}' references unknown feet armor '{}'",
+                id,
+                cls.feet
             );
             for aid in &cls.abilities {
                 assert!(
@@ -165,15 +266,57 @@ impl GameDb {
             }
         }
 
-        // Encounters → weapons, abilities
+        // Encounters → weapons, armor, abilities
         for (id, enc) in &self.encounters {
             for enemy in &enc.enemies {
                 assert!(
-                    self.weapons.contains_key(&enemy.weapon_id),
+                    self.weapons.contains_key(&enemy.main_hand),
                     "encounter '{}' enemy '{}' references unknown weapon '{}'",
                     id,
                     enemy.name,
-                    enemy.weapon_id
+                    enemy.main_hand
+                );
+                if let Some(ref oh) = enemy.off_hand {
+                    assert!(
+                        self.weapons.contains_key(oh),
+                        "encounter '{}' enemy '{}' references unknown off-hand weapon '{}'",
+                        id,
+                        enemy.name,
+                        oh
+                    );
+                }
+                // Two-handed weapons must not have an off-hand
+                if let Some(w) = self.weapons.get(&enemy.main_hand) {
+                    if w.hand == HandType::TwoHanded {
+                        assert!(
+                            enemy.off_hand.is_none(),
+                            "encounter '{}' enemy '{}': weapon '{}' is two-handed but off_hand is set",
+                            id,
+                            enemy.name,
+                            enemy.main_hand
+                        );
+                    }
+                }
+                assert!(
+                    self.armor.contains_key(&enemy.chest),
+                    "encounter '{}' enemy '{}' references unknown chest armor '{}'",
+                    id,
+                    enemy.name,
+                    enemy.chest
+                );
+                assert!(
+                    self.armor.contains_key(&enemy.legs),
+                    "encounter '{}' enemy '{}' references unknown legs armor '{}'",
+                    id,
+                    enemy.name,
+                    enemy.legs
+                );
+                assert!(
+                    self.armor.contains_key(&enemy.feet),
+                    "encounter '{}' enemy '{}' references unknown feet armor '{}'",
+                    id,
+                    enemy.name,
+                    enemy.feet
                 );
                 for aid in &enemy.ability_ids {
                     assert!(

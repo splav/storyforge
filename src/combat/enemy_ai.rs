@@ -1,7 +1,7 @@
 use crate::combat::ai_difficulty::DifficultyProfile;
-use crate::combat::ai_scoring::{score_action, estimate_threat, ActorCtx, TargetInfo};
-use crate::content::abilities::{AbilityDef, TargetType};
-use crate::core::{modifier, AbilityId, DiceRng};
+use crate::combat::ai_scoring::{score_action, estimate_threat, TargetInfo};
+use crate::content::abilities::{AbilityDef, CasterContext, TargetType};
+use crate::core::{AbilityId, DiceRng};
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, AiCombatantQ, AiCombatantQItem,
     Combatant, Speed, StatusEffects, Team,
@@ -64,7 +64,7 @@ pub fn enemy_ai_system(
     };
     let mana_cur = c.mana.map(|m| m.current).unwrap_or(0);
     let rage_cur = c.rage.map(|r| r.current).unwrap_or(0);
-    let actor_ctx = build_actor_ctx(&c, &db);
+    let caster_ctx = build_caster_ctx(&c, &db);
 
     // Build TargetInfo for all living players.
     let all_players: Vec<TargetInfo> = combatants
@@ -96,7 +96,7 @@ pub fn enemy_ai_system(
         .collect();
 
     let eval = evaluate_targets(
-        actor_pos, &actor_ctx, abilities, &enemy_infos, &ally_infos,
+        actor_pos, &caster_ctx, abilities, &enemy_infos, &ally_infos,
         &db, &difficulty, mana_cur, rage_cur, &mut rng,
     );
 
@@ -116,7 +116,7 @@ pub fn enemy_ai_system(
     if ap.movement {
         let decision = plan_movement(
             actor, actor_pos, speed, abilities, &enemy_infos, &eval, ap,
-            &actor_ctx, &db, &difficulty, mana_cur, rage_cur, &positions, &combatants,
+            &caster_ctx, &db, &difficulty, mana_cur, rage_cur, &positions, &combatants,
         );
 
         match decision {
@@ -137,14 +137,8 @@ pub fn enemy_ai_system(
 
 // ── Context builders ──────────────────────────────────────────────────────
 
-fn build_actor_ctx(c: &AiCombatantQItem, db: &GameDb) -> ActorCtx {
-    let weapon_def = c.weapon.and_then(|w| db.weapons.get(&w.0));
-    ActorCtx {
-        str_mod: modifier(c.stats.strength),
-        int_mod: modifier(c.stats.intelligence),
-        spell_power: weapon_def.map_or(0, |wd| wd.spell_power),
-        weapon_dice_expected: weapon_def.map_or(0.0, |wd| wd.dice.expected()),
-    }
+fn build_caster_ctx(c: &AiCombatantQItem, db: &GameDb) -> CasterContext {
+    CasterContext::new(c.stats, Some(c.equipment), &db.weapons)
 }
 
 fn build_target_info(
@@ -154,7 +148,7 @@ fn build_target_info(
     db: &GameDb,
 ) -> TargetInfo {
     let (armor_bonus, damage_taken_bonus) = status_bonuses(c.entity, statuses, db);
-    let ctx = build_actor_ctx(c, db);
+    let ctx = build_caster_ctx(c, db);
     TargetInfo {
         entity: c.entity,
         pos,
@@ -197,7 +191,7 @@ fn has_forces_targeting(
 
 fn evaluate_targets(
     actor_pos: (i32, i32),
-    actor: &ActorCtx,
+    actor: &CasterContext,
     abilities: &Abilities,
     enemy_infos: &[&TargetInfo],
     ally_infos: &[TargetInfo],
@@ -261,7 +255,7 @@ fn plan_movement(
     enemy_infos: &[&TargetInfo],
     eval: &EvalResult,
     ap: &ActionPoints,
-    actor_ctx: &ActorCtx,
+    caster_ctx: &CasterContext,
     db: &GameDb,
     difficulty: &DifficultyProfile,
     mana_cur: i32,
@@ -317,7 +311,7 @@ fn plan_movement(
         if ap.action {
             if let Some(target_info) = enemy_infos.iter().find(|t| t.entity == target) {
                 let best_ability = pick_best_for_target(
-                    target_info, dest, actor_ctx, abilities, db, difficulty, mana_cur, rage_cur,
+                    target_info, dest, caster_ctx, abilities, db, difficulty, mana_cur, rage_cur,
                 );
                 if let Some(ability) = best_ability {
                     return MoveDecision::MoveAndAttack { path, ability, target };
@@ -363,7 +357,7 @@ fn can_afford(def: &AbilityDef, mana: i32, rage: i32) -> bool {
 fn pick_best_for_target(
     target: &TargetInfo,
     from: (i32, i32),
-    actor: &ActorCtx,
+    actor: &CasterContext,
     abilities: &Abilities,
     db: &GameDb,
     difficulty: &DifficultyProfile,

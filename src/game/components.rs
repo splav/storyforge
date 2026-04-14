@@ -1,4 +1,4 @@
-use crate::core::{AbilityId, StatusId, WeaponId};
+use crate::core::{AbilityId, ArmorId, StatusId, WeaponId};
 use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 
@@ -40,11 +40,10 @@ pub enum Team {
 #[derive(Component)]
 pub struct Faction(pub Team);
 
-/// The core combat stats.
+/// The core combat stats (base values, without equipment bonuses).
 #[derive(Component, Clone, Debug)]
 pub struct CombatStats {
     pub max_hp: i32,
-    pub armor: i32,
     pub strength: i32,  // melee attack/damage bonus
     pub dexterity: i32, // initiative bonus
     pub constitution: i32,
@@ -61,11 +60,11 @@ pub struct Vital {
 }
 
 impl Vital {
-    pub fn new(stats: &CombatStats) -> Self {
+    pub fn new(stats: &CombatStats, armor: i32) -> Self {
         Self {
             hp: stats.max_hp,
             max_hp: stats.max_hp,
-            armor: stats.armor,
+            armor,
         }
     }
 
@@ -174,9 +173,15 @@ impl Rage {
 #[derive(Component)]
 pub struct UnitToken(pub Entity);
 
-/// The weapon currently equipped by this combatant.
-#[derive(Component, Clone)]
-pub struct EquippedWeapon(pub WeaponId);
+/// All equipment slots for this combatant.
+#[derive(Component, Clone, Debug)]
+pub struct Equipment {
+    pub main_hand: Option<WeaponId>,
+    pub off_hand: Option<WeaponId>,
+    pub chest: ArmorId,
+    pub legs: ArmorId,
+    pub feet: ArmorId,
+}
 
 #[derive(Component, Default)]
 pub struct StatusEffects(pub Vec<ActiveStatus>);
@@ -213,7 +218,7 @@ pub struct AiCombatantQ {
     pub speed: &'static Speed,
     pub ap: &'static ActionPoints,
     pub stats: &'static CombatStats,
-    pub weapon: Option<&'static EquippedWeapon>,
+    pub equipment: &'static Equipment,
     pub mana: Option<&'static Mana>,
     pub rage: Option<&'static Rage>,
 }

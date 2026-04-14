@@ -1,0 +1,24 @@
+[[items]]
+id    = "heavy_plate"
+name  = "Тяжёлая кираса"
+armor = 3
+
+[[items]]
+id    = "plate_armor"
+name  = "Латная кираса"
+armor = 2
+
+[[items]]
+id    = "chainmail"
+name  = "Кольчуга"
+armor = 1
+
+[[items]]
+id    = "leather_vest"
+name  = "Кожаный жилет"
+armor = 1
+
+[[items]]
+id    = "mage_robe"
+name  = "Мантия мага"
+armor = 0

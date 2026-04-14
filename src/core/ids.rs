@@ -34,3 +34,4 @@ macro_rules! string_id {
 string_id!(AbilityId);
 string_id!(StatusId);
 string_id!(WeaponId);
+string_id!(ArmorId);

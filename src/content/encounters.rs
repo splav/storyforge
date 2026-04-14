@@ -1,4 +1,4 @@
-use crate::core::{AbilityId, WeaponId};
+use crate::core::{AbilityId, ArmorId, WeaponId};
 use crate::game::components::CombatStats;
 use serde::Deserialize;
 
@@ -14,7 +14,11 @@ pub struct EnemyDef {
     pub name: String,
     pub stats: CombatStats,
     pub speed: i32,
-    pub weapon_id: WeaponId,
+    pub main_hand: WeaponId,
+    pub off_hand: Option<WeaponId>,
+    pub chest: ArmorId,
+    pub legs: ArmorId,
+    pub feet: ArmorId,
     pub ability_ids: Vec<AbilityId>,
     pub rage_max: i32,
     pub mana_max: i32,
@@ -40,7 +44,6 @@ struct EncounterRecord {
 struct EnemyRecord {
     name: String,
     max_hp: i32,
-    armor: i32,
     strength: i32,
     dexterity: i32,
     constitution: i32,
@@ -51,7 +54,12 @@ struct EnemyRecord {
     #[serde(default)]
     charisma: i32,
     speed: i32,
-    weapon_id: String,
+    main_hand: String,
+    #[serde(default)]
+    off_hand: Option<String>,
+    chest: String,
+    legs: String,
+    feet: String,
     ability_ids: Vec<String>,
     #[serde(default)]
     rage_max: i32,
@@ -82,7 +90,6 @@ pub fn load_encounters() -> Vec<EncounterDef> {
                     speed: e.speed,
                     stats: CombatStats {
                         max_hp: e.max_hp,
-                        armor: e.armor,
                         strength: e.strength,
                         dexterity: e.dexterity,
                         constitution: e.constitution,
@@ -90,7 +97,11 @@ pub fn load_encounters() -> Vec<EncounterDef> {
                         wisdom: e.wisdom,
                         charisma: e.charisma,
                     },
-                    weapon_id: WeaponId::from(e.weapon_id.as_str()),
+                    main_hand: WeaponId::from(e.main_hand.as_str()),
+                    off_hand: e.off_hand.map(|s| WeaponId::from(s.as_str())),
+                    chest: ArmorId::from(e.chest.as_str()),
+                    legs: ArmorId::from(e.legs.as_str()),
+                    feet: ArmorId::from(e.feet.as_str()),
                     ability_ids: e
                         .ability_ids
                         .iter()

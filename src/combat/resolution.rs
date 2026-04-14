@@ -1,6 +1,6 @@
-use crate::content::abilities::{EffectDef, StatusOn, TargetType};
-use crate::core::{modifier, DiceRng};
-use crate::game::components::{ActionPoints, BonusMovement, CombatStats, EquippedWeapon, Mana, Rage};
+use crate::content::abilities::{CasterContext, EffectDef, StatusOn, TargetType};
+use crate::core::DiceRng;
+use crate::game::components::{ActionPoints, BonusMovement, CombatStats, Equipment, Mana, Rage};
 use crate::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, ValidatedAction};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::GameDb;
@@ -15,7 +15,7 @@ pub fn resolve_action_system(
     mut actors: Query<(
         &CombatStats,
         &mut ActionPoints,
-        Option<&EquippedWeapon>,
+        Option<&Equipment>,
         Option<&mut Rage>,
         Option<&mut Mana>,
     )>,
@@ -28,7 +28,7 @@ pub fn resolve_action_system(
         let Some(def) = db.abilities.get(&ev.ability) else {
             continue;
         };
-        let Ok((stats, mut ap, weapon, mut rage, mut mana)) = actors.get_mut(ev.actor) else {
+        let Ok((stats, mut ap, equip, mut rage, mut mana)) = actors.get_mut(ev.actor) else {
             continue;
         };
 
@@ -71,84 +71,36 @@ pub fn resolve_action_system(
             cost_str,
         });
 
-        match &def.effect {
-            EffectDef::WeaponAttack => {
-                let weapon_def = weapon.and_then(|w| db.weapons.get(&w.0));
-                let (raw, breakdown) = if let Some(wd) = weapon_def {
-                    let (dice_total, dice_str) = rng.roll_dice(&wd.dice);
-                    let str_mod = modifier(stats.strength);
-                    let raw = dice_total + str_mod;
-                    let s = if str_mod != 0 {
-                        format!("{} + {}(сил) = {}", dice_str, str_mod, raw)
-                    } else {
-                        format!("{} = {}", dice_str, raw)
-                    };
-                    (raw, s)
-                } else {
-                    let str_mod = modifier(stats.strength);
-                    (str_mod, format!("{}(сил)", str_mod))
-                };
-                dmg_writer.write(ApplyDamage {
-                    source: ev.actor,
-                    target,
-                    amount: raw,
-                    breakdown,
-                    pierces_armor: false,
-                });
-            }
-            EffectDef::Damage { dice } => {
-                let (dice_total, dice_str) = rng.roll_dice(dice);
-                let str_mod = modifier(stats.strength);
-                let raw = dice_total + str_mod;
-                let breakdown = if str_mod != 0 {
-                    format!("{} + {}(сил) = {}", dice_str, str_mod, raw)
-                } else {
-                    format!("{} = {}", dice_str, raw)
-                };
-                dmg_writer.write(ApplyDamage {
-                    source: ev.actor,
-                    target,
-                    amount: raw,
-                    breakdown,
-                    pierces_armor: false,
-                });
-            }
-            EffectDef::SpellDamage { dice } => {
-                let (dice_total, dice_str) = rng.roll_dice(dice);
-                let sp = weapon
-                    .and_then(|w| db.weapons.get(&w.0))
-                    .map_or(0, |wd| wd.spell_power);
-                let intel = modifier(stats.intelligence);
-                let raw = dice_total + sp + intel;
-                let breakdown = spell_breakdown(&dice_str, sp, intel, raw);
-                dmg_writer.write(ApplyDamage {
-                    source: ev.actor,
-                    target,
-                    amount: raw,
-                    breakdown,
-                    pierces_armor: true,
-                });
-            }
-            EffectDef::Heal { dice } => {
-                let (dice_total, dice_str) = rng.roll_dice(dice);
-                let sp = weapon
-                    .and_then(|w| db.weapons.get(&w.0))
-                    .map_or(0, |wd| wd.spell_power);
-                let intel = modifier(stats.intelligence);
-                let amount = dice_total + sp + intel;
-                let breakdown = spell_breakdown(&dice_str, sp, intel, amount);
+        let ctx = CasterContext::new(stats, equip, &db.weapons);
+
+        if let Some(calc) = def.effect.calc(&ctx) {
+            let (roll_total, dice_str) = if let Some(ref dice) = calc.dice {
+                rng.roll_dice(dice)
+            } else {
+                (0, String::new())
+            };
+            let raw = roll_total + calc.bonus;
+            let breakdown = effect_breakdown(&dice_str, calc.bonus, raw);
+
+            if calc.is_heal {
                 heal_writer.write(ApplyHeal {
                     source: ev.actor,
                     target,
-                    amount,
+                    amount: raw,
                     breakdown,
                 });
+            } else {
+                dmg_writer.write(ApplyDamage {
+                    source: ev.actor,
+                    target,
+                    amount: raw,
+                    breakdown,
+                    pierces_armor: calc.pierces_armor,
+                });
             }
-            EffectDef::None => {}
-            EffectDef::GrantMovement { distance } => {
-                ap.movement = true;
-                commands.entity(ev.actor).insert(BonusMovement(*distance));
-            }
+        } else if let EffectDef::GrantMovement { distance } = &def.effect {
+            ap.movement = true;
+            commands.entity(ev.actor).insert(BonusMovement(*distance));
         }
 
         for sa in &def.statuses {
@@ -185,13 +137,13 @@ pub fn resolve_action_system(
     }
 }
 
-fn spell_breakdown(dice_str: &str, spell_power: i32, intelligence: i32, total: i32) -> String {
-    let mut parts = vec![dice_str.to_string()];
-    if spell_power != 0 {
-        parts.push(format!("{}(маг)", spell_power));
+fn effect_breakdown(dice_str: &str, bonus: i32, total: i32) -> String {
+    if dice_str.is_empty() {
+        return format!("{total}");
     }
-    if intelligence != 0 {
-        parts.push(format!("{}(инт)", intelligence));
+    if bonus == 0 {
+        format!("{dice_str} = {total}")
+    } else {
+        format!("{dice_str} + {bonus} = {total}")
     }
-    format!("{} = {}", parts.join(" + "), total)
 }

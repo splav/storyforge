@@ -1,4 +1,4 @@
-use crate::core::{AbilityId, WeaponId};
+use crate::core::AbilityId;
 use crate::game::components::*;
 use bevy::prelude::*;
 
@@ -13,18 +13,19 @@ pub struct CombatantBundle {
     pub action_points: ActionPoints,
     pub abilities: Abilities,
     pub status_effects: StatusEffects,
-    pub equipped_weapon: EquippedWeapon,
+    pub equipment: Equipment,
 }
 
 impl CombatantBundle {
     pub fn new(
         team: Team,
         stats: CombatStats,
+        armor: i32,
         speed: i32,
         abilities: Vec<AbilityId>,
-        weapon: WeaponId,
+        equipment: Equipment,
     ) -> Self {
-        let vital = Vital::new(&stats);
+        let vital = Vital::new(&stats, armor);
         Self {
             combatant: Combatant,
             faction: Faction(team),
@@ -35,31 +36,33 @@ impl CombatantBundle {
             action_points: ActionPoints::default(),
             abilities: Abilities(abilities),
             status_effects: StatusEffects::default(),
-            equipped_weapon: EquippedWeapon(weapon),
+            equipment,
         }
     }
 }
 
 pub fn hero_bundle(
     stats: CombatStats,
+    armor: i32,
     speed: i32,
     abilities: Vec<AbilityId>,
-    weapon: WeaponId,
+    equipment: Equipment,
 ) -> impl Bundle {
     (
         PartyMember,
-        CombatantBundle::new(Team::Player, stats, speed, abilities, weapon),
+        CombatantBundle::new(Team::Player, stats, armor, speed, abilities, equipment),
     )
 }
 
 pub fn enemy_bundle(
     stats: CombatStats,
+    armor: i32,
     speed: i32,
     abilities: Vec<AbilityId>,
-    weapon: WeaponId,
+    equipment: Equipment,
 ) -> impl Bundle {
     (
         Enemy,
-        CombatantBundle::new(Team::Enemy, stats, speed, abilities, weapon),
+        CombatantBundle::new(Team::Enemy, stats, armor, speed, abilities, equipment),
     )
 }

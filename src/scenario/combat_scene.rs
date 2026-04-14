@@ -1,7 +1,7 @@
 use crate::app_state::CombatPhase;
 use crate::content::scenarios::SceneDef;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
-use crate::game::components::{Combatant, Initiative, Mana, Rage, StartingHexPos, UnitToken};
+use crate::game::components::{Combatant, Equipment, Initiative, Mana, Rage, StartingHexPos, UnitToken};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
@@ -29,9 +29,18 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
         let cls = db.classes.get(&member.class_id).unwrap_or_else(|| {
             panic!("Class '{}' not found in classes.toml", member.class_id)
         });
+        let equipment = Equipment {
+            main_hand: Some(cls.main_hand.clone()),
+            off_hand: cls.off_hand.clone(),
+            chest: cls.chest.clone(),
+            legs: cls.legs.clone(),
+            feet: cls.feet.clone(),
+        };
+        let effective = db.effective_stats(&cls.stats, &equipment);
+        let armor = db.equipment_armor(&equipment);
         let mut ec = commands.spawn((
             Name::new(member.name.clone()),
-            hero_bundle(cls.stats.clone(), cls.speed, cls.abilities.clone(), cls.weapon.clone()),
+            hero_bundle(effective, armor, cls.speed, cls.abilities.clone(), equipment),
             StartingHexPos(member.hex_pos.0, member.hex_pos.1),
         ));
         if cls.rage_max > 0 { ec.insert(Rage::new(cls.rage_max)); }
@@ -39,9 +48,18 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
     }
 
     for enemy in &enc.enemies {
+        let equipment = Equipment {
+            main_hand: Some(enemy.main_hand.clone()),
+            off_hand: enemy.off_hand.clone(),
+            chest: enemy.chest.clone(),
+            legs: enemy.legs.clone(),
+            feet: enemy.feet.clone(),
+        };
+        let effective = db.effective_stats(&enemy.stats, &equipment);
+        let armor = db.equipment_armor(&equipment);
         let mut ec = commands.spawn((
             Name::new(enemy.name.clone()),
-            enemy_bundle(enemy.stats.clone(), enemy.speed, enemy.ability_ids.clone(), enemy.weapon_id.clone()),
+            enemy_bundle(effective, armor, enemy.speed, enemy.ability_ids.clone(), equipment),
             StartingHexPos(enemy.hex_pos.0, enemy.hex_pos.1),
         ));
         if enemy.rage_max > 0 { ec.insert(Rage::new(enemy.rage_max)); }

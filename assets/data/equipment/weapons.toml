@@ -1,18 +1,21 @@
 [[weapons]]
 id          = "short_sword"
 name        = "Короткий меч"
+hand        = "main_hand"
 dice_count  = 1
 dice_sides  = 8
 
 [[weapons]]
 id          = "long_sword"
 name        = "Длинный меч"
+hand        = "main_hand"
 dice_count  = 2
 dice_sides  = 6
 
 [[weapons]]
 id          = "staff"
 name        = "Посох"
+hand        = "two_handed"
 dice_count  = 1
 dice_sides  = 6
 spell_power = 1
@@ -20,5 +23,13 @@ spell_power = 1
 [[weapons]]
 id          = "dagger"
 name        = "Кинжал"
+hand        = "main_hand"
 dice_count  = 1
 dice_sides  = 4
+
+[[weapons]]
+id          = "greatsword"
+name        = "Двуручный меч"
+hand        = "two_handed"
+dice_count  = 2
+dice_sides  = 8

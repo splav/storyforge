@@ -1,16 +1,8 @@
 use crate::combat::ai_difficulty::DifficultyProfile;
-use crate::content::abilities::{AbilityDef, EffectDef, TargetType};
+use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, TargetType};
 use crate::game::components::Abilities;
 use crate::game::resources::GameDb;
 use bevy::prelude::Entity;
-
-/// Precomputed context for the acting unit (derived from stats + weapon).
-pub struct ActorCtx {
-    pub str_mod: i32,
-    pub int_mod: i32,
-    pub spell_power: i32,
-    pub weapon_dice_expected: f32,
-}
 
 /// Snapshot of a potential target with status-derived bonuses and threat estimate.
 pub struct TargetInfo {
@@ -30,48 +22,41 @@ pub struct TargetInfo {
 pub fn score_action(
     def: &AbilityDef,
     target: &TargetInfo,
-    actor: &ActorCtx,
+    ctx: &CasterContext,
     db: &GameDb,
     profile: &DifficultyProfile,
 ) -> f32 {
-    let dmg_score = match &def.effect {
-        EffectDef::WeaponAttack => {
-            let raw = actor.weapon_dice_expected + actor.str_mod as f32;
-            let mitigation =
-                (target.armor + target.armor_bonus) as f32 * profile.armor_awareness;
-            let dmg = (raw - mitigation + target.damage_taken_bonus as f32).max(1.0);
-            kill_adjusted(dmg, target, profile)
+    let Some(calc) = def.effect.calc(ctx) else {
+        return if matches!(def.effect, EffectDef::GrantMovement { .. }) {
+            0.0
+        } else {
+            status_score(def, target, db, profile)
+        };
+    };
+
+    let expected = calc.expected();
+
+    let dmg_score = if calc.is_heal {
+        let missing = (target.max_hp - target.hp) as f32;
+        if missing <= 0.0 {
+            return 0.0;
         }
-        EffectDef::Damage { dice } => {
-            let raw = dice.expected() + actor.str_mod as f32;
-            let mitigation =
-                (target.armor + target.armor_bonus) as f32 * profile.armor_awareness;
-            let dmg = (raw - mitigation + target.damage_taken_bonus as f32).max(1.0);
-            kill_adjusted(dmg, target, profile)
-        }
-        EffectDef::SpellDamage { dice } => {
-            let raw = dice.expected() + actor.int_mod as f32 + actor.spell_power as f32;
-            let dmg = (raw + target.damage_taken_bonus as f32).max(1.0);
-            kill_adjusted(dmg, target, profile)
-        }
-        EffectDef::Heal { dice } => {
-            let expected_heal =
-                dice.expected() + actor.int_mod as f32 + actor.spell_power as f32;
-            let missing = (target.max_hp - target.hp) as f32;
-            if missing <= 0.0 {
-                return 0.0;
-            }
-            let effective = expected_heal.min(missing);
-            let hp_pct = target.hp as f32 / target.max_hp.max(1) as f32;
-            let urgency = if hp_pct < profile.heal_urgency_threshold {
-                profile.heal_urgency_multiplier
-            } else {
-                1.0
-            };
-            effective * urgency
-        }
-        EffectDef::None => 0.0,
-        EffectDef::GrantMovement { .. } => return 0.0,
+        let effective = expected.min(missing);
+        let hp_pct = target.hp as f32 / target.max_hp.max(1) as f32;
+        let urgency = if hp_pct < profile.heal_urgency_threshold {
+            profile.heal_urgency_multiplier
+        } else {
+            1.0
+        };
+        effective * urgency
+    } else {
+        let mitigation = if calc.pierces_armor {
+            0.0
+        } else {
+            (target.armor + target.armor_bonus) as f32 * profile.armor_awareness
+        };
+        let dmg = (expected - mitigation + target.damage_taken_bonus as f32).max(1.0);
+        kill_adjusted(dmg, target, profile)
     };
 
     dmg_score + status_score(def, target, db, profile)
@@ -79,31 +64,18 @@ pub fn score_action(
 
 /// Estimate the maximum expected single-action damage output for a unit.
 /// Used to value stuns and kills: stunning a high-threat target is worth more.
-pub fn estimate_threat(actor: &ActorCtx, abilities: &Abilities, db: &GameDb) -> f32 {
+pub fn estimate_threat(ctx: &CasterContext, abilities: &Abilities, db: &GameDb) -> f32 {
     abilities
         .0
         .iter()
         .filter_map(|id| db.abilities.get(id))
         .filter(|def| matches!(def.target_type, TargetType::SingleEnemy))
-        .map(|def| raw_damage(def, actor))
+        .filter_map(|def| def.effect.calc(ctx))
+        .map(|calc| calc.expected().max(1.0))
         .fold(0.0f32, f32::max)
 }
 
 // ── Internals ──────────────────────────────────────────────────────────────
-
-/// Pure raw expected damage (no armor, no kill bonus) — for threat estimation.
-fn raw_damage(def: &AbilityDef, actor: &ActorCtx) -> f32 {
-    match &def.effect {
-        EffectDef::WeaponAttack => {
-            (actor.weapon_dice_expected + actor.str_mod as f32).max(1.0)
-        }
-        EffectDef::Damage { dice } => (dice.expected() + actor.str_mod as f32).max(1.0),
-        EffectDef::SpellDamage { dice } => {
-            (dice.expected() + actor.int_mod as f32 + actor.spell_power as f32).max(1.0)
-        }
-        _ => 0.0,
-    }
-}
 
 fn kill_adjusted(expected_dmg: f32, target: &TargetInfo, profile: &DifficultyProfile) -> f32 {
     if expected_dmg >= target.hp as f32 {
