@@ -1,22 +1,17 @@
 use bevy::prelude::*;
 
-mod app_state;
-mod combat;
-mod content;
-mod core;
-mod game;
-mod scenario;
-mod ui;
-
-use app_state::{AppState, CombatPhase};
-use core::DiceRng;
-use game::messages::{
+use storyforge::app_state::{AppState, CombatPhase};
+use storyforge::combat;
+use storyforge::core::DiceRng;
+use storyforge::game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, RestartCombat, StartCombat,
     UseAbility, ValidatedAction,
 };
-use game::combat_log::CombatLog;
-use game::resources::{CombatContext, GameDb, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty};
-use ui::animation::AnimationQueue;
+use storyforge::game::combat_log::CombatLog;
+use storyforge::game::resources::{CombatContext, GameDb, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty};
+use storyforge::scenario;
+use storyforge::ui;
+use storyforge::ui::animation::AnimationQueue;
 
 fn main() {
     App::new()

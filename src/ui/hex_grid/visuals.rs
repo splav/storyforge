@@ -120,7 +120,7 @@ pub fn ui_dirty_bridge(
 
 /// Combined overlay caches to stay within Bevy's system-param limit.
 #[derive(Default)]
-pub(crate) struct CachedOverlay {
+pub struct CachedOverlay {
     range: HashSet<(i32, i32)>,
     disadvantage: HashSet<(i32, i32)>,
     movement: HashSet<(i32, i32)>,
