@@ -1,6 +1,9 @@
-use super::{TurnOrderCard, TurnOrderCardHp, TurnOrderCardName};
-use crate::game::components::{Combatant, Dead, Faction, Team, Vital};
-use crate::game::resources::{TurnQueue, UiDirty, UiDirtyFlags};
+use super::{TurnOrderCard, TurnOrderCardHp, TurnOrderCardName, TurnOrderTooltip, TurnOrderTooltipText};
+use crate::content::armor::ArmorDef;
+use crate::content::weapons::WeaponDef;
+use crate::core::{ArmorId, WeaponId};
+use crate::game::components::{Combatant, Dead, Equipment, Faction, Team, Vital};
+use crate::game::resources::{GameDb, TurnQueue, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
 pub const MAX_TURN_CARDS: usize = 8;
@@ -40,6 +43,7 @@ pub fn spawn_turn_order_panel(parent: &mut ChildSpawnerCommands, font: &Handle<F
                 panel
                     .spawn((
                         TurnOrderCard(i),
+                        Button,
                         Node {
                             flex_direction: FlexDirection::Column,
                             justify_content: JustifyContent::Center,
@@ -147,6 +151,110 @@ pub fn update_turn_order(
             text.0.clear();
         }
     }
+}
+
+pub fn update_turn_order_tooltip(
+    queue: Res<TurnQueue>,
+    cards: Query<(&TurnOrderCard, &Interaction)>,
+    combatants: Query<(&Name, &Equipment), With<Combatant>>,
+    db: Res<GameDb>,
+    mut tooltip_vis: Query<&mut Visibility, With<TurnOrderTooltip>>,
+    mut tooltip_text: Query<&mut Text, With<TurnOrderTooltipText>>,
+) {
+    let Ok(mut vis) = tooltip_vis.single_mut() else { return };
+    let Ok(mut text) = tooltip_text.single_mut() else { return };
+
+    let hovered = cards.iter().find(|(_, i)| **i == Interaction::Hovered);
+    let Some((card, _)) = hovered else {
+        *vis = Visibility::Hidden;
+        return;
+    };
+
+    let len = queue.order.len();
+    if len == 0 || card.0 >= len.min(MAX_TURN_CARDS) {
+        *vis = Visibility::Hidden;
+        return;
+    }
+
+    let queue_idx = (queue.index + card.0) % len;
+    let entity = queue.order[queue_idx];
+
+    let Ok((name, equipment)) = combatants.get(entity) else {
+        *vis = Visibility::Hidden;
+        return;
+    };
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(format!("── {} ──", name.as_str()));
+
+    if let Some(ref wid) = equipment.main_hand {
+        lines.push(weapon_line("Гл. рука", wid, &db));
+    } else {
+        lines.push("Гл. рука: —".into());
+    }
+    if let Some(ref wid) = equipment.off_hand {
+        lines.push(weapon_line("Доп. рука", wid, &db));
+    }
+    lines.push(armor_line("Нагрудник", &equipment.chest, &db));
+    lines.push(armor_line("Ноги", &equipment.legs, &db));
+    lines.push(armor_line("Обувь", &equipment.feet, &db));
+
+    text.0 = lines.join("\n");
+    *vis = Visibility::Visible;
+}
+
+fn weapon_line(slot: &str, id: &WeaponId, db: &GameDb) -> String {
+    if let Some(w) = db.weapons.get(id) {
+        let dice_str = format!("{}d{}", w.dice.count, w.dice.sides);
+        let bonuses = weapon_bonus_str(w);
+        if bonuses.is_empty() {
+            format!("{slot}: {}  {dice_str}", w.name)
+        } else {
+            format!("{slot}: {}  {dice_str}  ({bonuses})", w.name)
+        }
+    } else {
+        format!("{slot}: {}", id.0)
+    }
+}
+
+fn armor_line(slot: &str, id: &ArmorId, db: &GameDb) -> String {
+    if let Some(a) = db.armor.get(id) {
+        let bonuses = armor_bonus_str(a);
+        if bonuses.is_empty() {
+            format!("{slot}: {}", a.name)
+        } else {
+            format!("{slot}: {}  ({bonuses})", a.name)
+        }
+    } else {
+        format!("{slot}: {}", id.0)
+    }
+}
+
+fn weapon_bonus_str(w: &WeaponDef) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if w.armor != 0 { parts.push(format!("броня {}", w.armor)); }
+    if w.max_hp != 0 { parts.push(format!("хп {:+}", w.max_hp)); }
+    if w.strength != 0 { parts.push(format!("сил {:+}", w.strength)); }
+    if w.dexterity != 0 { parts.push(format!("лов {:+}", w.dexterity)); }
+    if w.constitution != 0 { parts.push(format!("тел {:+}", w.constitution)); }
+    if w.intelligence != 0 { parts.push(format!("инт {:+}", w.intelligence)); }
+    if w.wisdom != 0 { parts.push(format!("мдр {:+}", w.wisdom)); }
+    if w.charisma != 0 { parts.push(format!("хар {:+}", w.charisma)); }
+    if w.spell_power != 0 { parts.push(format!("маг {:+}", w.spell_power)); }
+    parts.join(", ")
+}
+
+fn armor_bonus_str(a: &ArmorDef) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if a.armor != 0 { parts.push(format!("броня {}", a.armor)); }
+    if a.max_hp != 0 { parts.push(format!("хп {:+}", a.max_hp)); }
+    if a.strength != 0 { parts.push(format!("сил {:+}", a.strength)); }
+    if a.dexterity != 0 { parts.push(format!("лов {:+}", a.dexterity)); }
+    if a.constitution != 0 { parts.push(format!("тел {:+}", a.constitution)); }
+    if a.intelligence != 0 { parts.push(format!("инт {:+}", a.intelligence)); }
+    if a.wisdom != 0 { parts.push(format!("мдр {:+}", a.wisdom)); }
+    if a.charisma != 0 { parts.push(format!("хар {:+}", a.charisma)); }
+    parts.join(", ")
 }
 
 pub fn update_turn_order_hp(

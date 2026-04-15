@@ -64,6 +64,14 @@ pub struct StoryScreenRoot;
 #[derive(Component)]
 pub struct StoryContinueButton;
 
+/// Marker on the equipment tooltip panel (right side, hidden until a card is hovered).
+#[derive(Component)]
+pub struct TurnOrderTooltip;
+
+/// Marker on the text node inside the turn-order tooltip.
+#[derive(Component)]
+pub struct TurnOrderTooltipText;
+
 /// Loaded font with Cyrillic support, shared across all HUD text nodes.
 #[derive(Resource)]
 pub struct UiFont(pub Handle<Font>);

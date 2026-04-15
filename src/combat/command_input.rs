@@ -1,12 +1,13 @@
 use crate::content::abilities::TargetType;
 use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, Team};
 use crate::game::messages::{EndTurn, UseAbility};
-use crate::game::resources::{GameDb, SelectionState};
+use crate::game::resources::{GameDb, HexPositions, SelectionState};
 use bevy::prelude::*;
 
 pub fn player_command_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     db: Res<GameDb>,
+    positions: Res<HexPositions>,
     mut selection: ResMut<SelectionState>,
     mut use_ability: MessageWriter<UseAbility>,
     mut end_turn: MessageWriter<EndTurn>,
@@ -132,10 +133,12 @@ pub fn player_command_system(
             selection.selected_ability.clone(),
             selection.selected_target,
         ) {
+            let target_pos = positions.get(&target).unwrap_or((0, 0));
             use_ability.write(UseAbility {
                 actor,
                 ability,
                 target,
+                target_pos,
             });
             selection.clear();
         }

@@ -15,7 +15,10 @@ pub struct StartCombat {
 pub struct UseAbility {
     pub actor: Entity,
     pub ability: AbilityId,
+    /// Primary target entity. For AoE on empty cell, set to actor.
     pub target: Entity,
+    /// Hex position of the target (entity pos or clicked cell for AoE).
+    pub target_pos: (i32, i32),
 }
 
 /// Emitted by validation after UseAbility passes all checks.
@@ -25,6 +28,9 @@ pub struct ValidatedAction {
     pub actor: Entity,
     pub ability: AbilityId,
     pub target: Entity,
+    pub target_pos: (i32, i32),
+    /// Target is within max range but below min range — roll twice, take lower.
+    pub disadvantage: bool,
 }
 
 #[derive(Message)]

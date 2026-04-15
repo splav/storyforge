@@ -90,10 +90,18 @@ fn main() {
                 ui::combat_ui::update_phase_hint,
                 ui::turn_order_ui::update_turn_order,
                 ui::turn_order_ui::update_turn_order_hp,
+                ui::turn_order_ui::update_turn_order_tooltip,
                 ui::combat_ui::update_ability_panel,
                 ui::combat_ui::ability_slot_click_system,
                 ui::combat_ui::move_button_click_system,
                 ui::combat_ui::update_move_button,
+            )
+                .after(ui::hex_grid::ui_dirty_bridge)
+                .run_if(in_state(AppState::Combat)),
+        )
+        .add_systems(
+            Update,
+            (
                 ui::hex_grid::hex_hover_system,
                 ui::hex_grid::update_hex_visuals,
                 ui::hex_grid::update_hex_tooltip,
@@ -102,8 +110,13 @@ fn main() {
                 ui::log_ui::update_log,
                 ui::log_ui::log_scroll_input,
                 ui::log_ui::log_scrollbar_update,
-                ui::console_log::print_log_system,
             )
+                .after(ui::hex_grid::ui_dirty_bridge)
+                .run_if(in_state(AppState::Combat)),
+        )
+        .add_systems(
+            Update,
+            ui::console_log::print_log_system
                 .after(ui::hex_grid::ui_dirty_bridge)
                 .run_if(in_state(AppState::Combat)),
         )

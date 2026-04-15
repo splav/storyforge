@@ -26,18 +26,49 @@ pub struct StatusApplication {
     pub on: StatusOn,
 }
 
+/// Range constraints for an ability.
+#[derive(Debug, Clone, Copy)]
+pub struct AbilityRange {
+    /// Minimum comfortable range. Below this the attack is at disadvantage.
+    pub min: u32,
+    /// Maximum range in hex steps. 0 = self-only.
+    pub max: u32,
+}
+
+impl AbilityRange {
+    pub const SELF_ONLY: Self = Self { min: 0, max: 0 };
+    pub const MELEE: Self = Self { min: 0, max: 1 };
+}
+
+/// Area-of-effect pattern. `None` = single-target (default).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AoEShape {
+    #[default]
+    None,
+    /// All cells within hex-distance ≤ radius from the target point.
+    Circle { radius: u32 },
+    /// Line of `length` cells from caster through target direction.
+    Line { length: u32 },
+}
+
 #[derive(Debug, Clone)]
 pub struct AbilityDef {
     pub id: AbilityId,
     pub name: String,
     pub target_type: TargetType,
-    /// Max range in hex steps. 0 = ignored (for Myself target_type).
-    pub range: u32,
+    pub range: AbilityRange,
     pub effect: EffectDef,
     pub rage_cost: i32,
     pub mana_cost: i32,
+    pub aoe: AoEShape,
+    /// If true, AoE damages allies too (e.g. fireball).
+    pub friendly_fire: bool,
     /// Status effects applied when the ability resolves.
     pub statuses: Vec<StatusApplication>,
+    /// Magic domains this ability belongs to (empty for non-magical abilities).
+    pub magic_domains: Vec<String>,
+    /// Magic method (empty string for non-magical abilities).
+    pub magic_method: String,
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +176,8 @@ struct AbilityFile {
     abilities: Vec<AbilityRecord>,
 }
 
+fn default_range() -> u32 { 1 }
+
 #[derive(Deserialize)]
 struct AbilityRecord {
     id: String,
@@ -152,8 +185,10 @@ struct AbilityRecord {
     target_type: String,
     #[serde(default)]
     effect: String,
-    #[serde(default)]
+    #[serde(default = "default_range")]
     range: u32,
+    #[serde(default)]
+    min_range: u32,
     dice_count: Option<u32>,
     dice_sides: Option<u32>,
     #[serde(default)]
@@ -163,7 +198,17 @@ struct AbilityRecord {
     #[serde(default)]
     mana_cost: i32,
     #[serde(default)]
+    aoe: String,
+    #[serde(default)]
+    aoe_size: u32,
+    #[serde(default)]
+    friendly_fire: bool,
+    #[serde(default)]
     statuses: Vec<StatusRecord>,
+    #[serde(default)]
+    magic_domains: Vec<String>,
+    #[serde(default)]
+    magic_method: String,
 }
 
 #[derive(Deserialize)]
@@ -230,15 +275,25 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                     }
                 })
                 .collect();
+            let aoe = match r.aoe.as_str() {
+                "" | "none" => AoEShape::None,
+                "circle" => AoEShape::Circle { radius: r.aoe_size },
+                "line" => AoEShape::Line { length: r.aoe_size },
+                other => panic!("{ABILITIES_PATH}: ability '{}' unknown aoe '{other}'", r.id),
+            };
             AbilityDef {
                 id: AbilityId::from(r.id.as_str()),
                 name: r.name,
                 target_type,
-                range: r.range,
+                range: AbilityRange { min: r.min_range, max: r.range },
                 effect,
                 rage_cost: r.rage_cost,
                 mana_cost: r.mana_cost,
+                aoe,
+                friendly_fire: r.friendly_fire,
                 statuses,
+                magic_domains: r.magic_domains,
+                magic_method: r.magic_method,
             }
         })
         .collect()

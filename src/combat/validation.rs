@@ -1,3 +1,4 @@
+use crate::content::abilities::AoEShape;
 use crate::game::components::{Abilities, ActionPoints, ActiveCombatant, Mana, Rage, Vital};
 use crate::game::hex::hex_distance;
 use crate::game::messages::{UseAbility, ValidatedAction};
@@ -21,18 +22,21 @@ pub fn validate_action_system(
 ) {
     let active = active_q.single().ok();
     for ev in events.read() {
-        if !is_valid(ev, active, &db, &positions, &actors, &targets) {
+        let (valid, disadvantage) = check(ev, active, &db, &positions, &actors, &targets);
+        if !valid {
             continue;
         }
         validated.write(ValidatedAction {
             actor: ev.actor,
             ability: ev.ability.clone(),
             target: ev.target,
+            target_pos: ev.target_pos,
+            disadvantage,
         });
     }
 }
 
-fn is_valid(
+fn check(
     ev: &UseAbility,
     active: Option<Entity>,
     db: &GameDb,
@@ -45,45 +49,61 @@ fn is_valid(
         Option<&Mana>,
     )>,
     targets: &Query<&Vital>,
-) -> bool {
+) -> (bool, bool) {
     if active != Some(ev.actor) {
-        return false;
+        return (false, false);
     }
 
     let Ok((vital, ap, abilities, rage, mana)) = actors.get(ev.actor) else {
-        return false;
+        return (false, false);
     };
     if !vital.is_alive() || !ap.action {
-        return false;
+        return (false, false);
     }
     if !abilities.0.contains(&ev.ability) {
-        return false;
+        return (false, false);
     }
 
-    if let Some(def) = db.abilities.get(&ev.ability) {
-        if def.rage_cost > 0 && rage.map_or(0, |r| r.current) < def.rage_cost {
-            return false;
-        }
-        if def.mana_cost > 0 && mana.map_or(0, |m| m.current) < def.mana_cost {
-            return false;
-        }
+    let mut disadvantage = false;
 
-        // Range check (skip for self-targeted / range-0 abilities).
-        if def.range > 0 {
-            if let (Some(actor_pos), Some(target_pos)) =
-                (positions.get(&ev.actor), positions.get(&ev.target))
-            {
-                if hex_distance(actor_pos.0, actor_pos.1, target_pos.0, target_pos.1)
-                    > def.range as i32
-                {
-                    return false;
-                }
-            }
-        }
-    }
-
-    let Ok(target_vital) = targets.get(ev.target) else {
-        return false;
+    let Some(def) = db.abilities.get(&ev.ability) else {
+        return (false, false);
     };
-    target_vital.is_alive()
+
+    if def.rage_cost > 0 && rage.map_or(0, |r| r.current) < def.rage_cost {
+        return (false, false);
+    }
+    if def.mana_cost > 0 && mana.map_or(0, |m| m.current) < def.mana_cost {
+        return (false, false);
+    }
+
+    let is_aoe = def.aoe != AoEShape::None;
+
+    if def.range.max == 0 {
+        if ev.actor != ev.target {
+            return (false, false);
+        }
+    } else if let Some(actor_pos) = positions.get(&ev.actor) {
+        // Use target_pos for range check (works for both entity and cell targeting).
+        let dist = hex_distance(actor_pos.0, actor_pos.1, ev.target_pos.0, ev.target_pos.1);
+        if dist > def.range.max as i32 {
+            return (false, false);
+        }
+        if dist < def.range.min as i32 {
+            disadvantage = true;
+        }
+    }
+
+    // For non-AoE, the primary target must be alive.
+    if !is_aoe {
+        let Ok(target_vital) = targets.get(ev.target) else {
+            return (false, false);
+        };
+        if !target_vital.is_alive() {
+            return (false, false);
+        }
+    }
+    // For AoE, clicking an empty cell is valid — no entity check needed.
+
+    (true, disadvantage)
 }

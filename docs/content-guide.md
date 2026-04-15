@@ -6,17 +6,19 @@ All game content is data-driven via TOML files in `assets/data/`. No code change
 
 ```toml
 [[abilities]]
-id          = "fireball"
-name        = "Огненный шар"
-target_type = "single_enemy"     # single_enemy | single_ally | myself
-effect      = "spell_damage"     # weapon_attack | damage | spell_damage | heal | none | grant_movement
-dice_count  = 2
-dice_sides  = 3
-mana_cost   = 3                  # default 0
-rage_cost   = 0                  # default 0
-range       = 5                  # hex steps; 0 = no range check (for myself)
-distance    = 0                  # only for grant_movement
-statuses    = [                  # optional
+id            = "fireball"
+name          = "Огненный шар"
+magic_domains = ["aether", "form"]  # optional; see magic-schools.md
+magic_method  = "destruction"       # optional; see magic-schools.md
+target_type   = "single_enemy"      # single_enemy | single_ally | myself
+effect        = "spell_damage"      # weapon_attack | damage | spell_damage | heal | none | grant_movement
+dice_count    = 2
+dice_sides    = 3
+mana_cost     = 3                   # default 0
+rage_cost     = 0                   # default 0
+range         = 5                   # hex steps; 0 = no range check (for myself)
+distance      = 0                   # only for grant_movement
+statuses      = [                   # optional
     { id = "burning", on = "target", duration = 2 },
 ]
 ```

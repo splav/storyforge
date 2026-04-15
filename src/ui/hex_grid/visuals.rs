@@ -2,12 +2,12 @@ use super::render::{
     HexBorder, HexCellLink, HexGridOffset, HexHover, HexManaLabel, HexMaterials, HexNameLabel,
     HexHpLabel, TokenMesh,
 };
-use crate::content::abilities::TargetType;
+use crate::content::abilities::{AoEShape, TargetType};
 use crate::game::components::{
     ActiveCombatant, BonusMovement, Combatant, Dead, Faction, HexCell, HexCombatantQ, Mana, Rage, Speed, StartingHexPos,
     Team, UnitToken, Vital,
 };
-use crate::game::hex::{hex_distance, hex_to_pixel, in_bounds};
+use crate::game::hex::{hex_circle, hex_distance, hex_line, hex_to_pixel, in_bounds};
 use crate::game::pathfinding::reachable_cells;
 use crate::game::resources::{
     GameDb, HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags,
@@ -113,8 +113,17 @@ pub fn ui_dirty_bridge(
 
     if hover.0 != prev.hover {
         prev.hover = hover.0;
-        dirty.0 |= UiDirtyFlags::TOOLTIP;
+        dirty.0 |= UiDirtyFlags::TOOLTIP | UiDirtyFlags::HEX_FILL;
     }
+}
+
+/// Combined overlay caches to stay within Bevy's system-param limit.
+#[derive(Default)]
+pub(crate) struct CachedOverlay {
+    range: HashSet<(i32, i32)>,
+    disadvantage: HashSet<(i32, i32)>,
+    movement: HashSet<(i32, i32)>,
+    aoe_preview: HashSet<(i32, i32)>,
 }
 
 // ── System: Update visuals ────────────────────────────────────────────────────
@@ -124,6 +133,7 @@ pub fn update_hex_visuals(
     dirty: Res<UiDirty>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     sel: Res<SelectionState>,
+    hover: Res<HexHover>,
     db: Res<GameDb>,
     positions: Res<HexPositions>,
     mats: Res<HexMaterials>,
@@ -147,16 +157,15 @@ pub fn update_hex_visuals(
         (With<HexManaLabel>, Without<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>),
     >,
     mut cell_mats: Query<&mut MeshMaterial2d<ColorMaterial>, (With<HexCell>, Without<HexBorder>)>,
-    mut cached_range: Local<HashSet<(i32, i32)>>,
-    mut cached_move: Local<HashSet<(i32, i32)>>,
+    mut overlay: Local<CachedOverlay>,
 ) {
     let flags = dirty.0;
-    if !flags.intersects(UiDirtyFlags::OVERLAY | UiDirtyFlags::HEX_FILL | UiDirtyFlags::LABELS) {
+    if !flags.intersects(UiDirtyFlags::OVERLAY | UiDirtyFlags::HEX_FILL | UiDirtyFlags::LABELS | UiDirtyFlags::TOOLTIP) {
         return;
     }
 
     if flags.contains(UiDirtyFlags::OVERLAY) {
-        *cached_range = if !sel.move_mode {
+        overlay.range = if !sel.move_mode {
             let info = active_q
                 .single()
                 .ok()
@@ -165,12 +174,15 @@ pub fn update_hex_visuals(
                     sel.selected_ability
                         .as_ref()
                         .and_then(|id| db.abilities.get(id))
-                        .filter(|ab| ab.target_type != TargetType::Myself && ab.range > 0),
+                        .filter(|ab| ab.target_type != TargetType::Myself && ab.range.max > 0),
                 );
             if let Some(((aq, ar), ab)) = info {
                 cells
                     .iter()
-                    .filter(|(_, hc, _)| hex_distance(aq, ar, hc.q, hc.r) <= ab.range as i32)
+                    .filter(|(_, hc, _)| {
+                        let d = hex_distance(aq, ar, hc.q, hc.r);
+                        d >= ab.range.min as i32 && d <= ab.range.max as i32
+                    })
                     .map(|(_, hc, _)| (hc.q, hc.r))
                     .collect()
             } else {
@@ -180,7 +192,35 @@ pub fn update_hex_visuals(
             HashSet::new()
         };
 
-        *cached_move = if sel.move_mode {
+        // Disadvantage zone: cells within max range but below min range.
+        overlay.disadvantage = if !sel.move_mode {
+            let info = active_q
+                .single()
+                .ok()
+                .and_then(|e| positions.get(&e))
+                .zip(
+                    sel.selected_ability
+                        .as_ref()
+                        .and_then(|id| db.abilities.get(id))
+                        .filter(|ab| ab.target_type != TargetType::Myself && ab.range.min > 0),
+                );
+            if let Some(((aq, ar), ab)) = info {
+                cells
+                    .iter()
+                    .filter(|(_, hc, _)| {
+                        let d = hex_distance(aq, ar, hc.q, hc.r);
+                        d > 0 && d < ab.range.min as i32
+                    })
+                    .map(|(_, hc, _)| (hc.q, hc.r))
+                    .collect()
+            } else {
+                HashSet::new()
+            }
+        } else {
+            HashSet::new()
+        };
+
+        overlay.movement = if sel.move_mode {
             if let Some(actor) = active_q.single().ok() {
                 if let (Some(actor_pos), Ok((speed, bonus))) =
                     (positions.get(&actor), speed_q.get(actor))
@@ -219,24 +259,55 @@ pub fn update_hex_visuals(
         };
     }
 
-    let range_cells = &*cached_range;
-    let move_cells = &*cached_move;
+    // AoE preview: recompute whenever hover or ability selection changes.
+    if flags.intersects(UiDirtyFlags::TOOLTIP | UiDirtyFlags::OVERLAY) {
+        overlay.aoe_preview = if let Some((hq, hr)) = hover.0 {
+            let actor_pos = active_q.single().ok().and_then(|e| positions.get(&e));
+            let aoe_def = sel.selected_ability
+                .as_ref()
+                .and_then(|id| db.abilities.get(id))
+                .filter(|ab| ab.aoe != AoEShape::None);
+            if let (Some(a_pos), Some(ab)) = (actor_pos, aoe_def) {
+                match ab.aoe {
+                    AoEShape::None => HashSet::new(),
+                    AoEShape::Circle { radius } => hex_circle(hq, hr, radius).into_iter().collect(),
+                    AoEShape::Line { length } => hex_line(a_pos.0, a_pos.1, hq, hr, length).into_iter().collect(),
+                }
+            } else {
+                HashSet::new()
+            }
+        } else {
+            HashSet::new()
+        };
+    }
+
+    let range_cells = &overlay.range;
+    let disadv_cells = &overlay.disadvantage;
+    let move_cells = &overlay.movement;
+    let aoe_cells = &overlay.aoe_preview;
     let active = active_q.single().ok();
 
     for (cell_entity, hex_cell, children) in &cells {
-        let occupant = positions.entity_at(hex_cell.q, hex_cell.r);
+        let pos = (hex_cell.q, hex_cell.r);
+        let occupant = positions.entity_at(pos.0, pos.1);
         let is_active = occupant.is_some_and(|e| active == Some(e));
         let is_target = occupant.is_some_and(|e| sel.selected_target == Some(e));
-        let is_in_range = range_cells.contains(&(hex_cell.q, hex_cell.r));
-        let is_in_move = move_cells.contains(&(hex_cell.q, hex_cell.r));
+        let is_in_range = range_cells.contains(&pos);
+        let is_disadv = disadv_cells.contains(&pos);
+        let is_in_move = move_cells.contains(&pos);
+        let is_aoe = aoe_cells.contains(&pos);
 
         if let Ok(mut mat) = cell_mats.get_mut(cell_entity) {
             mat.0 = match occupant {
                 None => {
-                    if is_in_move {
+                    if is_aoe {
+                        mats.aoe_preview.clone()
+                    } else if is_in_move {
                         mats.move_range.clone()
                     } else if is_in_range {
                         mats.in_range.clone()
+                    } else if is_disadv {
+                        mats.in_range_dim.clone()
                     } else {
                         mats.empty.clone()
                     }
@@ -259,14 +330,18 @@ pub fn update_hex_visuals(
 
         for child in children.iter() {
             if let Ok((mut vis, mut bmat)) = borders.get_mut(child) {
-                if is_active || is_target || is_in_move || is_in_range {
+                if is_active || is_target || is_aoe || is_in_move || is_in_range || is_disadv {
                     *vis = Visibility::Visible;
                     bmat.0 = if is_active {
                         mats.border_active.clone()
                     } else if is_target {
                         mats.border_target.clone()
+                    } else if is_aoe {
+                        mats.border_aoe.clone()
                     } else if is_in_move {
                         mats.border_move.clone()
+                    } else if is_disadv {
+                        mats.border_in_range_dim.clone()
                     } else {
                         mats.border_in_range.clone()
                     };

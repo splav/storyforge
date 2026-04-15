@@ -48,6 +48,16 @@ impl DiceRng {
         }
         (total, format!("{}d{}={}", expr.count, expr.sides, total))
     }
+
+    /// Rolls dice twice and takes the lower result (disadvantage, D&D-style).
+    /// Returns `(min_total, "NdS=A vs NdS=B помеха=min")`.
+    pub fn roll_dice_disadvantage(&mut self, expr: &DiceExpr) -> (i32, String) {
+        let (a, _) = self.roll_dice(expr);
+        let (b, _) = self.roll_dice(expr);
+        let dice_label = format!("{}d{}", expr.count, expr.sides);
+        let min = a.min(b);
+        (min, format!("{dice_label}={a} vs {dice_label}={b} помеха={min}"))
+    }
 }
 
 #[derive(Debug, Clone)]

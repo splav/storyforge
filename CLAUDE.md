@@ -27,6 +27,7 @@ Bevy ECS тактическая RPG. Состояния: `AppState` (Boot → St
 | [Mechanics](docs/mechanics.md) | Характеристики, урон, лечение, мана/ярость, статусы, AI, инициатива |
 | [Content Guide](docs/content-guide.md) | Как добавлять способности, статусы, оружие, классы, встречи, сценарии |
 | [Hex Grid](docs/hex-grid.md) | Координаты even-r, соседи, расстояние, pathfinding, правила движения |
+| [Magic Schools](docs/magic-schools.md) | Домены, методы, сочетания доменов, классификация способностей |
 
 ## Tests
 

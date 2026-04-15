@@ -37,17 +37,16 @@ pub fn build_turn_order(
     // (entity, total) for ordering; (entity, dex_mod, roll, total) for logging on round 1.
     let mut init_rolls: Vec<(Entity, i32, i32, i32)> = Vec::new();
 
+    // Include ALL combatants (alive and dead) so that dead units still
+    // get a "virtual turn" where their applied statuses tick down.
     let mut order: Vec<(Entity, i32)> = combatants
         .iter_mut()
-        .filter(|(_, _, _, _, _, v)| v.is_alive())
-        .map(|(e, name, mut init, mut ap, stats, _)| {
+        .map(|(e, name, mut init, mut ap, stats, v)| {
             if first_round {
                 if use_preset {
-                    // Restore saved initiative value instead of rolling.
                     if let Some(&saved) = preset.0.get(name.as_str()) {
                         init.0 = saved;
                     } else {
-                        // New combatant not in preset — roll normally.
                         let dex_mod = modifier(stats.dexterity);
                         let roll = rng.roll_d(20);
                         init.0 = dex_mod + roll;
@@ -60,8 +59,10 @@ pub fn build_turn_order(
                     init_rolls.push((e, dex_mod, roll, init.0));
                 }
             }
-            ap.action = true;
-            ap.movement = true;
+            if v.is_alive() {
+                ap.action = true;
+                ap.movement = true;
+            }
             (e, init.0)
         })
         .collect();

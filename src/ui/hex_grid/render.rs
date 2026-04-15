@@ -19,8 +19,14 @@ pub const CLR_BORDER_ACTIVE: Color = Color::srgb(0.85, 0.75, 0.20);
 pub const CLR_BORDER_TARGET: Color = Color::srgb(0.85, 0.20, 0.20);
 pub const CLR_IN_RANGE: Color = Color::srgb(0.10, 0.20, 0.18);
 pub const CLR_BORDER_IN_RANGE: Color = Color::srgb(0.20, 0.60, 0.52);
+/// Cells within max range but below min range (disadvantage zone).
+pub const CLR_IN_RANGE_DIM: Color = Color::srgb(0.11, 0.14, 0.14);
+pub const CLR_BORDER_IN_RANGE_DIM: Color = Color::srgb(0.18, 0.35, 0.30);
 pub const CLR_MOVE_RANGE: Color = Color::srgb(0.12, 0.20, 0.10);
 pub const CLR_BORDER_MOVE: Color = Color::srgb(0.30, 0.65, 0.25);
+/// AoE blast zone preview.
+pub const CLR_AOE_PREVIEW: Color = Color::srgb(0.22, 0.12, 0.06);
+pub const CLR_BORDER_AOE: Color = Color::srgb(0.70, 0.35, 0.10);
 
 // ── Components ────────────────────────────────────────────────────────────────
 
@@ -65,11 +71,15 @@ pub struct HexMaterials {
     pub enemy: Handle<ColorMaterial>,
     pub dead: Handle<ColorMaterial>,
     pub in_range: Handle<ColorMaterial>,
+    pub in_range_dim: Handle<ColorMaterial>,
     pub move_range: Handle<ColorMaterial>,
     pub border_active: Handle<ColorMaterial>,
     pub border_target: Handle<ColorMaterial>,
     pub border_in_range: Handle<ColorMaterial>,
+    pub border_in_range_dim: Handle<ColorMaterial>,
     pub border_move: Handle<ColorMaterial>,
+    pub aoe_preview: Handle<ColorMaterial>,
+    pub border_aoe: Handle<ColorMaterial>,
     pub token_player: Handle<ColorMaterial>,
     pub token_enemy: Handle<ColorMaterial>,
     pub token_dead: Handle<ColorMaterial>,
@@ -145,11 +155,15 @@ pub fn setup_hex_grid(
         enemy: materials.add(ColorMaterial::from_color(CLR_ENEMY)),
         dead: materials.add(ColorMaterial::from_color(CLR_DEAD)),
         in_range: materials.add(ColorMaterial::from_color(CLR_IN_RANGE)),
+        in_range_dim: materials.add(ColorMaterial::from_color(CLR_IN_RANGE_DIM)),
         move_range: materials.add(ColorMaterial::from_color(CLR_MOVE_RANGE)),
         border_active: materials.add(ColorMaterial::from_color(CLR_BORDER_ACTIVE)),
         border_target: materials.add(ColorMaterial::from_color(CLR_BORDER_TARGET)),
         border_in_range: materials.add(ColorMaterial::from_color(CLR_BORDER_IN_RANGE)),
+        border_in_range_dim: materials.add(ColorMaterial::from_color(CLR_BORDER_IN_RANGE_DIM)),
         border_move: materials.add(ColorMaterial::from_color(CLR_BORDER_MOVE)),
+        aoe_preview: materials.add(ColorMaterial::from_color(CLR_AOE_PREVIEW)),
+        border_aoe: materials.add(ColorMaterial::from_color(CLR_BORDER_AOE)),
         token_player: materials.add(ColorMaterial::from_color(Color::srgb(0.12, 0.22, 0.45))),
         token_enemy: materials.add(ColorMaterial::from_color(Color::srgb(0.45, 0.10, 0.08))),
         token_dead: materials.add(ColorMaterial::from_color(Color::srgb(0.3, 0.3, 0.3))),

@@ -1,7 +1,8 @@
 use super::log_ui::LogScrollState;
 use super::{
     AbilitySlot, AbilitySlotLabel, DefeatOverlay, HudPhase, HudTurnOrder, LogScrollClip,
-    LogScrollThumb, LogText, MoveButton, RestartButton, UiFont,
+    LogScrollThumb, LogText, MoveButton, RestartButton, TurnOrderTooltip, TurnOrderTooltipText,
+    UiFont,
 };
 use super::turn_order_ui::spawn_turn_order_panel;
 use crate::app_state::CombatPhase;
@@ -195,6 +196,35 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
             // ── Right panel: turn order cards ─────────────────────────────
             spawn_turn_order_panel(root, &font);
         });
+
+    // ── Equipment tooltip (absolute, hidden until card is hovered) ───────────
+    commands.spawn((
+        TurnOrderTooltip,
+        Node {
+            position_type: PositionType::Absolute,
+            right: Val::Px(172.0),
+            top: Val::Px(8.0),
+            padding: UiRect::all(Val::Px(8.0)),
+            border: UiRect::all(Val::Px(1.0)),
+            ..default()
+        },
+        BorderColor::all(Color::srgb(0.32, 0.32, 0.38)),
+        BackgroundColor(Color::srgba(0.07, 0.07, 0.09, 0.96)),
+        Visibility::Hidden,
+        ZIndex(50),
+    ))
+    .with_children(|tooltip| {
+        tooltip.spawn((
+            TurnOrderTooltipText,
+            Text::new(""),
+            TextFont {
+                font: font.clone(),
+                font_size: 11.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.82, 0.82, 0.88)),
+        ));
+    });
 }
 
 // ── Update: phase hint ────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 use super::render::{HexGridOffset, HexHover, HexLastClick, HexTooltip, DOUBLE_CLICK_SECS};
+use crate::content::abilities::AoEShape;
 use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Combatant, Dead, Faction, Mana, Rage, Speed, StatusEffects, Team, Vital};
-use crate::game::hex::{hex_to_pixel, in_bounds, HEX_SIZE};
+use crate::game::hex::{in_bounds, HEX_SIZE};
 use crate::game::messages::{MoveUnit, UseAbility};
 use crate::game::pathfinding::find_path;
 use crate::game::resources::{GameDb, HexPositions, SelectionState, UiDirty, UiDirtyFlags};
@@ -138,6 +139,7 @@ pub fn hex_click_target(
     time: Res<Time>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     positions: Res<HexPositions>,
+    db: Res<GameDb>,
     move_query: Query<(&Faction, &ActionPoints, &Speed, Option<&BonusMovement>)>,
     combatant_q2: Query<(&Faction, &Vital), With<Combatant>>,
     mut sel: ResMut<SelectionState>,
@@ -163,6 +165,13 @@ pub fn hex_click_target(
         return;
     }
 
+    // Check if the selected ability is AoE (allows cell targeting).
+    let is_aoe = sel
+        .selected_ability
+        .as_ref()
+        .and_then(|id| db.abilities.get(id))
+        .is_some_and(|def| def.aoe != AoEShape::None);
+
     let is_double =
         last_click.pos == Some((hq, hr)) && (now - last_click.time) <= DOUBLE_CLICK_SECS;
 
@@ -170,8 +179,14 @@ pub fn hex_click_target(
         sel.selected_target = Some(entity);
         if is_double {
             if let (Some(actor), Some(ability)) = (active, sel.selected_ability.clone()) {
-                use_ability.write(UseAbility { actor, ability, target: entity });
+                let target_pos = positions.get(&entity).unwrap_or((hq, hr));
+                use_ability.write(UseAbility { actor, ability, target: entity, target_pos });
             }
+        }
+    } else if is_double && is_aoe {
+        // AoE: double-click on empty cell fires ability at that cell.
+        if let (Some(actor), Some(ability)) = (active, sel.selected_ability.clone()) {
+            use_ability.write(UseAbility { actor, ability, target: actor, target_pos: (hq, hr) });
         }
     } else if is_double {
         try_move(hq, hr, active, &positions, &move_query, &combatant_q2, &mut move_unit);

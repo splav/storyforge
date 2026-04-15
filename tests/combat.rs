@@ -7,12 +7,13 @@ use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
     advance_turn::advance_turn_system, ai_difficulty::DifficultyProfile,
     apply_effects::apply_effects_system, enemy_ai::enemy_ai_system,
-    skip_dead::skip_stunned_turn_system, validation::validate_action_system,
+    skip_dead::{skip_dead_turn_system, skip_stunned_turn_system},
+    validation::validate_action_system,
 };
 const MELEE_ATTACK: &str = "melee_attack";
 use storyforge::core::DiceRng;
 use storyforge::game::bundles::{enemy_bundle, hero_bundle};
-use storyforge::game::components::{ActiveCombatant, ActiveStatus, CombatStats, Equipment, StatusEffects, Vital};
+use storyforge::game::components::{ActiveCombatant, ActiveStatus, CombatStats, Dead, Equipment, StatusEffects, Vital};
 use storyforge::game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, UseAbility, ValidatedAction,
 };
@@ -144,6 +145,7 @@ fn valid_use_ability_emits_validated_action() {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
+            target_pos: (0, 0),
         },
     );
     app.update();
@@ -174,6 +176,7 @@ fn wrong_actor_use_ability_is_rejected() {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
+            target_pos: (0, 0),
         },
     );
     app.update();
@@ -205,6 +208,7 @@ fn no_action_point_use_ability_is_rejected() {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
+            target_pos: (0, 0),
         },
     );
     app.update();
@@ -528,4 +532,100 @@ fn stunned_enemy_does_not_produce_duplicate_end_turn() {
     );
     let queue = app.world().resource::<TurnQueue>();
     assert_eq!(queue.index, 1);
+}
+
+// ── Dead units in turn queue ─────────────────────────────────────────────────
+
+#[test]
+fn dead_applier_status_still_expires() {
+    // Dead hero applied stun on enemy. When advancing past the dead hero,
+    // the stun must tick down and expire.
+    let mut app = effects_app();
+    insert_stun_status(&mut app);
+
+    let alive_hero = app
+        .world_mut()
+        .spawn((Name::new("AliveHero"), test_hero(base_stats())))
+        .id();
+    let dead_hero = app
+        .world_mut()
+        .spawn((Name::new("DeadHero"), test_hero(base_stats())))
+        .id();
+    let enemy = app
+        .world_mut()
+        .spawn((Name::new("Enemy"), test_enemy(base_stats())))
+        .id();
+
+    // Stun on enemy, applied by dead_hero, duration 1.
+    app.world_mut()
+        .get_mut::<StatusEffects>(enemy)
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: "stun".into(),
+            rounds_remaining: 1,
+            applier: dead_hero,
+        });
+
+    // dead_hero is dead.
+    app.world_mut().entity_mut(dead_hero).insert(Dead);
+    app.world_mut().get_mut::<Vital>(dead_hero).unwrap().hp = 0;
+
+    // Queue: [enemy, dead_hero, alive_hero].
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![enemy, dead_hero, alive_hero];
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(enemy).insert(ActiveCombatant);
+
+    // Enemy ends turn → advance skips dead_hero (ticks dead_hero's statuses → stun expires)
+    // → advances to alive_hero.
+    write_message(&mut app, EndTurn { actor: enemy });
+    app.update();
+
+    let se = app.world().get::<StatusEffects>(enemy).unwrap();
+    assert!(se.0.is_empty(), "stun should expire after dead hero's virtual turn ticks it");
+}
+
+#[test]
+fn dead_unit_skipped_at_queue_start() {
+    // Queue starts with a dead unit — it should be skipped,
+    // the next living unit becomes active.
+    let mut app = effects_app();
+
+    let dead_hero = app
+        .world_mut()
+        .spawn((Name::new("DeadHero"), test_hero(base_stats())))
+        .id();
+    let alive_hero = app
+        .world_mut()
+        .spawn((Name::new("AliveHero"), test_hero(base_stats())))
+        .id();
+    let enemy = app
+        .world_mut()
+        .spawn((Name::new("Enemy"), test_enemy(base_stats())))
+        .id();
+
+    app.world_mut().entity_mut(dead_hero).insert(Dead);
+    app.world_mut().get_mut::<Vital>(dead_hero).unwrap().hp = 0;
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![dead_hero, enemy, alive_hero];
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(dead_hero).insert(ActiveCombatant);
+
+    write_message(&mut app, EndTurn { actor: dead_hero });
+    app.update();
+
+    assert!(
+        app.world().get::<ActiveCombatant>(enemy).is_some(),
+        "dead hero at queue start should be skipped, enemy becomes active"
+    );
+    assert!(
+        app.world().get::<ActiveCombatant>(dead_hero).is_none(),
+        "dead hero should not remain active"
+    );
 }
