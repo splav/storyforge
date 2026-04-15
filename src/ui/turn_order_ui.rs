@@ -2,7 +2,9 @@ use super::{TurnOrderCard, TurnOrderCardHp, TurnOrderCardName, TurnOrderTooltip,
 use crate::content::armor::ArmorDef;
 use crate::content::weapons::WeaponDef;
 use crate::core::{ArmorId, WeaponId};
-use crate::game::components::{Combatant, Dead, Equipment, Faction, Team, Vital};
+use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, ResourceCost};
+use crate::core::ResourceKind;
+use crate::game::components::{Abilities, Combatant, Dead, Equipment, Faction, Team, Vital};
 use crate::game::resources::{GameDb, TurnQueue, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
@@ -156,7 +158,7 @@ pub fn update_turn_order(
 pub fn update_turn_order_tooltip(
     queue: Res<TurnQueue>,
     cards: Query<(&TurnOrderCard, &Interaction)>,
-    combatants: Query<(&Name, &Equipment), With<Combatant>>,
+    combatants: Query<(&Name, &Equipment, &Abilities), With<Combatant>>,
     db: Res<GameDb>,
     mut tooltip_vis: Query<&mut Visibility, With<TurnOrderTooltip>>,
     mut tooltip_text: Query<&mut Text, With<TurnOrderTooltipText>>,
@@ -179,7 +181,7 @@ pub fn update_turn_order_tooltip(
     let queue_idx = (queue.index + card.0) % len;
     let entity = queue.order[queue_idx];
 
-    let Ok((name, equipment)) = combatants.get(entity) else {
+    let Ok((name, equipment, abilities)) = combatants.get(entity) else {
         *vis = Visibility::Hidden;
         return;
     };
@@ -198,6 +200,14 @@ pub fn update_turn_order_tooltip(
     lines.push(armor_line("Нагрудник", &equipment.chest, &db));
     lines.push(armor_line("Ноги", &equipment.legs, &db));
     lines.push(armor_line("Обувь", &equipment.feet, &db));
+
+    lines.push(String::new());
+    lines.push("── Способности ──".into());
+    for aid in &abilities.0 {
+        if let Some(def) = db.abilities.get(aid) {
+            lines.push(ability_line(def));
+        }
+    }
 
     text.0 = lines.join("\n");
     *vis = Visibility::Visible;
@@ -242,6 +252,60 @@ fn weapon_bonus_str(w: &WeaponDef) -> String {
     if w.charisma != 0 { parts.push(format!("хар {:+}", w.charisma)); }
     if w.spell_power != 0 { parts.push(format!("маг {:+}", w.spell_power)); }
     parts.join(", ")
+}
+
+fn ability_line(def: &AbilityDef) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    // Effect / dice
+    match &def.effect {
+        EffectDef::WeaponAttack => parts.push("ближний бой".into()),
+        EffectDef::Damage { dice } => parts.push(format!("{}d{}", dice.count, dice.sides)),
+        EffectDef::SpellDamage { dice } => parts.push(format!("{}d{} маг", dice.count, dice.sides)),
+        EffectDef::Heal { dice } => parts.push(format!("лечение {}d{}", dice.count, dice.sides)),
+        EffectDef::GrantMovement { distance } => parts.push(format!("+{} движ", distance)),
+        EffectDef::None => {}
+    }
+
+    // Range
+    if def.range.max > 0 {
+        if def.range.min > 0 {
+            parts.push(format!("{}-{} кл", def.range.min, def.range.max));
+        } else {
+            parts.push(format!("{} кл", def.range.max));
+        }
+    }
+
+    // AoE
+    match def.aoe {
+        AoEShape::Circle { radius } => parts.push(format!("обл r{radius}")),
+        AoEShape::Line { length } => parts.push(format!("линия {length}")),
+        AoEShape::None => {}
+    }
+
+    // Cost
+    let cost_str = cost_summary(&def.costs);
+    if !cost_str.is_empty() {
+        parts.push(cost_str);
+    }
+
+    format!("  {} — {}", def.name, parts.join(", "))
+}
+
+fn cost_summary(costs: &[ResourceCost]) -> String {
+    costs
+        .iter()
+        .map(|c| {
+            let label = match c.resource {
+                ResourceKind::Hp => "HP",
+                ResourceKind::Mana => "мана",
+                ResourceKind::Rage => "ярость",
+                ResourceKind::Energy => "энергия",
+            };
+            format!("{} {}", c.amount, label)
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn armor_bonus_str(a: &ArmorDef) -> String {

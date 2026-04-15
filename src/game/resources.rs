@@ -2,6 +2,7 @@ use crate::content::abilities::{load_abilities, AbilityDef};
 use crate::content::armor::{load_chest, load_feet, load_legs, ArmorDef};
 use crate::content::classes::{load_classes, ClassDef};
 use crate::content::encounters::{load_encounters, EncounterDef};
+use crate::content::races::{load_races, FactionDef, PathDef, RaceDef};
 use crate::content::scenarios::{load_scenarios, ScenarioDef};
 use crate::content::statuses::{load_statuses, StatusDef};
 use crate::content::weapons::{load_weapons, HandType, WeaponDef};
@@ -95,6 +96,9 @@ pub struct GameDb {
     pub statuses: HashMap<StatusId, StatusDef>,
     pub weapons: HashMap<WeaponId, WeaponDef>,
     pub armor: HashMap<ArmorId, ArmorDef>,
+    pub races: HashMap<String, RaceDef>,
+    pub factions: HashMap<String, FactionDef>,
+    pub paths: HashMap<String, PathDef>,
     pub encounters: HashMap<String, EncounterDef>,
     pub classes: HashMap<String, ClassDef>,
     pub scenarios: HashMap<String, ScenarioDef>,
@@ -160,6 +164,8 @@ impl Default for GameDb {
             .chain(load_feet())
             .collect();
 
+        let (race_list, faction_list, path_list) = load_races();
+
         let db = Self {
             abilities: load_abilities()
                 .into_iter()
@@ -176,6 +182,18 @@ impl Default for GameDb {
             armor: armor_items
                 .into_iter()
                 .map(|a| (a.id.clone(), a))
+                .collect(),
+            races: race_list
+                .into_iter()
+                .map(|r| (r.id.clone(), r))
+                .collect(),
+            factions: faction_list
+                .into_iter()
+                .map(|f| (f.id.clone(), f))
+                .collect(),
+            paths: path_list
+                .into_iter()
+                .map(|p| (p.id.clone(), p))
                 .collect(),
             encounters: load_encounters()
                 .into_iter()
@@ -266,9 +284,34 @@ impl GameDb {
             }
         }
 
-        // Encounters → weapons, armor, abilities
+        // Encounters → races, factions, weapons, armor, abilities
         for (id, enc) in &self.encounters {
             for enemy in &enc.enemies {
+                assert!(
+                    self.races.contains_key(&enemy.race),
+                    "encounter '{}' enemy '{}' references unknown race '{}'",
+                    id,
+                    enemy.name,
+                    enemy.race
+                );
+                if let Some(ref fac) = enemy.faction {
+                    assert!(
+                        self.factions.contains_key(fac),
+                        "encounter '{}' enemy '{}' references unknown faction '{}'",
+                        id,
+                        enemy.name,
+                        fac
+                    );
+                }
+                if let Some(ref p) = enemy.path {
+                    assert!(
+                        self.paths.contains_key(p),
+                        "encounter '{}' enemy '{}' references unknown path '{}'",
+                        id,
+                        enemy.name,
+                        p
+                    );
+                }
                 assert!(
                     self.weapons.contains_key(&enemy.main_hand),
                     "encounter '{}' enemy '{}' references unknown weapon '{}'",
@@ -330,9 +373,34 @@ impl GameDb {
             }
         }
 
-        // Scenarios → encounters, classes
+        // Scenarios → races, factions, encounters, classes
         for (id, scen) in &self.scenarios {
             for member in &scen.party {
+                assert!(
+                    self.races.contains_key(&member.race),
+                    "scenario '{}' party member '{}' references unknown race '{}'",
+                    id,
+                    member.name,
+                    member.race
+                );
+                if let Some(ref fac) = member.faction {
+                    assert!(
+                        self.factions.contains_key(fac),
+                        "scenario '{}' party member '{}' references unknown faction '{}'",
+                        id,
+                        member.name,
+                        fac
+                    );
+                }
+                if let Some(ref p) = member.path {
+                    assert!(
+                        self.paths.contains_key(p),
+                        "scenario '{}' party member '{}' references unknown path '{}'",
+                        id,
+                        member.name,
+                        p
+                    );
+                }
                 assert!(
                     self.classes.contains_key(&member.class_id),
                     "scenario '{}' party member '{}' references unknown class '{}'",

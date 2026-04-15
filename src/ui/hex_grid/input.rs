@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use super::render::{HexGridOffset, HexHover, HexLastClick, HexTooltip, DOUBLE_CLICK_SECS};
 use crate::content::abilities::AoEShape;
 use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Combatant, Dead, Energy, Faction, Mana, Rage, Speed, StatusEffects, Team, Vital};
@@ -224,7 +225,7 @@ fn try_move(
             e != actor
                 && combatant_q2
                     .get(e)
-                    .map_or(false, |(f, v)| f.0 == Team::Enemy && v.is_alive())
+                    .is_ok_and(|(f, v)| f.0 == Team::Enemy && v.is_alive())
         })
         .map(|(_, &p)| p)
         .collect();

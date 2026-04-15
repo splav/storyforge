@@ -83,6 +83,18 @@ pub enum CombatEvent {
     CombatEnded {
         victory: bool,
     },
+    CriticalMiss {
+        actor: Entity,
+    },
+    CritFailSideEffect {
+        actor: Entity,
+        effect_name: String,
+    },
+    WillOverload {
+        actor: Entity,
+        extra_mana: i32,
+        hp_lost: i32,
+    },
     UnitDied {
         entity: Entity,
     },
@@ -208,6 +220,27 @@ impl CombatEvent {
             CombatEvent::PoisonCleansed { target, status } => {
                 let sname = db.statuses.get(status).map_or(status.0.as_str(), |s| s.name.as_str());
                 format!("    «{}» нейтрализован на {}", sname, name(*target))
+            }
+            CombatEvent::CriticalMiss { actor } => {
+                format!("  ✗ {}: критическая неудача (d20=1) — промах!", name(*actor))
+            }
+            CombatEvent::CritFailSideEffect { actor, effect_name } => {
+                format!("  ⚠ {}: {}", name(*actor), effect_name)
+            }
+            CombatEvent::WillOverload {
+                actor,
+                extra_mana,
+                hp_lost,
+            } => {
+                let hp_part = if *hp_lost > 0 {
+                    format!(", -{hp_lost} HP")
+                } else {
+                    String::new()
+                };
+                format!(
+                    "  ⚠ {}: перегрузка воли (d20=1)! мана ×2 (+{extra_mana}){hp_part}",
+                    name(*actor)
+                )
             }
             CombatEvent::UnitDied { entity } => format!("  ✗ {} погиб", name(*entity)),
             CombatEvent::CombatEnded { victory } => {

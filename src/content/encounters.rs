@@ -12,6 +12,9 @@ pub struct EncounterDef {
 #[derive(Debug, Clone)]
 pub struct EnemyDef {
     pub name: String,
+    pub race: String,
+    pub faction: Option<String>,
+    pub path: Option<String>,
     pub stats: CombatStats,
     pub speed: i32,
     pub main_hand: WeaponId,
@@ -44,6 +47,11 @@ struct EncounterRecord {
 #[derive(Deserialize)]
 struct EnemyRecord {
     name: String,
+    race: String,
+    #[serde(default)]
+    faction: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
     max_hp: i32,
     strength: i32,
     dexterity: i32,
@@ -90,6 +98,9 @@ pub fn load_encounters() -> Vec<EncounterDef> {
                 .into_iter()
                 .map(|e| EnemyDef {
                     name: e.name,
+                    race: e.race,
+                    faction: e.faction,
+                    path: e.path,
                     speed: e.speed,
                     stats: CombatStats {
                         max_hp: e.max_hp,

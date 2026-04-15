@@ -1,6 +1,6 @@
 use crate::content::abilities::AoEShape;
 use crate::core::ResourceKind;
-use crate::game::components::{Abilities, ActionPoints, ActiveCombatant, Energy, Mana, Rage, Vital};
+use crate::game::components::{ActiveCombatant, ValidationActorQ, Vital};
 use crate::game::hex::hex_distance;
 use crate::game::messages::{UseAbility, ValidatedAction};
 use crate::game::resources::{GameDb, HexPositions};
@@ -11,14 +11,7 @@ pub fn validate_action_system(
     db: Res<GameDb>,
     positions: Res<HexPositions>,
     mut events: MessageReader<UseAbility>,
-    actors: Query<(
-        &Vital,
-        &ActionPoints,
-        &Abilities,
-        Option<&Rage>,
-        Option<&Mana>,
-        Option<&Energy>,
-    )>,
+    actors: Query<ValidationActorQ>,
     targets: Query<&Vital>,
     mut validated: MessageWriter<ValidatedAction>,
 ) {
@@ -43,27 +36,20 @@ fn check(
     active: Option<Entity>,
     db: &GameDb,
     positions: &HexPositions,
-    actors: &Query<(
-        &Vital,
-        &ActionPoints,
-        &Abilities,
-        Option<&Rage>,
-        Option<&Mana>,
-        Option<&Energy>,
-    )>,
+    actors: &Query<ValidationActorQ>,
     targets: &Query<&Vital>,
 ) -> (bool, bool) {
     if active != Some(ev.actor) {
         return (false, false);
     }
 
-    let Ok((vital, ap, abilities, rage, mana, energy)) = actors.get(ev.actor) else {
+    let Ok(a) = actors.get(ev.actor) else {
         return (false, false);
     };
-    if !vital.is_alive() || !ap.action {
+    if !a.vital.is_alive() || !a.ap.action {
         return (false, false);
     }
-    if !abilities.0.contains(&ev.ability) {
+    if !a.abilities.0.contains(&ev.ability) {
         return (false, false);
     }
 
@@ -76,13 +62,26 @@ fn check(
     // Check all resource costs.
     for cost in &def.costs {
         let available = match cost.resource {
-            ResourceKind::Hp => vital.hp,
-            ResourceKind::Mana => mana.map_or(0, |m| m.current),
-            ResourceKind::Rage => rage.map_or(0, |r| r.current),
-            ResourceKind::Energy => energy.map_or(0, |e| e.current),
+            ResourceKind::Hp => a.vital.hp,
+            ResourceKind::Mana => a.mana.map_or(0, |m| m.current),
+            ResourceKind::Rage => a.rage.map_or(0, |r| r.current),
+            ResourceKind::Energy => a.energy.map_or(0, |e| e.current),
         };
         if available < cost.amount {
             return (false, false);
+        }
+    }
+
+    // Check blocks_mana_abilities status (faith crit fail).
+    let has_mana_cost = def.costs.iter().any(|c| c.resource == ResourceKind::Mana);
+    if has_mana_cost {
+        if let Some(se) = a.statuses {
+            let blocked = se.0.iter().any(|s| {
+                db.statuses.get(&s.id).is_some_and(|d| d.blocks_mana_abilities)
+            });
+            if blocked {
+                return (false, false);
+            }
         }
     }
 

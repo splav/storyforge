@@ -7,13 +7,16 @@ use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
     advance_turn::advance_turn_system, ai_difficulty::DifficultyProfile,
     apply_effects::apply_effects_system, enemy_ai::enemy_ai_system,
+    resolution::resolve_action_system,
     skip_dead::{skip_dead_turn_system, skip_stunned_turn_system},
     validation::validate_action_system,
 };
 const MELEE_ATTACK: &str = "melee_attack";
 use storyforge::core::DiceRng;
 use storyforge::game::bundles::{enemy_bundle, hero_bundle};
-use storyforge::game::components::{ActiveCombatant, ActiveStatus, CombatStats, Dead, Equipment, StatusEffects, Vital};
+use storyforge::game::components::{
+    ActiveCombatant, ActiveStatus, CombatPath, CombatStats, Dead, Equipment, Mana, StatusEffects, Vital,
+};
 use storyforge::game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, UseAbility, ValidatedAction,
 };
@@ -369,6 +372,10 @@ fn insert_stun_status(app: &mut App) {
             skips_turn: true,
             forces_targeting: false,
             dot_dice: None,
+            blocks_mana_abilities: false,
+            speed_bonus: 0,
+            hp_percent_dot: 0,
+            ai_controlled: false,
         },
     );
 }
@@ -648,6 +655,10 @@ fn insert_poison_status(app: &mut App) {
             skips_turn: false,
             forces_targeting: false,
             dot_dice: Some(DiceExpr::new(1, 4, 0)),
+            blocks_mana_abilities: false,
+            speed_bonus: 0,
+            hp_percent_dot: 0,
+            ai_controlled: false,
         },
     );
 }
@@ -985,4 +996,258 @@ fn heal_exact_match_removes_poison_no_hp() {
     assert_eq!(app.world().get::<Vital>(hero).unwrap().hp, 5, "heal exactly matched poison — no HP change");
     let se = app.world().get::<StatusEffects>(hero).unwrap();
     assert!(se.0.is_empty(), "poison should be removed by exact heal");
+}
+
+// ── Critical failure effects ───────────────────────────────────────────────
+
+const BURN: &str = "burn"; // cost 1 mana, single_enemy, range 2, status-only
+
+fn resolve_app() -> App {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, StatesPlugin))
+        .init_state::<AppState>()
+        .add_sub_state::<CombatPhase>()
+        .init_resource::<CombatContext>()
+        .init_resource::<TurnQueue>()
+        .init_resource::<CombatLog>()
+        .init_resource::<GameDb>()
+        .init_resource::<SelectionState>()
+        .init_resource::<HexPositions>()
+        .init_resource::<DiceRng>()
+        .add_message::<ValidatedAction>()
+        .add_message::<ApplyDamage>()
+        .add_message::<ApplyHeal>()
+        .add_message::<ApplyStatus>()
+        .add_message::<EndTurn>()
+        .add_systems(
+            Update,
+            (resolve_action_system, apply_effects_system, advance_turn_system)
+                .chain()
+                .run_if(in_state(CombatPhase::AwaitCommand)),
+        );
+    enter_await_command(&mut app);
+    app
+}
+
+fn mage_stats() -> CombatStats {
+    CombatStats {
+        max_hp: 20,
+        strength: 0,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 5,
+        wisdom: 10,
+        charisma: 10,
+    }
+}
+
+/// Spawn a mage hero with given path, 10 mana, and burn ability.
+fn spawn_mage(app: &mut App, path: &str) -> Entity {
+    let e = app.world_mut().spawn((
+        Name::new("Mage"),
+        hero_bundle(mage_stats(), 0, 3, vec![BURN.into()], test_equipment()),
+        Mana::new(10),
+        CombatPath(path.into()),
+    )).id();
+    e
+}
+
+fn spawn_target(app: &mut App) -> Entity {
+    app.world_mut().spawn((
+        Name::new("Target"),
+        test_enemy(base_stats()),
+    )).id()
+}
+
+fn setup_turn(app: &mut App, actor: Entity, target: Entity) {
+    let mut q = app.world_mut().resource_mut::<TurnQueue>();
+    q.order = vec![actor, target];
+    q.index = 0;
+    app.world_mut().entity_mut(actor).insert(ActiveCombatant);
+    let mut positions = app.world_mut().resource_mut::<HexPositions>();
+    positions.insert(actor, (0, 0));
+    positions.insert(target, (1, 0));
+}
+
+fn fire_burn(app: &mut App, actor: Entity, target: Entity) {
+    write_message(app, ValidatedAction {
+        actor,
+        ability: BURN.into(),
+        target,
+        target_pos: (1, 0),
+        disadvantage: false,
+    });
+    app.update();
+}
+
+// -- default Miss: no path --
+
+#[test]
+fn crit_fail_miss_no_effects_applied() {
+    let mut app = resolve_app();
+    let actor = spawn_mage(&mut app, "will"); // will has ManaOverload, not Miss; use no-path entity instead
+    // Remove CombatPath to get default Miss behaviour.
+    app.world_mut().entity_mut(actor).remove::<CombatPath>();
+    let target = spawn_target(&mut app);
+    setup_turn(&mut app, actor, target);
+
+    // Script: d20=1 (crit fail).
+    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+
+    fire_burn(&mut app, actor, target);
+
+    // Mana spent normally (1).
+    assert_eq!(app.world().get::<Mana>(actor).unwrap().current, 9);
+    // Target should NOT have burning status (miss).
+    let se = app.world().get::<StatusEffects>(target).unwrap();
+    assert!(se.0.is_empty(), "miss: no status on target");
+}
+
+#[test]
+fn no_crit_fail_ability_fires_normally() {
+    let mut app = resolve_app();
+    let actor = spawn_mage(&mut app, "will");
+    app.world_mut().entity_mut(actor).remove::<CombatPath>();
+    let target = spawn_target(&mut app);
+    setup_turn(&mut app, actor, target);
+
+    // Script: d20=10 (no crit fail).
+    app.world_mut().resource_mut::<DiceRng>().script(&[10]);
+
+    fire_burn(&mut app, actor, target);
+
+    // Target should have burning status.
+    let se = app.world().get::<StatusEffects>(target).unwrap();
+    assert!(se.0.iter().any(|s| s.id.0 == "burning"), "normal roll: burning should be applied");
+    assert_eq!(app.world().get::<Mana>(actor).unwrap().current, 9);
+}
+
+// -- will: ManaOverload --
+
+#[test]
+fn crit_fail_will_mana_overload_doubles_cost() {
+    let mut app = resolve_app();
+    let actor = spawn_mage(&mut app, "will");
+    let target = spawn_target(&mut app);
+    setup_turn(&mut app, actor, target);
+
+    // Script: d20=1 (crit fail). Burn costs 1 mana → doubled to 2.
+    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+
+    fire_burn(&mut app, actor, target);
+
+    // Mana: 10 - 2 = 8 (doubled).
+    assert_eq!(app.world().get::<Mana>(actor).unwrap().current, 8);
+    // Ability still fires → target gets burning.
+    let se = app.world().get::<StatusEffects>(target).unwrap();
+    assert!(se.0.iter().any(|s| s.id.0 == "burning"), "ManaOverload: ability should still fire");
+}
+
+#[test]
+fn crit_fail_will_mana_overload_deficit_from_hp() {
+    let mut app = resolve_app();
+    let actor = spawn_mage(&mut app, "will");
+    // Set mana to 1 — doubled cost is 2, deficit = 1 → 1 HP lost.
+    app.world_mut().get_mut::<Mana>(actor).unwrap().current = 1;
+    let target = spawn_target(&mut app);
+    setup_turn(&mut app, actor, target);
+
+    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+
+    fire_burn(&mut app, actor, target);
+
+    assert_eq!(app.world().get::<Mana>(actor).unwrap().current, 0);
+    assert_eq!(app.world().get::<Vital>(actor).unwrap().hp, 19, "deficit should come from HP");
+}
+
+// -- faith: BrokenFaith --
+
+#[test]
+fn crit_fail_faith_applies_broken_faith_status() {
+    let mut app = resolve_app();
+    let actor = spawn_mage(&mut app, "faith");
+    let target = spawn_target(&mut app);
+    setup_turn(&mut app, actor, target);
+
+    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+
+    fire_burn(&mut app, actor, target);
+
+    // Miss: target has no burning.
+    let target_se = app.world().get::<StatusEffects>(target).unwrap();
+    assert!(target_se.0.is_empty(), "faith crit fail: miss, no effect on target");
+    // Mana spent normally.
+    assert_eq!(app.world().get::<Mana>(actor).unwrap().current, 9);
+    // Actor has broken_faith status.
+    let actor_se = app.world().get::<StatusEffects>(actor).unwrap();
+    assert!(actor_se.0.iter().any(|s| s.id.0 == "broken_faith"),
+        "faith crit fail: broken_faith status on actor");
+}
+
+// -- tech: CircuitBreach --
+
+#[test]
+fn crit_fail_tech_self_damage() {
+    let mut app = resolve_app();
+    let actor = spawn_mage(&mut app, "tech");
+    let target = spawn_target(&mut app);
+    setup_turn(&mut app, actor, target);
+
+    // Burn costs 1 mana → self damage = ceil(1/2) = 1.
+    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+
+    fire_burn(&mut app, actor, target);
+
+    // Miss + self damage. Mana spent normally.
+    assert_eq!(app.world().get::<Mana>(actor).unwrap().current, 9);
+    // Self damage: 1 (pierces armor, but actor has 0 armor so just 1).
+    // apply_effects does max(1, raw - armor + ...) so at minimum 1.
+    let hp = app.world().get::<Vital>(actor).unwrap().hp;
+    assert!(hp < 20, "tech crit fail: actor should take self-damage, hp={hp}");
+}
+
+// -- heritage: Exhaustion --
+
+#[test]
+fn crit_fail_heritage_applies_exhaustion_status() {
+    let mut app = resolve_app();
+    let actor = spawn_mage(&mut app, "heritage");
+    let target = spawn_target(&mut app);
+    setup_turn(&mut app, actor, target);
+
+    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+
+    fire_burn(&mut app, actor, target);
+
+    // Miss on target.
+    let target_se = app.world().get::<StatusEffects>(target).unwrap();
+    assert!(target_se.0.is_empty(), "heritage crit fail: miss");
+    // Actor has exhaustion status with duration 2.
+    let actor_se = app.world().get::<StatusEffects>(actor).unwrap();
+    let exhaustion = actor_se.0.iter().find(|s| s.id.0 == "exhaustion");
+    assert!(exhaustion.is_some(), "heritage crit fail: exhaustion on actor");
+    assert_eq!(exhaustion.unwrap().rounds_remaining, 2);
+}
+
+// -- pact: PactControl --
+
+#[test]
+fn crit_fail_pact_applies_pact_control_status() {
+    let mut app = resolve_app();
+    let actor = spawn_mage(&mut app, "pact");
+    let target = spawn_target(&mut app);
+    setup_turn(&mut app, actor, target);
+
+    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+
+    fire_burn(&mut app, actor, target);
+
+    // Miss on target.
+    let target_se = app.world().get::<StatusEffects>(target).unwrap();
+    assert!(target_se.0.is_empty(), "pact crit fail: miss");
+    // Actor has pact_control status with duration 1.
+    let actor_se = app.world().get::<StatusEffects>(actor).unwrap();
+    let pact = actor_se.0.iter().find(|s| s.id.0 == "pact_control");
+    assert!(pact.is_some(), "pact crit fail: pact_control on actor");
+    assert_eq!(pact.unwrap().rounds_remaining, 1);
 }

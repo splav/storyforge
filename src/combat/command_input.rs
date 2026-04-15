@@ -1,5 +1,7 @@
+#![allow(clippy::too_many_arguments)]
+use crate::combat::enemy_ai::has_ai_control_status;
 use crate::content::abilities::TargetType;
-use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, Team};
+use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, StatusEffects, Team};
 use crate::game::messages::{EndTurn, UseAbility};
 use crate::game::resources::{GameDb, HexPositions, SelectionState};
 use bevy::prelude::*;
@@ -13,6 +15,7 @@ pub fn player_command_system(
     mut end_turn: MessageWriter<EndTurn>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     combatants: Query<PlayerCombatantQ, (With<Combatant>, Without<Dead>)>,
+    statuses: Query<&StatusEffects>,
 ) {
     let Ok(actor) = active_q.single() else { return };
 
@@ -20,6 +23,10 @@ pub fn player_command_system(
         return;
     };
     if c.faction.0 != Team::Player {
+        return;
+    }
+    // Skip AI-controlled heroes (pact effect).
+    if has_ai_control_status(actor, &statuses, &db) {
         return;
     }
 
@@ -100,7 +107,7 @@ pub fn player_command_system(
         if matches!(target_type, Some(TargetType::Myself)) {
             // self-cast: Tab does nothing
         } else {
-            let is_single_ally = target_type.map_or(false, |t| t == TargetType::SingleAlly);
+            let is_single_ally = target_type == Some(TargetType::SingleAlly);
 
             let candidates: Vec<Entity> = if is_single_ally {
                 combatants

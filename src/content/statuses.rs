@@ -10,6 +10,10 @@ pub struct StatusDef {
     pub skips_turn: bool,
     pub forces_targeting: bool,  // враги вынуждены атаковать цель с этим статусом
     pub dot_dice: Option<DiceExpr>, // кубик урона за тик (бросается один раз при наложении)
+    pub blocks_mana_abilities: bool, // faith: запрет способностей с маной
+    pub speed_bonus: i32,            // heritage: модификатор скорости
+    pub hp_percent_dot: i32,         // heritage: % от max_hp урона за тик (ceil)
+    pub ai_controlled: bool,         // pact: AI управляет персонажем
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -35,6 +39,14 @@ struct StatusRecord {
     dot_count: Option<u32>,
     #[serde(default)]
     dot_sides: Option<u32>,
+    #[serde(default)]
+    blocks_mana_abilities: bool,
+    #[serde(default)]
+    speed_bonus: i32,
+    #[serde(default)]
+    hp_percent_dot: i32,
+    #[serde(default)]
+    ai_controlled: bool,
 }
 
 const STATUSES_PATH: &str = "assets/data/statuses.toml";
@@ -60,6 +72,10 @@ pub fn load_statuses() -> Vec<StatusDef> {
                 skips_turn: r.skips_turn,
                 forces_targeting: r.forces_targeting,
                 dot_dice,
+                blocks_mana_abilities: r.blocks_mana_abilities,
+                speed_bonus: r.speed_bonus,
+                hp_percent_dot: r.hp_percent_dot,
+                ai_controlled: r.ai_controlled,
             }
         })
         .collect()

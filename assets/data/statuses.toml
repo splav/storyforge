@@ -28,3 +28,19 @@ id          = "poisoned"
 name        = "Отравлен"
 dot_count   = 1
 dot_sides   = 4
+
+[[statuses]]
+id                    = "broken_faith"
+name                  = "Сломленная вера"
+blocks_mana_abilities = true
+
+[[statuses]]
+id             = "exhaustion"
+name           = "Истощение"
+speed_bonus    = -1
+hp_percent_dot = 5
+
+[[statuses]]
+id             = "pact_control"
+name           = "Власть договора"
+ai_controlled  = true

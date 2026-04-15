@@ -11,6 +11,9 @@ pub struct ScenarioDef {
 #[derive(Debug, Clone)]
 pub struct PartyMemberDef {
     pub name: String,
+    pub race: String,
+    pub faction: Option<String>,
+    pub path: Option<String>,
     pub class_id: String,
     pub hex_pos: (i32, i32),
 }
@@ -39,6 +42,11 @@ struct ScenarioRecord {
 #[derive(Deserialize)]
 struct PartyRecord {
     name: String,
+    race: String,
+    #[serde(default)]
+    faction: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
     class: String,
     hex_col: i32,
     hex_row: i32,
@@ -72,6 +80,9 @@ pub fn load_scenarios() -> Vec<ScenarioDef> {
                 .into_iter()
                 .map(|p| PartyMemberDef {
                     name: p.name,
+                    race: p.race,
+                    faction: p.faction,
+                    path: p.path,
                     class_id: p.class,
                     hex_pos: (p.hex_col, p.hex_row),
                 })

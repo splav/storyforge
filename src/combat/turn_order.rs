@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::app_state::CombatPhase;
 use crate::core::{modifier, DiceRng};
 use crate::game::components::{ActionPoints, ActiveCombatant, CombatStats, Combatant, Initiative, Vital};

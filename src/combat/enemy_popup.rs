@@ -42,7 +42,7 @@ pub fn queue_enemy_popup(
         // Only show popup for enemy actions.
         let is_enemy = factions
             .get(*actor)
-            .map_or(false, |f| f.0 == Team::Enemy);
+            .is_ok_and(|f| f.0 == Team::Enemy);
         if !is_enemy {
             i += 1;
             continue;

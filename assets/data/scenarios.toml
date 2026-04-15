@@ -1,21 +1,27 @@
 [[scenarios]]
 id   = "demo"
-name = "Засада гоблинов"
+name = "Тропа через пограничье"
 
 [[scenarios.party]]
 name    = "Aldric"
+race    = "human"
+faction = "aurum"
 class   = "warrior"
 hex_col = 1
 hex_row = 2
 
 [[scenarios.party]]
 name    = "Lyra"
+race    = "human"
+faction = "askeria"
+path    = "will"
 class   = "mage"
 hex_col = 1
 hex_row = 4
 
 [[scenarios.party]]
 name    = "Kael"
+race    = "human"
 class   = "ranger"
 hex_col = 0
 hex_row = 3
@@ -26,16 +32,16 @@ text = "Отряд пробирается через тёмный лес.\nВ в
 
 [[scenarios.scenes]]
 type      = "combat"
-encounter = "goblin_patrol"
+encounter = "beastblood_raid"
 
 [[scenarios.scenes]]
 type = "story"
-text = "Гоблины повержены.\nНо вдали слышны боевые барабаны..."
+text = "Зверокровы отступили в чащу.\nНо вдали грохочет буря — и это не гром..."
 
 [[scenarios.scenes]]
 type      = "combat"
-encounter = "orc_camp"
+encounter = "stormborn_camp"
 
 [[scenarios.scenes]]
 type = "story"
-text = "Лагерь орков зачищен. Лес снова безопасен.\n\nКонец демо."
+text = "Стоянка грозорождённых зачищена. Путь через пограничье свободен.\n\nКонец демо."

@@ -5,6 +5,10 @@ use bevy::prelude::*;
 #[derive(Component, Default)]
 pub struct Combatant;
 
+/// Магический путь персонажа (определяет эффект крит. неудачи).
+#[derive(Component, Debug, Clone)]
+pub struct CombatPath(pub String);
+
 /// Marker: the combatant whose turn it is right now.
 #[derive(Component)]
 pub struct ActiveCombatant;
@@ -252,6 +256,7 @@ pub struct AiCombatantQ {
     pub mana: Option<&'static Mana>,
     pub rage: Option<&'static Rage>,
     pub energy: Option<&'static Energy>,
+    pub combat_path: Option<&'static CombatPath>,
 }
 
 /// Player command input: ability selection, target cycling.
@@ -263,6 +268,18 @@ pub struct PlayerCombatantQ {
     pub abilities: &'static Abilities,
     pub ap: &'static ActionPoints,
     pub has_bonus_move: Has<BonusMovement>,
+}
+
+/// Validation: actor resource/status data for ability cost checks.
+#[derive(QueryData)]
+pub struct ValidationActorQ {
+    pub vital: &'static Vital,
+    pub ap: &'static ActionPoints,
+    pub abilities: &'static Abilities,
+    pub rage: Option<&'static Rage>,
+    pub mana: Option<&'static Mana>,
+    pub energy: Option<&'static Energy>,
+    pub statuses: Option<&'static StatusEffects>,
 }
 
 #[cfg(test)]

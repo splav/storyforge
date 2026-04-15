@@ -15,7 +15,7 @@ pub fn print_log_system(
     let name = |e: Entity| names.get(e).map(|n| n.as_str()).unwrap_or("?").to_string();
     let new_events = &log.0[cursor.0..];
     for event in new_events {
-        let line = event.format(&name, &db);
+        let line = event.format(name, &db);
         println!("{line}");
     }
     cursor.0 = log.0.len();

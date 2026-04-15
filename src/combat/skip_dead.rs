@@ -30,7 +30,7 @@ pub fn skip_stunned_turn_system(
     let Ok(se) = statuses.get(actor) else { return };
     let is_stunned =
         se.0.iter()
-            .any(|s| db.statuses.get(&s.id).map_or(false, |def| def.skips_turn));
+            .any(|s| db.statuses.get(&s.id).is_some_and(|def| def.skips_turn));
     if is_stunned {
         if let Ok(mut ap) = action_points.get_mut(actor) {
             ap.action = false;

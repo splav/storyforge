@@ -39,7 +39,7 @@ pub fn update_log(
     t.0 = log
         .0
         .iter()
-        .map(|e| format!("{}\n", e.format(&name, &db)))
+        .map(|e| format!("{}\n", e.format(name, &db)))
         .collect();
 }
 

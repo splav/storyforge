@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::app_state::CombatPhase;
 use crate::core::DiceRng;
 use crate::game::components::{
@@ -41,7 +42,7 @@ pub fn advance_turn_system(
     log.push(CombatEvent::TurnEnded { actor });
 
     // 1. Tick EXISTING statuses applied by this actor (before new ones are added).
-    let tick_results = tick_status_durations(actor, &mut statuses);
+    let tick_results = tick_status_durations(actor, &mut statuses, &db);
     // Apply DoT damage and log expired statuses.
     {
         let mut vitals = queries.p0();
@@ -54,6 +55,21 @@ pub fn advance_turn_system(
                             target: *target,
                             status: status.clone(),
                             damage: *damage,
+                        });
+                        if !v.is_alive() {
+                            commands.entity(*target).insert(Dead);
+                            log.push(CombatEvent::UnitDied { entity: *target });
+                        }
+                    }
+                }
+                TickResult::PercentDot { target, percent, status } => {
+                    if let Ok(mut v) = vitals.get_mut(*target) {
+                        let damage = (v.max_hp * *percent + 99) / 100;
+                        v.apply_damage(damage);
+                        log.push(CombatEvent::PoisonTick {
+                            target: *target,
+                            status: status.clone(),
+                            damage,
                         });
                         if !v.is_alive() {
                             commands.entity(*target).insert(Dead);
@@ -121,7 +137,7 @@ pub fn advance_turn_system(
             break;
         }
         if let Some(dead_entity) = current {
-            let tick_results = tick_status_durations(dead_entity, &mut statuses);
+            let tick_results = tick_status_durations(dead_entity, &mut statuses, &db);
             let mut vitals = queries.p0();
             for result in &tick_results {
                 match result {
@@ -132,6 +148,21 @@ pub fn advance_turn_system(
                                 target: *target,
                                 status: status.clone(),
                                 damage: *damage,
+                            });
+                            if !v.is_alive() {
+                                commands.entity(*target).insert(Dead);
+                                log.push(CombatEvent::UnitDied { entity: *target });
+                            }
+                        }
+                    }
+                    TickResult::PercentDot { target, percent, status } => {
+                        if let Ok(mut v) = vitals.get_mut(*target) {
+                            let damage = (v.max_hp * *percent + 99) / 100;
+                            v.apply_damage(damage);
+                            log.push(CombatEvent::PoisonTick {
+                                target: *target,
+                                status: status.clone(),
+                                damage,
                             });
                             if !v.is_alive() {
                                 commands.entity(*target).insert(Dead);
@@ -167,6 +198,7 @@ pub fn advance_turn_system(
 
 enum TickResult {
     DotDamage { target: Entity, damage: i32, status: crate::core::StatusId },
+    PercentDot { target: Entity, percent: i32, status: crate::core::StatusId },
     Expired { target: Entity, status: crate::core::StatusId },
 }
 
@@ -175,6 +207,7 @@ enum TickResult {
 fn tick_status_durations(
     actor: Entity,
     statuses: &mut Query<(Entity, &mut StatusEffects)>,
+    db: &GameDb,
 ) -> Vec<TickResult> {
     let mut results = Vec::new();
     for (target, mut se) in statuses.iter_mut() {
@@ -189,6 +222,16 @@ fn tick_status_durations(
                     damage: s.dot_per_tick,
                     status: s.id.clone(),
                 });
+            }
+            // Percentage-based DoT (heritage exhaustion).
+            if let Some(sd) = db.statuses.get(&s.id) {
+                if sd.hp_percent_dot > 0 {
+                    results.push(TickResult::PercentDot {
+                        target,
+                        percent: sd.hp_percent_dot,
+                        status: s.id.clone(),
+                    });
+                }
             }
             s.rounds_remaining = s.rounds_remaining.saturating_sub(1);
         }

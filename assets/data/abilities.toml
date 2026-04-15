@@ -32,6 +32,22 @@ aoe_size      = 1
 friendly_fire = true
 
 [[abilities]]
+id            = "thunderstrike"
+name          = "Удар грома"
+magic_domains = ["aether"]
+magic_method  = "destruction"
+target_type   = "single_enemy"
+effect        = "spell_damage"
+dice_count    = 2
+dice_sides    = 3
+costs         = [{ resource = "mana", amount = 5 }]
+range         = 4
+min_range     = 2
+aoe           = "circle"
+aoe_size      = 1
+friendly_fire = true
+
+[[abilities]]
 id            = "heal"
 name          = "Исцеление"
 magic_domains = ["limit", "aether"]

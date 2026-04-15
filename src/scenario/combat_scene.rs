@@ -1,7 +1,8 @@
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::app_state::CombatPhase;
 use crate::content::scenarios::SceneDef;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
-use crate::game::components::{Combatant, Energy, Equipment, Initiative, Mana, Rage, StartingHexPos, UnitToken};
+use crate::game::components::{CombatPath, Combatant, Energy, Equipment, Initiative, Mana, Rage, StartingHexPos, UnitToken};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
@@ -46,6 +47,7 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
         if cls.rage_max > 0 { ec.insert(Rage::new(cls.rage_max)); }
         if cls.mana_max > 0 { ec.insert(Mana::new(cls.mana_max)); }
         if cls.energy_max > 0 { ec.insert(Energy::new(cls.energy_max)); }
+        if let Some(ref p) = member.path { ec.insert(CombatPath(p.clone())); }
     }
 
     for enemy in &enc.enemies {
@@ -58,14 +60,17 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
         };
         let effective = db.effective_stats(&enemy.stats, &equipment);
         let armor = db.equipment_armor(&equipment);
+        let race_name = db.races.get(&enemy.race).map_or("", |r| r.name.as_str());
+        let display_name = format!("{} {}", race_name, &enemy.name);
         let mut ec = commands.spawn((
-            Name::new(enemy.name.clone()),
+            Name::new(display_name),
             enemy_bundle(effective, armor, enemy.speed, enemy.ability_ids.clone(), equipment),
             StartingHexPos(enemy.hex_pos.0, enemy.hex_pos.1),
         ));
         if enemy.rage_max > 0 { ec.insert(Rage::new(enemy.rage_max)); }
         if enemy.mana_max > 0 { ec.insert(Mana::new(enemy.mana_max)); }
         if enemy.energy_max > 0 { ec.insert(Energy::new(enemy.energy_max)); }
+        if let Some(ref p) = enemy.path { ec.insert(CombatPath(p.clone())); }
     }
 }
 

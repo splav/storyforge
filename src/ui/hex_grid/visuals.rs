@@ -1,10 +1,11 @@
+#![allow(clippy::type_complexity)]
 use super::render::{
     HexBorder, HexCellLink, HexGridOffset, HexHover, HexManaLabel, HexMaterials, HexNameLabel,
-    HexHpLabel, TokenMesh,
+    HexHpLabel,
 };
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::game::components::{
-    ActiveCombatant, BonusMovement, Combatant, Dead, Energy, Faction, HexCell, HexCombatantQ, Mana, Rage, Speed, StartingHexPos,
+    ActiveCombatant, BonusMovement, Dead, Energy, Faction, HexCell, HexCombatantQ, Mana, Rage, Speed,
     Team, UnitToken, Vital,
 };
 use crate::game::hex::{hex_circle, hex_distance, hex_line, hex_to_pixel, in_bounds};
@@ -222,7 +223,7 @@ pub fn update_hex_visuals(
         };
 
         overlay.movement = if sel.move_mode {
-            if let Some(actor) = active_q.single().ok() {
+            if let Ok(actor) = active_q.single() {
                 if let (Some(actor_pos), Ok((speed, bonus))) =
                     (positions.get(&actor), speed_q.get(actor))
                 {
@@ -233,7 +234,7 @@ pub fn update_hex_visuals(
                             e != actor
                                 && combatant_q
                                     .get(e)
-                                    .map_or(false, |c| c.faction.0 == Team::Enemy && !c.is_dead)
+                                    .is_ok_and(|c| c.faction.0 == Team::Enemy && !c.is_dead)
                         })
                         .map(|(_, &p)| p)
                         .collect();

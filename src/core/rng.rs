@@ -1,22 +1,31 @@
 use bevy::prelude::*;
 
 /// Simple LCG-based dice roller — no external rand dependency needed for a skeleton.
+/// For testing: push scripted results via `script()`. While the queue is non-empty,
+/// `roll_d` pops from the front instead of using the LCG.
 #[derive(Resource)]
 pub struct DiceRng {
     state: u64,
+    scripted: std::collections::VecDeque<i32>,
 }
 
 impl Default for DiceRng {
     fn default() -> Self {
         Self {
             state: 0xDEAD_BEEF_CAFE_1337,
+            scripted: std::collections::VecDeque::new(),
         }
     }
 }
 
 impl DiceRng {
     pub fn with_seed(seed: u64) -> Self {
-        Self { state: seed }
+        Self { state: seed, scripted: std::collections::VecDeque::new() }
+    }
+
+    /// Queue scripted roll results. While non-empty, `roll_d` pops from here.
+    pub fn script(&mut self, results: &[i32]) {
+        self.scripted.extend(results);
     }
     fn next_u64(&mut self) -> u64 {
         self.state = self
@@ -27,6 +36,9 @@ impl DiceRng {
     }
 
     pub fn roll_d(&mut self, sides: u32) -> i32 {
+        if let Some(v) = self.scripted.pop_front() {
+            return v;
+        }
         assert!(sides >= 1);
         ((self.next_u64() % sides as u64) as i32) + 1
     }

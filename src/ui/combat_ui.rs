@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 use super::log_ui::LogScrollState;
 use super::{
     AbilitySlot, AbilitySlotLabel, DefeatOverlay, HudPhase, HudTurnOrder, LogScrollClip,
@@ -254,10 +255,7 @@ pub fn update_phase_hint(
                 .map(|(n, _, _)| n.as_str())
                 .unwrap_or("Враг");
 
-            if actor_info.is_none() {
-                format!("Ход: {actor_name}")
-            } else {
-                let ap = actor_info.unwrap().2;
+            if let Some((_, _, ap)) = actor_info {
                 let mut hints = Vec::new();
                 if ap.movement {
                     hints.push("[M]: движение");
@@ -272,6 +270,8 @@ pub fn update_phase_hint(
                     hints.push("Enter: подтвердить");
                 }
                 format!("Ход: {actor_name}  |  {}", hints.join("  "))
+            } else {
+                format!("Ход: {actor_name}")
             }
         }
         CombatPhase::Victory => "★  ПОБЕДА  (Space)".into(),
@@ -359,7 +359,7 @@ pub fn update_ability_panel(
         let affordable = ability_id
             .as_ref()
             .and_then(|id| db.abilities.get(id))
-            .map(|def| can_use(def))
+            .map(&can_use)
             .unwrap_or(false);
 
         *vis = if ability_id.is_some() {
@@ -536,7 +536,7 @@ pub fn update_move_button(
         .single()
         .ok()
         .and_then(|e| combatants.get(e).ok())
-        .map_or(false, |(_, ap)| ap.movement);
+        .is_some_and(|(_, ap)| ap.movement);
 
     if sel.move_mode {
         *border = BorderColor::all(CLR_SLOT_SEL_BORDER);

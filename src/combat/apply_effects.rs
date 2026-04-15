@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use crate::game::components::{Combatant, Dead, Rage, StatusEffects, Vital};
 use crate::game::messages::{ApplyDamage, ApplyHeal};
 use crate::game::combat_log::{CombatEvent, CombatLog};

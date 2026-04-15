@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use crate::game::components::{Combatant, Faction, HexCell, StartingHexPos, Team, UnitToken};
 use crate::game::hex::{hex_to_pixel, row_cols, GRID_COLS, GRID_ROWS, HEX_SIZE};
 use crate::game::resources::HexPositions;

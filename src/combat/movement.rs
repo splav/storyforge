@@ -1,8 +1,9 @@
-use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Speed, UnitToken};
+#![allow(clippy::too_many_arguments)]
+use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Speed, StatusEffects, UnitToken};
 use crate::game::hex::{hex_to_pixel, in_bounds};
 use crate::game::messages::MoveUnit;
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::resources::HexPositions;
+use crate::game::resources::{GameDb, HexPositions};
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::HexGridOffset;
 use bevy::prelude::*;
@@ -13,7 +14,8 @@ pub fn movement_system(
     active_q: Query<Entity, With<ActiveCombatant>>,
     mut events: MessageReader<MoveUnit>,
     mut positions: ResMut<HexPositions>,
-    mut movers: Query<(&mut ActionPoints, &Speed, Option<&BonusMovement>)>,
+    mut movers: Query<(&mut ActionPoints, &Speed, Option<&BonusMovement>, Option<&StatusEffects>)>,
+    db: Res<GameDb>,
     mut log: ResMut<CombatLog>,
     tokens: Query<(Entity, &UnitToken)>,
     grid_offset: Res<HexGridOffset>,
@@ -28,14 +30,20 @@ pub fn movement_system(
             continue;
         }
 
-        let Ok((mut ap, speed, bonus)) = movers.get_mut(ev.actor) else {
+        let Ok((mut ap, speed, bonus, statuses)) = movers.get_mut(ev.actor) else {
             continue;
         };
         if !ap.movement {
             continue;
         }
 
-        let max_steps = bonus.map_or(speed.0, |b| b.0);
+        let speed_mod: i32 = statuses.map_or(0, |se| {
+            se.0.iter()
+                .filter_map(|s| db.statuses.get(&s.id))
+                .map(|d| d.speed_bonus)
+                .sum()
+        });
+        let max_steps = bonus.map_or((speed.0 + speed_mod).max(1), |b| b.0);
         if ev.path.len() as i32 > max_steps {
             continue;
         }
