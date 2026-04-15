@@ -1,10 +1,11 @@
 use crate::app_state::CombatPhase;
+use crate::core::DiceRng;
 use crate::game::components::{
     ActionPoints, ActiveCombatant, ActiveStatus, Combatant, Dead, Faction, StatusEffects, Team, Vital,
 };
 use crate::game::messages::{ApplyStatus, EndTurn};
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::resources::TurnQueue;
+use crate::game::resources::{GameDb, TurnQueue};
 use bevy::prelude::*;
 
 /// Consumes EndTurn and ApplyStatus messages.
@@ -25,6 +26,8 @@ pub fn advance_turn_system(
     mut queue: ResMut<TurnQueue>,
     mut log: ResMut<CombatLog>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
+    db: Res<GameDb>,
+    mut rng: ResMut<DiceRng>,
 ) {
     // Consume all EndTurn messages (prevents leaking to next frame).
     // At most one actor ends their turn per frame, so take the first.
@@ -38,9 +41,31 @@ pub fn advance_turn_system(
     log.push(CombatEvent::TurnEnded { actor });
 
     // 1. Tick EXISTING statuses applied by this actor (before new ones are added).
-    let expired = tick_status_durations(actor, &mut statuses);
-    for (target, status) in expired {
-        log.push(CombatEvent::StatusExpired { target, status });
+    let tick_results = tick_status_durations(actor, &mut statuses);
+    // Apply DoT damage and log expired statuses.
+    {
+        let mut vitals = queries.p0();
+        for result in &tick_results {
+            match result {
+                TickResult::DotDamage { target, damage, status } => {
+                    if let Ok(mut v) = vitals.get_mut(*target) {
+                        v.apply_damage(*damage);
+                        log.push(CombatEvent::PoisonTick {
+                            target: *target,
+                            status: status.clone(),
+                            damage: *damage,
+                        });
+                        if !v.is_alive() {
+                            commands.entity(*target).insert(Dead);
+                            log.push(CombatEvent::UnitDied { entity: *target });
+                        }
+                    }
+                }
+                TickResult::Expired { target, status } => {
+                    log.push(CombatEvent::StatusExpired { target: *target, status: status.clone() });
+                }
+            }
+        }
     }
 
     // 2. Apply NEW statuses (skip dead targets).
@@ -50,10 +75,15 @@ pub fn advance_turn_system(
         }
         if let Ok((_, mut se)) = statuses.get_mut(*target) {
             se.0.retain(|s| s.id != *status);
+            let dot_per_tick = db.statuses.get(status)
+                .and_then(|sd| sd.dot_dice.as_ref())
+                .map(|dice| rng.roll_dice(dice).0)
+                .unwrap_or(0);
             se.0.push(ActiveStatus {
                 id: status.clone(),
                 rounds_remaining: *duration,
                 applier: *source,
+                dot_per_tick,
             });
         }
     }
@@ -91,9 +121,28 @@ pub fn advance_turn_system(
             break;
         }
         if let Some(dead_entity) = current {
-            let expired = tick_status_durations(dead_entity, &mut statuses);
-            for (target, status) in expired {
-                log.push(CombatEvent::StatusExpired { target, status });
+            let tick_results = tick_status_durations(dead_entity, &mut statuses);
+            let mut vitals = queries.p0();
+            for result in &tick_results {
+                match result {
+                    TickResult::DotDamage { target, damage, status } => {
+                        if let Ok(mut v) = vitals.get_mut(*target) {
+                            v.apply_damage(*damage);
+                            log.push(CombatEvent::PoisonTick {
+                                target: *target,
+                                status: status.clone(),
+                                damage: *damage,
+                            });
+                            if !v.is_alive() {
+                                commands.entity(*target).insert(Dead);
+                                log.push(CombatEvent::UnitDied { entity: *target });
+                            }
+                        }
+                    }
+                    TickResult::Expired { target, status } => {
+                        log.push(CombatEvent::StatusExpired { target: *target, status: status.clone() });
+                    }
+                }
             }
         }
         queue.advance();
@@ -116,27 +165,40 @@ pub fn advance_turn_system(
     }
 }
 
+enum TickResult {
+    DotDamage { target: Entity, damage: i32, status: crate::core::StatusId },
+    Expired { target: Entity, status: crate::core::StatusId },
+}
 
 /// Ticks all statuses applied by `actor` across every entity.
-/// Removes expired statuses and returns (target, status_id) for each.
+/// Returns DoT damage events and expired status events.
 fn tick_status_durations(
     actor: Entity,
     statuses: &mut Query<(Entity, &mut StatusEffects)>,
-) -> Vec<(Entity, crate::core::StatusId)> {
-    let mut expired = Vec::new();
+) -> Vec<TickResult> {
+    let mut results = Vec::new();
     for (target, mut se) in statuses.iter_mut() {
         for s in se.0.iter_mut() {
-            if s.applier == actor {
-                s.rounds_remaining = s.rounds_remaining.saturating_sub(1);
+            if s.applier != actor {
+                continue;
             }
+            // Apply DoT damage before decrementing.
+            if s.dot_per_tick > 0 {
+                results.push(TickResult::DotDamage {
+                    target,
+                    damage: s.dot_per_tick,
+                    status: s.id.clone(),
+                });
+            }
+            s.rounds_remaining = s.rounds_remaining.saturating_sub(1);
         }
         let newly_expired: Vec<_> =
             se.0.iter()
                 .filter(|s| s.applier == actor && s.rounds_remaining == 0)
-                .map(|s| (target, s.id.clone()))
+                .map(|s| TickResult::Expired { target, status: s.id.clone() })
                 .collect();
-        expired.extend(newly_expired);
+        results.extend(newly_expired);
         se.0.retain(|s| !(s.applier == actor && s.rounds_remaining == 0));
     }
-    expired
+    results
 }

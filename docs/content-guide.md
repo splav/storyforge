@@ -14,8 +14,7 @@ target_type   = "single_enemy"      # single_enemy | single_ally | myself
 effect        = "spell_damage"      # weapon_attack | damage | spell_damage | heal | none | grant_movement
 dice_count    = 2
 dice_sides    = 3
-mana_cost     = 3                   # default 0
-rage_cost     = 0                   # default 0
+costs         = [{ resource = "mana", amount = 5 }]  # resource: hp | mana | rage | energy
 range         = 5                   # hex steps; 0 = no range check (for myself)
 distance      = 0                   # only for grant_movement
 statuses      = [                   # optional
@@ -49,6 +48,8 @@ armor_bonus        = 0           # default 0; adds to armor (negative = reduce)
 damage_taken_bonus = 1           # default 0; extra damage on all hits
 skips_turn         = false       # default false; unit can't act
 forces_targeting   = false       # default false; enemies must attack this unit
+dot_count          = 1           # optional; DoT dice count (requires dot_sides)
+dot_sides          = 4           # optional; DoT dice sides
 ```
 
 ## Weapons (`weapons.toml`)
@@ -79,8 +80,9 @@ charisma     = 0
 speed        = 5
 weapon_id    = "dagger"
 ability_ids  = ["melee_attack", "bow_shot", "paralyzing_shot", "field_medic"]
-mana_max     = 4                 # default 0 (no mana)
+mana_max     = 0                 # default 0 (no mana)
 rage_max     = 0                 # default 0 (no rage)
+energy_max   = 6                 # default 0 (no energy)
 ```
 
 ## Encounters (`encounters.toml`)
@@ -105,6 +107,7 @@ weapon_id    = "staff"
 ability_ids  = ["melee_attack", "fireball", "heal"]
 mana_max     = 8                 # default 0
 rage_max     = 0                 # default 0
+energy_max   = 0                 # default 0
 hex_col      = 6
 hex_row      = 4
 ```

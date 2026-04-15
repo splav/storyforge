@@ -66,6 +66,20 @@ pub enum CombatEvent {
         current: i32,
         max: i32,
     },
+    EnergyChanged {
+        actor: Entity,
+        current: i32,
+        max: i32,
+    },
+    PoisonTick {
+        target: Entity,
+        status: StatusId,
+        damage: i32,
+    },
+    PoisonCleansed {
+        target: Entity,
+        status: StatusId,
+    },
     CombatEnded {
         victory: bool,
     },
@@ -120,6 +134,11 @@ impl CombatEvent {
                 current,
                 max,
             } => format!("  ✦ {}: мана {}/{}", name(*actor), current, max),
+            CombatEvent::EnergyChanged {
+                actor,
+                current,
+                max,
+            } => format!("  ✦ {}: энергия {}/{}", name(*actor), current, max),
             CombatEvent::AbilityUsed {
                 actor,
                 ability_name,
@@ -181,6 +200,14 @@ impl CombatEvent {
                     .get(status)
                     .map_or(status.0.as_str(), |s| s.name.as_str());
                 format!("    статус «{}» спал с {}", sname, name(*target))
+            }
+            CombatEvent::PoisonTick { target, status, damage } => {
+                let sname = db.statuses.get(status).map_or(status.0.as_str(), |s| s.name.as_str());
+                format!("    «{}» наносит {} урона ({})", sname, damage, name(*target))
+            }
+            CombatEvent::PoisonCleansed { target, status } => {
+                let sname = db.statuses.get(status).map_or(status.0.as_str(), |s| s.name.as_str());
+                format!("    «{}» нейтрализован на {}", sname, name(*target))
             }
             CombatEvent::UnitDied { entity } => format!("  ✗ {} погиб", name(*entity)),
             CombatEvent::CombatEnded { victory } => {

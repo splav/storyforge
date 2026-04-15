@@ -1,5 +1,6 @@
 use crate::content::abilities::AoEShape;
-use crate::game::components::{Abilities, ActionPoints, ActiveCombatant, Mana, Rage, Vital};
+use crate::core::ResourceKind;
+use crate::game::components::{Abilities, ActionPoints, ActiveCombatant, Energy, Mana, Rage, Vital};
 use crate::game::hex::hex_distance;
 use crate::game::messages::{UseAbility, ValidatedAction};
 use crate::game::resources::{GameDb, HexPositions};
@@ -16,6 +17,7 @@ pub fn validate_action_system(
         &Abilities,
         Option<&Rage>,
         Option<&Mana>,
+        Option<&Energy>,
     )>,
     targets: Query<&Vital>,
     mut validated: MessageWriter<ValidatedAction>,
@@ -47,6 +49,7 @@ fn check(
         &Abilities,
         Option<&Rage>,
         Option<&Mana>,
+        Option<&Energy>,
     )>,
     targets: &Query<&Vital>,
 ) -> (bool, bool) {
@@ -54,7 +57,7 @@ fn check(
         return (false, false);
     }
 
-    let Ok((vital, ap, abilities, rage, mana)) = actors.get(ev.actor) else {
+    let Ok((vital, ap, abilities, rage, mana, energy)) = actors.get(ev.actor) else {
         return (false, false);
     };
     if !vital.is_alive() || !ap.action {
@@ -70,11 +73,17 @@ fn check(
         return (false, false);
     };
 
-    if def.rage_cost > 0 && rage.map_or(0, |r| r.current) < def.rage_cost {
-        return (false, false);
-    }
-    if def.mana_cost > 0 && mana.map_or(0, |m| m.current) < def.mana_cost {
-        return (false, false);
+    // Check all resource costs.
+    for cost in &def.costs {
+        let available = match cost.resource {
+            ResourceKind::Hp => vital.hp,
+            ResourceKind::Mana => mana.map_or(0, |m| m.current),
+            ResourceKind::Rage => rage.map_or(0, |r| r.current),
+            ResourceKind::Energy => energy.map_or(0, |e| e.current),
+        };
+        if available < cost.amount {
+            return (false, false);
+        }
     }
 
     let is_aoe = def.aoe != AoEShape::None;

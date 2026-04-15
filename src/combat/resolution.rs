@@ -1,7 +1,7 @@
 use crate::content::abilities::{AoEShape, CasterContext, EffectDef, StatusOn, TargetType};
-use crate::core::DiceRng;
+use crate::core::{DiceRng, ResourceKind};
 use crate::game::components::{
-    ActionPoints, BonusMovement, CombatStats, Combatant, Equipment, Faction, Mana, Rage, Team, Vital,
+    ActionPoints, BonusMovement, CombatStats, Combatant, Energy, Equipment, Faction, Mana, Rage, Team, Vital,
 };
 use crate::game::hex::{hex_circle, hex_line};
 use crate::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, ValidatedAction};
@@ -16,52 +16,68 @@ pub fn resolve_action_system(
     mut rng: ResMut<DiceRng>,
     mut log: ResMut<CombatLog>,
     mut events: MessageReader<ValidatedAction>,
-    mut actors: Query<(
-        &CombatStats,
-        &mut ActionPoints,
-        Option<&Equipment>,
-        Option<&mut Rage>,
-        Option<&mut Mana>,
+    mut actors: ParamSet<(
+        Query<(
+            &CombatStats,
+            &mut ActionPoints,
+            Option<&Equipment>,
+            Option<&mut Rage>,
+            Option<&mut Mana>,
+            Option<&mut Energy>,
+            &mut Vital,
+        )>,
+        Query<(Entity, &Faction, &Vital), With<Combatant>>,
     )>,
-    combatant_q: Query<(Entity, &Faction, &Vital), With<Combatant>>,
     mut dmg_writer: MessageWriter<ApplyDamage>,
     mut heal_writer: MessageWriter<ApplyHeal>,
     mut status_writer: MessageWriter<ApplyStatus>,
     mut end_turn: MessageWriter<EndTurn>,
 ) {
-    for ev in events.read() {
+    // Collect events to allow alternating ParamSet access.
+    let validated: Vec<ValidatedAction> = events.read().cloned().collect();
+
+    for ev in &validated {
         let Some(def) = db.abilities.get(&ev.ability) else {
             continue;
         };
-        let Ok((stats, mut ap, equip, mut rage, mut mana)) = actors.get_mut(ev.actor) else {
-            continue;
-        };
 
-        ap.action = false;
-
-        // Primary target (for log display).
         let primary_target = match def.target_type {
             TargetType::Myself => ev.actor,
             TargetType::SingleEnemy | TargetType::SingleAlly => ev.target,
         };
 
+        // Phase 1: compute AoE targets using read-only combatant query.
+        let affected: Vec<Entity> = compute_aoe_targets(
+            ev.actor,
+            ev.target_pos,
+            def.aoe,
+            def.friendly_fire,
+            primary_target,
+            &positions,
+            &actors.p1(),
+        );
+
+        // Phase 2: access actor mutably for costs, dice, effects.
+        let mut actor_q = actors.p0();
+        let Ok((stats, mut ap, equip, mut rage, mut mana, mut energy, mut vital)) = actor_q.get_mut(ev.actor) else {
+            continue;
+        };
+
+        ap.action = false;
+
         let cost_str = {
             let mut parts = Vec::new();
-            if def.mana_cost > 0 {
-                if let Some(ref m) = mana {
-                    parts.push(format!(
-                        "мана: {} - {} = {}",
-                        m.current, def.mana_cost, m.current - def.mana_cost
-                    ));
-                }
-            }
-            if def.rage_cost > 0 {
-                if let Some(ref r) = rage {
-                    parts.push(format!(
-                        "ярость: {} - {} = {}",
-                        r.current, def.rage_cost, r.current - def.rage_cost
-                    ));
-                }
+            for cost in &def.costs {
+                let (label, current) = match cost.resource {
+                    ResourceKind::Hp => ("HP", vital.hp),
+                    ResourceKind::Mana => ("мана", mana.as_ref().map_or(0, |m| m.current)),
+                    ResourceKind::Rage => ("ярость", rage.as_ref().map_or(0, |r| r.current)),
+                    ResourceKind::Energy => ("энергия", energy.as_ref().map_or(0, |e| e.current)),
+                };
+                parts.push(format!(
+                    "{}: {} - {} = {}",
+                    label, current, cost.amount, current - cost.amount
+                ));
             }
             parts.join(", ")
         };
@@ -73,17 +89,6 @@ pub fn resolve_action_system(
         });
 
         let ctx = CasterContext::new(stats, equip, &db.weapons);
-
-        // Compute all affected targets.
-        let affected: Vec<Entity> = compute_aoe_targets(
-            ev.actor,
-            ev.target_pos,
-            def.aoe,
-            def.friendly_fire,
-            primary_target,
-            &positions,
-            &combatant_q,
-        );
 
         if let Some(calc) = def.effect.calc(&ctx) {
             // Roll dice ONCE for the entire AoE.
@@ -141,14 +146,12 @@ pub fn resolve_action_system(
             }
         }
 
-        if def.rage_cost > 0 {
-            if let Some(ref mut r) = rage {
-                r.spend(def.rage_cost);
-            }
-        }
-        if def.mana_cost > 0 {
-            if let Some(ref mut m) = mana {
-                m.spend(def.mana_cost);
+        for cost in &def.costs {
+            match cost.resource {
+                ResourceKind::Hp => { vital.apply_damage(cost.amount); }
+                ResourceKind::Mana => { if let Some(ref mut m) = mana { m.spend(cost.amount); } }
+                ResourceKind::Rage => { if let Some(ref mut r) = rage { r.spend(cost.amount); } }
+                ResourceKind::Energy => { if let Some(ref mut e) = energy { e.spend(cost.amount); } }
             }
         }
 

@@ -22,3 +22,9 @@ damage_taken_bonus = 1
 id          = "paralyzed"
 name        = "Паралич"
 skips_turn  = true
+
+[[statuses]]
+id          = "poisoned"
+name        = "Отравлен"
+dot_count   = 1
+dot_sides   = 4

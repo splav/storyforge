@@ -13,8 +13,9 @@ pub struct ClassDef {
     pub chest: ArmorId,
     pub legs: ArmorId,
     pub feet: ArmorId,
-    pub rage_max: i32, // 0 — нет механики ярости
-    pub mana_max: i32, // 0 — нет механики маны
+    pub rage_max: i32,   // 0 — нет механики ярости
+    pub mana_max: i32,   // 0 — нет механики маны
+    pub energy_max: i32, // 0 — нет механики энергии
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -47,6 +48,8 @@ struct ClassRecord {
     rage_max: i32,
     #[serde(default)]
     mana_max: i32,
+    #[serde(default)]
+    energy_max: i32,
 }
 
 const CLASSES_PATH: &str = "assets/data/classes.toml";
@@ -84,6 +87,7 @@ pub fn load_classes() -> Vec<ClassDef> {
             feet: ArmorId::from(r.feet.as_str()),
             rage_max: r.rage_max,
             mana_max: r.mana_max,
+            energy_max: r.energy_max,
         })
         .collect()
 }

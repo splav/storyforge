@@ -24,7 +24,7 @@ target_type   = "single_enemy"
 effect        = "spell_damage"
 dice_count    = 2
 dice_sides    = 3
-mana_cost     = 5
+costs         = [{ resource = "mana", amount = 5 }]
 range         = 5
 min_range     = 3
 aoe           = "circle"
@@ -38,10 +38,10 @@ magic_domains = ["limit", "aether"]
 magic_method  = "creation"
 target_type   = "single_ally"
 effect        = "heal"
-dice_count  = 1
-dice_sides  = 4
-mana_cost   = 2
-range       = 3
+dice_count    = 1
+dice_sides    = 4
+costs         = [{ resource = "mana", amount = 2 }]
+range         = 3
 
 [[abilities]]
 id            = "flash"
@@ -50,9 +50,9 @@ magic_domains = ["aether"]
 magic_method  = "destruction"
 target_type   = "single_enemy"
 effect        = "spell_damage"
-dice_count  = 1
-dice_sides  = 2
-range       = 3
+dice_count    = 1
+dice_sides    = 2
+range         = 3
 
 [[abilities]]
 id            = "burn"
@@ -60,9 +60,9 @@ name          = "Ожог"
 magic_domains = ["aether"]
 magic_method  = "alteration"
 target_type   = "single_enemy"
-mana_cost     = 1
-range       = 2
-statuses    = [
+costs         = [{ resource = "mana", amount = 1 }]
+range         = 2
+statuses      = [
     { id = "burning", on = "target", duration = 2 },
 ]
 
@@ -70,7 +70,7 @@ statuses    = [
 id          = "stun"
 name        = "Оглушить"
 target_type = "single_enemy"
-rage_cost   = 3
+costs       = [{ resource = "rage", amount = 3 }]
 range       = 1
 statuses    = [
     { id = "stunned", on = "target", duration = 1 },
@@ -82,7 +82,7 @@ name        = "Рывок"
 target_type = "myself"
 effect      = "grant_movement"
 distance    = 2
-rage_cost   = 2
+costs       = [{ resource = "rage", amount = 2 }]
 range       = 0
 
 [[abilities]]
@@ -92,7 +92,7 @@ target_type = "single_ally"
 effect      = "heal"
 dice_count  = 1
 dice_sides  = 6
-mana_cost   = 1
+costs       = [{ resource = "energy", amount = 1 }]
 range       = 1
 
 [[abilities]]
@@ -106,15 +106,29 @@ range       = 4
 min_range   = 2
 
 [[abilities]]
-id            = "paralyzing_shot"
-name          = "Парализующий выстрел"
-target_type   = "single_enemy"
-effect        = "damage"
+id          = "paralyzing_shot"
+name        = "Парализующий выстрел"
+target_type = "single_enemy"
+effect      = "damage"
 dice_count  = 1
 dice_sides  = 4
-mana_cost   = 2
+costs       = [{ resource = "energy", amount = 2 }]
 range       = 3
 min_range   = 2
 statuses    = [
     { id = "paralyzed", on = "target", duration = 1 },
+]
+
+[[abilities]]
+id          = "poison_shot"
+name        = "Отравленный выстрел"
+target_type = "single_enemy"
+effect      = "damage"
+dice_count  = 1
+dice_sides  = 4
+costs       = [{ resource = "energy", amount = 3 }]
+range       = 3
+min_range   = 2
+statuses    = [
+    { id = "poisoned", on = "target", duration = 3 },
 ]

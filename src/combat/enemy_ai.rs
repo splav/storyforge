@@ -67,8 +67,10 @@ pub fn enemy_ai_system(
     let Some(actor_pos) = positions.get(&actor) else {
         return;
     };
+    let hp_cur = c.vital.hp;
     let mana_cur = c.mana.map(|m| m.current).unwrap_or(0);
     let rage_cur = c.rage.map(|r| r.current).unwrap_or(0);
+    let energy_cur = c.energy.map(|e| e.current).unwrap_or(0);
     let caster_ctx = build_caster_ctx(&c, &db);
 
     // Build TargetInfo for all living players.
@@ -102,7 +104,7 @@ pub fn enemy_ai_system(
 
     let eval = evaluate_targets(
         actor_pos, &caster_ctx, abilities, &enemy_infos, &ally_infos,
-        &db, &difficulty, mana_cur, rage_cur, &mut rng,
+        &db, &difficulty, hp_cur, mana_cur, rage_cur, energy_cur, &mut rng,
     );
 
     // If we have an ability+target in range, use it.
@@ -123,7 +125,7 @@ pub fn enemy_ai_system(
     if ap.movement {
         let decision = plan_movement(
             actor, actor_pos, speed, abilities, &enemy_infos, &ally_infos, &eval, ap,
-            &caster_ctx, &db, &difficulty, mana_cur, rage_cur, &positions, &combatants,
+            &caster_ctx, &db, &difficulty, hp_cur, mana_cur, rage_cur, energy_cur, &positions, &combatants,
         );
 
         match decision {
@@ -204,8 +206,10 @@ fn evaluate_targets(
     ally_infos: &[TargetInfo],
     db: &GameDb,
     difficulty: &DifficultyProfile,
+    hp_cur: i32,
     mana_cur: i32,
     rage_cur: i32,
+    energy_cur: i32,
     rng: &mut DiceRng,
 ) -> EvalResult {
     let mut best_in_range: Option<(AbilityId, (i32, i32), f32)> = None;
@@ -213,7 +217,7 @@ fn evaluate_targets(
 
     for ability_id in &abilities.0 {
         let Some(def) = db.abilities.get(ability_id) else { continue };
-        if !can_afford(def, mana_cur, rage_cur) {
+        if !can_afford(def, hp_cur, mana_cur, rage_cur, energy_cur) {
             continue;
         }
         if def.target_type == TargetType::Myself {
@@ -365,8 +369,10 @@ fn plan_movement(
     caster_ctx: &CasterContext,
     db: &GameDb,
     difficulty: &DifficultyProfile,
+    hp_cur: i32,
     mana_cur: i32,
     rage_cur: i32,
+    energy_cur: i32,
     positions: &HexPositions,
     combatants: &Query<AiCombatantQ, With<Combatant>>,
 ) -> MoveDecision {
@@ -425,7 +431,7 @@ fn plan_movement(
         let dest = *path.last().unwrap();
         if ap.action {
             let best_ability = pick_best_from_pos(
-                dest, aim_pos, caster_ctx, abilities, enemy_infos, ally_infos, db, difficulty, mana_cur, rage_cur,
+                dest, aim_pos, caster_ctx, abilities, enemy_infos, ally_infos, db, difficulty, hp_cur, mana_cur, rage_cur, energy_cur,
             );
             if let Some((ability, target_pos)) = best_ability {
                 let target = positions.entity_at(target_pos.0, target_pos.1).unwrap_or(actor);
@@ -457,12 +463,18 @@ fn plan_movement(
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-fn can_afford(def: &AbilityDef, mana: i32, rage: i32) -> bool {
-    if def.mana_cost > 0 && mana < def.mana_cost {
-        return false;
-    }
-    if def.rage_cost > 0 && rage < def.rage_cost {
-        return false;
+fn can_afford(def: &AbilityDef, hp: i32, mana: i32, rage: i32, energy: i32) -> bool {
+    use crate::core::ResourceKind;
+    for cost in &def.costs {
+        let available = match cost.resource {
+            ResourceKind::Hp => hp,
+            ResourceKind::Mana => mana,
+            ResourceKind::Rage => rage,
+            ResourceKind::Energy => energy,
+        };
+        if available < cost.amount {
+            return false;
+        }
     }
     true
 }
@@ -478,14 +490,16 @@ fn pick_best_from_pos(
     ally_infos: &[TargetInfo],
     db: &GameDb,
     difficulty: &DifficultyProfile,
+    hp: i32,
     mana: i32,
     rage: i32,
+    energy: i32,
 ) -> Option<(AbilityId, (i32, i32))> {
     let mut best: Option<(AbilityId, (i32, i32), f32)> = None;
 
     for ability_id in &abilities.0 {
         let Some(def) = db.abilities.get(ability_id) else { continue };
-        if !can_afford(def, mana, rage) || def.target_type == TargetType::Myself {
+        if !can_afford(def, hp, mana, rage, energy) || def.target_type == TargetType::Myself {
             continue;
         }
 
@@ -563,14 +577,15 @@ mod tests {
     }
 
     fn fireball_def() -> AbilityDef {
+        use crate::content::abilities::ResourceCost;
+        use crate::core::ResourceKind;
         AbilityDef {
             id: "fireball".into(),
             name: "Fireball".into(),
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 5 },
             effect: EffectDef::SpellDamage { dice: DiceExpr::new(2, 3, 0) },
-            rage_cost: 0,
-            mana_cost: 3,
+            costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
             aoe: AoEShape::Circle { radius: 1 },
             friendly_fire: true,
             statuses: vec![],
@@ -586,8 +601,7 @@ mod tests {
             target_type: TargetType::SingleEnemy,
             range: AbilityRange { min: 0, max: 1 },
             effect: EffectDef::Damage { dice: DiceExpr::new(1, 8, 0) },
-            rage_cost: 0,
-            mana_cost: 0,
+            costs: vec![],
             aoe: AoEShape::Line { length: 2 },
             friendly_fire: false,
             statuses: vec![],

@@ -18,6 +18,7 @@ use storyforge::game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, UseAbility, ValidatedAction,
 };
 use storyforge::content::statuses::StatusDef;
+use storyforge::core::DiceExpr;
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::resources::{
     CombatContext, GameDb, HexPositions, SelectionState, TurnQueue,
@@ -367,6 +368,7 @@ fn insert_stun_status(app: &mut App) {
             damage_taken_bonus: 0,
             skips_turn: true,
             forces_targeting: false,
+            dot_dice: None,
         },
     );
 }
@@ -458,6 +460,7 @@ fn stunned_unit_skips_turn_and_stun_expires_on_applier_end_turn() {
             id: "stun".into(),
             rounds_remaining: 1,
             applier: hero,
+            dot_per_tick: 0,
         });
 
     {
@@ -512,6 +515,7 @@ fn stunned_enemy_does_not_produce_duplicate_end_turn() {
             id: "stun".into(),
             rounds_remaining: 1,
             applier: hero,
+            dot_per_tick: 0,
         });
 
     {
@@ -565,6 +569,7 @@ fn dead_applier_status_still_expires() {
             id: "stun".into(),
             rounds_remaining: 1,
             applier: dead_hero,
+            dot_per_tick: 0,
         });
 
     // dead_hero is dead.
@@ -628,4 +633,356 @@ fn dead_unit_skipped_at_queue_start() {
         app.world().get::<ActiveCombatant>(dead_hero).is_none(),
         "dead hero should not remain active"
     );
+}
+
+// ── Poison / DoT ────────────────────────────────────────────────────────────
+
+fn insert_poison_status(app: &mut App) {
+    app.world_mut().resource_mut::<GameDb>().statuses.insert(
+        "poisoned".into(),
+        StatusDef {
+            id: "poisoned".into(),
+            name: "Poisoned".into(),
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            skips_turn: false,
+            forces_targeting: false,
+            dot_dice: Some(DiceExpr::new(1, 4, 0)),
+        },
+    );
+}
+
+#[test]
+fn poison_ticks_damage_each_turn() {
+    let mut app = effects_app();
+    insert_poison_status(&mut app);
+
+    let hero = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+    let goblin = app
+        .world_mut()
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
+        .id();
+
+    // Poison on hero, applied by goblin, duration 2, dot_per_tick = 3.
+    app.world_mut()
+        .get_mut::<StatusEffects>(hero)
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: "poisoned".into(),
+            rounds_remaining: 2,
+            applier: goblin,
+            dot_per_tick: 3,
+        });
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![goblin, hero];
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(goblin).insert(ActiveCombatant);
+
+    // Goblin ends turn → poison ticks on hero (applier = goblin).
+    write_message(&mut app, EndTurn { actor: goblin });
+    app.update();
+
+    // Hero lost 3 HP from poison tick 1.
+    assert_eq!(app.world().get::<Vital>(hero).unwrap().hp, 7);
+    let se = app.world().get::<StatusEffects>(hero).unwrap();
+    assert_eq!(se.0.len(), 1);
+    assert_eq!(se.0[0].rounds_remaining, 1);
+}
+
+#[test]
+fn poison_expires_after_last_tick() {
+    let mut app = effects_app();
+    insert_poison_status(&mut app);
+
+    let hero = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+    let goblin = app
+        .world_mut()
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
+        .id();
+
+    // Duration 1 → should tick once and expire.
+    app.world_mut()
+        .get_mut::<StatusEffects>(hero)
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: "poisoned".into(),
+            rounds_remaining: 1,
+            applier: goblin,
+            dot_per_tick: 2,
+        });
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![goblin, hero];
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(goblin).insert(ActiveCombatant);
+
+    write_message(&mut app, EndTurn { actor: goblin });
+    app.update();
+
+    assert_eq!(app.world().get::<Vital>(hero).unwrap().hp, 8);
+    let se = app.world().get::<StatusEffects>(hero).unwrap();
+    assert!(se.0.is_empty(), "poison should expire after last tick");
+}
+
+#[test]
+fn poison_can_kill() {
+    let mut app = effects_app();
+    insert_poison_status(&mut app);
+
+    let hero = app
+        .world_mut()
+        .spawn((
+            Name::new("Hero"),
+            test_hero(CombatStats {
+                max_hp: 2,
+                strength: 5,
+                dexterity: 5,
+                constitution: 10,
+                intelligence: 0,
+                wisdom: 10,
+                charisma: 10,
+            }),
+        ))
+        .id();
+    let goblin = app
+        .world_mut()
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
+        .id();
+
+    app.world_mut()
+        .get_mut::<StatusEffects>(hero)
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: "poisoned".into(),
+            rounds_remaining: 3,
+            applier: goblin,
+            dot_per_tick: 5,
+        });
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![goblin, hero];
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(goblin).insert(ActiveCombatant);
+
+    write_message(&mut app, EndTurn { actor: goblin });
+    app.update();
+
+    assert_eq!(app.world().get::<Vital>(hero).unwrap().hp, 0);
+    assert!(app.world().get::<Dead>(hero).is_some(), "poison should be able to kill");
+}
+
+// ── Heal + Poison interaction ───────────────────────────────────────────────
+
+#[test]
+fn heal_neutralizes_poison_fully() {
+    // Heal (5) > dot_per_tick (3) → poison removed, remaining 2 heals HP.
+    let mut app = effects_app();
+    insert_poison_status(&mut app);
+
+    let hero = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+    let goblin = app
+        .world_mut()
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
+        .id();
+
+    // Damage hero first so heal has something to restore.
+    app.world_mut().get_mut::<Vital>(hero).unwrap().hp = 5;
+
+    // Poison with dot_per_tick = 3.
+    app.world_mut()
+        .get_mut::<StatusEffects>(hero)
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: "poisoned".into(),
+            rounds_remaining: 3,
+            applier: goblin,
+            dot_per_tick: 3,
+        });
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![hero, goblin];
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+
+    // Heal hero for 5: 3 neutralizes poison, 2 heals HP (5→7).
+    write_message(
+        &mut app,
+        ApplyHeal {
+            source: hero,
+            target: hero,
+            amount: 5,
+            breakdown: String::new(),
+        },
+    );
+    write_message(&mut app, EndTurn { actor: hero });
+    app.update();
+
+    assert_eq!(app.world().get::<Vital>(hero).unwrap().hp, 7);
+    let se = app.world().get::<StatusEffects>(hero).unwrap();
+    assert!(se.0.is_empty(), "poison should be fully cleansed");
+}
+
+#[test]
+fn heal_weakens_poison_partially() {
+    // Heal (2) < dot_per_tick (3) → poison weakened to 1, no HP restored.
+    let mut app = effects_app();
+    insert_poison_status(&mut app);
+
+    let hero = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+    let goblin = app
+        .world_mut()
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
+        .id();
+
+    app.world_mut().get_mut::<Vital>(hero).unwrap().hp = 5;
+
+    app.world_mut()
+        .get_mut::<StatusEffects>(hero)
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: "poisoned".into(),
+            rounds_remaining: 3,
+            applier: goblin,
+            dot_per_tick: 3,
+        });
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![hero, goblin];
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+
+    // Heal hero for 2: all goes to weakening poison (3→1), HP stays 5.
+    write_message(
+        &mut app,
+        ApplyHeal {
+            source: hero,
+            target: hero,
+            amount: 2,
+            breakdown: String::new(),
+        },
+    );
+    write_message(&mut app, EndTurn { actor: hero });
+    app.update();
+
+    assert_eq!(app.world().get::<Vital>(hero).unwrap().hp, 5, "no HP restored — heal spent on poison");
+    let se = app.world().get::<StatusEffects>(hero).unwrap();
+    assert_eq!(se.0.len(), 1, "poison still active but weakened");
+    assert_eq!(se.0[0].dot_per_tick, 1, "dot_per_tick should be reduced from 3 to 1");
+}
+
+#[test]
+fn heal_without_poison_restores_hp_normally() {
+    let mut app = effects_app();
+
+    let hero = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+    let goblin = app
+        .world_mut()
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
+        .id();
+
+    app.world_mut().get_mut::<Vital>(hero).unwrap().hp = 5;
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![hero, goblin];
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+
+    write_message(
+        &mut app,
+        ApplyHeal {
+            source: hero,
+            target: hero,
+            amount: 4,
+            breakdown: String::new(),
+        },
+    );
+    write_message(&mut app, EndTurn { actor: hero });
+    app.update();
+
+    assert_eq!(app.world().get::<Vital>(hero).unwrap().hp, 9);
+}
+
+#[test]
+fn heal_exact_match_removes_poison_no_hp() {
+    // Heal exactly equals dot_per_tick → poison removed, 0 HP restored.
+    let mut app = effects_app();
+    insert_poison_status(&mut app);
+
+    let hero = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+    let goblin = app
+        .world_mut()
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
+        .id();
+
+    app.world_mut().get_mut::<Vital>(hero).unwrap().hp = 5;
+
+    app.world_mut()
+        .get_mut::<StatusEffects>(hero)
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: "poisoned".into(),
+            rounds_remaining: 2,
+            applier: goblin,
+            dot_per_tick: 4,
+        });
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![hero, goblin];
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+
+    write_message(
+        &mut app,
+        ApplyHeal {
+            source: hero,
+            target: hero,
+            amount: 4,
+            breakdown: String::new(),
+        },
+    );
+    write_message(&mut app, EndTurn { actor: hero });
+    app.update();
+
+    assert_eq!(app.world().get::<Vital>(hero).unwrap().hp, 5, "heal exactly matched poison — no HP change");
+    let se = app.world().get::<StatusEffects>(hero).unwrap();
+    assert!(se.0.is_empty(), "poison should be removed by exact heal");
 }

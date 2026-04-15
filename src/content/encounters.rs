@@ -22,6 +22,7 @@ pub struct EnemyDef {
     pub ability_ids: Vec<AbilityId>,
     pub rage_max: i32,
     pub mana_max: i32,
+    pub energy_max: i32,
     /// Starting hex cell (col, row).
     pub hex_pos: (i32, i32),
 }
@@ -65,6 +66,8 @@ struct EnemyRecord {
     rage_max: i32,
     #[serde(default)]
     mana_max: i32,
+    #[serde(default)]
+    energy_max: i32,
     hex_col: i32,
     hex_row: i32,
 }
@@ -109,6 +112,7 @@ pub fn load_encounters() -> Vec<EncounterDef> {
                         .collect(),
                     rage_max: e.rage_max,
                     mana_max: e.mana_max,
+                    energy_max: e.energy_max,
                     hex_pos: (e.hex_col, e.hex_row),
                 })
                 .collect(),

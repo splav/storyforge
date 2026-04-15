@@ -169,6 +169,33 @@ impl Rage {
     }
 }
 
+/// Энергия — расходуется на немагические способности, восстанавливается на 1 в начало хода.
+/// Присутствует только у персонажей с этой механикой (следопыт).
+#[derive(Component, Debug, Clone)]
+pub struct Energy {
+    pub current: i32,
+    pub max: i32,
+}
+
+impl Energy {
+    pub fn new(max: i32) -> Self {
+        Self { current: max, max }
+    }
+
+    pub fn restore(&mut self, amount: i32) -> i32 {
+        self.current = (self.current + amount).min(self.max);
+        self.current
+    }
+
+    pub fn spend(&mut self, amount: i32) -> bool {
+        if self.current < amount {
+            return false;
+        }
+        self.current -= amount;
+        true
+    }
+}
+
 /// Visual token circle entity linked to a combatant.
 #[derive(Component)]
 pub struct UnitToken(pub Entity);
@@ -192,6 +219,8 @@ pub struct ActiveStatus {
     pub rounds_remaining: u32,
     /// Entity whose EndTurn ticks this counter down.
     pub applier: Entity,
+    /// Урон за тик (яд). 0 = нет DoT. Уменьшается исцелением.
+    pub dot_per_tick: i32,
 }
 
 // ── Query data structs ──────────────────────────────────────────────────────
@@ -205,6 +234,7 @@ pub struct HexCombatantQ {
     pub faction: &'static Faction,
     pub mana: Option<&'static Mana>,
     pub rage: Option<&'static Rage>,
+    pub energy: Option<&'static Energy>,
     pub is_dead: Has<Dead>,
 }
 
@@ -221,6 +251,7 @@ pub struct AiCombatantQ {
     pub equipment: &'static Equipment,
     pub mana: Option<&'static Mana>,
     pub rage: Option<&'static Rage>,
+    pub energy: Option<&'static Energy>,
 }
 
 /// Player command input: ability selection, target cycling.

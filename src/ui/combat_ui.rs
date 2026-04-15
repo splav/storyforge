@@ -7,10 +7,10 @@ use super::{
 use super::turn_order_ui::spawn_turn_order_panel;
 use crate::app_state::CombatPhase;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, StatusOn};
-use crate::core::DiceExpr;
+use crate::core::{DiceExpr, ResourceKind};
 use crate::game::components::{
-    Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, Equipment, Faction,
-    Mana, Rage, Team,
+    Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, Energy, Equipment,
+    Faction, Mana, Rage, Team, Vital,
 };
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{GameDb, SelectionState, UiDirty, UiDirtyFlags};
@@ -295,8 +295,10 @@ pub fn update_ability_panel(
             &Abilities,
             &CombatStats,
             Option<&Equipment>,
+            &Vital,
             Option<&Mana>,
             Option<&Rage>,
+            Option<&Energy>,
         ),
         (With<Combatant>, Without<Dead>),
     >,
@@ -316,29 +318,36 @@ pub fn update_ability_panel(
         .single()
         .ok()
         .and_then(|e| combatants.get(e).ok())
-        .filter(|(f, _, _, _, _, _)| f.0 == Team::Player)
-        .map(|(_, abilities, stats, equip, mana, rage)| {
+        .filter(|(f, _, _, _, _, _, _, _)| f.0 == Team::Player)
+        .map(|(_, abilities, stats, equip, vital, mana, rage, energy)| {
             let ctx = CasterContext::new(stats, equip, &db.weapons);
             (
                 abilities.0.clone(),
                 ctx,
-                mana.map(|m| m.current),
-                rage.map(|r| r.current),
+                vital.hp,
+                mana.map(|m| m.current).unwrap_or(0),
+                rage.map(|r| r.current).unwrap_or(0),
+                energy.map(|e| e.current).unwrap_or(0),
             )
         });
 
-    let (abilities, caster_ctx, mana_cur, rage_cur) = match actor_data {
+    let (abilities, caster_ctx, hp_cur, mana_cur, rage_cur, energy_cur) = match actor_data {
         Some(d) => d,
         None => return,
     };
 
     // Helper: can the actor afford this ability?
     let can_use = |def: &AbilityDef| -> bool {
-        if def.mana_cost > 0 && mana_cur.unwrap_or(0) < def.mana_cost {
-            return false;
-        }
-        if def.rage_cost > 0 && rage_cur.unwrap_or(0) < def.rage_cost {
-            return false;
+        for cost in &def.costs {
+            let available = match cost.resource {
+                ResourceKind::Hp => hp_cur,
+                ResourceKind::Mana => mana_cur,
+                ResourceKind::Rage => rage_cur,
+                ResourceKind::Energy => energy_cur,
+            };
+            if available < cost.amount {
+                return false;
+            }
         }
         true
     };
@@ -386,11 +395,14 @@ pub fn update_ability_panel(
             if let Some(def) = db.abilities.get(&id) {
                 let effect_str = ability_effect_str(def, &caster_ctx, &db);
                 let mut costs = String::new();
-                if def.rage_cost > 0 {
-                    costs += &format!(" R:{}", def.rage_cost);
-                }
-                if def.mana_cost > 0 {
-                    costs += &format!(" M:{}", def.mana_cost);
+                for cost in &def.costs {
+                    let label = match cost.resource {
+                        ResourceKind::Hp => "HP",
+                        ResourceKind::Mana => "M",
+                        ResourceKind::Rage => "R",
+                        ResourceKind::Energy => "E",
+                    };
+                    costs += &format!(" {}:{}", label, cost.amount);
                 }
                 text.0 = format!("[{}] {}{}\n{}", idx + 1, def.name, costs, effect_str);
                 let affordable = can_use(def);

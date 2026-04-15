@@ -1,5 +1,5 @@
 use crate::content::weapons::WeaponDef;
-use crate::core::{modifier, AbilityId, DiceExpr, StatusId, WeaponId};
+use crate::core::{modifier, AbilityId, DiceExpr, ResourceKind, StatusId, WeaponId};
 use crate::game::components::{CombatStats, Equipment};
 use serde::Deserialize;
 
@@ -52,14 +52,19 @@ pub enum AoEShape {
 }
 
 #[derive(Debug, Clone)]
+pub struct ResourceCost {
+    pub resource: ResourceKind,
+    pub amount: i32,
+}
+
+#[derive(Debug, Clone)]
 pub struct AbilityDef {
     pub id: AbilityId,
     pub name: String,
     pub target_type: TargetType,
     pub range: AbilityRange,
     pub effect: EffectDef,
-    pub rage_cost: i32,
-    pub mana_cost: i32,
+    pub costs: Vec<ResourceCost>,
     pub aoe: AoEShape,
     /// If true, AoE damages allies too (e.g. fireball).
     pub friendly_fire: bool,
@@ -194,9 +199,7 @@ struct AbilityRecord {
     #[serde(default)]
     distance: i32,
     #[serde(default)]
-    rage_cost: i32,
-    #[serde(default)]
-    mana_cost: i32,
+    costs: Vec<CostRecord>,
     #[serde(default)]
     aoe: String,
     #[serde(default)]
@@ -216,6 +219,12 @@ struct StatusRecord {
     id: String,
     on: String,
     duration: u32,
+}
+
+#[derive(Deserialize)]
+struct CostRecord {
+    resource: String,
+    amount: i32,
 }
 
 const ABILITIES_PATH: &str = "assets/data/abilities.toml";
@@ -281,14 +290,27 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 "line" => AoEShape::Line { length: r.aoe_size },
                 other => panic!("{ABILITIES_PATH}: ability '{}' unknown aoe '{other}'", r.id),
             };
+            let costs = r
+                .costs
+                .into_iter()
+                .map(|c| {
+                    let resource = match c.resource.as_str() {
+                        "hp" => ResourceKind::Hp,
+                        "mana" => ResourceKind::Mana,
+                        "rage" => ResourceKind::Rage,
+                        "energy" => ResourceKind::Energy,
+                        other => panic!("{ABILITIES_PATH}: ability '{}' unknown resource '{other}'", r.id),
+                    };
+                    ResourceCost { resource, amount: c.amount }
+                })
+                .collect();
             AbilityDef {
                 id: AbilityId::from(r.id.as_str()),
                 name: r.name,
                 target_type,
                 range: AbilityRange { min: r.min_range, max: r.range },
                 effect,
-                rage_cost: r.rage_cost,
-                mana_cost: r.mana_cost,
+                costs,
                 aoe,
                 friendly_fire: r.friendly_fire,
                 statuses,

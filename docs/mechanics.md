@@ -29,22 +29,45 @@ actual = max(1, raw + damage_taken_bonus)
 Pierces armor: ignores `armor` and `armor_bonus`.
 
 ## Healing
+
 ```
 amount = dice_roll + INT_mod + spell_power
-hp = min(hp + amount, max_hp)
 ```
 
+Исцеление сначала нейтрализует яды на цели (см. [Яды и исцеление](#яды-и-исцеление)), затем оставшееся количество восстанавливает HP (не выше max_hp).
+
 ## Resources
+
+### Unified Costs
+
+Стоимость способности задаётся списком `costs`, где каждый элемент — пара `{ resource, amount }`. Одна способность может тратить несколько ресурсов (например, HP + мана). Ресурсы:
+
+| Resource | ID | Описание |
+|----------|----|----------|
+| HP | `hp` | Здоровье кастующего |
+| Мана | `mana` | Магическая энергия |
+| Ярость | `rage` | Боевая ярость |
+| Энергия | `energy` | Немагическая энергия |
+
+При использовании способности проверяется наличие всех ресурсов из списка. Если хотя бы одного не хватает — способность недоступна.
 
 ### Mana
 - Start: `current = max` (full)
 - Restore: +1 at start of owner's turn (`turn_start_system`)
 - Spend: deducted on ability use (`resolve_action_system`)
+- Используется магическими способностями (маг)
 
 ### Rage
 - Start: `current = 0`
 - Gain: +1 for dealing damage, +1 for receiving damage (`apply_effects_system`)
 - Spend: deducted on ability use
+- Используется боевыми приёмами (воин)
+
+### Energy
+- Start: `current = max` (full)
+- Restore: +1 at start of owner's turn (`turn_start_system`)
+- Spend: deducted on ability use
+- Используется немагическими способностями (следопыт)
 
 ### Action Points
 - `action: bool` — can use an ability this turn
@@ -66,11 +89,46 @@ hp = min(hp + amount, max_hp)
 | `damage_taken_bonus` | Increases all incoming damage |
 | `skips_turn` | Unit cannot act or move |
 | `forces_targeting` | Enemies must target this unit (taunt) |
+| `dot_dice` | Периодический урон (яд); см. ниже |
 
 ### Duration
 - Ticks on **applier's** EndTurn, not target's
 - New statuses applied AFTER existing ones are ticked (no +1 compensation needed)
 - Duration 1 = active until end of applier's next turn
+
+## Яды (DoT)
+
+Статус с полем `dot_dice` наносит периодический урон (damage over time).
+
+### Наложение
+При наложении ядовитого статуса кубик `dot_dice` бросается **один раз**. Результат записывается в `dot_per_tick` — это фиксированный урон за каждый тик. Например, яд с `1d4` при броске 3 будет наносить 3 урона каждый ход.
+
+### Тикание
+Урон от яда наносится при тике статуса (в конце хода **наложившего** эффект), **перед** декрементом `rounds_remaining`. DoT-урон игнорирует броню.
+
+### Пример
+Отравленный выстрел: 1d4 DoT на 3 хода. Бросок = 3.
+```
+Тик 1: -3 HP, rounds_remaining: 3→2
+Тик 2: -3 HP, rounds_remaining: 2→1
+Тик 3: -3 HP, rounds_remaining: 1→0, яд снят
+Итого: 9 урона
+```
+
+### Яды и исцеление
+
+Исцеление нейтрализует яды **перед** восстановлением HP:
+
+1. Для каждого DoT-статуса на цели: heal уменьшает `dot_per_tick`.
+2. Если heal >= `dot_per_tick` — яд полностью снят, heal уменьшается на величину `dot_per_tick`. Переходим к следующему яду.
+3. Если heal < `dot_per_tick` — яд ослаблен (`dot_per_tick -= heal`), heal = 0.
+4. Оставшийся heal после нейтрализации всех ядов лечит HP обычным образом.
+
+**Пример — частичное снятие:**
+`dot_per_tick = 3`, heal = 2 → `dot_per_tick = 1`, яд продолжает тикать по 1/ход. HP не восстановлены.
+
+**Пример — полное снятие:**
+`dot_per_tick = 3`, heal = 5 → яд снят, 2 HP восстановлены.
 
 ## Enemy AI
 

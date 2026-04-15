@@ -1,6 +1,6 @@
 use super::render::{HexGridOffset, HexHover, HexLastClick, HexTooltip, DOUBLE_CLICK_SECS};
 use crate::content::abilities::AoEShape;
-use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Combatant, Dead, Faction, Mana, Rage, Speed, StatusEffects, Team, Vital};
+use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Combatant, Dead, Energy, Faction, Mana, Rage, Speed, StatusEffects, Team, Vital};
 use crate::game::hex::{in_bounds, HEX_SIZE};
 use crate::game::messages::{MoveUnit, UseAbility};
 use crate::game::pathfinding::find_path;
@@ -73,6 +73,7 @@ pub fn update_hex_tooltip(
         &StatusEffects,
         Option<&Mana>,
         Option<&Rage>,
+        Option<&Energy>,
         Has<Dead>,
     )>,
     mut tooltip_q: Query<(&mut Text, &mut Node, &mut Visibility), With<HexTooltip>>,
@@ -93,7 +94,7 @@ pub fn update_hex_tooltip(
         return;
     };
 
-    let Ok((name, vital, faction, statuses, mana, rage, is_dead)) = combatant_q.get(entity) else {
+    let Ok((name, vital, faction, statuses, mana, rage, energy, is_dead)) = combatant_q.get(entity) else {
         *vis = Visibility::Hidden;
         return;
     };
@@ -107,6 +108,9 @@ pub fn update_hex_tooltip(
     }
     if let Some(r) = rage {
         lines.push(format!("Ярость: {}/{}", r.current, r.max));
+    }
+    if let Some(e) = energy {
+        lines.push(format!("Энергия: {}/{}", e.current, e.max));
     }
     if !statuses.0.is_empty() {
         let status_strs: Vec<String> = statuses

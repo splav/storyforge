@@ -4,7 +4,7 @@ use super::render::{
 };
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::game::components::{
-    ActiveCombatant, BonusMovement, Combatant, Dead, Faction, HexCell, HexCombatantQ, Mana, Rage, Speed, StartingHexPos,
+    ActiveCombatant, BonusMovement, Combatant, Dead, Energy, Faction, HexCell, HexCombatantQ, Mana, Rage, Speed, StartingHexPos,
     Team, UnitToken, Vital,
 };
 use crate::game::hex::{hex_circle, hex_distance, hex_line, hex_to_pixel, in_bounds};
@@ -41,6 +41,7 @@ pub fn ui_dirty_bridge(
     removed_dead: RemovedComponents<Dead>,
     mana_q: Query<(), Changed<Mana>>,
     rage_q: Query<(), Changed<Rage>>,
+    energy_q: Query<(), Changed<Energy>>,
     mut dirty: ResMut<UiDirty>,
     mut prev: Local<DirtyBridgePrev>,
 ) {
@@ -107,7 +108,7 @@ pub fn ui_dirty_bridge(
         dirty.0 |= UiDirtyFlags::HEX_FILL | UiDirtyFlags::TOKENS | UiDirtyFlags::OVERLAY;
     }
 
-    if !mana_q.is_empty() || !rage_q.is_empty() {
+    if !mana_q.is_empty() || !rage_q.is_empty() || !energy_q.is_empty() {
         dirty.0 |= UiDirtyFlags::ABILITY_PANEL | UiDirtyFlags::LABELS;
     }
 
@@ -392,6 +393,9 @@ pub fn update_hex_visuals(
                 *vis = Visibility::Visible;
             } else if let Some(r) = c.rage {
                 text.0 = format!("R:{}/{}", r.current, r.max);
+                *vis = Visibility::Visible;
+            } else if let Some(e) = c.energy {
+                text.0 = format!("E:{}/{}", e.current, e.max);
                 *vis = Visibility::Visible;
             } else {
                 *vis = Visibility::Hidden;

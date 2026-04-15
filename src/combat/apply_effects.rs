@@ -11,7 +11,7 @@ pub fn apply_effects_system(
     mut dmg_events: MessageReader<ApplyDamage>,
     mut heal_events: MessageReader<ApplyHeal>,
     mut vitals: Query<&mut Vital>,
-    statuses: Query<&StatusEffects, With<Combatant>>,
+    mut statuses: Query<&mut StatusEffects, With<Combatant>>,
     mut rage_query: Query<&mut Rage>,
     mut log: ResMut<CombatLog>,
     db: Res<GameDb>,
@@ -73,17 +73,47 @@ pub fn apply_effects_system(
         }
     }
 
-    // Apply heals.
+    // Apply heals: first neutralize poison DoTs, then heal HP.
     for (target, amount, formula) in &heals {
-        if let Ok(mut v) = vitals.get_mut(*target) {
-            let before = v.hp;
-            v.apply_heal(*amount);
-            let actual = v.hp - before;
-            log.push(CombatEvent::HealResult {
-                target: *target,
-                formula: formula.clone(),
-                amount: actual,
-            });
+        let mut remaining_heal = *amount;
+
+        // Neutralize DoT statuses on target.
+        if let Ok(mut se) = statuses.get_mut(*target) {
+            for s in se.0.iter_mut() {
+                if remaining_heal <= 0 {
+                    break;
+                }
+                if s.dot_per_tick > 0 {
+                    if remaining_heal >= s.dot_per_tick {
+                        remaining_heal -= s.dot_per_tick;
+                        log.push(CombatEvent::PoisonCleansed {
+                            target: *target,
+                            status: s.id.clone(),
+                        });
+                        s.dot_per_tick = 0;
+                        s.rounds_remaining = 0; // mark for removal
+                    } else {
+                        s.dot_per_tick -= remaining_heal;
+                        remaining_heal = 0;
+                    }
+                }
+            }
+            // Remove fully cleansed DoT statuses.
+            se.0.retain(|s| s.rounds_remaining > 0);
+        }
+
+        // Remaining heal restores HP.
+        if remaining_heal > 0 {
+            if let Ok(mut v) = vitals.get_mut(*target) {
+                let before = v.hp;
+                v.apply_heal(remaining_heal);
+                let actual = v.hp - before;
+                log.push(CombatEvent::HealResult {
+                    target: *target,
+                    formula: formula.clone(),
+                    amount: actual,
+                });
+            }
         }
     }
 

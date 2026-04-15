@@ -40,21 +40,21 @@ src/
   main.rs           App builder: resources, messages, system registration
 
   core/
-    mod.rs          modifier(stat) = stat >> 1
+    mod.rs          modifier(stat), ResourceKind enum (Hp, Mana, Rage, Energy)
     ids.rs          string_id!() macro → AbilityId, StatusId, WeaponId
     rng.rs          DiceRng (LCG), DiceExpr { count, sides, bonus }
 
   game/
-    components.rs   ECS components: HexCell, Vital, CombatStats, Speed, ActionPoints, Mana, Rage, StatusEffects, ActiveCombatant (marker), UnitToken, etc.
+    components.rs   ECS components: HexCell, Vital, CombatStats, Speed, ActionPoints, Mana, Rage, Energy, StatusEffects (with dot_per_tick), ActiveCombatant (marker), UnitToken, etc.
     resources.rs    CombatContext (round, encounter, turn_ending), TurnQueue, GameDb (with validation), SelectionState, ScenarioState, HexPositions (+ generation counter), UiDirty/UiDirtyFlags
-    combat_log.rs   CombatEvent enum (16 variants) + CombatLog resource + CombatEvent::format() method
+    combat_log.rs   CombatEvent enum (18 variants: +EnergyChanged, +PoisonTick, +PoisonCleansed) + CombatLog resource + CombatEvent::format()
     messages.rs     UseAbility, ValidatedAction, ApplyDamage, ApplyHeal, ApplyStatus, MoveUnit, EndTurn, RestartCombat
     bundles.rs      CombatantBundle, hero_bundle(), enemy_bundle()
     hex.rs          Grid constants, hex_distance, hex_neighbors, in_bounds
     pathfinding.rs  find_path (BFS), reachable_cells, reachable_with_paths (BFS + path reconstruction)
 
   content/
-    abilities.rs    AbilityDef, EffectDef, TargetType + TOML loader
+    abilities.rs    AbilityDef, EffectDef, ResourceCost, TargetType + TOML loader
     statuses.rs     StatusDef + TOML loader
     weapons.rs      WeaponDef + TOML loader
     classes.rs      ClassDef + TOML loader
@@ -63,16 +63,16 @@ src/
 
   combat/
     turn_order.rs   Initiative rolls, turn queue construction
-    turn_start.rs   Mana +1 at turn start
+    turn_start.rs   Mana +1, Energy +1 at turn start
     skip_dead.rs    Skip dead / stunned turns
     command_input.rs  Player keyboard input (1-5, M, Tab, Enter, E, Escape)
     enemy_ai.rs     AI: ability scoring, pathfinding, movement. CombatantQ (QueryData struct)
     movement.rs     MoveUnit processing, HexPositions updates, movement animation queueing
     enemy_popup.rs  PopupCursor + queue_enemy_popup: detects enemy ability use, queues popup
-    validation.rs   UseAbility → ValidatedAction (resources, range, target alive)
-    resolution.rs   Dice rolls, damage/heal/status emission, resource costs
-    apply_effects.rs  Damage (armor), healing, rage gain, death marking
-    advance_turn.rs  Status ticks, victory/defeat, queue advance, AP reset
+    validation.rs   UseAbility → ValidatedAction (unified costs validation, range, target alive)
+    resolution.rs   Dice rolls, damage/heal/status emission, unified resource cost spending
+    apply_effects.rs  Damage (armor), healing (with poison neutralization), rage gain, death marking
+    advance_turn.rs  Status ticks + DoT damage, poison dice roll on apply, victory/defeat, queue advance, AP reset
 
   ui/
     mod.rs          UI marker components (HudPhase, TurnOrderCard*, DefeatOverlay, RestartButton, …)
@@ -89,12 +89,13 @@ src/
 
 ```
 assets/data/
-  abilities.toml    Ability definitions (11 abilities)
-  statuses.toml     Status effect definitions (5 statuses)
+  abilities.toml    Ability definitions (12 abilities, unified costs)
+  statuses.toml     Status effect definitions (6 statuses, including DoT)
   weapons.toml      Weapon definitions (4 weapons)
-  classes.toml      Player class definitions (3 classes)
+  classes.toml      Player class definitions (3 classes, mana/rage/energy)
   encounters.toml   Enemy encounter templates (2 encounters)
   scenarios.toml    Scenario definitions (1 demo scenario)
+  magic_schools.toml  Magic school domains + methods
 ```
 
 ## UI Optimization: Dirty Flags
@@ -105,8 +106,8 @@ assets/data/
 |------|---------|----------|
 | `OVERLAY` | update_hex_visuals (BFS recompute) | actor/ability/move_mode/positions/death |
 | `HEX_FILL` | update_hex_visuals (cell colors) | actor/move_mode/target/positions/death |
-| `LABELS` | update_hex_visuals (HP/mana text) | actor/positions/vitals/mana/rage |
-| `ABILITY_PANEL` | update_ability_panel | actor/ability/mana/rage |
+| `LABELS` | update_hex_visuals (HP/mana/energy text) | actor/positions/vitals/mana/rage/energy |
+| `ABILITY_PANEL` | update_ability_panel | actor/ability/mana/rage/energy |
 | `TURN_ORDER` | update_turn_order | actor/queue/vitals/death |
 | `PHASE_HINT` | update_phase_hint | actor/ability/move_mode |
 | `MOVE_BTN` | update_move_button | actor/move_mode |

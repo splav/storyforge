@@ -1,4 +1,4 @@
-use crate::game::components::{ActiveCombatant, Mana};
+use crate::game::components::{ActiveCombatant, Energy, Mana};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use bevy::prelude::*;
 
@@ -7,6 +7,7 @@ use bevy::prelude::*;
 pub fn turn_start_system(
     active_q: Query<Entity, With<ActiveCombatant>>,
     mut mana_query: Query<&mut Mana>,
+    mut energy_query: Query<&mut Energy>,
     mut log: ResMut<CombatLog>,
     mut last_active: Local<Option<Entity>>,
 ) {
@@ -26,6 +27,18 @@ pub fn turn_start_system(
                 actor,
                 current,
                 max: mana.max,
+            });
+        }
+    }
+
+    // Energy: restore 1 at the start of the actor's own turn.
+    if let Ok(mut energy) = energy_query.get_mut(actor) {
+        if energy.current < energy.max {
+            let current = energy.restore(1);
+            log.push(CombatEvent::EnergyChanged {
+                actor,
+                current,
+                max: energy.max,
             });
         }
     }
