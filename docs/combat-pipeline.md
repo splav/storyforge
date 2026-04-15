@@ -2,12 +2,14 @@
 
 ## System Chain
 
-11 systems in `CombatPhase::AwaitCommand`, gated by `combat_ready()` (no active animations or popups). Ordered via `.after()` — parallel where independent:
+12 systems in `CombatPhase::AwaitCommand`, gated by `combat_ready()` (no active animations or popups). Ordered via `.after()` — parallel where independent:
 
 ```
-turn_start → skip_dead → skip_stunned ─┬→ player_command ─┬→ movement → validate → resolve → apply_effects ─┬→ queue_enemy_popup
-                                        └→ enemy_ai ──────┘                                                 └→ advance_turn
+turn_start → skip_dead → skip_stunned ─┬→ pact_ai ─→ player_command ─┬→ movement → validate → resolve → apply_effects ─┬→ queue_enemy_popup
+                                        └→ enemy_ai ─────────────────┘                                                  └→ advance_turn
 ```
+
+`pact_ai` обрабатывает героев под статусом `pact_control` (крит-провал пакта) — они действуют как AI, стоит до `player_command` чтобы перехватить ход.
 
 ## Message Flow (One Turn)
 
@@ -44,7 +46,7 @@ turn_start → skip_dead → skip_stunned ─┬→ player_command ─┬→ mov
 ## System Details
 
 ### turn_start_system
-Fires once per turn (when `ActiveCombatant` entity differs from `Local<Option<Entity>>`). Restores +1 mana to current actor.
+Fires once per turn (when `ActiveCombatant` entity differs from `Local<Option<Entity>>`). Restores +1 mana and +1 energy to current actor.
 
 ### skip_dead_turn_system / skip_stunned_turn_system
 Dead actor → immediate EndTurn. Stunned actor (`skips_turn` status) → `ap.action = false`, `ap.movement = false`, EndTurn.

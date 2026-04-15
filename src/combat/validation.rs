@@ -1,7 +1,7 @@
 use crate::content::abilities::AoEShape;
 use crate::core::ResourceKind;
 use crate::game::components::{ActiveCombatant, ValidationActorQ, Vital};
-use crate::game::hex::hex_distance;
+use crate::game::hex::{hex_distance, in_bounds};
 use crate::game::messages::{UseAbility, ValidatedAction};
 use crate::game::resources::{GameDb, HexPositions};
 use bevy::prelude::*;
@@ -92,7 +92,9 @@ fn check(
             return (false, false);
         }
     } else if let Some(actor_pos) = positions.get(&ev.actor) {
-        // Use target_pos for range check (works for both entity and cell targeting).
+        if !in_bounds(ev.target_pos.0, ev.target_pos.1) {
+            return (false, false);
+        }
         let dist = hex_distance(actor_pos.0, actor_pos.1, ev.target_pos.0, ev.target_pos.1);
         if dist > def.range.max as i32 {
             return (false, false);

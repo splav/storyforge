@@ -1,0 +1,258 @@
+#![allow(dead_code)]
+
+use bevy::ecs::message::Messages;
+use bevy::prelude::*;
+use bevy::state::app::StatesPlugin;
+
+use storyforge::app_state::{AppState, CombatPhase};
+use storyforge::combat::{
+    advance_turn::advance_turn_system, ai_difficulty::DifficultyProfile,
+    apply_effects::apply_effects_system, enemy_ai::enemy_ai_system,
+    resolution::resolve_action_system,
+    skip_dead::skip_stunned_turn_system,
+    validation::validate_action_system,
+};
+use storyforge::content::statuses::StatusDef;
+use storyforge::core::{DiceExpr, DiceRng};
+use storyforge::game::bundles::{enemy_bundle, hero_bundle};
+use storyforge::game::combat_log::CombatLog;
+use storyforge::game::components::{CombatStats, Equipment};
+use storyforge::game::messages::{
+    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, UseAbility, ValidatedAction,
+};
+use storyforge::game::resources::{
+    CombatContext, GameDb, HexPositions, SelectionState, TurnQueue,
+};
+
+pub const MELEE_ATTACK: &str = "melee_attack";
+
+pub fn base_stats() -> CombatStats {
+    CombatStats {
+        max_hp: 10,
+        strength: 5,
+        dexterity: 5,
+        constitution: 10,
+        intelligence: 0,
+        wisdom: 10,
+        charisma: 10,
+    }
+}
+
+pub fn test_equipment() -> Equipment {
+    Equipment {
+        main_hand: Some("short_sword".into()),
+        off_hand: None,
+        chest: "mage_robe".into(),
+        legs: "cloth_pants".into(),
+        feet: "cloth_shoes".into(),
+    }
+}
+
+pub fn test_hero(stats: CombatStats) -> impl Bundle {
+    hero_bundle(stats, 0, 3, vec![MELEE_ATTACK.into()], test_equipment())
+}
+
+pub fn test_enemy(stats: CombatStats) -> impl Bundle {
+    enemy_bundle(stats, 0, 3, vec![MELEE_ATTACK.into()], test_equipment())
+}
+
+pub fn enter_await_command(app: &mut App) {
+    app.world_mut()
+        .resource_mut::<NextState<AppState>>()
+        .set(AppState::Combat);
+    app.update();
+    app.world_mut()
+        .resource_mut::<NextState<CombatPhase>>()
+        .set(CombatPhase::AwaitCommand);
+    app.update();
+}
+
+pub fn write_message<M: Message>(app: &mut App, msg: M) {
+    app.world_mut().resource_mut::<Messages<M>>().write(msg);
+}
+
+pub fn message_count<M: Message>(app: &App) -> usize {
+    app.world()
+        .resource::<Messages<M>>()
+        .iter_current_update_messages()
+        .count()
+}
+
+pub fn validation_app() -> App {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, StatesPlugin))
+        .init_state::<AppState>()
+        .add_sub_state::<CombatPhase>()
+        .init_resource::<CombatContext>()
+        .init_resource::<TurnQueue>()
+        .init_resource::<CombatLog>()
+        .init_resource::<GameDb>()
+        .init_resource::<SelectionState>()
+        .init_resource::<HexPositions>()
+        .init_resource::<DiceRng>()
+        .add_message::<UseAbility>()
+        .add_message::<ValidatedAction>()
+        .add_systems(
+            Update,
+            validate_action_system.run_if(in_state(CombatPhase::AwaitCommand)),
+        );
+    enter_await_command(&mut app);
+    app
+}
+
+pub fn effects_app() -> App {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, StatesPlugin))
+        .init_state::<AppState>()
+        .add_sub_state::<CombatPhase>()
+        .init_resource::<CombatContext>()
+        .init_resource::<TurnQueue>()
+        .init_resource::<CombatLog>()
+        .init_resource::<GameDb>()
+        .init_resource::<SelectionState>()
+        .init_resource::<DiceRng>()
+        .add_message::<ApplyDamage>()
+        .add_message::<ApplyHeal>()
+        .add_message::<ApplyStatus>()
+        .add_message::<EndTurn>()
+        .add_systems(
+            Update,
+            (apply_effects_system, advance_turn_system)
+                .chain()
+                .run_if(in_state(CombatPhase::AwaitCommand)),
+        );
+    enter_await_command(&mut app);
+    app
+}
+
+pub fn resolve_app() -> App {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, StatesPlugin))
+        .init_state::<AppState>()
+        .add_sub_state::<CombatPhase>()
+        .init_resource::<CombatContext>()
+        .init_resource::<TurnQueue>()
+        .init_resource::<CombatLog>()
+        .init_resource::<GameDb>()
+        .init_resource::<SelectionState>()
+        .init_resource::<HexPositions>()
+        .init_resource::<DiceRng>()
+        .add_message::<ValidatedAction>()
+        .add_message::<ApplyDamage>()
+        .add_message::<ApplyHeal>()
+        .add_message::<ApplyStatus>()
+        .add_message::<EndTurn>()
+        .add_systems(
+            Update,
+            (resolve_action_system, apply_effects_system, advance_turn_system)
+                .chain()
+                .run_if(in_state(CombatPhase::AwaitCommand)),
+        );
+    enter_await_command(&mut app);
+    app
+}
+
+pub fn stun_app() -> App {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, StatesPlugin))
+        .init_state::<AppState>()
+        .add_sub_state::<CombatPhase>()
+        .init_resource::<CombatContext>()
+        .init_resource::<TurnQueue>()
+        .init_resource::<CombatLog>()
+        .init_resource::<GameDb>()
+        .init_resource::<SelectionState>()
+        .init_resource::<HexPositions>()
+        .init_resource::<DiceRng>()
+        .init_resource::<DifficultyProfile>()
+        .add_message::<ApplyDamage>()
+        .add_message::<ApplyHeal>()
+        .add_message::<ApplyStatus>()
+        .add_message::<EndTurn>()
+        .add_message::<UseAbility>()
+        .add_message::<MoveUnit>()
+        .add_systems(
+            Update,
+            (
+                skip_stunned_turn_system,
+                enemy_ai_system,
+                apply_effects_system,
+                advance_turn_system,
+            )
+                .chain()
+                .run_if(in_state(CombatPhase::AwaitCommand)),
+        );
+    enter_await_command(&mut app);
+    app
+}
+
+pub fn pipeline_app() -> App {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, StatesPlugin))
+        .init_state::<AppState>()
+        .add_sub_state::<CombatPhase>()
+        .init_resource::<CombatContext>()
+        .init_resource::<TurnQueue>()
+        .init_resource::<CombatLog>()
+        .init_resource::<GameDb>()
+        .init_resource::<SelectionState>()
+        .init_resource::<HexPositions>()
+        .init_resource::<DiceRng>()
+        .add_message::<UseAbility>()
+        .add_message::<ValidatedAction>()
+        .add_message::<ApplyDamage>()
+        .add_message::<ApplyHeal>()
+        .add_message::<ApplyStatus>()
+        .add_message::<EndTurn>()
+        .add_systems(
+            Update,
+            (
+                validate_action_system,
+                resolve_action_system,
+                apply_effects_system,
+                advance_turn_system,
+            )
+                .chain()
+                .run_if(in_state(CombatPhase::AwaitCommand)),
+        );
+    enter_await_command(&mut app);
+    app
+}
+
+pub fn insert_stun_status(app: &mut App) {
+    app.world_mut().resource_mut::<GameDb>().statuses.insert(
+        "stun".into(),
+        StatusDef {
+            id: "stun".into(),
+            name: "Stun".into(),
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            skips_turn: true,
+            forces_targeting: false,
+            dot_dice: None,
+            blocks_mana_abilities: false,
+            speed_bonus: 0,
+            hp_percent_dot: 0,
+            ai_controlled: false,
+        },
+    );
+}
+
+pub fn insert_poison_status(app: &mut App) {
+    app.world_mut().resource_mut::<GameDb>().statuses.insert(
+        "poisoned".into(),
+        StatusDef {
+            id: "poisoned".into(),
+            name: "Poisoned".into(),
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            skips_turn: false,
+            forces_targeting: false,
+            dot_dice: Some(DiceExpr::new(1, 4, 0)),
+            blocks_mana_abilities: false,
+            speed_bonus: 0,
+            hp_percent_dot: 0,
+            ai_controlled: false,
+        },
+    );
+}

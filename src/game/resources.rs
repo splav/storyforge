@@ -373,6 +373,21 @@ impl GameDb {
             }
         }
 
+        // Encounters → hex position collisions
+        for (id, enc) in &self.encounters {
+            let mut seen = std::collections::HashSet::new();
+            for enemy in &enc.enemies {
+                assert!(
+                    seen.insert(enemy.hex_pos),
+                    "encounter '{}': enemies '{}' and another share hex position ({}, {})",
+                    id,
+                    enemy.name,
+                    enemy.hex_pos.0,
+                    enemy.hex_pos.1
+                );
+            }
+        }
+
         // Scenarios → races, factions, encounters, classes
         for (id, scen) in &self.scenarios {
             for member in &scen.party {
@@ -409,6 +424,18 @@ impl GameDb {
                     member.class_id
                 );
             }
+            // Party hex collisions.
+            let mut party_positions = std::collections::HashSet::new();
+            for member in &scen.party {
+                assert!(
+                    party_positions.insert(member.hex_pos),
+                    "scenario '{}': party members share hex position ({}, {})",
+                    id,
+                    member.hex_pos.0,
+                    member.hex_pos.1
+                );
+            }
+
             for scene in &scen.scenes {
                 if let crate::content::scenarios::SceneDef::Combat { encounter_id } = scene {
                     assert!(
@@ -417,6 +444,21 @@ impl GameDb {
                         id,
                         encounter_id
                     );
+
+                    // Party + enemy hex collisions.
+                    if let Some(enc) = self.encounters.get(encounter_id.as_str()) {
+                        for enemy in &enc.enemies {
+                            assert!(
+                                !party_positions.contains(&enemy.hex_pos),
+                                "scenario '{}' encounter '{}': enemy '{}' at ({}, {}) overlaps with a party member",
+                                id,
+                                encounter_id,
+                                enemy.name,
+                                enemy.hex_pos.0,
+                                enemy.hex_pos.1
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -443,6 +485,12 @@ pub struct HexPositions {
 
 impl HexPositions {
     pub fn insert(&mut self, entity: Entity, pos: (i32, i32)) {
+        debug_assert!(
+            self.by_pos.get(&pos).is_none_or(|&e| e == entity),
+            "HexPositions: position ({}, {}) already occupied by another entity",
+            pos.0,
+            pos.1,
+        );
         if let Some(&old_pos) = self.by_entity.get(&entity) {
             self.by_pos.remove(&old_pos);
         }

@@ -145,7 +145,8 @@ fn main() {
             Update,
             scenario::advance_scenario_system
                 .after(scenario::input::victory_input_system)
-                .after(ui::story_ui::story_input_system),
+                .after(ui::story_ui::story_input_system)
+                .run_if(in_state(AppState::Story).or(in_state(CombatPhase::Victory))),
         )
         // ── Combat pipeline ──────────────────────────────────────────────
         .add_systems(

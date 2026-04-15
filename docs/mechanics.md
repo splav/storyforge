@@ -28,6 +28,8 @@ actual = max(1, raw + damage_taken_bonus)
 ```
 Pierces armor: ignores `armor` and `armor_bonus`.
 
+**Минимальный урон = 1.** Любая атака наносит не менее 1 урона независимо от брони. Это значит, что даже полностью заблокированная атака «царапает». Множество слабых атак по бронированной цели суммарно пробивают защиту.
+
 ## Healing
 
 ```
@@ -90,6 +92,10 @@ amount = dice_roll + INT_mod + spell_power
 | `skips_turn` | Unit cannot act or move |
 | `forces_targeting` | Enemies must target this unit (taunt) |
 | `dot_dice` | Периодический урон (яд); см. ниже |
+| `blocks_mana_abilities` | Блокирует использование способностей с mana-костом |
+| `speed_bonus` | Модифицирует скорость передвижения |
+| `hp_percent_dot` | % от max_hp как урон за каждый тик |
+| `ai_controlled` | Герой действует под управлением AI (pact) |
 
 ### Duration
 - Ticks on **applier's** EndTurn, not target's
@@ -129,6 +135,21 @@ amount = dice_roll + INT_mod + spell_power
 
 **Пример — полное снятие:**
 `dot_per_tick = 3`, heal = 5 → яд снят, 2 HP восстановлены.
+
+## Critical Failures
+
+При использовании способности бросается d20. При 1 — критический провал. Эффект зависит от `path` комбатанта (определяется в `races.toml`):
+
+| Path | Эффект | Описание |
+|------|--------|----------|
+| `faith` | BrokenFaith | Промах + статус `broken_faith` на 1 ход (блокирует мана-способности) |
+| `will` | ManaOverload | Способность срабатывает, но стоимость маны ×2. Дефицит маны наносит урон HP |
+| `tech` | CircuitBreach | Промах + урон себе = (мана-кост + 1) / 2, игнорирует броню |
+| `heritage` | Exhaustion | Промах + статус `exhaustion` на 2 хода (замедление + 5% max_hp DoT) |
+| `pact` | PactControl | Промах + статус `pact_control` на 1 ход (AI управляет героем) |
+| (нет path) | Miss | Просто промах |
+
+Ресурсы тратятся всегда, даже при крит-провале. AI учитывает 5% вероятность провала при скоринге способностей.
 
 ## Enemy AI
 

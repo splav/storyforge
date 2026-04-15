@@ -23,7 +23,7 @@ StartRound → AwaitCommand → Victory / Defeat
 ```
 
 - `StartRound` — builds turn order (initiative d20 + DEX mod, round 1 only), transitions to AwaitCommand
-- `AwaitCommand` — 11 systems with explicit `.after()` ordering (player_command ∥ enemy_ai, queue_enemy_popup ∥ advance_turn). Blocked by `combat_ready()` while animations or popups active
+- `AwaitCommand` — 12 systems with explicit `.after()` ordering (player_command ∥ enemy_ai, queue_enemy_popup ∥ advance_turn, + pact_ai). Blocked by `combat_ready()` while animations or popups active
 - `Victory` — all enemies dead. Space → advance scenario
 - `Defeat` — all heroes dead. Показывает оверлей с двумя вариантами: **R / кнопка** → `RestartCombat` (перезапуск боя с сохранённой инициативой), **Esc** → MainMenu
 
@@ -54,12 +54,14 @@ src/
     pathfinding.rs  find_path (BFS), reachable_cells, reachable_with_paths (BFS + path reconstruction)
 
   content/
-    abilities.rs    AbilityDef, EffectDef, ResourceCost, TargetType + TOML loader
+    abilities.rs    AbilityDef, EffectDef, ResourceCost, TargetType, AoEShape, CasterContext + TOML loader
     statuses.rs     StatusDef + TOML loader
-    weapons.rs      WeaponDef + TOML loader
+    weapons.rs      WeaponDef, HandType + TOML loader
+    armor.rs        ArmorDef, ArmorSlot + TOML loader (chest/legs/feet)
     classes.rs      ClassDef + TOML loader
     encounters.rs   EncounterDef, EnemyDef + TOML loader
     scenarios.rs    ScenarioDef, SceneDef, PartyMemberDef + TOML loader
+    races.rs        RaceDef, FactionDef, PathDef, CritFailEffect + TOML loader
 
   combat/
     turn_order.rs   Initiative rolls, turn queue construction
@@ -89,13 +91,17 @@ src/
 
 ```
 assets/data/
-  abilities.toml    Ability definitions (12 abilities, unified costs)
-  statuses.toml     Status effect definitions (6 statuses, including DoT)
-  weapons.toml      Weapon definitions (4 weapons)
-  classes.toml      Player class definitions (3 classes, mana/rage/energy)
-  encounters.toml   Enemy encounter templates (2 encounters)
-  scenarios.toml    Scenario definitions (1 demo scenario)
-  magic_schools.toml  Magic school domains + methods
+  abilities.toml        Ability definitions (13 abilities, unified costs)
+  statuses.toml         Status effect definitions (9 statuses: defending, taunted, stunned, burning, paralyzed, poisoned, broken_faith, exhaustion, pact_control)
+  classes.toml           Player class definitions (3 classes: warrior/mage/ranger)
+  encounters.toml        Enemy encounter templates (2 encounters)
+  scenarios.toml         Scenario definitions (1 demo scenario)
+  magic_schools.toml     Magic school domains + methods
+  equipment/
+    weapons.toml         Weapon definitions (5 weapons)
+    chest.toml           Chest armor pieces
+    legs.toml            Leg armor pieces
+    feet.toml            Footwear
 ```
 
 ## UI Optimization: Dirty Flags

@@ -105,21 +105,8 @@ pub fn advance_turn_system(
     }
 
     // 3. Win/lose check.
-    let (players_alive, enemies_alive) = {
-        let q = queries.p1();
-        let pa = q.iter().any(|(v, f)| v.is_alive() && f.0 == Team::Player);
-        let ea = q.iter().any(|(v, f)| v.is_alive() && f.0 == Team::Enemy);
-        (pa, ea)
-    };
-
-    if !enemies_alive {
-        log.push(CombatEvent::CombatEnded { victory: true });
-        next_phase.set(CombatPhase::Victory);
-        return;
-    }
-    if !players_alive {
-        log.push(CombatEvent::CombatEnded { victory: false });
-        next_phase.set(CombatPhase::Defeat);
+    if let Some(outcome) = check_combat_end(&queries.p1()) {
+        end_combat(outcome, &mut log, &mut next_phase);
         return;
     }
 
@@ -182,6 +169,14 @@ pub fn advance_turn_system(
         }
     }
 
+    // 5. Recheck win/lose — DoT during the advance loop may have killed
+    //    the last remaining player or enemy.
+    if let Some(outcome) = check_combat_end(&queries.p1()) {
+        end_combat(outcome, &mut log, &mut next_phase);
+        return;
+    }
+
+    // 6. Hand off to the next actor or start a new round.
     for e in &active_q { commands.entity(e).remove::<ActiveCombatant>(); }
 
     if queue.index == 0 {
@@ -194,6 +189,31 @@ pub fn advance_turn_system(
         commands.entity(next_actor).insert(ActiveCombatant);
         log.push(CombatEvent::TurnStarted { actor: next_actor });
     }
+}
+
+/// Returns `Some(true)` for victory, `Some(false)` for defeat, `None` if combat continues.
+fn check_combat_end(
+    combatants: &Query<(&Vital, &Faction), With<Combatant>>,
+) -> Option<bool> {
+    let players_alive = combatants.iter().any(|(v, f)| v.is_alive() && f.0 == Team::Player);
+    let enemies_alive = combatants.iter().any(|(v, f)| v.is_alive() && f.0 == Team::Enemy);
+
+    if !enemies_alive {
+        Some(true)
+    } else if !players_alive {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn end_combat(
+    victory: bool,
+    log: &mut CombatLog,
+    next_phase: &mut NextState<CombatPhase>,
+) {
+    log.push(CombatEvent::CombatEnded { victory });
+    next_phase.set(if victory { CombatPhase::Victory } else { CombatPhase::Defeat });
 }
 
 enum TickResult {
