@@ -3,7 +3,7 @@ use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
-use crate::combat::ai::utility::ActionCandidate;
+use crate::combat::ai::utility::{ActionCandidate, CandidateKind};
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::game::hex::{hex_circle, hex_line, Hex};
 use crate::game::resources::GameDb;
@@ -41,7 +41,7 @@ pub enum TacticalIntent {
 }
 
 /// Intent kind without target data, for stickiness comparison.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum IntentKind {
     FocusTarget,
     ApplyCC,
@@ -135,11 +135,11 @@ pub fn select_intent(
         consider(TacticalIntent::ProtectSelf, urgency);
     }
 
-    // ProtectAlly: score based on ally urgency.
+    // ProtectAlly: score based on ally urgency. Self is a valid target — a
+    // wounded healer should pick themselves if they're the most at risk.
     if active.tags.contains(AiTags::CAN_HEAL) {
         let most_wounded = snap
             .allies_of(active.team)
-            .filter(|u| u.entity != active.entity)
             .filter(|u| (u.hp as f32 / u.max_hp.max(1) as f32) < 0.5)
             .min_by_key(|u| u.hp);
         if let Some(ally) = most_wounded {
@@ -149,44 +149,60 @@ pub fn select_intent(
         }
     }
 
-    // FocusTarget: killable enemy scores highest, otherwise best priority target.
-    // "Killable" uses effective HP (hp + armor) — consistent with the utility
-    // `kill` factor. Prevents focusing on a low-HP tank whose armor blocks the hit.
-    let killable = snap
-        .enemies_of(active.team)
-        .filter(|e| {
-            let effective_hp = e.hp as f32 + (e.armor + e.armor_bonus) as f32;
-            active.threat >= effective_hp
-        })
-        .min_by_key(|e| e.hp + e.armor + e.armor_bonus);
-    if let Some(target) = killable {
-        // Killable targets get a high base score.
-        let kill_score = 1.2 + (1.0 - target.hp as f32 / target.max_hp.max(1) as f32) * 0.3;
-        consider(TacticalIntent::FocusTarget { target: target.entity }, kill_score);
-    } else {
-        // Fallback: highest-priority target with moderate score.
-        let default_target = snap
-            .enemies_of(active.team)
-            .max_by(|a, b| {
-                target_priority(active, a, snap)
-                    .partial_cmp(&target_priority(active, b, snap))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-        if let Some(target) = default_target {
-            let prio = target_priority(active, target, snap);
-            consider(TacticalIntent::FocusTarget { target: target.entity }, 0.5 + prio * 0.3);
-        }
-    }
+    // Taunt: if an enemy has FORCES_TARGETING, engine filters all Cast-candidates
+    // to that enemy only. Restrict FocusTarget/ApplyCC to the taunter so we don't
+    // pick an unreachable "priority" target and then fall back through the viability
+    // guard — that produced confusing "Priority target: X … fallback to Y" logs.
+    let taunter = snap.enemies_of(active.team)
+        .find(|e| e.tags.contains(AiTags::FORCES_TARGETING));
 
-    // ApplyCC: high-threat unstunned enemy.
-    if active.tags.contains(AiTags::CAN_CC) {
-        let cc_target = snap
+    if let Some(t) = taunter {
+        // Forced engagement. Score on par with killable so it beats default FocusTarget
+        // but can still lose to ProtectSelf/ProtectAlly in a survival crisis.
+        consider(TacticalIntent::FocusTarget { target: t.entity }, 1.2);
+        if active.tags.contains(AiTags::CAN_CC) && !t.tags.contains(AiTags::IS_STUNNED) {
+            consider(TacticalIntent::ApplyCC { target: t.entity }, 0.8 + t.threat * 0.1);
+        }
+    } else {
+        // FocusTarget: killable enemy scores highest, otherwise best priority target.
+        // "Killable" requires BOTH: (a) effective HP within threat (armor-aware),
+        // (b) reachable this turn (dist ≤ speed + max attack range).
+        let reach_budget = (active.speed.max(0) as u32).saturating_add(active.max_attack_range);
+        let killable = snap
             .enemies_of(active.team)
-            .filter(|e| !e.tags.contains(AiTags::IS_STUNNED))
-            .max_by(|a, b| a.threat.partial_cmp(&b.threat).unwrap_or(std::cmp::Ordering::Equal));
-        if let Some(target) = cc_target {
-            let cc_score = 0.8 + target.threat * 0.1;
-            consider(TacticalIntent::ApplyCC { target: target.entity }, cc_score);
+            .filter(|e| {
+                let effective_hp = e.hp as f32 + (e.armor + e.armor_bonus) as f32;
+                active.threat >= effective_hp
+            })
+            .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
+            .min_by_key(|e| e.hp + e.armor + e.armor_bonus);
+        if let Some(target) = killable {
+            let kill_score = 1.2 + (1.0 - target.hp as f32 / target.max_hp.max(1) as f32) * 0.3;
+            consider(TacticalIntent::FocusTarget { target: target.entity }, kill_score);
+        } else {
+            let default_target = snap
+                .enemies_of(active.team)
+                .max_by(|a, b| {
+                    target_priority(active, a, snap)
+                        .partial_cmp(&target_priority(active, b, snap))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+            if let Some(target) = default_target {
+                let prio = target_priority(active, target, snap);
+                consider(TacticalIntent::FocusTarget { target: target.entity }, 0.5 + prio * 0.3);
+            }
+        }
+
+        // ApplyCC: high-threat unstunned enemy.
+        if active.tags.contains(AiTags::CAN_CC) {
+            let cc_target = snap
+                .enemies_of(active.team)
+                .filter(|e| !e.tags.contains(AiTags::IS_STUNNED))
+                .max_by(|a, b| a.threat.partial_cmp(&b.threat).unwrap_or(std::cmp::Ordering::Equal));
+            if let Some(target) = cc_target {
+                let cc_score = 0.8 + target.threat * 0.1;
+                consider(TacticalIntent::ApplyCC { target: target.entity }, cc_score);
+            }
         }
     }
 
@@ -216,6 +232,62 @@ pub fn select_intent(
     best_intent.unwrap_or(TacticalIntent::Reposition)
 }
 
+/// Minimum `intent_score` value indicating the intent can actually be executed
+/// by *some* candidate. If nothing reaches this threshold, the intent is moot
+/// and pick_action swaps to a FocusTarget default to avoid stale commitments
+/// (e.g., AI declares "Reposition" but every tile is worse than staying).
+pub fn intent_viability_threshold(intent: &TacticalIntent) -> f32 {
+    match intent {
+        // Need an actual improvement to call it repositioning.
+        TacticalIntent::Reposition => 0.01,
+        // Must have a candidate that actually targets the focus enemy.
+        TacticalIntent::FocusTarget { .. } => 1.0,
+        // At least damage on the CC target (0.5) — full CC match is 1.0.
+        TacticalIntent::ApplyCC { .. } => 0.5,
+        // Heal on the right ally is 1.0; adjacent-tile fallback is 0.5.
+        TacticalIntent::ProtectAlly { .. } => 0.5,
+        // Any AoE hit fraction > 0 counts.
+        TacticalIntent::SetupAOE => 0.01,
+        // These have dedicated flows / fallbacks inside pick_action.
+        TacticalIntent::ProtectSelf | TacticalIntent::LastStand => f32::NEG_INFINITY,
+    }
+}
+
+/// Pick a fallback FocusTarget.
+///
+/// Preference order:
+/// 1. Enemy that at least one candidate can actually reach this turn (highest priority among them).
+/// 2. If no candidate reaches any enemy, highest-priority enemy overall — so AI commits
+///    to a direction even when no move lands this turn.
+///
+/// `exclude` skips the original unreachable target so we pick a genuinely
+/// different fallback (avoids "fallback from FocusTarget(X) → FocusTarget(X)").
+pub fn default_focus_target(
+    active: &UnitSnapshot,
+    snap: &BattleSnapshot,
+    candidates: &[ActionCandidate],
+    exclude: Option<Entity>,
+) -> Option<Entity> {
+    let reachable: std::collections::HashSet<Entity> = candidates
+        .iter()
+        .filter_map(|c| c.target())
+        .collect();
+
+    let pick_best = |include_reachable_only: bool| {
+        snap.enemies_of(active.team)
+            .filter(|e| Some(e.entity) != exclude)
+            .filter(|e| !include_reachable_only || reachable.contains(&e.entity))
+            .max_by(|a, b| {
+                target_priority(active, a, snap)
+                    .partial_cmp(&target_priority(active, b, snap))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|e| e.entity)
+    };
+
+    pick_best(true).or_else(|| pick_best(false))
+}
+
 /// Update memory after intent is selected.
 pub fn update_memory(memory: &mut AiMemory, intent: &TacticalIntent) {
     let kind = intent.kind();
@@ -242,110 +314,118 @@ pub fn intent_score(
     db: &GameDb,
     difficulty: &DifficultyProfile,
 ) -> f32 {
+    // MoveOnly candidates: scored only on position-related intent axes.
+    let cast = match &candidate.kind {
+        CandidateKind::Cast { ability, target_pos, target } => {
+            Some((ability, *target_pos, *target))
+        }
+        CandidateKind::MoveOnly => None,
+    };
+
     match intent {
-        TacticalIntent::FocusTarget { target } => {
-            if candidate.target == *target {
-                return 1.0;
+        TacticalIntent::FocusTarget { target: focus } => match cast {
+            Some((ability, _, target)) => {
+                if target == *focus {
+                    return 1.0;
+                }
+                let Some(def) = db.abilities.get(ability) else {
+                    return MISALIGN_PENALTY;
+                };
+                if def.target_type == TargetType::SingleAlly { 0.3 } else { MISALIGN_PENALTY }
             }
-            let Some(def) = db.abilities.get(&candidate.ability) else {
-                return MISALIGN_PENALTY;
-            };
-            // Heals pass through neutrally.
-            if def.target_type == TargetType::SingleAlly {
-                0.3
-            } else {
-                MISALIGN_PENALTY
+            // Pure move during FocusTarget is neutral — not aligned, not punished.
+            None => 0.0,
+        },
+        TacticalIntent::ApplyCC { target: cc_target } => match cast {
+            Some((ability, _, target)) => {
+                let Some(def) = db.abilities.get(ability) else {
+                    return 0.0;
+                };
+                let is_cc = def.statuses.iter().any(|sa| {
+                    db.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn)
+                });
+                if is_cc && target == *cc_target { 1.0 }
+                else if is_cc { MISALIGN_PENALTY }
+                else if target == *cc_target { 0.5 }
+                else { 0.0 }
             }
-        }
-        TacticalIntent::ApplyCC { target } => {
-            let Some(def) = db.abilities.get(&candidate.ability) else {
-                return 0.0;
-            };
-            let is_cc = def.statuses.iter().any(|sa| {
-                db.statuses
-                    .get(&sa.status)
-                    .is_some_and(|sd| sd.skips_turn)
-            });
-            if is_cc && candidate.target == *target {
-                1.0
-            } else if is_cc {
-                // CC on wrong target — misaligned.
-                MISALIGN_PENALTY
-            } else if candidate.target == *target {
-                0.5
-            } else {
-                0.0
-            }
-        }
+            None => 0.0,
+        },
         TacticalIntent::Reposition => {
+            // Same formula for Cast and MoveOnly — position improvement is the axis.
             let current = evaluate_position(active.pos, active.role, maps);
             let new = evaluate_position(candidate.tile, active.role, maps);
             let improvement = new - current;
             let min_improv = difficulty.reposition_min_improvement();
-            // Only reward meaningful improvement; penalize lateral/worse moves.
-            if improvement < min_improv {
-                -1.0
-            } else {
-                improvement.min(2.0)
-            }
+            if improvement < min_improv { -1.0 } else { improvement.min(2.0) }
         }
         TacticalIntent::ProtectSelf => {
-            // Normalized danger [0, 1]: safer tiles score higher.
-            let danger = maps.danger.get(candidate.tile);
-            1.0 - danger
-        }
-        TacticalIntent::ProtectAlly { ally } => {
-            let Some(def) = db.abilities.get(&candidate.ability) else {
-                return 0.0;
-            };
-            if def.target_type == TargetType::SingleAlly {
-                // Heal on the right ally is great, wrong ally is penalized.
-                if candidate.target == *ally { 1.0 } else { MILD_PENALTY }
-            } else if snap
-                .unit(*ally)
-                .is_some_and(|a| candidate.tile.unsigned_distance_to(a.pos) <= 1)
-            {
-                0.5
-            } else {
-                0.0
+            // Self-directed defensive casts (self-heal, self-buff on Myself or
+            // SingleAlly aimed at caster) are full ProtectSelf alignment —
+            // staying put to save yourself is protecting self, regardless of
+            // tile danger. Otherwise use tile safety.
+            if let Some((ability, _, target)) = cast {
+                if target == active.entity {
+                    if let Some(def) = db.abilities.get(ability) {
+                        if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
+                            return 1.0;
+                        }
+                    }
+                }
             }
+            1.0 - maps.danger.get(candidate.tile)
         }
+        TacticalIntent::ProtectAlly { ally } => match cast {
+            Some((ability, _, target)) => {
+                let Some(def) = db.abilities.get(ability) else { return 0.0 };
+                if def.target_type == TargetType::SingleAlly {
+                    if target == *ally { 1.0 } else { MILD_PENALTY }
+                } else if snap.unit(*ally).is_some_and(|a| candidate.tile.unsigned_distance_to(a.pos) <= 1) {
+                    0.5
+                } else {
+                    0.0
+                }
+            }
+            // Move adjacent to the wounded ally = mild support (bodyguard).
+            None => {
+                if snap.unit(*ally).is_some_and(|a| candidate.tile.unsigned_distance_to(a.pos) <= 1) {
+                    0.5
+                } else {
+                    0.0
+                }
+            }
+        },
         TacticalIntent::SetupAOE => {
-            let Some(def) = db.abilities.get(&candidate.ability) else {
+            let Some((ability, target_pos, _)) = cast else {
+                // Pure movement can't set up AoE; neutral.
                 return 0.0;
             };
+            let Some(def) = db.abilities.get(ability) else { return 0.0 };
             if def.aoe == AoEShape::None {
-                // Single-target when intent says AoE — mild penalty.
                 return MILD_PENALTY;
             }
             let area: Vec<Hex> = match def.aoe {
-                AoEShape::Circle { radius } => hex_circle(candidate.target_pos, radius),
-                AoEShape::Line { length } => {
-                    hex_line(candidate.tile, candidate.target_pos, length)
-                }
+                AoEShape::Circle { radius } => hex_circle(target_pos, radius),
+                AoEShape::Line { length } => hex_line(candidate.tile, target_pos, length),
                 AoEShape::None => vec![],
             };
             let area_set: HashSet<Hex> = area.into_iter().collect();
             let total = snap.enemies_of(active.team).count() as f32;
-            let hit = snap
-                .enemies_of(active.team)
-                .filter(|e| area_set.contains(&e.pos))
-                .count() as f32;
+            let hit = snap.enemies_of(active.team).filter(|e| area_set.contains(&e.pos)).count() as f32;
             if total > 0.0 { hit / total } else { 0.0 }
         }
         TacticalIntent::LastStand => {
-            let Some(def) = db.abilities.get(&candidate.ability) else {
-                return 0.0;
+            let Some((ability, _, target)) = cast else {
+                // LastStand wants last useful action, not running.
+                return -0.3;
             };
+            let Some(def) = db.abilities.get(ability) else { return 0.0 };
             let mut score = 0.0f32;
 
-            // Offensive actions are aligned with LastStand.
             if matches!(def.target_type, TargetType::SingleEnemy) {
                 score += 0.5;
             }
-
-            // CC on unstunned target — high value.
-            if let Some(target_unit) = snap.unit(candidate.target) {
+            if let Some(target_unit) = snap.unit(target) {
                 let is_cc = def.statuses.iter().any(|sa| {
                     db.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn)
                 });
@@ -353,13 +433,9 @@ pub fn intent_score(
                     score += 0.8;
                 }
             }
-
-            // AoE bonus.
             if def.aoe != AoEShape::None {
                 score += 0.3;
             }
-
-            // Heals/buffs are not the priority but not penalized.
             if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
                 score += 0.1;
             }
@@ -416,6 +492,7 @@ mod tests {
             statuses: vec![],
             threat: 5.0,
             tags: AiTags::MELEE_ONLY,
+            max_attack_range: 1,
         }
     }
 
@@ -423,9 +500,11 @@ mod tests {
         ActionCandidate {
             tile,
             path: vec![],
-            ability: "melee_attack".into(),
-            target_pos: tile,
-            target: Entity::from_raw_u32(1).expect("valid"),
+            kind: CandidateKind::Cast {
+                ability: "melee_attack".into(),
+                target_pos: tile,
+                target: Entity::from_raw_u32(1).expect("valid"),
+            },
         }
     }
 

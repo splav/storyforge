@@ -52,6 +52,7 @@ pub struct CandidateDebug {
     pub tile_influence: TileInfluence,
     pub raw: [f32; 9],
     pub total: f32,
+    pub is_move_only: bool,
 }
 
 /// Actor state at decision time.
@@ -85,8 +86,25 @@ pub struct AiDebugSnapshot {
     pub intent: IntentReasoning,
     pub priority_target: Option<(String, f32)>,
     pub top_candidates: Vec<CandidateDebug>,
+    pub pick: Option<PickDebug>,
     pub decision: DecisionDebug,
     pub candidate_count: usize,
+}
+
+/// One candidate that survived the similarity window and entered the sampling pool.
+pub struct PoolEntry {
+    pub label: String,   // "ability → target_name"
+    pub score: f32,
+}
+
+/// Diagnostic for the final pick phase: top-K + mercy + similarity window.
+pub struct PickDebug {
+    pub top_k: usize,           // requested K from difficulty
+    pub window: f32,            // similarity window (noise_amp × 2)
+    pub mercy_margin: f32,      // mercy_margin at call time
+    pub mercy_applied: bool,    // did mercy rerank the window?
+    pub pool: Vec<PoolEntry>,   // candidates eligible for random pick
+    pub chosen_pos: usize,      // 0-based position in pool that won
 }
 
 /// Resource: AI debug state.
@@ -209,19 +227,24 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
         snap.top_candidates.len(),
     );
     for (i, c) in snap.top_candidates.iter().enumerate() {
+        // Skip zero factors — only meaningful numbers survive, keeps the line scannable.
         let factors: String = c
             .raw
             .iter()
             .zip(FACTOR_NAMES.iter())
+            .filter(|(v, _)| v.abs() > 0.001)
             .map(|(v, n)| format!("{}={:.2}", n, v))
             .collect::<Vec<_>>()
             .join(" ");
+        let header = if c.is_move_only {
+            format!("retreat → {}", fmt_pos(c.tile))
+        } else {
+            format!("{} {} at {}", c.ability, c.target_name, fmt_pos(c.tile))
+        };
         println!(
-            "  #{} {} → {} @ {}  [{}] = {:.2}",
+            "  #{} {}  [{}] = {:.2}",
             i + 1,
-            c.ability,
-            c.target_name,
-            fmt_pos(c.tile),
+            header,
             factors,
             c.total,
         );
@@ -229,6 +252,23 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
             "     tile: {}",
             fmt_influence(&c.tile_influence),
         );
+    }
+
+    // Pick phase: top-K + mercy + similarity window.
+    if let Some(pick) = &snap.pick {
+        let mercy_note = if pick.mercy_applied { " +mercy" } else { "" };
+        println!(
+            "  ── Pick (top_k={}, window={:.2}, mercy={:.2}{}) ──",
+            pick.top_k, pick.window, pick.mercy_margin, mercy_note,
+        );
+        if pick.pool.is_empty() {
+            println!("    pool empty");
+        } else {
+            for (i, entry) in pick.pool.iter().enumerate() {
+                let mark = if i == pick.chosen_pos { " ← chosen" } else { "" };
+                println!("    {} = {:.2}{}", entry.label, entry.score, mark);
+            }
+        }
     }
 
     // Final decision.

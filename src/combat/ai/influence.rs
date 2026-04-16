@@ -311,6 +311,7 @@ mod tests {
             statuses: vec![],
             threat: 5.0,
             tags: AiTags::MELEE_ONLY,
+            max_attack_range: 1,
         }
     }
 

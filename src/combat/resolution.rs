@@ -90,6 +90,8 @@ pub fn resolve_action_system(
             actor: ev.actor,
             ability_name: def.name.clone(),
             target: primary_target,
+            target_pos: ev.target_pos,
+            is_aoe: def.aoe != AoEShape::None,
             cost_str,
         });
 

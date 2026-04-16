@@ -95,6 +95,7 @@ mod tests {
             statuses: vec![],
             threat: 5.0,
             tags: AiTags::empty(),
+            max_attack_range: 0,
         }
     }
 

@@ -2,7 +2,10 @@
 use crate::combat::ai::constraints::filter_candidates;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
-use crate::combat::ai::intent::{intent_score, select_intent, update_memory, AiMemory, TacticalIntent};
+use crate::combat::ai::intent::{
+    default_focus_target, intent_score, intent_viability_threshold, select_intent, update_memory,
+    AiMemory, TacticalIntent,
+};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AiRole;
@@ -19,19 +22,56 @@ use crate::game::resources::{GameDb, HexPositions};
 use bevy::prelude::*;
 use hexx::EdgeDirection;
 use crate::combat::ai::debug::{
-    ActorDebug, AiDebugSnapshot, CandidateDebug, DecisionDebug, IntentReasoning, TileInfluence,
+    ActorDebug, AiDebugSnapshot, CandidateDebug, DecisionDebug, IntentReasoning, PickDebug,
+    PoolEntry, TileInfluence,
 };
 use crate::game::hex::hex_to_offset;
 use std::collections::{HashMap, HashSet};
 
 // ── Public types ────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct ActionCandidate {
     pub tile: Hex,
     pub path: Vec<Hex>,
-    pub ability: AbilityId,
-    pub target_pos: Hex,
-    pub target: Entity,
+    pub kind: CandidateKind,
+}
+
+/// A candidate is either a cast (ability + target) or a pure movement to a
+/// defensive tile. MoveOnly integrates "just retreat" into the normal scoring
+/// pipeline — top_k, mercy, noise and intent all apply uniformly.
+#[derive(Clone)]
+pub enum CandidateKind {
+    Cast {
+        ability: AbilityId,
+        target_pos: Hex,
+        target: Entity,
+    },
+    MoveOnly,
+}
+
+impl ActionCandidate {
+    pub fn ability(&self) -> Option<&AbilityId> {
+        match &self.kind {
+            CandidateKind::Cast { ability, .. } => Some(ability),
+            CandidateKind::MoveOnly => None,
+        }
+    }
+    pub fn target(&self) -> Option<Entity> {
+        match &self.kind {
+            CandidateKind::Cast { target, .. } => Some(*target),
+            CandidateKind::MoveOnly => None,
+        }
+    }
+    pub fn target_pos(&self) -> Option<Hex> {
+        match &self.kind {
+            CandidateKind::Cast { target_pos, .. } => Some(*target_pos),
+            CandidateKind::MoveOnly => None,
+        }
+    }
+    pub fn is_move_only(&self) -> bool {
+        matches!(self.kind, CandidateKind::MoveOnly)
+    }
 }
 
 pub enum AiDecision {
@@ -150,92 +190,77 @@ pub fn pick_action(
     // ── Utility scoring ─────────────────────────────────────────────────
     let mut scored = score_candidates(&candidates, active, &intent, ctx, snap, maps, reservations, rng);
 
+    // ── Intent viability guard ─────────────────────────────────────────
+    // If the chosen intent can't be executed by any candidate (e.g., Reposition
+    // with no tile actually improving, FocusTarget on an unreachable enemy),
+    // fall back to FocusTarget over a reachable enemy and rescore.
+    let mut intent = intent;
+    let mut intent_fallback: Option<(String, f32, f32)> = None;
+    let threshold = intent_viability_threshold(&intent);
+    if threshold.is_finite() {
+        let max_align = candidates
+            .iter()
+            .map(|c| intent_score(&intent, c, active, snap, maps, ctx.db, ctx.difficulty))
+            .fold(f32::NEG_INFINITY, f32::max);
+        if max_align < threshold {
+            // Skip the original target if it was an unreachable FocusTarget —
+            // otherwise the "fallback" picks the same target and does nothing.
+            let exclude = match &intent {
+                TacticalIntent::FocusTarget { target } => Some(*target),
+                _ => None,
+            };
+            if let Some(default_target) = default_focus_target(active, snap, &candidates, exclude) {
+                let new_intent = TacticalIntent::FocusTarget { target: default_target };
+                // Only log + rescore if something actually changed.
+                if intent.kind() != new_intent.kind() || intent.target() != new_intent.target() {
+                    let original_label = format!("{:?}", intent.kind());
+                    intent_fallback = Some((original_label, max_align, threshold));
+                    intent = new_intent;
+                    scored = score_candidates(&candidates, active, &intent, ctx, snap, maps, reservations, rng);
+                }
+            }
+        }
+    }
+
     // ── Sanity check on top candidates ─────────────────────────────────
     sanity_adjust(&mut scored, &candidates, active, snap, maps, ctx);
 
-    // ── ProtectSelf: prefer defensive candidates from the scored pool ──
+    // ── ProtectSelf: mask non-defensive candidates so pick picks safety ──
+    // Retreat is already a first-class MoveOnly candidate in the pool, so no
+    // separate retreat branch — the top candidate after masking is either a
+    // defensive cast (self-heal) or a safe MoveOnly tile.
     if matches!(intent, TacticalIntent::ProtectSelf) {
         let current_danger = maps.danger.get(active.pos);
         let def_margin = ctx.difficulty.defensive_tile_margin();
-
-        let best_def_idx = scored
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| is_defensive(&candidates[*i], current_danger, ctx.db, maps, def_margin))
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, s)| (i, *s));
-
-        let retreat = if active.movement {
-            compute_retreat(active, reach, maps)
-        } else {
-            None
-        };
-
-        // Pick best among: defensive candidate vs retreat.
-        let has_survival_option = match (best_def_idx, &retreat) {
-            (Some((_, def_score)), Some((path, ret_score)))
-                if *ret_score > def_score && !path.is_empty() =>
-            {
-                let decision = AiDecision::MoveOnlyRetreat { path: path.clone() };
-                let ds = if debug {
-                    Some(build_fallback_debug(active, actor_pos, &intent, &decision, "ProtectSelf: retreat won", ctx, snap, maps, debug_names))
-                } else { None };
-                return (decision, ds);
+        let mut any_defensive = false;
+        for (i, s) in scored.iter_mut().enumerate() {
+            if is_defensive(&candidates[i], current_danger, ctx.db, maps, def_margin) {
+                any_defensive = true;
+            } else {
+                *s = f32::NEG_INFINITY;
             }
-            (Some((idx, _)), _) => {
-                // Defensive candidate wins — use it via the normal pick path below.
-                // Mask all non-defensive candidates so pick_best selects from defensive only.
-                for (i, s) in scored.iter_mut().enumerate() {
-                    if i != idx && !is_defensive(&candidates[i], current_danger, ctx.db, maps, def_margin) {
-                        *s = f32::NEG_INFINITY;
-                    }
-                }
-                true
-            }
-            (None, Some((path, _))) if !path.is_empty() => {
-                let decision = AiDecision::MoveOnlyRetreat { path: path.clone() };
-                let ds = if debug {
-                    Some(build_fallback_debug(active, actor_pos, &intent, &decision, "ProtectSelf: no defensive candidates, retreat", ctx, snap, maps, debug_names))
-                } else { None };
-                return (decision, ds);
-            }
-            _ => false,
-        };
-
+        }
         // No viable survival option → LastStand: re-score for maximum impact.
-        if !has_survival_option {
+        if !any_defensive {
             let last_stand = TacticalIntent::LastStand;
             scored = score_candidates(&candidates, active, &last_stand, ctx, snap, maps, reservations, rng);
-            // Disable sanity survival penalties — we're already doomed.
         }
     }
 
     // Pick best: combine mercy (soft shift toward gentler options) and
     // top_k (random pick among top-K, controlled by decision_quality).
-    let best_idx = pick_best_candidate(
+    let (best_idx, pick_mech) = pick_best_candidate(
         &scored, &candidates, active, &intent, ctx, snap, maps, reservations, rng,
     );
 
     // Build debug snapshot before swap_remove invalidates indices.
     let debug_snapshot = if debug {
         let best = &candidates[best_idx];
-        let decision_preview = if best.tile == actor_pos {
-            AiDecision::CastInPlace {
-                ability: best.ability.clone(),
-                target: best.target,
-                target_pos: best.target_pos,
-            }
-        } else {
-            AiDecision::MoveAndCast {
-                path: best.path.clone(),
-                ability: best.ability.clone(),
-                target: best.target,
-                target_pos: best.target_pos,
-            }
-        };
+        let decision_preview = decision_from_candidate(best, actor_pos);
         Some(build_debug_snapshot(
             active, actor_pos, &intent, &candidates, &scored, &decision_preview,
-            ctx, snap, maps, reservations, debug_names,
+            ctx, snap, maps, reservations, debug_names, Some(&pick_mech),
+            intent_fallback.as_ref(),
         ))
     } else {
         None
@@ -248,23 +273,38 @@ pub fn pick_action(
     }
 
     let best = candidates.swap_remove(best_idx);
-
-    let decision = if best.tile == actor_pos {
-        AiDecision::CastInPlace {
-            ability: best.ability,
-            target: best.target,
-            target_pos: best.target_pos,
-        }
-    } else {
-        AiDecision::MoveAndCast {
-            path: best.path,
-            ability: best.ability,
-            target: best.target,
-            target_pos: best.target_pos,
-        }
-    };
+    let decision = decision_from_candidate(&best, actor_pos);
 
     (decision, debug_snapshot)
+}
+
+/// Convert a scored candidate into the corresponding AiDecision.
+fn decision_from_candidate(c: &ActionCandidate, actor_pos: Hex) -> AiDecision {
+    match &c.kind {
+        CandidateKind::Cast { ability, target, target_pos } => {
+            if c.tile == actor_pos {
+                AiDecision::CastInPlace {
+                    ability: ability.clone(),
+                    target: *target,
+                    target_pos: *target_pos,
+                }
+            } else {
+                AiDecision::MoveAndCast {
+                    path: c.path.clone(),
+                    ability: ability.clone(),
+                    target: *target,
+                    target_pos: *target_pos,
+                }
+            }
+        }
+        CandidateKind::MoveOnly => {
+            if c.path.is_empty() {
+                AiDecision::EndTurn
+            } else {
+                AiDecision::MoveOnlyRetreat { path: c.path.clone() }
+            }
+        }
+    }
 }
 
 // ── Candidate generation ────────────────────────────────────────────────────
@@ -281,10 +321,9 @@ fn generate_candidates(
     let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
 
     let tiles = select_diverse_tiles(actor_pos, active, ctx, snap, maps, reach, &enemies);
-    let allies: Vec<&UnitSnapshot> = snap
-        .allies_of(active.team)
-        .filter(|u| u.entity != active.entity)
-        .collect();
+    // Include self — SingleAlly abilities (e.g. heal) should be self-castable.
+    // Overheal/role constraints still filter out unneeded casts.
+    let allies: Vec<&UnitSnapshot> = snap.allies_of(active.team).collect();
 
     let mut candidates = Vec::new();
 
@@ -366,27 +405,120 @@ fn generate_candidates(
             };
 
             for target_pos in target_positions {
-                let target_entity = positions.entity_at(target_pos).unwrap_or(active.entity);
+                // Filter stale dead entities: positions doesn't remove on
+                // death, so entity_at can return a corpse. snap.unit() only
+                // returns living units, so we gate on that.
+                let target_entity = positions
+                    .entity_at(target_pos)
+                    .filter(|e| snap.unit(*e).is_some())
+                    .unwrap_or(active.entity);
 
                 candidates.push(ActionCandidate {
                     tile,
                     path: path.clone(),
-                    ability: ability_id.clone(),
-                    target_pos,
-                    target: target_entity,
+                    kind: CandidateKind::Cast {
+                        ability: ability_id.clone(),
+                        target_pos,
+                        target: target_entity,
+                    },
                 });
             }
         }
     }
 
-    // Deduplicate: same (ability, target) from different tiles — keep shortest path.
-    candidates.sort_by(|a, b| a.path.len().cmp(&b.path.len()));
-    let mut seen: HashSet<(AbilityId, Entity)> = HashSet::new();
-    candidates.retain(|c| seen.insert((c.ability.clone(), c.target)));
+    // MoveOnly: add pure-movement options to safe reachable tiles. These let
+    // the AI choose retreat via the normal scoring pipeline (with noise, top_k,
+    // mercy) instead of a special-case branch.
+    if active.movement {
+        add_move_only_candidates(actor_pos, reach, maps, &mut candidates);
+    }
 
-    // Cap total candidates (difficulty-controlled search depth).
-    candidates.truncate(ctx.difficulty.candidate_budget.max(1));
+    // Deduplicate by (ability, target) for Cast, by tile for MoveOnly —
+    // keeping the shortest path in each bucket.
+    candidates.sort_by(|a, b| a.path.len().cmp(&b.path.len()));
+    let mut seen_cast: HashSet<(AbilityId, Entity)> = HashSet::new();
+    let mut seen_move: HashSet<Hex> = HashSet::new();
+    candidates.retain(|c| match &c.kind {
+        CandidateKind::Cast { ability, target, .. } => {
+            seen_cast.insert((ability.clone(), *target))
+        }
+        CandidateKind::MoveOnly => seen_move.insert(c.tile),
+    });
+
+    // Priority-aware ordering: sort by (target_priority DESC, path_len ASC).
+    // High-priority targets survive budget truncation even on crowded fields;
+    // within the same target, shortest path wins.
+    let priority_of = |c: &ActionCandidate| -> f32 {
+        c.target()
+            .and_then(|t| snap.unit(t))
+            .filter(|u| u.team != active.team) // allies use team-neutral priority
+            .map(|u| target_priority(active, u, snap))
+            .unwrap_or(0.0)
+    };
+    candidates.sort_by(|a, b| {
+        let pa = priority_of(a);
+        let pb = priority_of(b);
+        pb.partial_cmp(&pa)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.path.len().cmp(&b.path.len()))
+    });
+
+    // Per-target guarantee: make sure the shortest-path candidate for every
+    // alive enemy survives truncation. Otherwise budget-cap can erase a whole
+    // "how to reach X" column, making the AI believe X is untargetable.
+    let budget = ctx.difficulty.candidate_budget.max(1);
+    if candidates.len() > budget {
+        let mut pinned: Vec<usize> = Vec::new();
+        let mut seen_targets: HashSet<Entity> = HashSet::new();
+        for (i, c) in candidates.iter().enumerate() {
+            if let Some(target) = c.target() {
+                if seen_targets.insert(target) {
+                    pinned.push(i);
+                }
+            }
+        }
+        let mut kept: Vec<ActionCandidate> = Vec::with_capacity(budget);
+        let mut pinned_set: HashSet<usize> = pinned.iter().copied().collect();
+        // 1. Pinned candidates first (one per target).
+        for &i in &pinned {
+            if kept.len() < budget {
+                kept.push(candidates[i].clone());
+            }
+        }
+        // 2. Fill remaining slots with the rest in priority order.
+        for (i, c) in candidates.iter().enumerate() {
+            if kept.len() >= budget { break; }
+            if !pinned_set.remove(&i) {
+                kept.push(c.clone());
+            }
+        }
+        candidates = kept;
+    }
+
     candidates
+}
+
+/// Pick top-3 safe reachable tiles by escape map and add MoveOnly candidates.
+fn add_move_only_candidates(
+    actor_pos: Hex,
+    reach: &ReachableMap,
+    maps: &InfluenceMaps,
+    out: &mut Vec<ActionCandidate>,
+) {
+    let mut scored: Vec<(Hex, f32)> = reach
+        .destinations
+        .iter()
+        .filter(|&&h| h != actor_pos)
+        .map(|&h| (h, maps.escape.get(h)))
+        .collect();
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    for (tile, _) in scored.into_iter().take(3) {
+        let Some(path) = reach.path_to(tile) else { continue };
+        if path.is_empty() {
+            continue;
+        }
+        out.push(ActionCandidate { tile, path, kind: CandidateKind::MoveOnly });
+    }
 }
 
 // ── Diverse tile selection ──────────────────────────────────────────────────
@@ -473,7 +605,12 @@ fn select_diverse_tiles(
     // 6. Always include current position (stay-and-cast).
     tiles.insert(actor_pos);
 
-    tiles.into_iter().collect()
+    // Deterministic order: HashSet iteration is random, which makes candidate
+    // truncation non-deterministic when many candidates share the same path
+    // length. Sort by (x, y) so runs with the same state produce the same pool.
+    let mut sorted: Vec<Hex> = tiles.into_iter().collect();
+    sorted.sort_by_key(|h| (h.x, h.y));
+    sorted
 }
 
 // ── Utility scoring ─────────────────────────────────────────────────────────
@@ -553,8 +690,17 @@ fn score_candidates(
         .collect()
 }
 
-/// Compute the 8 raw utility factors for a single candidate.
-/// [damage, kill, cc, heal, position, risk, focus, intent]
+/// Per-candidate offensive factors (populated only for Cast).
+#[derive(Default)]
+struct OffensiveFactors {
+    damage: f32,
+    heal: f32,
+    kill: f32,
+    cc: f32,
+}
+
+/// Compute the 9 raw utility factors for a single candidate.
+/// Axes: [damage, kill, cc, heal, position, risk, focus, intent, scarcity].
 fn compute_factors(
     candidate: &ActionCandidate,
     active: &UnitSnapshot,
@@ -564,19 +710,52 @@ fn compute_factors(
     maps: &InfluenceMaps,
     reservations: &Reservations,
 ) -> [f32; NUM_FACTORS] {
-    let Some(def) = ctx.db.abilities.get(&candidate.ability) else {
-        return [0.0; NUM_FACTORS];
+    let mut off = match &candidate.kind {
+        CandidateKind::Cast { ability, target_pos, target } => {
+            compute_offensive(ability, *target_pos, *target, candidate.tile, active, ctx, snap)
+        }
+        CandidateKind::MoveOnly => OffensiveFactors::default(),
     };
 
-    let target_info = snap.unit(candidate.target).map(target_info_from_snap);
+    let mut position = evaluate_position(candidate.tile, active.role, maps);
+    let risk = 1.0 - maps.danger.get(candidate.tile);
+    let mut focus = candidate
+        .target()
+        .and_then(|t| snap.unit(t))
+        .map(|t| target_priority(active, t, snap))
+        .unwrap_or(0.0);
+    let intent_val = intent_score(intent, candidate, active, snap, maps, ctx.db, ctx.difficulty);
 
-    // ── damage / heal ───────────────────────────────────────────────────
+    apply_reservation_adjustments(candidate, &mut off, &mut focus, &mut position, snap, ctx, reservations);
+
+    let scarcity = match &candidate.kind {
+        CandidateKind::Cast { .. } => compute_scarcity(candidate, active, off.kill, ctx, snap),
+        CandidateKind::MoveOnly => 0.0,
+    };
+
+    [off.damage, off.kill, off.cc, off.heal, position, risk, focus, intent_val, scarcity]
+}
+
+/// Compute damage/heal/kill/cc for a Cast candidate.
+fn compute_offensive(
+    ability: &AbilityId,
+    target_pos: Hex,
+    target_ent: Entity,
+    caster_tile: Hex,
+    active: &UnitSnapshot,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+) -> OffensiveFactors {
+    let Some(def) = ctx.db.abilities.get(ability) else {
+        return OffensiveFactors::default();
+    };
+
     let (mut damage, mut heal) = (0.0f32, 0.0f32);
-
     match def.aoe {
         AoEShape::None => {
-            if let Some(ref ti) = target_info {
-                let raw = score_action(def, ti, ctx.caster, ctx.db);
+            if let Some(target_unit) = snap.unit(target_ent) {
+                let ti = target_info_from_snap(target_unit);
+                let raw = score_action(def, &ti, ctx.caster, ctx.db);
                 let adjusted = crit_fail_adjusted(raw, def, &ctx.crit_fail_effect, ctx.crit_fail_chance);
                 if def.target_type == TargetType::SingleAlly {
                     heal = adjusted;
@@ -586,137 +765,127 @@ fn compute_factors(
             }
         }
         _ => {
-            // AoE: sum over affected units.
-            let area: Vec<Hex> = match def.aoe {
-                AoEShape::Circle { radius } => hex_circle(candidate.target_pos, radius),
-                AoEShape::Line { length } => hex_line(candidate.tile, candidate.target_pos, length),
-                AoEShape::None => vec![],
-            };
-            let area_set: HashSet<Hex> = area.into_iter().collect();
-            for enemy in snap.enemies_of(active.team) {
-                if area_set.contains(&enemy.pos) {
-                    let ti = target_info_from_snap(enemy);
-                    damage += score_action(def, &ti, ctx.caster, ctx.db);
-                }
-            }
-            if def.friendly_fire {
-                // Penalize hitting allies. Weight by fraction of HP lost:
-                // fragile units (mage, assassin) take a proportionally heavier penalty.
-                for ally in snap.allies_of(active.team) {
-                    if area_set.contains(&ally.pos) {
-                        let ti = target_info_from_snap(ally);
-                        let raw_dmg = score_action(def, &ti, ctx.caster, ctx.db).abs();
-                        let hp_fraction = raw_dmg / ally.max_hp.max(1) as f32;
-                        damage -= raw_dmg * (1.0 + hp_fraction);
-                    }
-                }
-                // Self-damage: same formula, applied to caster.
-                if area_set.contains(&active.pos) {
-                    let ti = target_info_from_snap(active);
-                    let raw_dmg = score_action(def, &ti, ctx.caster, ctx.db).abs();
-                    let hp_fraction = raw_dmg / active.max_hp.max(1) as f32;
-                    damage -= raw_dmg * (1.0 + hp_fraction);
-                }
-            }
-            damage = crit_fail_adjusted(damage, def, &ctx.crit_fail_effect, ctx.crit_fail_chance);
+            damage = compute_aoe_damage(def, target_pos, caster_tile, active, ctx, snap);
         }
     }
 
-    // ── kill ─────────────────────────────────────────────────────────────
-    let mut kill = if let Some(target_unit) = snap.unit(candidate.target) {
-        if let Some(calc) = def.effect.calc(ctx.caster) {
-            let expected = calc.expected();
-            let armor = if calc.pierces_armor {
-                0.0
-            } else {
-                (target_unit.armor + target_unit.armor_bonus) as f32
-            };
-            let net = expected - armor + target_unit.damage_taken_bonus as f32;
-            if net >= target_unit.hp as f32 { 1.0 } else { 0.0 }
-        } else {
-            0.0
-        }
-    } else {
-        0.0
-    };
+    let kill = compute_kill_flag(def, target_ent, ctx, snap);
+    let cc = compute_cc_value(def, target_ent, ctx, snap);
 
-    // ── cc ───────────────────────────────────────────────────────────────
-    let mut cc = def
-        .statuses
+    OffensiveFactors { damage, heal, kill, cc }
+}
+
+fn compute_aoe_damage(
+    def: &crate::content::abilities::AbilityDef,
+    target_pos: Hex,
+    caster_tile: Hex,
+    active: &UnitSnapshot,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+) -> f32 {
+    let area: HashSet<Hex> = match def.aoe {
+        AoEShape::Circle { radius } => hex_circle(target_pos, radius).into_iter().collect(),
+        AoEShape::Line { length } => hex_line(caster_tile, target_pos, length).into_iter().collect(),
+        AoEShape::None => HashSet::new(),
+    };
+    let mut damage = 0.0f32;
+    for enemy in snap.enemies_of(active.team) {
+        if area.contains(&enemy.pos) {
+            let ti = target_info_from_snap(enemy);
+            damage += score_action(def, &ti, ctx.caster, ctx.db);
+        }
+    }
+    if def.friendly_fire {
+        for ally in snap.allies_of(active.team) {
+            if area.contains(&ally.pos) {
+                let ti = target_info_from_snap(ally);
+                let raw = score_action(def, &ti, ctx.caster, ctx.db).abs();
+                let hp_fraction = raw / ally.max_hp.max(1) as f32;
+                damage -= raw * (1.0 + hp_fraction);
+            }
+        }
+        if area.contains(&active.pos) {
+            let ti = target_info_from_snap(active);
+            let raw = score_action(def, &ti, ctx.caster, ctx.db).abs();
+            let hp_fraction = raw / active.max_hp.max(1) as f32;
+            damage -= raw * (1.0 + hp_fraction);
+        }
+    }
+    crit_fail_adjusted(damage, def, &ctx.crit_fail_effect, ctx.crit_fail_chance)
+}
+
+fn compute_kill_flag(
+    def: &crate::content::abilities::AbilityDef,
+    target_ent: Entity,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+) -> f32 {
+    // Kill applies only to damaging abilities aimed at enemies. Without this
+    // gate, a heal whose `expected` ≥ target HP would spuriously set kill=1,
+    // polluting both the kill factor and scarcity's kill bonus.
+    if !matches!(def.target_type, TargetType::SingleEnemy) {
+        return 0.0;
+    }
+    let Some(target_unit) = snap.unit(target_ent) else { return 0.0 };
+    let Some(calc) = def.effect.calc(ctx.caster) else { return 0.0 };
+    let armor = if calc.pierces_armor { 0.0 } else { (target_unit.armor + target_unit.armor_bonus) as f32 };
+    let net = calc.expected() - armor + target_unit.damage_taken_bonus as f32;
+    if net >= target_unit.hp as f32 { 1.0 } else { 0.0 }
+}
+
+fn compute_cc_value(
+    def: &crate::content::abilities::AbilityDef,
+    target_ent: Entity,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+) -> f32 {
+    def.statuses
         .iter()
         .map(|sa| {
-            let Some(sd) = ctx.db.statuses.get(&sa.status) else {
-                return 0.0;
-            };
+            let Some(sd) = ctx.db.statuses.get(&sa.status) else { return 0.0 };
             let d = sa.duration_rounds as f32;
             let mut val = 0.0f32;
             if sd.skips_turn {
-                let target_threat = snap
-                    .unit(candidate.target)
-                    .map(|u| u.threat)
-                    .unwrap_or(1.0);
+                let target_threat = snap.unit(target_ent).map(|u| u.threat).unwrap_or(1.0);
                 val += target_threat * d;
             }
-            if sd.damage_taken_bonus > 0 {
-                val += sd.damage_taken_bonus as f32 * d;
-            }
-            if sd.armor_bonus > 0 {
-                val += sd.armor_bonus as f32 * d;
-            }
+            if sd.damage_taken_bonus > 0 { val += sd.damage_taken_bonus as f32 * d; }
+            if sd.armor_bonus > 0 { val += sd.armor_bonus as f32 * d; }
             val
         })
-        .sum::<f32>()
-        ;
+        .sum()
+}
 
-    // ── position ─────────────────────────────────────────────────────────
-    let mut position = evaluate_position(candidate.tile, active.role, maps);
-
-    // ── risk ─────────────────────────────────────────────────────────────
-    // Danger is normalized [0, 1]. Lower danger = higher risk score.
-    let danger = maps.danger.get(candidate.tile);
-    let risk = 1.0 - danger;
-
-    // ── focus ────────────────────────────────────────────────────────────
-    let mut focus = snap
-        .unit(candidate.target)
-        .map(|target_unit| target_priority(active, target_unit, snap))
-        .unwrap_or(0.0);
-
-    // ── intent ───────────────────────────────────────────────────────────
-    let intent_val = intent_score(intent, candidate, active, snap, maps, ctx.db, ctx.difficulty);
-
-    // ── reservation penalties / bonuses ─────────────────────────────────
-    // coordination knob: overkill penalty harder on higher coord;
-    // focus-fire bonus on targets already reserved but not yet dead.
-    let reserved_dmg = reservations.reserved_damage(candidate.target);
-    if reserved_dmg > 0.0 {
-        if let Some(target_unit) = snap.unit(candidate.target) {
-            let hp_left = target_unit.hp as f32 - reserved_dmg;
-            if hp_left <= 0.0 {
-                let mult = ctx.difficulty.overkill_damage_multiplier();
-                damage *= mult;
-                kill = 0.0;
-            } else {
-                // Target already taking fire but survives — pile on (focus-fire).
-                focus *= 1.0 + ctx.difficulty.focus_fire_bonus();
+/// coordination knob: overkill penalty + focus-fire bonus + duplicate-CC + tile collision.
+fn apply_reservation_adjustments(
+    candidate: &ActionCandidate,
+    off: &mut OffensiveFactors,
+    focus: &mut f32,
+    position: &mut f32,
+    snap: &BattleSnapshot,
+    ctx: &UtilityContext,
+    reservations: &Reservations,
+) {
+    if let Some(target_ent) = candidate.target() {
+        let reserved_dmg = reservations.reserved_damage(target_ent);
+        if reserved_dmg > 0.0 {
+            if let Some(target_unit) = snap.unit(target_ent) {
+                let hp_left = target_unit.hp as f32 - reserved_dmg;
+                if hp_left <= 0.0 {
+                    off.damage *= ctx.difficulty.overkill_damage_multiplier();
+                    off.kill = 0.0;
+                } else {
+                    *focus *= 1.0 + ctx.difficulty.focus_fire_bonus();
+                }
             }
         }
+        if reservations.reserved_cc(target_ent) > 0 {
+            off.cc *= 0.15;
+        }
     }
-
-    // Duplicate CC: second stun on same target is near-worthless.
-    if reservations.reserved_cc(candidate.target) > 0 {
-        cc *= 0.15;
-    }
-
-    // Tile collision: slight penalty if another unit claimed this tile.
     if reservations.is_tile_reserved(candidate.tile) {
-        position *= 0.5;
+        *position *= 0.5;
     }
-
-    // ── scarcity ──────────────────────────────────────────────────────
-    let scarcity = compute_scarcity(candidate, active, kill, ctx, snap);
-
-    [damage, kill, cc, heal, position, risk, focus, intent_val, scarcity]
 }
 
 // ── Scarcity ────────────────────────────────────────────────────────────────
@@ -732,7 +901,10 @@ fn compute_scarcity(
     ctx: &UtilityContext,
     snap: &BattleSnapshot,
 ) -> f32 {
-    let Some(def) = ctx.db.abilities.get(&candidate.ability) else {
+    let CandidateKind::Cast { ability, target_pos, target } = &candidate.kind else {
+        return 0.0;
+    };
+    let Some(def) = ctx.db.abilities.get(ability) else {
         return 0.0;
     };
 
@@ -766,7 +938,7 @@ fn compute_scarcity(
     if kill > 0.0 {
         swing += 0.8;
         // Extra value for killing high-value targets.
-        if let Some(t) = snap.unit(candidate.target) {
+        if let Some(t) = snap.unit(*target) {
             match t.role {
                 AiRole::Support | AiRole::Mage => swing += 0.3,
                 AiRole::Assassin => swing += 0.2,
@@ -778,8 +950,8 @@ fn compute_scarcity(
     // AoE multi-hit bonus.
     if def.aoe != AoEShape::None {
         let area: Vec<Hex> = match def.aoe {
-            AoEShape::Circle { radius } => hex_circle(candidate.target_pos, radius),
-            AoEShape::Line { length } => hex_line(candidate.tile, candidate.target_pos, length),
+            AoEShape::Circle { radius } => hex_circle(*target_pos, radius),
+            AoEShape::Line { length } => hex_line(candidate.tile, *target_pos, length),
             AoEShape::None => vec![],
         };
         let area_set: HashSet<Hex> = area.into_iter().collect();
@@ -800,7 +972,7 @@ fn compute_scarcity(
             .is_some_and(|sd| sd.skips_turn)
     });
     if is_cc {
-        if let Some(t) = snap.unit(candidate.target) {
+        if let Some(t) = snap.unit(*target) {
             if !t.tags.contains(AiTags::IS_STUNNED) {
                 swing += 0.5 * (t.threat / 10.0).min(1.0);
             }
@@ -808,7 +980,7 @@ fn compute_scarcity(
     }
 
     // Overkill penalty: target nearly dead and caster has free attacks.
-    if let Some(t) = snap.unit(candidate.target) {
+    if let Some(t) = snap.unit(*target) {
         let target_hp_pct = t.hp as f32 / t.max_hp.max(1) as f32;
         if target_hp_pct < 0.25 && has_free_attack(ctx) {
             swing -= 0.3;
@@ -914,15 +1086,17 @@ fn sanity_adjust(
         }
 
         // 5. Self-AoE: heavy penalty for friendly_fire AoE that hits caster.
-        if let Some(def) = ctx.db.abilities.get(&c.ability) {
-            if def.friendly_fire && def.aoe != AoEShape::None {
-                let area: HashSet<Hex> = match def.aoe {
-                    AoEShape::Circle { radius } => hex_circle(c.target_pos, radius).into_iter().collect(),
-                    AoEShape::Line { length } => hex_line(c.tile, c.target_pos, length).into_iter().collect(),
-                    AoEShape::None => HashSet::new(),
-                };
-                if area.contains(&c.tile) {
-                    penalty *= 0.5;
+        if let CandidateKind::Cast { ability, target_pos, .. } = &c.kind {
+            if let Some(def) = ctx.db.abilities.get(ability) {
+                if def.friendly_fire && def.aoe != AoEShape::None {
+                    let area: HashSet<Hex> = match def.aoe {
+                        AoEShape::Circle { radius } => hex_circle(*target_pos, radius).into_iter().collect(),
+                        AoEShape::Line { length } => hex_line(c.tile, *target_pos, length).into_iter().collect(),
+                        AoEShape::None => HashSet::new(),
+                    };
+                    if area.contains(&c.tile) {
+                        penalty *= 0.5;
+                    }
                 }
             }
         }
@@ -950,6 +1124,18 @@ fn mercy_cruelty(
     f[1] + (f[2] * 0.1).min(0.5)
 }
 
+/// Raw mechanics output from pick_best_candidate. Caller converts pool indices
+/// to labels for human-readable debug.
+pub struct PickMechanics {
+    pub top_k: usize,
+    pub window: f32,
+    pub mercy_margin: f32,
+    pub mercy_applied: bool,
+    /// (candidate_index, final_score) in pool order.
+    pub pool: Vec<(usize, f32)>,
+    pub chosen_pos: usize,
+}
+
 fn pick_best_candidate(
     scored: &[f32],
     candidates: &[ActionCandidate],
@@ -960,9 +1146,26 @@ fn pick_best_candidate(
     maps: &InfluenceMaps,
     reservations: &Reservations,
     rng: &mut DiceRng,
-) -> usize {
+) -> (usize, PickMechanics) {
+    let top_k_req = ctx.difficulty.top_k_choice();
+    let m = ctx.difficulty.mercy_margin();
+    // Similarity window: candidates within `noise × 2` of the best are treated
+    // as indistinguishable by the AI's noisy perception. Those clearly worse
+    // are never sampled, even if top_k_choice > 1.
+    let window = (ctx.difficulty.score_noise() * 2.0).max(0.05);
+
     if scored.is_empty() {
-        return 0;
+        return (
+            0,
+            PickMechanics {
+                top_k: top_k_req,
+                window,
+                mercy_margin: m,
+                mercy_applied: false,
+                pool: vec![],
+                chosen_pos: 0,
+            },
+        );
     }
 
     // Rank by raw score (descending).
@@ -972,18 +1175,19 @@ fn pick_best_candidate(
     // Apply mercy only inside the window of near-best candidates. A lethal move
     // that's clearly better than the alternatives stays outside the window and
     // is never devalued — mercy is a tie-breaker, not a blanket penalty.
-    let m = ctx.difficulty.mercy_margin();
     let best_score = ranked[0].1;
+    let mut mercy_applied = false;
     if m > 0.0 && best_score.is_finite() {
-        let window_end = ranked
+        let mercy_end = ranked
             .iter()
             .position(|(_, s)| !s.is_finite() || *s < best_score - m)
             .unwrap_or(ranked.len());
-        if window_end > 1 {
-            let mut windowed: Vec<(usize, f32)> = ranked[..window_end]
+        if mercy_end > 1 {
+            let mut windowed: Vec<(usize, f32)> = ranked[..mercy_end]
                 .iter()
                 .map(|&(i, s)| {
-                    let cruel = mercy_cruelty(&candidates[i], active, intent, ctx, snap, maps, reservations);
+                    let cruel =
+                        mercy_cruelty(&candidates[i], active, intent, ctx, snap, maps, reservations);
                     (i, s - m * cruel)
                 })
                 .collect();
@@ -991,68 +1195,54 @@ fn pick_best_candidate(
             for (slot, item) in windowed.into_iter().enumerate() {
                 ranked[slot] = item;
             }
+            mercy_applied = true;
         }
     }
 
-    // top_k sampling on the (possibly mercy-reordered) ranking.
-    let k = ctx.difficulty.top_k_choice().max(1).min(ranked.len());
-    let pool: Vec<usize> = ranked
+    // top_k sampling restricted to the similarity window — random pick only
+    // among candidates whose score is within `window` of the best.
+    let k = top_k_req.max(1).min(ranked.len());
+    let best_after = ranked[0].1;
+    let pool: Vec<(usize, f32)> = ranked
         .iter()
         .take(k)
-        .filter(|(_, s)| s.is_finite())
-        .map(|(i, _)| *i)
+        .filter(|(_, s)| s.is_finite() && *s >= best_after - window)
+        .map(|&(i, s)| (i, s))
         .collect();
 
     if pool.is_empty() {
-        return ranked[0].0;
+        // Fallback: all -inf (masked) — just return overall argmax.
+        return (
+            ranked[0].0,
+            PickMechanics {
+                top_k: k,
+                window,
+                mercy_margin: m,
+                mercy_applied,
+                pool: vec![(ranked[0].0, ranked[0].1)],
+                chosen_pos: 0,
+            },
+        );
     }
-    if pool.len() == 1 {
-        return pool[0];
-    }
-    let pick = (rng.roll_d(pool.len() as u32) as usize).saturating_sub(1);
-    pool[pick]
+    let chosen_pos = if pool.len() == 1 {
+        0
+    } else {
+        (rng.roll_d(pool.len() as u32) as usize).saturating_sub(1)
+    };
+    (
+        pool[chosen_pos].0,
+        PickMechanics {
+            top_k: k,
+            window,
+            mercy_margin: m,
+            mercy_applied,
+            pool,
+            chosen_pos,
+        },
+    )
 }
 
 // ── Retreat scoring ─────────────────────────────────────────────────────────
-
-/// Score a pure-movement retreat for ProtectSelf.
-/// Returns (path, score) for the best escape tile, or None if staying is better.
-/// The score is computed on the same scale as utility scores: weighted (risk + position),
-/// so it can be compared directly against the best ability candidate.
-fn compute_retreat(
-    active: &UnitSnapshot,
-    reach: &ReachableMap,
-    maps: &InfluenceMaps,
-) -> Option<(Vec<Hex>, f32)> {
-    let weights = &ROLE_WEIGHTS[role_index(active.role)];
-    let pos_w = weights[4]; // position weight
-    let risk_w = weights[5]; // risk weight
-
-    let current_danger = maps.danger.get(active.pos);
-    let current_pos_eval = evaluate_position(active.pos, active.role, maps);
-    let current_score = (1.0 - current_danger) * risk_w + current_pos_eval * pos_w;
-
-    let mut best: Option<(Hex, f32)> = None;
-    for &tile in &reach.destinations {
-        let danger = maps.danger.get(tile);
-        let pos_eval = evaluate_position(tile, active.role, maps);
-        let score = (1.0 - danger) * risk_w + pos_eval * pos_w;
-        if best.is_none_or(|(_, bs)| score > bs) {
-            best = Some((tile, score));
-        }
-    }
-
-    let (tile, score) = best?;
-    // Only retreat if meaningfully better than staying.
-    if score <= current_score + 0.1 {
-        return None;
-    }
-    let path = reach.path_to(tile)?;
-    if path.is_empty() {
-        return None;
-    }
-    Some((path, score))
-}
 
 // ── Fallback ────────────────────────────────────────────────────────────────
 
@@ -1127,27 +1317,26 @@ fn record_reservation(
     reservations: &mut Reservations,
     actor_pos: Hex,
 ) {
-    // Record expected damage on target.
-    if let Some(def) = ctx.db.abilities.get(&best.ability) {
-        if let Some(target_unit) = snap.unit(best.target) {
-            let ti = target_info_from_snap(target_unit);
-            let caster = ctx.caster;
-            let dmg = score_action(def, &ti, caster, ctx.db);
-            if dmg > 0.0 {
-                reservations.reserve_damage(best.target, dmg);
-            }
-
-            // Record CC if ability applies hard CC.
-            let applies_cc = def.statuses.iter().any(|sa| {
-                ctx.db.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn)
-            });
-            if applies_cc {
-                reservations.reserve_cc(best.target);
+    // Cast: record expected damage + CC on target.
+    if let CandidateKind::Cast { ability, target, .. } = &best.kind {
+        if let Some(def) = ctx.db.abilities.get(ability) {
+            if let Some(target_unit) = snap.unit(*target) {
+                let ti = target_info_from_snap(target_unit);
+                let dmg = score_action(def, &ti, ctx.caster, ctx.db);
+                if dmg > 0.0 {
+                    reservations.reserve_damage(*target, dmg);
+                }
+                let applies_cc = def.statuses.iter().any(|sa| {
+                    ctx.db.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn)
+                });
+                if applies_cc {
+                    reservations.reserve_cc(*target);
+                }
             }
         }
     }
 
-    // Record destination tile.
+    // Record destination tile (applies to both Cast and MoveOnly).
     if best.tile != actor_pos {
         reservations.reserve_tile(best.tile, active.entity);
     }
@@ -1155,8 +1344,8 @@ fn record_reservation(
 
 // ── Defensive classification ────────────────────────────────────────────────
 
-/// A candidate is defensive if it heals/buffs self/ally OR moves to a safer tile.
-/// `margin` is how much safer the tile must be (survival_instinct-controlled).
+/// A candidate is defensive if it heals/buffs self/ally, is pure movement to a
+/// safer tile, OR an offensive action from a safer tile.
 fn is_defensive(
     c: &ActionCandidate,
     current_danger: f32,
@@ -1164,12 +1353,18 @@ fn is_defensive(
     maps: &InfluenceMaps,
     margin: f32,
 ) -> bool {
-    if let Some(def) = db.abilities.get(&c.ability) {
-        if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
-            return true;
+    // MoveOnly is defensive when moving to a safer tile.
+    if c.is_move_only() {
+        return maps.danger.get(c.tile) + margin < current_danger;
+    }
+    if let Some(ability) = c.ability() {
+        if let Some(def) = db.abilities.get(ability) {
+            if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
+                return true;
+            }
         }
     }
-    // Moving to a meaningfully safer tile counts as defensive.
+    // Cast from a meaningfully safer tile also counts as defensive.
     maps.danger.get(c.tile) + margin < current_danger
 }
 
@@ -1308,6 +1503,7 @@ fn build_fallback_debug(
     maps: &InfluenceMaps,
     names: &HashMap<Entity, String>,
 ) -> AiDebugSnapshot {
+    // No pick-phase info for fallback paths.
     let actor_name = name_of(active.entity, names);
     let intent_str = format_intent(intent, names);
     let intent_rule = explain_intent(active, intent, snap, maps);
@@ -1368,6 +1564,7 @@ fn build_fallback_debug(
         },
         priority_target,
         top_candidates: vec![],
+        pick: None,
         decision: decision_debug,
         candidate_count: 0,
     }
@@ -1385,10 +1582,18 @@ fn build_debug_snapshot(
     maps: &InfluenceMaps,
     reservations: &Reservations,
     names: &HashMap<Entity, String>,
+    pick_mech: Option<&PickMechanics>,
+    intent_fallback: Option<&(String, f32, f32)>,
 ) -> AiDebugSnapshot {
     let actor_name = name_of(active.entity, names);
     let intent_str = format_intent(intent, names);
-    let intent_rule = explain_intent(active, intent, snap, maps);
+    let intent_rule = match intent_fallback {
+        Some((orig, max_align, thresh)) => format!(
+            "fallback from {}: max_align={:.2} < threshold={:.2}",
+            orig, max_align, thresh,
+        ),
+        None => explain_intent(active, intent, snap, maps),
+    };
 
     // Priority target.
     let priority_target = snap
@@ -1400,8 +1605,13 @@ fn build_debug_snapshot(
         })
         .map(|t| (name_of(t.entity, names), target_priority(active, t, snap)));
 
-    // Top 5 candidates by score.
-    let mut indexed: Vec<(usize, f32)> = scores.iter().copied().enumerate().collect();
+    // Top 5 candidates by score — skip -inf masked entries so the log shows
+    // only candidates actually in play (ProtectSelf masks non-defensive to -inf).
+    let mut indexed: Vec<(usize, f32)> = scores.iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, s)| s.is_finite())
+        .collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     indexed.truncate(5);
 
@@ -1411,13 +1621,20 @@ fn build_debug_snapshot(
         .map(|&(i, total)| {
             let c = &candidates[i];
             let raw = compute_factors(c, active, intent, ctx, snap, maps, reservations);
+            let (ability_label, target_name, is_move_only) = match &c.kind {
+                CandidateKind::Cast { ability, target, .. } => {
+                    (ability.0.clone(), name_of(*target, names), false)
+                }
+                CandidateKind::MoveOnly => (String::new(), String::new(), true),
+            };
             CandidateDebug {
-                ability: c.ability.0.clone(),
-                target_name: name_of(c.target, names),
+                ability: ability_label,
+                target_name,
                 tile: hex_to_offset(c.tile),
                 tile_influence: tile_influence(c.tile, active.role, maps),
                 raw,
                 total,
+                is_move_only,
             }
         })
         .collect();
@@ -1468,6 +1685,30 @@ fn build_debug_snapshot(
         },
     };
 
+    let pick = pick_mech.map(|pm| PickDebug {
+        top_k: pm.top_k,
+        window: pm.window,
+        mercy_margin: pm.mercy_margin,
+        mercy_applied: pm.mercy_applied,
+        pool: pm
+            .pool
+            .iter()
+            .map(|&(idx, score)| {
+                let c = &candidates[idx];
+                let label = match &c.kind {
+                    CandidateKind::Cast { ability, target, .. } => {
+                        format!("{} → {}", ability, name_of(*target, names))
+                    }
+                    CandidateKind::MoveOnly => {
+                        format!("retreat to {}", fmt_offset(c.tile))
+                    }
+                };
+                PoolEntry { label, score }
+            })
+            .collect(),
+        chosen_pos: pm.chosen_pos,
+    });
+
     AiDebugSnapshot {
         actor_name,
         actor: ActorDebug {
@@ -1486,6 +1727,7 @@ fn build_debug_snapshot(
         },
         priority_target,
         top_candidates,
+        pick,
         decision: decision_debug,
         candidate_count,
     }
@@ -1557,6 +1799,7 @@ mod tests {
             statuses: vec![],
             threat: 5.0,
             tags: AiTags::MELEE_ONLY,
+            max_attack_range: 1,
         }
     }
 
@@ -1677,14 +1920,20 @@ mod tests {
 
     // ── Sanity check tests ──────────────────────────────────────────────
 
-    fn candidate(tile: Hex, target: Entity) -> ActionCandidate {
+    fn cast(tile: Hex, ability: &str, target_pos: Hex, target: Entity) -> ActionCandidate {
         ActionCandidate {
             tile,
             path: vec![],
-            ability: "melee_attack".into(),
-            target_pos: tile,
-            target,
+            kind: CandidateKind::Cast {
+                ability: ability.into(),
+                target_pos,
+                target,
+            },
         }
+    }
+
+    fn candidate(tile: Hex, target: Entity) -> ActionCandidate {
+        cast(tile, "melee_attack", tile, target)
     }
 
     #[test]
@@ -1798,13 +2047,7 @@ mod tests {
         let ctx = UtilityContext { db: &db, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
 
         // thunderstrike AoE circle r=1 centered on caster's own tile → self-hit.
-        let self_aoe = ActionCandidate {
-            tile,
-            path: vec![],
-            ability: "thunderstrike".into(),
-            target_pos: tile, // center on self
-            target: enemy.entity,
-        };
+        let self_aoe = cast(tile, "thunderstrike", tile, enemy.entity);
         let safe = candidate(tile, enemy.entity); // melee_attack, no AoE
 
         let candidates = vec![self_aoe, safe];
@@ -1871,13 +2114,7 @@ mod tests {
         let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
         let ctx = scarcity_ctx(&db, &diff, &abilities);
 
-        let c = ActionCandidate {
-            tile,
-            path: vec![],
-            ability: "fireball".into(),
-            target_pos: enemy.pos,
-            target: enemy.entity,
-        };
+        let c = cast(tile, "fireball", enemy.pos, enemy.entity);
         let score = compute_scarcity(&c, &active, 0.0, &ctx, &s);
         assert!(
             score < 0.0,
@@ -1903,13 +2140,7 @@ mod tests {
         let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
         let ctx = scarcity_ctx(&db, &diff, &abilities);
 
-        let c = ActionCandidate {
-            tile,
-            path: vec![],
-            ability: "fireball".into(),
-            target_pos: enemy.pos,
-            target: enemy.entity,
-        };
+        let c = cast(tile, "fireball", enemy.pos, enemy.entity);
         // kill=1.0 means this is a confirmed kill.
         let score = compute_scarcity(&c, &active, 1.0, &ctx, &s);
         assert!(
@@ -1943,13 +2174,7 @@ mod tests {
         let ctx = scarcity_ctx(&db, &diff, &abilities);
 
         // Target pos at e1, fireball has AoE circle radius 1 → hits all 3.
-        let c = ActionCandidate {
-            tile,
-            path: vec![],
-            ability: "fireball".into(),
-            target_pos: e1.pos,
-            target: e1.entity,
-        };
+        let c = cast(tile, "fireball", e1.pos, e1.entity);
         let score = compute_scarcity(&c, &active, 0.0, &ctx, &s);
         assert!(
             score > 0.0,
@@ -1971,13 +2196,7 @@ mod tests {
         let abilities = Abilities(vec!["fireball".into()]);
         let ctx = scarcity_ctx(&db, &diff, &abilities);
 
-        let c = ActionCandidate {
-            tile,
-            path: vec![],
-            ability: "fireball".into(),
-            target_pos: enemy.pos,
-            target: enemy.entity,
-        };
+        let c = cast(tile, "fireball", enemy.pos, enemy.entity);
 
         // Round 1 — early penalty applies.
         let s_r1 = BattleSnapshot {

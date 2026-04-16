@@ -26,23 +26,26 @@ AI-система выбирает действие для вражеских ю
 ```
 1. Проверка AP (нет action + нет movement → EndTurn)
 2. Построить BattleSnapshot + InfluenceMaps
-3. BFS reachable_with_paths → достижимые клетки
+3. BFS reachable_with_paths (со скоростью из snapshot — учитывает speed-дебафы)
 4. Построить UtilityContext (caster, abilities, difficulty, crit_fail)
 5. pick_action:
-   a. ★ select_intent → выбор TacticalIntent (см. ниже)
-   b. Генерация кандидатов (top-8 клеток по position_eval + текущая)
-   c. Для каждой клетки × каждая способность → ActionCandidate
-   d. Дедупликация, cap 25 кандидатов
-   e. Жёсткие фильтры (constraints)
-   f. ★ Intent-фильтр (удаляет кандидатов, не соответствующих интенту)
-   g. 8-факторный utility scoring с весами по роли
-   h. Шум из difficulty
-   i. Выбор лучшего → AiDecision
+   a. ★ select_intent → выбор TacticalIntent
+   b. Генерация кандидатов:
+      — Cast: для каждой клетки × каждая способность (dedup по (ability, target))
+      — MoveOnly: топ-3 клеток по escape map (штатный способ уйти)
+   c. Жёсткие фильтры (constraints)
+   d. 9-факторный utility scoring с весами по роли
+   e. ★ Intent viability guard: если max(intent_factor) < threshold,
+      переключиться на FocusTarget { default reachable target } и rescore
+   f. Sanity adjust (multiplicative penalties)
+   g. Если intent == ProtectSelf: маскировать non-defensive кандидатов в -∞;
+      если defensive нет — rescore под LastStand
+   h. pick_best: мерси-окно [best-mercy, best] → rerank, затем top-K sampling
+      внутри similarity window (score_noise × 2)
 6. Исполнение:
-   - CastInPlace → UseAbility
-   - MoveAndCast → MoveUnit + UseAbility
-   - MoveCloser → MoveUnit + EndTurn
-   - EndTurn → EndTurn
+   - Cast@actor_pos → CastInPlace
+   - Cast@other → MoveAndCast (MoveUnit + UseAbility)
+   - MoveOnly → MoveOnlyRetreat (MoveUnit + EndTurn)
 ```
 
 ## Utility Scoring
@@ -86,39 +89,56 @@ AI-система выбирает действие для вражеских ю
 
 AI выбирает один стратегический интент перед генерацией кандидатов. Интент задаёт бонусы в scoring и фильтрует кандидатов.
 
-#### Выбор интента (приоритет, первое совпадение побеждает)
+AI выбирает один стратегический интент перед генерацией кандидатов. Интент не фильтрует кандидатов жёстко — он выражается через фактор `intent` в scoring и через viability guard (если никто не соответствует).
 
-| # | Условие | Intent |
-|---|---------|--------|
-| 1 | HP < 25% И danger(pos) > hp | **ProtectSelf** |
-| 2 | Союзник < 30% HP И CAN_HEAL | **ProtectAlly { ally }** (самый раненый) |
-| 3 | Враг убиваем (threat × awareness ≥ hp) | **FocusTarget { target }** (минимум HP) |
-| 4 | CAN_CC И есть не-оглушённый враг | **ApplyCC { target }** (макс. threat) |
-| 5 | HAS_AOE И враги кластерируются (пара на расст. ≤ 2) | **SetupAOE** |
-| 6 | position_eval(текущая) < −0.5 | **Reposition** |
-| 7 | По умолчанию | **FocusTarget** (макс. target_priority) |
+#### Выбор интента (scored — max wins)
 
-#### Intent-фильтры (после hard constraints)
+| Условие | Intent | Score |
+|---------|--------|-------|
+| HP < `survival_hp_threshold` И danger > `awareness_danger_threshold` | **ProtectSelf** (hard override) | — |
+| HP < 40% И danger > 0 | **ProtectSelf** | (1−hp%)×danger |
+| CAN_HEAL И любой союзник (вкл. self) с HP < 50% | **ProtectAlly { ally }** (самый раненый) | 1 − ally_hp% |
+| Враг убиваем И достижим за `speed+max_attack_range` | **FocusTarget { killable_target }** | 1.2 + (1−hp%)×0.3 |
+| — (иначе) | **FocusTarget { default }** | 0.5 + prio×0.3 |
+| CAN_CC И есть не-оглушённый враг | **ApplyCC { target }** | 0.8 + threat×0.1 |
+| HAS_AOE И враги кластерируются (расст. ≤ 2) | **SetupAOE** | 0.7 + clusters×0.2 |
+| pos_eval(текущая) < `awareness_reposition_threshold` | **Reposition** | 0.3 + gap×0.4 |
 
-| Intent | Фильтр | Fallback |
-|--------|--------|----------|
-| FocusTarget | Убрать кандидатов на других врагов (хил проходит) | Если всё удалено — пропустить фильтр |
-| ApplyCC | CC-способности только на цель интента; урон без ограничений | — |
-| ProtectSelf | Штраф за клетки с danger > 0.7 (нормализованный) | — |
-| ProtectAlly | Хил только на целевого союзника; урон без ограничений | — |
-| SetupAOE | Убрать single-target способности (если есть AoE-кандидат) | — |
-| Reposition | Без фильтра | — |
+Stickiness bonus `+0.25` за продолжение того же intent'а (+`0.15` если ещё и target тот же), до 3 ходов подряд.
+
+#### Intent viability guard
+
+После scoring: если `max(intent_factor)` по всем кандидатам ниже порога для данного intent'а — intent переключается на `FocusTarget` над **достижимой** целью (исключая исходную, если она была FocusTarget'ом), candidates rescored.
+
+| Intent | Минимум intent_factor для «работоспособно» |
+|--------|-------------------------------------------|
+| Reposition | 0.01 (хоть какое-то улучшение) |
+| FocusTarget | 1.0 (кандидат реально таргетит цель) |
+| ApplyCC | 0.5 (CC на цель или хотя бы damage) |
+| ProtectAlly | 0.5 (хил или позиция рядом) |
+| SetupAOE | 0.01 (какой-то AoE hit) |
+| ProtectSelf / LastStand | — (спец-ветка ниже) |
+
+При срабатывании fallback в debug-логе: `Intent: FocusTarget → X [fallback from Reposition: max_align=-1.00 < threshold=0.01]`.
 
 #### Intent-скоринг (фактор `intent`)
 
-| Intent | Score |
-|--------|-------|
-| FocusTarget | 1.0 если target совпадает, иначе 0.0 |
-| ApplyCC | 1.0 если CC на target; 0.5 если damage на target; иначе 0.0 |
-| Reposition | evaluate_position(tile) (выше = лучше) |
-| ProtectSelf | (−danger + armor) (безопаснее = выше) |
-| ProtectAlly | 1.0 если хил союзника; 0.5 если клетка рядом; иначе 0.0 |
-| SetupAOE | enemies_hit / total_enemies |
+| Intent | Cast score | MoveOnly score |
+|--------|-----------|----------------|
+| FocusTarget | 1.0 если target совпадает; heal = 0.3; остальное −0.5 | 0.0 (нейтрально) |
+| ApplyCC | 1.0 CC на цель; 0.5 damage на цель; −0.5 CC мимо; 0.0 прочее | 0.0 |
+| Reposition | improvement (new_eval − current) или −1.0 если < `reposition_min_improvement` | то же |
+| ProtectSelf | 1 − danger(tile) | то же |
+| ProtectAlly | 1.0 heal ally; −0.3 heal wrong; 0.5 tile adj | 0.5 если adj к ally; 0.0 иначе |
+| SetupAOE | hits/total или −0.3 для single-target | 0.0 |
+| LastStand | dmg+kill+CC offensive combo | −0.3 (ретрит под LastStand неуместен) |
+
+#### ProtectSelf branch
+
+После scoring, если intent == ProtectSelf:
+- Все **не-defensive** кандидаты маскируются в `−∞`. Defensive = SingleAlly / Myself cast ИЛИ MoveOnly на безопасную клетку ИЛИ любой cast с клетки safer-by-`defensive_tile_margin`.
+- Если defensive кандидатов нет — rescore под `LastStand` intent (доминирует kill/cc/aoe из последнего полезного действия).
+- Retreat **не** отдельная ветка — MoveOnly кандидат уже в pool, соревнуется по scoring.
 
 ### Resource Scarcity (фактор `scarcity`)
 
@@ -136,6 +156,7 @@ scarcity = (swing_value - resource_ratio).clamp(-1.0, 1.0)
 |---------|-------|
 | Kill (kill > 0) | +0.8 |
 | Kill на Support/Mage | +0.3 |
+| Kill на Assassin | +0.2 |
 | AoE hits > 1 | +0.2 × (hits − 1) |
 | CC на high-threat unstunned | +0.5 × (threat/10) |
 | Цель < 25% HP и есть бесплатная атака | −0.3 |
@@ -152,20 +173,22 @@ scarcity = (swing_value - resource_ratio).clamp(-1.0, 1.0)
 
 ### Damage
 ```
-expected = dice.expected() - armor + damage_taken_bonus
-score = max(0.0, expected)
+raw = max(0, expected - armor + damage_taken_bonus)
+progress = min(raw / target.hp, 1.0)
+score = raw × (0.5 + 0.5 × progress)
 ```
-Если броня полностью поглощает удар, score = 0. Килл обрабатывается отдельным utility-фактором `kill` (бинарный 0/1), чтобы не дублировать бонус.
+Progress-множитель: удар, пробивающий большой % HP цели, ценится выше «капли в полный бассейн». Baseline 0.5 сохраняет значимость обычного удара; bonus до +50% награждает добивающие/быстрые удары. Kill остаётся отдельным бинарным фактором.
 
 ### Threat (`estimate_st_damage`)
-Best single-target expected damage (одна способность, до армора). Не учитывает AoE, хил и утилити — только damage output. Используется для оценки ценности контроля.
+Best single-target expected damage (одна способность, до армора). Не учитывает AoE, хил и утилити — только damage output. Используется в killable-проверке intent'а и как входной сигнал для `focus` / threat-density.
 
 ### Heal
 ```
 effective = min(expected, missing_hp)
-score = effective × urgency_multiplier (если target.hp% < 50%)
+delta_pct = effective / target.max_hp
+score = delta_pct × target.threat
 ```
-Хил полного HP = 0 (не тратить на здоровых).
+Размерность ≈ «сколько HP/ход врага я сохранил, зашив эту часть союзника» — сопоставимо с `damage`. Хил полного HP = 0 (missing=0). Без отдельного urgency-множителя: низкий HP имеет большее `missing_hp`, значит больший `delta_pct` — urgency отражается неявно.
 
 ### Status Effects
 ```
@@ -193,11 +216,14 @@ speed_penalty   → +|bonus| × duration
 
 | Фактор | Вес | Формула |
 |--------|-----|---------|
-| Threat | 0.30 | `target.threat / max_threat` |
-| Killability | 0.25 | `1 - hp / max_hp` |
+| Threat | 0.20 | `target.threat / max_threat` |
+| Killability | 0.20 | `1 − eff_hp / eff_max_hp` (armor-aware) |
+| Threat density | 0.20 | `(threat / eff_hp) / max_density` — DPS-на-HP-до-смерти |
 | Vulnerability | 0.15 | `+0.3` если LOW_HP, `+0.2` если damage_taken_bonus > 0 |
-| Role value | 0.15 | Support=1.0, Mage=0.8, Assassin=0.6, Archer=0.5, Bruiser=0.3 |
 | Proximity | 0.15 | `1 / (1 + distance)` |
+| Role value | 0.10 | Support=1.0, Mage=0.8, Assassin=0.6, Archer=0.5, Bruiser=0.3 |
+
+`eff_hp` = `hp + armor + armor_bonus`. Killability и threat density используют effective HP — танк с 5 HP и 10 armor менее «добиваем», чем маг с 5 HP без брони.
 
 ## Position Evaluation (position_eval.rs)
 
@@ -215,14 +241,14 @@ speed_penalty   → +|bonus| × duration
 
 Фильтрация кандидатов **до** скоринга. Удаляет заведомо плохие варианты:
 
-1. **Forced targeting** — если есть цель с `FORCES_TARGETING` (taunt), убрать кандидатов на другие цели
-2. **Don't walk into death** — отклонить клетку, если `LOW_HP` и `danger(tile) > 0.7` (нормализованный, >70% суммарной вражеской угрозы)
-3. **Don't AoE self** — отклонить AoE с `friendly_fire`, если кастер сам в зоне поражения
-4. **Don't AoE allies** — отклонить AoE с `friendly_fire`, если союзников в зоне больше чем `enemies / 2`
-4. **Don't waste CC** — не тратить стан на уже оглушённую цель
-5. **Don't overheal** — не лечить цель выше 90% HP
+1. **Forced targeting** — taunt ограничивает Cast-кандидатов только на taunted-целях; MoveOnly не режется (движение не запрещено)
+2. **Don't walk into death** — отклонить, если `LOW_HP` и `c.tile != actor_pos` и `danger(tile) > 0.7`. Stay-and-cast/self-heal на опасной текущей клетке не отсекается
+3. **Team safety (defensive)** — `SingleAlly` должен таргетить союзника; `SingleEnemy` — врага. Страховка от багов генерации
+4. **Don't AoE allies/self** — отклонить AoE с `friendly_fire`, если кастер сам в зоне поражения или союзников больше чем `enemies / 2`
+5. **Don't waste CC** — не тратить стан на уже оглушённую цель
+6. **Don't overheal** — не лечить цель выше 90% HP
 
-После hard constraints применяются **intent-фильтры** (см. TacticalIntent выше). Если intent-фильтр удалил бы все кандидаты — он молча пропускается (fallback).
+MoveOnly-кандидаты прохождение constraints упрощено: применяется только «Don't walk into death», ability-специфические фильтры пропускаются.
 
 ## Roles
 
@@ -274,7 +300,7 @@ speed_penalty   → +|bonus| × duration
 `BattleSnapshot` — чистый снимок без Bevy-зависимостей (кроме Entity). Содержит `Vec<UnitSnapshot>` со всеми данными для AI-решений.
 
 ### UnitSnapshot
-Позиция, HP, ресурсы (mana/rage/energy), скорость, список способностей, статусы, threat-оценка, `AiTags`.
+Позиция, HP, ресурсы (mana/rage/energy), скорость (с учётом speed-дебафов от статусов), список способностей, статусы, threat-оценка, `AiTags`, `max_attack_range` (max range офенсивных способностей — для reach-проверок в intent).
 
 ### AiTags (bitflags)
 ```
@@ -326,9 +352,8 @@ build_influence_maps(snap, active_team, db) → InfluenceMaps {
 Derived metric: `ally_support(cell) - danger(cell)`. Линейно зависима от danger и support — **не входит** в `evaluate_position()`.
 
 Используется только в:
-- `ProtectSelf` intent scoring
-- `select_diverse_tiles` (safe tiles для retreat)
-- `fallback_move` (LOW_HP retreat)
+- `select_diverse_tiles` (safe tiles для кандидатов)
+- `add_move_only_candidates` (топ-3 safe клеток → MoveOnly кандидаты)
 - debug overlay
 
 Значения:
@@ -340,22 +365,37 @@ Derived metric: `ally_support(cell) - danger(cell)`. Линейно зависи
 
 Пайплайн генерации кандидатов:
 
-1. Оценить все достижимые клетки через `evaluate_position()` → взять **top-8** + текущая позиция
-2. Для каждой клетки × каждая доступная способность → найти допустимые цели
-3. Дедупликация: одинаковые `(ability, target)` с разных клеток → оставить кратчайший путь
-4. Cap: максимум 25 кандидатов
+1. Диверсифицированный отбор tiles (`select_diverse_tiles`): top-3 opportunity, top-3 escape, ближайшие к priority target, AoE-центры, LOS-tiles для ranged + текущая позиция
+2. Для каждой клетки × каждая способность → Cast-кандидаты с допустимыми target_pos
+3. MoveOnly: top-3 клетки по escape map → кандидаты `CandidateKind::MoveOnly` (только путь, без каста) — штатный способ "просто уйти"
+4. Дедупликация: Cast по `(ability, target)` (кратчайший путь), MoveOnly по `tile`
+5. Cap: `difficulty.candidate_budget` (12 / 20 / 30)
 
 ```rust
 struct ActionCandidate {
-    tile: Hex,          // куда встать
-    path: Vec<Hex>,     // путь до tile
-    ability: AbilityId, // чем бить
-    target_pos: Hex,    // куда целиться
-    target: Entity,     // в кого
+    tile: Hex,
+    path: Vec<Hex>,
+    kind: CandidateKind,
+}
+enum CandidateKind {
+    Cast { ability: AbilityId, target_pos: Hex, target: Entity },
+    MoveOnly,
 }
 ```
 
-Если кандидатов нет — fallback: `LOW_HP` юниты отступают к клетке с минимальным danger; остальные двигаются к ближайшему врагу.
+MoveOnly кандидаты проходят scoring как обычно (damage/kill/cc/heal=0, position/risk — активны, intent зависит от интента, scarcity=0). На выходе `decision_from_candidate` превращает MoveOnly в `AiDecision::MoveOnlyRetreat`.
+
+Если кандидатов нет — `fallback_move`: `LOW_HP` юниты → клетка с min danger; остальные → ближайший враг.
+
+## Pick Best Candidate
+
+После scoring + sanity_adjust:
+
+1. **Mercy окно**: `[best_score − mercy, best_score]`. Внутри окна rerank по `score − mercy × cruelty`, где `cruelty = kill + min(0.5, cc × 0.1)`. Lethal-ход с большим отрывом остаётся вне окна — mercy его не трогает.
+2. **Similarity window для top_k**: pool = top-K кандидатов, чей score входит в `[best_after_mercy − window, best_after_mercy]`, где `window = max(score_noise × 2, 0.05)`. Кандидаты, очевидно хуже лучшего, выкидываются даже если top_k > 1.
+3. **Случайный выбор** в пределах pool. Если в pool 1 элемент — детерминированно.
+
+Это гарантирует: (a) явно лучший ход всегда побеждает, (b) близкие ходы флуктуируют по шуму / top_k, (c) mercy работает только как tie-breaker.
 
 ## Debug Overlay (debug.rs)
 

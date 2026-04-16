@@ -24,6 +24,8 @@ pub enum CombatEvent {
         actor: Entity,
         ability_name: String,
         target: Entity,
+        target_pos: hexx::Hex,
+        is_aoe: bool,
         cost_str: String,
     },
     DamageResult {
@@ -153,6 +155,8 @@ impl CombatEvent {
                 actor,
                 ability_name,
                 target,
+                target_pos,
+                is_aoe,
                 cost_str,
             } => {
                 let costs = if cost_str.is_empty() {
@@ -160,11 +164,18 @@ impl CombatEvent {
                 } else {
                     format!(" [{}]", cost_str)
                 };
+                // AoE: show tile coords (can land on empty cell). Single-target: show target name.
+                let target_label = if *is_aoe {
+                    let [q, r] = crate::game::hex::hex_to_offset(*target_pos);
+                    format!("({},{})", q, r)
+                } else {
+                    name(*target)
+                };
                 format!(
                     "  {} использует «{}» → {}{}",
                     name(*actor),
                     ability_name,
-                    name(*target),
+                    target_label,
                     costs,
                 )
             }

@@ -32,6 +32,8 @@ pub fn queue_enemy_popup(
             actor,
             ability_name,
             target,
+            target_pos,
+            is_aoe,
             cost_str,
         } = &events[i]
         else {
@@ -60,7 +62,13 @@ pub fn queue_enemy_popup(
         } else {
             format!(" [{}]", cost_str)
         };
-        lines.push(format!("{} → {}{}", ability_name, name(*target), costs));
+        let target_label = if *is_aoe {
+            let [q, r] = crate::game::hex::hex_to_offset(*target_pos);
+            format!("({},{})", q, r)
+        } else {
+            name(*target)
+        };
+        lines.push(format!("{} → {}{}", ability_name, target_label, costs));
 
         // Collect subsequent result events (damage, heal, status, death).
         let mut j = i + 1;

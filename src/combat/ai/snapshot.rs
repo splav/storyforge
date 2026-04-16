@@ -54,6 +54,9 @@ pub struct UnitSnapshot {
     pub statuses: Vec<StatusSnap>,
     pub threat: f32,
     pub tags: AiTags,
+    /// Max range of any offensive (SingleEnemy) ability. Used for reach checks
+    /// in intent selection (e.g., "is this enemy killable this turn?").
+    pub max_attack_range: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +113,16 @@ pub fn build_snapshot(
                 base + bonus
             };
 
+            let max_attack_range: u32 = c
+                .abilities
+                .0
+                .iter()
+                .filter_map(|id| db.abilities.get(id))
+                .filter(|def| matches!(def.target_type, TargetType::SingleEnemy))
+                .map(|def| def.range.max)
+                .max()
+                .unwrap_or(0);
+
             Some(UnitSnapshot {
                 entity: c.entity,
                 team: c.faction.0,
@@ -130,6 +143,7 @@ pub fn build_snapshot(
                 statuses: status_snaps,
                 threat,
                 tags,
+                max_attack_range,
             })
         })
         .collect();
