@@ -150,10 +150,15 @@ pub fn select_intent(
     }
 
     // FocusTarget: killable enemy scores highest, otherwise best priority target.
+    // "Killable" uses effective HP (hp + armor) — consistent with the utility
+    // `kill` factor. Prevents focusing on a low-HP tank whose armor blocks the hit.
     let killable = snap
         .enemies_of(active.team)
-        .filter(|e| active.threat >= e.hp as f32)
-        .min_by_key(|e| e.hp);
+        .filter(|e| {
+            let effective_hp = e.hp as f32 + (e.armor + e.armor_bonus) as f32;
+            active.threat >= effective_hp
+        })
+        .min_by_key(|e| e.hp + e.armor + e.armor_bonus);
     if let Some(target) = killable {
         // Killable targets get a high base score.
         let kill_score = 1.2 + (1.0 - target.hp as f32 / target.max_hp.max(1) as f32) * 0.3;

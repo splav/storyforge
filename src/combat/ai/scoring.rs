@@ -3,13 +3,6 @@ use crate::game::components::Abilities;
 use crate::game::resources::GameDb;
 use bevy::prelude::Entity;
 
-// ── Tuning constants ────────────────────────────────────────────────────────
-
-/// HP% threshold below which healing is considered urgent.
-const HEAL_URGENCY_THRESHOLD: f32 = 0.5;
-/// Multiplier on heal score when target is below urgency threshold.
-const HEAL_URGENCY_MULTIPLIER: f32 = 2.0;
-
 /// Snapshot of a potential target with status-derived bonuses and threat estimate.
 pub struct TargetInfo {
     pub entity: Entity,
@@ -47,22 +40,26 @@ pub fn score_action(
             return 0.0;
         }
         let effective = expected.min(missing);
-        let hp_pct = target.hp as f32 / target.max_hp.max(1) as f32;
-        let urgency = if hp_pct < HEAL_URGENCY_THRESHOLD {
-            HEAL_URGENCY_MULTIPLIER
-        } else {
-            1.0
-        };
-        effective * urgency
+        // Heal value = fraction of ally restored × their damage output.
+        // Dimensionally ≈ "enemy HP/turn this heal keeps alive", so it competes
+        // on the same scale as `damage`. A fresh ally has small delta_pct so
+        // tops-off auto-score low; urgent heals auto-score high via bigger delta.
+        let delta_pct = effective / target.max_hp.max(1) as f32;
+        delta_pct * target.threat
     } else {
         let mitigation = if calc.pierces_armor {
             0.0
         } else {
             (target.armor + target.armor_bonus) as f32
         };
-        // No artificial floor: if armor absorbs everything, score is 0.
-        // Kill bonus is handled by the separate `kill` factor in utility scoring.
-        (expected - mitigation + target.damage_taken_bonus as f32).max(0.0)
+        // Post-armor damage. No artificial floor: if armor absorbs everything,
+        // score is 0. Kill bonus is handled by the separate `kill` factor.
+        let raw = (expected - mitigation + target.damage_taken_bonus as f32).max(0.0);
+        // Progress multiplier: a hit that meaningfully clips the target's
+        // current HP is worth more than the same raw damage into a fresh pool.
+        // 0.5 baseline keeps single hits meaningful; bonus rewards finishing.
+        let progress = (raw / target.hp.max(1) as f32).min(1.0);
+        raw * (0.5 + 0.5 * progress)
     };
 
     dmg_score + status_score(def, target, db)

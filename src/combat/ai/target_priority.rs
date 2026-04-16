@@ -16,7 +16,27 @@ pub fn target_priority(
         .max(1.0);
 
     let threat = target.threat / max_threat;
-    let killability = 1.0 - (target.hp as f32 / target.max_hp.max(1) as f32);
+    // Killability uses effective HP (hp + armor) — the real remaining barrier
+    // before this target dies. A well-armored tank at low HP is less killable
+    // than an unarmored mage at the same HP%.
+    let armor = (target.armor + target.armor_bonus) as f32;
+    let eff_hp = target.hp as f32 + armor;
+    let eff_max = (target.max_hp as f32 + armor).max(1.0);
+    let killability = 1.0 - eff_hp / eff_max;
+
+    // Threat density: damage output per HP-to-kill. Captures "ROI per HP burned"
+    // — a low-HP assassin is much more efficient to finish than a tank with
+    // equal threat but more effective HP.
+    let max_density = snap
+        .units
+        .iter()
+        .map(|u| {
+            let a = (u.armor + u.armor_bonus) as f32;
+            u.threat / (u.hp as f32 + a).max(1.0)
+        })
+        .fold(0.0f32, f32::max)
+        .max(0.01);
+    let density = (target.threat / eff_hp.max(1.0)) / max_density;
 
     let vulnerability = if target.tags.contains(AiTags::LOW_HP) {
         0.3
@@ -39,8 +59,12 @@ pub fn target_priority(
     let dist = active.pos.unsigned_distance_to(target.pos) as f32;
     let proximity = 1.0 / (1.0 + dist);
 
-    let raw =
-        threat * 0.3 + killability * 0.25 + vulnerability * 0.15 + role_value * 0.15 + proximity * 0.15;
+    let raw = threat * 0.20
+        + killability * 0.20
+        + density * 0.20
+        + vulnerability * 0.15
+        + role_value * 0.10
+        + proximity * 0.15;
     raw.clamp(0.0, 1.0)
 }
 

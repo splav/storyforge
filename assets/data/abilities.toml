@@ -100,6 +100,18 @@ statuses      = [
 ]
 
 [[abilities]]
+id            = "spark"
+name          = "Искра"
+magic_domains = ["aether"]
+magic_method  = "destruction"
+target_type   = "single_enemy"
+effect        = "spell_damage"
+dice_count    = 1
+dice_sides    = 3
+costs         = [{ resource = "mana", amount = 1 }]
+range         = 3
+
+[[abilities]]
 id          = "stun"
 name        = "Оглушить"
 target_type = "single_enemy"

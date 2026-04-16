@@ -99,7 +99,13 @@ fn run_ai_turn(
     let snap = build_snapshot(actor, combat_ctx.round, combatants, statuses, positions, roles, db);
     let maps = build_influence_maps(&snap, actor_team, db);
 
-    // Build reachable tiles for movement.
+    // Build reachable tiles for movement. Use the snapshot's status-adjusted
+    // speed so paths respect debuffs like Истощение — otherwise the AI plans
+    // routes that movement_system silently rejects, dropping the action.
+    let effective_speed = snap
+        .unit(actor)
+        .map(|u| u.speed.max(1))
+        .unwrap_or(c.speed.0);
     let own_team_positions: HashSet<Hex> = snap
         .allies_of(actor_team)
         .filter(|u| u.entity != actor)
@@ -112,7 +118,7 @@ fn run_ai_turn(
         .collect();
     let reach = reachable_with_paths(
         actor_pos,
-        c.speed.0,
+        effective_speed,
         |h| in_bounds(h) && !own_team_positions.contains(&h),
         |h| !all_occupied.contains(&h),
     );

@@ -767,8 +767,10 @@ fn compute_scarcity(
         swing += 0.8;
         // Extra value for killing high-value targets.
         if let Some(t) = snap.unit(candidate.target) {
-            if matches!(t.role, AiRole::Support | AiRole::Mage) {
-                swing += 0.3;
+            match t.role {
+                AiRole::Support | AiRole::Mage => swing += 0.3,
+                AiRole::Assassin => swing += 0.2,
+                _ => {}
             }
         }
     }
