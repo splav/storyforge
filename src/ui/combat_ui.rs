@@ -120,19 +120,7 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ..default()
             })
             .with_children(|center| {
-                // Phase / hint
-                let (tf, _) = txt(14.0);
-                center.spawn((HudPhase, Text::new(""), tf, TextColor(CLR_HINT)));
-
-                // Hidden legacy marker (kept so update_turn_order can find it)
-                center.spawn((HudTurnOrder, Node { display: Display::None, ..default() }));
-
-                center.spawn(Node {
-                    flex_grow: 1.0,
-                    ..default()
-                });
-
-                // Combat log — row: clip area + scrollbar track
+                // Combat log — row: clip area + scrollbar track (top)
                 {
                     let (tf, _) = txt(13.0);
                     center
@@ -192,6 +180,18 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                                 });
                         });
                 }
+
+                // Hidden legacy marker (kept so update_turn_order can find it)
+                center.spawn((HudTurnOrder, Node { display: Display::None, ..default() }));
+
+                center.spawn(Node {
+                    flex_grow: 1.0,
+                    ..default()
+                });
+
+                // Phase / hint (bottom)
+                let (tf, _) = txt(14.0);
+                center.spawn((HudPhase, Text::new(""), tf, TextColor(CLR_HINT)));
             });
 
             // ── Right panel: turn order cards ─────────────────────────────

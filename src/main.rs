@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat;
+use storyforge::combat::CombatStep;
 use storyforge::core::DiceRng;
 use storyforge::game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, RestartCombat, StartCombat,
@@ -162,37 +163,65 @@ fn main() {
                 .chain()
                 .run_if(in_state(CombatPhase::StartRound)),
         )
+        // ── Combat pipeline sets ────────────────────────────────────
+        .configure_sets(
+            Update,
+            (
+                CombatStep::TurnStart,
+                CombatStep::Command,
+                CombatStep::Execute,
+                CombatStep::Finalize,
+            )
+                .chain()
+                .run_if(in_state(CombatPhase::AwaitCommand))
+                .run_if(ui::animation::combat_ready),
+        )
+        // ── TurnStart: init → skip dead → skip stunned ─────────────
         .add_systems(
             Update,
             (
                 combat::turn_start::turn_start_system,
-                combat::skip_dead::skip_dead_turn_system
-                    .after(combat::turn_start::turn_start_system),
-                combat::skip_dead::skip_stunned_turn_system
-                    .after(combat::skip_dead::skip_dead_turn_system),
-                combat::enemy_ai::pact_ai_system
-                    .after(combat::skip_dead::skip_stunned_turn_system),
-                combat::command_input::player_command_system
-                    .after(combat::enemy_ai::pact_ai_system),
-                combat::enemy_ai::enemy_ai_system
-                    .after(combat::skip_dead::skip_stunned_turn_system),
-                combat::movement::movement_system
-                    .after(combat::command_input::player_command_system)
-                    .after(combat::enemy_ai::enemy_ai_system)
-                    .after(combat::enemy_ai::pact_ai_system),
-                combat::validation::validate_action_system
-                    .after(combat::movement::movement_system),
-                combat::resolution::resolve_action_system
-                    .after(combat::validation::validate_action_system),
-                combat::apply_effects::apply_effects_system
-                    .after(combat::resolution::resolve_action_system),
-                combat::enemy_popup::queue_enemy_popup
-                    .after(combat::apply_effects::apply_effects_system),
-                combat::advance_turn::advance_turn_system
-                    .after(combat::apply_effects::apply_effects_system),
+                combat::skip_dead::skip_dead_turn_system,
+                combat::skip_dead::skip_stunned_turn_system,
             )
-                .run_if(in_state(CombatPhase::AwaitCommand))
-                .run_if(ui::animation::combat_ready),
+                .chain()
+                .in_set(CombatStep::TurnStart),
+        )
+        // ── Command: player & enemy input (parallel branches) ──────
+        .add_systems(
+            Update,
+            (
+                combat::enemy_ai::pact_ai_system,
+                combat::command_input::player_command_system,
+            )
+                .chain()
+                .in_set(CombatStep::Command),
+        )
+        .add_systems(
+            Update,
+            combat::enemy_ai::enemy_ai_system
+                .in_set(CombatStep::Command),
+        )
+        // ── Execute: movement → validation → resolution → effects ──
+        .add_systems(
+            Update,
+            (
+                combat::movement::movement_system,
+                combat::validation::validate_action_system,
+                combat::resolution::resolve_action_system,
+                combat::apply_effects::apply_effects_system,
+            )
+                .chain()
+                .in_set(CombatStep::Execute),
+        )
+        // ── Finalize: popup + advance (parallel) ────────────────────
+        .add_systems(
+            Update,
+            (
+                combat::enemy_popup::queue_enemy_popup,
+                combat::advance_turn::advance_turn_system,
+            )
+                .in_set(CombatStep::Finalize),
         )
         .run();
 }

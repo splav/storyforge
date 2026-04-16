@@ -19,6 +19,16 @@ use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::CombatContext;
 use bevy::prelude::*;
 
+/// Logical phases of the AwaitCommand combat pipeline.
+/// Ordered via `.chain()` in main: TurnStart → Command → Execute → Finalize.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CombatStep {
+    TurnStart, // turn_start → skip_dead → skip_stunned
+    Command,   // pact_ai → player_command ‖ enemy_ai
+    Execute,   // movement → validate → resolve → apply_effects
+    Finalize,  // queue_enemy_popup ‖ advance_turn
+}
+
 /// Listens for StartCombat events while in Overworld and transitions to Combat.
 pub fn start_combat_system(
     mut commands: Commands,

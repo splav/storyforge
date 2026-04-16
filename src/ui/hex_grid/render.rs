@@ -7,8 +7,8 @@ use bevy::sprite::Anchor;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-/// Y offset to push grid up so bottom UI has room.
-pub const GRID_Y_OFFSET: f32 = 40.0;
+/// Y offset to push grid down so top log has room.
+pub const GRID_Y_OFFSET: f32 = -30.0;
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 
