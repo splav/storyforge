@@ -2,18 +2,21 @@ use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::role::AiRole;
 use crate::game::hex::Hex;
 
-/// Per-role weights for [danger, ally_support, opportunity, escape].
-const POSITION_WEIGHTS: [[f32; 4]; 5] = [
-    // Bruiser: charges in, doesn't fear danger much
-    [-0.3, 0.5, 1.0, 0.0],
-    // Archer: avoids danger, seeks escape routes
-    [-1.0, 0.3, 0.5, 0.8],
-    // Mage: moderate caution, seeks opportunities
-    [-0.8, 0.5, 0.8, 0.5],
-    // Support: very cautious, stays near allies
-    [-1.2, 1.0, 0.2, 1.0],
-    // Assassin: fearless, seeks opportunity
-    [-0.2, 0.1, 1.2, 0.0],
+/// Per-role weights for [danger, ally_support, opportunity].
+/// All three maps are normalized to [0, 1] — weights express relative importance directly.
+/// Escape (ally_support − danger) is NOT included here because it's a linear combo
+/// of danger and support, not an independent signal. It's used only in ProtectSelf/retreat.
+const POSITION_WEIGHTS: [[f32; 3]; 5] = [
+    // Bruiser: wants opportunity, moderate danger avoidance, likes ally proximity
+    [-1.2, 0.6, 1.2],
+    // Archer: strongly avoids danger, moderate ally preference
+    [-2.0, 0.7, 0.8],
+    // Mage: cautious, seeks opportunity for spell targets
+    [-1.8, 0.8, 1.2],
+    // Support: very cautious, stays near allies, avoids frontline
+    [-2.5, 1.3, 0.5],
+    // Assassin: aggressive, mild danger respect
+    [-0.9, 0.25, 1.8],
 ];
 
 fn role_index(role: AiRole) -> usize {
@@ -34,7 +37,6 @@ pub fn evaluate_position(tile: Hex, role: AiRole, maps: &InfluenceMaps) -> f32 {
     w[0] * maps.danger.get(tile)
         + w[1] * maps.ally_support.get(tile)
         + w[2] * maps.opportunity.get(tile)
-        + w[3] * maps.escape.get(tile)
 }
 
 #[cfg(test)]
@@ -57,7 +59,7 @@ mod tests {
     #[test]
     fn support_avoids_danger_more_than_bruiser() {
         let h = hex_from_offset(3, 3);
-        let maps = maps_with_danger(h, 10.0);
+        let maps = maps_with_danger(h, 0.7);
         let support_score = evaluate_position(h, AiRole::Support, &maps);
         let bruiser_score = evaluate_position(h, AiRole::Bruiser, &maps);
         assert!(
@@ -77,6 +79,26 @@ mod tests {
         };
         for role in [AiRole::Bruiser, AiRole::Archer, AiRole::Mage, AiRole::Support, AiRole::Assassin] {
             assert_eq!(evaluate_position(h, role, &maps), 0.0);
+        }
+    }
+
+    #[test]
+    fn escape_does_not_affect_position_eval() {
+        // position_eval uses only danger, ally_support, opportunity.
+        // Changing escape should not change the score.
+        let h = hex_from_offset(3, 3);
+        let mut maps1 = maps_with_danger(h, 0.5);
+        maps1.opportunity.add(h, 0.8);
+        let mut maps2 = maps1.clone();
+        maps2.escape.add(h, 0.9);
+
+        for role in [AiRole::Bruiser, AiRole::Archer, AiRole::Mage, AiRole::Support, AiRole::Assassin] {
+            assert_eq!(
+                evaluate_position(h, role, &maps1),
+                evaluate_position(h, role, &maps2),
+                "escape should not affect position_eval for {:?}",
+                role,
+            );
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::combat::ai::role::AiRole;
-use crate::combat::ai::scoring::estimate_threat;
+use crate::combat::ai::scoring::estimate_st_damage;
 use crate::content::abilities::{AoEShape, CasterContext, EffectDef, TargetType};
 use crate::core::AbilityId;
 use crate::game::components::{
@@ -80,7 +80,7 @@ pub fn build_snapshot(
             let pos = positions.get(&c.entity)?;
             let role = roles.get(c.entity).copied().unwrap_or(AiRole::Bruiser);
             let caster_ctx = CasterContext::new(c.stats, Some(c.equipment), &db.weapons);
-            let threat = estimate_threat(&caster_ctx, c.abilities, db);
+            let threat = estimate_st_damage(&caster_ctx, c.abilities, db);
 
             let status_snaps: Vec<StatusSnap> = statuses_q
                 .get(c.entity)

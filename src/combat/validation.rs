@@ -1,8 +1,9 @@
+#![allow(clippy::too_many_arguments)]
 use crate::content::abilities::AoEShape;
 use crate::core::ResourceKind;
 use crate::game::components::{ActiveCombatant, ValidationActorQ, Vital};
 use crate::game::hex::in_bounds;
-use crate::game::messages::{UseAbility, ValidatedAction};
+use crate::game::messages::{EndTurn, UseAbility, ValidatedAction};
 use crate::game::resources::{GameDb, HexPositions};
 use bevy::prelude::*;
 
@@ -14,11 +15,14 @@ pub fn validate_action_system(
     actors: Query<ValidationActorQ>,
     targets: Query<&Vital>,
     mut validated: MessageWriter<ValidatedAction>,
+    mut end_turn: MessageWriter<EndTurn>,
 ) {
     let active = active_q.single().ok();
     for ev in events.read() {
         let (valid, disadvantage) = check(ev, active, &db, &positions, &actors, &targets);
         if !valid {
+            // Rejected action still ends the turn to prevent infinite loops.
+            end_turn.write(EndTurn { actor: ev.actor });
             continue;
         }
         validated.write(ValidatedAction {

@@ -343,6 +343,77 @@ fn poison_can_kill() {
     assert!(app.world().get::<Dead>(hero).is_some(), "poison should be able to kill");
 }
 
+// ── Burn duration ───────────────────────────────────────────────────────────
+
+#[test]
+fn burning_lasts_two_applier_end_turns() {
+    let mut app = effects_app();
+    insert_burning_status(&mut app);
+
+    let hero = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+    let goblin = app
+        .world_mut()
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
+        .id();
+
+    // Hero applies burning with duration 2 (matching abilities.toml).
+    app.world_mut()
+        .get_mut::<StatusEffects>(goblin)
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: "burning".into(),
+            rounds_remaining: 2,
+            applier: hero,
+            dot_per_tick: 0,
+        });
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![hero, goblin];
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+
+    // Turn 1: hero ends turn → burning ticks from 2 to 1.
+    write_message(&mut app, EndTurn { actor: hero });
+    app.update();
+
+    let se = app.world().get::<StatusEffects>(goblin).unwrap();
+    assert_eq!(se.0.len(), 1, "burning should still be active after first hero EndTurn");
+    assert_eq!(se.0[0].rounds_remaining, 1);
+
+    // Goblin's turn — burning should NOT tick (goblin is not the applier).
+    write_message(&mut app, EndTurn { actor: goblin });
+    app.update();
+
+    let se = app.world().get::<StatusEffects>(goblin).unwrap();
+    assert_eq!(se.0.len(), 1, "burning should not tick on goblin's own EndTurn");
+    assert_eq!(se.0[0].rounds_remaining, 1);
+
+    // Round boundary: goblin's EndTurn wraps the queue → StartRound.
+    // Re-enter AwaitCommand for the next round.
+    enter_await_command(&mut app);
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+
+    // Turn 2: hero ends turn again → burning ticks from 1 to 0 → expires.
+    write_message(&mut app, EndTurn { actor: hero });
+    app.update();
+
+    let se = app.world().get::<StatusEffects>(goblin).unwrap();
+    assert!(se.0.is_empty(), "burning should expire after second hero EndTurn");
+
+    // Goblin took no DoT damage — burning is purely a vulnerability modifier.
+    assert_eq!(app.world().get::<Vital>(goblin).unwrap().hp, 10);
+}
+
 // ── Heal + Poison interaction ────────────────────────────────────────────────
 
 #[test]

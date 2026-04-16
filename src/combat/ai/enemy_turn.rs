@@ -185,7 +185,7 @@ fn run_ai_turn(
             msgs.move_unit.write(MoveUnit { actor, path });
             msgs.use_ability.write(UseAbility { actor, ability, target, target_pos });
         }
-        AiDecision::MoveCloser { path } => {
+        AiDecision::MoveCloser { path } | AiDecision::MoveOnlyRetreat { path } => {
             msgs.move_unit.write(MoveUnit { actor, path });
             msgs.end_turn.write(EndTurn { actor });
         }

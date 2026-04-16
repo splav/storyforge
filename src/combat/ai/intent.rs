@@ -1,4 +1,3 @@
-use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
@@ -36,6 +35,8 @@ pub enum TacticalIntent {
     ProtectAlly { ally: Entity },
     /// Position to hit multiple enemies with AoE.
     SetupAOE,
+    /// Survival is unlikely — maximize last useful action (kill > cc > damage).
+    LastStand,
 }
 
 /// Intent kind without target data, for stickiness comparison.
@@ -47,6 +48,7 @@ pub enum IntentKind {
     ProtectSelf,
     ProtectAlly,
     SetupAOE,
+    LastStand,
 }
 
 impl TacticalIntent {
@@ -58,6 +60,7 @@ impl TacticalIntent {
             Self::ProtectSelf => IntentKind::ProtectSelf,
             Self::ProtectAlly { .. } => IntentKind::ProtectAlly,
             Self::SetupAOE => IntentKind::SetupAOE,
+            Self::LastStand => IntentKind::LastStand,
         }
     }
 
@@ -87,7 +90,6 @@ pub fn select_intent(
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
-    difficulty: &DifficultyProfile,
     memory: &AiMemory,
 ) -> TacticalIntent {
     let mut best_score = f32::NEG_INFINITY;
@@ -115,9 +117,15 @@ pub fn select_intent(
     let hp_pct = active.hp as f32 / active.max_hp.max(1) as f32;
     let danger = maps.danger.get(active.pos);
 
+    // Hard override: critically wounded in high danger — survival is non-negotiable.
+    if hp_pct < 0.25 && danger > 0.7 {
+        return TacticalIntent::ProtectSelf;
+    }
+
     // ProtectSelf: score scales with urgency.
+    // danger is normalized [0, 1]; any non-zero danger + low HP triggers.
     if hp_pct < 0.4 && danger > 0.0 {
-        let urgency = (1.0 - hp_pct) * (danger / active.hp.max(1) as f32).min(2.0);
+        let urgency = (1.0 - hp_pct) * danger;
         consider(TacticalIntent::ProtectSelf, urgency);
     }
 
@@ -138,7 +146,7 @@ pub fn select_intent(
     // FocusTarget: killable enemy scores highest, otherwise best priority target.
     let killable = snap
         .enemies_of(active.team)
-        .filter(|e| active.threat * difficulty.awareness >= e.hp as f32)
+        .filter(|e| active.threat >= e.hp as f32)
         .min_by_key(|e| e.hp);
     if let Some(target) = killable {
         // Killable targets get a high base score.
@@ -185,10 +193,12 @@ pub fn select_intent(
         }
     }
 
-    // Reposition: current position is bad.
+    // Reposition: current position is significantly bad.
+    // With normalized maps, position_eval typically ranges [-3, +3];
+    // only trigger when clearly negative.
     let pos_eval = evaluate_position(active.pos, active.role, maps);
-    if pos_eval < 0.0 {
-        let repo_score = 0.3 + (-pos_eval).min(1.5) * 0.4;
+    if pos_eval < -0.5 {
+        let repo_score = 0.3 + (-pos_eval - 0.5).min(1.5) * 0.4;
         consider(TacticalIntent::Reposition, repo_score);
     }
 
@@ -256,17 +266,20 @@ pub fn intent_score(
             }
         }
         TacticalIntent::Reposition => {
-            evaluate_position(candidate.tile, active.role, maps).max(0.0)
+            let current = evaluate_position(active.pos, active.role, maps);
+            let new = evaluate_position(candidate.tile, active.role, maps);
+            let improvement = new - current;
+            // Only reward meaningful improvement; penalize lateral/worse moves.
+            if improvement < 0.20 {
+                -1.0
+            } else {
+                improvement.min(2.0)
+            }
         }
         TacticalIntent::ProtectSelf => {
+            // Normalized danger [0, 1]: safer tiles score higher.
             let danger = maps.danger.get(candidate.tile);
-            let hp = active.hp as f32;
-            // Moving into danger above 50% HP is penalized, not forbidden.
-            if danger > hp * 0.5 {
-                MISALIGN_PENALTY * (danger / hp.max(1.0))
-            } else {
-                (-danger + active.armor as f32).max(0.0)
-            }
+            1.0 - danger
         }
         TacticalIntent::ProtectAlly { ally } => {
             let Some(def) = db.abilities.get(&candidate.ability) else {
@@ -307,5 +320,155 @@ pub fn intent_score(
                 .count() as f32;
             if total > 0.0 { hit / total } else { 0.0 }
         }
+        TacticalIntent::LastStand => {
+            let Some(def) = db.abilities.get(&candidate.ability) else {
+                return 0.0;
+            };
+            let mut score = 0.0f32;
+
+            // Offensive actions are aligned with LastStand.
+            if matches!(def.target_type, TargetType::SingleEnemy) {
+                score += 0.5;
+            }
+
+            // CC on unstunned target — high value.
+            if let Some(target_unit) = snap.unit(candidate.target) {
+                let is_cc = def.statuses.iter().any(|sa| {
+                    db.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn)
+                });
+                if is_cc && !target_unit.tags.contains(AiTags::IS_STUNNED) {
+                    score += 0.8;
+                }
+            }
+
+            // AoE bonus.
+            if def.aoe != AoEShape::None {
+                score += 0.3;
+            }
+
+            // Heals/buffs are not the priority but not penalized.
+            if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
+                score += 0.1;
+            }
+
+            score
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
+    use crate::combat::ai::role::AiRole;
+    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::utility::ActionCandidate;
+    use crate::game::components::Team;
+    use crate::game::hex::hex_from_offset;
+    use crate::game::resources::GameDb;
+
+    /// Build maps where only danger is set on specific tiles.
+    /// Bruiser danger weight is -1.2, so eval = -1.2 * danger.
+    fn maps_with_dangers(tiles: &[(Hex, f32)]) -> InfluenceMaps {
+        let mut danger = InfluenceMap::new();
+        for &(hex, val) in tiles {
+            danger.add(hex, val);
+        }
+        InfluenceMaps {
+            danger,
+            ally_support: InfluenceMap::new(),
+            opportunity: InfluenceMap::new(),
+            escape: InfluenceMap::new(),
+        }
+    }
+
+    fn dummy_unit(pos: Hex) -> UnitSnapshot {
+        UnitSnapshot {
+            entity: Entity::from_raw_u32(0).expect("valid"),
+            team: Team::Enemy,
+            role: AiRole::Bruiser,
+            pos,
+            hp: 20,
+            max_hp: 20,
+            armor: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            action: true,
+            movement: true,
+            speed: 3,
+            mana: None,
+            rage: None,
+            energy: None,
+            abilities: vec![],
+            statuses: vec![],
+            threat: 5.0,
+            tags: AiTags::MELEE_ONLY,
+        }
+    }
+
+    fn dummy_candidate(tile: Hex) -> ActionCandidate {
+        ActionCandidate {
+            tile,
+            path: vec![],
+            ability: "melee_attack".into(),
+            target_pos: tile,
+            target: Entity::from_raw_u32(1).expect("valid"),
+        }
+    }
+
+    #[test]
+    fn reposition_penalizes_worse_tile() {
+        // Current pos: eval = -1.2 * 1.5 = -1.8
+        // Better tile:  eval = -1.2 * (7/6) ≈ -1.4  (improvement 0.4)
+        // Worse tile:   eval = -1.2 * (19/12) ≈ -1.9 (improvement -0.1)
+        let current = hex_from_offset(3, 3);
+        let better = hex_from_offset(4, 3);
+        let worse = hex_from_offset(2, 3);
+
+        let maps = maps_with_dangers(&[
+            (current, 1.5),
+            (better, 7.0 / 6.0),
+            (worse, 19.0 / 12.0),
+        ]);
+
+        let active = dummy_unit(current);
+        let enemy = UnitSnapshot {
+            entity: Entity::from_raw_u32(1).expect("valid"),
+            team: Team::Player,
+            ..dummy_unit(hex_from_offset(0, 0))
+        };
+        let snap = BattleSnapshot {
+            units: vec![active.clone(), enemy],
+            active_unit: active.entity,
+            round: 1,
+        };
+        let db = GameDb::default();
+        let intent = TacticalIntent::Reposition;
+
+        let score_worse = intent_score(
+            &intent,
+            &dummy_candidate(worse),
+            &active,
+            &snap,
+            &maps,
+            &db,
+        );
+        let score_better = intent_score(
+            &intent,
+            &dummy_candidate(better),
+            &active,
+            &snap,
+            &maps,
+            &db,
+        );
+
+        assert!(
+            score_worse < 0.0,
+            "worse tile should be penalized, got {score_worse}"
+        );
+        assert!(
+            score_better > 0.0,
+            "better tile should score positively, got {score_better}"
+        );
     }
 }

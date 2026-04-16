@@ -94,6 +94,7 @@ pub fn validation_app() -> App {
         .init_resource::<DiceRng>()
         .add_message::<UseAbility>()
         .add_message::<ValidatedAction>()
+        .add_message::<EndTurn>()
         .add_systems(
             Update,
             validate_action_system.run_if(in_state(CombatPhase::AwaitCommand)),
@@ -235,6 +236,25 @@ pub fn insert_stun_status(app: &mut App) {
             armor_bonus: 0,
             damage_taken_bonus: 0,
             skips_turn: true,
+            forces_targeting: false,
+            dot_dice: None,
+            blocks_mana_abilities: false,
+            speed_bonus: 0,
+            hp_percent_dot: 0,
+            ai_controlled: false,
+        },
+    );
+}
+
+pub fn insert_burning_status(app: &mut App) {
+    app.world_mut().resource_mut::<GameDb>().statuses.insert(
+        "burning".into(),
+        StatusDef {
+            id: "burning".into(),
+            name: "Burning".into(),
+            armor_bonus: 0,
+            damage_taken_bonus: 1,
+            skips_turn: false,
             forces_targeting: false,
             dot_dice: None,
             blocks_mana_abilities: false,

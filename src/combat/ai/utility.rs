@@ -49,6 +49,9 @@ pub enum AiDecision {
     MoveCloser {
         path: Vec<Hex>,
     },
+    MoveOnlyRetreat {
+        path: Vec<Hex>,
+    },
     EndTurn,
 }
 
@@ -57,14 +60,21 @@ pub enum AiDecision {
 /// 9 utility factors: damage, kill, cc, heal, position, risk, focus, intent, scarcity.
 const NUM_FACTORS: usize = 9;
 
+/// Factors that can be negative (position, intent, scarcity).
+/// These use symmetric normalization: divide by max(|min|, |max|) → [-1, 1].
+/// Non-negative factors use standard max normalization → [0, 1].
+const SIGNED_FACTOR: [bool; NUM_FACTORS] = [
+    false, false, false, false, true, false, false, true, true,
+];
+
 #[rustfmt::skip]
 const ROLE_WEIGHTS: [[f32; NUM_FACTORS]; 5] = [
     //            dmg   kill  cc    heal  pos   risk  focus intent scarc
-    /* Bruiser */ [1.0,  1.5,  0.3,  0.0,  0.5,  0.3,  0.8,  1.0,  0.3],
+    /* Bruiser */ [1.0,  1.5,  0.3,  0.0,  0.5,  0.5,  0.8,  1.0,  0.3],
     /* Archer  */ [1.0,  1.0,  0.3,  0.0,  1.0,  0.8,  0.5,  1.0,  0.3],
     /* Mage    */ [0.8,  0.8,  1.2,  0.0,  0.8,  0.6,  0.5,  1.0,  1.0],
     /* Support */ [0.2,  0.3,  0.8,  2.0,  1.0,  1.0,  0.5,  1.0,  0.8],
-    /* Assassin*/ [0.8,  2.0,  0.2,  0.0,  0.3,  0.2,  1.5,  1.0,  0.2],
+    /* Assassin*/ [0.8,  1.5,  0.2,  0.0,  0.5,  0.5,  1.5,  1.0,  0.2],
 ];
 
 fn role_index(role: AiRole) -> usize {
@@ -112,28 +122,92 @@ pub fn pick_action(
     };
 
     // ── Select tactical intent ──────────────────────────────────────────
-    let intent = select_intent(active, snap, maps, ctx.difficulty, memory);
+    let intent = select_intent(active, snap, maps, memory);
     update_memory(memory, &intent);
 
     // ── Generate candidates ─────────────────────────────────────────────
     let mut candidates = generate_candidates(actor_pos, active, ctx, snap, maps, positions, reach);
 
     if candidates.is_empty() {
-        return (fallback_move(actor_pos, active, ctx, snap, reach), None);
+        let decision = fallback_move(actor_pos, active, ctx, snap, reach, maps);
+        let ds = if debug {
+            Some(build_fallback_debug(active, actor_pos, &intent, &decision, "no candidates generated", ctx, snap, maps, debug_names))
+        } else { None };
+        return (decision, ds);
     }
 
     // ── Hard constraints ────────────────────────────────────────────────
     filter_candidates(&mut candidates, active, snap, maps, ctx.db);
 
     if candidates.is_empty() {
-        return (fallback_move(actor_pos, active, ctx, snap, reach), None);
+        let decision = fallback_move(actor_pos, active, ctx, snap, reach, maps);
+        let ds = if debug {
+            Some(build_fallback_debug(active, actor_pos, &intent, &decision, "all filtered by constraints", ctx, snap, maps, debug_names))
+        } else { None };
+        return (decision, ds);
     }
 
     // ── Utility scoring ─────────────────────────────────────────────────
     let mut scored = score_candidates(&candidates, active, &intent, ctx, snap, maps, reservations, rng);
 
     // ── Sanity check on top candidates ─────────────────────────────────
-    sanity_adjust(&mut scored, &candidates, active, snap, maps);
+    sanity_adjust(&mut scored, &candidates, active, snap, maps, ctx);
+
+    // ── ProtectSelf: prefer defensive candidates from the scored pool ──
+    if matches!(intent, TacticalIntent::ProtectSelf) {
+        let current_danger = maps.danger.get(active.pos);
+
+        let best_def_idx = scored
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| is_defensive(&candidates[*i], current_danger, ctx.db, maps))
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, s)| (i, *s));
+
+        let retreat = if active.movement {
+            compute_retreat(active, reach, maps)
+        } else {
+            None
+        };
+
+        // Pick best among: defensive candidate vs retreat.
+        let has_survival_option = match (best_def_idx, &retreat) {
+            (Some((_, def_score)), Some((path, ret_score)))
+                if *ret_score > def_score && !path.is_empty() =>
+            {
+                let decision = AiDecision::MoveOnlyRetreat { path: path.clone() };
+                let ds = if debug {
+                    Some(build_fallback_debug(active, actor_pos, &intent, &decision, "ProtectSelf: retreat won", ctx, snap, maps, debug_names))
+                } else { None };
+                return (decision, ds);
+            }
+            (Some((idx, _)), _) => {
+                // Defensive candidate wins — use it via the normal pick path below.
+                // Mask all non-defensive candidates so pick_best selects from defensive only.
+                for (i, s) in scored.iter_mut().enumerate() {
+                    if i != idx && !is_defensive(&candidates[i], current_danger, ctx.db, maps) {
+                        *s = f32::NEG_INFINITY;
+                    }
+                }
+                true
+            }
+            (None, Some((path, _))) if !path.is_empty() => {
+                let decision = AiDecision::MoveOnlyRetreat { path: path.clone() };
+                let ds = if debug {
+                    Some(build_fallback_debug(active, actor_pos, &intent, &decision, "ProtectSelf: no defensive candidates, retreat", ctx, snap, maps, debug_names))
+                } else { None };
+                return (decision, ds);
+            }
+            _ => false,
+        };
+
+        // No viable survival option → LastStand: re-score for maximum impact.
+        if !has_survival_option {
+            let last_stand = TacticalIntent::LastStand;
+            scored = score_candidates(&candidates, active, &last_stand, ctx, snap, maps, reservations, rng);
+            // Disable sanity survival penalties — we're already doomed.
+        }
+    }
 
     // Pick best.
     let best_idx = scored
@@ -425,14 +499,26 @@ fn score_candidates(
         .map(|c| compute_factors(c, active, intent, ctx, snap, maps, reservations))
         .collect();
 
-    // Find max per factor for normalization.
+    // Find per-factor extremes for normalization.
     let mut maxes = [0.0f32; NUM_FACTORS];
+    let mut mins = [0.0f32; NUM_FACTORS];
     for factors in &raw {
         for (i, &v) in factors.iter().enumerate() {
-            if v > maxes[i] {
-                maxes[i] = v;
-            }
+            if v > maxes[i] { maxes[i] = v; }
+            if v < mins[i] { mins[i] = v; }
         }
+    }
+
+    // Compute normalization denominator per factor.
+    let mut denom = [0.0f32; NUM_FACTORS];
+    for i in 0..NUM_FACTORS {
+        denom[i] = if SIGNED_FACTOR[i] {
+            // Symmetric: divide by max absolute value → [-1, 1]
+            mins[i].abs().max(maxes[i].abs())
+        } else {
+            // Non-negative: divide by max → [0, 1]
+            maxes[i]
+        };
     }
 
     // Normalize and apply role weights.
@@ -442,8 +528,8 @@ fn score_candidates(
         .map(|factors| {
             let mut score = 0.0f32;
             for i in 0..NUM_FACTORS {
-                let normalized = if maxes[i] > 0.0 {
-                    factors[i] / maxes[i]
+                let normalized = if denom[i] > f32::EPSILON {
+                    factors[i] / denom[i]
                 } else {
                     0.0
                 };
@@ -484,7 +570,7 @@ fn compute_factors(
     match def.aoe {
         AoEShape::None => {
             if let Some(ref ti) = target_info {
-                let raw = score_action(def, ti, ctx.caster, ctx.db, ctx.difficulty);
+                let raw = score_action(def, ti, ctx.caster, ctx.db);
                 let adjusted = crit_fail_adjusted(raw, def, &ctx.crit_fail_effect, ctx.crit_fail_chance);
                 if def.target_type == TargetType::SingleAlly {
                     heal = adjusted;
@@ -504,15 +590,26 @@ fn compute_factors(
             for enemy in snap.enemies_of(active.team) {
                 if area_set.contains(&enemy.pos) {
                     let ti = target_info_from_snap(enemy);
-                    damage += score_action(def, &ti, ctx.caster, ctx.db, ctx.difficulty);
+                    damage += score_action(def, &ti, ctx.caster, ctx.db);
                 }
             }
             if def.friendly_fire {
+                // Penalize hitting allies. Weight by fraction of HP lost:
+                // fragile units (mage, assassin) take a proportionally heavier penalty.
                 for ally in snap.allies_of(active.team) {
-                    if ally.entity != active.entity && area_set.contains(&ally.pos) {
+                    if area_set.contains(&ally.pos) {
                         let ti = target_info_from_snap(ally);
-                        damage -= score_action(def, &ti, ctx.caster, ctx.db, ctx.difficulty).abs();
+                        let raw_dmg = score_action(def, &ti, ctx.caster, ctx.db).abs();
+                        let hp_fraction = raw_dmg / ally.max_hp.max(1) as f32;
+                        damage -= raw_dmg * (1.0 + hp_fraction);
                     }
+                }
+                // Self-damage: same formula, applied to caster.
+                if area_set.contains(&active.pos) {
+                    let ti = target_info_from_snap(active);
+                    let raw_dmg = score_action(def, &ti, ctx.caster, ctx.db).abs();
+                    let hp_fraction = raw_dmg / active.max_hp.max(1) as f32;
+                    damage -= raw_dmg * (1.0 + hp_fraction);
                 }
             }
             damage = crit_fail_adjusted(damage, def, &ctx.crit_fail_effect, ctx.crit_fail_chance);
@@ -526,7 +623,7 @@ fn compute_factors(
             let armor = if calc.pierces_armor {
                 0.0
             } else {
-                (target_unit.armor + target_unit.armor_bonus) as f32 * ctx.difficulty.armor_awareness
+                (target_unit.armor + target_unit.armor_bonus) as f32
             };
             let net = expected - armor + target_unit.damage_taken_bonus as f32;
             if net >= target_unit.hp as f32 { 1.0 } else { 0.0 }
@@ -563,15 +660,15 @@ fn compute_factors(
             val
         })
         .sum::<f32>()
-        * ctx.difficulty.status_value_scale;
+        ;
 
     // ── position ─────────────────────────────────────────────────────────
-    let mut position = evaluate_position(candidate.tile, active.role, maps) * ctx.difficulty.awareness;
+    let mut position = evaluate_position(candidate.tile, active.role, maps);
 
     // ── risk ─────────────────────────────────────────────────────────────
-    // Lower danger = better. We invert so higher = safer.
+    // Danger is normalized [0, 1]. Lower danger = higher risk score.
     let danger = maps.danger.get(candidate.tile);
-    let risk = (-danger + active.armor as f32).max(0.0);
+    let risk = 1.0 - danger;
 
     // ── focus ────────────────────────────────────────────────────────────
     let focus = snap
@@ -733,6 +830,7 @@ fn sanity_adjust(
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
+    ctx: &UtilityContext,
 ) {
     if scores.len() <= 1 {
         return;
@@ -743,7 +841,6 @@ fn sanity_adjust(
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     indexed.truncate(3);
 
-    let effective_hp = (active.hp + active.armor + active.armor_bonus) as f32;
     let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
     let allies: Vec<&UnitSnapshot> = snap.allies_of(active.team)
         .filter(|u| u.entity != active.entity)
@@ -754,11 +851,12 @@ fn sanity_adjust(
         let c = &candidates[*idx];
         let mut penalty = 1.0f32;
 
-        // 1. Survival: will danger at this tile likely kill us?
-        let danger = maps.danger.get(c.tile);
-        if danger > effective_hp {
+        // 1. Survival: high danger + low HP = risky tile.
+        let danger_frac = maps.danger.get(c.tile);
+        let hp_fraction = active.hp as f32 / active.max_hp.max(1) as f32;
+        if danger_frac > 0.7 && hp_fraction < 0.4 {
             penalty *= 0.3;
-        } else if danger > effective_hp * 0.7 {
+        } else if danger_frac > 0.5 && hp_fraction < 0.6 {
             penalty *= 0.6;
         }
 
@@ -802,19 +900,76 @@ fn sanity_adjust(
             penalty *= 0.5;
         }
 
+        // 5. Self-AoE: heavy penalty for friendly_fire AoE that hits caster.
+        if let Some(def) = ctx.db.abilities.get(&c.ability) {
+            if def.friendly_fire && def.aoe != AoEShape::None {
+                let area: HashSet<Hex> = match def.aoe {
+                    AoEShape::Circle { radius } => hex_circle(c.target_pos, radius).into_iter().collect(),
+                    AoEShape::Line { length } => hex_line(c.tile, c.target_pos, length).into_iter().collect(),
+                    AoEShape::None => HashSet::new(),
+                };
+                if area.contains(&c.tile) {
+                    penalty *= 0.5;
+                }
+            }
+        }
+
         scores[*idx] *= penalty;
     }
 }
 
+// ── Retreat scoring ─────────────────────────────────────────────────────────
+
+/// Score a pure-movement retreat for ProtectSelf.
+/// Returns (path, score) for the best escape tile, or None if staying is better.
+/// The score is computed on the same scale as utility scores: weighted (risk + position),
+/// so it can be compared directly against the best ability candidate.
+fn compute_retreat(
+    active: &UnitSnapshot,
+    reach: &ReachableMap,
+    maps: &InfluenceMaps,
+) -> Option<(Vec<Hex>, f32)> {
+    let weights = &ROLE_WEIGHTS[role_index(active.role)];
+    let pos_w = weights[4]; // position weight
+    let risk_w = weights[5]; // risk weight
+
+    let current_danger = maps.danger.get(active.pos);
+    let current_pos_eval = evaluate_position(active.pos, active.role, maps);
+    let current_score = (1.0 - current_danger) * risk_w + current_pos_eval * pos_w;
+
+    let mut best: Option<(Hex, f32)> = None;
+    for &tile in &reach.destinations {
+        let danger = maps.danger.get(tile);
+        let pos_eval = evaluate_position(tile, active.role, maps);
+        let score = (1.0 - danger) * risk_w + pos_eval * pos_w;
+        if best.is_none_or(|(_, bs)| score > bs) {
+            best = Some((tile, score));
+        }
+    }
+
+    let (tile, score) = best?;
+    // Only retreat if meaningfully better than staying.
+    if score <= current_score + 0.1 {
+        return None;
+    }
+    let path = reach.path_to(tile)?;
+    if path.is_empty() {
+        return None;
+    }
+    Some((path, score))
+}
+
 // ── Fallback ────────────────────────────────────────────────────────────────
 
-/// When no attack candidates exist, try to move closer to enemies.
+/// When no attack candidates exist, move closer to enemies —
+/// or retreat to the safest tile if LOW_HP.
 fn fallback_move(
     _actor_pos: Hex,
     active: &UnitSnapshot,
     _ctx: &UtilityContext,
     snap: &BattleSnapshot,
     reach: &ReachableMap,
+    maps: &InfluenceMaps,
 ) -> AiDecision {
     if !active.movement {
         return AiDecision::EndTurn;
@@ -825,7 +980,29 @@ fn fallback_move(
         return AiDecision::EndTurn;
     }
 
-    // Find reachable tile closest to any enemy.
+    // LOW_HP: retreat to the tile with lowest danger.
+    if active.tags.contains(AiTags::LOW_HP) {
+        let safest = reach
+            .destinations
+            .iter()
+            .min_by(|a, b| {
+                maps.danger
+                    .get(**a)
+                    .partial_cmp(&maps.danger.get(**b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .copied();
+        if let Some(dest) = safest {
+            if let Some(path) = reach.path_to(dest) {
+                if !path.is_empty() {
+                    return AiDecision::MoveCloser { path };
+                }
+            }
+        }
+        return AiDecision::EndTurn;
+    }
+
+    // Normal: find reachable tile closest to any enemy.
     let mut best: Option<(Hex, u32)> = None;
     for &cell in &reach.destinations {
         for enemy in &enemies {
@@ -860,7 +1037,7 @@ fn record_reservation(
         if let Some(target_unit) = snap.unit(best.target) {
             let ti = target_info_from_snap(target_unit);
             let caster = ctx.caster;
-            let dmg = score_action(def, &ti, caster, ctx.db, ctx.difficulty);
+            let dmg = score_action(def, &ti, caster, ctx.db);
             if dmg > 0.0 {
                 reservations.reserve_damage(best.target, dmg);
             }
@@ -880,6 +1057,25 @@ fn record_reservation(
         reservations.reserve_tile(best.tile, active.entity);
     }
 }
+
+// ── Defensive classification ────────────────────────────────────────────────
+
+/// A candidate is defensive if it heals/buffs self/ally OR moves to a safer tile.
+fn is_defensive(
+    c: &ActionCandidate,
+    current_danger: f32,
+    db: &GameDb,
+    maps: &InfluenceMaps,
+) -> bool {
+    if let Some(def) = db.abilities.get(&c.ability) {
+        if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
+            return true;
+        }
+    }
+    // Moving to a meaningfully safer tile counts as defensive.
+    maps.danger.get(c.tile) + 0.15 < current_danger
+}
+
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -930,6 +1126,7 @@ fn format_intent(intent: &TacticalIntent, names: &HashMap<Entity, String>) -> St
         TacticalIntent::Reposition => "Reposition".into(),
         TacticalIntent::ProtectSelf => "ProtectSelf".into(),
         TacticalIntent::SetupAOE => "SetupAOE".into(),
+        TacticalIntent::LastStand => "LastStand".into(),
     }
 }
 
@@ -939,7 +1136,6 @@ fn explain_intent(
     intent: &TacticalIntent,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
-    difficulty: &DifficultyProfile,
 ) -> String {
     let hp_pct = active.hp as f32 / active.max_hp.max(1) as f32;
     let danger = maps.danger.get(active.pos);
@@ -958,12 +1154,11 @@ fn explain_intent(
         }
         TacticalIntent::FocusTarget { target } => {
             if let Some(t) = snap.unit(*target) {
-                let killable = active.threat * difficulty.awareness >= t.hp as f32;
+                let killable = active.threat >= t.hp as f32;
                 if killable {
                     format!(
-                        "killable: threat={:.1}×awareness={:.1}={:.1} >= hp={}",
-                        active.threat, difficulty.awareness,
-                        active.threat * difficulty.awareness, t.hp,
+                        "killable: threat={:.1} >= hp={}",
+                        active.threat, t.hp,
                     )
                 } else {
                     "default: highest target_priority".into()
@@ -982,6 +1177,12 @@ fn explain_intent(
             let pos_eval = evaluate_position(active.pos, active.role, maps);
             format!("position_eval={:.2} < -1.0", pos_eval)
         }
+        TacticalIntent::LastStand => {
+            format!(
+                "hp%={:.0}%, no viable survival option — maximize last action",
+                hp_pct * 100.0,
+            )
+        }
     }
 }
 
@@ -999,6 +1200,82 @@ fn name_of(entity: Entity, names: &HashMap<Entity, String>) -> String {
     names.get(&entity).cloned().unwrap_or_else(|| format!("{:?}", entity))
 }
 
+fn build_fallback_debug(
+    active: &UnitSnapshot,
+    actor_pos: Hex,
+    intent: &TacticalIntent,
+    decision: &AiDecision,
+    reason: &str,
+    _ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+    maps: &InfluenceMaps,
+    names: &HashMap<Entity, String>,
+) -> AiDebugSnapshot {
+    let actor_name = name_of(active.entity, names);
+    let intent_str = format_intent(intent, names);
+    let intent_rule = explain_intent(active, intent, snap, maps);
+
+    let priority_target = snap
+        .enemies_of(active.team)
+        .max_by(|a, b| {
+            target_priority(active, a, snap)
+                .partial_cmp(&target_priority(active, b, snap))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|t| (name_of(t.entity, names), target_priority(active, t, snap)));
+
+    let decision_debug = match decision {
+        AiDecision::MoveCloser { path } | AiDecision::MoveOnlyRetreat { path } => {
+            let label = if matches!(decision, AiDecision::MoveOnlyRetreat { .. }) {
+                "MoveOnlyRetreat"
+            } else {
+                "MoveCloser"
+            };
+            let dest = path.last().copied().unwrap_or(actor_pos);
+            DecisionDebug {
+                description: format!(
+                    "{} (fallback: {}): {}→{} ({} steps)",
+                    label, reason, fmt_offset(actor_pos), fmt_offset(dest), path.len(),
+                ),
+                dest_tile: Some(hex_to_offset(dest)),
+                dest_influence: Some(tile_influence(dest, active.role, maps)),
+            }
+        }
+        AiDecision::EndTurn => DecisionDebug {
+            description: format!("EndTurn (fallback: {})", reason),
+            dest_tile: None,
+            dest_influence: None,
+        },
+        _ => DecisionDebug {
+            description: format!("fallback: {}", reason),
+            dest_tile: None,
+            dest_influence: None,
+        },
+    };
+
+    AiDebugSnapshot {
+        actor_name,
+        actor: ActorDebug {
+            role: active.role,
+            pos: hex_to_offset(active.pos),
+            hp: active.hp,
+            max_hp: active.max_hp,
+            threat: active.threat,
+            tags: active.tags,
+            action: active.action,
+            movement: active.movement,
+        },
+        intent: IntentReasoning {
+            intent: intent_str,
+            rule: intent_rule,
+        },
+        priority_target,
+        top_candidates: vec![],
+        decision: decision_debug,
+        candidate_count: 0,
+    }
+}
+
 fn build_debug_snapshot(
     active: &UnitSnapshot,
     actor_pos: Hex,
@@ -1014,7 +1291,7 @@ fn build_debug_snapshot(
 ) -> AiDebugSnapshot {
     let actor_name = name_of(active.entity, names);
     let intent_str = format_intent(intent, names);
-    let intent_rule = explain_intent(active, intent, snap, maps, ctx.difficulty);
+    let intent_rule = explain_intent(active, intent, snap, maps);
 
     // Priority target.
     let priority_target = snap
@@ -1071,12 +1348,17 @@ fn build_debug_snapshot(
                 dest_influence: Some(tile_influence(dest, active.role, maps)),
             }
         }
-        AiDecision::MoveCloser { path } => {
+        AiDecision::MoveCloser { path } | AiDecision::MoveOnlyRetreat { path } => {
+            let label = if matches!(decision, AiDecision::MoveOnlyRetreat { .. }) {
+                "MoveOnlyRetreat"
+            } else {
+                "MoveCloser"
+            };
             let dest = path.last().copied().unwrap_or(actor_pos);
             DecisionDebug {
                 description: format!(
-                    "MoveCloser: {}→{} ({} steps, no attack available)",
-                    fmt_offset(actor_pos), fmt_offset(dest), path.len(),
+                    "{}: {}→{} ({} steps)",
+                    label, fmt_offset(actor_pos), fmt_offset(dest), path.len(),
                 ),
                 dest_tile: Some(hex_to_offset(dest)),
                 dest_influence: Some(tile_influence(dest, active.role, maps)),
@@ -1274,8 +1556,8 @@ mod tests {
         let offensive = hex_from_offset(3, 2);
         let safe = hex_from_offset(5, 4);
         let mut maps = empty_maps();
-        maps.opportunity.add(offensive, 10.0);
-        maps.escape.add(safe, 10.0);
+        maps.opportunity.add(offensive, 0.9);
+        maps.escape.add(safe, 0.9);
 
         let db = GameDb::default();
         let difficulty = DifficultyProfile::default();
@@ -1312,14 +1594,21 @@ mod tests {
     fn sanity_penalizes_suicide_tile() {
         let dangerous = hex_from_offset(3, 3);
         let safe_tile = hex_from_offset(5, 4);
-        let active = unit(0, Team::Enemy, hex_from_offset(4, 3));
+        let mut active = unit(0, Team::Enemy, hex_from_offset(4, 3));
+        active.hp = 5; // low HP so survival check triggers
         let enemy = unit(1, Team::Player, hex_from_offset(2, 2));
         let s = snap(vec![active.clone(), enemy.clone()]);
 
         let mut maps = empty_maps();
-        // Danger way above HP (active.hp=20, armor=0, so effective_hp=20).
-        maps.danger.add(dangerous, 50.0);
-        maps.danger.add(safe_tile, 2.0);
+        // Normalized danger: 0.9 = very dangerous, 0.1 = safe.
+        maps.danger.add(dangerous, 0.9);
+        maps.danger.add(safe_tile, 0.1);
+
+        let db = GameDb::default();
+        let diff = DifficultyProfile::default();
+        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = UtilityContext { db: &db, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
 
         let candidates = vec![
             candidate(dangerous, enemy.entity),
@@ -1327,7 +1616,7 @@ mod tests {
         ];
         let mut scores = vec![10.0, 9.0];
 
-        sanity_adjust(&mut scores, &candidates, &active, &s, &maps);
+        sanity_adjust(&mut scores, &candidates, &active, &s, &maps, &ctx);
 
         assert!(
             scores[0] < scores[1],
@@ -1344,6 +1633,11 @@ mod tests {
         let s = snap(vec![active.clone(), enemy.clone()]);
 
         let maps = empty_maps(); // no danger anywhere
+        let db = GameDb::default();
+        let diff = DifficultyProfile::default();
+        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = UtilityContext { db: &db, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
 
         let candidates = vec![
             candidate(tile, enemy.entity),
@@ -1352,7 +1646,7 @@ mod tests {
         let mut scores = vec![10.0, 8.0];
         let original = scores.clone();
 
-        sanity_adjust(&mut scores, &candidates, &active, &s, &maps);
+        sanity_adjust(&mut scores, &candidates, &active, &s, &maps, &ctx);
 
         // First candidate (safe tile, no danger) should keep full score.
         assert_eq!(scores[0], original[0], "safe candidate score should be unchanged");
@@ -1371,6 +1665,11 @@ mod tests {
         let s = snap(vec![active.clone(), enemy.clone(), blocker]);
 
         let maps = empty_maps();
+        let db = GameDb::default();
+        let diff = DifficultyProfile::default();
+        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = UtilityContext { db: &db, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
 
         let candidates = vec![
             candidate(behind_wall, enemy.entity),
@@ -1378,13 +1677,53 @@ mod tests {
         ];
         let mut scores = vec![10.0, 9.0];
 
-        sanity_adjust(&mut scores, &candidates, &active, &s, &maps);
+        sanity_adjust(&mut scores, &candidates, &active, &s, &maps, &ctx);
 
         // The blind-spot tile should be penalized.
         assert!(
             scores[0] < 10.0,
             "blind-spot tile should be penalized, got {:.1}",
             scores[0],
+        );
+    }
+
+    #[test]
+    fn sanity_penalizes_self_aoe() {
+        let tile = hex_from_offset(4, 3);
+        let active = unit(0, Team::Enemy, tile);
+        let enemy = unit(1, Team::Player, hex_from_offset(4, 2));
+        let s = snap(vec![active.clone(), enemy.clone()]);
+        let maps = empty_maps();
+        let db = GameDb::default();
+        let diff = DifficultyProfile::default();
+        let caster = CasterContext { str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None };
+        let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
+        let ctx = UtilityContext { db: &db, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
+
+        // thunderstrike AoE circle r=1 centered on caster's own tile → self-hit.
+        let self_aoe = ActionCandidate {
+            tile,
+            path: vec![],
+            ability: "thunderstrike".into(),
+            target_pos: tile, // center on self
+            target: enemy.entity,
+        };
+        let safe = candidate(tile, enemy.entity); // melee_attack, no AoE
+
+        let candidates = vec![self_aoe, safe];
+        let mut scores = vec![10.0, 9.0];
+
+        sanity_adjust(&mut scores, &candidates, &active, &s, &maps, &ctx);
+
+        assert!(
+            scores[0] < 10.0,
+            "self-AoE should be penalized, got {:.1}",
+            scores[0],
+        );
+        assert!(
+            scores[0] < scores[1],
+            "self-AoE ({:.1}) should score lower than safe ({:.1})",
+            scores[0], scores[1],
         );
     }
 
@@ -1564,5 +1903,33 @@ mod tests {
             "round 1 ({:.2}) should have lower scarcity than round 3 ({:.2})",
             score_r1, score_r3,
         );
+    }
+
+    // ── Normalization tests ───────────────────────────────────────────
+
+    #[test]
+    fn signed_normalization_preserves_negative_order() {
+        // Simulate signed factor values: all negative.
+        // Symmetric normalization should preserve order, not collapse to 0.
+        let values = [-3.0f32, -1.0, -0.5];
+        let max_abs = values.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+        let normalized: Vec<f32> = values.iter().map(|v| v / max_abs).collect();
+        assert_eq!(normalized, vec![-1.0, -1.0 / 3.0, -0.5 / 3.0]);
+        // Order preserved: most negative stays most negative.
+        assert!(normalized[0] < normalized[1]);
+        assert!(normalized[1] < normalized[2]);
+    }
+
+    #[test]
+    fn signed_normalization_flat_batch_gives_zero() {
+        // All candidates have the same signed factor value → denom = |v|, norm = ±1.
+        // If all zero → denom = 0 → normalized = 0 (not NaN/inf).
+        let values = [0.0f32; 3];
+        let max_abs = values.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+        for &v in &values {
+            let norm = if max_abs > f32::EPSILON { v / max_abs } else { 0.0 };
+            assert_eq!(norm, 0.0);
+            assert!(!norm.is_nan());
+        }
     }
 }

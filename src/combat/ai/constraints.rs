@@ -33,26 +33,32 @@ pub fn filter_candidates(
             return false;
         };
 
-        // Don't walk into death: reject if LOW_HP and tile danger exceeds HP.
-        if active.tags.contains(AiTags::LOW_HP) && maps.danger.get(c.tile) > active.hp as f32 {
+        // Don't walk into death: reject if LOW_HP and tile has high danger.
+        if active.tags.contains(AiTags::LOW_HP)
+            && maps.danger.get(c.tile) > 0.7
+        {
             return false;
         }
 
-        // Don't AoE allies: reject if friendly fire would hit more allies than extra enemies.
-        if def.friendly_fire && def.aoe != AoEShape::None {
+        // Don't AoE allies/self: reject if friendly fire would hit caster or
+        // hit more allies than extra enemies justify.
+        if def.aoe != AoEShape::None {
             let area: Vec<_> = match def.aoe {
                 AoEShape::Circle { radius } => hex_circle(c.target_pos, radius),
                 AoEShape::Line { length } => hex_line(c.tile, c.target_pos, length),
                 AoEShape::None => vec![],
             };
             let area_set: HashSet<_> = area.into_iter().collect();
-            let allies_hit = ally_positions.iter().filter(|p| area_set.contains(p)).count();
-            let enemies_hit = snap
-                .enemies_of(active.team)
-                .filter(|u| area_set.contains(&u.pos))
-                .count();
-            if allies_hit > 0 && enemies_hit < allies_hit * 2 {
-                return false;
+
+            if def.friendly_fire {
+                let allies_hit = ally_positions.iter().filter(|p| area_set.contains(p)).count();
+                let enemies_hit = snap
+                    .enemies_of(active.team)
+                    .filter(|u| area_set.contains(&u.pos))
+                    .count();
+                if allies_hit > 0 && enemies_hit < allies_hit * 2 {
+                    return false;
+                }
             }
         }
 

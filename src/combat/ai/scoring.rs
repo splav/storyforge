@@ -1,8 +1,14 @@
-use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, TargetType};
 use crate::game::components::Abilities;
 use crate::game::resources::GameDb;
 use bevy::prelude::Entity;
+
+// ── Tuning constants ────────────────────────────────────────────────────────
+
+/// HP% threshold below which healing is considered urgent.
+const HEAL_URGENCY_THRESHOLD: f32 = 0.5;
+/// Multiplier on heal score when target is below urgency threshold.
+const HEAL_URGENCY_MULTIPLIER: f32 = 2.0;
 
 /// Snapshot of a potential target with status-derived bonuses and threat estimate.
 pub struct TargetInfo {
@@ -24,13 +30,12 @@ pub fn score_action(
     target: &TargetInfo,
     ctx: &CasterContext,
     db: &GameDb,
-    profile: &DifficultyProfile,
 ) -> f32 {
     let Some(calc) = def.effect.calc(ctx) else {
         return if matches!(def.effect, EffectDef::GrantMovement { .. }) {
             0.0
         } else {
-            status_score(def, target, db, profile)
+            status_score(def, target, db)
         };
     };
 
@@ -43,8 +48,8 @@ pub fn score_action(
         }
         let effective = expected.min(missing);
         let hp_pct = target.hp as f32 / target.max_hp.max(1) as f32;
-        let urgency = if hp_pct < profile.heal_urgency_threshold {
-            profile.heal_urgency_multiplier
+        let urgency = if hp_pct < HEAL_URGENCY_THRESHOLD {
+            HEAL_URGENCY_MULTIPLIER
         } else {
             1.0
         };
@@ -53,43 +58,36 @@ pub fn score_action(
         let mitigation = if calc.pierces_armor {
             0.0
         } else {
-            (target.armor + target.armor_bonus) as f32 * profile.armor_awareness
+            (target.armor + target.armor_bonus) as f32
         };
-        let dmg = (expected - mitigation + target.damage_taken_bonus as f32).max(1.0);
-        kill_adjusted(dmg, target, profile)
+        // No artificial floor: if armor absorbs everything, score is 0.
+        // Kill bonus is handled by the separate `kill` factor in utility scoring.
+        (expected - mitigation + target.damage_taken_bonus as f32).max(0.0)
     };
 
-    dmg_score + status_score(def, target, db, profile)
+    dmg_score + status_score(def, target, db)
 }
 
-/// Estimate the maximum expected single-action damage output for a unit.
-/// Used to value stuns and kills: stunning a high-threat target is worth more.
-pub fn estimate_threat(ctx: &CasterContext, abilities: &Abilities, db: &GameDb) -> f32 {
+/// Best single-target expected damage from one ability (before armor).
+/// Used to value stuns/kills: controlling a high-damage target is worth more.
+/// Does NOT capture AoE, healing, or utility — it's a damage-only estimate.
+pub fn estimate_st_damage(ctx: &CasterContext, abilities: &Abilities, db: &GameDb) -> f32 {
     abilities
         .0
         .iter()
         .filter_map(|id| db.abilities.get(id))
         .filter(|def| matches!(def.target_type, TargetType::SingleEnemy))
         .filter_map(|def| def.effect.calc(ctx))
-        .map(|calc| calc.expected().max(1.0))
+        .map(|calc| calc.expected().max(0.0))
         .fold(0.0f32, f32::max)
 }
 
 // ── Internals ──────────────────────────────────────────────────────────────
 
-fn kill_adjusted(expected_dmg: f32, target: &TargetInfo, profile: &DifficultyProfile) -> f32 {
-    if expected_dmg >= target.hp as f32 {
-        expected_dmg * profile.kill_multiplier
-    } else {
-        expected_dmg
-    }
-}
-
 fn status_score(
     def: &AbilityDef,
     target: &TargetInfo,
     db: &GameDb,
-    profile: &DifficultyProfile,
 ) -> f32 {
     let mut total = 0.0f32;
     for sa in &def.statuses {
@@ -97,15 +95,45 @@ fn status_score(
             continue;
         };
         let d = sa.duration_rounds as f32;
+
+        // Stun: deny target's damage output for d rounds.
         if sd.skips_turn {
             total += target.threat * d;
         }
-        if sd.damage_taken_bonus > 0 {
-            total += sd.damage_taken_bonus as f32 * d;
+
+        // Vulnerability: extra damage taken per hit for d rounds.
+        // Positive = debuff on enemy (good), negative = buff on ally (good if heal target).
+        if sd.damage_taken_bonus != 0 {
+            total += sd.damage_taken_bonus.abs() as f32 * d;
         }
-        if sd.armor_bonus > 0 {
-            total += sd.armor_bonus as f32 * d;
+
+        // Armor delta: negative = shred on enemy, positive = buff on ally.
+        // Both are valuable — score the absolute impact.
+        if sd.armor_bonus != 0 {
+            total += sd.armor_bonus.abs() as f32 * d;
+        }
+
+        // DoT: expected tick damage × duration.
+        if let Some(ref dice) = sd.dot_dice {
+            total += dice.expected() * d;
+        }
+
+        // %HP DoT (e.g. exhaustion): percentage of target max HP per tick.
+        if sd.hp_percent_dot > 0 {
+            let tick_dmg = (target.max_hp as f32 * sd.hp_percent_dot as f32 / 100.0).ceil();
+            total += tick_dmg * d;
+        }
+
+        // Silence (blocks mana abilities): valued like a partial stun.
+        // Worth roughly half a stun — target can still basic-attack.
+        if sd.blocks_mana_abilities {
+            total += target.threat * 0.5 * d;
+        }
+
+        // Speed penalty: reduces tactical options. Mild value per point per round.
+        if sd.speed_bonus < 0 {
+            total += (-sd.speed_bonus) as f32 * d;
         }
     }
-    total * profile.status_value_scale
+    total
 }

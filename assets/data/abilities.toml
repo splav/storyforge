@@ -96,7 +96,7 @@ target_type   = "single_enemy"
 costs         = [{ resource = "mana", amount = 1 }]
 range         = 2
 statuses      = [
-    { id = "burning", on = "target", duration = 2 },
+    { id = "burning", on = "target", duration = 3 },
 ]
 
 [[abilities]]

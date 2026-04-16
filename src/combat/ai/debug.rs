@@ -238,7 +238,36 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
         println!("  dest {}: {}", fmt_pos(*dest), fmt_influence(inf));
     }
 
+    // Influence map scale stats.
+    if let Some(maps) = &state.influence_maps {
+        println!(
+            "  Maps: danger=[{}] ally=[{}] opp=[{}] esc=[{}]",
+            map_stats(&maps.danger),
+            map_stats(&maps.ally_support),
+            map_stats(&maps.opportunity),
+            map_stats(&maps.escape),
+        );
+    }
+
     println!("════════════════════════════════");
+}
+
+fn map_stats(map: &InfluenceMap) -> String {
+    let mut min = f32::INFINITY;
+    let mut max = f32::NEG_INFINITY;
+    let mut sum = 0.0f32;
+    let mut count = 0u32;
+    for (_, &v) in map.iter() {
+        if v < min { min = v; }
+        if v > max { max = v; }
+        sum += v;
+        count += 1;
+    }
+    if count == 0 {
+        return "empty".into();
+    }
+    let mean = sum / count as f32;
+    format!("{:.1}..{:.1} \u{03bc}={:.1}", min, max, mean)
 }
 
 // ── Grid overlay system ─────────────────────────────────────────────────────
