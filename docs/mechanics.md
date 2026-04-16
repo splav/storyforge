@@ -153,16 +153,7 @@ amount = dice_roll + INT_mod + spell_power
 
 ## Enemy AI
 
-Ability scoring (higher = chosen first):
-1. **Heal** ally below 60% HP: score = missing_hp * 10 + 50
-2. **SpellDamage**: dice_value + 20 (pierces armor)
-3. **Status with skips_turn**: +40
-4. **Damage**: dice_value + 5
-5. **WeaponAttack**: 8 (baseline melee)
-6. **Status with damage_taken_bonus**: +15
-7. **GrantMovement**: 0 (enemies skip)
-
-Targeting: respects `forces_targeting` (taunt). If no target in range → pathfind and move. If still unreachable → approach closest, end turn.
+See [AI](ai.md) — roles, scoring, difficulty, snapshot, influence maps.
 
 ## Initiative
 - Round 1: `d20 + DEX_modifier` per combatant

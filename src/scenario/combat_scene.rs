@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::app_state::CombatPhase;
 use crate::content::scenarios::SceneDef;
+use crate::combat::ai::role as ai_role;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
 use crate::game::components::{CombatPath, Combatant, Energy, Equipment, Initiative, Mana, Rage, StartingHexPos, UnitToken};
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -39,10 +40,12 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
         };
         let effective = db.effective_stats(&cls.stats, &equipment);
         let armor = db.equipment_armor(&equipment);
+        let role = ai_role::infer_role(&cls.abilities, cls.speed, db);
         let mut ec = commands.spawn((
             Name::new(member.name.clone()),
             hero_bundle(effective, armor, cls.speed, cls.abilities.clone(), equipment),
             StartingHexPos(member.hex_pos),
+            role,
         ));
         if cls.rage_max > 0 { ec.insert(Rage::new(cls.rage_max)); }
         if cls.mana_max > 0 { ec.insert(Mana::new(cls.mana_max)); }
@@ -62,10 +65,14 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
         let armor = db.equipment_armor(&equipment);
         let race_name = db.races.get(&enemy.race).map_or("", |r| r.name.as_str());
         let display_name = format!("{} {}", race_name, &enemy.name);
+        let role = enemy.ai_role.as_deref()
+            .and_then(ai_role::parse_role)
+            .unwrap_or_else(|| ai_role::infer_role(&enemy.ability_ids, enemy.speed, db));
         let mut ec = commands.spawn((
             Name::new(display_name),
             enemy_bundle(effective, armor, enemy.speed, enemy.ability_ids.clone(), equipment),
             StartingHexPos(enemy.hex_pos),
+            role,
         ));
         if enemy.rage_max > 0 { ec.insert(Rage::new(enemy.rage_max)); }
         if enemy.mana_max > 0 { ec.insert(Mana::new(enemy.mana_max)); }

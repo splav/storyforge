@@ -6,8 +6,9 @@ use bevy::state::app::StatesPlugin;
 
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
-    advance_turn::advance_turn_system, ai_difficulty::DifficultyProfile,
-    apply_effects::apply_effects_system, enemy_ai::enemy_ai_system,
+    advance_turn::advance_turn_system, ai::debug::AiDebugState,
+    ai::difficulty::DifficultyProfile,
+    apply_effects::apply_effects_system, ai::enemy_turn::enemy_ai_system,
     resolution::resolve_action_system,
     skip_dead::skip_stunned_turn_system,
     validation::validate_action_system,
@@ -168,6 +169,7 @@ pub fn stun_app() -> App {
         .init_resource::<HexPositions>()
         .init_resource::<DiceRng>()
         .init_resource::<DifficultyProfile>()
+        .init_resource::<AiDebugState>()
         .add_message::<ApplyDamage>()
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()

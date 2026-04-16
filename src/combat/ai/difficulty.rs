@@ -16,6 +16,8 @@ pub struct DifficultyProfile {
     pub heal_urgency_multiplier: f32,
     /// Random noise added to each score (0 = deterministic, higher = sloppier).
     pub noise: f32,
+    /// How much of influence maps / spatial reasoning the AI uses (0 = ignores, 1 = full).
+    pub awareness: f32,
 }
 
 impl DifficultyProfile {
@@ -27,6 +29,7 @@ impl DifficultyProfile {
             heal_urgency_threshold: 0.15,
             heal_urgency_multiplier: 1.2,
             noise: 3.0,
+            awareness: 0.3,
         }
     }
 
@@ -38,6 +41,7 @@ impl DifficultyProfile {
             heal_urgency_threshold: 0.30,
             heal_urgency_multiplier: 1.5,
             noise: 1.0,
+            awareness: 0.7,
         }
     }
 
@@ -49,6 +53,7 @@ impl DifficultyProfile {
             heal_urgency_threshold: 0.40,
             heal_urgency_multiplier: 1.8,
             noise: 0.0,
+            awareness: 1.0,
         }
     }
 }

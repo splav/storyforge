@@ -1,9 +1,7 @@
 pub mod advance_turn;
-pub mod ai_difficulty;
-pub mod ai_scoring;
+pub mod ai;
 pub mod apply_effects;
 pub mod command_input;
-pub mod enemy_ai;
 pub mod enemy_popup;
 pub mod movement;
 pub mod resolution;

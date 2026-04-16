@@ -62,6 +62,30 @@ pub fn hex_line(from: Hex, target: Hex, length: u32) -> Vec<Hex> {
         .collect()
 }
 
+/// Returns `true` if there is an unobstructed line of sight from `from` to `to`.
+/// `blocks_los(hex)` should return `true` for cells that block vision.
+/// Only intermediate cells are checked — `from` and `to` themselves are not.
+pub fn has_los(from: Hex, to: Hex, blocks_los: impl Fn(Hex) -> bool) -> bool {
+    if from == to {
+        return true;
+    }
+    let cells: Vec<Hex> = from.line_to(to).collect();
+    // Skip first (from) and last (to)
+    cells[1..cells.len() - 1].iter().all(|h| !blocks_los(*h))
+}
+
+/// All in-bounds cells within hex-distance ≤ `radius` that have LOS from `from`.
+pub fn visible_cells(
+    from: Hex,
+    radius: u32,
+    blocks_los: impl Fn(Hex) -> bool,
+) -> Vec<Hex> {
+    hex_circle(from, radius)
+        .into_iter()
+        .filter(|&h| has_los(from, h, &blocks_los))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +166,56 @@ mod tests {
                 assert_eq!(back, hex, "pixel roundtrip ({q},{r})");
             }
         }
+    }
+
+    // ── LOS tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn los_to_self_is_true() {
+        let c = hex_from_offset(3, 3);
+        assert!(has_los(c, c, |_| false));
+    }
+
+    #[test]
+    fn los_to_neighbor_no_blockers() {
+        let a = hex_from_offset(3, 3);
+        let b = hex_from_offset(4, 3);
+        assert!(has_los(a, b, |_| false));
+    }
+
+    #[test]
+    fn los_blocked_by_intermediate_cell() {
+        let a = hex_from_offset(1, 0);
+        let c = hex_from_offset(3, 0);
+        let blocker = hex_from_offset(2, 0);
+        assert!(!has_los(a, c, |h| h == blocker));
+    }
+
+    #[test]
+    fn los_not_blocked_by_endpoints() {
+        let a = hex_from_offset(1, 0);
+        let b = hex_from_offset(3, 0);
+        // Blocking only endpoints should not affect LOS
+        assert!(has_los(a, b, |h| h == a || h == b));
+    }
+
+    #[test]
+    fn visible_cells_no_blockers_equals_circle() {
+        let c = hex_from_offset(3, 3);
+        let circle = hex_circle(c, 2);
+        let visible = visible_cells(c, 2, |_| false);
+        assert_eq!(visible.len(), circle.len());
+    }
+
+    #[test]
+    fn visible_cells_with_blocker_hides_cells_behind() {
+        let c = hex_from_offset(3, 3);
+        // Blocker is at distance 1 — it's visible but cells behind it are not
+        let blocker = hex_from_offset(4, 3);
+        let circle = hex_circle(c, 2);
+        let visible = visible_cells(c, 2, |h| h == blocker);
+        assert!(visible.len() < circle.len());
+        // The blocker itself is visible (it's a target, not intermediate)
+        assert!(visible.contains(&blocker));
     }
 }

@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 use serde::Deserialize;
 
-use crate::combat::ai_difficulty::DifficultyProfile;
+use crate::combat::ai::difficulty::DifficultyProfile;
 
 #[derive(Resource, Clone)]
 pub struct GameSettings {
     pub difficulty: DifficultyProfile,
     pub crit_fail_die: u32,
+    pub ai_debug: bool,
 }
 
 impl Default for GameSettings {
@@ -14,6 +15,7 @@ impl Default for GameSettings {
         Self {
             difficulty: DifficultyProfile::default(),
             crit_fail_die: 20,
+            ai_debug: false,
         }
     }
 }
@@ -23,6 +25,14 @@ impl Default for GameSettings {
 #[derive(Deserialize)]
 struct SettingsFile {
     difficulty: DifficultySection,
+    #[serde(default)]
+    debug: DebugSection,
+}
+
+#[derive(Deserialize, Default)]
+struct DebugSection {
+    #[serde(default)]
+    ai_debug: bool,
 }
 
 #[derive(Deserialize)]
@@ -54,5 +64,6 @@ pub fn load_settings() -> GameSettings {
     GameSettings {
         difficulty,
         crit_fail_die: file.difficulty.crit_fail_die,
+        ai_debug: file.debug.ai_debug,
     }
 }

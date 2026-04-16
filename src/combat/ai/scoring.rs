@@ -1,4 +1,4 @@
-use crate::combat::ai_difficulty::DifficultyProfile;
+use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, TargetType};
 use crate::game::components::Abilities;
 use crate::game::resources::GameDb;

@@ -26,6 +26,8 @@ pub struct EnemyDef {
     pub rage_max: i32,
     pub mana_max: i32,
     pub energy_max: i32,
+    /// Explicit AI role override (if None, inferred from abilities/speed).
+    pub ai_role: Option<String>,
     /// Starting hex cell.
     pub hex_pos: hexx::Hex,
 }
@@ -52,6 +54,8 @@ struct EnemyRecord {
     faction: Option<String>,
     #[serde(default)]
     path: Option<String>,
+    #[serde(default)]
+    ai_role: Option<String>,
     max_hp: i32,
     strength: i32,
     dexterity: i32,
@@ -124,6 +128,7 @@ pub fn load_encounters() -> Vec<EncounterDef> {
                     rage_max: e.rage_max,
                     mana_max: e.mana_max,
                     energy_max: e.energy_max,
+                    ai_role: e.ai_role,
                     hex_pos: crate::game::hex::hex_from_offset(e.hex_col, e.hex_row),
                 })
                 .collect(),
