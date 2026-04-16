@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::app_state::CombatPhase;
 use crate::content::scenarios::SceneDef;
+use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::role as ai_role;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
 use crate::game::components::{CombatPath, Combatant, Energy, Equipment, Initiative, Mana, Rage, StartingHexPos, UnitToken};
@@ -46,6 +47,7 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
             hero_bundle(effective, armor, cls.speed, cls.abilities.clone(), equipment),
             StartingHexPos(member.hex_pos),
             role,
+            AiMemory::default(),
         ));
         if cls.rage_max > 0 { ec.insert(Rage::new(cls.rage_max)); }
         if cls.mana_max > 0 { ec.insert(Mana::new(cls.mana_max)); }
@@ -73,6 +75,7 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
             enemy_bundle(effective, armor, enemy.speed, enemy.ability_ids.clone(), equipment),
             StartingHexPos(enemy.hex_pos),
             role,
+            AiMemory::default(),
         ));
         if enemy.rage_max > 0 { ec.insert(Rage::new(enemy.rage_max)); }
         if enemy.mana_max > 0 { ec.insert(Mana::new(enemy.mana_max)); }

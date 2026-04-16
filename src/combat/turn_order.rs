@@ -1,5 +1,6 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::app_state::CombatPhase;
+use crate::combat::ai::reservations::Reservations;
 use crate::core::{modifier, DiceRng};
 use crate::game::components::{ActionPoints, ActiveCombatant, CombatStats, Combatant, Initiative, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -15,6 +16,7 @@ pub fn build_turn_order(
     mut log: ResMut<CombatLog>,
     mut rng: ResMut<DiceRng>,
     mut preset: ResMut<PresetInitiative>,
+    mut reservations: ResMut<Reservations>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     mut combatants: Query<
@@ -31,6 +33,7 @@ pub fn build_turn_order(
 ) {
     ctx.round += 1;
     log.push(CombatEvent::RoundStarted { round: ctx.round });
+    reservations.clear();
 
     let first_round = ctx.round == 1;
     let use_preset = first_round && !preset.0.is_empty();

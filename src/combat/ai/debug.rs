@@ -50,7 +50,7 @@ pub struct CandidateDebug {
     pub target_name: String,
     pub tile: [i32; 2],
     pub tile_influence: TileInfluence,
-    pub raw: [f32; 8],
+    pub raw: [f32; 9],
     pub total: f32,
 }
 
@@ -148,7 +148,7 @@ pub fn toggle_debug_system(
 
 // ── Console print system ────────────────────────────────────────────────────
 
-const FACTOR_NAMES: [&str; 8] = ["dmg", "kill", "cc", "heal", "pos", "risk", "foc", "int"];
+const FACTOR_NAMES: [&str; 9] = ["dmg", "kill", "cc", "heal", "pos", "risk", "foc", "int", "sca"];
 
 fn fmt_pos(p: [i32; 2]) -> String {
     format!("({},{})", p[0], p[1])

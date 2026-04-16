@@ -41,6 +41,7 @@ fn main() {
             ai_debug: settings.ai_debug,
             ..Default::default()
         })
+        .init_resource::<combat::ai::reservations::Reservations>()
         .insert_resource(settings)
         .init_resource::<ui::console_log::ConsoleCursor>()
         .init_resource::<HexPositions>()

@@ -2,6 +2,8 @@
 use crate::combat::ai::debug::AiDebugState;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::build_influence_maps;
+use crate::combat::ai::intent::AiMemory;
+use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AiRole;
 use crate::combat::ai::snapshot::build_snapshot;
 use crate::combat::ai::utility::{pick_action, AiDecision, UtilityContext};
@@ -17,8 +19,18 @@ use crate::game::hex::{in_bounds, Hex};
 use crate::game::messages::{EndTurn, MoveUnit, UseAbility};
 use crate::game::pathfinding::reachable_with_paths;
 use crate::game::resources::{CombatContext, GameDb, HexPositions};
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
+
+// ── Bundled message writers (keeps system params under Bevy's 16-param limit) ──
+
+#[derive(SystemParam)]
+pub struct AiMessages<'w> {
+    use_ability: MessageWriter<'w, UseAbility>,
+    move_unit: MessageWriter<'w, MoveUnit>,
+    end_turn: MessageWriter<'w, EndTurn>,
+}
 
 // ── Main system ────────────────────────────────────────────────────────────
 
@@ -29,14 +41,14 @@ pub fn enemy_ai_system(
     positions: Res<HexPositions>,
     combat_ctx: Res<CombatContext>,
     mut rng: ResMut<DiceRng>,
-    mut use_ability: MessageWriter<UseAbility>,
-    mut move_unit: MessageWriter<MoveUnit>,
-    mut end_turn: MessageWriter<EndTurn>,
+    mut reservations: ResMut<Reservations>,
+    mut msgs: AiMessages,
     mut debug_state: ResMut<AiDebugState>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     combatants: Query<AiCombatantQ, With<Combatant>>,
     statuses: Query<&StatusEffects>,
     roles: Query<&AiRole>,
+    mut memories: Query<&mut AiMemory>,
     names: Query<&Name>,
 ) {
     let Ok(actor) = active_q.single() else { return };
@@ -46,8 +58,8 @@ pub fn enemy_ai_system(
     }
     run_ai_turn(
         actor, Team::Player, &c, &db, &settings, &difficulty, &positions,
-        &combat_ctx, &mut rng, &mut use_ability, &mut move_unit, &mut end_turn,
-        &combatants, &statuses, &roles, &mut debug_state, &names,
+        &combat_ctx, &mut rng, &mut reservations, &mut msgs,
+        &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );
 }
 
@@ -62,23 +74,23 @@ fn run_ai_turn(
     positions: &HexPositions,
     combat_ctx: &CombatContext,
     rng: &mut DiceRng,
-    use_ability: &mut MessageWriter<UseAbility>,
-    move_unit: &mut MessageWriter<MoveUnit>,
-    end_turn: &mut MessageWriter<EndTurn>,
+    reservations: &mut Reservations,
+    msgs: &mut AiMessages,
     combatants: &Query<AiCombatantQ, With<Combatant>>,
     statuses: &Query<&StatusEffects>,
     roles: &Query<&AiRole>,
+    memories: &mut Query<&mut AiMemory>,
     debug_state: &mut AiDebugState,
     names: &Query<&Name>,
 ) {
     if !c.ap.action && !c.ap.movement {
-        end_turn.write(EndTurn { actor });
+        msgs.end_turn.write(EndTurn { actor });
         return;
     }
 
     let Some(actor_pos) = positions.get(&actor) else {
         warn!("AI: actor {:?} has no position, ending turn", actor);
-        end_turn.write(EndTurn { actor });
+        msgs.end_turn.write(EndTurn { actor });
         return;
     };
 
@@ -139,11 +151,22 @@ fn run_ai_turn(
         HashMap::new()
     };
 
+    // Get or create AI memory for this actor.
+    let mut memory = memories
+        .get_mut(actor)
+        .map(|mut m| std::mem::take(&mut *m))
+        .unwrap_or_default();
+
     // Pick action via utility AI.
     let (decision, debug_snapshot) = pick_action(
         actor, actor_pos, &ctx, &snap, &maps, positions, &reach, rng,
-        debug, &debug_names,
+        &mut memory, reservations, debug, &debug_names,
     );
+
+    // Write memory back.
+    if let Ok(mut mem) = memories.get_mut(actor) {
+        *mem = memory;
+    }
 
     // Store debug data: maps always (for overlay), snapshot for console log.
     if debug {
@@ -156,18 +179,18 @@ fn run_ai_turn(
     // Execute decision.
     match decision {
         AiDecision::CastInPlace { ability, target, target_pos } => {
-            use_ability.write(UseAbility { actor, ability, target, target_pos });
+            msgs.use_ability.write(UseAbility { actor, ability, target, target_pos });
         }
         AiDecision::MoveAndCast { path, ability, target, target_pos } => {
-            move_unit.write(MoveUnit { actor, path });
-            use_ability.write(UseAbility { actor, ability, target, target_pos });
+            msgs.move_unit.write(MoveUnit { actor, path });
+            msgs.use_ability.write(UseAbility { actor, ability, target, target_pos });
         }
         AiDecision::MoveCloser { path } => {
-            move_unit.write(MoveUnit { actor, path });
-            end_turn.write(EndTurn { actor });
+            msgs.move_unit.write(MoveUnit { actor, path });
+            msgs.end_turn.write(EndTurn { actor });
         }
         AiDecision::EndTurn => {
-            end_turn.write(EndTurn { actor });
+            msgs.end_turn.write(EndTurn { actor });
         }
     }
 }
@@ -194,14 +217,14 @@ pub fn pact_ai_system(
     positions: Res<HexPositions>,
     combat_ctx: Res<CombatContext>,
     mut rng: ResMut<DiceRng>,
-    mut use_ability: MessageWriter<UseAbility>,
-    mut move_unit: MessageWriter<MoveUnit>,
-    mut end_turn: MessageWriter<EndTurn>,
+    mut reservations: ResMut<Reservations>,
+    mut msgs: AiMessages,
     mut debug_state: ResMut<AiDebugState>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     combatants: Query<AiCombatantQ, With<Combatant>>,
     statuses: Query<&StatusEffects>,
     roles: Query<&AiRole>,
+    mut memories: Query<&mut AiMemory>,
     names: Query<&Name>,
 ) {
     let Ok(actor) = active_q.single() else { return };
@@ -214,7 +237,7 @@ pub fn pact_ai_system(
     }
     run_ai_turn(
         actor, Team::Enemy, &c, &db, &settings, &difficulty, &positions,
-        &combat_ctx, &mut rng, &mut use_ability, &mut move_unit, &mut end_turn,
-        &combatants, &statuses, &roles, &mut debug_state, &names,
+        &combat_ctx, &mut rng, &mut reservations, &mut msgs,
+        &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );
 }

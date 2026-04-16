@@ -2,17 +2,18 @@
 use crate::combat::ai::constraints::filter_candidates;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
-use crate::combat::ai::intent::{apply_intent_filter, intent_score, select_intent, TacticalIntent};
+use crate::combat::ai::intent::{intent_score, select_intent, update_memory, AiMemory, TacticalIntent};
 use crate::combat::ai::position_eval::evaluate_position;
+use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AiRole;
 use crate::combat::ai::scoring::{score_action, TargetInfo};
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
 use crate::content::abilities::{AoEShape, CasterContext, TargetType};
 use crate::content::races::CritFailEffect;
 use crate::core::{AbilityId, DiceRng, ResourceKind};
 use crate::game::components::{Abilities, Team};
-use crate::game::hex::{hex_circle, hex_line, in_bounds, Hex};
+use crate::game::hex::{has_los, hex_circle, hex_line, in_bounds, Hex};
 use crate::game::pathfinding::ReachableMap;
 use crate::game::resources::{GameDb, HexPositions};
 use bevy::prelude::*;
@@ -53,17 +54,17 @@ pub enum AiDecision {
 
 // ── Role weight tables ──────────────────────────────────────────────────────
 
-/// 8 utility factors: damage, kill, cc, heal, position, risk, focus, intent.
-const NUM_FACTORS: usize = 8;
+/// 9 utility factors: damage, kill, cc, heal, position, risk, focus, intent, scarcity.
+const NUM_FACTORS: usize = 9;
 
 #[rustfmt::skip]
 const ROLE_WEIGHTS: [[f32; NUM_FACTORS]; 5] = [
-    //            dmg   kill  cc    heal  pos   risk  focus intent
-    /* Bruiser */ [1.0,  1.5,  0.3,  0.0,  0.5,  0.3,  0.8,  1.0],
-    /* Archer  */ [1.0,  1.0,  0.3,  0.0,  1.0,  0.8,  0.5,  1.0],
-    /* Mage    */ [0.8,  0.8,  1.2,  0.0,  0.8,  0.6,  0.5,  1.0],
-    /* Support */ [0.2,  0.3,  0.8,  2.0,  1.0,  1.0,  0.5,  1.0],
-    /* Assassin*/ [0.8,  2.0,  0.2,  0.0,  0.3,  0.2,  1.5,  1.0],
+    //            dmg   kill  cc    heal  pos   risk  focus intent scarc
+    /* Bruiser */ [1.0,  1.5,  0.3,  0.0,  0.5,  0.3,  0.8,  1.0,  0.3],
+    /* Archer  */ [1.0,  1.0,  0.3,  0.0,  1.0,  0.8,  0.5,  1.0,  0.3],
+    /* Mage    */ [0.8,  0.8,  1.2,  0.0,  0.8,  0.6,  0.5,  1.0,  1.0],
+    /* Support */ [0.2,  0.3,  0.8,  2.0,  1.0,  1.0,  0.5,  1.0,  0.8],
+    /* Assassin*/ [0.8,  2.0,  0.2,  0.0,  0.3,  0.2,  1.5,  1.0,  0.2],
 ];
 
 fn role_index(role: AiRole) -> usize {
@@ -101,6 +102,8 @@ pub fn pick_action(
     positions: &HexPositions,
     reach: &ReachableMap,
     rng: &mut DiceRng,
+    memory: &mut AiMemory,
+    reservations: &mut Reservations,
     debug: bool,
     debug_names: &HashMap<Entity, String>,
 ) -> (AiDecision, Option<AiDebugSnapshot>) {
@@ -109,7 +112,8 @@ pub fn pick_action(
     };
 
     // ── Select tactical intent ──────────────────────────────────────────
-    let intent = select_intent(active, snap, maps, ctx.difficulty);
+    let intent = select_intent(active, snap, maps, ctx.difficulty, memory);
+    update_memory(memory, &intent);
 
     // ── Generate candidates ─────────────────────────────────────────────
     let mut candidates = generate_candidates(actor_pos, active, ctx, snap, maps, positions, reach);
@@ -125,11 +129,11 @@ pub fn pick_action(
         return (fallback_move(actor_pos, active, ctx, snap, reach), None);
     }
 
-    // ── Intent filter ───────────────────────────────────────────────────
-    apply_intent_filter(&mut candidates, &intent, active, snap, maps, ctx.db);
-
     // ── Utility scoring ─────────────────────────────────────────────────
-    let scored = score_candidates(&candidates, active, &intent, ctx, snap, maps, rng);
+    let mut scored = score_candidates(&candidates, active, &intent, ctx, snap, maps, reservations, rng);
+
+    // ── Sanity check on top candidates ─────────────────────────────────
+    sanity_adjust(&mut scored, &candidates, active, snap, maps);
 
     // Pick best.
     let best_idx = scored
@@ -158,11 +162,17 @@ pub fn pick_action(
         };
         Some(build_debug_snapshot(
             active, actor_pos, &intent, &candidates, &scored, &decision_preview,
-            ctx, snap, maps, debug_names,
+            ctx, snap, maps, reservations, debug_names,
         ))
     } else {
         None
     };
+
+    // ── Record reservations for subsequent units ─────────────────────
+    {
+        let best = &candidates[best_idx];
+        record_reservation(best, active, ctx, snap, reservations, actor_pos);
+    }
 
     let best = candidates.swap_remove(best_idx);
 
@@ -186,9 +196,6 @@ pub fn pick_action(
 
 // ── Candidate generation ────────────────────────────────────────────────────
 
-/// Max number of reachable tiles to evaluate (plus current position).
-const MAX_TILES: usize = 8;
-
 fn generate_candidates(
     actor_pos: Hex,
     active: &UnitSnapshot,
@@ -198,22 +205,9 @@ fn generate_candidates(
     positions: &HexPositions,
     reach: &ReachableMap,
 ) -> Vec<ActionCandidate> {
-    // Score all reachable tiles, take top-N.
-    let mut tile_scores: Vec<(Hex, f32)> = reach
-        .destinations
-        .iter()
-        .map(|&h| (h, evaluate_position(h, active.role, maps) * ctx.difficulty.awareness))
-        .collect();
-    tile_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    tile_scores.truncate(MAX_TILES);
-
-    // Always include current position (stay-and-cast).
-    let mut tiles: Vec<Hex> = tile_scores.into_iter().map(|(h, _)| h).collect();
-    if !tiles.contains(&actor_pos) {
-        tiles.push(actor_pos);
-    }
-
     let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
+
+    let tiles = select_diverse_tiles(actor_pos, active, ctx, snap, maps, reach, &enemies);
     let allies: Vec<&UnitSnapshot> = snap
         .allies_of(active.team)
         .filter(|u| u.entity != active.entity)
@@ -322,6 +316,93 @@ fn generate_candidates(
     candidates
 }
 
+// ── Diverse tile selection ──────────────────────────────────────────────────
+
+/// Pick top-N tiles from `reach.destinations` scored by `f`, insert into `out`.
+fn pick_top(
+    reach: &ReachableMap,
+    n: usize,
+    out: &mut HashSet<Hex>,
+    f: impl Fn(Hex) -> f32,
+) {
+    let mut scored: Vec<(Hex, f32)> = reach.destinations.iter().map(|&h| (h, f(h))).collect();
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    for (h, _) in scored.into_iter().take(n) {
+        out.insert(h);
+    }
+}
+
+/// Select tiles using multiple strategies to ensure the candidate pool covers
+/// offensive, defensive, focus, AoE and kiting positions — not just globally
+/// "best" tiles from position_eval.
+fn select_diverse_tiles(
+    actor_pos: Hex,
+    active: &UnitSnapshot,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+    maps: &InfluenceMaps,
+    reach: &ReachableMap,
+    enemies: &[&UnitSnapshot],
+) -> Vec<Hex> {
+    let mut tiles: HashSet<Hex> = HashSet::new();
+
+    // 1. Offensive: tiles near wounded / high-threat enemies.
+    pick_top(reach, 3, &mut tiles, |h| maps.opportunity.get(h));
+
+    // 2. Safe: lowest danger, near healers.
+    pick_top(reach, 3, &mut tiles, |h| maps.escape.get(h));
+
+    // 3. Near priority target: closest tiles to the highest-priority enemy.
+    if let Some(priority) = enemies.iter().max_by(|a, b| {
+        target_priority(active, a, snap)
+            .partial_cmp(&target_priority(active, b, snap))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    }) {
+        pick_top(reach, 2, &mut tiles, |h| {
+            -(h.unsigned_distance_to(priority.pos) as f32)
+        });
+    }
+
+    // 4. AoE origin: tiles from which AoE hits the most enemies.
+    if active.tags.contains(AiTags::HAS_AOE) {
+        let aoe_radii: Vec<u32> = ctx.abilities.0.iter()
+            .filter_map(|id| ctx.db.abilities.get(id))
+            .filter_map(|def| match def.aoe {
+                AoEShape::Circle { radius } => Some(radius),
+                _ => None,
+            })
+            .collect();
+
+        if !aoe_radii.is_empty() {
+            let enemy_positions: HashSet<Hex> = enemies.iter().map(|e| e.pos).collect();
+            pick_top(reach, 2, &mut tiles, |h| {
+                aoe_radii.iter().map(|&r| {
+                    hex_circle(h, r).iter()
+                        .filter(|c| enemy_positions.contains(c))
+                        .count() as f32
+                }).fold(0.0f32, f32::max)
+            });
+        }
+    }
+
+    // 5. Retreat-with-LOS: safe tiles that maintain line of sight to an enemy (kiting).
+    if active.tags.contains(AiTags::RANGED) {
+        let occupied: HashSet<Hex> = snap.units.iter().map(|u| u.pos).collect();
+        let enemy_positions: Vec<Hex> = enemies.iter().map(|e| e.pos).collect();
+        pick_top(reach, 2, &mut tiles, |h| {
+            let can_see = enemy_positions.iter().any(|&ep| {
+                has_los(h, ep, |mid| occupied.contains(&mid) && mid != h && mid != ep)
+            });
+            if can_see { maps.escape.get(h) } else { f32::NEG_INFINITY }
+        });
+    }
+
+    // 6. Always include current position (stay-and-cast).
+    tiles.insert(actor_pos);
+
+    tiles.into_iter().collect()
+}
+
 // ── Utility scoring ─────────────────────────────────────────────────────────
 
 fn score_candidates(
@@ -331,6 +412,7 @@ fn score_candidates(
     ctx: &UtilityContext,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
+    reservations: &Reservations,
     rng: &mut DiceRng,
 ) -> Vec<f32> {
     if candidates.is_empty() {
@@ -340,7 +422,7 @@ fn score_candidates(
     // Compute raw factors for each candidate.
     let raw: Vec<[f32; NUM_FACTORS]> = candidates
         .iter()
-        .map(|c| compute_factors(c, active, intent, ctx, snap, maps))
+        .map(|c| compute_factors(c, active, intent, ctx, snap, maps, reservations))
         .collect();
 
     // Find max per factor for normalization.
@@ -388,6 +470,7 @@ fn compute_factors(
     ctx: &UtilityContext,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
+    reservations: &Reservations,
 ) -> [f32; NUM_FACTORS] {
     let Some(def) = ctx.db.abilities.get(&candidate.ability) else {
         return [0.0; NUM_FACTORS];
@@ -437,7 +520,7 @@ fn compute_factors(
     }
 
     // ── kill ─────────────────────────────────────────────────────────────
-    let kill = if let Some(target_unit) = snap.unit(candidate.target) {
+    let mut kill = if let Some(target_unit) = snap.unit(candidate.target) {
         if let Some(calc) = def.effect.calc(ctx.caster) {
             let expected = calc.expected();
             let armor = if calc.pierces_armor {
@@ -455,7 +538,7 @@ fn compute_factors(
     };
 
     // ── cc ───────────────────────────────────────────────────────────────
-    let cc = def
+    let mut cc = def
         .statuses
         .iter()
         .map(|sa| {
@@ -483,7 +566,7 @@ fn compute_factors(
         * ctx.difficulty.status_value_scale;
 
     // ── position ─────────────────────────────────────────────────────────
-    let position = evaluate_position(candidate.tile, active.role, maps) * ctx.difficulty.awareness;
+    let mut position = evaluate_position(candidate.tile, active.role, maps) * ctx.difficulty.awareness;
 
     // ── risk ─────────────────────────────────────────────────────────────
     // Lower danger = better. We invert so higher = safer.
@@ -499,7 +582,228 @@ fn compute_factors(
     // ── intent ───────────────────────────────────────────────────────────
     let intent_val = intent_score(intent, candidate, active, snap, maps, ctx.db);
 
-    [damage, kill, cc, heal, position, risk, focus, intent_val]
+    // ── reservation penalties ───────────────────────────────────────────
+    // Overkill: if enough damage already reserved to kill target, devalue.
+    let reserved_dmg = reservations.reserved_damage(candidate.target);
+    if reserved_dmg > 0.0 {
+        if let Some(target_unit) = snap.unit(candidate.target) {
+            let hp_left = target_unit.hp as f32 - reserved_dmg;
+            if hp_left <= 0.0 {
+                damage *= 0.2;
+                kill = 0.0;
+            }
+        }
+    }
+
+    // Duplicate CC: second stun on same target is near-worthless.
+    if reservations.reserved_cc(candidate.target) > 0 {
+        cc *= 0.15;
+    }
+
+    // Tile collision: slight penalty if another unit claimed this tile.
+    if reservations.is_tile_reserved(candidate.tile) {
+        position *= 0.5;
+    }
+
+    // ── scarcity ──────────────────────────────────────────────────────
+    let scarcity = compute_scarcity(candidate, active, kill, ctx, snap);
+
+    [damage, kill, cc, heal, position, risk, focus, intent_val, scarcity]
+}
+
+// ── Scarcity ────────────────────────────────────────────────────────────────
+
+/// Compute resource-scarcity factor: `swing_value - resource_ratio`.
+/// Free abilities return 0.0 (neutral). Expensive abilities on low-value
+/// situations get negative scores; expensive abilities in high-swing moments
+/// get positive scores.
+fn compute_scarcity(
+    candidate: &ActionCandidate,
+    active: &UnitSnapshot,
+    kill: f32,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+) -> f32 {
+    let Some(def) = ctx.db.abilities.get(&candidate.ability) else {
+        return 0.0;
+    };
+
+    // Free abilities are always neutral.
+    if def.costs.is_empty() {
+        return 0.0;
+    }
+
+    // resource_ratio: max(cost / current_pool) across all resource costs.
+    let resource_ratio = def
+        .costs
+        .iter()
+        .map(|c| {
+            let pool = match c.resource {
+                ResourceKind::Hp => active.hp,
+                ResourceKind::Mana => active.mana.map(|(cur, _)| cur).unwrap_or(0),
+                ResourceKind::Rage => active.rage.map(|(cur, _)| cur).unwrap_or(0),
+                ResourceKind::Energy => active.energy.map(|(cur, _)| cur).unwrap_or(0),
+            };
+            if pool <= 0 {
+                return 1.0;
+            }
+            (c.amount as f32 / pool as f32).min(1.0)
+        })
+        .fold(0.0f32, f32::max);
+
+    // swing_value: situational justification for spending.
+    let mut swing = 0.0f32;
+
+    // Kill bonus.
+    if kill > 0.0 {
+        swing += 0.8;
+        // Extra value for killing high-value targets.
+        if let Some(t) = snap.unit(candidate.target) {
+            if matches!(t.role, AiRole::Support | AiRole::Mage) {
+                swing += 0.3;
+            }
+        }
+    }
+
+    // AoE multi-hit bonus.
+    if def.aoe != AoEShape::None {
+        let area: Vec<Hex> = match def.aoe {
+            AoEShape::Circle { radius } => hex_circle(candidate.target_pos, radius),
+            AoEShape::Line { length } => hex_line(candidate.tile, candidate.target_pos, length),
+            AoEShape::None => vec![],
+        };
+        let area_set: HashSet<Hex> = area.into_iter().collect();
+        let hits = snap
+            .enemies_of(active.team)
+            .filter(|e| area_set.contains(&e.pos))
+            .count();
+        if hits > 1 {
+            swing += 0.2 * (hits - 1) as f32;
+        }
+    }
+
+    // CC on high-threat unstunned target.
+    let is_cc = def.statuses.iter().any(|sa| {
+        ctx.db
+            .statuses
+            .get(&sa.status)
+            .is_some_and(|sd| sd.skips_turn)
+    });
+    if is_cc {
+        if let Some(t) = snap.unit(candidate.target) {
+            if !t.tags.contains(AiTags::IS_STUNNED) {
+                swing += 0.5 * (t.threat / 10.0).min(1.0);
+            }
+        }
+    }
+
+    // Overkill penalty: target nearly dead and caster has free attacks.
+    if let Some(t) = snap.unit(candidate.target) {
+        let target_hp_pct = t.hp as f32 / t.max_hp.max(1) as f32;
+        if target_hp_pct < 0.25 && has_free_attack(ctx) {
+            swing -= 0.3;
+        }
+    }
+
+    // Early round penalty: conserve resources at fight start.
+    if snap.round <= 1 {
+        swing -= 0.15;
+    }
+
+    (swing - resource_ratio).clamp(-1.0, 1.0)
+}
+
+/// Returns true if the caster has at least one ability with no resource cost.
+fn has_free_attack(ctx: &UtilityContext) -> bool {
+    ctx.abilities.0.iter().any(|id| {
+        ctx.db
+            .abilities
+            .get(id)
+            .is_some_and(|d| d.costs.is_empty() && d.target_type == TargetType::SingleEnemy)
+    })
+}
+
+// ── Sanity check ────────────────────────────────────────────────────────────
+
+/// Post-score verification on the top-3 candidates. Applies multiplicative
+/// penalties for dangerous situations that per-factor scoring can't catch.
+fn sanity_adjust(
+    scores: &mut [f32],
+    candidates: &[ActionCandidate],
+    active: &UnitSnapshot,
+    snap: &BattleSnapshot,
+    maps: &InfluenceMaps,
+) {
+    if scores.len() <= 1 {
+        return;
+    }
+
+    // Find top-3 indices by score.
+    let mut indexed: Vec<(usize, f32)> = scores.iter().copied().enumerate().collect();
+    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    indexed.truncate(3);
+
+    let effective_hp = (active.hp + active.armor + active.armor_bonus) as f32;
+    let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
+    let allies: Vec<&UnitSnapshot> = snap.allies_of(active.team)
+        .filter(|u| u.entity != active.entity)
+        .collect();
+    let occupied: HashSet<Hex> = snap.units.iter().map(|u| u.pos).collect();
+
+    for (idx, _) in &indexed {
+        let c = &candidates[*idx];
+        let mut penalty = 1.0f32;
+
+        // 1. Survival: will danger at this tile likely kill us?
+        let danger = maps.danger.get(c.tile);
+        if danger > effective_hp {
+            penalty *= 0.3;
+        } else if danger > effective_hp * 0.7 {
+            penalty *= 0.6;
+        }
+
+        // 2. Healer exposure: are we abandoning an allied healer?
+        if active.role != AiRole::Support {
+            for ally in &allies {
+                if !ally.tags.contains(AiTags::CAN_HEAL) {
+                    continue;
+                }
+                let was_near = active.pos.unsigned_distance_to(ally.pos) <= 1;
+                let will_be_far = c.tile.unsigned_distance_to(ally.pos) > 2;
+                if was_near && will_be_far {
+                    let other_guard = allies.iter().any(|a| {
+                        a.entity != ally.entity && a.pos.unsigned_distance_to(ally.pos) <= 2
+                    });
+                    if !other_guard {
+                        penalty *= 0.5;
+                    }
+                }
+            }
+        }
+
+        // 3. LOS check: ranged unit moving to a blind spot.
+        if active.tags.contains(AiTags::RANGED) && !enemies.is_empty() {
+            let can_see_any = enemies.iter().any(|e| {
+                has_los(c.tile, e.pos, |mid| {
+                    occupied.contains(&mid) && mid != c.tile && mid != e.pos
+                })
+            });
+            if !can_see_any {
+                penalty *= 0.3;
+            }
+        }
+
+        // 4. Retreat trap: tile with very few unblocked neighbors.
+        let ally_positions: HashSet<Hex> = allies.iter().map(|a| a.pos).collect();
+        let open_neighbors = c.tile.all_neighbors().iter()
+            .filter(|&&n| in_bounds(n) && !ally_positions.contains(&n))
+            .count();
+        if open_neighbors < 2 {
+            penalty *= 0.5;
+        }
+
+        scores[*idx] *= penalty;
+    }
 }
 
 // ── Fallback ────────────────────────────────────────────────────────────────
@@ -539,6 +843,42 @@ fn fallback_move(
     }
 
     AiDecision::EndTurn
+}
+
+// ── Reservation recording ───────────────────────────────────────────────────
+
+fn record_reservation(
+    best: &ActionCandidate,
+    active: &UnitSnapshot,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+    reservations: &mut Reservations,
+    actor_pos: Hex,
+) {
+    // Record expected damage on target.
+    if let Some(def) = ctx.db.abilities.get(&best.ability) {
+        if let Some(target_unit) = snap.unit(best.target) {
+            let ti = target_info_from_snap(target_unit);
+            let caster = ctx.caster;
+            let dmg = score_action(def, &ti, caster, ctx.db, ctx.difficulty);
+            if dmg > 0.0 {
+                reservations.reserve_damage(best.target, dmg);
+            }
+
+            // Record CC if ability applies hard CC.
+            let applies_cc = def.statuses.iter().any(|sa| {
+                ctx.db.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn)
+            });
+            if applies_cc {
+                reservations.reserve_cc(best.target);
+            }
+        }
+    }
+
+    // Record destination tile.
+    if best.tile != actor_pos {
+        reservations.reserve_tile(best.tile, active.entity);
+    }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -606,12 +946,12 @@ fn explain_intent(
 
     match intent {
         TacticalIntent::ProtectSelf => {
-            format!("hp%={:.0}%<25% AND danger={:.1}>hp={}", hp_pct * 100.0, danger, active.hp)
+            format!("hp%={:.0}%<40% AND danger={:.1}", hp_pct * 100.0, danger)
         }
         TacticalIntent::ProtectAlly { ally } => {
             if let Some(a) = snap.unit(*ally) {
                 let a_pct = a.hp as f32 / a.max_hp.max(1) as f32;
-                format!("CAN_HEAL + ally hp%={:.0}%<30%", a_pct * 100.0)
+                format!("CAN_HEAL + ally hp%={:.0}%<50%", a_pct * 100.0)
             } else {
                 "CAN_HEAL + wounded ally".into()
             }
@@ -669,6 +1009,7 @@ fn build_debug_snapshot(
     ctx: &UtilityContext,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
+    reservations: &Reservations,
     names: &HashMap<Entity, String>,
 ) -> AiDebugSnapshot {
     let actor_name = name_of(active.entity, names);
@@ -695,7 +1036,7 @@ fn build_debug_snapshot(
         .iter()
         .map(|&(i, total)| {
             let c = &candidates[i];
-            let raw = compute_factors(c, active, intent, ctx, snap, maps);
+            let raw = compute_factors(c, active, intent, ctx, snap, maps, reservations);
             CandidateDebug {
                 ability: c.ability.0.clone(),
                 target_name: name_of(c.target, names),
@@ -802,5 +1143,426 @@ fn crit_fail_adjusted(
             score * (1.0 - chance) - chance * mana_cost * 0.5
         }
         _ => score * (1.0 - chance),
+    }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
+    use crate::combat::ai::role::AiRole;
+    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+    use crate::game::components::Team;
+    use crate::game::hex::hex_from_offset;
+
+    fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
+        UnitSnapshot {
+            entity: Entity::from_raw_u32(id).expect("valid entity id"),
+            team,
+            role: AiRole::Bruiser,
+            pos,
+            hp: 20,
+            max_hp: 20,
+            armor: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            action: true,
+            movement: true,
+            speed: 3,
+            mana: None,
+            rage: None,
+            energy: None,
+            abilities: vec!["melee_attack".into()],
+            statuses: vec![],
+            threat: 5.0,
+            tags: AiTags::MELEE_ONLY,
+        }
+    }
+
+    fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
+        let active = units[0].entity;
+        BattleSnapshot { units, active_unit: active, round: 1 }
+    }
+
+    fn empty_maps() -> InfluenceMaps {
+        InfluenceMaps {
+            danger: InfluenceMap::new(),
+            ally_support: InfluenceMap::new(),
+            opportunity: InfluenceMap::new(),
+            escape: InfluenceMap::new(),
+        }
+    }
+
+    /// Build a ReachableMap where all in-bounds cells are reachable.
+    fn fake_reach(start: Hex) -> ReachableMap {
+        use crate::game::pathfinding::reachable_with_paths;
+        reachable_with_paths(start, 20, |h| in_bounds(h), |_| true)
+    }
+
+    #[test]
+    fn diverse_tiles_always_includes_current_pos() {
+        let actor_pos = hex_from_offset(4, 3);
+        let active = unit(0, Team::Enemy, actor_pos);
+        let enemy = unit(1, Team::Player, hex_from_offset(0, 0));
+        let s = snap(vec![active.clone(), enemy]);
+        let maps = empty_maps();
+        let db = GameDb::default();
+        let difficulty = DifficultyProfile::default();
+        let ctx = UtilityContext {
+            db: &db,
+            difficulty: &difficulty,
+            caster: &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+            abilities: &Abilities(vec!["melee_attack".into()]),
+            opponent_team: Team::Player,
+            crit_fail_effect: CritFailEffect::Miss,
+            crit_fail_chance: 0.0,
+        };
+        let enemies: Vec<&UnitSnapshot> = s.enemies_of(Team::Enemy).collect();
+        let reach = fake_reach(actor_pos);
+        let tiles = select_diverse_tiles(actor_pos, &active, &ctx, &s, &maps, &reach, &enemies);
+        assert!(tiles.contains(&actor_pos), "current position must always be included");
+    }
+
+    #[test]
+    fn diverse_tiles_near_priority_target() {
+        let actor_pos = hex_from_offset(4, 3);
+        let active = unit(0, Team::Enemy, actor_pos);
+        // Wounded high-priority target at (2,3).
+        let mut target = unit(1, Team::Player, hex_from_offset(2, 3));
+        target.hp = 3;
+        target.threat = 10.0;
+
+        let s = snap(vec![active.clone(), target.clone()]);
+        let maps = empty_maps();
+        let db = GameDb::default();
+        let difficulty = DifficultyProfile::default();
+        let ctx = UtilityContext {
+            db: &db,
+            difficulty: &difficulty,
+            caster: &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+            abilities: &Abilities(vec!["melee_attack".into()]),
+            opponent_team: Team::Player,
+            crit_fail_effect: CritFailEffect::Miss,
+            crit_fail_chance: 0.0,
+        };
+        let enemies: Vec<&UnitSnapshot> = s.enemies_of(Team::Enemy).collect();
+
+        let target_hex = hex_from_offset(2, 3);
+        let reach = fake_reach(actor_pos);
+
+        let tiles = select_diverse_tiles(actor_pos, &active, &ctx, &s, &maps, &reach, &enemies);
+        // "Near priority target" strategy should include at least one tile within 1 hex of the target.
+        let has_close = tiles.iter().any(|&h| h.unsigned_distance_to(target_hex) <= 1);
+        assert!(
+            has_close,
+            "should include a tile near priority target; got {:?}",
+            tiles.iter().map(|h| hex_to_offset(*h)).collect::<Vec<_>>(),
+        );
+    }
+
+    #[test]
+    fn diverse_tiles_includes_offensive_and_safe() {
+        let actor_pos = hex_from_offset(4, 3);
+        let active = unit(0, Team::Enemy, actor_pos);
+        let enemy = unit(1, Team::Player, hex_from_offset(1, 1));
+
+        let s = snap(vec![active.clone(), enemy]);
+
+        // Set up maps: offensive tile at (3,2), safe tile at (5,4).
+        let offensive = hex_from_offset(3, 2);
+        let safe = hex_from_offset(5, 4);
+        let mut maps = empty_maps();
+        maps.opportunity.add(offensive, 10.0);
+        maps.escape.add(safe, 10.0);
+
+        let db = GameDb::default();
+        let difficulty = DifficultyProfile::default();
+        let ctx = UtilityContext {
+            db: &db,
+            difficulty: &difficulty,
+            caster: &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+            abilities: &Abilities(vec!["melee_attack".into()]),
+            opponent_team: Team::Player,
+            crit_fail_effect: CritFailEffect::Miss,
+            crit_fail_chance: 0.0,
+        };
+        let enemies: Vec<&UnitSnapshot> = s.enemies_of(Team::Enemy).collect();
+        let reach = fake_reach(actor_pos);
+
+        let tiles = select_diverse_tiles(actor_pos, &active, &ctx, &s, &maps, &reach, &enemies);
+        assert!(tiles.contains(&offensive), "offensive tile should be included");
+        assert!(tiles.contains(&safe), "safe tile should be included");
+    }
+
+    // ── Sanity check tests ──────────────────────────────────────────────
+
+    fn candidate(tile: Hex, target: Entity) -> ActionCandidate {
+        ActionCandidate {
+            tile,
+            path: vec![],
+            ability: "melee_attack".into(),
+            target_pos: tile,
+            target,
+        }
+    }
+
+    #[test]
+    fn sanity_penalizes_suicide_tile() {
+        let dangerous = hex_from_offset(3, 3);
+        let safe_tile = hex_from_offset(5, 4);
+        let active = unit(0, Team::Enemy, hex_from_offset(4, 3));
+        let enemy = unit(1, Team::Player, hex_from_offset(2, 2));
+        let s = snap(vec![active.clone(), enemy.clone()]);
+
+        let mut maps = empty_maps();
+        // Danger way above HP (active.hp=20, armor=0, so effective_hp=20).
+        maps.danger.add(dangerous, 50.0);
+        maps.danger.add(safe_tile, 2.0);
+
+        let candidates = vec![
+            candidate(dangerous, enemy.entity),
+            candidate(safe_tile, enemy.entity),
+        ];
+        let mut scores = vec![10.0, 9.0];
+
+        sanity_adjust(&mut scores, &candidates, &active, &s, &maps);
+
+        assert!(
+            scores[0] < scores[1],
+            "dangerous tile ({:.1}) should score lower than safe ({:.1}) after sanity",
+            scores[0], scores[1],
+        );
+    }
+
+    #[test]
+    fn sanity_preserves_safe_candidate() {
+        let tile = hex_from_offset(4, 3);
+        let active = unit(0, Team::Enemy, tile);
+        let enemy = unit(1, Team::Player, hex_from_offset(2, 2));
+        let s = snap(vec![active.clone(), enemy.clone()]);
+
+        let maps = empty_maps(); // no danger anywhere
+
+        let candidates = vec![
+            candidate(tile, enemy.entity),
+            candidate(hex_from_offset(3, 3), enemy.entity),
+        ];
+        let mut scores = vec![10.0, 8.0];
+        let original = scores.clone();
+
+        sanity_adjust(&mut scores, &candidates, &active, &s, &maps);
+
+        // First candidate (safe tile, no danger) should keep full score.
+        assert_eq!(scores[0], original[0], "safe candidate score should be unchanged");
+    }
+
+    #[test]
+    fn sanity_ranged_penalizes_blind_spot() {
+        let actor_pos = hex_from_offset(4, 3);
+        let behind_wall = hex_from_offset(0, 0);
+        let mut active = unit(0, Team::Enemy, actor_pos);
+        active.tags = AiTags::RANGED;
+        let enemy = unit(1, Team::Player, hex_from_offset(4, 1));
+
+        // Place a blocker between (0,0) and (4,1) — any unit on the line.
+        let blocker = unit(2, Team::Enemy, hex_from_offset(2, 1));
+        let s = snap(vec![active.clone(), enemy.clone(), blocker]);
+
+        let maps = empty_maps();
+
+        let candidates = vec![
+            candidate(behind_wall, enemy.entity),
+            candidate(actor_pos, enemy.entity), // stay — has LOS
+        ];
+        let mut scores = vec![10.0, 9.0];
+
+        sanity_adjust(&mut scores, &candidates, &active, &s, &maps);
+
+        // The blind-spot tile should be penalized.
+        assert!(
+            scores[0] < 10.0,
+            "blind-spot tile should be penalized, got {:.1}",
+            scores[0],
+        );
+    }
+
+    // ── Scarcity tests ─────────────────────────────────────────────────
+
+    fn scarcity_ctx<'a>(db: &'a GameDb, difficulty: &'a DifficultyProfile, abilities: &'a Abilities) -> UtilityContext<'a> {
+        UtilityContext {
+            db,
+            difficulty,
+            caster: &CasterContext { str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None },
+            abilities,
+            opponent_team: Team::Player,
+            crit_fail_effect: CritFailEffect::Miss,
+            crit_fail_chance: 0.0,
+        }
+    }
+
+    #[test]
+    fn scarcity_neutral_for_free_abilities() {
+        let tile = hex_from_offset(4, 3);
+        let active = unit(0, Team::Enemy, tile);
+        let enemy = unit(1, Team::Player, hex_from_offset(3, 3));
+        let s = snap(vec![active.clone(), enemy.clone()]);
+        let db = GameDb::default();
+        let diff = DifficultyProfile::default();
+        let abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = scarcity_ctx(&db, &diff, &abilities);
+
+        let c = candidate(tile, enemy.entity);
+        let score = compute_scarcity(&c, &active, 0.0, &ctx, &s);
+        assert_eq!(score, 0.0, "free ability should have zero scarcity");
+    }
+
+    #[test]
+    fn scarcity_penalizes_expensive_on_dying_target() {
+        let tile = hex_from_offset(4, 3);
+        let mut active = unit(0, Team::Enemy, tile);
+        active.mana = Some((10, 10));
+
+        let mut enemy = unit(1, Team::Player, hex_from_offset(3, 3));
+        enemy.hp = 1; // nearly dead
+        enemy.max_hp = 20;
+
+        let s = snap(vec![active.clone(), enemy.clone()]);
+        let db = GameDb::default();
+        let diff = DifficultyProfile::default();
+        // Has both fireball (5 mana) and melee_attack (free).
+        let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
+        let ctx = scarcity_ctx(&db, &diff, &abilities);
+
+        let c = ActionCandidate {
+            tile,
+            path: vec![],
+            ability: "fireball".into(),
+            target_pos: enemy.pos,
+            target: enemy.entity,
+        };
+        let score = compute_scarcity(&c, &active, 0.0, &ctx, &s);
+        assert!(
+            score < 0.0,
+            "expensive ability on dying target should get negative scarcity, got {:.2}",
+            score,
+        );
+    }
+
+    #[test]
+    fn scarcity_rewards_kill_on_support() {
+        let tile = hex_from_offset(4, 3);
+        let mut active = unit(0, Team::Enemy, tile);
+        active.mana = Some((10, 10));
+
+        let mut enemy = unit(1, Team::Player, hex_from_offset(3, 3));
+        enemy.role = AiRole::Support;
+        enemy.hp = 5;
+        enemy.max_hp = 20;
+
+        let s = snap(vec![active.clone(), enemy.clone()]);
+        let db = GameDb::default();
+        let diff = DifficultyProfile::default();
+        let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
+        let ctx = scarcity_ctx(&db, &diff, &abilities);
+
+        let c = ActionCandidate {
+            tile,
+            path: vec![],
+            ability: "fireball".into(),
+            target_pos: enemy.pos,
+            target: enemy.entity,
+        };
+        // kill=1.0 means this is a confirmed kill.
+        let score = compute_scarcity(&c, &active, 1.0, &ctx, &s);
+        assert!(
+            score > 0.0,
+            "kill on support should yield positive scarcity, got {:.2}",
+            score,
+        );
+    }
+
+    #[test]
+    fn scarcity_rewards_aoe_on_cluster() {
+        let tile = hex_from_offset(4, 3);
+        let mut active = unit(0, Team::Enemy, tile);
+        active.mana = Some((20, 20)); // large pool → low resource_ratio
+
+        // Place 3 enemies adjacent to each other (within AoE circle r=1).
+        let center = hex_from_offset(2, 3);
+        let neighbors: Vec<Hex> = center.all_neighbors().to_vec();
+        let e1 = unit(1, Team::Player, center);
+        let e2 = unit(2, Team::Player, neighbors[0]);
+        let e3 = unit(3, Team::Player, neighbors[1]);
+
+        let s = BattleSnapshot {
+            units: vec![active.clone(), e1.clone(), e2.clone(), e3.clone()],
+            active_unit: active.entity,
+            round: 3, // past early-round penalty
+        };
+        let db = GameDb::default();
+        let diff = DifficultyProfile::default();
+        let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
+        let ctx = scarcity_ctx(&db, &diff, &abilities);
+
+        // Target pos at e1, fireball has AoE circle radius 1 → hits all 3.
+        let c = ActionCandidate {
+            tile,
+            path: vec![],
+            ability: "fireball".into(),
+            target_pos: e1.pos,
+            target: e1.entity,
+        };
+        let score = compute_scarcity(&c, &active, 0.0, &ctx, &s);
+        assert!(
+            score > 0.0,
+            "AoE on cluster should yield positive scarcity, got {:.2}",
+            score,
+        );
+    }
+
+    #[test]
+    fn scarcity_penalizes_early_round_spend() {
+        let tile = hex_from_offset(4, 3);
+        let mut active = unit(0, Team::Enemy, tile);
+        active.mana = Some((10, 10));
+
+        let enemy = unit(1, Team::Player, hex_from_offset(3, 3));
+
+        let db = GameDb::default();
+        let diff = DifficultyProfile::default();
+        let abilities = Abilities(vec!["fireball".into()]);
+        let ctx = scarcity_ctx(&db, &diff, &abilities);
+
+        let c = ActionCandidate {
+            tile,
+            path: vec![],
+            ability: "fireball".into(),
+            target_pos: enemy.pos,
+            target: enemy.entity,
+        };
+
+        // Round 1 — early penalty applies.
+        let s_r1 = BattleSnapshot {
+            units: vec![active.clone(), enemy.clone()],
+            active_unit: active.entity,
+            round: 1,
+        };
+        let score_r1 = compute_scarcity(&c, &active, 0.0, &ctx, &s_r1);
+
+        // Round 3 — no early penalty.
+        let s_r3 = BattleSnapshot {
+            units: vec![active.clone(), enemy.clone()],
+            active_unit: active.entity,
+            round: 3,
+        };
+        let score_r3 = compute_scarcity(&c, &active, 0.0, &ctx, &s_r3);
+
+        assert!(
+            score_r1 < score_r3,
+            "round 1 ({:.2}) should have lower scarcity than round 3 ({:.2})",
+            score_r1, score_r3,
+        );
     }
 }

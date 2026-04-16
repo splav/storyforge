@@ -7,8 +7,19 @@ use crate::combat::ai::utility::ActionCandidate;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::game::hex::{hex_circle, hex_line, Hex};
 use crate::game::resources::GameDb;
-use bevy::prelude::Entity;
+use bevy::prelude::*;
 use std::collections::HashSet;
+
+/// Penalty values for soft intent misalignment.
+const MISALIGN_PENALTY: f32 = -0.5;
+const MILD_PENALTY: f32 = -0.3;
+
+/// Bonus multiplier for continuing the same intent (stickiness).
+const STICKINESS_BONUS: f32 = 0.25;
+/// Same target bonus on top of stickiness.
+const TARGET_STICKINESS_BONUS: f32 = 0.15;
+/// Max turns an intent can receive stickiness bonus.
+const MAX_COMMITTED_TURNS: u8 = 3;
 
 // ── Intent enum ─────────────────────────────────────────────────────────────
 
@@ -27,166 +38,180 @@ pub enum TacticalIntent {
     SetupAOE,
 }
 
-// ── Intent selection ────────────────────────────────────────────────────────
+/// Intent kind without target data, for stickiness comparison.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum IntentKind {
+    FocusTarget,
+    ApplyCC,
+    Reposition,
+    ProtectSelf,
+    ProtectAlly,
+    SetupAOE,
+}
 
-/// Analyze the battlefield and pick one high-level tactical goal.
-/// Priority-based: first matching condition wins.
+impl TacticalIntent {
+    pub fn kind(&self) -> IntentKind {
+        match self {
+            Self::FocusTarget { .. } => IntentKind::FocusTarget,
+            Self::ApplyCC { .. } => IntentKind::ApplyCC,
+            Self::Reposition => IntentKind::Reposition,
+            Self::ProtectSelf => IntentKind::ProtectSelf,
+            Self::ProtectAlly { .. } => IntentKind::ProtectAlly,
+            Self::SetupAOE => IntentKind::SetupAOE,
+        }
+    }
+
+    pub fn target(&self) -> Option<Entity> {
+        match self {
+            Self::FocusTarget { target } | Self::ApplyCC { target } => Some(*target),
+            Self::ProtectAlly { ally } => Some(*ally),
+            _ => None,
+        }
+    }
+}
+
+// ── Persistent AI memory ───────────────────────────────────────────────────
+
+#[derive(Component, Default)]
+pub struct AiMemory {
+    pub last_intent: Option<IntentKind>,
+    pub last_target: Option<Entity>,
+    pub turns_committed: u8,
+}
+
+// ── Intent selection (scored + hysteresis) ──────────────────────────────────
+
+/// Analyze the battlefield, score all valid intents, and pick the best.
+/// Applies stickiness bonus if the previous intent is still reasonable.
 pub fn select_intent(
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     difficulty: &DifficultyProfile,
+    memory: &AiMemory,
 ) -> TacticalIntent {
-    // 1. ProtectSelf: critically wounded and in danger.
+    let mut best_score = f32::NEG_INFINITY;
+    let mut best_intent: Option<TacticalIntent> = None;
+
+    let mut consider = |intent: TacticalIntent, score: f32| {
+        let mut s = score;
+        // Stickiness: bonus for continuing the same intent.
+        if memory.turns_committed < MAX_COMMITTED_TURNS
+            && memory.last_intent == Some(intent.kind())
+        {
+            s += STICKINESS_BONUS;
+            if let (Some(prev), Some(cur)) = (memory.last_target, intent.target()) {
+                if prev == cur {
+                    s += TARGET_STICKINESS_BONUS;
+                }
+            }
+        }
+        if s > best_score {
+            best_score = s;
+            best_intent = Some(intent);
+        }
+    };
+
     let hp_pct = active.hp as f32 / active.max_hp.max(1) as f32;
-    if hp_pct < 0.25 && maps.danger.get(active.pos) > active.hp as f32 {
-        return TacticalIntent::ProtectSelf;
+    let danger = maps.danger.get(active.pos);
+
+    // ProtectSelf: score scales with urgency.
+    if hp_pct < 0.4 && danger > 0.0 {
+        let urgency = (1.0 - hp_pct) * (danger / active.hp.max(1) as f32).min(2.0);
+        consider(TacticalIntent::ProtectSelf, urgency);
     }
 
-    // 2. ProtectAlly: wounded ally below 30% and we can heal.
+    // ProtectAlly: score based on ally urgency.
     if active.tags.contains(AiTags::CAN_HEAL) {
         let most_wounded = snap
             .allies_of(active.team)
             .filter(|u| u.entity != active.entity)
-            .filter(|u| (u.hp as f32 / u.max_hp.max(1) as f32) < 0.3)
+            .filter(|u| (u.hp as f32 / u.max_hp.max(1) as f32) < 0.5)
             .min_by_key(|u| u.hp);
         if let Some(ally) = most_wounded {
-            return TacticalIntent::ProtectAlly { ally: ally.entity };
+            let ally_pct = ally.hp as f32 / ally.max_hp.max(1) as f32;
+            let urgency = 1.0 - ally_pct; // 0.0..1.0, higher = more wounded
+            consider(TacticalIntent::ProtectAlly { ally: ally.entity }, urgency);
         }
     }
 
-    // 3. FocusTarget: killable enemy (awareness scales recognition).
+    // FocusTarget: killable enemy scores highest, otherwise best priority target.
     let killable = snap
         .enemies_of(active.team)
         .filter(|e| active.threat * difficulty.awareness >= e.hp as f32)
         .min_by_key(|e| e.hp);
     if let Some(target) = killable {
-        return TacticalIntent::FocusTarget { target: target.entity };
+        // Killable targets get a high base score.
+        let kill_score = 1.2 + (1.0 - target.hp as f32 / target.max_hp.max(1) as f32) * 0.3;
+        consider(TacticalIntent::FocusTarget { target: target.entity }, kill_score);
+    } else {
+        // Fallback: highest-priority target with moderate score.
+        let default_target = snap
+            .enemies_of(active.team)
+            .max_by(|a, b| {
+                target_priority(active, a, snap)
+                    .partial_cmp(&target_priority(active, b, snap))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        if let Some(target) = default_target {
+            let prio = target_priority(active, target, snap);
+            consider(TacticalIntent::FocusTarget { target: target.entity }, 0.5 + prio * 0.3);
+        }
     }
 
-    // 4. ApplyCC: high-threat unstunned enemy.
+    // ApplyCC: high-threat unstunned enemy.
     if active.tags.contains(AiTags::CAN_CC) {
         let cc_target = snap
             .enemies_of(active.team)
             .filter(|e| !e.tags.contains(AiTags::IS_STUNNED))
             .max_by(|a, b| a.threat.partial_cmp(&b.threat).unwrap_or(std::cmp::Ordering::Equal));
         if let Some(target) = cc_target {
-            return TacticalIntent::ApplyCC { target: target.entity };
+            let cc_score = 0.8 + target.threat * 0.1;
+            consider(TacticalIntent::ApplyCC { target: target.entity }, cc_score);
         }
     }
 
-    // 5. SetupAOE: has AoE and enemies are clustered (≥1 pair within 2 hexes).
+    // SetupAOE: enemies clustered.
     if active.tags.contains(AiTags::HAS_AOE) {
         let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
-        let clustered = enemies.iter().enumerate().any(|(i, a)| {
-            enemies[i + 1..]
+        let cluster_count = enemies.iter().enumerate().filter(|(i, a)| {
+            enemies[*i + 1..]
                 .iter()
                 .any(|b| a.pos.unsigned_distance_to(b.pos) <= 2)
-        });
-        if clustered {
-            return TacticalIntent::SetupAOE;
+        }).count();
+        if cluster_count > 0 {
+            let aoe_score = 0.7 + cluster_count as f32 * 0.2;
+            consider(TacticalIntent::SetupAOE, aoe_score);
         }
     }
 
-    // 6. Reposition: current position is actively bad.
-    if evaluate_position(active.pos, active.role, maps) < -1.0 {
-        return TacticalIntent::Reposition;
+    // Reposition: current position is bad.
+    let pos_eval = evaluate_position(active.pos, active.role, maps);
+    if pos_eval < 0.0 {
+        let repo_score = 0.3 + (-pos_eval).min(1.5) * 0.4;
+        consider(TacticalIntent::Reposition, repo_score);
     }
 
-    // 7. Default: focus highest-priority target.
-    let default_target = snap
-        .enemies_of(active.team)
-        .max_by(|a, b| {
-            target_priority(active, a, snap)
-                .partial_cmp(&target_priority(active, b, snap))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(|t| t.entity);
-
-    match default_target {
-        Some(target) => TacticalIntent::FocusTarget { target },
-        None => TacticalIntent::Reposition,
-    }
+    best_intent.unwrap_or(TacticalIntent::Reposition)
 }
 
-// ── Intent → constraint filter ──────────────────────────────────────────────
-
-/// Apply intent-specific filters to candidates.
-/// If filtering would remove ALL candidates, the filter is skipped (fallback).
-pub fn apply_intent_filter(
-    candidates: &mut Vec<ActionCandidate>,
-    intent: &TacticalIntent,
-    active: &UnitSnapshot,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    db: &GameDb,
-) {
-    let keep: Vec<bool> = candidates
-        .iter()
-        .map(|c| intent_keeps(c, intent, active, snap, maps, db))
-        .collect();
-
-    // Only apply if at least one candidate survives.
-    if keep.iter().any(|&k| k) {
-        let mut idx = 0;
-        candidates.retain(|_| {
-            let r = keep[idx];
-            idx += 1;
-            r
-        });
+/// Update memory after intent is selected.
+pub fn update_memory(memory: &mut AiMemory, intent: &TacticalIntent) {
+    let kind = intent.kind();
+    let target = intent.target();
+    if memory.last_intent == Some(kind) && memory.last_target == target {
+        memory.turns_committed = memory.turns_committed.saturating_add(1);
+    } else {
+        memory.turns_committed = 0;
     }
-}
-
-fn intent_keeps(
-    c: &ActionCandidate,
-    intent: &TacticalIntent,
-    active: &UnitSnapshot,
-    _snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    db: &GameDb,
-) -> bool {
-    match intent {
-        TacticalIntent::FocusTarget { target } => {
-            let Some(def) = db.abilities.get(&c.ability) else { return true };
-            // Allow heals through.
-            if def.target_type == TargetType::SingleAlly {
-                return true;
-            }
-            c.target == *target
-        }
-        TacticalIntent::ApplyCC { target } => {
-            let Some(def) = db.abilities.get(&c.ability) else { return true };
-            let is_cc = def.statuses.iter().any(|sa| {
-                db.statuses
-                    .get(&sa.status)
-                    .is_some_and(|sd| sd.skips_turn)
-            });
-            // CC abilities must target the intent target; others pass.
-            if is_cc { c.target == *target } else { true }
-        }
-        TacticalIntent::ProtectSelf => {
-            maps.danger.get(c.tile) <= active.hp as f32 * 0.5
-        }
-        TacticalIntent::ProtectAlly { ally } => {
-            let Some(def) = db.abilities.get(&c.ability) else { return true };
-            if def.target_type == TargetType::SingleAlly {
-                c.target == *ally
-            } else {
-                true
-            }
-        }
-        TacticalIntent::SetupAOE => {
-            let Some(def) = db.abilities.get(&c.ability) else { return true };
-            def.aoe != AoEShape::None
-        }
-        TacticalIntent::Reposition => true,
-    }
+    memory.last_intent = Some(kind);
+    memory.last_target = target;
 }
 
 // ── Intent → utility score (factor[7]) ──────────────────────────────────────
 
 /// Compute how well a candidate aligns with the current intent.
-/// Replaces the old role-based `compute_intent`.
+/// Positive = aligned, zero = neutral, negative = misaligned (soft penalty).
 pub fn intent_score(
     intent: &TacticalIntent,
     candidate: &ActionCandidate,
@@ -197,7 +222,18 @@ pub fn intent_score(
 ) -> f32 {
     match intent {
         TacticalIntent::FocusTarget { target } => {
-            if candidate.target == *target { 1.0 } else { 0.0 }
+            if candidate.target == *target {
+                return 1.0;
+            }
+            let Some(def) = db.abilities.get(&candidate.ability) else {
+                return MISALIGN_PENALTY;
+            };
+            // Heals pass through neutrally.
+            if def.target_type == TargetType::SingleAlly {
+                0.3
+            } else {
+                MISALIGN_PENALTY
+            }
         }
         TacticalIntent::ApplyCC { target } => {
             let Some(def) = db.abilities.get(&candidate.ability) else {
@@ -210,6 +246,9 @@ pub fn intent_score(
             });
             if is_cc && candidate.target == *target {
                 1.0
+            } else if is_cc {
+                // CC on wrong target — misaligned.
+                MISALIGN_PENALTY
             } else if candidate.target == *target {
                 0.5
             } else {
@@ -220,14 +259,22 @@ pub fn intent_score(
             evaluate_position(candidate.tile, active.role, maps).max(0.0)
         }
         TacticalIntent::ProtectSelf => {
-            (-maps.danger.get(candidate.tile) + active.armor as f32).max(0.0)
+            let danger = maps.danger.get(candidate.tile);
+            let hp = active.hp as f32;
+            // Moving into danger above 50% HP is penalized, not forbidden.
+            if danger > hp * 0.5 {
+                MISALIGN_PENALTY * (danger / hp.max(1.0))
+            } else {
+                (-danger + active.armor as f32).max(0.0)
+            }
         }
         TacticalIntent::ProtectAlly { ally } => {
             let Some(def) = db.abilities.get(&candidate.ability) else {
                 return 0.0;
             };
-            if def.target_type == TargetType::SingleAlly && candidate.target == *ally {
-                1.0
+            if def.target_type == TargetType::SingleAlly {
+                // Heal on the right ally is great, wrong ally is penalized.
+                if candidate.target == *ally { 1.0 } else { MILD_PENALTY }
             } else if snap
                 .unit(*ally)
                 .is_some_and(|a| candidate.tile.unsigned_distance_to(a.pos) <= 1)
@@ -242,7 +289,8 @@ pub fn intent_score(
                 return 0.0;
             };
             if def.aoe == AoEShape::None {
-                return 0.0;
+                // Single-target when intent says AoE — mild penalty.
+                return MILD_PENALTY;
             }
             let area: Vec<Hex> = match def.aoe {
                 AoEShape::Circle { radius } => hex_circle(candidate.target_pos, radius),

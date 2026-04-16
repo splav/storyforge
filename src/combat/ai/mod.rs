@@ -5,6 +5,7 @@ pub mod enemy_turn;
 pub mod influence;
 pub mod intent;
 pub mod position_eval;
+pub mod reservations;
 pub mod role;
 pub mod scoring;
 pub mod snapshot;
