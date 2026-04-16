@@ -1,3 +1,4 @@
+use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
@@ -91,6 +92,7 @@ pub fn select_intent(
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     memory: &AiMemory,
+    difficulty: &DifficultyProfile,
 ) -> TacticalIntent {
     let mut best_score = f32::NEG_INFINITY;
     let mut best_intent: Option<TacticalIntent> = None;
@@ -118,7 +120,11 @@ pub fn select_intent(
     let danger = maps.danger.get(active.pos);
 
     // Hard override: critically wounded in high danger — survival is non-negotiable.
-    if hp_pct < 0.25 && danger > 0.7 {
+    // Thresholds shift with survival_instinct (HP) and awareness (danger gate):
+    // a less-aware AI needs more obvious danger to even trigger the override.
+    let hp_panic = difficulty.survival_hp_threshold();
+    let danger_panic = difficulty.awareness_danger_threshold();
+    if hp_pct < hp_panic && danger > danger_panic {
         return TacticalIntent::ProtectSelf;
     }
 
@@ -193,12 +199,12 @@ pub fn select_intent(
         }
     }
 
-    // Reposition: current position is significantly bad.
-    // With normalized maps, position_eval typically ranges [-3, +3];
-    // only trigger when clearly negative.
+    // Reposition: current position is significantly bad. awareness controls
+    // how early the AI notices a bad tile (low = only truly terrible tiles).
     let pos_eval = evaluate_position(active.pos, active.role, maps);
-    if pos_eval < -0.5 {
-        let repo_score = 0.3 + (-pos_eval - 0.5).min(1.5) * 0.4;
+    let repo_threshold = difficulty.awareness_reposition_threshold();
+    if pos_eval < repo_threshold {
+        let repo_score = 0.3 + (repo_threshold - pos_eval).min(1.5) * 0.4;
         consider(TacticalIntent::Reposition, repo_score);
     }
 
@@ -229,6 +235,7 @@ pub fn intent_score(
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     db: &GameDb,
+    difficulty: &DifficultyProfile,
 ) -> f32 {
     match intent {
         TacticalIntent::FocusTarget { target } => {
@@ -269,8 +276,9 @@ pub fn intent_score(
             let current = evaluate_position(active.pos, active.role, maps);
             let new = evaluate_position(candidate.tile, active.role, maps);
             let improvement = new - current;
+            let min_improv = difficulty.reposition_min_improvement();
             // Only reward meaningful improvement; penalize lateral/worse moves.
-            if improvement < 0.20 {
+            if improvement < min_improv {
                 -1.0
             } else {
                 improvement.min(2.0)
@@ -444,6 +452,7 @@ mod tests {
         };
         let db = GameDb::default();
         let intent = TacticalIntent::Reposition;
+        let difficulty = DifficultyProfile::default();
 
         let score_worse = intent_score(
             &intent,
@@ -452,6 +461,7 @@ mod tests {
             &snap,
             &maps,
             &db,
+            &difficulty,
         );
         let score_better = intent_score(
             &intent,
@@ -460,6 +470,7 @@ mod tests {
             &snap,
             &maps,
             &db,
+            &difficulty,
         );
 
         assert!(

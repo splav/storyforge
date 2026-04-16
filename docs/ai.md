@@ -17,7 +17,7 @@ AI-система выбирает действие для вражеских ю
 | `constraints.rs` | Жёсткие фильтры кандидатов (до скоринга) |
 | `snapshot.rs` | BattleSnapshot — снимок боя для чистых вычислений |
 | `role.rs` | AiRole — тактическая роль юнита (Bruiser/Archer/Mage/Support/Assassin) |
-| `difficulty.rs` | DifficultyProfile — ручки сложности (шум, множители, awareness) |
+| `difficulty.rs` | DifficultyProfile — ручки качества решений (awareness, decision_quality, survival_instinct, coordination, mercy, …) |
 | `influence.rs` | Карты влияния — пространственная оценка клеток |
 | `debug.rs` | Debug overlay: ресурс `AiDebugState`, консольный лог, визуализация influence maps |
 
@@ -205,11 +205,11 @@ speed_penalty   → +|bonus| × duration
 
 | Карта | Bruiser | Archer | Mage | Support | Assassin |
 |-------|---------|--------|------|---------|----------|
-| danger | −1.2 | −2.0 | −1.8 | −3.0 | −0.9 |
-| ally_support | 0.6 | 0.7 | 0.8 | 1.9 | 0.25 |
-| opportunity | 1.2 | 0.8 | 1.2 | 0.4 | 1.8 |
+| danger | −1.2 | −2.0 | −1.8 | −2.5 | −0.9 |
+| ally_support | 0.6 | 0.7 | 0.8 | 1.3 | 0.25 |
+| opportunity | 1.2 | 0.8 | 1.2 | 0.5 | 1.8 |
 
-Результат умножается на `difficulty.awareness`.
+Карты уже нормализованы в [0,1], поэтому equal-scaling через `awareness` сокращался бы при нормализации факторов и эффекта не давал. Для реального эффекта `awareness` сдвигает пороги решений в `intent.rs` (см. Difficulty).
 
 ## Hard Constraints (constraints.rs)
 
@@ -238,17 +238,36 @@ speed_penalty   → +|bonus| × duration
 
 ## Difficulty
 
-`DifficultyProfile` — непрерывные ручки, легко интерполировать для адаптивной сложности.
+`DifficultyProfile` — ручки **качества решений**, а не статовые множители. Каждое поле меняет, *как* AI думает: что он замечает, как аккуратно выбирает ход, насколько дисциплинирует ресурсы, как работает в команде.
+
+### Поля
 
 | Параметр | Easy | Normal | Hard | Описание |
 |----------|------|--------|------|----------|
-| `kill_multiplier` | 1.0 | 1.5 | 2.0 | Бонус за добивание |
-| `armor_awareness` | 0.3 | 0.7 | 1.0 | Учёт брони цели (0=игнорирует) |
-| `status_value_scale` | 0.3 | 0.7 | 1.0 | Ценность статус-эффектов |
-| `heal_urgency_threshold` | 15% | 30% | 40% | Порог «срочного» хила |
-| `heal_urgency_multiplier` | 1.2 | 1.5 | 1.8 | Множитель срочного хила |
-| `noise` | 3.0 | 1.0 | 0.0 | Случайный шум в скоринге |
-| `awareness` | 0.3 | 0.7 | 1.0 | Использование карт влияния (0=игнорирует позицию) |
+| `awareness` | 0.55 | 0.80 | 1.00 | Сдвиг порогов: HP-паника, узнавание опасности, триггер Reposition |
+| `decision_quality` | 0.30 | 0.75 | 1.00 | Derived → `score_noise` (0.6→0.0) + `top_k_choice` (3/2/1) |
+| `candidate_budget` | 12 | 20 | 30 | Глубина поиска (cap кандидатов после dedup) |
+| `intent_commitment` | 0.75 | 1.00 | 1.20 | Множитель веса `intent` фактора в utility scoring |
+| `survival_instinct` | 0.55 | 0.80 | 1.00 | Derived → `reposition_min_improvement`, `defensive_tile_margin`, `survival_hp_threshold` |
+| `resource_discipline` | 0.60 | 1.00 | 1.20 | Множитель веса `scarcity` фактора |
+| `coordination` | 0.40 | 0.90 | 1.30 | Сила overkill-пенальти + focus-fire бонуса на цели с reservations |
+| `mercy` | 0.35 | 0.10 | 0.00 | Tie-breaker в окне `[best_score − mercy, best_score]`: внутри окна rerank по `score − mercy × cruelty`, где `cruelty = kill + min(0.5, cc × 0.1)` (kill доминирует). Lethal с большим отрывом не штрафуется. |
+
+### Куда подключается
+
+| Файл | Применение |
+|------|-----------|
+| `utility.rs::score_candidates` | `score_noise`, множители `intent_commitment` / `resource_discipline` на `role_weights` |
+| `utility.rs::generate_candidates` | `candidate_budget` заменяет жёсткий cap 25 |
+| `utility.rs::compute_factors` | `overkill_damage_multiplier` + `focus_fire_bonus` на reservations |
+| `utility.rs::pick_best_candidate` | `top_k_choice` (sampling), `mercy_margin` (cruelty-shift) |
+| `utility.rs::is_defensive` | `defensive_tile_margin` |
+| `intent.rs::select_intent` | `awareness_danger_threshold` + `survival_hp_threshold` (hard override), `awareness_reposition_threshold` |
+| `intent.rs::intent_score` | `reposition_min_improvement` для Reposition |
+
+### Замечание про `awareness`
+
+`awareness` *не* применяется как множитель к уже нормализованным картам/скорам — в таком виде он факторизуется и сокращается при симметричной нормализации факторов, не меняя порядок кандидатов. Вместо этого он сдвигает **пороги решений** в `intent.rs`: менее наблюдательный AI позже понимает, что клетка опасна, или что позиция требует отхода.
 
 ## Snapshot
 

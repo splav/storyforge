@@ -122,7 +122,7 @@ pub fn pick_action(
     };
 
     // ── Select tactical intent ──────────────────────────────────────────
-    let intent = select_intent(active, snap, maps, memory);
+    let intent = select_intent(active, snap, maps, memory, ctx.difficulty);
     update_memory(memory, &intent);
 
     // ── Generate candidates ─────────────────────────────────────────────
@@ -156,11 +156,12 @@ pub fn pick_action(
     // ── ProtectSelf: prefer defensive candidates from the scored pool ──
     if matches!(intent, TacticalIntent::ProtectSelf) {
         let current_danger = maps.danger.get(active.pos);
+        let def_margin = ctx.difficulty.defensive_tile_margin();
 
         let best_def_idx = scored
             .iter()
             .enumerate()
-            .filter(|(i, _)| is_defensive(&candidates[*i], current_danger, ctx.db, maps))
+            .filter(|(i, _)| is_defensive(&candidates[*i], current_danger, ctx.db, maps, def_margin))
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(i, s)| (i, *s));
 
@@ -185,7 +186,7 @@ pub fn pick_action(
                 // Defensive candidate wins — use it via the normal pick path below.
                 // Mask all non-defensive candidates so pick_best selects from defensive only.
                 for (i, s) in scored.iter_mut().enumerate() {
-                    if i != idx && !is_defensive(&candidates[i], current_danger, ctx.db, maps) {
+                    if i != idx && !is_defensive(&candidates[i], current_danger, ctx.db, maps, def_margin) {
                         *s = f32::NEG_INFINITY;
                     }
                 }
@@ -209,13 +210,11 @@ pub fn pick_action(
         }
     }
 
-    // Pick best.
-    let best_idx = scored
-        .iter()
-        .enumerate()
-        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(i, _)| i)
-        .unwrap_or(0);
+    // Pick best: combine mercy (soft shift toward gentler options) and
+    // top_k (random pick among top-K, controlled by decision_quality).
+    let best_idx = pick_best_candidate(
+        &scored, &candidates, active, &intent, ctx, snap, maps, reservations, rng,
+    );
 
     // Build debug snapshot before swap_remove invalidates indices.
     let debug_snapshot = if debug {
@@ -385,8 +384,8 @@ fn generate_candidates(
     let mut seen: HashSet<(AbilityId, Entity)> = HashSet::new();
     candidates.retain(|c| seen.insert((c.ability.clone(), c.target)));
 
-    // Cap total candidates.
-    candidates.truncate(25);
+    // Cap total candidates (difficulty-controlled search depth).
+    candidates.truncate(ctx.difficulty.candidate_budget.max(1));
     candidates
 }
 
@@ -521,8 +520,15 @@ fn score_candidates(
         };
     }
 
-    // Normalize and apply role weights.
-    let weights = &ROLE_WEIGHTS[role_index(active.role)];
+    // Normalize and apply role weights, with per-factor difficulty multipliers.
+    let base_weights = &ROLE_WEIGHTS[role_index(active.role)];
+    let mut weights = *base_weights;
+    // intent factor (idx 7): scaled by intent_commitment.
+    weights[7] *= ctx.difficulty.intent_commitment;
+    // scarcity factor (idx 8): scaled by resource_discipline.
+    weights[8] *= ctx.difficulty.resource_discipline;
+
+    let noise_amp = ctx.difficulty.score_noise();
 
     raw.iter()
         .map(|factors| {
@@ -537,8 +543,8 @@ fn score_candidates(
             }
 
             // Add noise.
-            if ctx.difficulty.noise > 0.0 {
-                let noise = (rng.roll_d(1000) as f32 / 500.0 - 1.0) * ctx.difficulty.noise;
+            if noise_amp > 0.0 {
+                let noise = (rng.roll_d(1000) as f32 / 500.0 - 1.0) * noise_amp;
                 score += noise;
             }
 
@@ -671,23 +677,28 @@ fn compute_factors(
     let risk = 1.0 - danger;
 
     // ── focus ────────────────────────────────────────────────────────────
-    let focus = snap
+    let mut focus = snap
         .unit(candidate.target)
         .map(|target_unit| target_priority(active, target_unit, snap))
         .unwrap_or(0.0);
 
     // ── intent ───────────────────────────────────────────────────────────
-    let intent_val = intent_score(intent, candidate, active, snap, maps, ctx.db);
+    let intent_val = intent_score(intent, candidate, active, snap, maps, ctx.db, ctx.difficulty);
 
-    // ── reservation penalties ───────────────────────────────────────────
-    // Overkill: if enough damage already reserved to kill target, devalue.
+    // ── reservation penalties / bonuses ─────────────────────────────────
+    // coordination knob: overkill penalty harder on higher coord;
+    // focus-fire bonus on targets already reserved but not yet dead.
     let reserved_dmg = reservations.reserved_damage(candidate.target);
     if reserved_dmg > 0.0 {
         if let Some(target_unit) = snap.unit(candidate.target) {
             let hp_left = target_unit.hp as f32 - reserved_dmg;
             if hp_left <= 0.0 {
-                damage *= 0.2;
+                let mult = ctx.difficulty.overkill_damage_multiplier();
+                damage *= mult;
                 kill = 0.0;
+            } else {
+                // Target already taking fire but survives — pile on (focus-fire).
+                focus *= 1.0 + ctx.difficulty.focus_fire_bonus();
             }
         }
     }
@@ -918,6 +929,88 @@ fn sanity_adjust(
     }
 }
 
+// ── Final pick: top-K sampling + mercy tie-breaker ─────────────────────────
+
+/// Approximate "harshness" of a candidate for the mercy tie-breaker.
+/// Finishing blows feel far more oppressive than CC, so kill dominates:
+/// kill ∈ {0,1}, cc contribution capped at 0.5 regardless of raw magnitude.
+fn mercy_cruelty(
+    c: &ActionCandidate,
+    active: &UnitSnapshot,
+    intent: &TacticalIntent,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+    maps: &InfluenceMaps,
+    reservations: &Reservations,
+) -> f32 {
+    let f = compute_factors(c, active, intent, ctx, snap, maps, reservations);
+    // factors: [dmg, kill, cc, heal, pos, risk, focus, intent, scarcity]
+    f[1] + (f[2] * 0.1).min(0.5)
+}
+
+fn pick_best_candidate(
+    scored: &[f32],
+    candidates: &[ActionCandidate],
+    active: &UnitSnapshot,
+    intent: &TacticalIntent,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+    maps: &InfluenceMaps,
+    reservations: &Reservations,
+    rng: &mut DiceRng,
+) -> usize {
+    if scored.is_empty() {
+        return 0;
+    }
+
+    // Rank by raw score (descending).
+    let mut ranked: Vec<(usize, f32)> = scored.iter().copied().enumerate().collect();
+    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Apply mercy only inside the window of near-best candidates. A lethal move
+    // that's clearly better than the alternatives stays outside the window and
+    // is never devalued — mercy is a tie-breaker, not a blanket penalty.
+    let m = ctx.difficulty.mercy_margin();
+    let best_score = ranked[0].1;
+    if m > 0.0 && best_score.is_finite() {
+        let window_end = ranked
+            .iter()
+            .position(|(_, s)| !s.is_finite() || *s < best_score - m)
+            .unwrap_or(ranked.len());
+        if window_end > 1 {
+            let mut windowed: Vec<(usize, f32)> = ranked[..window_end]
+                .iter()
+                .map(|&(i, s)| {
+                    let cruel = mercy_cruelty(&candidates[i], active, intent, ctx, snap, maps, reservations);
+                    (i, s - m * cruel)
+                })
+                .collect();
+            windowed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (slot, item) in windowed.into_iter().enumerate() {
+                ranked[slot] = item;
+            }
+        }
+    }
+
+    // top_k sampling on the (possibly mercy-reordered) ranking.
+    let k = ctx.difficulty.top_k_choice().max(1).min(ranked.len());
+    let pool: Vec<usize> = ranked
+        .iter()
+        .take(k)
+        .filter(|(_, s)| s.is_finite())
+        .map(|(i, _)| *i)
+        .collect();
+
+    if pool.is_empty() {
+        return ranked[0].0;
+    }
+    if pool.len() == 1 {
+        return pool[0];
+    }
+    let pick = (rng.roll_d(pool.len() as u32) as usize).saturating_sub(1);
+    pool[pick]
+}
+
 // ── Retreat scoring ─────────────────────────────────────────────────────────
 
 /// Score a pure-movement retreat for ProtectSelf.
@@ -1061,11 +1154,13 @@ fn record_reservation(
 // ── Defensive classification ────────────────────────────────────────────────
 
 /// A candidate is defensive if it heals/buffs self/ally OR moves to a safer tile.
+/// `margin` is how much safer the tile must be (survival_instinct-controlled).
 fn is_defensive(
     c: &ActionCandidate,
     current_danger: f32,
     db: &GameDb,
     maps: &InfluenceMaps,
+    margin: f32,
 ) -> bool {
     if let Some(def) = db.abilities.get(&c.ability) {
         if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
@@ -1073,7 +1168,7 @@ fn is_defensive(
         }
     }
     // Moving to a meaningfully safer tile counts as defensive.
-    maps.danger.get(c.tile) + 0.15 < current_danger
+    maps.danger.get(c.tile) + margin < current_danger
 }
 
 
@@ -1480,7 +1575,7 @@ mod tests {
     /// Build a ReachableMap where all in-bounds cells are reachable.
     fn fake_reach(start: Hex) -> ReachableMap {
         use crate::game::pathfinding::reachable_with_paths;
-        reachable_with_paths(start, 20, |h| in_bounds(h), |_| true)
+        reachable_with_paths(start, 20, in_bounds, |_| true)
     }
 
     #[test]

@@ -425,7 +425,7 @@ mod tests {
 
         let map = build_danger(&cells, &[&e1, &e2], &HashSet::new(), &HashSet::new(), &db);
         for (_, &v) in map.iter() {
-            assert!(v >= 0.0 && v <= 1.0, "danger out of [0,1]: {v}");
+            assert!((0.0..=1.0).contains(&v), "danger out of [0,1]: {v}");
         }
     }
 
@@ -438,7 +438,7 @@ mod tests {
 
         let map = build_ally_support(&cells, &[&a1, &a2]);
         for (_, &v) in map.iter() {
-            assert!(v >= 0.0 && v <= 1.0, "ally_support out of [0,1]: {v}");
+            assert!((0.0..=1.0).contains(&v), "ally_support out of [0,1]: {v}");
         }
     }
 
@@ -451,7 +451,7 @@ mod tests {
 
         let map = build_opportunity(&cells, &[&e1, &e2]);
         for (_, &v) in map.iter() {
-            assert!(v >= 0.0 && v <= 1.0, "opportunity out of [0,1]: {v}");
+            assert!((0.0..=1.0).contains(&v), "opportunity out of [0,1]: {v}");
         }
     }
 
@@ -518,7 +518,7 @@ mod tests {
         let ally_support = build_ally_support(&cells, &[&ally]);
         let escape = build_escape(&cells, &danger, &ally_support);
         for (_, &v) in escape.iter() {
-            assert!(v >= -1.0 && v <= 1.0, "escape out of [-1,1]: {v}");
+            assert!((-1.0..=1.0).contains(&v), "escape out of [-1,1]: {v}");
         }
     }
 }

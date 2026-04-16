@@ -118,7 +118,7 @@ mod tests {
         let expr = DiceExpr::new(3, 6, 2); // 3d6+2: min=5, max=20
         for _ in 0..100 {
             let r = rng.roll(&expr);
-            assert!(r >= 5 && r <= 20, "3d6+2 rolled {r}");
+            assert!((5..=20).contains(&r), "3d6+2 rolled {r}");
         }
     }
 }
