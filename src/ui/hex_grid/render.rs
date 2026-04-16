@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
-use crate::game::components::{Combatant, Faction, HexCell, StartingHexPos, Team, UnitToken};
-use crate::game::hex::{hex_to_pixel, row_cols, GRID_COLS, GRID_ROWS, HEX_SIZE};
+use crate::game::components::{Combatant, Faction, StartingHexPos, Team, UnitToken};
+use crate::game::hex::{hex_from_offset, row_cols, Hex, GRID_COLS, GRID_ROWS, HEX_SIZE, LAYOUT};
 use crate::game::resources::HexPositions;
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
@@ -53,14 +53,14 @@ pub struct HexTooltip;
 // ── Resources ─────────────────────────────────────────────────────────────────
 
 #[derive(Resource, Default)]
-pub struct HexHover(pub Option<(i32, i32)>);
+pub struct HexHover(pub Option<Hex>);
 
 pub const DOUBLE_CLICK_SECS: f64 = 0.35;
 
 /// Tracks the last click for double-click detection.
 #[derive(Resource, Default)]
 pub struct HexLastClick {
-    pub pos: Option<(i32, i32)>,
+    pub pos: Option<Hex>,
     pub time: f64,
 }
 
@@ -123,10 +123,10 @@ pub fn spawn_hex_label<M: Component>(
 /// Resolves the entity occupying the hex cell that a label is linked to.
 pub fn label_occupant(
     link: &HexCellLink,
-    cells: &Query<(Entity, &HexCell, &Children)>,
+    cells: &Query<(Entity, &Hex, &Children)>,
     positions: &HexPositions,
 ) -> Option<Entity> {
-    cells.get(link.0).ok().and_then(|(_, hc, _)| positions.entity_at(hc.q, hc.r))
+    cells.get(link.0).ok().and_then(|(_, &hex, _)| positions.entity_at(hex))
 }
 
 // ── Grid math ─────────────────────────────────────────────────────────────────
@@ -178,11 +178,12 @@ pub fn setup_hex_grid(
 
     for r in 0..GRID_ROWS {
         for q in 0..row_cols(r) {
-            let pixel = hex_to_pixel(q, r) + offset;
+            let hex = hex_from_offset(q, r);
+            let pixel = LAYOUT.hex_to_world_pos(hex) + offset;
 
             let cell_id = commands
                 .spawn((
-                    HexCell { q, r },
+                    hex,
                     Mesh2d(hex_mesh.clone()),
                     MeshMaterial2d(mats.empty.clone()),
                     Transform::from_xyz(pixel.x, pixel.y, 0.1),
@@ -244,10 +245,10 @@ pub fn assign_hex_positions(
     }
     positions.clear();
     for (entity, hex_pos, faction) in &combatants {
-        positions.insert(entity, (hex_pos.0, hex_pos.1));
+        positions.insert(entity, hex_pos.0);
         commands.entity(entity).remove::<StartingHexPos>();
 
-        let pixel = hex_to_pixel(hex_pos.0, hex_pos.1) + grid_offset.0;
+        let pixel = LAYOUT.hex_to_world_pos(hex_pos.0) + grid_offset.0;
         let mat = if faction.0 == Team::Player {
             mats.token_player.clone()
         } else {

@@ -44,10 +44,6 @@ pub struct AbilitySlot(pub usize);
 #[derive(Component)]
 pub struct AbilitySlotLabel(pub usize);
 
-/// Marker on the "Move" button in the ability panel.
-#[derive(Component)]
-pub struct MoveButton;
-
 /// Root of the defeat overlay (despawned on phase exit).
 #[derive(Component)]
 pub struct DefeatOverlay;

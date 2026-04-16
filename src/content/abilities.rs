@@ -74,6 +74,8 @@ pub struct AbilityDef {
     pub magic_domains: Vec<String>,
     /// Magic method (empty string for non-magical abilities).
     pub magic_method: String,
+    /// Custom hotkey (e.g. "M", "R"). Abilities with keys are universal (available to all).
+    pub key: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +98,10 @@ pub enum EffectDef {
     GrantMovement {
         distance: i32,
     },
+    /// Restores all resources (mana, rage, energy) by 1.
+    RestoreResources,
+    /// UI-only: toggles move mode. Does not go through resolution pipeline.
+    ToggleMoveMode,
 }
 
 // ── Unified effect computation ──────────────────────────────────────────────
@@ -169,7 +175,10 @@ impl EffectDef {
                 pierces_armor: false,
                 is_heal: true,
             }),
-            EffectDef::None | EffectDef::GrantMovement { .. } => None,
+            EffectDef::None
+            | EffectDef::GrantMovement { .. }
+            | EffectDef::RestoreResources
+            | EffectDef::ToggleMoveMode => None,
         }
     }
 }
@@ -212,6 +221,8 @@ struct AbilityRecord {
     magic_domains: Vec<String>,
     #[serde(default)]
     magic_method: String,
+    #[serde(default)]
+    key: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -266,6 +277,8 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 "grant_movement" => EffectDef::GrantMovement {
                     distance: r.distance,
                 },
+                "restore_resources" => EffectDef::RestoreResources,
+                "toggle_move_mode" => EffectDef::ToggleMoveMode,
                 other => panic!("{ABILITIES_PATH}: unknown effect '{other}'"),
             };
             let statuses = r
@@ -290,7 +303,7 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 "line" => AoEShape::Line { length: r.aoe_size },
                 other => panic!("{ABILITIES_PATH}: ability '{}' unknown aoe '{other}'", r.id),
             };
-            let costs = r
+            let costs: Vec<ResourceCost> = r
                 .costs
                 .into_iter()
                 .map(|c| {
@@ -304,6 +317,12 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                     ResourceCost { resource, amount: c.amount }
                 })
                 .collect();
+            let is_magical = !r.magic_domains.is_empty() || !r.magic_method.is_empty();
+            if is_magical {
+                let has_mana_cost = costs.iter().any(|c| c.resource == ResourceKind::Mana && c.amount > 0);
+                assert!(has_mana_cost, "{ABILITIES_PATH}: magical ability '{}' must have a mana cost", r.id);
+            }
+
             AbilityDef {
                 id: AbilityId::from(r.id.as_str()),
                 name: r.name,
@@ -316,6 +335,7 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 statuses,
                 magic_domains: r.magic_domains,
                 magic_method: r.magic_method,
+                key: r.key,
             }
         })
         .collect()

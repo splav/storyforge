@@ -1,7 +1,7 @@
 use crate::content::abilities::AoEShape;
 use crate::core::ResourceKind;
 use crate::game::components::{ActiveCombatant, ValidationActorQ, Vital};
-use crate::game::hex::{hex_distance, in_bounds};
+use crate::game::hex::in_bounds;
 use crate::game::messages::{UseAbility, ValidatedAction};
 use crate::game::resources::{GameDb, HexPositions};
 use bevy::prelude::*;
@@ -49,7 +49,9 @@ fn check(
     if !a.vital.is_alive() || !a.ap.action {
         return (false, false);
     }
-    if !a.abilities.0.contains(&ev.ability) {
+    // Keyed (universal) abilities bypass class ability list check.
+    let is_keyed = db.abilities.get(&ev.ability).is_some_and(|d| d.key.is_some());
+    if !is_keyed && !a.abilities.0.contains(&ev.ability) {
         return (false, false);
     }
 
@@ -92,14 +94,14 @@ fn check(
             return (false, false);
         }
     } else if let Some(actor_pos) = positions.get(&ev.actor) {
-        if !in_bounds(ev.target_pos.0, ev.target_pos.1) {
+        if !in_bounds(ev.target_pos) {
             return (false, false);
         }
-        let dist = hex_distance(actor_pos.0, actor_pos.1, ev.target_pos.0, ev.target_pos.1);
-        if dist > def.range.max as i32 {
+        let dist = actor_pos.unsigned_distance_to(ev.target_pos);
+        if dist > def.range.max {
             return (false, false);
         }
-        if dist < def.range.min as i32 {
+        if dist < def.range.min {
             disadvantage = true;
         }
     }

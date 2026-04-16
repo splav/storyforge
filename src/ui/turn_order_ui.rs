@@ -264,7 +264,8 @@ fn ability_line(def: &AbilityDef) -> String {
         EffectDef::SpellDamage { dice } => parts.push(format!("{}d{} маг", dice.count, dice.sides)),
         EffectDef::Heal { dice } => parts.push(format!("лечение {}d{}", dice.count, dice.sides)),
         EffectDef::GrantMovement { distance } => parts.push(format!("+{} движ", distance)),
-        EffectDef::None => {}
+        EffectDef::RestoreResources => parts.push("ресурсы +1".into()),
+        EffectDef::ToggleMoveMode | EffectDef::None => {}
     }
 
     // Range

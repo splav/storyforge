@@ -103,6 +103,7 @@ fn db_with(weapons: Vec<WeaponDef>, armors: Vec<ArmorDef>) -> GameDb {
     GameDb {
         weapons: weapons.into_iter().map(|w| (w.id.clone(), w)).collect(),
         armor: armors.into_iter().map(|a| (a.id.clone(), a)).collect(),
+        keyed_abilities: Vec::new(),
         abilities: HashMap::new(),
         statuses: HashMap::new(),
         races: HashMap::new(),

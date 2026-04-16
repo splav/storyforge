@@ -2,39 +2,12 @@
 use super::render::{HexGridOffset, HexHover, HexLastClick, HexTooltip, DOUBLE_CLICK_SECS};
 use crate::content::abilities::AoEShape;
 use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Combatant, Dead, Energy, Faction, Mana, Rage, Speed, StatusEffects, Team, Vital};
-use crate::game::hex::{in_bounds, HEX_SIZE};
+use crate::game::hex::{in_bounds, Hex, LAYOUT};
 use crate::game::messages::{MoveUnit, UseAbility};
 use crate::game::pathfinding::find_path;
 use crate::game::resources::{GameDb, HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 use std::collections::HashSet;
-
-// ── Pixel ↔ hex conversion ────────────────────────────────────────────────────
-
-/// World position → nearest hex (col, row). May be out of bounds.
-pub fn pixel_to_hex(world_pos: Vec2, grid_offset: Vec2) -> (i32, i32) {
-    let pos = world_pos - grid_offset;
-    let x = pos.x;
-    let y = -pos.y;
-
-    let r_est = (y / (HEX_SIZE * 1.5)).round() as i32;
-    let mut best = (0, 0);
-    let mut best_dist_sq = f32::MAX;
-
-    for r in (r_est - 1)..=(r_est + 1) {
-        let shift = if r & 1 == 0 { 0.5 } else { 0.0 };
-        let q = (x / (HEX_SIZE * 3.0_f32.sqrt()) - shift).round() as i32;
-        let hx = HEX_SIZE * 3.0_f32.sqrt() * (q as f32 + shift);
-        let hy = HEX_SIZE * 1.5 * r as f32;
-        let dist_sq = (x - hx).powi(2) + (y - hy).powi(2);
-        if dist_sq < best_dist_sq {
-            best_dist_sq = dist_sq;
-            best = (q, r);
-        }
-    }
-
-    best
-}
 
 // ── System: Hover detection ───────────────────────────────────────────────────
 
@@ -55,8 +28,9 @@ pub fn hex_hover_system(
         return;
     };
 
-    let (q, r) = pixel_to_hex(world_pos, grid_offset.0);
-    hover.0 = if in_bounds(q, r) { Some((q, r)) } else { None };
+    let pos = world_pos - grid_offset.0;
+    let hex = LAYOUT.world_pos_to_hex(pos);
+    hover.0 = if in_bounds(hex) { Some(hex) } else { None };
 }
 
 // ── System: Tooltip ───────────────────────────────────────────────────────────
@@ -85,12 +59,12 @@ pub fn update_hex_tooltip(
     }
     let Ok((mut text, mut node, mut vis)) = tooltip_q.single_mut() else { return };
 
-    let Some((hq, hr)) = hover.0 else {
+    let Some(hovered) = hover.0 else {
         *vis = Visibility::Hidden;
         return;
     };
 
-    let Some(entity) = positions.entity_at(hq, hr) else {
+    let Some(entity) = positions.entity_at(hovered) else {
         *vis = Visibility::Hidden;
         return;
     };
@@ -155,17 +129,17 @@ pub fn hex_click_target(
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
-    let Some((hq, hr)) = hover.0 else { return };
+    let Some(hovered) = hover.0 else { return };
     let active = active_q.single().ok();
 
-    let occupant = positions.entity_at(hq, hr);
+    let occupant = positions.entity_at(hovered);
     let now = time.elapsed_secs_f64();
 
     if sel.move_mode && occupant.is_none() {
-        if try_move(hq, hr, active, &positions, &move_query, &combatant_q2, &mut move_unit) {
+        if try_move(hovered, active, &positions, &move_query, &combatant_q2, &mut move_unit) {
             sel.move_mode = false;
         }
-        last_click.pos = Some((hq, hr));
+        last_click.pos = Some(hovered);
         last_click.time = now;
         return;
     }
@@ -178,34 +152,33 @@ pub fn hex_click_target(
         .is_some_and(|def| def.aoe != AoEShape::None);
 
     let is_double =
-        last_click.pos == Some((hq, hr)) && (now - last_click.time) <= DOUBLE_CLICK_SECS;
+        last_click.pos == Some(hovered) && (now - last_click.time) <= DOUBLE_CLICK_SECS;
 
     if let Some(entity) = occupant {
         sel.selected_target = Some(entity);
         if is_double {
             if let (Some(actor), Some(ability)) = (active, sel.selected_ability.clone()) {
-                let target_pos = positions.get(&entity).unwrap_or((hq, hr));
+                let target_pos = positions.get(&entity).unwrap_or(hovered);
                 use_ability.write(UseAbility { actor, ability, target: entity, target_pos });
             }
         }
     } else if is_double && is_aoe {
         // AoE: double-click on empty cell fires ability at that cell.
         if let (Some(actor), Some(ability)) = (active, sel.selected_ability.clone()) {
-            use_ability.write(UseAbility { actor, ability, target: actor, target_pos: (hq, hr) });
+            use_ability.write(UseAbility { actor, ability, target: actor, target_pos: hovered });
         }
     } else if is_double {
-        try_move(hq, hr, active, &positions, &move_query, &combatant_q2, &mut move_unit);
+        try_move(hovered, active, &positions, &move_query, &combatant_q2, &mut move_unit);
     }
 
-    last_click.pos = Some((hq, hr));
+    last_click.pos = Some(hovered);
     last_click.time = now;
 }
 
-/// Tries to path-find and send MoveUnit for the active player to (tq, tr).
+/// Tries to path-find and send MoveUnit for the active player to target hex.
 /// Returns true if the move was sent.
 fn try_move(
-    tq: i32,
-    tr: i32,
+    target: Hex,
     active: Option<Entity>,
     positions: &HexPositions,
     move_query: &Query<(&Faction, &ActionPoints, &Speed, Option<&BonusMovement>)>,
@@ -219,7 +192,7 @@ fn try_move(
     }
     let Some(actor_pos) = positions.get(&actor) else { return false };
     let max_steps = bonus.map_or(speed.0, |b| b.0);
-    let enemy_pos: HashSet<(i32, i32)> = positions
+    let enemy_pos: HashSet<Hex> = positions
         .iter()
         .filter(|(&e, _)| {
             e != actor
@@ -229,8 +202,8 @@ fn try_move(
         })
         .map(|(_, &p)| p)
         .collect();
-    let is_passable = |q: i32, r: i32| in_bounds(q, r) && !enemy_pos.contains(&(q, r));
-    if let Some(path) = find_path(actor_pos, (tq, tr), is_passable) {
+    let is_passable = |h: Hex| in_bounds(h) && !enemy_pos.contains(&h);
+    if let Some(path) = find_path(actor_pos, target, is_passable) {
         if path.len() as i32 <= max_steps {
             move_unit.write(MoveUnit { actor, path });
             return true;

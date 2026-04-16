@@ -1,10 +1,30 @@
 #![allow(clippy::too_many_arguments)]
 use crate::combat::enemy_ai::has_ai_control_status;
-use crate::content::abilities::TargetType;
+use crate::content::abilities::{EffectDef, TargetType};
 use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, StatusEffects, Team};
 use crate::game::messages::{EndTurn, UseAbility};
 use crate::game::resources::{GameDb, HexPositions, SelectionState};
 use bevy::prelude::*;
+
+/// Map a single-char key string from TOML to a Bevy `KeyCode`.
+fn key_str_to_keycode(key: &str) -> Option<KeyCode> {
+    match key {
+        "A" => Some(KeyCode::KeyA), "B" => Some(KeyCode::KeyB),
+        "C" => Some(KeyCode::KeyC), "D" => Some(KeyCode::KeyD),
+        "F" => Some(KeyCode::KeyF), "G" => Some(KeyCode::KeyG),
+        "H" => Some(KeyCode::KeyH), "I" => Some(KeyCode::KeyI),
+        "J" => Some(KeyCode::KeyJ), "K" => Some(KeyCode::KeyK),
+        "L" => Some(KeyCode::KeyL), "M" => Some(KeyCode::KeyM),
+        "N" => Some(KeyCode::KeyN), "O" => Some(KeyCode::KeyO),
+        "P" => Some(KeyCode::KeyP), "Q" => Some(KeyCode::KeyQ),
+        "R" => Some(KeyCode::KeyR), "S" => Some(KeyCode::KeyS),
+        "T" => Some(KeyCode::KeyT), "U" => Some(KeyCode::KeyU),
+        "V" => Some(KeyCode::KeyV), "W" => Some(KeyCode::KeyW),
+        "X" => Some(KeyCode::KeyX), "Y" => Some(KeyCode::KeyY),
+        "Z" => Some(KeyCode::KeyZ),
+        _ => None,
+    }
+}
 
 pub fn player_command_system(
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -57,7 +77,37 @@ pub fn player_command_system(
         }
     }
 
-    // Ability slots: 1 → abilities[0], 2 → abilities[1], …
+    // Custom-keyed abilities (universal: move, rest, etc.).
+    for keyed_id in &db.keyed_abilities {
+        let Some(def) = db.abilities.get(keyed_id) else { continue };
+        let Some(ref key_str) = def.key else { continue };
+        let Some(keycode) = key_str_to_keycode(key_str) else { continue };
+        if !keyboard.just_pressed(keycode) {
+            continue;
+        }
+
+        if matches!(def.effect, EffectDef::ToggleMoveMode) {
+            if c.ap.movement {
+                selection.move_mode = !selection.move_mode;
+                if selection.move_mode {
+                    selection.selected_ability = None;
+                    selection.selected_target = None;
+                }
+            }
+        } else if def.target_type == TargetType::Myself && c.ap.action {
+            let target_pos = positions.get(&actor).unwrap_or(hexx::Hex::ZERO);
+            use_ability.write(UseAbility {
+                actor,
+                ability: keyed_id.clone(),
+                target: actor,
+                target_pos,
+            });
+            selection.clear();
+        }
+        return;
+    }
+
+    // Numbered ability slots: 1 → class_abilities[0], 2 → class_abilities[1], …
     let slot_keys = [
         KeyCode::Digit1,
         KeyCode::Digit2,
@@ -77,11 +127,6 @@ pub fn player_command_system(
                 selection.move_mode = false;
             }
         }
-    }
-
-    // M → toggle move mode (preserves selected ability).
-    if keyboard.just_pressed(KeyCode::KeyM) && c.ap.movement {
-        selection.move_mode = !selection.move_mode;
     }
 
     // Escape → cancel move mode.
@@ -140,7 +185,7 @@ pub fn player_command_system(
             selection.selected_ability.clone(),
             selection.selected_target,
         ) {
-            let target_pos = positions.get(&target).unwrap_or((0, 0));
+            let target_pos = positions.get(&target).unwrap_or(hexx::Hex::ZERO);
             use_ability.write(UseAbility {
                 actor,
                 ability,

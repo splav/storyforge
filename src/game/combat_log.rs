@@ -53,8 +53,8 @@ pub enum CombatEvent {
     },
     UnitMoved {
         actor: Entity,
-        from: (i32, i32),
-        to: (i32, i32),
+        from: hexx::Hex,
+        to: hexx::Hex,
     },
     RageGained {
         actor: Entity,
@@ -101,7 +101,7 @@ pub enum CombatEvent {
 }
 
 impl CombatEvent {
-    pub fn format(&self, name: impl Fn(Entity) -> String, db: &GameDb) -> String {
+    pub fn format(&self, name: impl Fn(Entity) -> String, db: &GameDb, crit_fail_die: u32) -> String {
         match self {
             CombatEvent::CombatStarted => "=== Бой начался ===".into(),
             CombatEvent::RoundStarted { round } => format!("--- Раунд {round} ---"),
@@ -127,13 +127,11 @@ impl CombatEvent {
             }
             CombatEvent::TurnEnded { actor } => format!("  ○ {} завершил ход", name(*actor)),
             CombatEvent::UnitMoved { actor, from, to } => {
+                let [fc, fr] = crate::game::hex::hex_to_offset(*from);
+                let [tc, tr] = crate::game::hex::hex_to_offset(*to);
                 format!(
                     "  ↦ {} переместился ({},{}) → ({},{})",
-                    name(*actor),
-                    from.0,
-                    from.1,
-                    to.0,
-                    to.1
+                    name(*actor), fc, fr, tc, tr
                 )
             }
             CombatEvent::RageGained {
@@ -222,7 +220,7 @@ impl CombatEvent {
                 format!("    «{}» нейтрализован на {}", sname, name(*target))
             }
             CombatEvent::CriticalMiss { actor } => {
-                format!("  ✗ {}: критическая неудача (d20=1) — промах!", name(*actor))
+                format!("  ✗ {}: критическая неудача (d{crit_fail_die}=1) — промах!", name(*actor))
             }
             CombatEvent::CritFailSideEffect { actor, effect_name } => {
                 format!("  ⚠ {}: {}", name(*actor), effect_name)
@@ -238,7 +236,7 @@ impl CombatEvent {
                     String::new()
                 };
                 format!(
-                    "  ⚠ {}: перегрузка воли (d20=1)! мана ×2 (+{extra_mana}){hp_part}",
+                    "  ⚠ {}: перегрузка воли (d{crit_fail_die}=1)! мана ×2 (+{extra_mana}){hp_part}",
                     name(*actor)
                 )
             }

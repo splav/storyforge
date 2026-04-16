@@ -1,3 +1,4 @@
+use storyforge::game::hex::hex_from_offset;
 mod common;
 
 use bevy::prelude::*;
@@ -47,8 +48,8 @@ fn setup_turn(app: &mut App, actor: Entity, target: Entity) {
     q.index = 0;
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
     let mut positions = app.world_mut().resource_mut::<HexPositions>();
-    positions.insert(actor, (0, 0));
-    positions.insert(target, (1, 0));
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(target, hex_from_offset(1, 0));
 }
 
 fn fire_burn(app: &mut App, actor: Entity, target: Entity) {
@@ -56,7 +57,7 @@ fn fire_burn(app: &mut App, actor: Entity, target: Entity) {
         actor,
         ability: BURN.into(),
         target,
-        target_pos: (1, 0),
+        target_pos: hex_from_offset(1, 0),
         disadvantage: false,
     });
     app.update();

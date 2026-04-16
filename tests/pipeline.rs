@@ -1,3 +1,4 @@
+use storyforge::game::hex::hex_from_offset;
 mod common;
 
 use bevy::prelude::*;
@@ -31,8 +32,8 @@ fn full_pipeline_melee_attack_damages_target() {
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
 
     let mut positions = app.world_mut().resource_mut::<HexPositions>();
-    positions.insert(hero, (0, 0));
-    positions.insert(enemy, (1, 0));
+    positions.insert(hero, hex_from_offset(0, 0));
+    positions.insert(enemy, hex_from_offset(1, 0));
 
     // Script: d20=10 (no crit), weapon dice (short_sword 1d8) → 6.
     app.world_mut().resource_mut::<DiceRng>().script(&[10, 6]);
@@ -43,7 +44,7 @@ fn full_pipeline_melee_attack_damages_target() {
             actor: hero,
             ability: MELEE_ATTACK.into(),
             target: enemy,
-            target_pos: (1, 0),
+            target_pos: hex_from_offset(1, 0),
         },
     );
     app.update();
@@ -89,9 +90,9 @@ fn aoe_damages_multiple_enemies() {
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
 
     let mut positions = app.world_mut().resource_mut::<HexPositions>();
-    positions.insert(actor, (0, 0));
-    positions.insert(enemy1, (3, 0));
-    positions.insert(enemy2, (4, 0));
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(enemy1, hex_from_offset(3, 0));
+    positions.insert(enemy2, hex_from_offset(4, 0));
 
     // Script: d20=10 (no crit fail), then 2d3 → [2, 3] = 5 total.
     app.world_mut().resource_mut::<DiceRng>().script(&[10, 2, 3]);
@@ -102,7 +103,7 @@ fn aoe_damages_multiple_enemies() {
             actor,
             ability: "fireball".into(),
             target: enemy1,
-            target_pos: (3, 0),
+            target_pos: hex_from_offset(3, 0),
             disadvantage: false,
         },
     );

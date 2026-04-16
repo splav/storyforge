@@ -2,22 +2,22 @@
 use super::log_ui::LogScrollState;
 use super::{
     AbilitySlot, AbilitySlotLabel, DefeatOverlay, HudPhase, HudTurnOrder, LogScrollClip,
-    LogScrollThumb, LogText, MoveButton, RestartButton, TurnOrderTooltip, TurnOrderTooltipText,
-    UiFont,
+    LogScrollThumb, LogText, RestartButton, TurnOrderTooltip, TurnOrderTooltipText, UiFont,
 };
 use super::turn_order_ui::spawn_turn_order_panel;
 use crate::app_state::CombatPhase;
-use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, StatusOn};
-use crate::core::{DiceExpr, ResourceKind};
+use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, StatusOn, TargetType};
+use crate::core::{AbilityId, DiceExpr, ResourceKind};
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, Energy, Equipment,
     Faction, Mana, Rage, Team, Vital,
 };
-use crate::game::messages::RestartCombat;
-use crate::game::resources::{GameDb, SelectionState, UiDirty, UiDirtyFlags};
+use crate::game::messages::{RestartCombat, UseAbility};
+use crate::game::resources::{GameDb, HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
-const MAX_SLOTS: usize = 5;
+/// Max keyed (universal) + class ability slots.
+const MAX_SLOTS: usize = 7;
 
 const CLR_SLOT_BG: Color = Color::srgb(0.10, 0.10, 0.12);
 const CLR_SLOT_BORDER: Color = Color::srgb(0.30, 0.30, 0.35);
@@ -62,29 +62,6 @@ pub fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ..default()
             })
             .with_children(|panel| {
-                // Move button.
-                panel
-                    .spawn((
-                        MoveButton,
-                        Button,
-                        Node {
-                            border: UiRect::all(Val::Px(1.5)),
-                            padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
-                            width: Val::Percent(100.0),
-                            height: Val::Px(36.0),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        BorderColor::all(CLR_SLOT_BORDER),
-                        BackgroundColor(CLR_SLOT_BG),
-                        Visibility::Hidden,
-                    ))
-                    .with_children(|btn| {
-                        let (tf, tc) = txt(12.0);
-                        btn.spawn((Text::new("[M] Движение"), tf, tc));
-                    });
-
                 for i in 0..MAX_SLOTS {
                     panel
                         .spawn((
@@ -255,15 +232,8 @@ pub fn update_phase_hint(
                 .map(|(n, _, _)| n.as_str())
                 .unwrap_or("Враг");
 
-            if let Some((_, _, ap)) = actor_info {
-                let mut hints = Vec::new();
-                if ap.movement {
-                    hints.push("[M]: движение");
-                }
-                if ap.action {
-                    hints.push("[1-5]: способность");
-                }
-                hints.push("[E]: конец хода");
+            if let Some((_, _, _ap)) = actor_info {
+                let mut hints = vec!["[E]: конец хода"];
                 if sel.move_mode {
                     hints.push("Клик: выбрать клетку");
                 } else if sel.selected_ability.is_some() && sel.selected_target.is_some() {
@@ -284,6 +254,13 @@ pub fn update_phase_hint(
 
 // ── Update: ability panel ─────────────────────────────────────────────────────
 
+/// Build the ordered list of abilities for the panel: keyed (universal) first, then class.
+fn displayed_abilities(db: &GameDb, class_abilities: &[AbilityId]) -> Vec<AbilityId> {
+    let mut result: Vec<AbilityId> = db.keyed_abilities.clone();
+    result.extend(class_abilities.iter().cloned());
+    result
+}
+
 pub fn update_ability_panel(
     dirty: Res<UiDirty>,
     active_q: Query<Entity, With<ActiveCombatant>>,
@@ -295,6 +272,7 @@ pub fn update_ability_panel(
             &Abilities,
             &CombatStats,
             Option<&Equipment>,
+            &ActionPoints,
             &Vital,
             Option<&Mana>,
             Option<&Rage>,
@@ -311,56 +289,60 @@ pub fn update_ability_panel(
     )>,
     mut labels: Query<(&AbilitySlotLabel, &mut Text, &mut TextColor)>,
 ) {
-    if !dirty.0.contains(UiDirtyFlags::ABILITY_PANEL) {
+    if !dirty.0.intersects(UiDirtyFlags::ABILITY_PANEL | UiDirtyFlags::MOVE_BTN) {
         return;
     }
     let actor_data = active_q
         .single()
         .ok()
         .and_then(|e| combatants.get(e).ok())
-        .filter(|(f, _, _, _, _, _, _, _)| f.0 == Team::Player)
-        .map(|(_, abilities, stats, equip, vital, mana, rage, energy)| {
-            let ctx = CasterContext::new(stats, equip, &db.weapons);
-            (
-                abilities.0.clone(),
-                ctx,
-                vital.hp,
-                mana.map(|m| m.current).unwrap_or(0),
-                rage.map(|r| r.current).unwrap_or(0),
-                energy.map(|e| e.current).unwrap_or(0),
-            )
-        });
+        .filter(|(f, _, _, _, _, _, _, _, _)| f.0 == Team::Player);
 
-    let (abilities, caster_ctx, hp_cur, mana_cur, rage_cur, energy_cur) = match actor_data {
+    let (_, abilities, stats, equip, ap, vital, mana, rage, energy) = match actor_data {
         Some(d) => d,
         None => return,
     };
 
-    // Helper: can the actor afford this ability?
-    let can_use = |def: &AbilityDef| -> bool {
-        for cost in &def.costs {
+    let caster_ctx = CasterContext::new(stats, equip, &db.weapons);
+    let displayed = displayed_abilities(&db, &abilities.0);
+    let hp_cur = vital.hp;
+    let mana_cur = mana.map(|m| m.current).unwrap_or(0);
+    let rage_cur = rage.map(|r| r.current).unwrap_or(0);
+    let energy_cur = energy.map(|e| e.current).unwrap_or(0);
+
+    // Helper: can the actor afford this ability's resource costs?
+    let can_afford = |def: &AbilityDef| -> bool {
+        def.costs.iter().all(|cost| {
             let available = match cost.resource {
                 ResourceKind::Hp => hp_cur,
                 ResourceKind::Mana => mana_cur,
                 ResourceKind::Rage => rage_cur,
                 ResourceKind::Energy => energy_cur,
             };
-            if available < cost.amount {
-                return false;
-            }
-        }
-        true
+            available >= cost.amount
+        })
     };
+
+    let keyed_count = db.keyed_abilities.len();
 
     for (slot, mut node, mut border, mut bg, mut vis) in &mut slots {
         let idx = slot.0;
-        let ability_id = abilities.get(idx).cloned();
-        let selected = ability_id.is_some() && sel.selected_ability == ability_id;
-        let affordable = ability_id
-            .as_ref()
-            .and_then(|id| db.abilities.get(id))
-            .map(&can_use)
-            .unwrap_or(false);
+        let ability_id = displayed.get(idx).cloned();
+        let def = ability_id.as_ref().and_then(|id| db.abilities.get(id));
+        let is_move = def.is_some_and(|d| matches!(d.effect, EffectDef::ToggleMoveMode));
+
+        // Selection state: move uses move_mode, others use selected_ability.
+        let selected = if is_move {
+            sel.move_mode
+        } else {
+            ability_id.is_some() && sel.selected_ability == ability_id
+        };
+        // Availability: move checks ap.movement, others check ap.action + costs.
+        let available = if is_move {
+            ap.movement
+        } else {
+            ap.action && def.is_some_and(&can_afford)
+        };
 
         *vis = if ability_id.is_some() {
             Visibility::Visible
@@ -375,14 +357,14 @@ pub fn update_ability_panel(
         };
         *border = BorderColor::all(if selected {
             CLR_SLOT_SEL_BORDER
-        } else if affordable {
+        } else if available {
             CLR_SLOT_BORDER
         } else {
             CLR_SLOT_DIM_BORDER
         });
         *bg = BackgroundColor(if selected {
             CLR_SLOT_SEL_BG
-        } else if affordable {
+        } else if available {
             CLR_SLOT_BG
         } else {
             CLR_SLOT_DIM_BG
@@ -391,31 +373,43 @@ pub fn update_ability_panel(
 
     for (label, mut text, mut color) in &mut labels {
         let idx = label.0;
-        if let Some(id) = abilities.get(idx).cloned() {
-            if let Some(def) = db.abilities.get(&id) {
-                let effect_str = ability_effect_str(def, &caster_ctx, &db);
-                let mut costs = String::new();
-                for cost in &def.costs {
-                    let label = match cost.resource {
-                        ResourceKind::Hp => "HP",
-                        ResourceKind::Mana => "M",
-                        ResourceKind::Rage => "R",
-                        ResourceKind::Energy => "E",
-                    };
-                    costs += &format!(" {}:{}", label, cost.amount);
-                }
-                text.0 = format!("[{}] {}{}\n{}", idx + 1, def.name, costs, effect_str);
-                let affordable = can_use(def);
-                let selected = sel.selected_ability == Some(id);
-                *color = TextColor(if selected {
-                    Color::srgb(1.0, 0.95, 0.5)
-                } else if affordable {
-                    Color::WHITE
-                } else {
-                    Color::srgb(0.35, 0.35, 0.38)
-                });
-            }
+        let Some(id) = displayed.get(idx).cloned() else { continue };
+        let Some(def) = db.abilities.get(&id) else { continue };
+        let is_move = matches!(def.effect, EffectDef::ToggleMoveMode);
+
+        // Label prefix: keyed abilities show [key], class abilities show [number].
+        let prefix = if let Some(ref key) = def.key {
+            key.clone()
+        } else {
+            format!("{}", idx - keyed_count + 1)
+        };
+
+        let effect_str = ability_effect_str(def, &caster_ctx, &db);
+        let mut costs = String::new();
+        for cost in &def.costs {
+            let lbl = match cost.resource {
+                ResourceKind::Hp => "HP",
+                ResourceKind::Mana => "M",
+                ResourceKind::Rage => "R",
+                ResourceKind::Energy => "E",
+            };
+            costs += &format!(" {}:{}", lbl, cost.amount);
         }
+        text.0 = format!("[{prefix}] {}{}\n{}", def.name, costs, effect_str);
+
+        let selected = if is_move { sel.move_mode } else { sel.selected_ability == Some(id) };
+        let available = if is_move {
+            ap.movement
+        } else {
+            ap.action && can_afford(def)
+        };
+        *color = TextColor(if selected {
+            Color::srgb(1.0, 0.95, 0.5)
+        } else if available {
+            Color::WHITE
+        } else {
+            Color::srgb(0.35, 0.35, 0.38)
+        });
     }
 }
 
@@ -442,6 +436,8 @@ fn ability_effect_str(
         lines.push(s);
     } else if let EffectDef::GrantMovement { distance } = &def.effect {
         lines.push(format!("движение +{distance}"));
+    } else if matches!(def.effect, EffectDef::RestoreResources) {
+        lines.push("ресурсы +1".into());
     }
 
     for sa in &def.statuses {
@@ -479,101 +475,51 @@ fn dice_bonus_str(dice: &DiceExpr, bonus: i32) -> String {
 
 pub fn ability_slot_click_system(
     active_q: Query<Entity, With<ActiveCombatant>>,
+    db: Res<GameDb>,
+    positions: Res<HexPositions>,
     mut sel: ResMut<SelectionState>,
     slots: Query<(&AbilitySlot, &Interaction), Changed<Interaction>>,
-    combatants: Query<(&Faction, &Abilities), (With<Combatant>, Without<Dead>)>,
+    combatants: Query<(&Faction, &Abilities, &ActionPoints), (With<Combatant>, Without<Dead>)>,
+    mut use_ability: MessageWriter<UseAbility>,
 ) {
     for (slot, interaction) in &slots {
         if *interaction != Interaction::Pressed {
             continue;
         }
         let Ok(active) = active_q.single() else { continue };
-        let Ok((faction, abilities)) = combatants.get(active) else {
-            continue;
-        };
+        let Ok((faction, abilities, ap)) = combatants.get(active) else { continue };
         if faction.0 != Team::Player {
             continue;
         }
-        if let Some(id) = abilities.0.get(slot.0).cloned() {
+        let displayed = displayed_abilities(&db, &abilities.0);
+        let Some(id) = displayed.get(slot.0).cloned() else { continue };
+        let Some(def) = db.abilities.get(&id) else { continue };
+
+        if matches!(def.effect, EffectDef::ToggleMoveMode) {
+            if ap.movement {
+                sel.move_mode = !sel.move_mode;
+                if sel.move_mode {
+                    sel.selected_ability = None;
+                    sel.selected_target = None;
+                }
+            }
+        } else if def.target_type == TargetType::Myself && def.key.is_some() {
+            // Keyed self-target abilities fire immediately on click.
+            if ap.action {
+                let target_pos = positions.get(&active).unwrap_or(hexx::Hex::ZERO);
+                use_ability.write(UseAbility {
+                    actor: active,
+                    ability: id,
+                    target: active,
+                    target_pos,
+                });
+            }
+        } else {
             sel.selected_ability = Some(id);
             sel.move_mode = false;
-        }
-    }
-}
-
-// ── Move button ─────────────────────────────────────────────────────────────
-
-pub fn update_move_button(
-    dirty: Res<UiDirty>,
-    active_q: Query<Entity, With<ActiveCombatant>>,
-    sel: Res<SelectionState>,
-    combatants: Query<(&Faction, &ActionPoints), (With<Combatant>, Without<Dead>)>,
-    mut move_btn: Query<
-        (&mut BorderColor, &mut BackgroundColor, &mut Visibility),
-        With<MoveButton>,
-    >,
-) {
-    if !dirty.0.contains(UiDirtyFlags::MOVE_BTN) {
-        return;
-    }
-    let Ok((mut border, mut bg, mut vis)) = move_btn.single_mut() else {
-        return;
-    };
-
-    let is_player_turn = active_q
-        .single()
-        .ok()
-        .and_then(|e| combatants.get(e).ok())
-        .is_some_and(|(f, _)| f.0 == Team::Player);
-
-    if !is_player_turn {
-        *vis = Visibility::Hidden;
-        return;
-    }
-    *vis = Visibility::Visible;
-
-    let has_movement = active_q
-        .single()
-        .ok()
-        .and_then(|e| combatants.get(e).ok())
-        .is_some_and(|(_, ap)| ap.movement);
-
-    if sel.move_mode {
-        *border = BorderColor::all(CLR_SLOT_SEL_BORDER);
-        *bg = BackgroundColor(CLR_SLOT_SEL_BG);
-    } else if has_movement {
-        *border = BorderColor::all(CLR_SLOT_BORDER);
-        *bg = BackgroundColor(CLR_SLOT_BG);
-    } else {
-        *border = BorderColor::all(CLR_SLOT_DIM_BORDER);
-        *bg = BackgroundColor(CLR_SLOT_DIM_BG);
-    }
-}
-
-pub fn move_button_click_system(
-    active_q: Query<Entity, With<ActiveCombatant>>,
-    mut sel: ResMut<SelectionState>,
-    move_btn: Query<&Interaction, (Changed<Interaction>, With<MoveButton>)>,
-    combatants: Query<(&Faction, &ActionPoints), (With<Combatant>, Without<Dead>)>,
-) {
-    for interaction in &move_btn {
-        if *interaction != Interaction::Pressed {
-            continue;
-        }
-        let Ok(active) = active_q.single() else { continue };
-        let Ok((faction, ap)) = combatants.get(active) else {
-            continue;
-        };
-        if faction.0 != Team::Player || !ap.movement {
-            continue;
-        }
-
-        if sel.move_mode {
-            sel.move_mode = false;
-        } else {
-            sel.move_mode = true;
-            sel.selected_ability = None;
-            sel.selected_target = None;
+            if def.target_type == TargetType::Myself {
+                sel.selected_target = Some(active);
+            }
         }
     }
 }

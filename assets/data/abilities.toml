@@ -1,4 +1,20 @@
 [[abilities]]
+id          = "move"
+name        = "Движение"
+target_type = "myself"
+effect      = "toggle_move_mode"
+range       = 0
+key         = "M"
+
+[[abilities]]
+id          = "rest"
+name        = "Отдых"
+target_type = "myself"
+effect      = "restore_resources"
+range       = 0
+key         = "R"
+
+[[abilities]]
 id          = "melee_attack"
 name        = "Атака оружием ближнего боя"
 target_type = "single_enemy"
@@ -65,6 +81,7 @@ name          = "Вспышка"
 magic_domains = ["aether"]
 magic_method  = "destruction"
 target_type   = "single_enemy"
+costs         = [{ resource = "mana", amount = 1 }]
 effect        = "spell_damage"
 dice_count    = 1
 dice_sides    = 2

@@ -18,7 +18,7 @@ pub struct UseAbility {
     /// Primary target entity. For AoE on empty cell, set to actor.
     pub target: Entity,
     /// Hex position of the target (entity pos or clicked cell for AoE).
-    pub target_pos: (i32, i32),
+    pub target_pos: hexx::Hex,
 }
 
 /// Emitted by validation after UseAbility passes all checks.
@@ -28,7 +28,7 @@ pub struct ValidatedAction {
     pub actor: Entity,
     pub ability: AbilityId,
     pub target: Entity,
-    pub target_pos: (i32, i32),
+    pub target_pos: hexx::Hex,
     /// Target is within max range but below min range — roll twice, take lower.
     pub disadvantage: bool,
 }
@@ -61,7 +61,7 @@ pub struct ApplyHeal {
 #[derive(Message)]
 pub struct MoveUnit {
     pub actor: Entity,
-    pub path: Vec<(i32, i32)>,
+    pub path: Vec<hexx::Hex>,
 }
 
 #[derive(Message)]

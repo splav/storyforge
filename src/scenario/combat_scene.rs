@@ -42,7 +42,7 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
         let mut ec = commands.spawn((
             Name::new(member.name.clone()),
             hero_bundle(effective, armor, cls.speed, cls.abilities.clone(), equipment),
-            StartingHexPos(member.hex_pos.0, member.hex_pos.1),
+            StartingHexPos(member.hex_pos),
         ));
         if cls.rage_max > 0 { ec.insert(Rage::new(cls.rage_max)); }
         if cls.mana_max > 0 { ec.insert(Mana::new(cls.mana_max)); }
@@ -65,7 +65,7 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
         let mut ec = commands.spawn((
             Name::new(display_name),
             enemy_bundle(effective, armor, enemy.speed, enemy.ability_ids.clone(), equipment),
-            StartingHexPos(enemy.hex_pos.0, enemy.hex_pos.1),
+            StartingHexPos(enemy.hex_pos),
         ));
         if enemy.rage_max > 0 { ec.insert(Rage::new(enemy.rage_max)); }
         if enemy.mana_max > 0 { ec.insert(Mana::new(enemy.mana_max)); }

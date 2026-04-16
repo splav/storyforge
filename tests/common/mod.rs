@@ -12,6 +12,7 @@ use storyforge::combat::{
     skip_dead::skip_stunned_turn_system,
     validation::validate_action_system,
 };
+use storyforge::content::settings::GameSettings;
 use storyforge::content::statuses::StatusDef;
 use storyforge::core::{DiceExpr, DiceRng};
 use storyforge::game::bundles::{enemy_bundle, hero_bundle};
@@ -134,6 +135,7 @@ pub fn resolve_app() -> App {
         .init_resource::<TurnQueue>()
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
+        .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
         .init_resource::<DiceRng>()
@@ -161,6 +163,7 @@ pub fn stun_app() -> App {
         .init_resource::<TurnQueue>()
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
+        .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
         .init_resource::<DiceRng>()
@@ -195,6 +198,7 @@ pub fn pipeline_app() -> App {
         .init_resource::<TurnQueue>()
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
+        .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
         .init_resource::<DiceRng>()

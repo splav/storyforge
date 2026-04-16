@@ -15,7 +15,7 @@ pub struct PartyMemberDef {
     pub faction: Option<String>,
     pub path: Option<String>,
     pub class_id: String,
-    pub hex_pos: (i32, i32),
+    pub hex_pos: hexx::Hex,
 }
 
 #[derive(Debug, Clone)]
@@ -84,7 +84,7 @@ pub fn load_scenarios() -> Vec<ScenarioDef> {
                     faction: p.faction,
                     path: p.path,
                     class_id: p.class,
-                    hex_pos: (p.hex_col, p.hex_row),
+                    hex_pos: crate::game::hex::hex_from_offset(p.hex_col, p.hex_row),
                 })
                 .collect(),
             scenes: r

@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Speed, StatusEffects, UnitToken};
-use crate::game::hex::{hex_to_pixel, in_bounds};
+use crate::game::hex::{in_bounds, Hex, LAYOUT};
 use crate::game::messages::MoveUnit;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{GameDb, HexPositions};
@@ -49,24 +49,24 @@ pub fn movement_system(
         }
 
         let dest = *ev.path.last().unwrap();
-        if !in_bounds(dest.0, dest.1) {
+        if !in_bounds(dest) {
             continue;
         }
 
         let dest_occupied = positions
-            .entity_at(dest.0, dest.1)
+            .entity_at(dest)
             .is_some_and(|e| e != ev.actor);
         if dest_occupied {
             continue;
         }
 
-        let old_pos = positions.get(&ev.actor).unwrap_or((-1, -1));
+        let old_pos = positions.get(&ev.actor).unwrap_or(Hex::ZERO);
 
         // Build pixel waypoints for animation: start from old position, then path steps.
         let offset = grid_offset.0;
-        let mut waypoints = vec![hex_to_pixel(old_pos.0, old_pos.1) + offset];
-        for &(q, r) in &ev.path {
-            waypoints.push(hex_to_pixel(q, r) + offset);
+        let mut waypoints = vec![LAYOUT.hex_to_world_pos(old_pos) + offset];
+        for &h in &ev.path {
+            waypoints.push(LAYOUT.hex_to_world_pos(h) + offset);
         }
 
         // Find the token entity for this actor.

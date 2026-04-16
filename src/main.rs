@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat;
 use storyforge::combat::CombatStep;
+use storyforge::content::settings::load_settings;
 use storyforge::core::DiceRng;
 use storyforge::game::messages::{
     ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, RestartCombat, StartCombat,
@@ -15,6 +16,8 @@ use storyforge::ui;
 use storyforge::ui::animation::AnimationQueue;
 
 fn main() {
+    let settings = load_settings();
+
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -33,7 +36,8 @@ fn main() {
         .init_resource::<GameDb>()
         .init_resource::<SelectionState>()
         .init_resource::<DiceRng>()
-        .init_resource::<combat::ai_difficulty::DifficultyProfile>()
+        .insert_resource(settings.difficulty.clone())
+        .insert_resource(settings)
         .init_resource::<ui::console_log::ConsoleCursor>()
         .init_resource::<HexPositions>()
         .init_resource::<ui::hex_grid::HexHover>()
@@ -89,8 +93,6 @@ fn main() {
                 ui::turn_order_ui::update_turn_order_tooltip,
                 ui::combat_ui::update_ability_panel,
                 ui::combat_ui::ability_slot_click_system,
-                ui::combat_ui::move_button_click_system,
-                ui::combat_ui::update_move_button,
             )
                 .after(ui::hex_grid::ui_dirty_bridge)
                 .run_if(in_state(AppState::Combat)),

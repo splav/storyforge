@@ -93,6 +93,8 @@ mod queue_tests {
 #[derive(Resource)]
 pub struct GameDb {
     pub abilities: HashMap<AbilityId, AbilityDef>,
+    /// Abilities with custom keys, in TOML order. Universal for all combatants.
+    pub keyed_abilities: Vec<AbilityId>,
     pub statuses: HashMap<StatusId, StatusDef>,
     pub weapons: HashMap<WeaponId, WeaponDef>,
     pub armor: HashMap<ArmorId, ArmorDef>,
@@ -166,11 +168,18 @@ impl Default for GameDb {
 
         let (race_list, faction_list, path_list) = load_races();
 
+        let ability_list = load_abilities();
+        let keyed_abilities: Vec<AbilityId> = ability_list
+            .iter()
+            .filter(|a| a.key.is_some())
+            .map(|a| a.id.clone())
+            .collect();
         let db = Self {
-            abilities: load_abilities()
+            abilities: ability_list
                 .into_iter()
                 .map(|a| (a.id.clone(), a))
                 .collect(),
+            keyed_abilities,
             statuses: load_statuses()
                 .into_iter()
                 .map(|s| (s.id.clone(), s))
@@ -379,11 +388,10 @@ impl GameDb {
             for enemy in &enc.enemies {
                 assert!(
                     seen.insert(enemy.hex_pos),
-                    "encounter '{}': enemies '{}' and another share hex position ({}, {})",
+                    "encounter '{}': enemies '{}' and another share hex position {:?}",
                     id,
                     enemy.name,
-                    enemy.hex_pos.0,
-                    enemy.hex_pos.1
+                    enemy.hex_pos
                 );
             }
         }
@@ -429,10 +437,9 @@ impl GameDb {
             for member in &scen.party {
                 assert!(
                     party_positions.insert(member.hex_pos),
-                    "scenario '{}': party members share hex position ({}, {})",
+                    "scenario '{}': party members share hex position {:?}",
                     id,
-                    member.hex_pos.0,
-                    member.hex_pos.1
+                    member.hex_pos
                 );
             }
 
@@ -450,12 +457,11 @@ impl GameDb {
                         for enemy in &enc.enemies {
                             assert!(
                                 !party_positions.contains(&enemy.hex_pos),
-                                "scenario '{}' encounter '{}': enemy '{}' at ({}, {}) overlaps with a party member",
+                                "scenario '{}' encounter '{}': enemy '{}' at {:?} overlaps with a party member",
                                 id,
                                 encounter_id,
                                 enemy.name,
-                                enemy.hex_pos.0,
-                                enemy.hex_pos.1
+                                enemy.hex_pos
                             );
                         }
                     }
@@ -475,21 +481,19 @@ pub struct ScenarioState {
 
 // ── Hex positions ────────────────────────────────────────────────────────────
 
-/// Bidirectional map: entity ↔ hex position (col, row).
+/// Bidirectional map: entity ↔ hex position.
 #[derive(Resource, Default)]
 pub struct HexPositions {
-    by_entity: HashMap<Entity, (i32, i32)>,
-    by_pos: HashMap<(i32, i32), Entity>,
+    by_entity: HashMap<Entity, hexx::Hex>,
+    by_pos: HashMap<hexx::Hex, Entity>,
     pub generation: u64,
 }
 
 impl HexPositions {
-    pub fn insert(&mut self, entity: Entity, pos: (i32, i32)) {
+    pub fn insert(&mut self, entity: Entity, pos: hexx::Hex) {
         debug_assert!(
             self.by_pos.get(&pos).is_none_or(|&e| e == entity),
-            "HexPositions: position ({}, {}) already occupied by another entity",
-            pos.0,
-            pos.1,
+            "HexPositions: position {pos:?} already occupied by another entity",
         );
         if let Some(&old_pos) = self.by_entity.get(&entity) {
             self.by_pos.remove(&old_pos);
@@ -512,15 +516,15 @@ impl HexPositions {
         self.generation += 1;
     }
 
-    pub fn get(&self, entity: &Entity) -> Option<(i32, i32)> {
+    pub fn get(&self, entity: &Entity) -> Option<hexx::Hex> {
         self.by_entity.get(entity).copied()
     }
 
-    pub fn entity_at(&self, q: i32, r: i32) -> Option<Entity> {
-        self.by_pos.get(&(q, r)).copied()
+    pub fn entity_at(&self, pos: hexx::Hex) -> Option<Entity> {
+        self.by_pos.get(&pos).copied()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&Entity, &(i32, i32))> {
+    pub fn iter(&self) -> impl Iterator<Item = (&Entity, &hexx::Hex)> {
         self.by_entity.iter()
     }
 }

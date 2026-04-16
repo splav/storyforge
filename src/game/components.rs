@@ -13,16 +13,9 @@ pub struct CombatPath(pub String);
 #[derive(Component)]
 pub struct ActiveCombatant;
 
-/// Starting hex grid position (col, row) assigned at spawn.
+/// Starting hex grid position assigned at spawn.
 #[derive(Component, Clone, Copy)]
-pub struct StartingHexPos(pub i32, pub i32);
-
-/// Hex grid cell identity (col, row). Attached to each grid cell entity.
-#[derive(Component)]
-pub struct HexCell {
-    pub q: i32,
-    pub r: i32,
-}
+pub struct StartingHexPos(pub hexx::Hex);
 
 /// Inserted when hp reaches 0. Skips the unit's turn and prevents acting.
 #[derive(Component, Default)]

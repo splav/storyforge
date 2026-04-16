@@ -1,3 +1,4 @@
+use storyforge::game::hex::hex_from_offset;
 mod common;
 
 use bevy::prelude::*;
@@ -27,7 +28,7 @@ fn valid_use_ability_emits_validated_action() {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
-            target_pos: (0, 0),
+            target_pos: hex_from_offset(0, 0),
         },
     );
     app.update();
@@ -58,7 +59,7 @@ fn wrong_actor_use_ability_is_rejected() {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
-            target_pos: (0, 0),
+            target_pos: hex_from_offset(0, 0),
         },
     );
     app.update();
@@ -90,7 +91,7 @@ fn no_action_point_use_ability_is_rejected() {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
-            target_pos: (0, 0),
+            target_pos: hex_from_offset(0, 0),
         },
     );
     app.update();
@@ -114,8 +115,8 @@ fn out_of_bounds_target_pos_rejects_ability() {
 
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
     let mut positions = app.world_mut().resource_mut::<HexPositions>();
-    positions.insert(actor, (0, 0));
-    positions.insert(target, (1, 0));
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(target, hex_from_offset(1, 0));
 
     write_message(
         &mut app,
@@ -123,7 +124,7 @@ fn out_of_bounds_target_pos_rejects_ability() {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
-            target_pos: (99, 99), // out of bounds
+            target_pos: hex_from_offset(99, 99), // out of bounds
         },
     );
     app.update();
@@ -145,8 +146,8 @@ fn out_of_range_rejects_ability() {
 
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
     let mut positions = app.world_mut().resource_mut::<HexPositions>();
-    positions.insert(actor, (0, 0));
-    positions.insert(target, (3, 0));
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(target, hex_from_offset(3, 0));
 
     write_message(
         &mut app,
@@ -154,7 +155,7 @@ fn out_of_range_rejects_ability() {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
-            target_pos: (3, 0),
+            target_pos: hex_from_offset(3, 0),
         },
     );
     app.update();
@@ -176,8 +177,8 @@ fn in_range_allows_ability() {
 
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
     let mut positions = app.world_mut().resource_mut::<HexPositions>();
-    positions.insert(actor, (0, 0));
-    positions.insert(target, (1, 0));
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(target, hex_from_offset(1, 0));
 
     write_message(
         &mut app,
@@ -185,7 +186,7 @@ fn in_range_allows_ability() {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
-            target_pos: (1, 0),
+            target_pos: hex_from_offset(1, 0),
         },
     );
     app.update();
@@ -213,8 +214,8 @@ fn insufficient_mana_rejects_ability() {
 
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
     let mut positions = app.world_mut().resource_mut::<HexPositions>();
-    positions.insert(actor, (0, 0));
-    positions.insert(target, (3, 0));
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(target, hex_from_offset(3, 0));
 
     write_message(
         &mut app,
@@ -222,7 +223,7 @@ fn insufficient_mana_rejects_ability() {
             actor,
             ability: "fireball".into(),
             target,
-            target_pos: (3, 0),
+            target_pos: hex_from_offset(3, 0),
         },
     );
     app.update();
@@ -248,8 +249,8 @@ fn sufficient_mana_allows_ability() {
 
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
     let mut positions = app.world_mut().resource_mut::<HexPositions>();
-    positions.insert(actor, (0, 0));
-    positions.insert(target, (2, 0));
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(target, hex_from_offset(2, 0));
 
     write_message(
         &mut app,
@@ -257,7 +258,7 @@ fn sufficient_mana_allows_ability() {
             actor,
             ability: "flash".into(),
             target,
-            target_pos: (2, 0),
+            target_pos: hex_from_offset(2, 0),
         },
     );
     app.update();

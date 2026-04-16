@@ -26,8 +26,8 @@ pub struct EnemyDef {
     pub rage_max: i32,
     pub mana_max: i32,
     pub energy_max: i32,
-    /// Starting hex cell (col, row).
-    pub hex_pos: (i32, i32),
+    /// Starting hex cell.
+    pub hex_pos: hexx::Hex,
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ pub fn load_encounters() -> Vec<EncounterDef> {
                     rage_max: e.rage_max,
                     mana_max: e.mana_max,
                     energy_max: e.energy_max,
-                    hex_pos: (e.hex_col, e.hex_row),
+                    hex_pos: crate::game::hex::hex_from_offset(e.hex_col, e.hex_row),
                 })
                 .collect(),
         })

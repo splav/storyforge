@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::content::abilities::{AoEShape, CasterContext, EffectDef, StatusOn, TargetType};
 use crate::content::races::CritFailEffect;
+use crate::content::settings::GameSettings;
 use crate::core::{DiceRng, ResourceKind};
 use crate::game::components::{
     ActionPoints, BonusMovement, CombatPath, CombatStats, Combatant, Energy, Equipment, Faction, Mana, Rage, Team, Vital,
@@ -14,6 +15,7 @@ use bevy::prelude::*;
 pub fn resolve_action_system(
     mut commands: Commands,
     db: Res<GameDb>,
+    settings: Res<GameSettings>,
     positions: Res<HexPositions>,
     mut rng: ResMut<DiceRng>,
     mut log: ResMut<CombatLog>,
@@ -91,8 +93,8 @@ pub fn resolve_action_system(
             cost_str,
         });
 
-        // Critical failure check: d20 = 1.
-        let crit_roll = rng.roll_d(20);
+        // Critical failure check: roll = 1.
+        let crit_roll = rng.roll_d(settings.crit_fail_die);
         let crit_fail = crit_roll == 1;
 
         // Determine crit fail behaviour from actor's path.
@@ -202,6 +204,10 @@ pub fn resolve_action_system(
             } else if let EffectDef::GrantMovement { distance } = &def.effect {
                 ap.movement = true;
                 commands.entity(ev.actor).insert(BonusMovement(*distance));
+            } else if matches!(def.effect, EffectDef::RestoreResources) {
+                if let Some(ref mut m) = mana { m.restore(1); }
+                if let Some(ref mut r) = rage { r.gain(); }
+                if let Some(ref mut e) = energy { e.restore(1); }
             }
 
             for sa in &def.statuses {
@@ -262,7 +268,7 @@ pub fn resolve_action_system(
 /// For AoE: returns all living combatants in the area, filtered by friendly_fire.
 fn compute_aoe_targets(
     actor: Entity,
-    target_pos: (i32, i32),
+    target_pos: hexx::Hex,
     aoe: AoEShape,
     friendly_fire: bool,
     primary_target: Entity,
@@ -273,12 +279,12 @@ fn compute_aoe_targets(
         return vec![primary_target];
     }
 
-    let actor_pos = positions.get(&actor).unwrap_or((0, 0));
+    let actor_pos = positions.get(&actor).unwrap_or(hexx::Hex::ZERO);
 
-    let affected_cells: Vec<(i32, i32)> = match aoe {
+    let affected_cells: Vec<hexx::Hex> = match aoe {
         AoEShape::None => unreachable!(),
-        AoEShape::Circle { radius } => hex_circle(target_pos.0, target_pos.1, radius),
-        AoEShape::Line { length } => hex_line(actor_pos.0, actor_pos.1, target_pos.0, target_pos.1, length),
+        AoEShape::Circle { radius } => hex_circle(target_pos, radius),
+        AoEShape::Line { length } => hex_line(actor_pos, target_pos, length),
     };
 
     let actor_team = combatant_q
@@ -287,10 +293,9 @@ fn compute_aoe_targets(
         .unwrap_or(Team::Player);
 
     let mut targets = Vec::new();
-    for &(q, r) in &affected_cells {
-        if let Some(entity) = positions.entity_at(q, r) {
+    for &cell in &affected_cells {
+        if let Some(entity) = positions.entity_at(cell) {
             if entity == actor {
-                // Caster can be hit by own AoE only with friendly_fire.
                 if friendly_fire {
                     if let Ok((_, _, vital)) = combatant_q.get(entity) {
                         if vital.is_alive() {

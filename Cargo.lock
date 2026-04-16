@@ -2849,6 +2849,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "hexx"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6e1747feec024f4fb1b56bca2e3c149814baed861fdc7044d6482ff8daf8fb0"
+dependencies = [
+ "bevy_ecs",
+ "bevy_platform",
+ "bevy_reflect",
+ "glam",
+ "serde",
+]
+
+[[package]]
 name = "id-arena"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4508,6 +4521,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bitflags 2.11.0",
+ "hexx",
  "serde",
  "toml",
 ]

@@ -4,5 +4,6 @@ pub mod classes;
 pub mod encounters;
 pub mod races;
 pub mod scenarios;
+pub mod settings;
 pub mod statuses;
 pub mod weapons;

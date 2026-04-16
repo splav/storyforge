@@ -5,10 +5,10 @@ use super::render::{
 };
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::game::components::{
-    ActiveCombatant, BonusMovement, Dead, Energy, Faction, HexCell, HexCombatantQ, Mana, Rage, Speed,
+    ActiveCombatant, BonusMovement, Dead, Energy, Faction, HexCombatantQ, Mana, Rage, Speed,
     Team, UnitToken, Vital,
 };
-use crate::game::hex::{hex_circle, hex_distance, hex_line, hex_to_pixel, in_bounds};
+use crate::game::hex::{hex_circle, hex_line, in_bounds, Hex, LAYOUT};
 use crate::game::pathfinding::reachable_cells;
 use crate::game::resources::{
     GameDb, HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags,
@@ -25,7 +25,7 @@ pub struct DirtyBridgePrev {
     ability: Option<crate::core::AbilityId>,
     move_mode: bool,
     target: Option<Entity>,
-    hover: Option<(i32, i32)>,
+    hover: Option<Hex>,
     pos_gen: u64,
     initialized: bool,
 }
@@ -122,10 +122,10 @@ pub fn ui_dirty_bridge(
 /// Combined overlay caches to stay within Bevy's system-param limit.
 #[derive(Default)]
 pub struct CachedOverlay {
-    range: HashSet<(i32, i32)>,
-    disadvantage: HashSet<(i32, i32)>,
-    movement: HashSet<(i32, i32)>,
-    aoe_preview: HashSet<(i32, i32)>,
+    range: HashSet<Hex>,
+    disadvantage: HashSet<Hex>,
+    movement: HashSet<Hex>,
+    aoe_preview: HashSet<Hex>,
 }
 
 // ── System: Update visuals ────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ pub fn update_hex_visuals(
     db: Res<GameDb>,
     positions: Res<HexPositions>,
     mats: Res<HexMaterials>,
-    cells: Query<(Entity, &HexCell, &Children)>,
+    cells: Query<(Entity, &Hex, &Children)>,
     combatant_q: Query<HexCombatantQ>,
     speed_q: Query<(&Speed, Option<&BonusMovement>)>,
     mut borders: Query<
@@ -158,7 +158,7 @@ pub fn update_hex_visuals(
         (&HexCellLink, &mut Text2d, &mut Visibility),
         (With<HexManaLabel>, Without<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>),
     >,
-    mut cell_mats: Query<&mut MeshMaterial2d<ColorMaterial>, (With<HexCell>, Without<HexBorder>)>,
+    mut cell_mats: Query<&mut MeshMaterial2d<ColorMaterial>, (With<Hex>, Without<HexBorder>)>,
     mut overlay: Local<CachedOverlay>,
 ) {
     let flags = dirty.0;
@@ -178,14 +178,14 @@ pub fn update_hex_visuals(
                         .and_then(|id| db.abilities.get(id))
                         .filter(|ab| ab.target_type != TargetType::Myself && ab.range.max > 0),
                 );
-            if let Some(((aq, ar), ab)) = info {
+            if let Some((actor_pos, ab)) = info {
                 cells
                     .iter()
-                    .filter(|(_, hc, _)| {
-                        let d = hex_distance(aq, ar, hc.q, hc.r);
-                        d >= ab.range.min as i32 && d <= ab.range.max as i32
+                    .filter(|(_, &hc, _)| {
+                        let d = actor_pos.unsigned_distance_to(hc);
+                        d >= ab.range.min && d <= ab.range.max
                     })
-                    .map(|(_, hc, _)| (hc.q, hc.r))
+                    .map(|(_, &hc, _)| hc)
                     .collect()
             } else {
                 HashSet::new()
@@ -206,14 +206,14 @@ pub fn update_hex_visuals(
                         .and_then(|id| db.abilities.get(id))
                         .filter(|ab| ab.target_type != TargetType::Myself && ab.range.min > 0),
                 );
-            if let Some(((aq, ar), ab)) = info {
+            if let Some((actor_pos, ab)) = info {
                 cells
                     .iter()
-                    .filter(|(_, hc, _)| {
-                        let d = hex_distance(aq, ar, hc.q, hc.r);
-                        d > 0 && d < ab.range.min as i32
+                    .filter(|(_, &hc, _)| {
+                        let d = actor_pos.unsigned_distance_to(hc);
+                        d > 0 && d < ab.range.min
                     })
-                    .map(|(_, hc, _)| (hc.q, hc.r))
+                    .map(|(_, &hc, _)| hc)
                     .collect()
             } else {
                 HashSet::new()
@@ -228,7 +228,7 @@ pub fn update_hex_visuals(
                     (positions.get(&actor), speed_q.get(actor))
                 {
                     let max_steps = bonus.map_or(speed.0, |b| b.0);
-                    let enemy_pos: HashSet<(i32, i32)> = positions
+                    let enemy_pos: HashSet<Hex> = positions
                         .iter()
                         .filter(|(&e, _)| {
                             e != actor
@@ -238,7 +238,7 @@ pub fn update_hex_visuals(
                         })
                         .map(|(_, &p)| p)
                         .collect();
-                    let all_occupied: HashSet<(i32, i32)> = positions
+                    let all_occupied: HashSet<Hex> = positions
                         .iter()
                         .filter(|(&e, _)| e != actor)
                         .map(|(_, &p)| p)
@@ -247,8 +247,8 @@ pub fn update_hex_visuals(
                     reachable_cells(
                         actor_pos,
                         max_steps,
-                        |q, r| in_bounds(q, r) && !enemy_pos.contains(&(q, r)),
-                        |q, r| !all_occupied.contains(&(q, r)),
+                        |h| in_bounds(h) && !enemy_pos.contains(&h),
+                        |h| !all_occupied.contains(&h),
                     )
                 } else {
                     HashSet::new()
@@ -263,7 +263,7 @@ pub fn update_hex_visuals(
 
     // AoE preview: recompute whenever hover or ability selection changes.
     if flags.intersects(UiDirtyFlags::TOOLTIP | UiDirtyFlags::OVERLAY) {
-        overlay.aoe_preview = if let Some((hq, hr)) = hover.0 {
+        overlay.aoe_preview = if let Some(hovered) = hover.0 {
             let actor_pos = active_q.single().ok().and_then(|e| positions.get(&e));
             let aoe_def = sel.selected_ability
                 .as_ref()
@@ -272,8 +272,8 @@ pub fn update_hex_visuals(
             if let (Some(a_pos), Some(ab)) = (actor_pos, aoe_def) {
                 match ab.aoe {
                     AoEShape::None => HashSet::new(),
-                    AoEShape::Circle { radius } => hex_circle(hq, hr, radius).into_iter().collect(),
-                    AoEShape::Line { length } => hex_line(a_pos.0, a_pos.1, hq, hr, length).into_iter().collect(),
+                    AoEShape::Circle { radius } => hex_circle(hovered, radius).into_iter().collect(),
+                    AoEShape::Line { length } => hex_line(a_pos, hovered, length).into_iter().collect(),
                 }
             } else {
                 HashSet::new()
@@ -289,9 +289,9 @@ pub fn update_hex_visuals(
     let aoe_cells = &overlay.aoe_preview;
     let active = active_q.single().ok();
 
-    for (cell_entity, hex_cell, children) in &cells {
-        let pos = (hex_cell.q, hex_cell.r);
-        let occupant = positions.entity_at(pos.0, pos.1);
+    for (cell_entity, &hex_cell, children) in &cells {
+        let pos = hex_cell;
+        let occupant = positions.entity_at(pos);
         let is_active = occupant.is_some_and(|e| active == Some(e));
         let is_target = occupant.is_some_and(|e| sel.selected_target == Some(e));
         let is_in_range = range_cells.contains(&pos);
@@ -449,7 +449,7 @@ pub fn update_token_positions(
             continue;
         }
 
-        let pixel = hex_to_pixel(pos.0, pos.1) + grid_offset.0;
+        let pixel = LAYOUT.hex_to_world_pos(pos) + grid_offset.0;
         transform.translation.x = pixel.x;
         transform.translation.y = pixel.y;
 

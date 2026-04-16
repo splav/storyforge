@@ -7,7 +7,7 @@ use bevy::prelude::Entity;
 /// Snapshot of a potential target with status-derived bonuses and threat estimate.
 pub struct TargetInfo {
     pub entity: Entity,
-    pub pos: (i32, i32),
+    pub pos: hexx::Hex,
     pub hp: i32,
     pub max_hp: i32,
     pub armor: i32,
