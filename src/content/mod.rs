@@ -1,5 +1,6 @@
 pub mod abilities;
 pub mod armor;
+pub mod campaigns;
 pub mod classes;
 pub mod encounters;
 pub mod races;

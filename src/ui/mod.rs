@@ -1,8 +1,10 @@
 pub mod animation;
+pub mod button;
 pub mod combat_ui;
 pub mod console_log;
 pub mod hex_grid;
 pub mod log_ui;
+pub mod main_menu_ui;
 pub mod story_ui;
 pub mod turn_order_ui;
 
@@ -55,6 +57,14 @@ pub struct RestartButton;
 /// Root node of the story screen (despawned on exit).
 #[derive(Component)]
 pub struct StoryScreenRoot;
+
+/// Root node of the main menu (despawned on exit).
+#[derive(Component)]
+pub struct MainMenuRoot;
+
+/// Marker on a campaign selection button — stores the campaign id.
+#[derive(Component)]
+pub struct CampaignButton(pub String);
 
 /// "Continue" button on the story screen.
 #[derive(Component)]

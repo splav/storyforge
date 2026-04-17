@@ -112,6 +112,8 @@ fn db_with(weapons: Vec<WeaponDef>, armors: Vec<ArmorDef>) -> GameDb {
         encounters: HashMap::new(),
         classes: HashMap::new(),
         scenarios: HashMap::new(),
+        campaigns: HashMap::new(),
+        campaign_order: Vec::new(),
     }
 }
 

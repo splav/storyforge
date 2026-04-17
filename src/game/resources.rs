@@ -1,5 +1,6 @@
 use crate::content::abilities::{load_abilities, AbilityDef};
 use crate::content::armor::{load_chest, load_feet, load_legs, ArmorDef};
+use crate::content::campaigns::{load_campaigns, CampaignDef};
 use crate::content::classes::{load_classes, ClassDef};
 use crate::content::encounters::{load_encounters, EncounterDef};
 use crate::content::races::{load_races, FactionDef, PathDef, RaceDef};
@@ -104,6 +105,9 @@ pub struct GameDb {
     pub encounters: HashMap<String, EncounterDef>,
     pub classes: HashMap<String, ClassDef>,
     pub scenarios: HashMap<String, ScenarioDef>,
+    pub campaigns: HashMap<String, CampaignDef>,
+    /// Campaigns in TOML order (for deterministic menu rendering).
+    pub campaign_order: Vec<String>,
 }
 
 impl GameDb {
@@ -168,6 +172,9 @@ impl Default for GameDb {
 
         let (race_list, faction_list, path_list) = load_races();
 
+        let campaign_list = load_campaigns();
+        let campaign_order: Vec<String> = campaign_list.iter().map(|c| c.id.clone()).collect();
+
         let ability_list = load_abilities();
         let keyed_abilities: Vec<AbilityId> = ability_list
             .iter()
@@ -216,6 +223,11 @@ impl Default for GameDb {
                 .into_iter()
                 .map(|s| (s.id.clone(), s))
                 .collect(),
+            campaigns: campaign_list
+                .into_iter()
+                .map(|c| (c.id.clone(), c))
+                .collect(),
+            campaign_order,
         };
         db.validate();
         db
@@ -396,6 +408,20 @@ impl GameDb {
             }
         }
 
+        // Campaigns → scenarios
+        for (id, camp) in &self.campaigns {
+            assert!(
+                !camp.scenario_ids.is_empty(),
+                "campaign '{id}' has no scenarios",
+            );
+            for sid in &camp.scenario_ids {
+                assert!(
+                    self.scenarios.contains_key(sid),
+                    "campaign '{id}' references unknown scenario '{sid}'",
+                );
+            }
+        }
+
         // Scenarios → races, factions, encounters, classes
         for (id, scen) in &self.scenarios {
             for member in &scen.party {
@@ -477,6 +503,13 @@ impl GameDb {
 pub struct ScenarioState {
     pub scenario_id: String,
     pub scene_index: usize,
+}
+
+/// Active campaign progress. Present after the player picks a campaign from the main menu.
+#[derive(Resource)]
+pub struct CampaignState {
+    pub campaign_id: String,
+    pub scenario_index: usize,
 }
 
 // ── Hex positions ────────────────────────────────────────────────────────────

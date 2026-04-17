@@ -1,3 +1,4 @@
+use super::button::{spawn_standard_button, ButtonStyle};
 use super::{StoryContinueButton, StoryScreenRoot};
 use crate::content::scenarios::SceneDef;
 use crate::game::resources::{GameDb, ScenarioState};
@@ -69,28 +70,15 @@ pub fn setup_story_screen(
                     },
                 ));
 
-                root.spawn((
-                    StoryContinueButton,
-                    Button,
-                    Node {
-                        padding: UiRect::axes(Val::Px(24.0), Val::Px(12.0)),
-                        border: UiRect::all(Val::Px(1.5)),
-                        ..default()
-                    },
-                    BorderColor::all(Color::srgb(0.4, 0.4, 0.3)),
-                    BackgroundColor(Color::srgb(0.12, 0.12, 0.10)),
-                ))
-                .with_children(|btn| {
-                    btn.spawn((
-                        Text::new("Продолжить"),
-                        TextFont {
-                            font,
-                            font_size: 16.0,
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                    ));
-                });
+                spawn_standard_button(
+                    root,
+                    font,
+                    "Продолжить",
+                    Val::Auto,
+                    Val::Auto,
+                    ButtonStyle::Default,
+                )
+                .insert(StoryContinueButton);
             });
         });
 }

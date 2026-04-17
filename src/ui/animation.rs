@@ -1,3 +1,4 @@
+use super::button::{spawn_standard_button, ButtonStyle};
 use bevy::prelude::*;
 use std::collections::VecDeque;
 
@@ -30,6 +31,10 @@ pub struct MovePath {
 /// Marker on the enemy action popup root node.
 #[derive(Component)]
 pub struct EnemyActionPopup;
+
+/// Marker on the dismiss button inside the enemy popup.
+#[derive(Component)]
+pub struct EnemyPopupDismissButton;
 
 // ── Run condition ────────────────────────────────────────────────────────────
 
@@ -107,13 +112,16 @@ pub fn animate_movement(
     }
 }
 
-/// Dismisses enemy popup on Space or Esc.
+/// Dismisses enemy popup on Space/Esc or dismiss button click.
 pub fn enemy_popup_input(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     popups: Query<Entity, With<EnemyActionPopup>>,
+    buttons: Query<&Interaction, (Changed<Interaction>, With<EnemyPopupDismissButton>)>,
 ) {
-    if keys.just_pressed(KeyCode::Space) || keys.just_pressed(KeyCode::Escape) {
+    let key_pressed = keys.just_pressed(KeyCode::Space) || keys.just_pressed(KeyCode::Escape);
+    let btn_clicked = buttons.iter().any(|i| *i == Interaction::Pressed);
+    if key_pressed || btn_clicked {
         for entity in &popups {
             commands.entity(entity).despawn();
         }
@@ -166,15 +174,15 @@ fn spawn_enemy_popup(commands: &mut Commands, asset_server: &AssetServer, lines:
                         ..default()
                     },
                 ));
-                panel.spawn((
-                    Text::new("[Пробел / Esc]"),
-                    TextFont {
-                        font,
-                        font_size: 12.0,
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.5, 0.5, 0.45)),
-                ));
+                spawn_standard_button(
+                    panel,
+                    font,
+                    "Продолжить  [Пробел / Esc]",
+                    Val::Auto,
+                    Val::Auto,
+                    ButtonStyle::Default,
+                )
+                .insert(EnemyPopupDismissButton);
             });
         });
 }

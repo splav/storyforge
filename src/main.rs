@@ -68,6 +68,13 @@ fn main() {
                 ui::hex_grid::setup_hex_grid,
             ),
         )
+        // ── Main menu ────────────────────────────────────────────────────
+        .add_systems(OnEnter(AppState::MainMenu), ui::main_menu_ui::setup_main_menu)
+        .add_systems(
+            Update,
+            ui::main_menu_ui::campaign_button_system.run_if(in_state(AppState::MainMenu)),
+        )
+        .add_systems(OnExit(AppState::MainMenu), ui::main_menu_ui::cleanup_main_menu)
         // ── Story ────────────────────────────────────────────────────────
         .add_systems(OnEnter(AppState::Story), ui::story_ui::setup_story_screen)
         .add_systems(
@@ -156,7 +163,6 @@ fn main() {
             Update,
             (
                 ui::combat_ui::defeat_overlay_input,
-                ui::combat_ui::defeat_button_hover,
                 scenario::combat_scene::restart_combat_system,
             )
                 .run_if(in_state(CombatPhase::Defeat)),

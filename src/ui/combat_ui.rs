@@ -527,10 +527,6 @@ pub fn ability_slot_click_system(
 // ── Defeat overlay ────────────────────────────────────────────────────────────
 
 const CLR_OVERLAY_BG: Color = Color::srgba(0.0, 0.0, 0.0, 0.72);
-const CLR_BTN_BG: Color = Color::srgb(0.14, 0.08, 0.08);
-const CLR_BTN_BORDER: Color = Color::srgb(0.60, 0.18, 0.18);
-const CLR_BTN_HOV_BG: Color = Color::srgb(0.22, 0.10, 0.10);
-const CLR_BTN_HOV_BORDER: Color = Color::srgb(0.85, 0.25, 0.25);
 const CLR_MENU_BG: Color = Color::srgb(0.08, 0.06, 0.06);
 const CLR_MENU_BORDER: Color = Color::srgb(0.35, 0.20, 0.20);
 
@@ -574,27 +570,15 @@ pub fn setup_defeat_overlay(mut commands: Commands, font: Res<UiFont>) {
                 ));
 
                 // "Сразиться ещё раз" button
-                panel
-                    .spawn((
-                        RestartButton,
-                        Button,
-                        Node {
-                            padding: UiRect::axes(Val::Px(28.0), Val::Px(12.0)),
-                            border: UiRect::all(Val::Px(1.5)),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        BorderColor::all(CLR_BTN_BORDER),
-                        BackgroundColor(CLR_BTN_BG),
-                    ))
-                    .with_children(|btn| {
-                        btn.spawn((
-                            Text::new("Сразиться ещё раз"),
-                            TextFont { font: font.clone(), font_size: 16.0, ..default() },
-                            TextColor(Color::WHITE),
-                        ));
-                    });
+                super::button::spawn_standard_button(
+                    panel,
+                    font.clone(),
+                    "Сразиться ещё раз",
+                    Val::Auto,
+                    Val::Auto,
+                    super::button::ButtonStyle::Danger,
+                )
+                .insert(RestartButton);
 
                 // Hint
                 panel.spawn((
@@ -632,22 +616,3 @@ pub fn defeat_overlay_input(
     }
 }
 
-pub fn defeat_button_hover(
-    mut buttons: Query<
-        (&Interaction, &mut BorderColor, &mut BackgroundColor),
-        (Changed<Interaction>, With<RestartButton>),
-    >,
-) {
-    for (interaction, mut border, mut bg) in &mut buttons {
-        match interaction {
-            Interaction::Hovered => {
-                *border = BorderColor::all(CLR_BTN_HOV_BORDER);
-                *bg = BackgroundColor(CLR_BTN_HOV_BG);
-            }
-            _ => {
-                *border = BorderColor::all(CLR_BTN_BORDER);
-                *bg = BackgroundColor(CLR_BTN_BG);
-            }
-        }
-    }
-}
