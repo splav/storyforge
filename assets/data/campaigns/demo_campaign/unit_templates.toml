@@ -1,0 +1,34 @@
+# Глобальные шаблоны юнитов.
+#
+# Формат: id + полный стат-блок без позиции. Используется в:
+#  * encounters.toml — enemy может ссылаться через `template = "id"` и переопределять
+#    отдельные скалярные поля или целиком блоки stats/equipment/resources.
+#  * phase-переходах — указать template, чтобы не переписывать все статы фазы.
+#  * (позже) способностях summon для мгновенного призыва.
+
+[[unit_templates]]
+id    = "stormborn_echo"
+name  = "Бурешаман"
+race  = "stormborn"
+path  = "heritage"
+speed = 3
+
+stats     = { max_hp = 30, strength = 4, dexterity = -2, constitution = 8, intelligence = 6, wisdom = 6, charisma = 0 }
+equipment = { main_hand = "staff", chest = "chainmail", legs = "plate_greaves", feet = "iron_boots" }
+resources = { mana = 8 }
+
+ability_ids = ["melee_attack", "thunderstrike", "heal"]
+ai_role     = "mage"
+
+# Слабый мелкий призывной юнит. Шаблон используется способностью `summon_storm_spirit`.
+[[unit_templates]]
+id    = "storm_spirit"
+name  = "Дух бури"
+race  = "stormborn"
+speed = 4
+
+stats     = { max_hp = 6, strength = 3, dexterity = 4, constitution = -2, intelligence = 0, wisdom = 0, charisma = -2 }
+equipment = { main_hand = "short_sword", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
+
+ability_ids = ["melee_attack"]
+ai_role     = "bruiser"

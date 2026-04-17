@@ -1,5 +1,5 @@
 #![allow(clippy::too_many_arguments)]
-use crate::game::components::{Combatant, Faction, StartingHexPos, Team, UnitToken};
+use crate::game::components::{Combatant, Faction, StartingHexPos, Team, UnitToken, VictoryTarget};
 use crate::game::hex::{hex_from_offset, row_cols, Hex, GRID_COLS, GRID_ROWS, HEX_SIZE, LAYOUT};
 use crate::game::resources::HexPositions;
 use bevy::prelude::*;
@@ -12,21 +12,21 @@ pub const GRID_Y_OFFSET: f32 = -30.0;
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 
-pub const CLR_EMPTY: Color = Color::srgb(0.12, 0.12, 0.14);
-pub const CLR_PLAYER: Color = Color::srgb(0.10, 0.14, 0.22);
-pub const CLR_ENEMY: Color = Color::srgb(0.22, 0.10, 0.10);
-pub const CLR_DEAD: Color = Color::srgb(0.15, 0.15, 0.15);
+pub const CLR_EMPTY: Color = Color::srgba(0.12, 0.12, 0.14, 0.45);
+pub const CLR_PLAYER: Color = Color::srgba(0.10, 0.14, 0.22, 0.55);
+pub const CLR_ENEMY: Color = Color::srgba(0.22, 0.10, 0.10, 0.55);
+pub const CLR_DEAD: Color = Color::srgba(0.15, 0.15, 0.15, 0.55);
 pub const CLR_BORDER_ACTIVE: Color = Color::srgb(0.85, 0.75, 0.20);
 pub const CLR_BORDER_TARGET: Color = Color::srgb(0.85, 0.20, 0.20);
-pub const CLR_IN_RANGE: Color = Color::srgb(0.10, 0.20, 0.18);
+pub const CLR_IN_RANGE: Color = Color::srgba(0.10, 0.20, 0.18, 0.35);
 pub const CLR_BORDER_IN_RANGE: Color = Color::srgb(0.20, 0.60, 0.52);
 /// Cells within max range but below min range (disadvantage zone).
-pub const CLR_IN_RANGE_DIM: Color = Color::srgb(0.11, 0.14, 0.14);
+pub const CLR_IN_RANGE_DIM: Color = Color::srgba(0.11, 0.14, 0.14, 0.3);
 pub const CLR_BORDER_IN_RANGE_DIM: Color = Color::srgb(0.18, 0.35, 0.30);
-pub const CLR_MOVE_RANGE: Color = Color::srgb(0.12, 0.20, 0.10);
+pub const CLR_MOVE_RANGE: Color = Color::srgba(0.12, 0.20, 0.10, 0.35);
 pub const CLR_BORDER_MOVE: Color = Color::srgb(0.30, 0.65, 0.25);
 /// AoE blast zone preview.
-pub const CLR_AOE_PREVIEW: Color = Color::srgb(0.22, 0.12, 0.06);
+pub const CLR_AOE_PREVIEW: Color = Color::srgba(0.22, 0.12, 0.06, 0.4);
 pub const CLR_BORDER_AOE: Color = Color::srgb(0.70, 0.35, 0.10);
 
 // ── Components ────────────────────────────────────────────────────────────────
@@ -88,7 +88,11 @@ pub struct HexMaterials {
 
 /// Cached token circle mesh handle.
 #[derive(Resource)]
-pub struct TokenMesh(pub Handle<Mesh>);
+pub struct TokenMesh {
+    pub token: Handle<Mesh>,
+    /// Slightly larger circle, drawn behind the token to form a colored ring.
+    pub ring: Handle<Mesh>,
+}
 
 /// Grid parent transform offset, cached once at setup.
 #[derive(Resource)]
@@ -149,6 +153,7 @@ pub fn setup_hex_grid(
     let hex_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 0.97, 6));
     let border_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 1.06, 6));
     let token_mesh = meshes.add(Circle::new(HEX_SIZE * 0.75));
+    let target_ring_mesh = meshes.add(Circle::new(HEX_SIZE * 0.88));
 
     let mats = HexMaterials {
         empty: materials.add(ColorMaterial::from_color(CLR_EMPTY)),
@@ -224,7 +229,10 @@ pub fn setup_hex_grid(
     ));
 
     commands.insert_resource(mats);
-    commands.insert_resource(TokenMesh(token_mesh));
+    commands.insert_resource(TokenMesh {
+        token: token_mesh,
+        ring: target_ring_mesh,
+    });
 }
 
 // ── System: Assign positions ──────────────────────────────────────────────────
@@ -235,7 +243,8 @@ pub fn setup_hex_grid(
 pub fn assign_hex_positions(
     mut commands: Commands,
     mut positions: ResMut<HexPositions>,
-    combatants: Query<(Entity, &StartingHexPos, &Faction), With<Combatant>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    combatants: Query<(Entity, &StartingHexPos, &Faction, Option<&VictoryTarget>), With<Combatant>>,
     grid_offset: Res<HexGridOffset>,
     mats: Res<HexMaterials>,
     token_mesh: Res<TokenMesh>,
@@ -244,7 +253,7 @@ pub fn assign_hex_positions(
         return;
     }
     positions.clear();
-    for (entity, hex_pos, faction) in &combatants {
+    for (entity, hex_pos, faction, target) in &combatants {
         positions.insert(entity, hex_pos.0);
         commands.entity(entity).remove::<StartingHexPos>();
 
@@ -254,11 +263,24 @@ pub fn assign_hex_positions(
         } else {
             mats.token_enemy.clone()
         };
-        commands.spawn((
-            UnitToken(entity),
-            Mesh2d(token_mesh.0.clone()),
-            MeshMaterial2d(mat),
-            Transform::from_xyz(pixel.x, pixel.y, 0.15),
-        ));
+        commands
+            .spawn((
+                UnitToken(entity),
+                Mesh2d(token_mesh.token.clone()),
+                MeshMaterial2d(mat),
+                Transform::from_xyz(pixel.x, pixel.y, 0.15),
+            ))
+            .with_children(|parent| {
+                if let Some(target) = target {
+                    let [r, g, b] = target.marker_color;
+                    let ring_mat = materials.add(ColorMaterial::from_color(Color::srgb(r, g, b)));
+                    parent.spawn((
+                        Mesh2d(token_mesh.ring.clone()),
+                        MeshMaterial2d(ring_mat),
+                        // Behind the token (negative z relative to parent).
+                        Transform::from_xyz(0.0, 0.0, -0.01),
+                    ));
+                }
+            });
     }
 }

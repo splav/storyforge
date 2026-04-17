@@ -1,0 +1,74 @@
+[[encounters]]
+id   = "beastblood_raid"
+name = "Набег зверокровов"
+
+[[encounters.enemies]]
+name        = "Страж"
+race        = "beastblood"
+speed       = 4
+stats       = { max_hp = 14, strength = 2, dexterity = 4, constitution = 2, intelligence = -4, wisdom = -2, charisma = -4 }
+equipment   = { main_hand = "long_sword", chest = "heavy_plate", legs = "plate_greaves", feet = "iron_boots" }
+ability_ids = ["melee_attack"]
+hex_col     = 6
+hex_row     = 2
+
+[[encounters.enemies]]
+name        = "Налётчик"
+race        = "beastblood"
+speed       = 4
+stats       = { max_hp = 8, strength = 6, dexterity = 0, constitution = 2, intelligence = -4, wisdom = -4, charisma = -4 }
+equipment   = { main_hand = "short_sword", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
+ability_ids = ["melee_attack"]
+hex_col     = 6
+hex_row     = 4
+
+
+[[encounters]]
+id   = "stormborn_camp"
+name = "Стоянка грозорождённых"
+
+# Победа — убить шамана-старшину; остальные враги могут оставаться в живых.
+victory = { type = "kill_target", enemy_name = "Старшина", marker_color = [0.90, 0.15, 0.15] }
+
+[[encounters.enemies]]
+name        = "Воин"
+race        = "stormborn"
+speed       = 3
+stats       = { max_hp = 18, strength = 8, dexterity = -2, constitution = 5, intelligence = -4, wisdom = -2, charisma = -4 }
+equipment   = { main_hand = "long_sword", chest = "plate_armor", legs = "leather_pants", feet = "leather_boots" }
+ability_ids = ["melee_attack"]
+hex_col     = 6
+hex_row     = 2
+
+[[encounters.enemies]]
+name        = "Буревестник"
+race        = "stormborn"
+path        = "heritage"
+speed       = 4
+stats       = { max_hp = 14, strength = 0, dexterity = -2, constitution = 2, intelligence = 4, wisdom = 2, charisma = -2 }
+equipment   = { main_hand = "staff", chest = "chainmail", legs = "cloth_pants", feet = "cloth_shoes" }
+resources   = { mana = 8 }
+ability_ids = ["melee_attack", "thunderstrike", "heal"]
+hex_col     = 6
+hex_row     = 4
+
+[[encounters.enemies]]
+name        = "Старшина"
+race        = "stormborn"
+path        = "heritage"
+speed       = 3
+stats       = { max_hp = 22, strength = 4, dexterity = -2, constitution = 6, intelligence = 2, wisdom = 4, charisma = 0 }
+equipment   = { main_hand = "staff", chest = "chainmail", legs = "plate_greaves", feet = "iron_boots" }
+resources   = { mana = 6 }
+ability_ids = ["melee_attack", "heal", "burn", "summon_storm_spirit"]
+hex_col     = 5
+hex_row     = 3
+
+# Фаза 2: при «смерти» (HP ≤ 1% max) шаман не умирает, а возвращается
+# в облике Бурешамана — берёт статы/абилки/ai_role из шаблона stormborn_echo.
+# Это же VictoryTarget энкаунтера, поэтому игрок должен убить его дважды.
+[[encounters.enemies.phases]]
+hp_below_pct = 1
+template     = "stormborn_echo"
+heal_to_full = true
+flavor       = "Старшина падает — но буря в его крови не даёт ему умереть. Он поднимается, сотканный из грозы и чужого шёпота."

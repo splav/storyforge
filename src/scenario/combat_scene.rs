@@ -1,35 +1,51 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::app_state::CombatPhase;
-use crate::content::scenarios::SceneDef;
+use crate::content::encounters::VictoryCondition;
+use crate::content::scenarios::{active_party, SceneDef};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::role::{self as ai_role, AxisProfile};
 use crate::game::bundles::{enemy_bundle, hero_bundle};
-use crate::game::components::{CombatPath, Combatant, Energy, Equipment, Initiative, Mana, Rage, StartingHexPos, UnitToken};
+use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Initiative, Mana, Rage, StartingHexPos, UnitToken, VictoryTarget};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
-    CombatContext, GameDb, HexPositions, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
+    CombatContext, CombatObjective, GameDb, HexPositions, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
 };
 use crate::combat::enemy_popup::PopupCursor;
 use crate::ui::animation::AnimationQueue;
 use crate::ui::console_log::ConsoleCursor;
 use bevy::prelude::*;
 
+#[derive(Component)]
+pub struct BattleBackground;
+
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
 /// Спаунит героев и врагов по текущему сценарию/энкаунтеру. Только Commands.
-fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioState) {
+fn spawn_combatants(
+    commands: &mut Commands,
+    db: &GameDb,
+    scenario: &ScenarioState,
+    objective: &mut CombatObjective,
+) {
     let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
     let encounter_id = match &scen.scenes[scenario.scene_index] {
-        SceneDef::Combat { encounter_id } => encounter_id,
+        SceneDef::Combat { encounter_id, .. } => encounter_id,
         _ => return,
     };
-    let enc = db.encounters.get(encounter_id.as_str()).unwrap_or_else(|| {
-        panic!("Encounter '{encounter_id}' not found in encounters.toml")
+    let enc = scen.encounters.get(encounter_id.as_str()).unwrap_or_else(|| {
+        panic!(
+            "Encounter '{encounter_id}' not found in scenario '{}'",
+            scen.id
+        )
     });
 
-    for member in &scen.party {
-        let cls = db.classes.get(&member.class_id).unwrap_or_else(|| {
+    objective.0 = enc.victory.clone();
+    let content = &scen.content;
+
+    let party = active_party(scen, scenario.scene_index);
+    for member in &party {
+        let cls = content.classes.get(&member.class_id).unwrap_or_else(|| {
             panic!("Class '{}' not found in classes.toml", member.class_id)
         });
         let equipment = Equipment {
@@ -39,9 +55,9 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
             legs: cls.legs.clone(),
             feet: cls.feet.clone(),
         };
-        let effective = db.effective_stats(&cls.stats, &equipment);
-        let armor = db.equipment_armor(&equipment);
-        let role = ai_role::infer_profile(&cls.abilities, effective.max_hp, armor, db);
+        let effective = content.effective_stats(&cls.stats, &equipment);
+        let armor = content.equipment_armor(&equipment);
+        let role = ai_role::infer_profile(&cls.abilities, effective.max_hp, armor, content);
         let mut ec = commands.spawn((
             Name::new(member.name.clone()),
             hero_bundle(effective, armor, cls.speed, cls.abilities.clone(), equipment),
@@ -63,14 +79,14 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
             legs: enemy.legs.clone(),
             feet: enemy.feet.clone(),
         };
-        let effective = db.effective_stats(&enemy.stats, &equipment);
-        let armor = db.equipment_armor(&equipment);
-        let race_name = db.races.get(&enemy.race).map_or("", |r| r.name.as_str());
+        let effective = content.effective_stats(&enemy.stats, &equipment);
+        let armor = content.equipment_armor(&equipment);
+        let race_name = content.races.get(&enemy.race).map_or("", |r| r.name.as_str());
         let display_name = format!("{} {}", race_name, &enemy.name);
         let role: AxisProfile = enemy.ai_role.as_deref()
             .and_then(ai_role::parse_role)
             .map(Into::into)
-            .unwrap_or_else(|| ai_role::infer_profile(&enemy.ability_ids, effective.max_hp, armor, db));
+            .unwrap_or_else(|| ai_role::infer_profile(&enemy.ability_ids, effective.max_hp, armor, content));
         let mut ec = commands.spawn((
             Name::new(display_name),
             enemy_bundle(effective, armor, enemy.speed, enemy.ability_ids.clone(), equipment),
@@ -82,6 +98,21 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
         if enemy.mana_max > 0 { ec.insert(Mana::new(enemy.mana_max)); }
         if enemy.energy_max > 0 { ec.insert(Energy::new(enemy.energy_max)); }
         if let Some(ref p) = enemy.path { ec.insert(CombatPath(p.clone())); }
+        if let VictoryCondition::KillTarget { enemy_name, marker_color } = &enc.victory {
+            if &enemy.name == enemy_name {
+                ec.insert(VictoryTarget { marker_color: *marker_color });
+            }
+        }
+        if !enemy.phases.is_empty() {
+            ec.insert(EnemyPhases { pending: enemy.phases.clone() });
+        }
+        if let Some(ref aura) = enemy.aura {
+            ec.insert(AuraSource {
+                status: aura.status.clone(),
+                radius: aura.radius,
+                affects: aura.affects,
+            });
+        }
     }
 }
 
@@ -108,20 +139,55 @@ pub fn spawn_combat_scene(
     mut commands: Commands,
     db: Res<GameDb>,
     scenario: Res<ScenarioState>,
+    asset_server: Res<AssetServer>,
+    windows: Query<&Window>,
     mut ctx: ResMut<CombatContext>,
+    mut objective: ResMut<CombatObjective>,
     mut log: ResMut<CombatLog>,
     mut cursor: ResMut<ConsoleCursor>,
     mut popup_cursor: ResMut<PopupCursor>,
     mut anim_queue: ResMut<AnimationQueue>,
 ) {
-    spawn_combatants(&mut commands, &db, &scenario);
+    spawn_combatants(&mut commands, &db, &scenario, &mut objective);
+    spawn_background(&mut commands, &db, &scenario, &asset_server, &windows);
     reset_combat_state(&mut ctx, &mut log, &mut cursor, &mut popup_cursor, &mut anim_queue);
+}
+
+fn spawn_background(
+    commands: &mut Commands,
+    db: &GameDb,
+    scenario: &ScenarioState,
+    asset_server: &AssetServer,
+    windows: &Query<&Window>,
+) {
+    let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
+    let location = match &scen.scenes[scenario.scene_index] {
+        SceneDef::Combat { location: Some(loc), .. } => loc,
+        _ => return,
+    };
+    let rel_path = format!("images/battle_backgrounds/{location}.png");
+    if !std::path::Path::new("assets").join(&rel_path).exists() {
+        warn!("battle background not found: {rel_path}");
+        return;
+    }
+    let handle: Handle<Image> = asset_server.load(&rel_path);
+    let size = windows.single().ok().map(|w| Vec2::new(w.width(), w.height()));
+    commands.spawn((
+        BattleBackground,
+        Sprite {
+            image: handle,
+            custom_size: size,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, -1.0),
+    ));
 }
 
 pub fn despawn_combatants(
     mut commands: Commands,
     combatants: Query<Entity, With<Combatant>>,
     tokens: Query<Entity, With<UnitToken>>,
+    backgrounds: Query<Entity, With<BattleBackground>>,
     mut positions: ResMut<HexPositions>,
     mut queue: ResMut<TurnQueue>,
     mut ctx: ResMut<CombatContext>,
@@ -129,7 +195,7 @@ pub fn despawn_combatants(
     mut anim_queue: ResMut<AnimationQueue>,
     popups: Query<Entity, With<crate::ui::animation::EnemyActionPopup>>,
 ) {
-    for entity in combatants.iter().chain(tokens.iter()).chain(popups.iter()) {
+    for entity in combatants.iter().chain(tokens.iter()).chain(popups.iter()).chain(backgrounds.iter()) {
         commands.entity(entity).despawn();
     }
     positions.clear();
@@ -155,16 +221,21 @@ pub fn restart_combat_system(
     mut positions: ResMut<HexPositions>,
     mut queue: ResMut<TurnQueue>,
     mut ctx: ResMut<CombatContext>,
-    mut log: ResMut<CombatLog>,
-    mut cursor: ResMut<ConsoleCursor>,
-    mut popup_cursor: ResMut<PopupCursor>,
-    mut anim_queue: ResMut<AnimationQueue>,
+    mut objective: ResMut<CombatObjective>,
+    mut reset_bundle: (
+        ResMut<CombatLog>,
+        ResMut<ConsoleCursor>,
+        ResMut<PopupCursor>,
+        ResMut<AnimationQueue>,
+    ),
     mut sel: ResMut<SelectionState>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
 ) {
     if reader.read().next().is_none() {
         return;
     }
+
+    let (log, cursor, popup_cursor, anim_queue) = &mut reset_bundle;
 
     // 1. Save initiative by name.
     preset.0.clear();
@@ -185,8 +256,8 @@ pub fn restart_combat_system(
     sel.clear();
 
     // 3. Spawn fresh combatants + reset state.
-    spawn_combatants(&mut commands, &db, &scenario);
-    reset_combat_state(&mut ctx, &mut log, &mut cursor, &mut popup_cursor, &mut anim_queue);
+    spawn_combatants(&mut commands, &db, &scenario, &mut objective);
+    reset_combat_state(&mut ctx, log, cursor, popup_cursor, anim_queue);
 
     // 4. → StartRound, где assign_hex_positions создаст токены,
     //    а build_turn_order возьмёт инициативу из PresetInitiative.

@@ -147,7 +147,7 @@ pub fn compute_factors(
         .and_then(|t| snap.unit(t))
         .map(|t| target_priority(active, t, snap))
         .unwrap_or(0.0);
-    let intent_val = intent_score(intent, candidate, active, snap, maps, ctx.db, ctx.difficulty);
+    let intent_val = intent_score(intent, candidate, active, snap, maps, ctx.content, ctx.difficulty);
 
     apply_reservation_adjustments(candidate, &mut off, &mut focus, &mut position, snap, ctx, reservations);
 
@@ -170,7 +170,7 @@ fn compute_offensive(
     ctx: &UtilityContext,
     snap: &BattleSnapshot,
 ) -> OffensiveFactors {
-    let Some(def) = ctx.db.abilities.get(ability) else {
+    let Some(def) = ctx.content.abilities.get(ability) else {
         return OffensiveFactors::default();
     };
 
@@ -179,7 +179,7 @@ fn compute_offensive(
         let mut heal = 0.0f32;
         let target_unit = target.and_then(|t| snap.unit(t));
         if let Some(target_unit) = target_unit {
-            let raw = score_action(def, target_unit, ctx.caster, ctx.db);
+            let raw = score_action(def, target_unit, ctx.caster, ctx.content);
             let adjusted = crit_fail_adjusted(raw, def, &ctx.crit_fail_effect, ctx.crit_fail_chance);
             if def.target_type == TargetType::SingleAlly {
                 heal = adjusted;
@@ -238,19 +238,19 @@ fn compute_aoe_damage(
     let mut damage = 0.0f32;
     for enemy in snap.enemies_of(active.team) {
         if area.contains(&enemy.pos) {
-            damage += score_action(def, enemy, ctx.caster, ctx.db);
+            damage += score_action(def, enemy, ctx.caster, ctx.content);
         }
     }
     if def.friendly_fire {
         for ally in snap.allies_of(active.team) {
             if area.contains(&ally.pos) {
-                let raw = score_action(def, ally, ctx.caster, ctx.db).abs();
+                let raw = score_action(def, ally, ctx.caster, ctx.content).abs();
                 let hp_fraction = raw / ally.max_hp.max(1) as f32;
                 damage -= raw * (1.0 + hp_fraction);
             }
         }
         if area.contains(&active.pos) {
-            let raw = score_action(def, active, ctx.caster, ctx.db).abs();
+            let raw = score_action(def, active, ctx.caster, ctx.content).abs();
             let hp_fraction = raw / active.max_hp.max(1) as f32;
             damage -= raw * (1.0 + hp_fraction);
         }
@@ -280,7 +280,7 @@ fn status_cc_value(
     def.statuses
         .iter()
         .map(|sa| {
-            let Some(sd) = ctx.db.statuses.get(&sa.status) else { return 0.0 };
+            let Some(sd) = ctx.content.statuses.get(&sa.status) else { return 0.0 };
             let d = sa.duration_rounds as f32;
             let mut val = 0.0f32;
             if sd.skips_turn {
@@ -343,7 +343,7 @@ fn compute_scarcity(
     let CandidateKind::Cast { ability, target_pos, target } = &candidate.kind else {
         return 0.0;
     };
-    let Some(def) = ctx.db.abilities.get(ability) else {
+    let Some(def) = ctx.content.abilities.get(ability) else {
         return 0.0;
     };
 
@@ -412,7 +412,7 @@ fn compute_scarcity(
 
     // CC on high-threat unstunned target. Non-AoE only — AoE CC is already
     // folded into the cc factor per-enemy.
-    if applies_cc(def, ctx.db) {
+    if applies_cc(def, ctx.content) {
         if let Some(t) = target_unit {
             if !t.tags.contains(AiTags::IS_STUNNED) {
                 swing += 0.5 * (t.threat / 10.0).min(1.0);
@@ -438,7 +438,7 @@ fn compute_scarcity(
 /// Returns true if the caster has at least one ability with no resource cost.
 fn has_free_attack(ctx: &UtilityContext) -> bool {
     ctx.abilities.0.iter().any(|id| {
-        ctx.db
+        ctx.content
             .abilities
             .get(id)
             .is_some_and(|d| d.costs.is_empty() && d.target_type == TargetType::SingleEnemy)
@@ -479,12 +479,13 @@ pub fn crit_fail_adjusted(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::content_view::ContentView;
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::role::{AiRole, AxisProfile};
     use crate::content::abilities::CasterContext;
     use crate::game::components::{Abilities, Team};
     use crate::game::hex::hex_from_offset;
-    use crate::game::resources::GameDb;
+    
 
     fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
         UnitSnapshot {
@@ -532,12 +533,12 @@ mod tests {
     }
 
     fn scarcity_ctx<'a>(
-        db: &'a GameDb,
+        content: &'a ContentView,
         difficulty: &'a DifficultyProfile,
         abilities: &'a Abilities,
     ) -> UtilityContext<'a> {
         UtilityContext {
-            db,
+            content,
             difficulty,
             caster: &CasterContext { str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None },
             abilities,
@@ -553,10 +554,10 @@ mod tests {
         let active = unit(0, Team::Enemy, tile);
         let enemy = unit(1, Team::Player, hex_from_offset(3, 3));
         let s = snap(vec![active.clone(), enemy.clone()]);
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = scarcity_ctx(&db, &diff, &abilities);
+        let ctx = scarcity_ctx(&content, &diff, &abilities);
 
         let c = candidate(tile, enemy.entity);
         let score = compute_scarcity(&c, &active, 0.0, &ctx, &s);
@@ -574,10 +575,10 @@ mod tests {
         enemy.max_hp = 20;
 
         let s = snap(vec![active.clone(), enemy.clone()]);
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
-        let ctx = scarcity_ctx(&db, &diff, &abilities);
+        let ctx = scarcity_ctx(&content, &diff, &abilities);
 
         let c = cast(tile, "fireball", enemy.pos, enemy.entity);
         let score = compute_scarcity(&c, &active, 0.0, &ctx, &s);
@@ -600,10 +601,10 @@ mod tests {
         enemy.max_hp = 20;
 
         let s = snap(vec![active.clone(), enemy.clone()]);
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
-        let ctx = scarcity_ctx(&db, &diff, &abilities);
+        let ctx = scarcity_ctx(&content, &diff, &abilities);
 
         let c = cast(tile, "fireball", enemy.pos, enemy.entity);
         let score = compute_scarcity(&c, &active, 1.0, &ctx, &s);
@@ -631,10 +632,10 @@ mod tests {
             active_unit: active.entity,
             round: 3,
         };
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
-        let ctx = scarcity_ctx(&db, &diff, &abilities);
+        let ctx = scarcity_ctx(&content, &diff, &abilities);
 
         let c = cast(tile, "fireball", e1.pos, e1.entity);
         let score = compute_scarcity(&c, &active, 0.0, &ctx, &s);
@@ -653,10 +654,10 @@ mod tests {
 
         let enemy = unit(1, Team::Player, hex_from_offset(3, 3));
 
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let abilities = Abilities(vec!["fireball".into()]);
-        let ctx = scarcity_ctx(&db, &diff, &abilities);
+        let ctx = scarcity_ctx(&content, &diff, &abilities);
 
         let c = cast(tile, "fireball", enemy.pos, enemy.entity);
 

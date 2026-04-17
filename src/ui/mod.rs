@@ -1,3 +1,4 @@
+pub mod ability_panel;
 pub mod animation;
 pub mod button;
 pub mod combat_ui;
@@ -5,6 +6,8 @@ pub mod console_log;
 pub mod hex_grid;
 pub mod log_ui;
 pub mod main_menu_ui;
+pub mod modal;
+pub mod settings_ui;
 pub mod story_ui;
 pub mod turn_order_ui;
 
@@ -45,6 +48,15 @@ pub struct AbilitySlot(pub usize);
 /// Marker on the Text child inside an AbilitySlot.
 #[derive(Component)]
 pub struct AbilitySlotLabel(pub usize);
+
+/// Marker on the panel below the ability slots that shows the full description
+/// of the currently selected ability.
+#[derive(Component)]
+pub struct AbilityDescPanel;
+
+/// Marker on the text node inside `AbilityDescPanel`.
+#[derive(Component)]
+pub struct AbilityDescText;
 
 /// Root of the defeat overlay (despawned on phase exit).
 #[derive(Component)]

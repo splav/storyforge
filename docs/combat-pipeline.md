@@ -2,11 +2,13 @@
 
 ## System Chain
 
-12 systems in `CombatPhase::AwaitCommand`, gated by `combat_ready()` (no active animations or popups). Ordered via `.after()` — parallel where independent:
+Systems in `CombatPhase::AwaitCommand`, grouped by `CombatStep` sets, gated by `combat_ready()` (no active animations or popups). Ordered via `.chain()` within sets, sets themselves chained: `TurnStart → Command → Execute → Finalize`.
 
 ```
-turn_start → skip_dead → skip_stunned ─┬→ pact_ai ─→ player_command ─┬→ movement → validate → resolve → apply_effects ─┬→ queue_enemy_popup
-                                        └→ enemy_ai ─────────────────┘                                                  └→ advance_turn
+TurnStart: turn_start → skip_dead → skip_stunned → apply_auras
+Command:   pact_ai → player_command ∥ enemy_ai
+Execute:   movement → validate → resolve → apply_effects → apply_spawn → phase_transition
+Finalize:  queue_enemy_popup ∥ advance_turn
 ```
 
 `pact_ai` обрабатывает героев под статусом `pact_control` (крит-провал пакта) — они действуют как AI, стоит до `player_command` чтобы перехватить ход.
@@ -51,6 +53,9 @@ Fires once per turn (when `ActiveCombatant` entity differs from `Local<Option<En
 ### skip_dead_turn_system / skip_stunned_turn_system
 Dead actor → immediate EndTurn. Stunned actor (`skips_turn` status) → `ap.action = false`, `ap.movement = false`, EndTurn.
 
+### apply_auras_system
+Runs in `TurnStart` after skip_stunned. For each alive `AuraSource`, applies its status (with `duration = 1`, `applier = source`) to every entity in range matching `affects`. Removes aura-applied statuses from targets whose source died or who left the radius. Never stomps a same-id status applied by a non-aura means (ability cast survives, aura re-covers after it expires). Known limitation: there's a 1-turn lag when a unit enters a radius mid-turn — disadvantage kicks in starting the next turn.
+
 ### player_command_system
 Only for `Team::Player`. Handles:
 - **1-5**: select ability slot (clears move_mode)
@@ -84,7 +89,11 @@ Respects `forces_targeting` (taunt).
 Processes `MoveUnit` messages. Validates: actor is active, has movement, path ≤ speed (or BonusMovement), destination empty and in bounds. Updates `HexPositions` (increments `generation` counter for precise UI change detection). Removes `BonusMovement` after use. Pushes `PendingAnim::Movement` to `AnimationQueue` for smooth token animation.
 
 ### queue_enemy_popup
-Scans new `CombatLog` events (via `PopupCursor` cursor). When an enemy's `AbilityUsed` is found, collects associated result events (DamageResult, HealResult, StatusApplied, UnitDied) and pushes `PendingAnim::Popup` to `AnimationQueue`. Player dismissed with Space/Esc.
+Scans new `CombatLog` events (via `PopupCursor` cursor). Emits `PendingAnim::Popup` for:
+- **Enemy `AbilityUsed`** — collects following result events (DamageResult, HealResult, StatusApplied, UnitDied) into one popup.
+- **`PhaseEntered`** — self-contained popup with `prev_name`, "Новая фаза: next_name", and optional `flavor` narrative line.
+
+Player dismisses with Space/Esc.
 
 ### validate_action_system
 Checks: actor is active, alive, has `ap.action`, ability in list, rage/mana affordable, target alive, target in range (`hex_distance ≤ ability.range`, skipped for range == 0). If validation rejects the ability, sends `EndTurn` to prevent infinite loops (e.g. AI picks MoveAndCast but target ends up out of range after movement).
@@ -104,6 +113,20 @@ Subtracts rage/mana costs. Applies status effects. Sends EndTurn (except GrantMo
 - **Damage**: `max(1, raw - armor - armor_bonus + damage_taken_bonus)`. Piercing ignores armor/armor_bonus. Grants +1 rage to both source and target.
 - **Heal**: amount capped at max_hp.
 - **Death**: HP ≤ 0 → insert `Dead` component.
+
+### apply_spawn_system
+Processes `SpawnUnit` messages emitted by `resolve_action_system` for `EffectDef::Summon` abilities. Resolves the template via the scenario's `characters` + current campaign's `unit_templates` (scenario wins). Blocked states logged as `SummonBlocked`:
+- Template id not found in either pool.
+- No free hex within the summon search radius.
+- Caster's concurrent-summon count ≥ `max_active`.
+
+On success: spawns the combatant entity with full bundle + `SummonedBy(caster)`, inserts into `HexPositions`, spawns a `UnitToken` (the normal `assign_hex_positions` path only runs at StartRound and is intentionally skipped here). New unit joins the turn queue at the next StartRound with `Initiative(0)`.
+
+### phase_transition_system
+Runs in `Execute` **after** `apply_effects_system` and **before** `advance_turn_system`. For each enemy with pending `EnemyPhases`: if the first phase's trigger fires (`HpBelowPct`), the phase is applied in-place (new `CombatStats`, `Abilities`, `AxisProfile`, optional heal-to-full, name rename, `Dead` removal). Emits `CombatEvent::PhaseEntered { prev_name, next_name, flavor }` which `queue_enemy_popup` turns into a popup. The `VictoryTarget` marker is NOT removed on transition — a `kill_target` boss must be defeated through all phases.
+
+### advance_turn_system
+Checks victory via `CombatObjective`: `AllEnemiesDead` (no living enemy) or `KillTarget` (no living entity with `VictoryTarget`). Players alive check is shared.
 
 ### advance_turn_system
 1. Tick existing statuses: decrement `rounds_remaining` for statuses applied by the current actor

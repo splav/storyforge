@@ -72,3 +72,12 @@ pub struct EndTurn {
 /// Перезапустить текущий бой: восстановить всех участников, сохранив инициативу.
 #[derive(Message)]
 pub struct RestartCombat;
+
+/// Эмитируется `resolve_action_system` при использовании способности с
+/// `EffectDef::Summon`. Обрабатывается `apply_spawn_system` в `CombatStep::Execute`.
+#[derive(Message, Clone)]
+pub struct SpawnUnit {
+    pub summoner: Entity,
+    pub template_id: String,
+    pub max_active: Option<u32>,
+}

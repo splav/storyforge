@@ -1,12 +1,14 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
+use crate::content::content_view::{ActiveContent, ContentView};
 use crate::app_state::CombatPhase;
 use crate::core::DiceRng;
+use crate::content::encounters::VictoryCondition;
 use crate::game::components::{
-    ActionPoints, ActiveCombatant, ActiveStatus, Combatant, Dead, Faction, StatusEffects, Team, Vital,
+    ActionPoints, ActiveCombatant, ActiveStatus, Combatant, Dead, Faction, StatusEffects, Team, Vital, VictoryTarget,
 };
 use crate::game::messages::{ApplyStatus, EndTurn};
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::resources::{GameDb, TurnQueue};
+use crate::game::resources::{CombatObjective, TurnQueue};
 use bevy::prelude::*;
 
 /// Consumes EndTurn and ApplyStatus messages.
@@ -18,7 +20,7 @@ pub fn advance_turn_system(
     mut status_events: MessageReader<ApplyStatus>,
     mut queries: ParamSet<(
         Query<&mut Vital>,
-        Query<(&Vital, &Faction), With<Combatant>>,
+        Query<(&Vital, &Faction, Option<&VictoryTarget>), With<Combatant>>,
     )>,
     mut action_points: Query<&mut ActionPoints>,
     mut statuses: Query<(Entity, &mut StatusEffects)>,
@@ -27,7 +29,8 @@ pub fn advance_turn_system(
     mut queue: ResMut<TurnQueue>,
     mut log: ResMut<CombatLog>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
+    objective: Res<CombatObjective>,
     mut rng: ResMut<DiceRng>,
 ) {
     // Consume all EndTurn messages (prevents leaking to next frame).
@@ -42,7 +45,7 @@ pub fn advance_turn_system(
     log.push(CombatEvent::TurnEnded { actor });
 
     // 1. Tick EXISTING statuses applied by this actor (before new ones are added).
-    let tick_results = tick_status_durations(actor, &mut statuses, &db);
+    let tick_results = tick_status_durations(actor, &mut statuses, &content);
     // Apply DoT damage and log expired statuses.
     {
         let mut vitals = queries.p0();
@@ -91,7 +94,7 @@ pub fn advance_turn_system(
         }
         if let Ok((_, mut se)) = statuses.get_mut(*target) {
             se.0.retain(|s| s.id != *status);
-            let dot_per_tick = db.statuses.get(status)
+            let dot_per_tick = content.statuses.get(status)
                 .and_then(|sd| sd.dot_dice.as_ref())
                 .map(|dice| rng.roll_dice(dice).0)
                 .unwrap_or(0);
@@ -105,7 +108,7 @@ pub fn advance_turn_system(
     }
 
     // 3. Win/lose check.
-    if let Some(outcome) = check_combat_end(&queries.p1()) {
+    if let Some(outcome) = check_combat_end(&queries.p1(), &objective.0) {
         end_combat(outcome, &mut log, &mut next_phase);
         return;
     }
@@ -124,7 +127,7 @@ pub fn advance_turn_system(
             break;
         }
         if let Some(dead_entity) = current {
-            let tick_results = tick_status_durations(dead_entity, &mut statuses, &db);
+            let tick_results = tick_status_durations(dead_entity, &mut statuses, &content);
             let mut vitals = queries.p0();
             for result in &tick_results {
                 match result {
@@ -171,7 +174,7 @@ pub fn advance_turn_system(
 
     // 5. Recheck win/lose — DoT during the advance loop may have killed
     //    the last remaining player or enemy.
-    if let Some(outcome) = check_combat_end(&queries.p1()) {
+    if let Some(outcome) = check_combat_end(&queries.p1(), &objective.0) {
         end_combat(outcome, &mut log, &mut next_phase);
         return;
     }
@@ -193,17 +196,26 @@ pub fn advance_turn_system(
 
 /// Returns `Some(true)` for victory, `Some(false)` for defeat, `None` if combat continues.
 fn check_combat_end(
-    combatants: &Query<(&Vital, &Faction), With<Combatant>>,
+    combatants: &Query<(&Vital, &Faction, Option<&VictoryTarget>), With<Combatant>>,
+    objective: &VictoryCondition,
 ) -> Option<bool> {
-    let players_alive = combatants.iter().any(|(v, f)| v.is_alive() && f.0 == Team::Player);
-    let enemies_alive = combatants.iter().any(|(v, f)| v.is_alive() && f.0 == Team::Enemy);
-
-    if !enemies_alive {
-        Some(true)
-    } else if !players_alive {
-        Some(false)
-    } else {
-        None
+    let players_alive = combatants.iter().any(|(v, f, _)| v.is_alive() && f.0 == Team::Player);
+    if !players_alive {
+        return Some(false);
+    }
+    match objective {
+        VictoryCondition::AllEnemiesDead => {
+            let enemies_alive = combatants
+                .iter()
+                .any(|(v, f, _)| v.is_alive() && f.0 == Team::Enemy);
+            if enemies_alive { None } else { Some(true) }
+        }
+        VictoryCondition::KillTarget { .. } => {
+            let target_alive = combatants
+                .iter()
+                .any(|(v, _, tag)| v.is_alive() && tag.is_some());
+            if target_alive { None } else { Some(true) }
+        }
     }
 }
 
@@ -227,7 +239,7 @@ enum TickResult {
 fn tick_status_durations(
     actor: Entity,
     statuses: &mut Query<(Entity, &mut StatusEffects)>,
-    db: &GameDb,
+    content: &ContentView,
 ) -> Vec<TickResult> {
     let mut results = Vec::new();
     for (target, mut se) in statuses.iter_mut() {
@@ -244,7 +256,7 @@ fn tick_status_durations(
                 });
             }
             // Percentage-based DoT (heritage exhaustion).
-            if let Some(sd) = db.statuses.get(&s.id) {
+            if let Some(sd) = content.statuses.get(&s.id) {
                 if sd.hp_percent_dot > 0 {
                     results.push(TickResult::PercentDot {
                         target,

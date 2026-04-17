@@ -9,6 +9,7 @@ hexx  = { version = "0.24", features = ["bevy", "algorithms"] }
 serde = { version = "1", features = ["derive"] }
 toml  = "0.8"
 bitflags = "2"
+directories = "6"
 
 [profile.dev]
 opt-level = 1

@@ -21,6 +21,35 @@ pub struct StartingHexPos(pub hexx::Hex);
 #[derive(Component, Default)]
 pub struct Dead;
 
+/// Marker: this combatant is the KillTarget for the current encounter.
+/// When it dies, combat ends in victory. `marker_color` drives a ring under its token.
+#[derive(Component, Clone, Copy)]
+pub struct VictoryTarget {
+    pub marker_color: [f32; 3],
+}
+
+/// Pending phase transformations for an enemy, in declaration order.
+/// Each entry is applied at most once when its trigger fires, then removed.
+#[derive(Component, Debug, Clone)]
+pub struct EnemyPhases {
+    pub pending: Vec<crate::content::encounters::PhaseDef>,
+}
+
+/// Passive aura: while this unit is alive, every target matching `affects`
+/// within `radius` hexes gets `status` (re-)applied at TurnStart with duration=1.
+/// Removed automatically when the source dies or the target leaves range.
+#[derive(Component, Debug, Clone)]
+pub struct AuraSource {
+    pub status: StatusId,
+    pub radius: u32,
+    pub affects: crate::content::encounters::AuraAffects,
+}
+
+/// Marker pointing at the summoner that brought this unit into the encounter.
+/// Used only for `max_active` caps — summons outlive their summoner by default.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SummonedBy(pub Entity);
+
 
 #[derive(Component, Default)]
 pub struct PartyMember;

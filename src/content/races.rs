@@ -73,13 +73,21 @@ struct CritFailRecord {
     effect_type: String,
 }
 
-const RACES_PATH: &str = "assets/data/races.toml";
+pub const RACES_FILE: &str = "races.toml";
 
 pub fn load_races() -> (Vec<RaceDef>, Vec<FactionDef>, Vec<PathDef>) {
-    let src = std::fs::read_to_string(RACES_PATH)
-        .unwrap_or_else(|e| panic!("Cannot read {RACES_PATH}: {e}"));
+    let path = format!("assets/data/{RACES_FILE}");
+    if !std::path::Path::new(&path).is_file() {
+        return (Vec::new(), Vec::new(), Vec::new());
+    }
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+    parse_races(&path, &src)
+}
+
+pub fn parse_races(path: &str, src: &str) -> (Vec<RaceDef>, Vec<FactionDef>, Vec<PathDef>) {
     let file: RaceFile =
-        toml::from_str(&src).unwrap_or_else(|e| panic!("Cannot parse {RACES_PATH}: {e}"));
+        toml::from_str(src).unwrap_or_else(|e| panic!("Cannot parse {path}: {e}"));
 
     let races = file
         .races
@@ -111,7 +119,7 @@ pub fn load_races() -> (Vec<RaceDef>, Vec<FactionDef>, Vec<PathDef>) {
                     "circuit_breach" => CritFailEffect::CircuitBreach,
                     "exhaustion" => CritFailEffect::Exhaustion,
                     "pact_control" => CritFailEffect::PactControl,
-                    other => panic!("{RACES_PATH}: unknown crit_fail_effect type '{other}'"),
+                    other => panic!("{path}: unknown crit_fail_effect type '{other}'"),
                 },
             };
             PathDef {

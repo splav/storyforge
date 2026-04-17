@@ -98,10 +98,16 @@ pub enum EffectDef {
     GrantMovement {
         distance: i32,
     },
-    /// Restores all resources (mana, rage, energy) by 1.
+    /// Restores HP and all resources (mana, rage, energy) by 1.
     RestoreResources,
     /// UI-only: toggles move mode. Does not go through resolution pipeline.
     ToggleMoveMode,
+    /// Instantiates a new combatant from a unit template at a free hex near the caster.
+    /// `max_active` caps concurrent summons from one caster; `None` = unlimited.
+    Summon {
+        template: String,
+        max_active: Option<u32>,
+    },
 }
 
 // ── Unified effect computation ──────────────────────────────────────────────
@@ -178,7 +184,8 @@ impl EffectDef {
             EffectDef::None
             | EffectDef::GrantMovement { .. }
             | EffectDef::RestoreResources
-            | EffectDef::ToggleMoveMode => None,
+            | EffectDef::ToggleMoveMode
+            | EffectDef::Summon { .. } => None,
         }
     }
 }
@@ -223,6 +230,10 @@ struct AbilityRecord {
     magic_method: String,
     #[serde(default)]
     key: Option<String>,
+    #[serde(default)]
+    summon_template: Option<String>,
+    #[serde(default)]
+    summon_max_active: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -238,13 +249,23 @@ struct CostRecord {
     amount: i32,
 }
 
-const ABILITIES_PATH: &str = "assets/data/abilities.toml";
+pub const ABILITIES_FILE: &str = "abilities.toml";
 
+/// Reads the global layer's `abilities.toml`. Returns empty vec if missing.
 pub fn load_abilities() -> Vec<AbilityDef> {
-    let src = std::fs::read_to_string(ABILITIES_PATH)
-        .unwrap_or_else(|e| panic!("Cannot read {ABILITIES_PATH}: {e}"));
+    let path = format!("assets/data/{ABILITIES_FILE}");
+    if !std::path::Path::new(&path).is_file() {
+        return Vec::new();
+    }
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+    parse_abilities(&path, &src)
+}
+
+/// Parses a `abilities.toml` body. `path` is for error messages only.
+pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
     let file: AbilityFile =
-        toml::from_str(&src).unwrap_or_else(|e| panic!("Cannot parse {ABILITIES_PATH}: {e}"));
+        toml::from_str(src).unwrap_or_else(|e| panic!("Cannot parse {path}: {e}"));
 
     file.abilities
         .into_iter()
@@ -253,7 +274,7 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 "single_enemy" => TargetType::SingleEnemy,
                 "single_ally" => TargetType::SingleAlly,
                 "myself" => TargetType::Myself,
-                other => panic!("{ABILITIES_PATH}: unknown target_type '{other}'"),
+                other => panic!("{path}: unknown target_type '{other}'"),
             };
             let need_dice = |id: &str, count: Option<u32>, sides: Option<u32>| {
                 DiceExpr::new(
@@ -279,7 +300,13 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 },
                 "restore_resources" => EffectDef::RestoreResources,
                 "toggle_move_mode" => EffectDef::ToggleMoveMode,
-                other => panic!("{ABILITIES_PATH}: unknown effect '{other}'"),
+                "summon" => EffectDef::Summon {
+                    template: r.summon_template.clone().unwrap_or_else(|| {
+                        panic!("{path}: ability '{}' effect=summon missing summon_template", r.id)
+                    }),
+                    max_active: r.summon_max_active,
+                },
+                other => panic!("{path}: unknown effect '{other}'"),
             };
             let statuses = r
                 .statuses
@@ -288,7 +315,7 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                     let on = match s.on.as_str() {
                         "target" => StatusOn::Target,
                         "self" => StatusOn::MySelf,
-                        other => panic!("{ABILITIES_PATH}: unknown status 'on' value '{other}'"),
+                        other => panic!("{path}: unknown status 'on' value '{other}'"),
                     };
                     StatusApplication {
                         status: StatusId::from(s.id.as_str()),
@@ -301,7 +328,7 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                 "" | "none" => AoEShape::None,
                 "circle" => AoEShape::Circle { radius: r.aoe_size },
                 "line" => AoEShape::Line { length: r.aoe_size },
-                other => panic!("{ABILITIES_PATH}: ability '{}' unknown aoe '{other}'", r.id),
+                other => panic!("{path}: ability '{}' unknown aoe '{other}'", r.id),
             };
             let costs: Vec<ResourceCost> = r
                 .costs
@@ -312,7 +339,7 @@ pub fn load_abilities() -> Vec<AbilityDef> {
                         "mana" => ResourceKind::Mana,
                         "rage" => ResourceKind::Rage,
                         "energy" => ResourceKind::Energy,
-                        other => panic!("{ABILITIES_PATH}: ability '{}' unknown resource '{other}'", r.id),
+                        other => panic!("{path}: ability '{}' unknown resource '{other}'", r.id),
                     };
                     ResourceCost { resource, amount: c.amount }
                 })
@@ -320,7 +347,7 @@ pub fn load_abilities() -> Vec<AbilityDef> {
             let is_magical = !r.magic_domains.is_empty() || !r.magic_method.is_empty();
             if is_magical {
                 let has_mana_cost = costs.iter().any(|c| c.resource == ResourceKind::Mana && c.amount > 0);
-                assert!(has_mana_cost, "{ABILITIES_PATH}: magical ability '{}' must have a mana cost", r.id);
+                assert!(has_mana_cost, "{path}: magical ability '{}' must have a mana cost", r.id);
             }
 
             AbilityDef {

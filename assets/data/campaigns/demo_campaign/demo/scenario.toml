@@ -1,0 +1,68 @@
+# id сценария = имя папки ("demo"). Не повторяем его в файле.
+name = "Тропа через пограничье"
+
+# Локальный character pool сценария вынесен в соседний characters.toml.
+
+# Стартовая партия — без Kael. Он присоединится после первого боя.
+[[party]]
+name    = "Aldric"
+race    = "human"
+faction = "aurum"
+class   = "warrior"
+hex_col = 1
+hex_row = 2
+
+[[party]]
+name    = "Lyra"
+race    = "human"
+faction = "askeria"
+path    = "will"
+class   = "mage"
+hex_col = 1
+hex_row = 4
+
+[[scenes]]
+type = "story"
+lines = [
+  { speaker = "Рассказчик", text = "Отряд пробирается через тёмный лес." },
+  { speaker = "Рассказчик", text = "В воздухе висит запах дыма." },
+  { speaker = "Aldric", text = "Впереди движение. Зверокровы?" },
+  { speaker = "Lyra", text = "Только их силуэты. К оружию." },
+]
+
+[[scenes]]
+type = "combat"
+encounter = "beastblood_raid"
+location = "hills"
+on_victory_flags = ["beastblood_routed"]
+
+# После первого боя Kael появляется и присоединяется. party_add применяется
+# на Continue после последней реплики, перед следующей сценой.
+[[scenes]]
+type = "story"
+lines = [
+  { speaker = "Рассказчик", text = "Зверокровы отступили в чащу." },
+  { speaker = "Kael", text = "Я шёл по их следу с утра. Вы избавили меня от лишней работы.", requires_flag = "beastblood_routed" },
+  { speaker = "Lyra", text = "Вдали грохочет буря — и это не гром." },
+  { speaker = "Kael", text = "Грозорождённые. Они разбили лагерь в холмах. Без проводника не дойдёте." },
+  { speaker = "Aldric", text = "Тогда веди." },
+]
+[[scenes.party_add]]
+name    = "Kael"
+race    = "human"
+class   = "ranger"
+hex_col = 0
+hex_row = 3
+
+[[scenes]]
+type = "combat"
+encounter = "stormborn_camp"
+location = "hills"
+on_victory_flags = ["stormborn_scattered"]
+
+[[scenes]]
+type = "story"
+lines = [
+  { speaker = "Рассказчик", text = "Стоянка грозорождённых зачищена. Путь через пограничье свободен." },
+  { speaker = "Aldric", text = "Идём дальше. Конец демо." },
+]

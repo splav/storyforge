@@ -1,9 +1,10 @@
 #![allow(clippy::too_many_arguments)]
+use crate::content::content_view::ActiveContent;
 use crate::combat::ai::enemy_turn::has_ai_control_status;
 use crate::content::abilities::{EffectDef, TargetType};
 use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, StatusEffects, Team};
 use crate::game::messages::{EndTurn, UseAbility};
-use crate::game::resources::{GameDb, HexPositions, SelectionState};
+use crate::game::resources::{HexPositions, SelectionState};
 use bevy::prelude::*;
 
 /// Map a single-char key string from TOML to a Bevy `KeyCode`.
@@ -28,7 +29,7 @@ fn key_str_to_keycode(key: &str) -> Option<KeyCode> {
 
 pub fn player_command_system(
     keyboard: Res<ButtonInput<KeyCode>>,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     positions: Res<HexPositions>,
     mut selection: ResMut<SelectionState>,
     mut use_ability: MessageWriter<UseAbility>,
@@ -46,7 +47,7 @@ pub fn player_command_system(
         return;
     }
     // Skip AI-controlled heroes (pact effect).
-    if has_ai_control_status(actor, &statuses, &db) {
+    if has_ai_control_status(actor, &statuses, &content) {
         return;
     }
 
@@ -69,7 +70,7 @@ pub fn player_command_system(
         selection.selected_ability = c.abilities.0.first().cloned();
         selection.move_mode = false;
         if let Some(ref id) = selection.selected_ability.clone() {
-            if let Some(def) = db.abilities.get(id.0.as_str()) {
+            if let Some(def) = content.abilities.get(id.0.as_str()) {
                 if def.target_type == TargetType::Myself {
                     selection.selected_target = Some(actor);
                 }
@@ -78,8 +79,8 @@ pub fn player_command_system(
     }
 
     // Custom-keyed abilities (universal: move, rest, etc.).
-    for keyed_id in &db.keyed_abilities {
-        let Some(def) = db.abilities.get(keyed_id) else { continue };
+    for keyed_id in &content.keyed_abilities {
+        let Some(def) = content.abilities.get(keyed_id) else { continue };
         let Some(ref key_str) = def.key else { continue };
         let Some(keycode) = key_str_to_keycode(key_str) else { continue };
         if !keyboard.just_pressed(keycode) {
@@ -118,7 +119,7 @@ pub fn player_command_system(
     for (i, &key) in slot_keys.iter().enumerate() {
         if keyboard.just_pressed(key) {
             if let Some(ability_id) = c.abilities.0.get(i).cloned() {
-                if let Some(def) = db.abilities.get(ability_id.0.as_str()) {
+                if let Some(def) = content.abilities.get(ability_id.0.as_str()) {
                     if def.target_type == TargetType::Myself {
                         selection.selected_target = Some(actor);
                     }
@@ -146,7 +147,7 @@ pub fn player_command_system(
         let target_type = selection
             .selected_ability
             .as_ref()
-            .and_then(|id| db.abilities.get(id.0.as_str()))
+            .and_then(|id| content.abilities.get(id.0.as_str()))
             .map(|def| def.target_type);
 
         if matches!(target_type, Some(TargetType::Myself)) {

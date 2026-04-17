@@ -3,20 +3,21 @@ use bevy::prelude::*;
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat;
 use storyforge::combat::CombatStep;
-use storyforge::content::settings::load_settings;
+use storyforge::persistence::{detect_paths, settings_repo, PersistencePlugin};
 use storyforge::core::DiceRng;
 use storyforge::game::messages::{
-    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, RestartCombat, StartCombat,
+    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, RestartCombat, SpawnUnit, StartCombat,
     UseAbility, ValidatedAction,
 };
 use storyforge::game::combat_log::CombatLog;
-use storyforge::game::resources::{CombatContext, GameDb, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty};
+use storyforge::game::resources::{CombatContext, CombatObjective, GameDb, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty};
 use storyforge::scenario;
 use storyforge::ui;
 use storyforge::ui::animation::AnimationQueue;
 
 fn main() {
-    let settings = load_settings();
+    let paths = detect_paths();
+    let settings = settings_repo::load_layered(paths.as_ref());
 
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -27,9 +28,12 @@ fn main() {
             }),
             ..default()
         }))
+        .add_plugins(PersistencePlugin { paths: paths.clone() })
         .init_state::<AppState>()
         .add_sub_state::<CombatPhase>()
         .init_resource::<CombatContext>()
+        .init_resource::<CombatObjective>()
+        .init_resource::<storyforge::content::content_view::ActiveContent>()
         .init_resource::<TurnQueue>()
         .init_resource::<PresetInitiative>()
         .init_resource::<CombatLog>()
@@ -50,6 +54,8 @@ fn main() {
         .init_resource::<AnimationQueue>()
         .init_resource::<combat::enemy_popup::PopupCursor>()
         .init_resource::<UiDirty>()
+        .init_resource::<ui::modal::PendingPrompt>()
+        .init_resource::<ui::settings_ui::SettingsRebuild>()
         .add_message::<StartCombat>()
         .add_message::<UseAbility>()
         .add_message::<ValidatedAction>()
@@ -59,6 +65,7 @@ fn main() {
         .add_message::<MoveUnit>()
         .add_message::<EndTurn>()
         .add_message::<RestartCombat>()
+        .add_message::<SpawnUnit>()
         .add_message::<scenario::AdvanceScenario>()
         .add_systems(
             Startup,
@@ -68,13 +75,35 @@ fn main() {
                 ui::hex_grid::setup_hex_grid,
             ),
         )
+        // ── Shared button hover effect (runs in all states) ──────────────
+        .add_systems(Update, ui::button::button_hover_system)
         // ── Main menu ────────────────────────────────────────────────────
         .add_systems(OnEnter(AppState::MainMenu), ui::main_menu_ui::setup_main_menu)
         .add_systems(
             Update,
-            ui::main_menu_ui::campaign_button_system.run_if(in_state(AppState::MainMenu)),
+            (
+                ui::main_menu_ui::campaign_button_system,
+                ui::main_menu_ui::continue_button_system,
+                ui::main_menu_ui::settings_button_system,
+            )
+                .run_if(in_state(AppState::MainMenu)),
         )
         .add_systems(OnExit(AppState::MainMenu), ui::main_menu_ui::cleanup_main_menu)
+        // ── Settings ────────────────────────────────────────────────────
+        .add_systems(OnEnter(AppState::Settings), ui::settings_ui::setup_settings)
+        .add_systems(
+            Update,
+            (
+                ui::settings_ui::difficulty_button_system,
+                ui::settings_ui::slot_action_system,
+                ui::settings_ui::back_button_system,
+                ui::settings_ui::rebuild_settings_if_needed,
+            )
+                .run_if(in_state(AppState::Settings)),
+        )
+        .add_systems(OnExit(AppState::Settings), ui::settings_ui::cleanup_settings)
+        // ── Modal (runs in all states) ──────────────────────────────────
+        .add_systems(Update, (ui::modal::sync_modal, ui::modal::handle_modal_input))
         // ── Story ────────────────────────────────────────────────────────
         .add_systems(OnEnter(AppState::Story), ui::story_ui::setup_story_screen)
         .add_systems(
@@ -103,8 +132,9 @@ fn main() {
                 ui::turn_order_ui::update_turn_order,
                 ui::turn_order_ui::update_turn_order_hp,
                 ui::turn_order_ui::update_turn_order_tooltip,
-                ui::combat_ui::update_ability_panel,
-                ui::combat_ui::ability_slot_click_system,
+                ui::ability_panel::update_ability_panel,
+                ui::ability_panel::update_ability_description,
+                ui::ability_panel::ability_slot_click_system,
             )
                 .after(ui::hex_grid::ui_dirty_bridge)
                 .run_if(in_state(AppState::Combat)),
@@ -201,13 +231,14 @@ fn main() {
                 .run_if(in_state(CombatPhase::AwaitCommand))
                 .run_if(ui::animation::combat_ready),
         )
-        // ── TurnStart: init → skip dead → skip stunned ─────────────
+        // ── TurnStart: init → skip dead → skip stunned → refresh auras ─────────
         .add_systems(
             Update,
             (
                 combat::turn_start::turn_start_system,
                 combat::skip_dead::skip_dead_turn_system,
                 combat::skip_dead::skip_stunned_turn_system,
+                combat::auras::apply_auras_system,
             )
                 .chain()
                 .in_set(CombatStep::TurnStart),
@@ -227,7 +258,7 @@ fn main() {
             combat::ai::enemy_turn::enemy_ai_system
                 .in_set(CombatStep::Command),
         )
-        // ── Execute: movement → validation → resolution → effects ──
+        // ── Execute: movement → validation → resolution → effects → spawn → phases ──
         .add_systems(
             Update,
             (
@@ -235,6 +266,8 @@ fn main() {
                 combat::validation::validate_action_system,
                 combat::resolution::resolve_action_system,
                 combat::apply_effects::apply_effects_system,
+                combat::spawn::apply_spawn_system,
+                combat::phases::phase_transition_system,
             )
                 .chain()
                 .in_set(CombatStep::Execute),

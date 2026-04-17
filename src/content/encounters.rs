@@ -1,13 +1,34 @@
+use crate::content::unit_templates::{
+    EquipmentRecord, ResourcesBlock, ResourcesRecord, StatsRecord, UnitTemplateDef,
+};
 use crate::core::{AbilityId, ArmorId, WeaponId};
 use crate::game::components::CombatStats;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct EncounterDef {
     pub id: String,
     pub name: String,
     pub enemies: Vec<EnemyDef>,
+    pub victory: VictoryCondition,
 }
+
+#[derive(Debug, Clone, Default)]
+pub enum VictoryCondition {
+    /// Default — combat ends when no enemy is alive.
+    #[default]
+    AllEnemiesDead,
+    /// Combat ends the moment a specific enemy dies (other enemies may live).
+    /// `enemy_name` must match `EnemyDef.name` exactly.
+    KillTarget {
+        enemy_name: String,
+        marker_color: [f32; 3],
+    },
+}
+
+/// Default red-ish ring color when `marker_color` is not specified in TOML.
+pub const DEFAULT_TARGET_MARKER: [f32; 3] = [0.90, 0.15, 0.15];
 
 #[derive(Debug, Clone)]
 pub struct EnemyDef {
@@ -30,6 +51,49 @@ pub struct EnemyDef {
     pub ai_role: Option<String>,
     /// Starting hex cell.
     pub hex_pos: hexx::Hex,
+    /// Phase transitions in declaration order; each fires at most once.
+    pub phases: Vec<PhaseDef>,
+    /// Optional passive aura: while this enemy is alive, every unit matching
+    /// `affects` within `radius` hexes gets `status` reapplied each TurnStart.
+    pub aura: Option<AuraDef>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuraDef {
+    pub status: crate::core::StatusId,
+    pub radius: u32,
+    pub affects: AuraAffects,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuraAffects {
+    /// Applies only to the opposite team.
+    Enemies,
+    /// Applies only to same-team units (excluding the source itself).
+    Allies,
+    /// Applies to everyone in range except the source itself.
+    All,
+}
+
+/// One-step transformation applied to an enemy when its trigger fires.
+/// Missing fields keep their current value.
+#[derive(Debug, Clone)]
+pub struct PhaseDef {
+    pub trigger: PhaseTrigger,
+    pub name: Option<String>,
+    pub stats: Option<CombatStats>,
+    pub ability_ids: Option<Vec<AbilityId>>,
+    pub ai_role: Option<String>,
+    pub heal_to_full: bool,
+    /// Narrative blurb shown in the transition popup/log. What the player sees
+    /// when this phase kicks in — one or two short sentences.
+    pub flavor: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum PhaseTrigger {
+    /// Fires when `hp * 100 <= max_hp * pct` (once).
+    HpBelowPct(i32),
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -44,93 +108,288 @@ struct EncounterRecord {
     id: String,
     name: String,
     enemies: Vec<EnemyRecord>,
+    #[serde(default)]
+    victory: Option<VictoryRecord>,
 }
 
 #[derive(Deserialize)]
+struct VictoryRecord {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    enemy_name: Option<String>,
+    #[serde(default)]
+    marker_color: Option<[f32; 3]>,
+}
+
+/// An enemy as it appears in `encounters.toml`.
+///
+/// If `template` is set, every other scalar/block is optional and falls back
+/// to the template's value. Without `template`, the scalars + `stats` +
+/// `equipment` blocks are all required (validated at resolution time).
+#[derive(Deserialize)]
 struct EnemyRecord {
-    name: String,
-    race: String,
+    #[serde(default)]
+    template: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    race: Option<String>,
     #[serde(default)]
     faction: Option<String>,
     #[serde(default)]
     path: Option<String>,
     #[serde(default)]
     ai_role: Option<String>,
-    max_hp: i32,
-    strength: i32,
-    dexterity: i32,
-    constitution: i32,
     #[serde(default)]
-    intelligence: i32,
+    speed: Option<i32>,
     #[serde(default)]
-    wisdom: i32,
+    stats: Option<StatsRecord>,
     #[serde(default)]
-    charisma: i32,
-    speed: i32,
-    main_hand: String,
+    equipment: Option<EquipmentRecord>,
     #[serde(default)]
-    off_hand: Option<String>,
-    chest: String,
-    legs: String,
-    feet: String,
-    ability_ids: Vec<String>,
+    resources: Option<ResourcesRecord>,
     #[serde(default)]
-    rage_max: i32,
-    #[serde(default)]
-    mana_max: i32,
-    #[serde(default)]
-    energy_max: i32,
+    ability_ids: Option<Vec<String>>,
     hex_col: i32,
     hex_row: i32,
+    #[serde(default)]
+    phases: Vec<PhaseRecord>,
+    #[serde(default)]
+    aura: Option<AuraRecord>,
 }
 
-const ENCOUNTERS_PATH: &str = "assets/data/encounters.toml";
+#[derive(Deserialize)]
+struct AuraRecord {
+    status: String,
+    radius: u32,
+    #[serde(default = "default_affects")]
+    affects: String,
+}
 
-pub fn load_encounters() -> Vec<EncounterDef> {
-    let src = std::fs::read_to_string(ENCOUNTERS_PATH)
-        .unwrap_or_else(|e| panic!("Cannot read {ENCOUNTERS_PATH}: {e}"));
+fn default_affects() -> String {
+    "enemies".into()
+}
+
+#[derive(Deserialize)]
+struct PhaseRecord {
+    hp_below_pct: i32,
+    #[serde(default)]
+    template: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    stats: Option<StatsRecord>,
+    #[serde(default)]
+    ability_ids: Option<Vec<String>>,
+    #[serde(default)]
+    ai_role: Option<String>,
+    #[serde(default)]
+    heal_to_full: bool,
+    #[serde(default)]
+    flavor: Option<String>,
+}
+
+// ── Resolution helpers ──────────────────────────────────────────────────────
+
+fn lookup_template<'a>(
+    path: &str,
+    templates: &'a HashMap<String, UnitTemplateDef>,
+    enc_id: &str,
+    id: &str,
+) -> &'a UnitTemplateDef {
+    templates.get(id).unwrap_or_else(|| {
+        panic!(
+            "{path}: encounter '{enc_id}' references unknown unit_template '{id}' \
+             (not in this scenario's merged content view)",
+        )
+    })
+}
+
+fn convert_aura(path: &str, enc_id: &str, a: AuraRecord) -> AuraDef {
+    let affects = match a.affects.as_str() {
+        "enemies" => AuraAffects::Enemies,
+        "allies" => AuraAffects::Allies,
+        "all" => AuraAffects::All,
+        other => panic!(
+            "{path}: encounter '{enc_id}' aura has unknown affects='{other}' (expected enemies|allies|all)",
+        ),
+    };
+    AuraDef {
+        status: crate::core::StatusId::from(a.status.as_str()),
+        radius: a.radius,
+        affects,
+    }
+}
+
+fn resolve_phase(
+    path: &str,
+    enc_id: &str,
+    p: PhaseRecord,
+    templates: &HashMap<String, UnitTemplateDef>,
+) -> PhaseDef {
+    let base = p
+        .template
+        .as_ref()
+        .map(|id| lookup_template(path, templates, enc_id, id));
+
+    // Phases fill in only fields explicitly provided OR inherited from template.
+    // Leaf-level overrides: name, ai_role.
+    let name = p.name.or_else(|| base.map(|t| t.name.clone()));
+    let ai_role = p.ai_role.or_else(|| base.and_then(|t| t.ai_role.clone()));
+
+    // Block-level overrides: stats (whole block), ability_ids (whole list).
+    let stats: Option<CombatStats> = p
+        .stats
+        .map(Into::into)
+        .or_else(|| base.map(|t| t.stats.clone()));
+    let ability_ids: Option<Vec<AbilityId>> = p
+        .ability_ids
+        .map(|v| v.into_iter().map(|s| AbilityId::from(s.as_str())).collect())
+        .or_else(|| base.map(|t| t.ability_ids.clone()));
+
+    PhaseDef {
+        trigger: PhaseTrigger::HpBelowPct(p.hp_below_pct),
+        name,
+        stats,
+        ability_ids,
+        ai_role,
+        heal_to_full: p.heal_to_full,
+        flavor: p.flavor,
+    }
+}
+
+fn resolve_enemy(
+    path: &str,
+    enc_id: &str,
+    rec: EnemyRecord,
+    templates: &HashMap<String, UnitTemplateDef>,
+) -> EnemyDef {
+    let base = rec
+        .template
+        .as_ref()
+        .map(|id| lookup_template(path, templates, enc_id, id));
+
+    // Helper closure: scalar field that must end up Some — overrides win, then
+    // template, otherwise panic.
+    let require = |label: &str, v: Option<String>, from_template: Option<String>| -> String {
+        v.or(from_template).unwrap_or_else(|| panic!(
+            "{path}: encounter '{enc_id}' enemy is missing `{label}` and has no template providing it",
+        ))
+    };
+
+    let name = require("name", rec.name, base.map(|t| t.name.clone()));
+    let race = require("race", rec.race, base.map(|t| t.race.clone()));
+    let speed = rec.speed.or_else(|| base.map(|t| t.speed)).unwrap_or_else(|| {
+        panic!("{path}: encounter '{enc_id}' enemy '{name}' is missing `speed`",)
+    });
+
+    // Faction/path: explicit override OR template; no way to unset from template (acceptable).
+    let faction = rec.faction.or_else(|| base.and_then(|t| t.faction.clone()));
+    let combat_path = rec.path.or_else(|| base.and_then(|t| t.path.clone()));
+    let ai_role = rec.ai_role.or_else(|| base.and_then(|t| t.ai_role.clone()));
+
+    // Block overrides — whole block replaced if present, otherwise taken from template, else panic.
+    let stats: CombatStats = rec
+        .stats
+        .map(Into::into)
+        .or_else(|| base.map(|t| t.stats.clone()))
+        .unwrap_or_else(|| {
+            panic!(
+                "{path}: encounter '{enc_id}' enemy '{name}' is missing `stats` block",
+            )
+        });
+    let equipment = rec
+        .equipment
+        .map(Into::into)
+        .or_else(|| base.map(|t| t.equipment.clone()))
+        .unwrap_or_else(|| {
+            panic!(
+                "{path}: encounter '{enc_id}' enemy '{name}' is missing `equipment` block",
+            )
+        });
+    let resources: ResourcesBlock = rec
+        .resources
+        .map(Into::into)
+        .or_else(|| base.map(|t| t.resources.clone()))
+        .unwrap_or_default();
+
+    let ability_ids: Vec<AbilityId> = rec
+        .ability_ids
+        .map(|v| v.into_iter().map(|s| AbilityId::from(s.as_str())).collect())
+        .or_else(|| base.map(|t| t.ability_ids.clone()))
+        .unwrap_or_else(|| {
+            panic!(
+                "{path}: encounter '{enc_id}' enemy '{name}' is missing `ability_ids`",
+            )
+        });
+
+    EnemyDef {
+        name,
+        race,
+        faction,
+        path: combat_path,
+        stats,
+        speed,
+        main_hand: equipment.main_hand,
+        off_hand: equipment.off_hand,
+        chest: equipment.chest,
+        legs: equipment.legs,
+        feet: equipment.feet,
+        ability_ids,
+        rage_max: resources.rage_max,
+        mana_max: resources.mana_max,
+        energy_max: resources.energy_max,
+        ai_role,
+        hex_pos: crate::game::hex::hex_from_offset(rec.hex_col, rec.hex_row),
+        phases: rec
+            .phases
+            .into_iter()
+            .map(|p| resolve_phase(path, enc_id, p, templates))
+            .collect(),
+        aura: rec.aura.map(|a| convert_aura(path, enc_id, a)),
+    }
+}
+
+/// Parse an `encounters.toml` body. `path` scopes error messages. Template refs
+/// resolve against the scenario's already-merged unit template map (`templates`).
+pub fn load_encounters_from_str(
+    _scenario_id: &str,
+    path: &str,
+    src: &str,
+    templates: &HashMap<String, UnitTemplateDef>,
+) -> Vec<EncounterDef> {
     let file: EncounterFile =
-        toml::from_str(&src).unwrap_or_else(|e| panic!("Cannot parse {ENCOUNTERS_PATH}: {e}"));
+        toml::from_str(src).unwrap_or_else(|e| panic!("Cannot parse {path}: {e}"));
 
     file.encounters
         .into_iter()
         .map(|enc| EncounterDef {
-            id: enc.id,
+            id: enc.id.clone(),
             name: enc.name,
+            victory: match enc.victory {
+                None => VictoryCondition::AllEnemiesDead,
+                Some(v) => match v.kind.as_str() {
+                    "all_enemies_dead" => VictoryCondition::AllEnemiesDead,
+                    "kill_target" => VictoryCondition::KillTarget {
+                        enemy_name: v.enemy_name.unwrap_or_else(|| {
+                            panic!(
+                                "{path}: encounter '{}' victory=kill_target missing enemy_name",
+                                enc.id
+                            )
+                        }),
+                        marker_color: v.marker_color.unwrap_or(DEFAULT_TARGET_MARKER),
+                    },
+                    other => panic!(
+                        "{path}: encounter '{}' has unknown victory type '{}'",
+                        enc.id, other
+                    ),
+                },
+            },
             enemies: enc
                 .enemies
                 .into_iter()
-                .map(|e| EnemyDef {
-                    name: e.name,
-                    race: e.race,
-                    faction: e.faction,
-                    path: e.path,
-                    speed: e.speed,
-                    stats: CombatStats {
-                        max_hp: e.max_hp,
-                        strength: e.strength,
-                        dexterity: e.dexterity,
-                        constitution: e.constitution,
-                        intelligence: e.intelligence,
-                        wisdom: e.wisdom,
-                        charisma: e.charisma,
-                    },
-                    main_hand: WeaponId::from(e.main_hand.as_str()),
-                    off_hand: e.off_hand.map(|s| WeaponId::from(s.as_str())),
-                    chest: ArmorId::from(e.chest.as_str()),
-                    legs: ArmorId::from(e.legs.as_str()),
-                    feet: ArmorId::from(e.feet.as_str()),
-                    ability_ids: e
-                        .ability_ids
-                        .iter()
-                        .map(|s| AbilityId::from(s.as_str()))
-                        .collect(),
-                    rage_max: e.rage_max,
-                    mana_max: e.mana_max,
-                    energy_max: e.energy_max,
-                    ai_role: e.ai_role,
-                    hex_pos: crate::game::hex::hex_from_offset(e.hex_col, e.hex_row),
-                })
+                .map(|e| resolve_enemy(path, &enc.id, e, templates))
                 .collect(),
         })
         .collect()

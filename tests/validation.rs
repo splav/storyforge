@@ -3,9 +3,12 @@ mod common;
 
 use bevy::prelude::*;
 
+use bevy::ecs::message::Messages;
 use common::*;
 use storyforge::game::bundles::hero_bundle;
-use storyforge::game::components::{ActiveCombatant, ActionPoints, Mana};
+use storyforge::game::components::{
+    ActionPoints, ActiveCombatant, ActiveStatus, Mana, StatusEffects,
+};
 use storyforge::game::messages::{UseAbility, ValidatedAction};
 use storyforge::game::resources::HexPositions;
 
@@ -264,4 +267,81 @@ fn sufficient_mana_allows_ability() {
     app.update();
 
     assert_eq!(message_count::<ValidatedAction>(&app), 1);
+}
+
+#[test]
+fn disoriented_actor_gets_disadvantage_on_ability() {
+    let mut app = validation_app();
+    let actor = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+    let target = app
+        .world_mut()
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
+        .id();
+
+    // Apply the "disoriented" status directly for this test. In real play it
+    // would be applied by an ability or aura; here we short-circuit.
+    app.world_mut()
+        .entity_mut(actor)
+        .insert(StatusEffects(vec![ActiveStatus {
+            id: "disoriented".into(),
+            rounds_remaining: 3,
+            applier: actor,
+            dot_per_tick: 0,
+        }]));
+    app.world_mut().entity_mut(actor).insert(ActiveCombatant);
+
+    write_message(
+        &mut app,
+        UseAbility {
+            actor,
+            ability: MELEE_ATTACK.into(),
+            target,
+            target_pos: hex_from_offset(0, 0),
+        },
+    );
+    app.update();
+
+    let msgs = app.world().resource::<Messages<ValidatedAction>>();
+    let emitted: Vec<&ValidatedAction> = msgs.iter_current_update_messages().collect();
+    assert_eq!(emitted.len(), 1, "validation should still accept the action");
+    assert!(
+        emitted[0].disadvantage,
+        "disoriented actor must roll with disadvantage"
+    );
+}
+
+#[test]
+fn untouched_actor_has_no_disadvantage() {
+    let mut app = validation_app();
+    let actor = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+    let target = app
+        .world_mut()
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
+        .id();
+
+    app.world_mut().entity_mut(actor).insert(ActiveCombatant);
+    write_message(
+        &mut app,
+        UseAbility {
+            actor,
+            ability: MELEE_ATTACK.into(),
+            target,
+            target_pos: hex_from_offset(0, 0),
+        },
+    );
+    app.update();
+
+    let msgs = app.world().resource::<Messages<ValidatedAction>>();
+    let emitted: Vec<&ValidatedAction> = msgs.iter_current_update_messages().collect();
+    assert_eq!(emitted.len(), 1);
+    assert!(
+        !emitted[0].disadvantage,
+        "baseline ability at default range must not be disadvantaged"
+    );
 }

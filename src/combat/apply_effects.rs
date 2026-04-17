@@ -1,8 +1,8 @@
 #![allow(clippy::too_many_arguments)]
+use crate::content::content_view::ActiveContent;
 use crate::game::components::{Combatant, Dead, Rage, StatusEffects, Vital};
 use crate::game::messages::{ApplyDamage, ApplyHeal};
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::resources::GameDb;
 use bevy::prelude::*;
 
 /// Consumes ApplyDamage and ApplyHeal messages.
@@ -15,7 +15,7 @@ pub fn apply_effects_system(
     mut statuses: Query<&mut StatusEffects, With<Combatant>>,
     mut rage_query: Query<&mut Rage>,
     mut log: ResMut<CombatLog>,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
 ) {
     let damages: Vec<(Entity, Entity, i32, String, bool)> = dmg_events
         .read()
@@ -44,7 +44,7 @@ pub fn apply_effects_system(
             .get(*target)
             .map(|se| {
                 se.0.iter()
-                    .filter_map(|s| db.statuses.get(&s.id))
+                    .filter_map(|s| content.statuses.get(&s.id))
                     .fold((0i32, 0i32), |(armor, vuln), def| {
                         (armor + def.armor_bonus, vuln + def.damage_taken_bonus)
                     })

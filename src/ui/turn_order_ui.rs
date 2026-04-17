@@ -1,3 +1,5 @@
+use crate::content::content_view::ActiveContent;
+use crate::content::content_view::ContentView;
 use super::{TurnOrderCard, TurnOrderCardHp, TurnOrderCardName, TurnOrderTooltip, TurnOrderTooltipText};
 use crate::content::armor::ArmorDef;
 use crate::content::weapons::WeaponDef;
@@ -5,7 +7,7 @@ use crate::core::{ArmorId, WeaponId};
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, ResourceCost};
 use crate::core::ResourceKind;
 use crate::game::components::{Abilities, Combatant, Dead, Equipment, Faction, Team, Vital};
-use crate::game::resources::{GameDb, TurnQueue, UiDirty, UiDirtyFlags};
+use crate::game::resources::{TurnQueue, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
 pub const MAX_TURN_CARDS: usize = 8;
@@ -159,7 +161,7 @@ pub fn update_turn_order_tooltip(
     queue: Res<TurnQueue>,
     cards: Query<(&TurnOrderCard, &Interaction)>,
     combatants: Query<(&Name, &Equipment, &Abilities), With<Combatant>>,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     mut tooltip_vis: Query<&mut Visibility, With<TurnOrderTooltip>>,
     mut tooltip_text: Query<&mut Text, With<TurnOrderTooltipText>>,
 ) {
@@ -190,21 +192,21 @@ pub fn update_turn_order_tooltip(
     lines.push(format!("── {} ──", name.as_str()));
 
     if let Some(ref wid) = equipment.main_hand {
-        lines.push(weapon_line("Гл. рука", wid, &db));
+        lines.push(weapon_line("Гл. рука", wid, &content));
     } else {
         lines.push("Гл. рука: —".into());
     }
     if let Some(ref wid) = equipment.off_hand {
-        lines.push(weapon_line("Доп. рука", wid, &db));
+        lines.push(weapon_line("Доп. рука", wid, &content));
     }
-    lines.push(armor_line("Нагрудник", &equipment.chest, &db));
-    lines.push(armor_line("Ноги", &equipment.legs, &db));
-    lines.push(armor_line("Обувь", &equipment.feet, &db));
+    lines.push(armor_line("Нагрудник", &equipment.chest, &content));
+    lines.push(armor_line("Ноги", &equipment.legs, &content));
+    lines.push(armor_line("Обувь", &equipment.feet, &content));
 
     lines.push(String::new());
     lines.push("── Способности ──".into());
     for aid in &abilities.0 {
-        if let Some(def) = db.abilities.get(aid) {
+        if let Some(def) = content.abilities.get(aid) {
             lines.push(ability_line(def));
         }
     }
@@ -213,8 +215,8 @@ pub fn update_turn_order_tooltip(
     *vis = Visibility::Visible;
 }
 
-fn weapon_line(slot: &str, id: &WeaponId, db: &GameDb) -> String {
-    if let Some(w) = db.weapons.get(id) {
+fn weapon_line(slot: &str, id: &WeaponId, content: &ContentView) -> String {
+    if let Some(w) = content.weapons.get(id) {
         let dice_str = format!("{}d{}", w.dice.count, w.dice.sides);
         let bonuses = weapon_bonus_str(w);
         if bonuses.is_empty() {
@@ -227,8 +229,8 @@ fn weapon_line(slot: &str, id: &WeaponId, db: &GameDb) -> String {
     }
 }
 
-fn armor_line(slot: &str, id: &ArmorId, db: &GameDb) -> String {
-    if let Some(a) = db.armor.get(id) {
+fn armor_line(slot: &str, id: &ArmorId, content: &ContentView) -> String {
+    if let Some(a) = content.armor.get(id) {
         let bonuses = armor_bonus_str(a);
         if bonuses.is_empty() {
             format!("{slot}: {}", a.name)
@@ -265,6 +267,7 @@ fn ability_line(def: &AbilityDef) -> String {
         EffectDef::Heal { dice } => parts.push(format!("лечение {}d{}", dice.count, dice.sides)),
         EffectDef::GrantMovement { distance } => parts.push(format!("+{} движ", distance)),
         EffectDef::RestoreResources => parts.push("ресурсы +1".into()),
+        EffectDef::Summon { template, .. } => parts.push(format!("призыв ({template})")),
         EffectDef::ToggleMoveMode | EffectDef::None => {}
     }
 

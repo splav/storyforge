@@ -1,7 +1,7 @@
+use crate::content::content_view::ContentView;
 use crate::core::StatusId;
 use bevy::prelude::*;
 
-use super::resources::GameDb;
 
 // ── Combat events ───────────────────────────────────────────────────────────
 
@@ -100,10 +100,24 @@ pub enum CombatEvent {
     UnitDied {
         entity: Entity,
     },
+    PhaseEntered {
+        actor: Entity,
+        prev_name: String,
+        next_name: String,
+        flavor: Option<String>,
+    },
+    Summoned {
+        summoner: Entity,
+        summon_name: String,
+    },
+    SummonBlocked {
+        summoner: Entity,
+        reason: String,
+    },
 }
 
 impl CombatEvent {
-    pub fn format(&self, name: impl Fn(Entity) -> String, db: &GameDb, crit_fail_die: u32) -> String {
+    pub fn format(&self, name: impl Fn(Entity) -> String, content: &ContentView, crit_fail_die: u32) -> String {
         match self {
             CombatEvent::CombatStarted => "=== Бой начался ===".into(),
             CombatEvent::RoundStarted { round } => format!("--- Раунд {round} ---"),
@@ -209,25 +223,25 @@ impl CombatEvent {
                 name(*target)
             ),
             CombatEvent::StatusApplied { target, status } => {
-                let sname = db
+                let sname = content
                     .statuses
                     .get(status)
                     .map_or(status.0.as_str(), |s| s.name.as_str());
                 format!("    {} получает статус «{}»", name(*target), sname)
             }
             CombatEvent::StatusExpired { target, status } => {
-                let sname = db
+                let sname = content
                     .statuses
                     .get(status)
                     .map_or(status.0.as_str(), |s| s.name.as_str());
                 format!("    статус «{}» спал с {}", sname, name(*target))
             }
             CombatEvent::PoisonTick { target, status, damage } => {
-                let sname = db.statuses.get(status).map_or(status.0.as_str(), |s| s.name.as_str());
+                let sname = content.statuses.get(status).map_or(status.0.as_str(), |s| s.name.as_str());
                 format!("    «{}» наносит {} урона ({})", sname, damage, name(*target))
             }
             CombatEvent::PoisonCleansed { target, status } => {
-                let sname = db.statuses.get(status).map_or(status.0.as_str(), |s| s.name.as_str());
+                let sname = content.statuses.get(status).map_or(status.0.as_str(), |s| s.name.as_str());
                 format!("    «{}» нейтрализован на {}", sname, name(*target))
             }
             CombatEvent::CriticalMiss { actor } => {
@@ -252,6 +266,19 @@ impl CombatEvent {
                 )
             }
             CombatEvent::UnitDied { entity } => format!("  ✗ {} погиб", name(*entity)),
+            CombatEvent::PhaseEntered { actor: _, prev_name, next_name, flavor } => {
+                let head = format!("  ✦ {prev_name} → {next_name}");
+                match flavor {
+                    Some(f) if !f.is_empty() => format!("{head}\n    {f}"),
+                    _ => head,
+                }
+            }
+            CombatEvent::Summoned { summoner, summon_name } => {
+                format!("  ✧ {} призывает {}", name(*summoner), summon_name)
+            }
+            CombatEvent::SummonBlocked { summoner, reason } => {
+                format!("  ⚠ {} пытается призвать — {reason}", name(*summoner))
+            }
             CombatEvent::CombatEnded { victory } => {
                 if *victory {
                     "=== ПОБЕДА ===".into()

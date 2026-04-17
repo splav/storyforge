@@ -1,11 +1,9 @@
-/// Tests for the equipment system: stat computation, armor, two-handed validation.
-use std::collections::HashMap;
 
 use storyforge::content::armor::{ArmorDef, ArmorSlot};
 use storyforge::content::weapons::{HandType, WeaponDef};
 use storyforge::core::DiceExpr;
 use storyforge::game::components::{CombatStats, Equipment};
-use storyforge::game::resources::GameDb;
+use storyforge::content::content_view::ContentView;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -99,21 +97,11 @@ fn equip(main_hand: &str, chest: &str, legs: &str, feet: &str) -> Equipment {
     }
 }
 
-fn db_with(weapons: Vec<WeaponDef>, armors: Vec<ArmorDef>) -> GameDb {
-    GameDb {
+fn db_with(weapons: Vec<WeaponDef>, armors: Vec<ArmorDef>) -> ContentView {
+    ContentView {
         weapons: weapons.into_iter().map(|w| (w.id.clone(), w)).collect(),
         armor: armors.into_iter().map(|a| (a.id.clone(), a)).collect(),
-        keyed_abilities: Vec::new(),
-        abilities: HashMap::new(),
-        statuses: HashMap::new(),
-        races: HashMap::new(),
-        factions: HashMap::new(),
-        paths: HashMap::new(),
-        encounters: HashMap::new(),
-        classes: HashMap::new(),
-        scenarios: HashMap::new(),
-        campaigns: HashMap::new(),
-        campaign_order: Vec::new(),
+        ..Default::default()
     }
 }
 

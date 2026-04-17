@@ -1,10 +1,10 @@
+use crate::content::content_view::ContentView;
 use crate::combat::ai::factors::aoe_area;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::{ActionCandidate, CandidateKind};
 use crate::content::abilities::{AoEShape, TargetType};
-use crate::game::resources::GameDb;
 use std::collections::HashSet;
 
 /// Remove candidates that violate hard constraints.
@@ -14,7 +14,7 @@ pub fn filter_candidates(
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
     _maps: &InfluenceMaps,
-    db: &GameDb,
+    content: &ContentView,
 ) {
     // Forced targeting: taunt constrains ENEMY-targeted Cast only. Heals,
     // self-buffs and movement are untouched — a taunt says "you can't hit
@@ -28,7 +28,7 @@ pub fn filter_candidates(
     if !forced.is_empty() {
         candidates.retain(|c| match &c.kind {
             CandidateKind::Cast { ability, target, .. } => {
-                let Some(def) = db.abilities.get(ability) else { return false };
+                let Some(def) = content.abilities.get(ability) else { return false };
                 match def.target_type {
                     // Single-target enemy ability must aim at the taunter.
                     TargetType::SingleEnemy => match target {
@@ -58,7 +58,7 @@ pub fn filter_candidates(
             CandidateKind::MoveOnly => return true,
         };
 
-        let Some(def) = db.abilities.get(ability) else {
+        let Some(def) = content.abilities.get(ability) else {
             return false;
         };
 
@@ -95,7 +95,7 @@ pub fn filter_candidates(
 
         // Don't waste single-target CC on already-stunned target. AoE CC keeps
         // its pool — dropping an AoE because one enemy is stunned is wrong.
-        if applies_cc(def, db) && def.aoe == AoEShape::None {
+        if applies_cc(def, content) && def.aoe == AoEShape::None {
             if let Some(target_unit) = target.and_then(|t| snap.unit(t)) {
                 if target_unit.tags.contains(AiTags::IS_STUNNED) {
                     return false;

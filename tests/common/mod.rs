@@ -9,10 +9,12 @@ use storyforge::combat::{
     advance_turn::advance_turn_system, ai::debug::AiDebugState,
     ai::difficulty::DifficultyProfile, ai::reservations::Reservations,
     apply_effects::apply_effects_system, ai::enemy_turn::enemy_ai_system,
+    phases::phase_transition_system,
     resolution::resolve_action_system,
     skip_dead::skip_stunned_turn_system,
     validation::validate_action_system,
 };
+use storyforge::content::content_view::ActiveContent;
 use storyforge::content::settings::GameSettings;
 use storyforge::content::statuses::StatusDef;
 use storyforge::core::{DiceExpr, DiceRng};
@@ -20,10 +22,10 @@ use storyforge::game::bundles::{enemy_bundle, hero_bundle};
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{CombatStats, Equipment};
 use storyforge::game::messages::{
-    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, UseAbility, ValidatedAction,
+    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, SpawnUnit, UseAbility, ValidatedAction,
 };
 use storyforge::game::resources::{
-    CombatContext, GameDb, HexPositions, SelectionState, TurnQueue,
+    CombatContext, CombatObjective, GameDb, HexPositions, SelectionState, TurnQueue,
 };
 
 pub const MELEE_ATTACK: &str = "melee_attack";
@@ -86,9 +88,11 @@ pub fn validation_app() -> App {
         .init_state::<AppState>()
         .add_sub_state::<CombatPhase>()
         .init_resource::<CombatContext>()
+        .init_resource::<CombatObjective>()
         .init_resource::<TurnQueue>()
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
+        .insert_resource(ActiveContent(storyforge::content::content_view::ContentView::load_global_for_tests()))
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
         .init_resource::<DiceRng>()
@@ -109,18 +113,21 @@ pub fn effects_app() -> App {
         .init_state::<AppState>()
         .add_sub_state::<CombatPhase>()
         .init_resource::<CombatContext>()
+        .init_resource::<CombatObjective>()
         .init_resource::<TurnQueue>()
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
+        .insert_resource(ActiveContent(storyforge::content::content_view::ContentView::load_global_for_tests()))
         .init_resource::<SelectionState>()
         .init_resource::<DiceRng>()
         .add_message::<ApplyDamage>()
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()
         .add_message::<EndTurn>()
+        .add_message::<SpawnUnit>()
         .add_systems(
             Update,
-            (apply_effects_system, advance_turn_system)
+            (apply_effects_system, phase_transition_system, advance_turn_system)
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand)),
         );
@@ -134,9 +141,11 @@ pub fn resolve_app() -> App {
         .init_state::<AppState>()
         .add_sub_state::<CombatPhase>()
         .init_resource::<CombatContext>()
+        .init_resource::<CombatObjective>()
         .init_resource::<TurnQueue>()
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
+        .insert_resource(ActiveContent(storyforge::content::content_view::ContentView::load_global_for_tests()))
         .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
@@ -146,6 +155,7 @@ pub fn resolve_app() -> App {
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()
         .add_message::<EndTurn>()
+        .add_message::<SpawnUnit>()
         .add_systems(
             Update,
             (resolve_action_system, apply_effects_system, advance_turn_system)
@@ -162,9 +172,11 @@ pub fn stun_app() -> App {
         .init_state::<AppState>()
         .add_sub_state::<CombatPhase>()
         .init_resource::<CombatContext>()
+        .init_resource::<CombatObjective>()
         .init_resource::<TurnQueue>()
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
+        .insert_resource(ActiveContent(storyforge::content::content_view::ContentView::load_global_for_tests()))
         .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
@@ -176,6 +188,7 @@ pub fn stun_app() -> App {
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()
         .add_message::<EndTurn>()
+        .add_message::<SpawnUnit>()
         .add_message::<UseAbility>()
         .add_message::<MoveUnit>()
         .add_systems(
@@ -199,9 +212,11 @@ pub fn pipeline_app() -> App {
         .init_state::<AppState>()
         .add_sub_state::<CombatPhase>()
         .init_resource::<CombatContext>()
+        .init_resource::<CombatObjective>()
         .init_resource::<TurnQueue>()
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
+        .insert_resource(ActiveContent(storyforge::content::content_view::ContentView::load_global_for_tests()))
         .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
@@ -212,6 +227,7 @@ pub fn pipeline_app() -> App {
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()
         .add_message::<EndTurn>()
+        .add_message::<SpawnUnit>()
         .add_systems(
             Update,
             (
@@ -228,7 +244,7 @@ pub fn pipeline_app() -> App {
 }
 
 pub fn insert_stun_status(app: &mut App) {
-    app.world_mut().resource_mut::<GameDb>().statuses.insert(
+    app.world_mut().resource_mut::<ActiveContent>().0.statuses.insert(
         "stun".into(),
         StatusDef {
             id: "stun".into(),
@@ -242,12 +258,13 @@ pub fn insert_stun_status(app: &mut App) {
             speed_bonus: 0,
             hp_percent_dot: 0,
             ai_controlled: false,
+            causes_disadvantage: false,
         },
     );
 }
 
 pub fn insert_burning_status(app: &mut App) {
-    app.world_mut().resource_mut::<GameDb>().statuses.insert(
+    app.world_mut().resource_mut::<ActiveContent>().0.statuses.insert(
         "burning".into(),
         StatusDef {
             id: "burning".into(),
@@ -261,12 +278,13 @@ pub fn insert_burning_status(app: &mut App) {
             speed_bonus: 0,
             hp_percent_dot: 0,
             ai_controlled: false,
+            causes_disadvantage: false,
         },
     );
 }
 
 pub fn insert_poison_status(app: &mut App) {
-    app.world_mut().resource_mut::<GameDb>().statuses.insert(
+    app.world_mut().resource_mut::<ActiveContent>().0.statuses.insert(
         "poisoned".into(),
         StatusDef {
             id: "poisoned".into(),
@@ -280,6 +298,7 @@ pub fn insert_poison_status(app: &mut App) {
             speed_bonus: 0,
             hp_percent_dot: 0,
             ai_controlled: false,
+            causes_disadvantage: false,
         },
     );
 }

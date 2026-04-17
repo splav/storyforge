@@ -1,4 +1,5 @@
 #![allow(clippy::too_many_arguments)]
+use crate::content::content_view::ContentView;
 use crate::combat::ai::candidates::generate_candidates;
 pub use crate::combat::ai::candidates::{ActionCandidate, CandidateKind};
 use crate::combat::ai::constraints::filter_candidates;
@@ -20,7 +21,6 @@ use crate::core::{AbilityId, DiceRng};
 use crate::game::components::{Abilities, Team};
 use crate::game::hex::{has_los, in_bounds, Hex};
 use crate::game::pathfinding::ReachableMap;
-use crate::game::resources::GameDb;
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
@@ -50,7 +50,7 @@ pub enum AiDecision {
 // ── Context ─────────────────────────────────────────────────────────────────
 
 pub struct UtilityContext<'a> {
-    pub db: &'a GameDb,
+    pub content: &'a ContentView,
     pub difficulty: &'a DifficultyProfile,
     pub caster: &'a CasterContext,
     pub abilities: &'a Abilities,
@@ -98,7 +98,7 @@ pub fn pick_action(
     }
 
     // ── Hard constraints ────────────────────────────────────────────────
-    filter_candidates(&mut candidates, active, snap, maps, ctx.db);
+    filter_candidates(&mut candidates, active, snap, maps, ctx.content);
 
     if candidates.is_empty() {
         let decision = fallback_move(actor_pos, active, ctx, snap, reach, maps);
@@ -118,7 +118,7 @@ pub fn pick_action(
     if let Some(threshold) = intent_viability_threshold(&intent) {
         let max_align = candidates
             .iter()
-            .map(|c| intent_score(&intent, c, active, snap, maps, ctx.db, ctx.difficulty))
+            .map(|c| intent_score(&intent, c, active, snap, maps, ctx.content, ctx.difficulty))
             .fold(f32::NEG_INFINITY, f32::max);
         if max_align < threshold {
             // Skip the original target if it was an unreachable FocusTarget —
@@ -157,7 +157,7 @@ pub fn pick_action(
         let def_margin = ctx.difficulty.defensive_tile_margin();
         let mut any_defensive = false;
         for (i, s) in scored.iter_mut().enumerate() {
-            if is_defensive(&candidates[i], current_danger, ctx.db, maps, def_margin) {
+            if is_defensive(&candidates[i], current_danger, ctx.content, maps, def_margin) {
                 any_defensive = true;
             } else {
                 *s = f32::NEG_INFINITY;
@@ -333,7 +333,7 @@ fn sanity_adjust(
 
         // 5. Self-AoE: heavy penalty for friendly_fire AoE that hits caster.
         if let CandidateKind::Cast { ability, target_pos, .. } = &c.kind {
-            if let Some(def) = ctx.db.abilities.get(ability) {
+            if let Some(def) = ctx.content.abilities.get(ability) {
                 if def.friendly_fire && def.aoe != AoEShape::None {
                     let area = aoe_area(def, *target_pos, c.tile);
                     if area.contains(&c.tile) {
@@ -351,7 +351,7 @@ fn sanity_adjust(
             let better_pos = evaluate_position(c.tile, &active.role, maps) > current_pos_eval;
             let useful_cast = match &c.kind {
                 CandidateKind::Cast { ability, .. } => {
-                    ctx.db.abilities.get(ability).is_some_and(|def| {
+                    ctx.content.abilities.get(ability).is_some_and(|def| {
                         def.effect.calc(ctx.caster).is_some() || !def.statuses.is_empty()
                     })
                 }
@@ -582,8 +582,8 @@ fn record_reservation(
     // the area. Both paths reserve damage/CC per enemy so subsequent AI units
     // avoid overkill and duplicate CC. Heals (SingleAlly) skip damage reservation.
     if let CandidateKind::Cast { ability, target_pos, target } = &best.kind {
-        if let Some(def) = ctx.db.abilities.get(ability) {
-            let is_cc = applies_cc(def, ctx.db);
+        if let Some(def) = ctx.content.abilities.get(ability) {
+            let is_cc = applies_cc(def, ctx.content);
             let hits: Vec<Entity> = if def.aoe == AoEShape::None {
                 target.iter().copied().collect()
             } else {
@@ -596,7 +596,7 @@ fn record_reservation(
             for ent in hits {
                 if let Some(target_unit) = snap.unit(ent) {
                     if def.target_type != TargetType::SingleAlly {
-                        let dmg = score_action(def, target_unit, ctx.caster, ctx.db);
+                        let dmg = score_action(def, target_unit, ctx.caster, ctx.content);
                         if dmg > 0.0 {
                             reservations.reserve_damage(ent, dmg);
                         }
@@ -622,7 +622,7 @@ fn record_reservation(
 fn is_defensive(
     c: &ActionCandidate,
     current_danger: f32,
-    db: &GameDb,
+    content: &ContentView,
     maps: &InfluenceMaps,
     margin: f32,
 ) -> bool {
@@ -631,7 +631,7 @@ fn is_defensive(
         return maps.danger.get(c.tile) + margin < current_danger;
     }
     if let Some(ability) = c.ability() {
-        if let Some(def) = db.abilities.get(ability) {
+        if let Some(def) = content.abilities.get(ability) {
             if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
                 return true;
             }
@@ -724,11 +724,11 @@ mod tests {
         maps.danger.add(dangerous, 0.9);
         maps.danger.add(safe_tile, 0.1);
 
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = UtilityContext { db: &db, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
+        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
 
         let candidates = vec![
             candidate(dangerous, enemy.entity),
@@ -753,11 +753,11 @@ mod tests {
         let s = snap(vec![active.clone(), enemy.clone()]);
 
         let maps = empty_maps(); // no danger anywhere
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = UtilityContext { db: &db, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
+        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
 
         let candidates = vec![
             candidate(tile, enemy.entity),
@@ -785,11 +785,11 @@ mod tests {
         let s = snap(vec![active.clone(), enemy.clone(), blocker]);
 
         let maps = empty_maps();
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = UtilityContext { db: &db, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
+        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
 
         let candidates = vec![
             candidate(behind_wall, enemy.entity),
@@ -814,11 +814,11 @@ mod tests {
         let enemy = unit(1, Team::Player, hex_from_offset(4, 2));
         let s = snap(vec![active.clone(), enemy.clone()]);
         let maps = empty_maps();
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let caster = CasterContext { str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
-        let ctx = UtilityContext { db: &db, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
+        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
 
         // thunderstrike AoE circle r=1 centered on caster's own tile → self-hit.
         let self_aoe = cast(tile, "thunderstrike", tile, enemy.entity);

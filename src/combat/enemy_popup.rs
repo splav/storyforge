@@ -1,6 +1,6 @@
+use crate::content::content_view::ActiveContent;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::components::{Faction, Team};
-use crate::game::resources::GameDb;
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use bevy::prelude::*;
 
@@ -15,7 +15,7 @@ pub fn queue_enemy_popup(
     mut cursor: ResMut<PopupCursor>,
     names: Query<&Name>,
     factions: Query<&Faction>,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     mut anim_queue: ResMut<AnimationQueue>,
 ) {
     let events = &log.0[cursor.0..];
@@ -25,9 +25,27 @@ pub fn queue_enemy_popup(
         return;
     }
 
-    // Find AbilityUsed events from enemies.
+    // Find popup-worthy events: enemy ability use and any phase transition.
     let mut i = 0;
     while i < events.len() {
+        // Phase transitions: one self-contained popup per event.
+        if let CombatEvent::PhaseEntered { actor: _, prev_name, next_name, flavor } = &events[i] {
+            let mut lines = vec![
+                prev_name.clone(),
+                "───────────────".into(),
+                format!("Новая фаза: {next_name}"),
+            ];
+            if let Some(flavor) = flavor {
+                if !flavor.is_empty() {
+                    lines.push("───────────────".into());
+                    lines.push(flavor.clone());
+                }
+            }
+            anim_queue.0.push_back(PendingAnim::Popup { lines });
+            i += 1;
+            continue;
+        }
+
         let CombatEvent::AbilityUsed {
             actor,
             ability_name,
@@ -104,7 +122,7 @@ pub fn queue_enemy_popup(
                     ));
                 }
                 CombatEvent::StatusApplied { target, status } => {
-                    let sname = db
+                    let sname = content
                         .statuses
                         .get(status)
                         .map_or(status.0.as_str(), |s| s.name.as_str());

@@ -1,10 +1,13 @@
 pub mod advance_turn;
 pub mod ai;
 pub mod apply_effects;
+pub mod auras;
 pub mod command_input;
 pub mod enemy_popup;
 pub mod movement;
+pub mod phases;
 pub mod resolution;
+pub mod spawn;
 pub mod skip_dead;
 pub mod turn_order;
 pub mod turn_start;

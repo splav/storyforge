@@ -2,6 +2,72 @@
 
 All game content is data-driven via TOML files in `assets/data/`. No code changes needed to add content.
 
+## Layered Content
+
+Every content file can exist at **three layers** — global, campaign, scenario. At load time they're merged **by id** with **scenario winning over campaign winning over global**. Records are replaced **wholesale**: redefining an ability at scenario level replaces the campaign/global record for that id; you can't merge individual fields.
+
+Each scenario gets its own merged view stored in `ScenarioDef.content` and exposed at runtime as the `ActiveContent` Bevy resource. Combat systems read from `ActiveContent`; `GameDb` holds only metadata (campaigns + scenarios).
+
+### Overridable content types
+
+| File                         | Contents                                  |
+|------------------------------|-------------------------------------------|
+| `abilities.toml`             | Ability definitions                        |
+| `statuses.toml`              | Status effect definitions                  |
+| `classes.toml`               | Player class definitions                   |
+| `unit_templates.toml`        | Reusable combat stat-block templates       |
+| `races.toml`                 | Races + factions + paths (single file)     |
+| `equipment/weapons.toml`     | Weapons                                    |
+| `equipment/chest.toml`       | Chest armor                                |
+| `equipment/legs.toml`        | Leg armor                                  |
+| `equipment/feet.toml`        | Footwear                                   |
+
+### Non-overridable / scenario-owned
+
+| File                         | Where                                      |
+|------------------------------|--------------------------------------------|
+| `magic_schools.toml`         | Global only (flavor docs; unused at runtime) |
+| `settings.toml`              | Global only (user preferences)             |
+| `campaign.toml`              | Per-campaign (metadata, not content)       |
+| `scenario.toml`              | Per-scenario (party + scenes; metadata)    |
+| `encounters.toml`            | Per-scenario (scoped to that scenario)     |
+
+## Directory Layout
+
+```
+assets/data/
+  # Global layer (all overridable files listed above)
+  abilities.toml / classes.toml / statuses.toml / ...
+  unit_templates.toml / races.toml / equipment/...
+  magic_schools.toml / settings.toml
+  campaigns/
+    <campaign_id>/              # folder name IS the id
+      campaign.toml             # name, description, scenarios = [...] order
+      # (any overridable file, optional — overrides global for this campaign)
+      <scenario_id>/            # folder name IS the id
+        scenario.toml           # name, party, scenes (no id in body)
+        encounters.toml         # this scenario's encounters
+        # (any overridable file, optional — overrides campaign + global
+        #  for this scenario only)
+```
+
+IDs come from folder names. `campaign.toml` lists scenario folders in play order.
+
+### Override example
+
+```
+campaigns/bell_under_veil/
+├── campaign.toml
+├── abilities.toml              # "fireball" here replaces the global one
+│                                for every scenario in this campaign
+└── crypt/
+    ├── scenario.toml
+    ├── encounters.toml
+    └── statuses.toml           # "disoriented" here replaces both
+                                # global and campaign versions, in this
+                                # scenario only
+```
+
 ## Abilities (`abilities.toml`)
 
 ```toml
@@ -9,34 +75,53 @@ All game content is data-driven via TOML files in `assets/data/`. No code change
 id            = "fireball"
 name          = "Огненный шар"
 magic_domains = ["aether", "form"]  # optional; see magic-schools.md
-magic_method  = "destruction"       # optional; see magic-schools.md
+magic_method  = "destruction"       # optional
 target_type   = "single_enemy"      # single_enemy | single_ally | myself
-effect        = "spell_damage"      # weapon_attack | damage | spell_damage | heal | none | grant_movement
+effect        = "spell_damage"      # see table below
 dice_count    = 2
 dice_sides    = 3
-costs         = [{ resource = "mana", amount = 5 }]  # resource: hp | mana | rage | energy
-range         = 5                   # hex steps; 0 = no range check (for myself)
-distance      = 0                   # only for grant_movement
-statuses      = [                   # optional
-    { id = "burning", on = "target", duration = 2 },
-]
+costs         = [{ resource = "mana", amount = 5 }]
+range         = 5
+statuses      = [{ id = "burning", on = "target", duration = 2 }]
 ```
 
 ### Effect Types
 
-| Effect | Dice Required | Stat Bonus | Armor | Notes |
-|--------|:---:|:---:|:---:|-------|
-| `weapon_attack` | No (uses weapon) | +STR | Reduced | |
+| Effect | Dice | Stat | Armor | Notes |
+|---|:---:|:---:|:---:|---|
+| `weapon_attack` | weapon | +STR | Reduced | |
 | `damage` | Yes | +STR | Reduced | |
 | `spell_damage` | Yes | +INT +spell_power | **Pierced** | |
 | `heal` | Yes | +INT +spell_power | N/A | Capped at max_hp |
-| `none` | No | N/A | N/A | Status-only |
-| `grant_movement` | No | N/A | N/A | Requires `distance`, does NOT end turn |
+| `none` | — | — | — | Status-only |
+| `grant_movement` | — | — | — | Requires `distance`, doesn't end turn |
+| `restore_resources` | — | — | — | `rest`: +1 HP/mana/rage/energy |
+| `summon` | — | — | — | Instantiates a unit template at a free hex near the caster. Requires `summon_template`; optional `summon_max_active`. See below. |
+
+### Summon ability
+
+```toml
+[[abilities]]
+id                = "summon_storm_spirit"
+name              = "Призыв духа бури"
+target_type       = "myself"
+effect            = "summon"
+summon_template   = "storm_spirit"   # must resolve via scenario chars + campaign templates at use site
+summon_max_active = 2                # optional cap on concurrent summons from one caster
+range             = 0
+costs             = [{ resource = "mana", amount = 3 }]
+```
+
+Spawn rules:
+- Template is looked up in the scenario's merged `ActiveContent.unit_templates` (scenario override > campaign override > global). If missing → `SummonBlocked` in log; ability fires but no unit spawns (resource cost is still paid, turn ends).
+- Landing hex: nearest empty cell within a small radius of the summoner. If none free → `SummonBlocked`.
+- `max_active` cap counts currently-alive summons tagged with `SummonedBy(caster)`. Reached → `SummonBlocked`.
+- Spawned unit joins the turn queue at the **next** `StartRound` (`build_turn_order` sees the new combatant). Acts with `Initiative(0)` — last in order by default.
+- Summons inherit their summoner's team. Death of the summoner does NOT remove summons (they outlive their caster).
 
 ### Target Types
-- `single_enemy` — one living enemy
-- `single_ally` — one living ally (including self)
-- `myself` — always targets self (auto-targeted in UI)
+
+`single_enemy` | `single_ally` | `myself`
 
 ## Statuses (`statuses.toml`)
 
@@ -44,39 +129,40 @@ statuses      = [                   # optional
 [[statuses]]
 id                    = "burning"
 name                  = "Ожог"
-armor_bonus           = 0        # default 0; adds to armor (negative = reduce)
-damage_taken_bonus    = 1        # default 0; extra damage on all hits
-skips_turn            = false    # default false; unit can't act
-forces_targeting      = false    # default false; enemies must attack this unit
-dot_count             = 1        # optional; DoT dice count (requires dot_sides)
-dot_sides             = 4        # optional; DoT dice sides
-blocks_mana_abilities = false    # default false; can't use mana abilities (crit fail: broken_faith)
-speed_bonus           = 0        # default 0; modifies movement speed
-hp_percent_dot        = 0        # default 0; % of max_hp as DoT per tick (crit fail: exhaustion)
-ai_controlled         = false    # default false; hero acts under AI control (crit fail: pact_control)
+armor_bonus           = 0        # +armor (negative reduces)
+damage_taken_bonus    = 0        # extra damage on all hits
+skips_turn            = false    # unit can't act
+forces_targeting      = false    # enemies must attack this unit
+dot_count             = 0        # DoT dice count (with dot_sides)
+dot_sides             = 0
+blocks_mana_abilities = false    # can't cast mana abilities
+speed_bonus           = 0        # modifies movement (clamped to 0+; speed=0 means immobile)
+hp_percent_dot        = 0        # % of max_hp as DoT per tick
+ai_controlled         = false    # hero acts under AI control (pact_control)
+causes_disadvantage   = false    # ALL carrier's rolls are at disadvantage (disoriented)
 ```
 
-## Weapons (`equipment/weapons.toml`)
+## Weapons / Armor
 
 ```toml
+# weapons.toml
 [[weapons]]
 id          = "staff"
 name        = "Посох"
 hand        = "two_handed"       # main_hand | off_hand | two_handed
 dice_count  = 1
 dice_sides  = 6
-spell_power = 1                  # default 0; added to spell_damage and heal
-# optional stat bonuses (default 0): armor, max_hp, strength, dexterity, constitution, intelligence, wisdom, charisma
+spell_power = 1
+# optional stat bonuses: armor, max_hp, strength, dexterity, constitution, intelligence, wisdom, charisma
 ```
 
-## Armor (`equipment/chest.toml`, `legs.toml`, `feet.toml`)
-
 ```toml
+# chest.toml / legs.toml / feet.toml
 [[items]]
 id    = "plate_armor"
 name  = "Латная кираса"
-armor = 2                        # physical damage reduction
-# optional stat bonuses (default 0): max_hp, strength, dexterity, constitution, intelligence, wisdom, charisma
+armor = 2
+# optional stat bonuses
 ```
 
 ## Classes (`classes.toml`)
@@ -88,84 +174,192 @@ name         = "Следопыт"
 max_hp       = 14
 strength     = 2
 dexterity    = 6
-constitution = 2
-intelligence = 0
-wisdom       = 4
-charisma     = 0
+# constitution, intelligence, wisdom, charisma ...
 speed        = 5
-main_hand    = "dagger"          # references equipment/weapons.toml
+main_hand    = "dagger"
 off_hand     = null              # optional; second weapon
-chest        = "leather_vest"    # references equipment/chest.toml
-legs         = "leather_pants"   # references equipment/legs.toml
-feet         = "leather_boots"   # references equipment/feet.toml
-ability_ids  = ["melee_attack", "bow_shot", "paralyzing_shot", "field_medic"]
-mana_max     = 0                 # default 0 (no mana)
-rage_max     = 0                 # default 0 (no rage)
-energy_max   = 6                 # default 0 (no energy)
+chest        = "leather_vest"
+legs         = "leather_pants"
+feet         = "leather_boots"
+ability_ids  = ["melee_attack", "bow_shot"]
+mana_max     = 0
+rage_max     = 0
+energy_max   = 6
 ```
 
-## Encounters (`encounters.toml`)
+## Unit Templates
+
+Reusable combat stat blocks referenced by encounters, phases, and summon abilities.
+
+Like every overridable content type, `unit_templates.toml` can live at global / campaign / scenario level. The scenario's merged view (scenario > campaign > global by id) is what combat reads from.
+
+```toml
+[[unit_templates]]
+id    = "stormborn_echo"
+name  = "Бурешаман"
+race  = "stormborn"
+faction = "..."                  # optional
+path    = "heritage"             # optional (determines crit fail)
+speed = 3
+
+stats     = { max_hp = 30, strength = 4, dexterity = -2, constitution = 8, intelligence = 6, wisdom = 6, charisma = 0 }
+equipment = { main_hand = "staff", chest = "chainmail", legs = "plate_greaves", feet = "iron_boots" }
+resources = { mana = 8 }         # optional; defaults to {mana=0, rage=0, energy=0}
+
+ability_ids = ["melee_attack", "thunderstrike", "heal"]
+ai_role     = "mage"             # optional; bruiser | archer | mage | support | assassin
+```
+
+## Encounters (`encounters.toml` inside a scenario folder)
 
 ```toml
 [[encounters]]
-id   = "orc_camp"
-name = "Лагерь орков"
+id   = "stormborn_camp"
+name = "Стоянка грозорождённых"
+
+# Optional. Default = all_enemies_dead. `marker_color` drives the red ring
+# drawn under the target's token; RGB in 0..1.
+victory = { type = "kill_target", enemy_name = "Старшина", marker_color = [0.90, 0.15, 0.15] }
 
 [[encounters.enemies]]
-name         = "Orc Mage"
-race         = "orc"             # references races.toml
-faction      = null              # optional; references races.toml factions
-path         = null              # optional; references races.toml paths (determines crit fail)
-max_hp       = 14
-strength     = 0
-dexterity    = -2
-constitution = 2
-intelligence = 4
-wisdom       = 2
-charisma     = -2
-speed        = 4
-main_hand    = "staff"           # references equipment/weapons.toml
-off_hand     = null              # optional
-chest        = "mage_robe"       # references equipment/chest.toml
-legs         = "cloth_pants"     # references equipment/legs.toml
-feet         = "cloth_shoes"     # references equipment/feet.toml
-ability_ids  = ["melee_attack", "fireball", "heal"]
-mana_max     = 8                 # default 0
-rage_max     = 0                 # default 0
-energy_max   = 0                 # default 0
-hex_col      = 6
-hex_row      = 4
+name        = "Воин"
+race        = "stormborn"
+speed       = 3
+stats       = { max_hp = 18, strength = 8, dexterity = -2, constitution = 5, intelligence = -4, wisdom = -2, charisma = -4 }
+equipment   = { main_hand = "long_sword", chest = "plate_armor", legs = "leather_pants", feet = "leather_boots" }
+ability_ids = ["melee_attack"]
+hex_col     = 6
+hex_row     = 2
 ```
 
-## Scenarios (`scenarios.toml`)
+### Enemy via template
+
+When `template` is set, scalar fields (`name`, `race`, `speed`, `ability_ids`, `ai_role`, `faction`, `path`) can be overridden individually; blocks (`stats`, `equipment`, `resources`) are **all-or-nothing** — include the whole block to override, omit to inherit. `hex_col` / `hex_row` are always required.
 
 ```toml
-[[scenarios]]
-id   = "demo"
-name = "Засада гоблинов"
+[[encounters.enemies]]
+template = "stormborn_echo"      # scenario chars first, then campaign templates
+name     = "Старшина"            # override leaf
+hex_col  = 5
+hex_row  = 3
+```
 
-# Party (same for all combats in this scenario)
-[[scenarios.party]]
+### Phases
+
+Boss transforms when a trigger fires. At most one phase per frame; pending phases fire in declaration order. **In-place mutation**: same entity, same turn position, `VictoryTarget` preserved — so `kill_target` means "kill through all phases".
+
+```toml
+[[encounters.enemies.phases]]
+hp_below_pct = 1                 # fires once at HP ≤ 1% of max
+template     = "stormborn_echo"  # inherit stats/abilities/ai_role from template
+heal_to_full = true              # refill HP after transform, removes Dead
+# name, stats, ability_ids, ai_role — individual overrides on top of template
+flavor       = "Старшина падает — но буря в его крови не даёт ему умереть..."
+```
+
+Без template поля `name`/`stats`/`ability_ids`/`ai_role` задаются напрямую (всё необязательное — что не указано, остаётся от текущего состояния босса).
+
+`flavor` — сюжетная строка. Показывается в попапе перехода и в combat log.
+
+### Aura
+
+Passive radius effect. While the source is alive, targets in range matching `affects` get the status re-applied every TurnStart. Removed when source dies or target leaves range. Uses `duration = 1` under the hood; ability-applied statuses of the same id are NOT stomped.
+
+```toml
+aura = { status = "disoriented", radius = 2, affects = "enemies" }
+# affects: enemies | allies | all (default: enemies)
+```
+
+### Immobility
+
+`speed = 0` → enemy doesn't move. AI plans from its starting tile only; `movement_system` rejects any `MoveUnit` on such an actor. Status `speed_bonus` is clamped to 0+, so debuffs can't move an immobile unit either. **Note:** a positive speed status (e.g. haste) would allow movement — keep objective-anchor units free from such buffs.
+
+## Scenario (`scenario.toml` inside a scenario folder)
+
+The scenario file does NOT contain its id — folder name is the id.
+
+```toml
+name = "Тропа через пограничье"
+
+# Starting party
+[[party]]
 name    = "Aldric"
-race    = "human"                # references races.toml
-faction = "aurum"                # optional; references races.toml factions
-path    = null                   # optional; references races.toml paths (determines crit fail)
-class   = "warrior"              # references classes.toml id
+race    = "human"
+faction = "aurum"        # optional
+path    = "heritage"     # optional (determines crit fail)
+class   = "warrior"
 hex_col = 1
 hex_row = 2
 
-# Scenes (play in order)
-[[scenarios.scenes]]
+# Scenes play in order
+[[scenes]]
 type = "story"
-text = "Отряд пробирается через лес..."
+lines = [
+  { speaker = "Рассказчик", text = "Отряд пробирается через тёмный лес." },
+  { speaker = "Kael", text = "Они бежали от чего-то хуже.", requires_flag = "beastblood_routed" },
+]
+# Optional side-effects applied when the player advances past this scene:
+[[scenes.party_add]]
+name = "Kael"
+race = "human"
+class = "ranger"
+hex_col = 0
+hex_row = 3
+# [[scenes.party_remove]] — names to drop
 
-[[scenarios.scenes]]
-type      = "combat"
-encounter = "goblin_patrol"      # references encounters.toml id
-
-[[scenarios.scenes]]
-type = "story"
-text = "Конец."
+[[scenes]]
+type             = "combat"
+encounter        = "beastblood_raid"  # looks up THIS scenario's encounters.toml
+location         = "hills"            # optional; selects assets/images/battle_backgrounds/<location>.png
+on_victory_flags = ["beastblood_routed"]
 ```
 
-Scene types: `story` (requires `text`) or `combat` (requires `encounter`).
+### Scene types
+
+- **`story`** — dialogue. `lines` is a list of `{speaker, text, requires_flag?}`. Lines with `requires_flag` only show if that flag was set by an earlier victory. Player advances line-by-line (Space / Enter / button); previous lines stay on screen.
+  - `party_add` / `party_remove` apply when the player advances past the last line.
+  - **If `lines = []`** (or omitted), the scene is **invisible** — `advance_scenario` skips past it. Use this idiom for a pure party-change beat without dialogue.
+
+- **`combat`** — fight. `encounter` refers to this scenario's `encounters.toml`. `on_victory_flags` are set when the encounter is won; `requires_flag` on future dialogue lines checks against this flag set.
+
+### Derived state (no runtime storage)
+
+- **Active party** at scene N = starting `[[party]]` + all `party_add` / `party_remove` from story scenes 0..N-1, folded in order. Save files only store `scene_index`; the party is re-derived on load.
+- **Flags** at scene N = union of `on_victory_flags` from all combat scenes at indices 0..N-1. Same derivation.
+
+## Campaign (`campaign.toml`)
+
+```toml
+# id = folder name (e.g. "demo_campaign"). Not repeated in the file.
+name        = "Тропа через пограничье"
+description = "Демо-кампания"
+scenarios   = ["demo"]    # order of scenario folders to play through
+```
+
+## Template Resolution Order
+
+All content lookups during a scenario go through `ActiveContent`, which is the merged `ContentView` for that scenario. The merge order, by id:
+
+1. Scenario layer (`campaigns/<c>/<s>/*.toml`) wins.
+2. Campaign layer (`campaigns/<c>/*.toml`) next.
+3. Global layer (`assets/data/*.toml`) base.
+
+So an encounter enemy's `template = "morok"` resolves to:
+- the scenario's `unit_templates.toml` `morok` if present, else
+- the campaign's `unit_templates.toml` `morok` if present, else
+- the global `unit_templates.toml` `morok`, else panic at load time.
+
+Cross-scenario references are not allowed (each scenario has its own scope).
+
+## Validation
+
+`GameDb::default()` validates every scenario's **merged** content view at startup and panics on broken references. Checks:
+
+- Every ability, class, and unit template in a scenario's view references only ids that exist in that same view (no dangling refs).
+- Campaign `scenarios = [...]` folders exist and parse cleanly.
+- Scenario `party` + `party_add` members reference real races / factions / paths / classes.
+- Scene `encounter_id` resolves inside the scenario's own `encounters.toml`.
+- Encounter `phases[*].template`, `aura.status`, `victory.enemy_name` resolve (and uniqueness where required).
+- Party hex positions don't collide with enemy hex positions at each combat scene (using the computed active party).
+
+An authoring bug fails loudly at startup rather than at runtime.

@@ -1,9 +1,10 @@
 #![allow(clippy::too_many_arguments)]
+use crate::content::content_view::ActiveContent;
 use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Speed, StatusEffects, UnitToken};
 use crate::game::hex::{in_bounds, Hex, LAYOUT};
 use crate::game::messages::MoveUnit;
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::resources::{GameDb, HexPositions};
+use crate::game::resources::HexPositions;
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::HexGridOffset;
 use bevy::prelude::*;
@@ -15,7 +16,7 @@ pub fn movement_system(
     mut events: MessageReader<MoveUnit>,
     mut positions: ResMut<HexPositions>,
     mut movers: Query<(&mut ActionPoints, &Speed, Option<&BonusMovement>, Option<&StatusEffects>)>,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     mut log: ResMut<CombatLog>,
     tokens: Query<(Entity, &UnitToken)>,
     grid_offset: Res<HexGridOffset>,
@@ -39,11 +40,13 @@ pub fn movement_system(
 
         let speed_mod: i32 = statuses.map_or(0, |se| {
             se.0.iter()
-                .filter_map(|s| db.statuses.get(&s.id))
+                .filter_map(|s| content.statuses.get(&s.id))
                 .map(|d| d.speed_bonus)
                 .sum()
         });
-        let max_steps = bonus.map_or((speed.0 + speed_mod).max(1), |b| b.0);
+        // .max(0) — negative status debuffs can push modified speed below zero; clamp there.
+        // A base speed of 0 legitimately means "immobile" and must survive the clamp.
+        let max_steps = bonus.map_or((speed.0 + speed_mod).max(0), |b| b.0);
         if ev.path.len() as i32 > max_steps {
             continue;
         }

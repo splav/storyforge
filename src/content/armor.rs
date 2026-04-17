@@ -53,12 +53,9 @@ struct ArmorRecord {
     charisma: i32,
 }
 
-fn load_armor_file(path: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
-    let src = std::fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+pub fn parse_armor(path: &str, src: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
     let file: ArmorFile =
-        toml::from_str(&src).unwrap_or_else(|e| panic!("Cannot parse {path}: {e}"));
-
+        toml::from_str(src).unwrap_or_else(|e| panic!("Cannot parse {path}: {e}"));
     file.items
         .into_iter()
         .map(|r| ArmorDef {
@@ -77,18 +74,20 @@ fn load_armor_file(path: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
         .collect()
 }
 
-const CHEST_PATH: &str = "assets/data/equipment/chest.toml";
-const LEGS_PATH: &str = "assets/data/equipment/legs.toml";
-const FEET_PATH: &str = "assets/data/equipment/feet.toml";
+pub const CHEST_FILE: &str = "equipment/chest.toml";
+pub const LEGS_FILE: &str = "equipment/legs.toml";
+pub const FEET_FILE: &str = "equipment/feet.toml";
 
-pub fn load_chest() -> Vec<ArmorDef> {
-    load_armor_file(CHEST_PATH, ArmorSlot::Chest)
+fn load_global(file: &str, slot: ArmorSlot) -> Vec<ArmorDef> {
+    let path = format!("assets/data/{file}");
+    if !std::path::Path::new(&path).is_file() {
+        return Vec::new();
+    }
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+    parse_armor(&path, &src, slot)
 }
 
-pub fn load_legs() -> Vec<ArmorDef> {
-    load_armor_file(LEGS_PATH, ArmorSlot::Legs)
-}
-
-pub fn load_feet() -> Vec<ArmorDef> {
-    load_armor_file(FEET_PATH, ArmorSlot::Feet)
-}
+pub fn load_chest() -> Vec<ArmorDef> { load_global(CHEST_FILE, ArmorSlot::Chest) }
+pub fn load_legs()  -> Vec<ArmorDef> { load_global(LEGS_FILE,  ArmorSlot::Legs)  }
+pub fn load_feet()  -> Vec<ArmorDef> { load_global(FEET_FILE,  ArmorSlot::Feet)  }

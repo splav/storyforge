@@ -1,4 +1,5 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
+use crate::content::content_view::ActiveContent;
 use crate::content::abilities::{AoEShape, CasterContext, EffectDef, StatusOn, TargetType};
 use crate::content::races::CritFailEffect;
 use crate::content::settings::GameSettings;
@@ -7,14 +8,14 @@ use crate::game::components::{
     ActionPoints, BonusMovement, CombatPath, CombatStats, Combatant, Energy, Equipment, Faction, Mana, Rage, Team, Vital,
 };
 use crate::game::hex::{hex_circle, hex_line};
-use crate::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, ValidatedAction};
+use crate::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, SpawnUnit, ValidatedAction};
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::resources::{GameDb, HexPositions};
+use crate::game::resources::HexPositions;
 use bevy::prelude::*;
 
 pub fn resolve_action_system(
     mut commands: Commands,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     settings: Res<GameSettings>,
     positions: Res<HexPositions>,
     mut rng: ResMut<DiceRng>,
@@ -36,13 +37,14 @@ pub fn resolve_action_system(
     mut dmg_writer: MessageWriter<ApplyDamage>,
     mut heal_writer: MessageWriter<ApplyHeal>,
     mut status_writer: MessageWriter<ApplyStatus>,
+    mut spawn_writer: MessageWriter<SpawnUnit>,
     mut end_turn: MessageWriter<EndTurn>,
 ) {
     // Collect events to allow alternating ParamSet access.
     let validated: Vec<ValidatedAction> = events.read().cloned().collect();
 
     for ev in &validated {
-        let Some(def) = db.abilities.get(&ev.ability) else {
+        let Some(def) = content.abilities.get(&ev.ability) else {
             continue;
         };
 
@@ -101,7 +103,7 @@ pub fn resolve_action_system(
 
         // Determine crit fail behaviour from actor's path.
         let crit_fail_effect = combat_path
-            .and_then(|cp| db.paths.get(&cp.0))
+            .and_then(|cp| content.paths.get(&cp.0))
             .map_or(CritFailEffect::Miss, |p| p.crit_fail_effect.clone());
 
         // ManaOverload: ability fires, mana ×2. All others: miss + side effect.
@@ -169,7 +171,7 @@ pub fn resolve_action_system(
             }
         }
 
-        let ctx = CasterContext::new(stats, equip, &db.weapons);
+        let ctx = CasterContext::new(stats, equip, &content.weapons);
 
         if !skip_effects {
             if let Some(calc) = def.effect.calc(&ctx) {
@@ -210,6 +212,13 @@ pub fn resolve_action_system(
                 if let Some(ref mut m) = mana { m.restore(1); }
                 if let Some(ref mut r) = rage { r.gain(); }
                 if let Some(ref mut e) = energy { e.restore(1); }
+                vital.apply_heal(1);
+            } else if let EffectDef::Summon { template, max_active } = &def.effect {
+                spawn_writer.write(SpawnUnit {
+                    summoner: ev.actor,
+                    template_id: template.clone(),
+                    max_active: *max_active,
+                });
             }
 
             for sa in &def.statuses {

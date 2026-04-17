@@ -1,6 +1,6 @@
 use crate::content::abilities::{AoEShape, EffectDef, TargetType};
+use crate::content::content_view::ContentView;
 use crate::core::AbilityId;
-use crate::game::resources::GameDb;
 use bevy::prelude::*;
 
 /// Tactical AI role — drives weight profiles in influence maps and utility scoring.
@@ -171,12 +171,12 @@ pub fn infer_profile(
     abilities: &[AbilityId],
     max_hp: i32,
     total_armor: i32,
-    db: &GameDb,
+    content: &ContentView,
 ) -> AxisProfile {
     let mut p = AxisProfile::default();
 
     for id in abilities {
-        let Some(def) = db.abilities.get(id) else { continue };
+        let Some(def) = content.abilities.get(id) else { continue };
         let v = ability_vote(def);
         p.tank    += v[0];
         p.melee   += v[1];
@@ -276,8 +276,8 @@ mod tests {
     use super::*;
     use crate::core::AbilityId;
 
-    fn db() -> GameDb {
-        GameDb::default()
+    fn db() -> ContentView {
+        ContentView::load_global_for_tests()
     }
 
     fn ids(names: &[&str]) -> Vec<AbilityId> {

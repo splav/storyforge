@@ -1,11 +1,12 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
+use crate::content::content_view::ActiveContent;
 use super::render::{HexGridOffset, HexHover, HexLastClick, HexTooltip, DOUBLE_CLICK_SECS};
 use crate::content::abilities::AoEShape;
 use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Combatant, Dead, Energy, Faction, Mana, Rage, Speed, StatusEffects, Team, Vital};
 use crate::game::hex::{in_bounds, Hex, LAYOUT};
 use crate::game::messages::{MoveUnit, UseAbility};
 use crate::game::pathfinding::find_path;
-use crate::game::resources::{GameDb, HexPositions, SelectionState, UiDirty, UiDirtyFlags};
+use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 use std::collections::HashSet;
 
@@ -39,7 +40,7 @@ pub fn hex_hover_system(
 pub fn update_hex_tooltip(
     dirty: Res<UiDirty>,
     hover: Res<HexHover>,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     positions: Res<HexPositions>,
     combatant_q: Query<(
         &Name,
@@ -92,7 +93,7 @@ pub fn update_hex_tooltip(
             .0
             .iter()
             .map(|s| {
-                let name = db.statuses.get(&s.id).map(|d| d.name.as_str()).unwrap_or("?");
+                let name = content.statuses.get(&s.id).map(|d| d.name.as_str()).unwrap_or("?");
                 format!("{} ({} ход.)", name, s.rounds_remaining)
             })
             .collect();
@@ -118,7 +119,7 @@ pub fn hex_click_target(
     time: Res<Time>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     positions: Res<HexPositions>,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     move_query: Query<(&Faction, &ActionPoints, &Speed, Option<&BonusMovement>)>,
     combatant_q2: Query<(&Faction, &Vital), With<Combatant>>,
     mut sel: ResMut<SelectionState>,
@@ -148,7 +149,7 @@ pub fn hex_click_target(
     let is_aoe = sel
         .selected_ability
         .as_ref()
-        .and_then(|id| db.abilities.get(id))
+        .and_then(|id| content.abilities.get(id))
         .is_some_and(|def| def.aoe != AoEShape::None);
 
     let is_double =

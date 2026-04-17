@@ -1,4 +1,5 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
+use crate::content::content_view::{ActiveContent, ContentView};
 use crate::combat::ai::debug::AiDebugState;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::build_influence_maps;
@@ -18,7 +19,7 @@ use crate::game::components::{
 use crate::game::hex::{in_bounds, Hex};
 use crate::game::messages::{EndTurn, MoveUnit, UseAbility};
 use crate::game::pathfinding::reachable_with_paths;
-use crate::game::resources::{CombatContext, GameDb, HexPositions};
+use crate::game::resources::{CombatContext, HexPositions};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -35,7 +36,7 @@ pub struct AiMessages<'w> {
 // ── Main system ────────────────────────────────────────────────────────────
 
 pub fn enemy_ai_system(
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     settings: Res<GameSettings>,
     difficulty: Res<DifficultyProfile>,
     positions: Res<HexPositions>,
@@ -57,7 +58,7 @@ pub fn enemy_ai_system(
         return;
     }
     run_ai_turn(
-        actor, Team::Player, &c, &db, &settings, &difficulty, &positions,
+        actor, Team::Player, &c, &content, &settings, &difficulty, &positions,
         &combat_ctx, &mut rng, &mut reservations, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );
@@ -68,7 +69,7 @@ fn run_ai_turn(
     actor: Entity,
     opponent_team: Team,
     c: &AiCombatantQItem,
-    db: &GameDb,
+    content: &ContentView,
     settings: &GameSettings,
     difficulty: &DifficultyProfile,
     positions: &HexPositions,
@@ -96,15 +97,18 @@ fn run_ai_turn(
 
     // Build snapshot and influence maps.
     let actor_team = c.faction.0;
-    let snap = build_snapshot(actor, combat_ctx.round, combatants, statuses, positions, roles, db);
+    let snap = build_snapshot(actor, combat_ctx.round, combatants, statuses, positions, roles, content);
     let maps = build_influence_maps(&snap, actor_team);
 
     // Build reachable tiles for movement. Use the snapshot's status-adjusted
     // speed so paths respect debuffs like Истощение — otherwise the AI plans
     // routes that movement_system silently rejects, dropping the action.
+    // .max(0) lets `speed = 0` (immobile) stay zero, while still clamping negative
+    // status debuffs. With effective_speed = 0, reachable_with_paths returns only
+    // the actor's own tile, so AI naturally plans without movement.
     let effective_speed = snap
         .unit(actor)
-        .map(|u| u.speed.max(1))
+        .map(|u| u.speed.max(0))
         .unwrap_or(c.speed.0);
     let own_team_positions: HashSet<Hex> = snap
         .allies_of(actor_team)
@@ -124,14 +128,14 @@ fn run_ai_turn(
     );
 
     // Build utility context.
-    let caster = build_caster_ctx(c, db);
+    let caster = build_caster_ctx(c, content);
     let crit_fail_effect = c.combat_path
-        .and_then(|cp| db.paths.get(&cp.0))
+        .and_then(|cp| content.paths.get(&cp.0))
         .map_or(CritFailEffect::Miss, |p| p.crit_fail_effect.clone());
     let crit_fail_chance = 1.0 / settings.crit_fail_die as f32;
 
     let ctx = UtilityContext {
-        db,
+        content,
         difficulty,
         caster: &caster,
         abilities: c.abilities,
@@ -203,21 +207,21 @@ fn run_ai_turn(
 
 // ── Context builders ──────────────────────────────────────────────────────
 
-fn build_caster_ctx(c: &AiCombatantQItem, db: &GameDb) -> CasterContext {
-    CasterContext::new(c.stats, Some(c.equipment), &db.weapons)
+fn build_caster_ctx(c: &AiCombatantQItem, content: &ContentView) -> CasterContext {
+    CasterContext::new(c.stats, Some(c.equipment), &content.weapons)
 }
 
 // ── Pact AI: AI controls hero under pact_control status ───────────────────
 
-pub fn has_ai_control_status(entity: Entity, statuses: &Query<&StatusEffects>, db: &GameDb) -> bool {
+pub fn has_ai_control_status(entity: Entity, statuses: &Query<&StatusEffects>, content: &ContentView) -> bool {
     statuses.get(entity).is_ok_and(|se| {
-        se.0.iter().any(|s| db.statuses.get(&s.id).is_some_and(|d| d.ai_controlled))
+        se.0.iter().any(|s| content.statuses.get(&s.id).is_some_and(|d| d.ai_controlled))
     })
 }
 
 /// AI for Player heroes under pact_control status. Attacks enemies, heals allies.
 pub fn pact_ai_system(
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     settings: Res<GameSettings>,
     difficulty: Res<DifficultyProfile>,
     positions: Res<HexPositions>,
@@ -238,11 +242,11 @@ pub fn pact_ai_system(
     if c.faction.0 != Team::Player || !c.vital.is_alive() || c.abilities.0.is_empty() {
         return;
     }
-    if !has_ai_control_status(actor, &statuses, &db) {
+    if !has_ai_control_status(actor, &statuses, &content) {
         return;
     }
     run_ai_turn(
-        actor, Team::Enemy, &c, &db, &settings, &difficulty, &positions,
+        actor, Team::Enemy, &c, &content, &settings, &difficulty, &positions,
         &combat_ctx, &mut rng, &mut reservations, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );

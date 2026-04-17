@@ -8,6 +8,10 @@ const DANGER_BG: Color = Color::srgb(0.14, 0.08, 0.08);
 const TEXT_COLOR: Color = Color::WHITE;
 const FONT_SIZE: f32 = 16.0;
 
+/// Hover border tints — intentionally muted, just a soft highlight.
+const DEFAULT_BORDER_HOVER: Color = Color::srgb(0.58, 0.55, 0.42);
+const DANGER_BORDER_HOVER: Color = Color::srgb(0.78, 0.32, 0.32);
+
 #[derive(Clone, Copy)]
 pub enum ButtonStyle {
     Default,
@@ -21,6 +25,21 @@ impl ButtonStyle {
             Self::Danger => (DANGER_BORDER, DANGER_BG),
         }
     }
+
+    fn hover_border(self) -> Color {
+        match self {
+            Self::Default => DEFAULT_BORDER_HOVER,
+            Self::Danger => DANGER_BORDER_HOVER,
+        }
+    }
+}
+
+/// Attached to every button spawned via `spawn_standard_button` so the hover
+/// system knows which colors to swap between.
+#[derive(Component, Clone, Copy)]
+pub struct ButtonColors {
+    pub idle_border: Color,
+    pub hover_border: Color,
 }
 
 /// Spawns a standard button with configurable size and style.
@@ -34,6 +53,7 @@ pub fn spawn_standard_button<'a>(
     style: ButtonStyle,
 ) -> EntityCommands<'a> {
     let (border, bg) = style.colors();
+    let hover_border = style.hover_border();
     let mut ec = parent.spawn((
         Button,
         Node {
@@ -47,6 +67,10 @@ pub fn spawn_standard_button<'a>(
         },
         BorderColor::all(border),
         BackgroundColor(bg),
+        ButtonColors {
+            idle_border: border,
+            hover_border,
+        },
     ));
     ec.with_children(|btn| {
         btn.spawn((
@@ -60,4 +84,20 @@ pub fn spawn_standard_button<'a>(
         ));
     });
     ec
+}
+
+/// Updates border color when hover state changes on any standard button.
+pub fn button_hover_system(
+    mut buttons: Query<
+        (&Interaction, &ButtonColors, &mut BorderColor),
+        Changed<Interaction>,
+    >,
+) {
+    for (interaction, colors, mut border) in &mut buttons {
+        let color = match *interaction {
+            Interaction::Hovered | Interaction::Pressed => colors.hover_border,
+            Interaction::None => colors.idle_border,
+        };
+        *border = BorderColor::all(color);
+    }
 }

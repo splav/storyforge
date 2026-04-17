@@ -5,6 +5,7 @@ pub enum AppState {
     #[default]
     Boot,
     MainMenu,
+    Settings,
     Story,
     Overworld,
     Combat,

@@ -1,7 +1,7 @@
 use super::{LogScrollClip, LogScrollThumb, LogText};
+use crate::content::content_view::ActiveContent;
 use crate::content::settings::GameSettings;
 use crate::game::combat_log::CombatLog;
-use crate::game::resources::GameDb;
 use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
 
@@ -26,7 +26,7 @@ fn scroll_metrics(node: &ComputedNode) -> (f32, f32) {
 pub fn update_log(
     log: Res<CombatLog>,
     names: Query<&Name>,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     settings: Res<GameSettings>,
     mut text_q: Query<&mut Text, With<LogText>>,
 ) {
@@ -41,7 +41,7 @@ pub fn update_log(
     t.0 = log
         .0
         .iter()
-        .map(|e| format!("{}\n", e.format(name, &db, settings.crit_fail_die)))
+        .map(|e| format!("{}\n", e.format(name, &content, settings.crit_fail_die)))
         .collect();
 }
 

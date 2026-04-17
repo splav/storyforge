@@ -71,6 +71,13 @@ amount = dice_roll + INT_mod + spell_power
 - Spend: deducted on ability use
 - Используется немагическими способностями (следопыт)
 
+### Rest (`rest`)
+Self-target способность (клавиша `R`, effect `restore_resources`). Восстанавливает за один ход:
+- +1 HP (не выше `max_hp`)
+- +1 мана / ярость / энергия (если соответствующий компонент есть у актёра; клампится на max)
+
+Доступна всем; не требует ресурсов, завершает ход.
+
 ### Action Points
 - `action: bool` — can use an ability this turn
 - `movement: bool` — can move this turn
@@ -96,6 +103,7 @@ amount = dice_roll + INT_mod + spell_power
 | `speed_bonus` | Модифицирует скорость передвижения |
 | `hp_percent_dot` | % от max_hp как урон за каждый тик |
 | `ai_controlled` | Герой действует под управлением AI (pact) |
+| `causes_disadvantage` | Все броски кубика носителя — с disadvantage (бросок дважды, худший). См. `disoriented`. |
 
 ### Duration
 - Ticks on **applier's** EndTurn, not target's

@@ -1,4 +1,5 @@
 #![allow(clippy::type_complexity)]
+use crate::content::content_view::ActiveContent;
 use super::render::{
     HexBorder, HexCellLink, HexGridOffset, HexHover, HexManaLabel, HexMaterials, HexNameLabel,
     HexHpLabel,
@@ -11,7 +12,7 @@ use crate::game::components::{
 use crate::game::hex::{hex_circle, hex_line, in_bounds, Hex, LAYOUT};
 use crate::game::pathfinding::reachable_cells;
 use crate::game::resources::{
-    GameDb, HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags,
+    HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags,
 };
 use crate::ui::animation::MovePath;
 use bevy::prelude::*;
@@ -136,7 +137,7 @@ pub fn update_hex_visuals(
     active_q: Query<Entity, With<ActiveCombatant>>,
     sel: Res<SelectionState>,
     hover: Res<HexHover>,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     positions: Res<HexPositions>,
     mats: Res<HexMaterials>,
     cells: Query<(Entity, &Hex, &Children)>,
@@ -175,7 +176,7 @@ pub fn update_hex_visuals(
                 .zip(
                     sel.selected_ability
                         .as_ref()
-                        .and_then(|id| db.abilities.get(id))
+                        .and_then(|id| content.abilities.get(id))
                         .filter(|ab| ab.target_type != TargetType::Myself && ab.range.max > 0),
                 );
             if let Some((actor_pos, ab)) = info {
@@ -203,7 +204,7 @@ pub fn update_hex_visuals(
                 .zip(
                     sel.selected_ability
                         .as_ref()
-                        .and_then(|id| db.abilities.get(id))
+                        .and_then(|id| content.abilities.get(id))
                         .filter(|ab| ab.target_type != TargetType::Myself && ab.range.min > 0),
                 );
             if let Some((actor_pos, ab)) = info {
@@ -267,7 +268,7 @@ pub fn update_hex_visuals(
             let actor_pos = active_q.single().ok().and_then(|e| positions.get(&e));
             let aoe_def = sel.selected_ability
                 .as_ref()
-                .and_then(|id| db.abilities.get(id))
+                .and_then(|id| content.abilities.get(id))
                 .filter(|ab| ab.aoe != AoEShape::None);
             if let (Some(a_pos), Some(ab)) = (actor_pos, aoe_def) {
                 match ab.aoe {

@@ -1,5 +1,0 @@
-[[campaigns]]
-id          = "demo_campaign"
-name        = "Тропа через пограничье"
-description = "Демо-кампания"
-scenarios   = ["demo"]

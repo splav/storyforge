@@ -44,3 +44,10 @@ hp_percent_dot = 5
 id             = "pact_control"
 name           = "Власть договора"
 ai_controlled  = true
+
+[[statuses]]
+id                  = "disoriented"
+name                = "Дезориентация"
+# Все броски кубика носителя — с disadvantage (бросок дважды, худший).
+# Не влияет на скорость и не блокирует действия; только смещает исход атак/заклинаний в худшую сторону.
+causes_disadvantage = true

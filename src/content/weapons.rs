@@ -74,14 +74,21 @@ fn parse_hand(s: &str, weapon_id: &str) -> HandType {
     }
 }
 
-const WEAPONS_PATH: &str = "assets/data/equipment/weapons.toml";
+pub const WEAPONS_FILE: &str = "equipment/weapons.toml";
 
 pub fn load_weapons() -> Vec<WeaponDef> {
-    let src = std::fs::read_to_string(WEAPONS_PATH)
-        .unwrap_or_else(|e| panic!("Cannot read {WEAPONS_PATH}: {e}"));
-    let file: WeaponFile =
-        toml::from_str(&src).unwrap_or_else(|e| panic!("Cannot parse {WEAPONS_PATH}: {e}"));
+    let path = format!("assets/data/{WEAPONS_FILE}");
+    if !std::path::Path::new(&path).is_file() {
+        return Vec::new();
+    }
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+    parse_weapons(&path, &src)
+}
 
+pub fn parse_weapons(path: &str, src: &str) -> Vec<WeaponDef> {
+    let file: WeaponFile =
+        toml::from_str(src).unwrap_or_else(|e| panic!("Cannot parse {path}: {e}"));
     file.weapons
         .into_iter()
         .map(|r| WeaponDef {

@@ -1,3 +1,4 @@
+use crate::content::content_view::ContentView;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::scoring::{applies_cc, estimate_st_damage};
 use crate::content::abilities::{AoEShape, CasterContext, EffectDef, TargetType};
@@ -6,7 +7,7 @@ use crate::game::components::{
     AiCombatantQ, Combatant, StatusEffects, Team,
 };
 use crate::game::hex::Hex;
-use crate::game::resources::{GameDb, HexPositions};
+use crate::game::resources::HexPositions;
 use bevy::prelude::*;
 
 // ── Tags ──────────────────────────────────────────────────────────────────────
@@ -86,7 +87,7 @@ pub fn build_snapshot(
     statuses_q: &Query<&StatusEffects>,
     positions: &HexPositions,
     roles: &Query<&AxisProfile>,
-    db: &GameDb,
+    content: &ContentView,
 ) -> BattleSnapshot {
     let units = combatants
         .iter()
@@ -94,22 +95,22 @@ pub fn build_snapshot(
         .filter_map(|c| {
             let pos = positions.get(&c.entity)?;
             let role = roles.get(c.entity).copied().unwrap_or_default();
-            let caster_ctx = CasterContext::new(c.stats, Some(c.equipment), &db.weapons);
-            let threat = estimate_st_damage(&caster_ctx, c.abilities, db);
+            let caster_ctx = CasterContext::new(c.stats, Some(c.equipment), &content.weapons);
+            let threat = estimate_st_damage(&caster_ctx, c.abilities, content);
 
-            let tags = compute_tags(&c, statuses_q, db);
+            let tags = compute_tags(&c, statuses_q, content);
 
             // Single pass over status effects — aggregates every per-snapshot
             // bonus at once (speed, armor, damage-taken). Keep this fold as
             // the only place each bonus is read from statuses.
             let StatusBonuses { speed_bonus, armor_bonus, damage_taken_bonus } =
-                status_bonuses(c.entity, statuses_q, db);
+                status_bonuses(c.entity, statuses_q, content);
 
             let max_attack_range: u32 = c
                 .abilities
                 .0
                 .iter()
-                .filter_map(|id| db.abilities.get(id))
+                .filter_map(|id| content.abilities.get(id))
                 .filter(|def| matches!(def.target_type, TargetType::SingleEnemy))
                 .map(|def| def.range.max)
                 .max()
@@ -181,7 +182,7 @@ use crate::game::components::AiCombatantQItem;
 fn compute_tags(
     c: &AiCombatantQItem,
     statuses_q: &Query<&StatusEffects>,
-    db: &GameDb,
+    content: &ContentView,
 ) -> AiTags {
     let mut tags = AiTags::empty();
 
@@ -202,7 +203,7 @@ fn compute_tags(
     );
 
     for id in &c.abilities.0 {
-        let Some(def) = db.abilities.get(id) else { continue };
+        let Some(def) = content.abilities.get(id) else { continue };
         if def.range.max > max_range {
             max_range = def.range.max;
         }
@@ -227,7 +228,7 @@ fn compute_tags(
                 tags |= AiTags::CAN_HEAL;
             }
 
-            if applies_cc(def, db) {
+            if applies_cc(def, content) {
                 tags |= AiTags::CAN_CC;
             }
 
@@ -247,7 +248,7 @@ fn compute_tags(
     // Status-derived tags
     if let Ok(se) = statuses_q.get(c.entity) {
         for s in &se.0 {
-            let Some(sd) = db.statuses.get(&s.id) else { continue };
+            let Some(sd) = content.statuses.get(&s.id) else { continue };
             if sd.skips_turn {
                 tags |= AiTags::IS_STUNNED;
             }
@@ -273,13 +274,13 @@ struct StatusBonuses {
 fn status_bonuses(
     entity: Entity,
     statuses_q: &Query<&StatusEffects>,
-    db: &GameDb,
+    content: &ContentView,
 ) -> StatusBonuses {
     let Ok(se) = statuses_q.get(entity) else {
         return StatusBonuses::default();
     };
     se.0.iter()
-        .filter_map(|s| db.statuses.get(&s.id))
+        .filter_map(|s| content.statuses.get(&s.id))
         .fold(StatusBonuses::default(), |mut acc, sd| {
             acc.speed_bonus += sd.speed_bonus;
             acc.armor_bonus += sd.armor_bonus;

@@ -1,3 +1,4 @@
+use crate::content::content_view::ContentView;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::factors::aoe_area;
 use crate::combat::ai::influence::InfluenceMaps;
@@ -7,7 +8,6 @@ use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::utility::{ActionCandidate, CandidateKind};
 use crate::content::abilities::{AoEShape, TargetType};
-use crate::game::resources::GameDb;
 use bevy::prelude::*;
 
 /// Penalty values for soft intent misalignment.
@@ -369,7 +369,7 @@ pub fn intent_score(
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
-    db: &GameDb,
+    content: &ContentView,
     difficulty: &DifficultyProfile,
 ) -> f32 {
     // MoveOnly candidates: scored only on position-related intent axes.
@@ -386,7 +386,7 @@ pub fn intent_score(
                 if target == Some(*focus) {
                     return 1.0;
                 }
-                let Some(def) = db.abilities.get(ability) else {
+                let Some(def) = content.abilities.get(ability) else {
                     return MISALIGN_PENALTY;
                 };
                 // AoE that covers the focus target: partial alignment — the
@@ -409,10 +409,10 @@ pub fn intent_score(
         },
         TacticalIntent::ApplyCC { target: cc_target } => match cast {
             Some((ability, _, target)) => {
-                let Some(def) = db.abilities.get(ability) else {
+                let Some(def) = content.abilities.get(ability) else {
                     return 0.0;
                 };
-                let is_cc = applies_cc(def, db);
+                let is_cc = applies_cc(def, content);
                 if is_cc && target == Some(*cc_target) { 1.0 }
                 else if is_cc { MISALIGN_PENALTY }
                 else if target == Some(*cc_target) { 0.5 }
@@ -444,7 +444,7 @@ pub fn intent_score(
             // tile danger. Otherwise use tile safety.
             if let Some((ability, _, target)) = cast {
                 if target == Some(active.entity) {
-                    if let Some(def) = db.abilities.get(ability) {
+                    if let Some(def) = content.abilities.get(ability) {
                         if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
                             return 1.0;
                         }
@@ -455,7 +455,7 @@ pub fn intent_score(
         }
         TacticalIntent::ProtectAlly { ally } => match cast {
             Some((ability, _, target)) => {
-                let Some(def) = db.abilities.get(ability) else { return 0.0 };
+                let Some(def) = content.abilities.get(ability) else { return 0.0 };
                 if def.target_type == TargetType::SingleAlly {
                     if target == Some(*ally) { 1.0 } else { MILD_PENALTY }
                 } else if snap.unit(*ally).is_some_and(|a| candidate.tile.unsigned_distance_to(a.pos) <= 1) {
@@ -478,7 +478,7 @@ pub fn intent_score(
                 // Pure movement can't set up AoE; neutral.
                 return 0.0;
             };
-            let Some(def) = db.abilities.get(ability) else { return 0.0 };
+            let Some(def) = content.abilities.get(ability) else { return 0.0 };
             if def.aoe == AoEShape::None {
                 return MILD_PENALTY;
             }
@@ -492,14 +492,14 @@ pub fn intent_score(
                 // LastStand wants last useful action, not running.
                 return -0.3;
             };
-            let Some(def) = db.abilities.get(ability) else { return 0.0 };
+            let Some(def) = content.abilities.get(ability) else { return 0.0 };
             let mut score = 0.0f32;
 
             if matches!(def.target_type, TargetType::SingleEnemy) {
                 score += 0.5;
             }
             if let Some(target_unit) = target.and_then(|t| snap.unit(t)) {
-                if applies_cc(def, db) && !target_unit.tags.contains(AiTags::IS_STUNNED) {
+                if applies_cc(def, content) && !target_unit.tags.contains(AiTags::IS_STUNNED) {
                     score += 0.8;
                 }
             }
@@ -525,7 +525,7 @@ mod tests {
     use crate::combat::ai::utility::ActionCandidate;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
-    use crate::game::resources::GameDb;
+    
 
     /// Build maps where only danger is set on specific tiles.
     /// Bruiser danger weight is -1.2, so eval = -1.2 * danger.
@@ -604,7 +604,7 @@ mod tests {
             active_unit: active.entity,
             round: 1,
         };
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let intent = TacticalIntent::Reposition;
         let difficulty = DifficultyProfile::default();
 
@@ -614,7 +614,7 @@ mod tests {
             &active,
             &snap,
             &maps,
-            &db,
+            &content,
             &difficulty,
         );
         let score_better = intent_score(
@@ -623,7 +623,7 @@ mod tests {
             &active,
             &snap,
             &maps,
-            &db,
+            &content,
             &difficulty,
         );
 

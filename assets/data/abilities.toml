@@ -190,3 +190,13 @@ min_range   = 2
 statuses    = [
     { id = "poisoned", on = "target", duration = 3 },
 ]
+
+[[abilities]]
+id                = "summon_storm_spirit"
+name              = "Призыв духа бури"
+target_type       = "myself"
+effect            = "summon"
+summon_template   = "storm_spirit"
+summon_max_active = 2
+range             = 0
+costs             = [{ resource = "mana", amount = 3 }]

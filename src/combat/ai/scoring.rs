@@ -1,14 +1,14 @@
+use crate::content::content_view::ContentView;
 use crate::combat::ai::snapshot::UnitSnapshot;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, TargetType};
 use crate::game::components::Abilities;
-use crate::game::resources::GameDb;
 
 /// True if the ability applies any status that skips the target's turn
 /// (stun, paralyse, sleep…). Single source of truth for "is this CC?".
-pub fn applies_cc(def: &AbilityDef, db: &GameDb) -> bool {
+pub fn applies_cc(def: &AbilityDef, content: &ContentView) -> bool {
     def.statuses
         .iter()
-        .any(|sa| db.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn))
+        .any(|sa| content.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn))
 }
 
 /// Score a single (ability, target) pair in HP-equivalent units.
@@ -17,13 +17,13 @@ pub fn score_action(
     def: &AbilityDef,
     target: &UnitSnapshot,
     ctx: &CasterContext,
-    db: &GameDb,
+    content: &ContentView,
 ) -> f32 {
     let Some(calc) = def.effect.calc(ctx) else {
         return if matches!(def.effect, EffectDef::GrantMovement { .. }) {
             0.0
         } else {
-            status_score(def, target, db)
+            status_score(def, target, content)
         };
     };
 
@@ -57,17 +57,17 @@ pub fn score_action(
         raw * (0.5 + 0.5 * progress)
     };
 
-    dmg_score + status_score(def, target, db)
+    dmg_score + status_score(def, target, content)
 }
 
 /// Best single-target expected damage from one ability (before armor).
 /// Used to value stuns/kills: controlling a high-damage target is worth more.
 /// Does NOT capture AoE, healing, or utility — it's a damage-only estimate.
-pub fn estimate_st_damage(ctx: &CasterContext, abilities: &Abilities, db: &GameDb) -> f32 {
+pub fn estimate_st_damage(ctx: &CasterContext, abilities: &Abilities, content: &ContentView) -> f32 {
     abilities
         .0
         .iter()
-        .filter_map(|id| db.abilities.get(id))
+        .filter_map(|id| content.abilities.get(id))
         .filter(|def| matches!(def.target_type, TargetType::SingleEnemy))
         .filter_map(|def| def.effect.calc(ctx))
         .map(|calc| calc.expected().max(0.0))
@@ -79,11 +79,11 @@ pub fn estimate_st_damage(ctx: &CasterContext, abilities: &Abilities, db: &GameD
 fn status_score(
     def: &AbilityDef,
     target: &UnitSnapshot,
-    db: &GameDb,
+    content: &ContentView,
 ) -> f32 {
     let mut total = 0.0f32;
     for sa in &def.statuses {
-        let Some(sd) = db.statuses.get(&sa.status) else {
+        let Some(sd) = content.statuses.get(&sa.status) else {
             continue;
         };
         let d = sa.duration_rounds as f32;

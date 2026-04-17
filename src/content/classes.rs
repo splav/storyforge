@@ -2,6 +2,7 @@ use crate::core::{AbilityId, ArmorId, WeaponId};
 use crate::game::components::CombatStats;
 use serde::Deserialize;
 
+#[derive(Debug, Clone)]
 pub struct ClassDef {
     pub id: String,
     pub name: String,
@@ -52,14 +53,21 @@ struct ClassRecord {
     energy_max: i32,
 }
 
-const CLASSES_PATH: &str = "assets/data/classes.toml";
+pub const CLASSES_FILE: &str = "classes.toml";
 
 pub fn load_classes() -> Vec<ClassDef> {
-    let src = std::fs::read_to_string(CLASSES_PATH)
-        .unwrap_or_else(|e| panic!("Cannot read {CLASSES_PATH}: {e}"));
-    let file: ClassFile =
-        toml::from_str(&src).unwrap_or_else(|e| panic!("Cannot parse {CLASSES_PATH}: {e}"));
+    let path = format!("assets/data/{CLASSES_FILE}");
+    if !std::path::Path::new(&path).is_file() {
+        return Vec::new();
+    }
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+    parse_classes(&path, &src)
+}
 
+pub fn parse_classes(path: &str, src: &str) -> Vec<ClassDef> {
+    let file: ClassFile =
+        toml::from_str(src).unwrap_or_else(|e| panic!("Cannot parse {path}: {e}"));
     file.classes
         .into_iter()
         .map(|r| ClassDef {

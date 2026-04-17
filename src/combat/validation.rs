@@ -1,15 +1,16 @@
 #![allow(clippy::too_many_arguments)]
+use crate::content::content_view::{ActiveContent, ContentView};
 use crate::content::abilities::AoEShape;
 use crate::core::ResourceKind;
 use crate::game::components::{ActiveCombatant, ValidationActorQ, Vital};
 use crate::game::hex::in_bounds;
 use crate::game::messages::{EndTurn, UseAbility, ValidatedAction};
-use crate::game::resources::{GameDb, HexPositions};
+use crate::game::resources::HexPositions;
 use bevy::prelude::*;
 
 pub fn validate_action_system(
     active_q: Query<Entity, With<ActiveCombatant>>,
-    db: Res<GameDb>,
+    content: Res<ActiveContent>,
     positions: Res<HexPositions>,
     mut events: MessageReader<UseAbility>,
     actors: Query<ValidationActorQ>,
@@ -19,7 +20,7 @@ pub fn validate_action_system(
 ) {
     let active = active_q.single().ok();
     for ev in events.read() {
-        let (valid, disadvantage) = check(ev, active, &db, &positions, &actors, &targets);
+        let (valid, disadvantage) = check(ev, active, &content, &positions, &actors, &targets);
         if !valid {
             // Rejected action still ends the turn to prevent infinite loops.
             end_turn.write(EndTurn { actor: ev.actor });
@@ -38,7 +39,7 @@ pub fn validate_action_system(
 fn check(
     ev: &UseAbility,
     active: Option<Entity>,
-    db: &GameDb,
+    content: &ContentView,
     positions: &HexPositions,
     actors: &Query<ValidationActorQ>,
     targets: &Query<&Vital>,
@@ -54,14 +55,26 @@ fn check(
         return (false, false);
     }
     // Keyed (universal) abilities bypass class ability list check.
-    let is_keyed = db.abilities.get(&ev.ability).is_some_and(|d| d.key.is_some());
+    let is_keyed = content.abilities.get(&ev.ability).is_some_and(|d| d.key.is_some());
     if !is_keyed && !a.abilities.0.contains(&ev.ability) {
         return (false, false);
     }
 
     let mut disadvantage = false;
 
-    let Some(def) = db.abilities.get(&ev.ability) else {
+    // Statuses that cause disadvantage on all rolls (e.g. "disoriented").
+    // Short-range penalty below is a separate source that can set this flag too.
+    if let Some(se) = a.statuses {
+        if se
+            .0
+            .iter()
+            .any(|s| content.statuses.get(&s.id).is_some_and(|d| d.causes_disadvantage))
+        {
+            disadvantage = true;
+        }
+    }
+
+    let Some(def) = content.abilities.get(&ev.ability) else {
         return (false, false);
     };
 
@@ -83,7 +96,7 @@ fn check(
     if has_mana_cost {
         if let Some(se) = a.statuses {
             let blocked = se.0.iter().any(|s| {
-                db.statuses.get(&s.id).is_some_and(|d| d.blocks_mana_abilities)
+                content.statuses.get(&s.id).is_some_and(|d| d.blocks_mana_abilities)
             });
             if blocked {
                 return (false, false);

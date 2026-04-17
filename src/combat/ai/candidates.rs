@@ -117,7 +117,7 @@ fn emit_casts_from_tile(
     out: &mut Vec<ActionCandidate>,
 ) {
     for ability_id in &ctx.abilities.0 {
-        let Some(def) = ctx.db.abilities.get(ability_id) else { continue };
+        let Some(def) = ctx.content.abilities.get(ability_id) else { continue };
 
         if !can_afford_snap(def, active) {
             continue;
@@ -333,7 +333,7 @@ pub(super) fn select_diverse_tiles(
     // 4. AoE origin: tiles from which AoE hits the most enemies.
     if active.tags.contains(AiTags::HAS_AOE) {
         let aoe_radii: Vec<u32> = ctx.abilities.0.iter()
-            .filter_map(|id| ctx.db.abilities.get(id))
+            .filter_map(|id| ctx.content.abilities.get(id))
             .filter_map(|def| match def.aoe {
                 AoEShape::Circle { radius } => Some(radius),
                 _ => None,
@@ -371,7 +371,7 @@ pub(super) fn select_diverse_tiles(
     // pool even when competing escape tiles score higher overall.
     if active.tags.contains(AiTags::CAN_HEAL) {
         let heal_range: u32 = ctx.abilities.0.iter()
-            .filter_map(|id| ctx.db.abilities.get(id))
+            .filter_map(|id| ctx.content.abilities.get(id))
             .filter(|def| matches!(def.target_type, TargetType::SingleAlly))
             .map(|def| def.range.max)
             .max()
@@ -429,6 +429,7 @@ pub(super) fn can_afford_snap(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::content_view::ContentView;
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::influence::InfluenceMap;
     use crate::combat::ai::role::{AiRole, AxisProfile};
@@ -436,7 +437,7 @@ mod tests {
     use crate::content::races::CritFailEffect;
     use crate::game::components::{Abilities, Team};
     use crate::game::hex::{hex_from_offset, hex_to_offset};
-    use crate::game::resources::GameDb;
+    
 
     fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
         UnitSnapshot {
@@ -482,12 +483,12 @@ mod tests {
     }
 
     fn test_ctx<'a>(
-        db: &'a GameDb,
+        content: &'a ContentView,
         diff: &'a DifficultyProfile,
         abilities: &'a Abilities,
     ) -> UtilityContext<'a> {
         UtilityContext {
-            db,
+            content,
             difficulty: diff,
             caster: &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
             abilities,
@@ -504,10 +505,10 @@ mod tests {
         let enemy = unit(1, Team::Player, hex_from_offset(0, 0));
         let s = snap(vec![active.clone(), enemy]);
         let maps = empty_maps();
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
         let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = test_ctx(&db, &difficulty, &abilities);
+        let ctx = test_ctx(&content, &difficulty, &abilities);
         let enemies: Vec<&UnitSnapshot> = s.enemies_of(Team::Enemy).collect();
         let reach = fake_reach(actor_pos);
         let tiles = select_diverse_tiles(actor_pos, &active, &ctx, &s, &maps, &reach, &enemies);
@@ -524,10 +525,10 @@ mod tests {
 
         let s = snap(vec![active.clone(), target.clone()]);
         let maps = empty_maps();
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
         let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = test_ctx(&db, &difficulty, &abilities);
+        let ctx = test_ctx(&content, &difficulty, &abilities);
         let enemies: Vec<&UnitSnapshot> = s.enemies_of(Team::Enemy).collect();
 
         let target_hex = hex_from_offset(2, 3);
@@ -556,10 +557,10 @@ mod tests {
         maps.opportunity.add(offensive, 0.9);
         maps.escape.add(safe, 0.9);
 
-        let db = GameDb::default();
+        let content = ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
         let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = test_ctx(&db, &difficulty, &abilities);
+        let ctx = test_ctx(&content, &difficulty, &abilities);
         let enemies: Vec<&UnitSnapshot> = s.enemies_of(Team::Enemy).collect();
         let reach = fake_reach(actor_pos);
 

@@ -14,6 +14,7 @@ pub struct StatusDef {
     pub speed_bonus: i32,            // heritage: модификатор скорости
     pub hp_percent_dot: i32,         // heritage: % от max_hp урона за тик (ceil)
     pub ai_controlled: bool,         // pact: AI управляет персонажем
+    pub causes_disadvantage: bool,   // носитель бросает все броски с disadvantage
 }
 
 // ── TOML loading ──────────────────────────────────────────────────────────────
@@ -47,16 +48,25 @@ struct StatusRecord {
     hp_percent_dot: i32,
     #[serde(default)]
     ai_controlled: bool,
+    #[serde(default)]
+    causes_disadvantage: bool,
 }
 
-const STATUSES_PATH: &str = "assets/data/statuses.toml";
+pub const STATUSES_FILE: &str = "statuses.toml";
 
 pub fn load_statuses() -> Vec<StatusDef> {
-    let src = std::fs::read_to_string(STATUSES_PATH)
-        .unwrap_or_else(|e| panic!("Cannot read {STATUSES_PATH}: {e}"));
-    let file: StatusFile =
-        toml::from_str(&src).unwrap_or_else(|e| panic!("Cannot parse {STATUSES_PATH}: {e}"));
+    let path = format!("assets/data/{STATUSES_FILE}");
+    if !std::path::Path::new(&path).is_file() {
+        return Vec::new();
+    }
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
+    parse_statuses(&path, &src)
+}
 
+pub fn parse_statuses(path: &str, src: &str) -> Vec<StatusDef> {
+    let file: StatusFile =
+        toml::from_str(src).unwrap_or_else(|e| panic!("Cannot parse {path}: {e}"));
     file.statuses
         .into_iter()
         .map(|r| {
@@ -76,6 +86,7 @@ pub fn load_statuses() -> Vec<StatusDef> {
                 speed_bonus: r.speed_bonus,
                 hp_percent_dot: r.hp_percent_dot,
                 ai_controlled: r.ai_controlled,
+                causes_disadvantage: r.causes_disadvantage,
             }
         })
         .collect()
