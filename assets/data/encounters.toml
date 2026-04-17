@@ -104,3 +104,23 @@ ability_ids  = ["melee_attack", "heal", "burn", "spark"]
 mana_max     = 6
 hex_col      = 5
 hex_row      = 3
+
+[[encounters.enemies]]
+name         = "Молниеносец"
+race         = "stormborn"
+max_hp       = 12
+strength     = 4    # мод +2
+dexterity    = 8    # мод +4 — стремительный охотник
+constitution = -2   # мод -1 — хрупкий
+intelligence = -2   # мод -1
+wisdom       = 0    # мод  0
+charisma     = -2   # мод -1
+speed        = 6
+main_hand    = "short_sword"
+chest        = "leather_vest"
+legs         = "leather_pants"
+feet         = "leather_boots"
+ability_ids  = ["melee_attack", "backstab"]
+energy_max   = 4
+hex_col      = 4
+hex_row      = 5

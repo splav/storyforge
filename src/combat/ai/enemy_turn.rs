@@ -4,7 +4,7 @@ use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::build_influence_maps;
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::reservations::Reservations;
-use crate::combat::ai::role::AiRole;
+use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::build_snapshot;
 use crate::combat::ai::utility::{pick_action, AiDecision, UtilityContext};
 use crate::content::abilities::CasterContext;
@@ -47,7 +47,7 @@ pub fn enemy_ai_system(
     active_q: Query<Entity, With<ActiveCombatant>>,
     combatants: Query<AiCombatantQ, With<Combatant>>,
     statuses: Query<&StatusEffects>,
-    roles: Query<&AiRole>,
+    roles: Query<&AxisProfile>,
     mut memories: Query<&mut AiMemory>,
     names: Query<&Name>,
 ) {
@@ -78,7 +78,7 @@ fn run_ai_turn(
     msgs: &mut AiMessages,
     combatants: &Query<AiCombatantQ, With<Combatant>>,
     statuses: &Query<&StatusEffects>,
-    roles: &Query<&AiRole>,
+    roles: &Query<&AxisProfile>,
     memories: &mut Query<&mut AiMemory>,
     debug_state: &mut AiDebugState,
     names: &Query<&Name>,
@@ -97,7 +97,7 @@ fn run_ai_turn(
     // Build snapshot and influence maps.
     let actor_team = c.faction.0;
     let snap = build_snapshot(actor, combat_ctx.round, combatants, statuses, positions, roles, db);
-    let maps = build_influence_maps(&snap, actor_team, db);
+    let maps = build_influence_maps(&snap, actor_team);
 
     // Build reachable tiles for movement. Use the snapshot's status-adjusted
     // speed so paths respect debuffs like Истощение — otherwise the AI plans
@@ -229,7 +229,7 @@ pub fn pact_ai_system(
     active_q: Query<Entity, With<ActiveCombatant>>,
     combatants: Query<AiCombatantQ, With<Combatant>>,
     statuses: Query<&StatusEffects>,
-    roles: Query<&AiRole>,
+    roles: Query<&AxisProfile>,
     mut memories: Query<&mut AiMemory>,
     names: Query<&Name>,
 ) {

@@ -135,16 +135,22 @@ pub fn select_intent(
         consider(TacticalIntent::ProtectSelf, urgency);
     }
 
-    // ProtectAlly: score based on ally urgency. Self is a valid target — a
-    // wounded healer should pick themselves if they're the most at risk.
+    // ProtectAlly: score based on ally urgency. Self is a valid target.
+    //
+    // Trigger threshold scales with the actor's healer identity (Support axis):
+    // pure damage dealer (support=0) keeps 50% threshold (barely triggers),
+    // pure healer (support=1.0) triggers at 70% (aggressive preventive heal).
+    // Hybrid battle-mages with heal enter healer-mode proportionally earlier.
     if active.tags.contains(AiTags::CAN_HEAL) {
+        let heal_identity = active.role.support.min(1.0);
+        let threshold = 0.5 + heal_identity * 0.2;
         let most_wounded = snap
             .allies_of(active.team)
-            .filter(|u| (u.hp as f32 / u.max_hp.max(1) as f32) < 0.5)
+            .filter(|u| (u.hp as f32 / u.max_hp.max(1) as f32) < threshold)
             .min_by_key(|u| u.hp);
         if let Some(ally) = most_wounded {
             let ally_pct = ally.hp as f32 / ally.max_hp.max(1) as f32;
-            let urgency = 1.0 - ally_pct; // 0.0..1.0, higher = more wounded
+            let urgency = 1.0 - ally_pct;
             consider(TacticalIntent::ProtectAlly { ally: ally.entity }, urgency);
         }
     }
@@ -170,12 +176,9 @@ pub fn select_intent(
         let reach_budget = (active.speed.max(0) as u32).saturating_add(active.max_attack_range);
         let killable = snap
             .enemies_of(active.team)
-            .filter(|e| {
-                let effective_hp = e.hp as f32 + (e.armor + e.armor_bonus) as f32;
-                active.threat >= effective_hp
-            })
+            .filter(|e| active.threat >= e.eff_hp() as f32)
             .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
-            .min_by_key(|e| e.hp + e.armor + e.armor_bonus);
+            .min_by_key(|e| e.eff_hp());
         if let Some(target) = killable {
             let kill_score = 1.2 + (1.0 - target.hp as f32 / target.max_hp.max(1) as f32) * 0.3;
             consider(TacticalIntent::FocusTarget { target: target.entity }, kill_score);
@@ -222,7 +225,7 @@ pub fn select_intent(
 
     // Reposition: current position is significantly bad. awareness controls
     // how early the AI notices a bad tile (low = only truly terrible tiles).
-    let pos_eval = evaluate_position(active.pos, active.role, maps);
+    let pos_eval = evaluate_position(active.pos, &active.role, maps);
     let repo_threshold = difficulty.awareness_reposition_threshold();
     if pos_eval < repo_threshold {
         let repo_score = 0.3 + (repo_threshold - pos_eval).min(1.5) * 0.4;
@@ -352,12 +355,21 @@ pub fn intent_score(
             None => 0.0,
         },
         TacticalIntent::Reposition => {
-            // Same formula for Cast and MoveOnly — position improvement is the axis.
-            let current = evaluate_position(active.pos, active.role, maps);
-            let new = evaluate_position(candidate.tile, active.role, maps);
+            // Tiered: strong improvement rewarded, any improvement neutral,
+            // no improvement penalized — mildly if casting, hard if just moving.
+            let current = evaluate_position(active.pos, &active.role, maps);
+            let new = evaluate_position(candidate.tile, &active.role, maps);
             let improvement = new - current;
             let min_improv = difficulty.reposition_min_improvement();
-            if improvement < min_improv { -1.0 } else { improvement.min(2.0) }
+            if improvement >= min_improv {
+                improvement.min(2.0)
+            } else if improvement > 0.0 {
+                0.0
+            } else if cast.is_some() {
+                -0.3
+            } else {
+                -1.0
+            }
         }
         TacticalIntent::ProtectSelf => {
             // Self-directed defensive casts (self-heal, self-buff on Myself or
@@ -449,7 +461,7 @@ pub fn intent_score(
 mod tests {
     use super::*;
     use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
-    use crate::combat::ai::role::AiRole;
+    use crate::combat::ai::role::{AiRole, AxisProfile};
     use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::utility::ActionCandidate;
     use crate::game::components::Team;
@@ -475,7 +487,7 @@ mod tests {
         UnitSnapshot {
             entity: Entity::from_raw_u32(0).expect("valid"),
             team: Team::Enemy,
-            role: AiRole::Bruiser,
+            role: AxisProfile::from(AiRole::Bruiser),
             pos,
             hp: 20,
             max_hp: 20,
@@ -489,7 +501,6 @@ mod tests {
             rage: None,
             energy: None,
             abilities: vec![],
-            statuses: vec![],
             threat: 5.0,
             tags: AiTags::MELEE_ONLY,
             max_attack_range: 1,

@@ -12,11 +12,12 @@ pub fn filter_candidates(
     candidates: &mut Vec<ActionCandidate>,
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
+    _maps: &InfluenceMaps,
     db: &GameDb,
 ) {
-    // Forced targeting: if any enemy taunts, only allow Cast candidates on them.
-    // MoveOnly is exempt — taunt doesn't restrict movement.
+    // Forced targeting: taunt constrains ENEMY-targeted Cast only. Heals,
+    // self-buffs and movement are untouched — a taunt says "you can't hit
+    // anyone but me", not "you can't heal your own ally".
     let forced: Vec<_> = snap
         .enemies_of(active.team)
         .filter(|u| u.tags.contains(AiTags::FORCES_TARGETING))
@@ -25,7 +26,14 @@ pub fn filter_candidates(
 
     if !forced.is_empty() {
         candidates.retain(|c| match &c.kind {
-            CandidateKind::Cast { target, .. } => forced.contains(target),
+            CandidateKind::Cast { ability, target, .. } => {
+                let Some(def) = db.abilities.get(ability) else { return false };
+                match def.target_type {
+                    TargetType::SingleEnemy => forced.contains(target),
+                    // SingleAlly / Myself: taunt doesn't restrict supporting own side.
+                    _ => true,
+                }
+            }
             CandidateKind::MoveOnly => true,
         });
     }
@@ -33,14 +41,9 @@ pub fn filter_candidates(
     let ally_positions: HashSet<_> = snap.allies_of(active.team).map(|u| u.pos).collect();
 
     candidates.retain(|c| {
-        // Don't walk into death: reject if LOW_HP and the candidate MOVES to
-        // a high-danger tile. Applies to both Cast and MoveOnly.
-        if active.tags.contains(AiTags::LOW_HP)
-            && c.tile != active.pos
-            && maps.danger.get(c.tile) > 0.7
-        {
-            return false;
-        }
+        // Survival risk is now a scoring penalty in sanity_adjust (quadratic
+        // gradient) — hard filter here cut retreat candidates even when all
+        // reachable tiles were dangerous, leaving the AI with no option to flee.
 
         // MoveOnly bypasses the remaining ability-specific constraints.
         let (ability, target, target_pos) = match &c.kind {

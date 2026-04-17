@@ -122,6 +122,19 @@ statuses    = [
 ]
 
 [[abilities]]
+id          = "backstab"
+name        = "Удар в спину"
+target_type = "single_enemy"
+effect      = "damage"
+dice_count  = 1
+dice_sides  = 4
+costs       = [{ resource = "energy", amount = 2 }]
+range       = 1
+statuses    = [
+    { id = "poisoned", on = "target", duration = 2 },
+]
+
+[[abilities]]
 id          = "rush"
 name        = "Рывок"
 target_type = "myself"

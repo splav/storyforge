@@ -2,7 +2,7 @@
 use crate::app_state::CombatPhase;
 use crate::content::scenarios::SceneDef;
 use crate::combat::ai::intent::AiMemory;
-use crate::combat::ai::role as ai_role;
+use crate::combat::ai::role::{self as ai_role, AxisProfile};
 use crate::game::bundles::{enemy_bundle, hero_bundle};
 use crate::game::components::{CombatPath, Combatant, Energy, Equipment, Initiative, Mana, Rage, StartingHexPos, UnitToken};
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -41,7 +41,7 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
         };
         let effective = db.effective_stats(&cls.stats, &equipment);
         let armor = db.equipment_armor(&equipment);
-        let role = ai_role::infer_role(&cls.abilities, cls.speed, db);
+        let role = ai_role::infer_profile(&cls.abilities, effective.max_hp, armor, db);
         let mut ec = commands.spawn((
             Name::new(member.name.clone()),
             hero_bundle(effective, armor, cls.speed, cls.abilities.clone(), equipment),
@@ -67,9 +67,10 @@ fn spawn_combatants(commands: &mut Commands, db: &GameDb, scenario: &ScenarioSta
         let armor = db.equipment_armor(&equipment);
         let race_name = db.races.get(&enemy.race).map_or("", |r| r.name.as_str());
         let display_name = format!("{} {}", race_name, &enemy.name);
-        let role = enemy.ai_role.as_deref()
+        let role: AxisProfile = enemy.ai_role.as_deref()
             .and_then(ai_role::parse_role)
-            .unwrap_or_else(|| ai_role::infer_role(&enemy.ability_ids, enemy.speed, db));
+            .map(Into::into)
+            .unwrap_or_else(|| ai_role::infer_profile(&enemy.ability_ids, effective.max_hp, armor, db));
         let mut ec = commands.spawn((
             Name::new(display_name),
             enemy_bundle(effective, armor, enemy.speed, enemy.ability_ids.clone(), equipment),

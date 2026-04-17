@@ -1,5 +1,4 @@
 use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
-use crate::combat::ai::role::AiRole;
 use crate::combat::ai::snapshot::AiTags;
 use crate::game::hex::Hex;
 use crate::game::resources::{UiDirty, UiDirtyFlags};
@@ -57,7 +56,8 @@ pub struct CandidateDebug {
 
 /// Actor state at decision time.
 pub struct ActorDebug {
-    pub role: AiRole,
+    /// Pre-formatted role label, e.g. "Mage(0.73) + Support(0.18)".
+    pub role_label: String,
     pub pos: [i32; 2],
     pub hp: i32,
     pub max_hp: i32,
@@ -202,8 +202,8 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
 
     let a = &snap.actor;
     println!(
-        "═══ AI DEBUG: {} ({:?}) ═══",
-        snap.actor_name, a.role,
+        "═══ AI DEBUG: {} [{}] ═══",
+        snap.actor_name, a.role_label,
     );
     println!(
         "  HP: {}/{} | threat: {:.1} | pos: {} | tags: {} | act={} mov={}",

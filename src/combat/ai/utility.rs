@@ -8,7 +8,7 @@ use crate::combat::ai::intent::{
 };
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::reservations::Reservations;
-use crate::combat::ai::role::AiRole;
+use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::scoring::{score_action, TargetInfo};
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
@@ -107,25 +107,8 @@ const SIGNED_FACTOR: [bool; NUM_FACTORS] = [
     false, false, false, false, true, false, false, true, true,
 ];
 
-#[rustfmt::skip]
-const ROLE_WEIGHTS: [[f32; NUM_FACTORS]; 5] = [
-    //            dmg   kill  cc    heal  pos   risk  focus intent scarc
-    /* Bruiser */ [1.0,  1.5,  0.3,  0.0,  0.5,  0.5,  0.8,  1.0,  0.3],
-    /* Archer  */ [1.0,  1.0,  0.3,  0.0,  1.0,  0.8,  0.5,  1.0,  0.3],
-    /* Mage    */ [0.8,  0.8,  1.2,  0.0,  0.8,  0.6,  0.5,  1.0,  1.0],
-    /* Support */ [0.2,  0.3,  0.8,  2.0,  1.0,  1.0,  0.5,  1.0,  0.8],
-    /* Assassin*/ [0.8,  1.5,  0.2,  0.0,  0.5,  0.5,  1.5,  1.0,  0.2],
-];
-
-fn role_index(role: AiRole) -> usize {
-    match role {
-        AiRole::Bruiser => 0,
-        AiRole::Archer => 1,
-        AiRole::Mage => 2,
-        AiRole::Support => 3,
-        AiRole::Assassin => 4,
-    }
-}
+// Factor weights are no longer per-enum — they're composed from the unit's
+// AxisProfile via `profile.factor_weights()`. See role.rs for axis definitions.
 
 // ── Context ─────────────────────────────────────────────────────────────────
 
@@ -602,7 +585,38 @@ fn select_diverse_tiles(
         });
     }
 
-    // 6. Always include current position (stay-and-cast).
+    // 6. Support coverage: tiles within heal range of wounded allies, ranked
+    // by escape. Without this strategy, "retreat + heal wounded ally" combos
+    // only surfaced when the destination tile happened to top the generic
+    // escape list. Explicit pass guarantees such tiles enter the candidate
+    // pool even when competing escape tiles score higher overall.
+    if active.tags.contains(AiTags::CAN_HEAL) {
+        let heal_range: u32 = ctx.abilities.0.iter()
+            .filter_map(|id| ctx.db.abilities.get(id))
+            .filter(|def| matches!(def.target_type, TargetType::SingleAlly))
+            .map(|def| def.range.max)
+            .max()
+            .unwrap_or(0);
+        if heal_range > 0 {
+            let wounded: Vec<Hex> = snap
+                .allies_of(active.team)
+                .filter(|u| u.entity != active.entity)
+                .filter(|u| u.hp < u.max_hp)
+                .map(|u| u.pos)
+                .collect();
+            for ally_pos in &wounded {
+                pick_top(reach, 2, &mut tiles, |h| {
+                    if h.unsigned_distance_to(*ally_pos) <= heal_range {
+                        maps.escape.get(h)
+                    } else {
+                        f32::NEG_INFINITY
+                    }
+                });
+            }
+        }
+    }
+
+    // 7. Always include current position (stay-and-cast).
     tiles.insert(actor_pos);
 
     // Deterministic order: HashSet iteration is random, which makes candidate
@@ -657,9 +671,8 @@ fn score_candidates(
         };
     }
 
-    // Normalize and apply role weights, with per-factor difficulty multipliers.
-    let base_weights = &ROLE_WEIGHTS[role_index(active.role)];
-    let mut weights = *base_weights;
+    // Normalize and apply composed axis weights, with per-factor difficulty multipliers.
+    let mut weights = active.role.factor_weights();
     // intent factor (idx 7): scaled by intent_commitment.
     weights[7] *= ctx.difficulty.intent_commitment;
     // scarcity factor (idx 8): scaled by resource_discipline.
@@ -717,7 +730,7 @@ fn compute_factors(
         CandidateKind::MoveOnly => OffensiveFactors::default(),
     };
 
-    let mut position = evaluate_position(candidate.tile, active.role, maps);
+    let mut position = evaluate_position(candidate.tile, &active.role, maps);
     let risk = 1.0 - maps.danger.get(candidate.tile);
     let mut focus = candidate
         .target()
@@ -939,11 +952,11 @@ fn compute_scarcity(
         swing += 0.8;
         // Extra value for killing high-value targets.
         if let Some(t) = snap.unit(*target) {
-            match t.role {
-                AiRole::Support | AiRole::Mage => swing += 0.3,
-                AiRole::Assassin => swing += 0.2,
-                _ => {}
-            }
+            // Role-based kill bonus scales with target's priority value
+            // (Support=1.0, Control=0.8, Ranged=0.7, Melee=0.5, Tank=0.3).
+            // Old behavior: Support/Mage +0.3, Assassin +0.2, others 0.
+            // New: smooth gradient via role_value, coeff 0.35 preserves scale.
+            swing += 0.35 * t.role.role_value();
         }
     }
 
@@ -1031,22 +1044,37 @@ fn sanity_adjust(
         .filter(|u| u.entity != active.entity)
         .collect();
     let occupied: HashSet<Hex> = snap.units.iter().map(|u| u.pos).collect();
+    let current_pos_eval = evaluate_position(active.pos, &active.role, maps);
+    let current_danger = maps.danger.get(active.pos);
 
     for (idx, _) in &indexed {
         let c = &candidates[*idx];
         let mut penalty = 1.0f32;
 
-        // 1. Survival: high danger + low HP = risky tile.
+        // 1. Survival: quadratic penalty on (low HP × dangerous tile).
+        // Replaces the old step penalty (×0.3 / ×0.6) and the constraint-level
+        // "don't walk into death" hard filter — hard cuts left the AI with no
+        // retreat option when every reachable tile was dangerous. Gradient
+        // lets retreat candidates reach scoring and compete; heal usually
+        // still wins when available, retreat wins when nothing else does.
+        //
+        //   penalty_frac = LOW_HP_FACTOR × hp_need × max(0, danger − 0.5)²
+        //   hp_need      = clamp((0.6 − hp_pct) / 0.6, 0, 1)
+        //   score        *= (1 − penalty_frac).max(0.25)  // floor to stay comparable
+        const LOW_HP_FACTOR: f32 = 1.2;
         let danger_frac = maps.danger.get(c.tile);
         let hp_fraction = active.hp as f32 / active.max_hp.max(1) as f32;
-        if danger_frac > 0.7 && hp_fraction < 0.4 {
-            penalty *= 0.3;
-        } else if danger_frac > 0.5 && hp_fraction < 0.6 {
-            penalty *= 0.6;
+        let hp_need = ((0.6 - hp_fraction) / 0.6).clamp(0.0, 1.0);
+        let excess = (danger_frac - 0.5).max(0.0);
+        let penalty_frac = LOW_HP_FACTOR * hp_need * excess * excess;
+        if penalty_frac > 0.0 {
+            penalty *= (1.0 - penalty_frac).max(0.25);
         }
 
         // 2. Healer exposure: are we abandoning an allied healer?
-        if active.role != AiRole::Support {
+        // Healer exposure check: if the actor isn't itself a significant
+        // healer (Support axis < 0.3), it shouldn't abandon the team healer.
+        if active.role.support < 0.3 {
             for ally in &allies {
                 if !ally.tags.contains(AiTags::CAN_HEAL) {
                     continue;
@@ -1098,6 +1126,25 @@ fn sanity_adjust(
                         penalty *= 0.5;
                     }
                 }
+            }
+        }
+
+        // 6. Synergy bonus: candidate that MOVES to a better tile AND casts a
+        // useful ability — the "retreat-and-help" combo. Multiplicative so it
+        // doesn't flip sign and scales with base score magnitude.
+        if c.tile != active.pos {
+            let safer_tile = maps.danger.get(c.tile) + 0.05 < current_danger;
+            let better_pos = evaluate_position(c.tile, &active.role, maps) > current_pos_eval;
+            let useful_cast = match &c.kind {
+                CandidateKind::Cast { ability, .. } => {
+                    ctx.db.abilities.get(ability).is_some_and(|def| {
+                        def.effect.calc(ctx.caster).is_some() || !def.statuses.is_empty()
+                    })
+                }
+                CandidateKind::MoveOnly => false,
+            };
+            if (safer_tile || better_pos) && useful_cast {
+                penalty *= 1.1;
             }
         }
 
@@ -1466,7 +1513,7 @@ fn explain_intent(
             "HAS_AOE + enemies clustered (dist≤2)".into()
         }
         TacticalIntent::Reposition => {
-            let pos_eval = evaluate_position(active.pos, active.role, maps);
+            let pos_eval = evaluate_position(active.pos, &active.role, maps);
             format!("position_eval={:.2} < -1.0", pos_eval)
         }
         TacticalIntent::LastStand => {
@@ -1478,7 +1525,7 @@ fn explain_intent(
     }
 }
 
-fn tile_influence(hex: Hex, role: AiRole, maps: &InfluenceMaps) -> TileInfluence {
+fn tile_influence(hex: Hex, role: &AxisProfile, maps: &InfluenceMaps) -> TileInfluence {
     TileInfluence {
         danger: maps.danger.get(hex),
         ally_support: maps.ally_support.get(hex),
@@ -1531,7 +1578,7 @@ fn build_fallback_debug(
                     label, reason, fmt_offset(actor_pos), fmt_offset(dest), path.len(),
                 ),
                 dest_tile: Some(hex_to_offset(dest)),
-                dest_influence: Some(tile_influence(dest, active.role, maps)),
+                dest_influence: Some(tile_influence(dest, &active.role, maps)),
             }
         }
         AiDecision::EndTurn => DecisionDebug {
@@ -1549,7 +1596,7 @@ fn build_fallback_debug(
     AiDebugSnapshot {
         actor_name,
         actor: ActorDebug {
-            role: active.role,
+            role_label: active.role.dominant_label(),
             pos: hex_to_offset(active.pos),
             hp: active.hp,
             max_hp: active.max_hp,
@@ -1631,7 +1678,7 @@ fn build_debug_snapshot(
                 ability: ability_label,
                 target_name,
                 tile: hex_to_offset(c.tile),
-                tile_influence: tile_influence(c.tile, active.role, maps),
+                tile_influence: tile_influence(c.tile, &active.role, maps),
                 raw,
                 total,
                 is_move_only,
@@ -1659,7 +1706,7 @@ fn build_debug_snapshot(
                     fmt_offset(actor_pos), fmt_offset(dest), path.len(),
                 ),
                 dest_tile: Some(hex_to_offset(dest)),
-                dest_influence: Some(tile_influence(dest, active.role, maps)),
+                dest_influence: Some(tile_influence(dest, &active.role, maps)),
             }
         }
         AiDecision::MoveCloser { path } | AiDecision::MoveOnlyRetreat { path } => {
@@ -1675,7 +1722,7 @@ fn build_debug_snapshot(
                     label, fmt_offset(actor_pos), fmt_offset(dest), path.len(),
                 ),
                 dest_tile: Some(hex_to_offset(dest)),
-                dest_influence: Some(tile_influence(dest, active.role, maps)),
+                dest_influence: Some(tile_influence(dest, &active.role, maps)),
             }
         }
         AiDecision::EndTurn => DecisionDebug {
@@ -1712,7 +1759,7 @@ fn build_debug_snapshot(
     AiDebugSnapshot {
         actor_name,
         actor: ActorDebug {
-            role: active.role,
+            role_label: active.role.dominant_label(),
             pos: hex_to_offset(active.pos),
             hp: active.hp,
             max_hp: active.max_hp,
@@ -1773,7 +1820,7 @@ fn crit_fail_adjusted(
 mod tests {
     use super::*;
     use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
-    use crate::combat::ai::role::AiRole;
+    use crate::combat::ai::role::{AiRole, AxisProfile};
     use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -1782,7 +1829,7 @@ mod tests {
         UnitSnapshot {
             entity: Entity::from_raw_u32(id).expect("valid entity id"),
             team,
-            role: AiRole::Bruiser,
+            role: AxisProfile::from(AiRole::Bruiser),
             pos,
             hp: 20,
             max_hp: 20,
@@ -1796,7 +1843,6 @@ mod tests {
             rage: None,
             energy: None,
             abilities: vec!["melee_attack".into()],
-            statuses: vec![],
             threat: 5.0,
             tags: AiTags::MELEE_ONLY,
             max_attack_range: 1,
@@ -2130,7 +2176,7 @@ mod tests {
         active.mana = Some((10, 10));
 
         let mut enemy = unit(1, Team::Player, hex_from_offset(3, 3));
-        enemy.role = AiRole::Support;
+        enemy.role = AxisProfile::from(AiRole::Support);
         enemy.hp = 5;
         enemy.max_hp = 20;
 

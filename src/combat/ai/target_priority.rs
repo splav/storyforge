@@ -1,4 +1,3 @@
-use crate::combat::ai::role::AiRole;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 
 /// Score how important `target` is as a priority for `active`.
@@ -19,9 +18,8 @@ pub fn target_priority(
     // Killability uses effective HP (hp + armor) — the real remaining barrier
     // before this target dies. A well-armored tank at low HP is less killable
     // than an unarmored mage at the same HP%.
-    let armor = (target.armor + target.armor_bonus) as f32;
-    let eff_hp = target.hp as f32 + armor;
-    let eff_max = (target.max_hp as f32 + armor).max(1.0);
+    let eff_hp = target.eff_hp() as f32;
+    let eff_max = target.eff_max_hp() as f32;
     let killability = 1.0 - eff_hp / eff_max;
 
     // Threat density: damage output per HP-to-kill. Captures "ROI per HP burned"
@@ -30,10 +28,7 @@ pub fn target_priority(
     let max_density = snap
         .units
         .iter()
-        .map(|u| {
-            let a = (u.armor + u.armor_bonus) as f32;
-            u.threat / (u.hp as f32 + a).max(1.0)
-        })
+        .map(|u| u.threat / (u.eff_hp().max(1)) as f32)
         .fold(0.0f32, f32::max)
         .max(0.01);
     let density = (target.threat / eff_hp.max(1.0)) / max_density;
@@ -48,13 +43,9 @@ pub fn target_priority(
         0.0
     };
 
-    let role_value = match target.role {
-        AiRole::Support => 1.0,
-        AiRole::Mage => 0.8,
-        AiRole::Assassin => 0.6,
-        AiRole::Archer => 0.5,
-        AiRole::Bruiser => 0.3,
-    };
+    // Role value comes from the composed axis profile: Support ≈ 1.0,
+    // Control ≈ 0.8, Ranged ≈ 0.7, Melee ≈ 0.5, Tank ≈ 0.3.
+    let role_value = target.role.role_value();
 
     let dist = active.pos.unsigned_distance_to(target.pos) as f32;
     let proximity = 1.0 / (1.0 + dist);
@@ -71,6 +62,7 @@ pub fn target_priority(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::role::{AiRole, AxisProfile};
     use crate::combat::ai::snapshot::BattleSnapshot;
     use crate::game::hex::hex_from_offset;
 
@@ -78,7 +70,7 @@ mod tests {
         UnitSnapshot {
             entity: bevy::prelude::Entity::from_raw_u32(id).expect("valid"),
             team,
-            role: AiRole::Bruiser,
+            role: AxisProfile::from(AiRole::Bruiser),
             pos,
             hp: 20,
             max_hp: 20,
@@ -92,7 +84,6 @@ mod tests {
             rage: None,
             energy: None,
             abilities: vec![],
-            statuses: vec![],
             threat: 5.0,
             tags: AiTags::empty(),
             max_attack_range: 0,
@@ -125,7 +116,7 @@ mod tests {
         let active = unit(0, Team::Player, hex_from_offset(0, 0));
 
         let mut support = unit(1, Team::Enemy, hex_from_offset(3, 3));
-        support.role = AiRole::Support;
+        support.role = AxisProfile::from(AiRole::Support);
         let bruiser = unit(2, Team::Enemy, hex_from_offset(3, 3));
 
         let s = snap(vec![active.clone(), support.clone(), bruiser.clone()]);

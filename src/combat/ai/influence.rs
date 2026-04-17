@@ -1,9 +1,7 @@
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot, AiTags};
-use crate::content::abilities::TargetType;
 use crate::game::components::Team;
 use crate::game::hex::{hex_from_offset, in_bounds, Hex, GRID_ROWS, row_cols};
 use crate::game::pathfinding::reachable_cells;
-use crate::game::resources::GameDb;
 use std::collections::{HashMap, HashSet};
 
 // ── Tuning constants ────────────────────────────────────────────────────────
@@ -102,7 +100,6 @@ fn all_cells() -> Vec<Hex> {
 pub fn build_influence_maps(
     snap: &BattleSnapshot,
     active_team: Team,
-    db: &GameDb,
 ) -> InfluenceMaps {
     let cells = all_cells();
 
@@ -115,7 +112,7 @@ pub fn build_influence_maps(
     let ally_positions: HashSet<Hex> = snap.allies_of(active_team).map(|u| u.pos).collect();
     let enemy_positions: HashSet<Hex> = enemies.iter().map(|u| u.pos).collect();
 
-    let danger = build_danger(&cells, &enemies, &ally_positions, &enemy_positions, db);
+    let danger = build_danger(&cells, &enemies, &ally_positions, &enemy_positions);
     let ally_support = build_ally_support(&cells, &allies);
     let opportunity = build_opportunity(&cells, &enemies);
     let escape = build_escape(&cells, &danger, &ally_support);
@@ -146,13 +143,14 @@ fn build_danger(
     enemies: &[&UnitSnapshot],
     ally_positions: &HashSet<Hex>,
     enemy_positions: &HashSet<Hex>,
-    db: &GameDb,
 ) -> InfluenceMap {
     let mut map = InfluenceMap::new();
     let total_threat: f32 = enemies.iter().map(|e| e.threat).sum();
 
     for enemy in enemies {
-        let max_range = max_attack_range(enemy, db);
+        // Non-attacker fallback: project 1-tile melee reach so the unit still
+        // colours adjacent tiles with its raw threat (would be zero otherwise).
+        let max_range = enemy.max_attack_range.max(1);
 
         // BFS: enemy passes through own teammates, blocked by our units.
         let reachable = reachable_cells(
@@ -185,16 +183,6 @@ fn build_danger(
     }
 
     map
-}
-
-fn max_attack_range(unit: &UnitSnapshot, db: &GameDb) -> u32 {
-    unit.abilities
-        .iter()
-        .filter_map(|id| db.abilities.get(id))
-        .filter(|def| def.target_type == TargetType::SingleEnemy)
-        .map(|def| def.range.max)
-        .max()
-        .unwrap_or(1)
 }
 
 // ── Ally Support Map ─────────────────────────────────────────────────────────
@@ -289,12 +277,12 @@ mod tests {
     }
 
     fn unit(entity_id: u32, team: Team, pos: Hex) -> UnitSnapshot {
-        use crate::combat::ai::role::AiRole;
+        use crate::combat::ai::role::{AiRole, AxisProfile};
         UnitSnapshot {
             entity: bevy::prelude::Entity::from_raw_u32(entity_id)
                 .expect("valid entity id"),
             team,
-            role: AiRole::Bruiser,
+            role: AxisProfile::from(AiRole::Bruiser),
             pos,
             hp: 20,
             max_hp: 20,
@@ -308,7 +296,6 @@ mod tests {
             rage: None,
             energy: None,
             abilities: vec!["melee_attack".into()],
-            statuses: vec![],
             threat: 5.0,
             tags: AiTags::MELEE_ONLY,
             max_attack_range: 1,
@@ -337,12 +324,11 @@ mod tests {
 
     #[test]
     fn danger_map_marks_threat_zone() {
-        let db = GameDb::default();
         // Enemy at center with speed=2, melee_attack range=1.
         let enemy = unit(0, Team::Enemy, hex_from_offset(4, 3));
         let cells = all_cells();
 
-        let map = build_danger(&cells, &[&enemy], &HashSet::new(), &HashSet::new(), &db);
+        let map = build_danger(&cells, &[&enemy], &HashSet::new(), &HashSet::new());
 
         // Enemy's own cell should be dangerous.
         assert!(map.get(enemy.pos) > 0.0);
@@ -397,11 +383,10 @@ mod tests {
 
     #[test]
     fn escape_inversely_correlated_with_danger() {
-        let db = GameDb::default();
         let enemy = unit(0, Team::Enemy, hex_from_offset(4, 3));
         let cells = all_cells();
 
-        let danger = build_danger(&cells, &[&enemy], &HashSet::new(), &HashSet::new(), &db);
+        let danger = build_danger(&cells, &[&enemy], &HashSet::new(), &HashSet::new());
         let ally_support = InfluenceMap::new(); // no allies
         let escape = build_escape(&cells, &danger, &ally_support);
 
@@ -419,12 +404,11 @@ mod tests {
 
     #[test]
     fn danger_bounded_zero_one() {
-        let db = GameDb::default();
         let e1 = unit(0, Team::Enemy, hex_from_offset(2, 2));
         let e2 = unit(1, Team::Enemy, hex_from_offset(6, 4));
         let cells = all_cells();
 
-        let map = build_danger(&cells, &[&e1, &e2], &HashSet::new(), &HashSet::new(), &db);
+        let map = build_danger(&cells, &[&e1, &e2], &HashSet::new(), &HashSet::new());
         for (_, &v) in map.iter() {
             assert!((0.0..=1.0).contains(&v), "danger out of [0,1]: {v}");
         }
@@ -484,12 +468,11 @@ mod tests {
 
     #[test]
     fn danger_gradient_closer_is_more_dangerous() {
-        let db = GameDb::default();
         // Enemy at (4,3) with speed=2, melee range=1.
         let enemy = unit(0, Team::Enemy, hex_from_offset(4, 3));
         let cells = all_cells();
 
-        let map = build_danger(&cells, &[&enemy], &HashSet::new(), &HashSet::new(), &db);
+        let map = build_danger(&cells, &[&enemy], &HashSet::new(), &HashSet::new());
 
         // Adjacent cell (dist 1 from enemy pos, within move range → dist 0 from source).
         let close = hex_from_offset(4, 2);
@@ -510,12 +493,11 @@ mod tests {
 
     #[test]
     fn escape_bounded_minus_one_plus_one() {
-        let db = GameDb::default();
         let enemy = unit(0, Team::Enemy, hex_from_offset(2, 2));
         let ally = unit(1, Team::Player, hex_from_offset(6, 4));
         let cells = all_cells();
 
-        let danger = build_danger(&cells, &[&enemy], &HashSet::new(), &HashSet::new(), &db);
+        let danger = build_danger(&cells, &[&enemy], &HashSet::new(), &HashSet::new());
         let ally_support = build_ally_support(&cells, &[&ally]);
         let escape = build_escape(&cells, &danger, &ally_support);
         for (_, &v) in escape.iter() {

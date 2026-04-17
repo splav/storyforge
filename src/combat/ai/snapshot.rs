@@ -1,4 +1,4 @@
-use crate::combat::ai::role::AiRole;
+use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::scoring::estimate_st_damage;
 use crate::content::abilities::{AoEShape, CasterContext, EffectDef, TargetType};
 use crate::core::AbilityId;
@@ -37,7 +37,7 @@ pub struct BattleSnapshot {
 pub struct UnitSnapshot {
     pub entity: Entity,
     pub team: Team,
-    pub role: AiRole,
+    pub role: AxisProfile,
     pub pos: Hex,
     pub hp: i32,
     pub max_hp: i32,
@@ -51,7 +51,6 @@ pub struct UnitSnapshot {
     pub rage: Option<(i32, i32)>,
     pub energy: Option<(i32, i32)>,
     pub abilities: Vec<AbilityId>,
-    pub statuses: Vec<StatusSnap>,
     pub threat: f32,
     pub tags: AiTags,
     /// Max range of any offensive (SingleEnemy) ability. Used for reach checks
@@ -59,10 +58,17 @@ pub struct UnitSnapshot {
     pub max_attack_range: u32,
 }
 
-#[derive(Debug, Clone)]
-pub struct StatusSnap {
-    pub id: crate::core::StatusId,
-    pub rounds_remaining: u32,
+impl UnitSnapshot {
+    /// Effective HP: raw HP plus base and status armor — the real damage
+    /// budget needed to drop this unit.
+    pub fn eff_hp(&self) -> i32 {
+        self.hp + self.armor + self.armor_bonus
+    }
+
+    /// Effective max HP, clamped ≥ 1 to protect against division.
+    pub fn eff_max_hp(&self) -> i32 {
+        (self.max_hp + self.armor + self.armor_bonus).max(1)
+    }
 }
 
 // ── Builder ───────────────────────────────────────────────────────────────────
@@ -73,7 +79,7 @@ pub fn build_snapshot(
     combatants: &Query<AiCombatantQ, With<Combatant>>,
     statuses_q: &Query<&StatusEffects>,
     positions: &HexPositions,
-    roles: &Query<&AiRole>,
+    roles: &Query<&AxisProfile>,
     db: &GameDb,
 ) -> BattleSnapshot {
     let units = combatants
@@ -81,23 +87,11 @@ pub fn build_snapshot(
         .filter(|c| c.vital.is_alive())
         .filter_map(|c| {
             let pos = positions.get(&c.entity)?;
-            let role = roles.get(c.entity).copied().unwrap_or(AiRole::Bruiser);
+            let role = roles.get(c.entity).copied().unwrap_or_default();
             let caster_ctx = CasterContext::new(c.stats, Some(c.equipment), &db.weapons);
             let threat = estimate_st_damage(&caster_ctx, c.abilities, db);
 
-            let status_snaps: Vec<StatusSnap> = statuses_q
-                .get(c.entity)
-                .map(|se| {
-                    se.0.iter()
-                        .map(|s| StatusSnap {
-                            id: s.id.clone(),
-                            rounds_remaining: s.rounds_remaining,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            let tags = compute_tags(c.entity, &c, &status_snaps, db);
+            let tags = compute_tags(&c, statuses_q, db);
 
             let speed = {
                 let base = c.speed.0;
@@ -140,7 +134,6 @@ pub fn build_snapshot(
                 rage: c.rage.map(|r| (r.current, r.max)),
                 energy: c.energy.map(|e| (e.current, e.max)),
                 abilities: c.abilities.0.clone(),
-                statuses: status_snaps,
                 threat,
                 tags,
                 max_attack_range,
@@ -188,9 +181,8 @@ impl BattleSnapshot {
 use crate::game::components::AiCombatantQItem;
 
 fn compute_tags(
-    entity: Entity,
     c: &AiCombatantQItem,
-    statuses: &[StatusSnap],
+    statuses_q: &Query<&StatusEffects>,
     db: &GameDb,
 ) -> AiTags {
     let mut tags = AiTags::empty();
@@ -257,9 +249,9 @@ fn compute_tags(
     }
 
     // Status-derived tags
-    let _ = entity; // used above via c
-    for snap in statuses {
-        if let Some(sd) = db.statuses.get(&snap.id) {
+    if let Ok(se) = statuses_q.get(c.entity) {
+        for s in &se.0 {
+            let Some(sd) = db.statuses.get(&s.id) else { continue };
             if sd.skips_turn {
                 tags |= AiTags::IS_STUNNED;
             }
