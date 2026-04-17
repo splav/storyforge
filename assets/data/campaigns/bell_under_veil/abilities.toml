@@ -1,0 +1,38 @@
+# Способности, используемые только в «Колоколе под Завесой».
+# Глобальные abilities остаются доступными — этот файл только дополняет.
+
+# Морок Проводника Договора и морочных двойников: одна цель получает
+# дезориентацию (disadvantage на все броски) на 2 хода.
+[[abilities]]
+id          = "confuse"
+name        = "Наведение мороков"
+target_type = "single_enemy"
+effect      = "none"
+range       = 3
+costs       = [{ resource = "mana", amount = 2 }]
+statuses    = [{ id = "disoriented", on = "target", duration = 2 }]
+
+# Призыв Узла чащи: порождает морочного духа в соседней клетке.
+# Лимит 2 одновременно активных — Узел поддерживает рой, но не затапливает карту.
+[[abilities]]
+id                = "summon_forest_morok"
+name              = "Породить морока"
+target_type       = "myself"
+effect            = "summon"
+summon_template   = "forest_morok"
+summon_max_active = 2
+range             = 0
+costs             = [{ resource = "mana", amount = 2 }]
+
+# Шёпот Гостя — удар по разуму, урон минует броню, может оглушить.
+# Используется Колокольным связанным и Эхом Гостя.
+[[abilities]]
+id          = "whisper_from_beyond"
+name        = "Шёпот из-за Завесы"
+target_type = "single_enemy"
+effect      = "spell_damage"
+dice_count  = 1
+dice_sides  = 6
+range       = 3
+costs       = [{ resource = "mana", amount = 3 }]
+statuses    = [{ id = "disoriented", on = "target", duration = 1 }]

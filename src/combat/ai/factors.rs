@@ -18,7 +18,7 @@ use crate::combat::ai::scoring::{applies_cc, score_action};
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
 use crate::combat::ai::utility::UtilityContext;
-use crate::content::abilities::{AoEShape, TargetType};
+use crate::content::abilities::{AoEShape, EffectDef, TargetType};
 use crate::content::races::CritFailEffect;
 use crate::core::{AbilityId, DiceRng, ResourceKind};
 use crate::game::hex::{hex_circle, hex_line, Hex};
@@ -174,6 +174,10 @@ fn compute_offensive(
         return OffensiveFactors::default();
     };
 
+    if let EffectDef::Summon { max_active, .. } = &def.effect {
+        return summon_value(active, *max_active, snap);
+    }
+
     let (damage, heal, kill, cc) = if def.aoe == AoEShape::None {
         let mut damage = 0.0f32;
         let mut heal = 0.0f32;
@@ -213,6 +217,25 @@ fn compute_offensive(
     };
 
     OffensiveFactors { damage, heal, kill, cc }
+}
+
+/// Score a Summon ability: baseline value decayed by how many summons this
+/// caster already has on the field. Routed through the `damage` factor so it
+/// competes with regular offensive options regardless of role weights.
+fn summon_value(
+    active: &UnitSnapshot,
+    max_active: Option<u32>,
+    snap: &BattleSnapshot,
+) -> OffensiveFactors {
+    const BASE: f32 = 14.0;
+    let cap = max_active.unwrap_or(3).max(1) as f32;
+    let count = snap
+        .units
+        .iter()
+        .filter(|u| u.summoner == Some(active.entity))
+        .count() as f32;
+    let decay = (1.0 - (count / cap)).max(0.0);
+    OffensiveFactors { damage: BASE * decay, heal: 0.0, kill: 0.0, cc: 0.0 }
 }
 
 /// Expand an AoE def into the set of affected tiles.
@@ -508,6 +531,7 @@ mod tests {
             threat: 5.0,
             tags: AiTags::MELEE_ONLY,
             max_attack_range: 1,
+            summoner: None,
         }
     }
 

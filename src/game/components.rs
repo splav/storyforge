@@ -279,6 +279,7 @@ pub struct AiCombatantQ {
     pub rage: Option<&'static Rage>,
     pub energy: Option<&'static Energy>,
     pub combat_path: Option<&'static CombatPath>,
+    pub summoned_by: Option<&'static SummonedBy>,
 }
 
 /// Player command input: ability selection, target cycling.

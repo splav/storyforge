@@ -100,6 +100,7 @@ mod tests {
             threat: 5.0,
             tags: AiTags::empty(),
             max_attack_range: 0,
+            summoner: None,
         }
     }
 

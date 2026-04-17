@@ -1,0 +1,33 @@
+# Кампейн-шаблоны для «Колокола под Завесой».
+# Перекрывают/дополняют глобальные. Scenario-level `ch1/unit_templates.toml`
+# побеждает эти на конфликте id (здесь конфликтов нет).
+
+# ── Морок для призыва Узлом чащи ─────────────────────────────────────────────
+# Слабенький: быстрый, мало HP, бьёт вблизи. AI-роль bruiser.
+[[unit_templates]]
+id    = "forest_morok"
+name  = "Морок"
+race  = "fey"
+speed = 5
+
+stats     = { max_hp = 5, strength = 4, dexterity = 5, constitution = -4, intelligence = 0, wisdom = 0, charisma = -2 }
+equipment = { main_hand = "dagger", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
+
+ability_ids = ["melee_attack"]
+ai_role     = "bruiser"
+
+# ── Шаблон Эха Гостя — подменяет Мерона при смерти (phase 2 в крипте) ───────
+# Сильнее базового настоятеля, магический, игнорирует броню "шёпотом".
+[[unit_templates]]
+id    = "echo_guest"
+name  = "Эхо Гостя"
+race  = "aberration"
+path  = "pact"
+speed = 3
+
+stats     = { max_hp = 28, strength = 2, dexterity = 0, constitution = 6, intelligence = 6, wisdom = 2, charisma = -4 }
+equipment = { main_hand = "staff", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
+resources = { mana = 10 }
+
+ability_ids = ["melee_attack", "whisper_from_beyond", "thunderstrike"]
+ai_role     = "mage"

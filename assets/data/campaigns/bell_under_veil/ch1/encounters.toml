@@ -1,0 +1,152 @@
+# Четыре боя главы I. Все враги — через template, с позиционными overrides.
+
+# ── Бой 1. Стычка на старой дороге ──────────────────────────────────────────
+# Обучающий бой, простая группа. Вожак — позиция в центре, налётчики по флангам.
+
+[[encounters]]
+id   = "road_bridge"
+name = "Стычка на старой дороге"
+
+[[encounters.enemies]]
+template = "beastblood_leader"
+hex_col  = 6
+hex_row  = 3
+
+[[encounters.enemies]]
+template = "beastblood_raider"
+hex_col  = 6
+hex_row  = 1
+
+[[encounters.enemies]]
+template = "beastblood_raider"
+hex_col  = 6
+hex_row  = 4
+
+[[encounters.enemies]]
+template = "wild_dog"
+hex_col  = 5
+hex_row  = 5
+
+
+# ── Бой 2. Заброшенная стекольня ────────────────────────────────────────────
+# VictoryTarget — Проводник Договора (красное кольцо). Убить его = конец боя,
+# даже если контрабандисты ещё живы.
+
+[[encounters]]
+id   = "glassworks"
+name = "Заброшенная стекольня"
+
+victory = { type = "kill_target", enemy_name = "Проводник Договора", marker_color = [0.80, 0.25, 0.65] }
+
+# Проводник — в глубине, под прикрытием.
+[[encounters.enemies]]
+template = "pact_guide"
+hex_col  = 7
+hex_row  = 3
+
+# Тяжёлый грузчик держит линию.
+[[encounters.enemies]]
+template = "heavy_lifter"
+hex_col  = 5
+hex_row  = 3
+
+# Контрабандисты на флангах.
+[[encounters.enemies]]
+template = "smuggler"
+hex_col  = 6
+hex_row  = 1
+
+[[encounters.enemies]]
+template = "smuggler"
+hex_col  = 6
+hex_row  = 5
+
+
+# ── Бой 3. Искажённая чаща ──────────────────────────────────────────────────
+# VictoryTarget — Узел чащи (неподвижный, призывает мороков, кольцо зелёное).
+# Пока жив, порождает духов — пачка быстро растёт, если игнорировать.
+# Двойники дезориентируют через `confuse`; звери давят в ближнем бою.
+
+[[encounters]]
+id   = "twisted_grove"
+name = "Искажённая чаща"
+
+victory = { type = "kill_target", enemy_name = "Узел чащи", marker_color = [0.30, 0.70, 0.25] }
+
+# Узел — глубоко в тылу, на центральной клетке.
+[[encounters.enemies]]
+template = "anchor_of_grove"
+hex_col  = 7
+hex_row  = 3
+
+# Искажённые звери — давят спереди.
+[[encounters.enemies]]
+template = "twisted_beast"
+hex_col  = 5
+hex_row  = 2
+
+[[encounters.enemies]]
+template = "twisted_beast"
+hex_col  = 5
+hex_row  = 4
+
+# Морочные двойники — дистанция, дезориентация.
+[[encounters.enemies]]
+template = "morochny_double"
+hex_col  = 6
+hex_row  = 1
+
+[[encounters.enemies]]
+template = "morochny_double"
+hex_col  = 6
+hex_row  = 5
+
+# Одержимый послушник — одиночный человек-жертва.
+[[encounters.enemies]]
+template = "obsessed_novice"
+hex_col  = 4
+hex_row  = 3
+
+
+# ── Бой 4. Колокольная крипта ───────────────────────────────────────────────
+# VictoryTarget — Настоятель Мерон. Фаза 2 при смерти: превращается в Эхо Гостя.
+# Колокольный связанный даёт ауру дезориентации партии в радиусе 2.
+# Победа засчитывается, когда Эхо Гостя тоже падает.
+
+[[encounters]]
+id   = "bell_crypt"
+name = "Колокольная крипта"
+
+victory = { type = "kill_target", enemy_name = "Настоятель Мерон", marker_color = [0.95, 0.85, 0.35] }
+
+# Мерон — центральная клетка, защищён служками.
+[[encounters.enemies]]
+template = "abbott_meron"
+hex_col  = 7
+hex_row  = 3
+
+# Phase 2: при смерти (hp ≤ 1% max) — Эхо Гостя. VictoryTarget сохраняется,
+# игроку нужно убить его во втором обличии.
+[[encounters.enemies.phases]]
+hp_below_pct = 1
+template     = "echo_guest"
+heal_to_full = true
+flavor       = "Мерон падает, но тело его не отпускает. Из глубины крипты поднимается голос, собирающий его заново — и это уже не Мерон говорит."
+
+# Колокольный связанный — рядом с Мероном, аура дезориентации.
+[[encounters.enemies]]
+template = "bell_bound"
+hex_col  = 6
+hex_row  = 3
+aura     = { status = "disoriented", radius = 2, affects = "enemies" }
+
+# Два криптовых служки — прикрытие.
+[[encounters.enemies]]
+template = "crypt_servant"
+hex_col  = 5
+hex_row  = 2
+
+[[encounters.enemies]]
+template = "crypt_servant"
+hex_col  = 5
+hex_row  = 4

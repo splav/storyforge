@@ -57,6 +57,8 @@ pub struct UnitSnapshot {
     /// Max range of any offensive (SingleEnemy) ability. Used for reach checks
     /// in intent selection (e.g., "is this enemy killable this turn?").
     pub max_attack_range: u32,
+    /// Entity of the summoner, if this unit was summoned.
+    pub summoner: Option<Entity>,
 }
 
 impl UnitSnapshot {
@@ -136,6 +138,7 @@ pub fn build_snapshot(
                 threat,
                 tags,
                 max_attack_range,
+                summoner: c.summoned_by.map(|s| s.0),
             })
         })
         .collect();

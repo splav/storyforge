@@ -299,6 +299,7 @@ mod tests {
             threat: 5.0,
             tags: AiTags::MELEE_ONLY,
             max_attack_range: 1,
+            summoner: None,
         }
     }
 
