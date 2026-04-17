@@ -1,5 +1,5 @@
 use crate::combat::ai::role::AxisProfile;
-use crate::combat::ai::scoring::estimate_st_damage;
+use crate::combat::ai::scoring::{applies_cc, estimate_st_damage};
 use crate::content::abilities::{AoEShape, CasterContext, EffectDef, TargetType};
 use crate::core::AbilityId;
 use crate::game::components::{
@@ -69,6 +69,12 @@ impl UnitSnapshot {
     pub fn eff_max_hp(&self) -> i32 {
         (self.max_hp + self.armor + self.armor_bonus).max(1)
     }
+
+    /// Current HP as a fraction of max HP, clamped ≥ 1 to avoid div-by-zero.
+    /// Use for threshold checks like "below 30% HP triggers LOW_HP".
+    pub fn hp_pct(&self) -> f32 {
+        self.hp as f32 / self.max_hp.max(1) as f32
+    }
 }
 
 // ── Builder ───────────────────────────────────────────────────────────────────
@@ -93,19 +99,11 @@ pub fn build_snapshot(
 
             let tags = compute_tags(&c, statuses_q, db);
 
-            let speed = {
-                let base = c.speed.0;
-                let bonus: i32 = statuses_q
-                    .get(c.entity)
-                    .map(|se| {
-                        se.0.iter()
-                            .filter_map(|s| db.statuses.get(&s.id))
-                            .map(|sd| sd.speed_bonus)
-                            .sum()
-                    })
-                    .unwrap_or(0);
-                base + bonus
-            };
+            // Single pass over status effects — aggregates every per-snapshot
+            // bonus at once (speed, armor, damage-taken). Keep this fold as
+            // the only place each bonus is read from statuses.
+            let StatusBonuses { speed_bonus, armor_bonus, damage_taken_bonus } =
+                status_bonuses(c.entity, statuses_q, db);
 
             let max_attack_range: u32 = c
                 .abilities
@@ -125,11 +123,11 @@ pub fn build_snapshot(
                 hp: c.vital.hp,
                 max_hp: c.vital.max_hp,
                 armor: c.vital.armor,
-                armor_bonus: status_armor_bonus(c.entity, statuses_q, db),
-                damage_taken_bonus: status_dmg_taken_bonus(c.entity, statuses_q, db),
+                armor_bonus,
+                damage_taken_bonus,
                 action: c.ap.action,
                 movement: c.ap.movement,
-                speed,
+                speed: c.speed.0 + speed_bonus,
                 mana: c.mana.map(|m| (m.current, m.max)),
                 rage: c.rage.map(|r| (r.current, r.max)),
                 energy: c.energy.map(|e| (e.current, e.max)),
@@ -229,9 +227,7 @@ fn compute_tags(
                 tags |= AiTags::CAN_HEAL;
             }
 
-            if def.statuses.iter().any(|sa| {
-                db.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn)
-            }) {
+            if applies_cc(def, db) {
                 tags |= AiTags::CAN_CC;
             }
 
@@ -264,34 +260,30 @@ fn compute_tags(
     tags
 }
 
-fn status_armor_bonus(
-    entity: Entity,
-    statuses_q: &Query<&StatusEffects>,
-    db: &GameDb,
-) -> i32 {
-    statuses_q
-        .get(entity)
-        .map(|se| {
-            se.0.iter()
-                .filter_map(|s| db.statuses.get(&s.id))
-                .map(|sd| sd.armor_bonus)
-                .sum()
-        })
-        .unwrap_or(0)
+#[derive(Default)]
+struct StatusBonuses {
+    speed_bonus: i32,
+    armor_bonus: i32,
+    damage_taken_bonus: i32,
 }
 
-fn status_dmg_taken_bonus(
+/// Aggregate every status-derived bonus a snapshot needs in a single pass over
+/// the unit's `StatusEffects`. Before this helper we iterated the status list
+/// three times per unit (once per bonus field).
+fn status_bonuses(
     entity: Entity,
     statuses_q: &Query<&StatusEffects>,
     db: &GameDb,
-) -> i32 {
-    statuses_q
-        .get(entity)
-        .map(|se| {
-            se.0.iter()
-                .filter_map(|s| db.statuses.get(&s.id))
-                .map(|sd| sd.damage_taken_bonus)
-                .sum()
+) -> StatusBonuses {
+    let Ok(se) = statuses_q.get(entity) else {
+        return StatusBonuses::default();
+    };
+    se.0.iter()
+        .filter_map(|s| db.statuses.get(&s.id))
+        .fold(StatusBonuses::default(), |mut acc, sd| {
+            acc.speed_bonus += sd.speed_bonus;
+            acc.armor_bonus += sd.armor_bonus;
+            acc.damage_taken_bonus += sd.damage_taken_bonus;
+            acc
         })
-        .unwrap_or(0)
 }

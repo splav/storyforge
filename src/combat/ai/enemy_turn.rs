@@ -165,7 +165,7 @@ fn run_ai_turn(
 
     // Pick action via utility AI.
     let (decision, debug_snapshot) = pick_action(
-        actor, actor_pos, &ctx, &snap, &maps, positions, &reach, rng,
+        actor, actor_pos, &ctx, &snap, &maps, &reach, rng,
         &mut memory, reservations, debug, &debug_names,
     );
 

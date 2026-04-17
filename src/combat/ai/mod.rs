@@ -1,7 +1,9 @@
+pub mod candidates;
 pub mod constraints;
 pub mod debug;
 pub mod difficulty;
 pub mod enemy_turn;
+pub mod factors;
 pub mod influence;
 pub mod intent;
 pub mod position_eval;

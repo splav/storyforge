@@ -1,26 +1,21 @@
+use crate::combat::ai::snapshot::UnitSnapshot;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, TargetType};
 use crate::game::components::Abilities;
 use crate::game::resources::GameDb;
-use bevy::prelude::Entity;
 
-/// Snapshot of a potential target with status-derived bonuses and threat estimate.
-pub struct TargetInfo {
-    pub entity: Entity,
-    pub pos: hexx::Hex,
-    pub hp: i32,
-    pub max_hp: i32,
-    pub armor: i32,
-    pub armor_bonus: i32,
-    pub damage_taken_bonus: i32,
-    /// Max expected damage this unit deals per turn (for stun/kill scoring).
-    pub threat: f32,
+/// True if the ability applies any status that skips the target's turn
+/// (stun, paralyse, sleep…). Single source of truth for "is this CC?".
+pub fn applies_cc(def: &AbilityDef, db: &GameDb) -> bool {
+    def.statuses
+        .iter()
+        .any(|sa| db.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn))
 }
 
 /// Score a single (ability, target) pair in HP-equivalent units.
 /// Higher = more desirable. Returns 0.0 for options that should be skipped.
 pub fn score_action(
     def: &AbilityDef,
-    target: &TargetInfo,
+    target: &UnitSnapshot,
     ctx: &CasterContext,
     db: &GameDb,
 ) -> f32 {
@@ -83,7 +78,7 @@ pub fn estimate_st_damage(ctx: &CasterContext, abilities: &Abilities, db: &GameD
 
 fn status_score(
     def: &AbilityDef,
-    target: &TargetInfo,
+    target: &UnitSnapshot,
     db: &GameDb,
 ) -> f32 {
     let mut total = 0.0f32;

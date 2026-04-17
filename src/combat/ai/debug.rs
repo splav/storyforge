@@ -1,8 +1,19 @@
+#![allow(clippy::too_many_arguments)]
 use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
-use crate::combat::ai::snapshot::AiTags;
-use crate::game::hex::Hex;
+use crate::combat::ai::intent::TacticalIntent;
+use crate::combat::ai::position_eval::evaluate_position;
+use crate::combat::ai::reservations::Reservations;
+use crate::combat::ai::role::AxisProfile;
+use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
+use crate::combat::ai::factors::compute_factors;
+use crate::combat::ai::utility::{
+    ActionCandidate, AiDecision, CandidateKind, PickMechanics, UtilityContext,
+};
+use crate::game::hex::{hex_to_offset, Hex};
 use crate::game::resources::{UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
+use std::collections::HashMap;
 
 // ── Data types ──────────────────────────────────────────────────────────────
 
@@ -367,4 +378,263 @@ fn gradient_color(t: f32) -> ColorMaterial {
         (s, 1.0 - s, 0.0)
     };
     ColorMaterial::from(Color::srgba(r * 0.7, g * 0.7, b * 0.7, 0.85))
+}
+
+// ── Snapshot builders ───────────────────────────────────────────────────────
+//
+// Rules:
+// 1. Never re-derive the "why" of a decision here. The `reason` strings must
+//    come from the function that made the decision (see `intent::select_intent`
+//    and the intent-fallback block in `utility::pick_action`). Builders only
+//    format the data that was captured at decision time.
+// 2. Re-computing deterministic outputs (like `compute_factors` per top-K
+//    candidate) is fine — same inputs, same outputs, no drift risk.
+
+fn format_intent(intent: &TacticalIntent, names: &HashMap<Entity, String>) -> String {
+    match intent {
+        TacticalIntent::FocusTarget { target } => {
+            format!("FocusTarget → {}", names.get(target).map_or("?", |n| n))
+        }
+        TacticalIntent::ApplyCC { target } => {
+            format!("ApplyCC → {}", names.get(target).map_or("?", |n| n))
+        }
+        TacticalIntent::ProtectAlly { ally } => {
+            format!("ProtectAlly → {}", names.get(ally).map_or("?", |n| n))
+        }
+        TacticalIntent::Reposition => "Reposition".into(),
+        TacticalIntent::ProtectSelf => "ProtectSelf".into(),
+        TacticalIntent::SetupAOE => "SetupAOE".into(),
+        TacticalIntent::LastStand => "LastStand".into(),
+    }
+}
+
+fn tile_influence_at(hex: Hex, role: &AxisProfile, maps: &InfluenceMaps) -> TileInfluence {
+    TileInfluence {
+        danger: maps.danger.get(hex),
+        ally_support: maps.ally_support.get(hex),
+        opportunity: maps.opportunity.get(hex),
+        escape: maps.escape.get(hex),
+        position_eval: evaluate_position(hex, role, maps),
+    }
+}
+
+fn name_of(entity: Entity, names: &HashMap<Entity, String>) -> String {
+    names.get(&entity).cloned().unwrap_or_else(|| format!("{:?}", entity))
+}
+
+fn target_label(target: Option<Entity>, names: &HashMap<Entity, String>) -> String {
+    target.map_or_else(|| "(area)".into(), |e| name_of(e, names))
+}
+
+fn fmt_offset(hex: Hex) -> String {
+    let [q, r] = hex_to_offset(hex);
+    format!("({},{})", q, r)
+}
+
+fn actor_debug(active: &UnitSnapshot) -> ActorDebug {
+    ActorDebug {
+        role_label: active.role.dominant_label(),
+        pos: hex_to_offset(active.pos),
+        hp: active.hp,
+        max_hp: active.max_hp,
+        threat: active.threat,
+        tags: active.tags,
+        action: active.action,
+        movement: active.movement,
+    }
+}
+
+fn priority_target_debug(
+    active: &UnitSnapshot,
+    snap: &BattleSnapshot,
+    names: &HashMap<Entity, String>,
+) -> Option<(String, f32)> {
+    highest_priority_enemy(active, snap)
+        .map(|t| (name_of(t.entity, names), target_priority(active, t, snap)))
+}
+
+/// Build the AiDebugSnapshot for a normal (non-fallback) pick_action path.
+pub fn build_debug_snapshot(
+    active: &UnitSnapshot,
+    actor_pos: Hex,
+    intent: &TacticalIntent,
+    intent_reason: &str,
+    candidates: &[ActionCandidate],
+    scores: &[f32],
+    decision: &AiDecision,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+    maps: &InfluenceMaps,
+    reservations: &Reservations,
+    names: &HashMap<Entity, String>,
+    pick_mech: Option<&PickMechanics>,
+) -> AiDebugSnapshot {
+    // Top 5 candidates by score — skip -inf masked entries so the log shows
+    // only candidates actually in play (ProtectSelf masks non-defensive to -inf).
+    let mut indexed: Vec<(usize, f32)> = scores
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, s)| s.is_finite())
+        .collect();
+    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    indexed.truncate(5);
+
+    let top_candidates: Vec<CandidateDebug> = indexed
+        .iter()
+        .map(|&(i, total)| {
+            let c = &candidates[i];
+            // compute_factors is deterministic — re-running for display gives
+            // exactly what score_candidates saw, so no drift risk here.
+            let raw = compute_factors(c, active, intent, ctx, snap, maps, reservations);
+            let (ability_label, target_name, is_move_only) = match &c.kind {
+                CandidateKind::Cast { ability, target, .. } => {
+                    (ability.0.clone(), target_label(*target, names), false)
+                }
+                CandidateKind::MoveOnly => (String::new(), String::new(), true),
+            };
+            CandidateDebug {
+                ability: ability_label,
+                target_name,
+                tile: hex_to_offset(c.tile),
+                tile_influence: tile_influence_at(c.tile, &active.role, maps),
+                raw,
+                total,
+                is_move_only,
+            }
+        })
+        .collect();
+
+    let pick = pick_mech.map(|pm| PickDebug {
+        top_k: pm.top_k,
+        window: pm.window,
+        mercy_margin: pm.mercy_margin,
+        mercy_applied: pm.mercy_applied,
+        pool: pm
+            .pool
+            .iter()
+            .map(|&(idx, score)| {
+                let c = &candidates[idx];
+                let label = match &c.kind {
+                    CandidateKind::Cast { ability, target, .. } => {
+                        format!("{} → {}", ability, target_label(*target, names))
+                    }
+                    CandidateKind::MoveOnly => {
+                        format!("retreat to {}", fmt_offset(c.tile))
+                    }
+                };
+                PoolEntry { label, score }
+            })
+            .collect(),
+        chosen_pos: pm.chosen_pos,
+    });
+
+    AiDebugSnapshot {
+        actor_name: name_of(active.entity, names),
+        actor: actor_debug(active),
+        intent: IntentReasoning {
+            intent: format_intent(intent, names),
+            rule: intent_reason.to_string(),
+        },
+        priority_target: priority_target_debug(active, snap, names),
+        top_candidates,
+        pick,
+        decision: decision_debug(decision, actor_pos, None, active, maps, names),
+        candidate_count: candidates.len(),
+    }
+}
+
+/// Build the AiDebugSnapshot for a fallback path (no candidates or all filtered).
+pub fn build_fallback_debug(
+    active: &UnitSnapshot,
+    actor_pos: Hex,
+    intent: &TacticalIntent,
+    intent_reason: &str,
+    decision: &AiDecision,
+    reason: &str,
+    _ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+    maps: &InfluenceMaps,
+    names: &HashMap<Entity, String>,
+) -> AiDebugSnapshot {
+    AiDebugSnapshot {
+        actor_name: name_of(active.entity, names),
+        actor: actor_debug(active),
+        intent: IntentReasoning {
+            intent: format_intent(intent, names),
+            rule: intent_reason.to_string(),
+        },
+        priority_target: priority_target_debug(active, snap, names),
+        top_candidates: vec![],
+        pick: None,
+        decision: decision_debug(decision, actor_pos, Some(reason), active, maps, names),
+        candidate_count: 0,
+    }
+}
+
+fn decision_debug(
+    decision: &AiDecision,
+    actor_pos: Hex,
+    fallback_reason: Option<&str>,
+    active: &UnitSnapshot,
+    maps: &InfluenceMaps,
+    names: &HashMap<Entity, String>,
+) -> DecisionDebug {
+    match decision {
+        AiDecision::CastInPlace { ability, target, .. } => DecisionDebug {
+            description: format!(
+                "CastInPlace: {} → {} (stay at {})",
+                ability,
+                name_of(*target, names),
+                fmt_offset(actor_pos),
+            ),
+            dest_tile: None,
+            dest_influence: None,
+        },
+        AiDecision::MoveAndCast { path, ability, target, .. } => {
+            let dest = path.last().copied().unwrap_or(actor_pos);
+            DecisionDebug {
+                description: format!(
+                    "MoveAndCast: {} → {} → {} ({} steps)",
+                    fmt_offset(actor_pos),
+                    fmt_offset(dest),
+                    format_args!("{} → {}", ability, name_of(*target, names)),
+                    path.len(),
+                ),
+                dest_tile: Some(hex_to_offset(dest)),
+                dest_influence: Some(tile_influence_at(dest, &active.role, maps)),
+            }
+        }
+        AiDecision::MoveCloser { path } | AiDecision::MoveOnlyRetreat { path } => {
+            let label = if matches!(decision, AiDecision::MoveOnlyRetreat { .. }) {
+                "MoveOnlyRetreat"
+            } else {
+                "MoveCloser"
+            };
+            let dest = path.last().copied().unwrap_or(actor_pos);
+            let prefix = match fallback_reason {
+                Some(r) => format!("{} (fallback: {})", label, r),
+                None => label.to_string(),
+            };
+            DecisionDebug {
+                description: format!(
+                    "{}: {}→{} ({} steps)",
+                    prefix,
+                    fmt_offset(actor_pos),
+                    fmt_offset(dest),
+                    path.len(),
+                ),
+                dest_tile: Some(hex_to_offset(dest)),
+                dest_influence: Some(tile_influence_at(dest, &active.role, maps)),
+            }
+        }
+        AiDecision::EndTurn => DecisionDebug {
+            description: match fallback_reason {
+                Some(r) => format!("EndTurn (fallback: {})", r),
+                None => "EndTurn (no action/movement)".into(),
+            },
+            dest_tile: None,
+            dest_influence: None,
+        },
+    }
 }

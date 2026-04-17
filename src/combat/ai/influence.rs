@@ -221,7 +221,7 @@ fn build_ally_support(cells: &[Hex], allies: &[&UnitSnapshot]) -> InfluenceMap {
 // ── Opportunity Map ──────────────────────────────────────────────────────────
 
 fn target_value(enemy: &UnitSnapshot, max_threat: f32) -> f32 {
-    let hp_pct = enemy.hp as f32 / enemy.max_hp.max(1) as f32;
+    let hp_pct = enemy.hp_pct();
     let threat_norm = enemy.threat / max_threat;
     W_KILL * (1.0 - hp_pct) + W_THREAT * threat_norm
 }

@@ -1,8 +1,9 @@
+use crate::combat::ai::factors::aoe_area;
 use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::{ActionCandidate, CandidateKind};
 use crate::content::abilities::{AoEShape, TargetType};
-use crate::game::hex::{hex_circle, hex_line};
 use crate::game::resources::GameDb;
 use std::collections::HashSet;
 
@@ -29,7 +30,13 @@ pub fn filter_candidates(
             CandidateKind::Cast { ability, target, .. } => {
                 let Some(def) = db.abilities.get(ability) else { return false };
                 match def.target_type {
-                    TargetType::SingleEnemy => forced.contains(target),
+                    // Single-target enemy ability must aim at the taunter.
+                    TargetType::SingleEnemy => match target {
+                        Some(t) => forced.contains(t),
+                        // AoE (target=None) hits an area — reject under taunt
+                        // regardless of whether the taunter is in the area.
+                        None => false,
+                    },
                     // SingleAlly / Myself: taunt doesn't restrict supporting own side.
                     _ => true,
                 }
@@ -57,13 +64,15 @@ pub fn filter_candidates(
 
         // Team safety: SingleAlly must target ally, SingleEnemy must target
         // enemy. Defence in depth — engine validation doesn't enforce this.
+        // AoE (target=None) has no single target — team check is skipped here
+        // and handled via the friendly_fire/ally-hit rule below.
         match def.target_type {
-            TargetType::SingleAlly => {
-                let Some(target_unit) = snap.unit(target) else { return false };
-                if target_unit.team != active.team { return false; }
-            }
+            TargetType::SingleAlly => match target.and_then(|t| snap.unit(t)) {
+                Some(u) if u.team == active.team => {}
+                _ => return false,
+            },
             TargetType::SingleEnemy => {
-                if let Some(target_unit) = snap.unit(target) {
+                if let Some(target_unit) = target.and_then(|t| snap.unit(t)) {
                     if target_unit.team == active.team { return false; }
                 }
             }
@@ -72,33 +81,22 @@ pub fn filter_candidates(
 
         // Don't AoE allies/self: reject if friendly fire would hit caster or
         // hit more allies than extra enemies justify.
-        if def.aoe != AoEShape::None {
-            let area: Vec<_> = match def.aoe {
-                AoEShape::Circle { radius } => hex_circle(target_pos, radius),
-                AoEShape::Line { length } => hex_line(c.tile, target_pos, length),
-                AoEShape::None => vec![],
-            };
-            let area_set: HashSet<_> = area.into_iter().collect();
-
-            if def.friendly_fire {
-                let allies_hit = ally_positions.iter().filter(|p| area_set.contains(p)).count();
-                let enemies_hit = snap
-                    .enemies_of(active.team)
-                    .filter(|u| area_set.contains(&u.pos))
-                    .count();
-                if allies_hit > 0 && enemies_hit < allies_hit * 2 {
-                    return false;
-                }
+        if def.aoe != AoEShape::None && def.friendly_fire {
+            let area = aoe_area(def, target_pos, c.tile);
+            let allies_hit = ally_positions.iter().filter(|p| area.contains(p)).count();
+            let enemies_hit = snap
+                .enemies_of(active.team)
+                .filter(|u| area.contains(&u.pos))
+                .count();
+            if allies_hit > 0 && enemies_hit < allies_hit * 2 {
+                return false;
             }
         }
 
-        // Don't waste CC on already-stunned target.
-        let applies_cc = def
-            .statuses
-            .iter()
-            .any(|sa| db.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn));
-        if applies_cc {
-            if let Some(target_unit) = snap.unit(target) {
+        // Don't waste single-target CC on already-stunned target. AoE CC keeps
+        // its pool — dropping an AoE because one enemy is stunned is wrong.
+        if applies_cc(def, db) && def.aoe == AoEShape::None {
+            if let Some(target_unit) = target.and_then(|t| snap.unit(t)) {
                 if target_unit.tags.contains(AiTags::IS_STUNNED) {
                     return false;
                 }
@@ -107,9 +105,8 @@ pub fn filter_candidates(
 
         // Don't overheal: reject heal on target above 90% HP.
         if def.target_type == TargetType::SingleAlly {
-            if let Some(target_unit) = snap.unit(target) {
-                let hp_pct = target_unit.hp as f32 / target_unit.max_hp.max(1) as f32;
-                if hp_pct > 0.9 {
+            if let Some(target_unit) = target.and_then(|t| snap.unit(t)) {
+                if target_unit.hp_pct() > 0.9 {
                     return false;
                 }
             }

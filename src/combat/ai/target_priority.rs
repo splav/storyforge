@@ -1,5 +1,18 @@
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 
+/// Pick the enemy with the highest `target_priority` relative to `active`.
+/// Single source of truth for "what's the most important enemy right now".
+pub fn highest_priority_enemy<'a>(
+    active: &UnitSnapshot,
+    snap: &'a BattleSnapshot,
+) -> Option<&'a UnitSnapshot> {
+    snap.enemies_of(active.team).max_by(|a, b| {
+        target_priority(active, a, snap)
+            .partial_cmp(&target_priority(active, b, snap))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })
+}
+
 /// Score how important `target` is as a priority for `active`.
 /// Returns a value in 0..1 range.
 pub fn target_priority(
