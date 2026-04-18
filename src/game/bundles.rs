@@ -34,7 +34,7 @@ impl CombatantBundle {
             stats,
             speed: Speed(speed),
             initiative: Initiative(0),
-            action_points: ActionPoints::default(),
+            action_points: ActionPoints { action: true, movement_points: speed },
             abilities: Abilities(abilities),
             status_effects: StatusEffects::default(),
             equipment,

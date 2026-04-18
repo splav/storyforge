@@ -92,7 +92,7 @@ fn opportunity_once_per_round() {
     app.update();
     assert_eq!(aoo_events(&app).len(), 1, "first move triggers AoO");
 
-    app.world_mut().get_mut::<ActionPoints>(hero).unwrap().movement = true;
+    app.world_mut().get_mut::<ActionPoints>(hero).unwrap().movement_points = 10;
     app.world_mut().resource_mut::<HexPositions>().insert(hero, start_pos());
     write_message(&mut app, MoveUnit { actor: hero, path: vec![away_pos()] });
     app.update();

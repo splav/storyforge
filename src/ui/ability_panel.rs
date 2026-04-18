@@ -199,7 +199,7 @@ pub fn update_ability_panel(
             ability_id.is_some() && sel.selected_ability == ability_id
         };
         let available = if is_move {
-            ap.movement
+            ap.can_move()
         } else {
             ap.action && def.is_some_and(&can_afford)
         };
@@ -244,20 +244,24 @@ pub fn update_ability_panel(
         };
 
         let mut costs = String::new();
-        for cost in &def.costs {
-            let lbl = match cost.resource {
-                ResourceKind::Hp => "HP",
-                ResourceKind::Mana => "M",
-                ResourceKind::Rage => "R",
-                ResourceKind::Energy => "E",
-            };
-            costs += &format!("  {}:{}", lbl, cost.amount);
+        if is_move {
+            costs = format!("  {}", ap.movement_points);
+        } else {
+            for cost in &def.costs {
+                let lbl = match cost.resource {
+                    ResourceKind::Hp => "HP",
+                    ResourceKind::Mana => "M",
+                    ResourceKind::Rage => "R",
+                    ResourceKind::Energy => "E",
+                };
+                costs += &format!("  {}:{}", lbl, cost.amount);
+            }
         }
         text.0 = format!("[{prefix}] {}{}", def.name, costs);
 
         let selected = if is_move { sel.move_mode } else { sel.selected_ability == Some(id) };
         let available = if is_move {
-            ap.movement
+            ap.can_move()
         } else {
             ap.action && can_afford(def)
         };
@@ -366,8 +370,9 @@ pub fn ability_slot_click_system(
         let Some(def) = content.abilities.get(&id) else { continue };
 
         if matches!(def.effect, EffectDef::ToggleMoveMode) {
-            if ap.movement {
+            if ap.can_move() {
                 sel.move_mode = !sel.move_mode;
+
                 if sel.move_mode {
                     sel.selected_ability = None;
                     sel.selected_target = None;

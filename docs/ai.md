@@ -25,16 +25,24 @@ AI-система выбирает действие для вражеских ю
 
 ## Цикл принятия решения
 
+AI работает в модели «пула очков движения» (`ActionPoints.movement_points: i32`).
+Принципиальное отличие от старой булев-модели: за один ход AI может принять
+несколько решений — каждый `AwaitCommand`-тик pipeline запускает
+`enemy_ai_system` заново, видит обновлённые `ap` и снова выбирает действие.
+Deep-search не ведётся — это чистый greedy re-plan.
+
 ```
-1. Проверка AP (нет action + нет movement → EndTurn)
+Один тик enemy_ai_system:
+1. Проверка AP (нет action + movement_points == 0 → EndTurn)
 2. Построить BattleSnapshot + InfluenceMaps
 3. BFS reachable_with_paths (со скоростью из snapshot — учитывает speed-дебафы)
 4. Построить UtilityContext (caster, abilities, difficulty, crit_fail)
 5. pick_action:
    a. ★ select_intent → выбор TacticalIntent
    b. Генерация кандидатов:
-      — Cast: для каждой клетки × каждая способность (dedup по (ability, target))
-      — MoveOnly: топ-3 клеток по escape map (штатный способ уйти)
+      — Cast: для каждой достижимой клетки × каждая способность
+        (отбрасывается, если `path.len() > active.movement_points`)
+      — MoveOnly: топ-3 клеток по escape map (если `movement_points > 0`)
    c. Жёсткие фильтры (constraints)
    d. 9-факторный utility scoring с весами по роли
    e. ★ Intent viability guard: если max(intent_factor) < threshold,
@@ -44,11 +52,38 @@ AI-система выбирает действие для вражеских ю
       если defensive нет — rescore под LastStand
    h. pick_best: мерси-окно [best-mercy, best] → rerank, затем top-K sampling
       внутри similarity window (score_noise × 2)
-6. Исполнение:
-   - Cast@actor_pos → CastInPlace
-   - Cast@other → MoveAndCast (MoveUnit + UseAbility)
-   - MoveOnly → MoveOnlyRetreat (MoveUnit + EndTurn)
+6. Исполнение — ни одно из этих ветвлений не пишет EndTurn напрямую:
+   - Cast@actor_pos          → CastInPlace        (UseAbility)
+   - Cast@other              → MoveAndCast        (MoveUnit + UseAbility)
+   - MoveOnly                → MoveOnlyRetreat    (MoveUnit)
+   - нет кандидатов          → fallback_move      (MoveCloser / EndTurn)
 ```
+
+### Re-plan в пределах хода
+
+Ход завершается только через явный `AiDecision::EndTurn` либо через
+guard-проверку в начале следующего тика (`!action && movement_points == 0`).
+Типичные сценарии:
+
+- **Move → Cast → Move.** Первый тик: `MoveAndCast` (путь тратит часть пула,
+  способность расходует action). Следующий тик: action=false, пул>0 — Cast-
+  кандидатов нет, выбирается `MoveOnly` или `fallback_move(MoveCloser)` для
+  отступа в укрытие. Далее — пока есть очки движения.
+- **Cast → Move.** `CastInPlace` тратит только action; next tick — как выше.
+- **Обрыв прогресса.** `fallback_move` гарантирует non-empty путь; если лучший
+  тайл совпадает с текущим — возвращается `EndTurn`. Иначе каждый `MoveCloser`
+  строго уменьшает пул, поэтому за ≤ `speed` тиков достигается
+  `movement_points == 0` и срабатывает guard.
+
+### `GrantMovement` mid-turn
+
+Способности с эффектом `GrantMovement { distance }` (например, Рывок)
+**немедленно** добавляют `distance` в пул активного юнита и вставляют
+marker-компонент `BonusMovement` (триггер UI auto-move-mode для игрока; для AI
+просто меняется `movement_points`, следующий тик его увидит). Это корректно
+работает для pact-AI и врагов: каст и последующий рефрейм reach-map
+происходят на разных тиках, так что расширенный пул сразу доступен для
+планирования маршрута.
 
 ## Utility Scoring
 
@@ -451,7 +486,7 @@ enum CandidateKind {
 }
 ```
 
-MoveOnly кандидаты проходят scoring как обычно (damage/kill/cc/heal=0, position/risk — активны, intent зависит от интента, scarcity=0). На выходе `decision_from_candidate` превращает MoveOnly в `AiDecision::MoveOnlyRetreat`.
+MoveOnly кандидаты проходят scoring как обычно (damage/kill/cc/heal=0, position/risk — активны, intent зависит от интента, scarcity=0). На выходе `decision_from_candidate` превращает MoveOnly с non-empty path в `AiDecision::MoveOnlyRetreat`; MoveOnly с пустым путём (цель — текущая клетка) → `EndTurn`.
 
 Если кандидатов нет — `fallback_move`: `LOW_HP` юниты → клетка с min danger; остальные → ближайший враг.
 
@@ -536,7 +571,7 @@ ai_debug = true   # включает сбор данных и консольны
 
 | Блок | Данные |
 |------|--------|
-| Actor | Role label (`"Mage(0.73) + Support(0.18)"`), HP/max, threat, позиция (offset), AiTags, action/movement |
+| Actor | Role label (`"Mage(0.73) + Support(0.18)"`), HP/max, threat, позиция (offset), AiTags, action/movement_points |
 | Intent | Выбранный TacticalIntent + причина выбора (какое правило сработало, конкретные значения) |
 | Priority target | Цель с наивысшим target_priority и её скор |
 | Candidates | Топ-5 из N кандидатов: ability → target @ tile, 8 raw-факторов, total score, influence breakdown для tile |

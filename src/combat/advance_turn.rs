@@ -4,7 +4,7 @@ use crate::app_state::CombatPhase;
 use crate::core::DiceRng;
 use crate::content::encounters::VictoryCondition;
 use crate::game::components::{
-    ActionPoints, ActiveCombatant, ActiveStatus, Combatant, Dead, Faction, StatusEffects, Team, Vital, VictoryTarget,
+    ActionPoints, ActiveCombatant, ActiveStatus, Combatant, Dead, Faction, Speed, StatusEffects, Team, Vital, VictoryTarget,
 };
 use crate::core::StatusId;
 use crate::game::messages::{ApplyStatus, EndTurn};
@@ -24,6 +24,7 @@ pub fn advance_turn_system(
         Query<(&Vital, &Faction, Option<&VictoryTarget>), With<Combatant>>,
     )>,
     mut action_points: Query<&mut ActionPoints>,
+    speed_q: Query<&Speed>,
     mut statuses: Query<(Entity, &mut StatusEffects)>,
     dead_q: Query<(), With<Dead>>,
     active_q: Query<Entity, With<ActiveCombatant>>,
@@ -188,7 +189,10 @@ pub fn advance_turn_system(
     } else if let Some(next_actor) = queue.current() {
         if let Ok(mut ap) = action_points.get_mut(next_actor) {
             ap.action = true;
-            ap.movement = true;
+            let base = speed_q.get(next_actor).map(|s| s.0).unwrap_or(0);
+            let next_statuses = statuses.get(next_actor).ok().map(|(_, s)| s);
+            ap.movement_points =
+                crate::combat::turn_order::refill_movement_points(base, next_statuses, &content);
         }
         commands.entity(next_actor).insert(ActiveCombatant);
         log.push(CombatEvent::TurnStarted { actor: next_actor });

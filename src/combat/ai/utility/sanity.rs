@@ -191,7 +191,7 @@ mod tests {
             armor_bonus: 0,
             damage_taken_bonus: 0,
             action: true,
-            movement: true,
+            movement_points: 3,
             speed: 3,
             mana: None,
             rage: None,

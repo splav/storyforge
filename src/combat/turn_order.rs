@@ -1,11 +1,28 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::app_state::CombatPhase;
 use crate::combat::ai::reservations::Reservations;
+use crate::content::content_view::ActiveContent;
 use crate::core::{modifier, DiceRng};
-use crate::game::components::{ActionPoints, ActiveCombatant, CombatStats, Combatant, Initiative, Reactions, Vital};
+use crate::game::components::{ActionPoints, ActiveCombatant, CombatStats, Combatant, Initiative, Reactions, Speed, StatusEffects, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{CombatContext, PresetInitiative, TurnQueue};
 use bevy::prelude::*;
+
+/// Speed (in movement points) of `entity` for the upcoming turn,
+/// including the sum of `speed_bonus` from active statuses. Clamped ≥ 0.
+pub fn refill_movement_points(
+    base: i32,
+    statuses: Option<&StatusEffects>,
+    content: &ActiveContent,
+) -> i32 {
+    let bonus: i32 = statuses.map_or(0, |se| {
+        se.0.iter()
+            .filter_map(|s| content.statuses.get(&s.id))
+            .map(|d| d.speed_bonus)
+            .sum()
+    });
+    (base + bonus).max(0)
+}
 
 /// Build the turn order for a new round.
 /// Initiative is rolled once (round 1) and reused in all subsequent rounds.
@@ -18,6 +35,7 @@ pub fn build_turn_order(
     mut preset: ResMut<PresetInitiative>,
     mut reservations: ResMut<Reservations>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
+    content: Res<ActiveContent>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     mut combatants: Query<
         (
@@ -27,6 +45,8 @@ pub fn build_turn_order(
             &mut ActionPoints,
             &CombatStats,
             &Vital,
+            &Speed,
+            Option<&StatusEffects>,
             Option<&mut Reactions>,
         ),
         With<Combatant>,
@@ -46,7 +66,7 @@ pub fn build_turn_order(
     // get a "virtual turn" where their applied statuses tick down.
     let mut order: Vec<(Entity, i32)> = combatants
         .iter_mut()
-        .map(|(e, name, mut init, mut ap, stats, v, reactions)| {
+        .map(|(e, name, mut init, mut ap, stats, v, speed, statuses, reactions)| {
             if first_round {
                 if use_preset {
                     if let Some(&saved) = preset.0.get(name.as_str()) {
@@ -66,7 +86,7 @@ pub fn build_turn_order(
             }
             if v.is_alive() {
                 ap.action = true;
-                ap.movement = true;
+                ap.movement_points = refill_movement_points(speed.0, statuses, &content);
                 if let Some(mut r) = reactions {
                     r.remaining = r.max;
                 }

@@ -46,7 +46,10 @@ pub struct UnitSnapshot {
     pub armor_bonus: i32,
     pub damage_taken_bonus: i32,
     pub action: bool,
-    pub movement: bool,
+    /// Movement budget remaining right now. Zero means the unit can't walk.
+    pub movement_points: i32,
+    /// Base speed + status speed_bonus. Used for pathfinding range estimates
+    /// and utility scoring; not the live budget (see `movement_points`).
     pub speed: i32,
     pub mana: Option<(i32, i32)>,
     pub rage: Option<(i32, i32)>,
@@ -129,7 +132,7 @@ pub fn build_snapshot(
                 armor_bonus,
                 damage_taken_bonus,
                 action: c.ap.action,
-                movement: c.ap.movement,
+                movement_points: c.ap.movement_points,
                 speed: c.speed.0 + speed_bonus,
                 mana: c.mana.map(|m| (m.current, m.max)),
                 rage: c.rage.map(|r| (r.current, r.max)),

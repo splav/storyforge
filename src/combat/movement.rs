@@ -4,7 +4,7 @@ use crate::content::content_view::ActiveContent;
 use crate::core::DiceRng;
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, BonusMovement, CombatStats, Combatant, Dead,
-    Equipment, Faction, Rage, Reactions, Speed, StatusEffects, UnitToken, Vital,
+    Equipment, Faction, Rage, Reactions, StatusEffects, UnitToken, Vital,
 };
 use crate::game::hex::{in_bounds, Hex, LAYOUT};
 use crate::game::messages::MoveUnit;
@@ -32,9 +32,8 @@ pub fn movement_system(
     mut movers: Query<(
         &Faction,
         &mut ActionPoints,
-        &Speed,
-        Option<&BonusMovement>,
         Option<&StatusEffects>,
+        Has<BonusMovement>,
     )>,
     content: Res<ActiveContent>,
     mut log: ResMut<CombatLog>,
@@ -70,23 +69,13 @@ pub fn movement_system(
             continue;
         }
 
-        let Ok((a_faction, mut ap, speed, bonus, a_statuses)) = movers.get_mut(ev.actor) else {
+        let Ok((a_faction, mut ap, a_statuses, has_bonus)) = movers.get_mut(ev.actor) else {
             continue;
         };
-        if !ap.movement {
+        if !ap.can_move() {
             continue;
         }
-
-        let speed_mod: i32 = a_statuses.map_or(0, |se| {
-            se.0.iter()
-                .filter_map(|s| content.statuses.get(&s.id))
-                .map(|d| d.speed_bonus)
-                .sum()
-        });
-        // .max(0) — negative status debuffs can push modified speed below zero; clamp there.
-        // A base speed of 0 legitimately means "immobile" and must survive the clamp.
-        let max_steps = ((speed.0 + speed_mod).max(0)) + bonus.map_or(0, |b| b.0);
-        if ev.path.len() as i32 > max_steps {
+        if ev.path.len() as i32 > ap.movement_points {
             continue;
         }
 
@@ -272,9 +261,9 @@ pub fn movement_system(
             positions.insert(ev.actor, final_pos);
         }
 
-        ap.movement = false;
+        ap.movement_points = (ap.movement_points - walked.len() as i32).max(0);
 
-        if bonus.is_some() {
+        if has_bonus && ap.movement_points == 0 {
             commands.entity(ev.actor).remove::<BonusMovement>();
         }
 

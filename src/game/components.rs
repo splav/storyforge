@@ -111,10 +111,12 @@ impl Vital {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Speed(pub i32);
 
-/// Temporary extra movement granted by abilities (e.g. Rush).
-/// Removed after the bonus move is spent.
+/// Marker inserted by GrantMovement abilities (e.g. Rush) so the UI can
+/// auto-enter move mode for the actor. Removed after the first move or at
+/// turn end. The actual bonus distance is added directly to
+/// `ActionPoints.movement_points` when the ability resolves.
 #[derive(Component)]
-pub struct BonusMovement(pub i32);
+pub struct BonusMovement;
 
 /// Reactions available per round (attacks of opportunity, etc).
 /// Refilled to `max` at the start of each round.
@@ -136,15 +138,14 @@ pub struct Initiative(pub i32);
 #[derive(Component)]
 pub struct ActionPoints {
     pub action: bool,
-    pub movement: bool,
+    /// Remaining movement points for the current turn. Refilled at TurnStart.
+    pub movement_points: i32,
 }
 
-impl Default for ActionPoints {
-    fn default() -> Self {
-        Self {
-            action: true,
-            movement: true,
-        }
+impl ActionPoints {
+    /// True while the unit still has movement budget this turn.
+    pub fn can_move(&self) -> bool {
+        self.movement_points > 0
     }
 }
 

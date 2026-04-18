@@ -206,8 +206,8 @@ pub fn resolve_action_system(
                     }
                 }
             } else if let EffectDef::GrantMovement { distance } = &def.effect {
-                ap.movement = true;
-                commands.entity(ev.actor).insert(BonusMovement(*distance));
+                ap.movement_points += *distance;
+                commands.entity(ev.actor).insert(BonusMovement);
             } else if matches!(def.effect, EffectDef::RestoreResources) {
                 if let Some(ref mut m) = mana { m.restore(1); }
                 if let Some(ref mut r) = rage { r.gain(); }

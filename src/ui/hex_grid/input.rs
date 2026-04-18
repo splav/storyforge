@@ -2,7 +2,7 @@
 use crate::content::content_view::ActiveContent;
 use super::render::{HexGridOffset, HexHover, HexLastClick, HexTooltip, DOUBLE_CLICK_SECS};
 use crate::content::abilities::AoEShape;
-use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Combatant, Dead, Energy, Faction, Mana, Rage, Speed, StatusEffects, Team, Vital};
+use crate::game::components::{ActionPoints, ActiveCombatant, Combatant, Dead, Energy, Faction, Mana, Rage, StatusEffects, Team, Vital};
 use crate::game::hex::{in_bounds, is_passable, Hex, LAYOUT};
 use crate::game::messages::{MoveUnit, UseAbility};
 use crate::game::pathfinding::find_path;
@@ -120,7 +120,7 @@ pub fn hex_click_target(
     active_q: Query<Entity, With<ActiveCombatant>>,
     positions: Res<HexPositions>,
     content: Res<ActiveContent>,
-    move_query: Query<(&Faction, &ActionPoints, &Speed, Option<&BonusMovement>)>,
+    move_query: Query<(&Faction, &ActionPoints)>,
     combatant_q2: Query<(&Faction, &Vital), With<Combatant>>,
     mut sel: ResMut<SelectionState>,
     mut last_click: ResMut<HexLastClick>,
@@ -182,17 +182,17 @@ fn try_move(
     target: Hex,
     active: Option<Entity>,
     positions: &HexPositions,
-    move_query: &Query<(&Faction, &ActionPoints, &Speed, Option<&BonusMovement>)>,
+    move_query: &Query<(&Faction, &ActionPoints)>,
     combatant_q2: &Query<(&Faction, &Vital), With<Combatant>>,
     move_unit: &mut MessageWriter<MoveUnit>,
 ) -> bool {
     let Some(actor) = active else { return false };
-    let Ok((faction, ap, speed, bonus)) = move_query.get(actor) else { return false };
-    if faction.0 != Team::Player || !ap.movement {
+    let Ok((faction, ap)) = move_query.get(actor) else { return false };
+    if faction.0 != Team::Player || !ap.can_move() {
         return false;
     }
     let Some(actor_pos) = positions.get(&actor) else { return false };
-    let max_steps = speed.0 + bonus.map_or(0, |b| b.0);
+    let max_steps = ap.movement_points;
     let enemy_pos: HashSet<Hex> = positions
         .iter()
         .filter(|(&e, _)| {

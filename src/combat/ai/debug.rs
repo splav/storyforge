@@ -75,7 +75,7 @@ pub struct ActorDebug {
     pub threat: f32,
     pub tags: AiTags,
     pub action: bool,
-    pub movement: bool,
+    pub movement_points: i32,
 }
 
 /// Why this intent was chosen (which rule fired).
@@ -218,7 +218,7 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
     );
     println!(
         "  HP: {}/{} | threat: {:.1} | pos: {} | tags: {} | act={} mov={}",
-        a.hp, a.max_hp, a.threat, fmt_pos(a.pos), fmt_tags(a.tags), a.action, a.movement,
+        a.hp, a.max_hp, a.threat, fmt_pos(a.pos), fmt_tags(a.tags), a.action, a.movement_points,
     );
 
     // Intent reasoning.
@@ -440,7 +440,7 @@ fn actor_debug(active: &UnitSnapshot) -> ActorDebug {
         threat: active.threat,
         tags: active.tags,
         action: active.action,
-        movement: active.movement,
+        movement_points: active.movement_points,
     }
 }
 

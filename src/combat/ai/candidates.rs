@@ -89,8 +89,8 @@ pub fn generate_candidates(
                 None => continue,
             }
         };
-        // Needs movement to get there but doesn't have it.
-        if !path.is_empty() && !active.movement {
+        // Needs more movement points to get there than we have.
+        if path.len() as i32 > active.movement_points {
             continue;
         }
         emit_casts_from_tile(tile, &path, active, ctx, &enemies, &allies, &mut candidates);
@@ -99,7 +99,7 @@ pub fn generate_candidates(
     // MoveOnly: add pure-movement options to safe reachable tiles. These let
     // the AI choose retreat via the normal scoring pipeline (with noise, top_k,
     // mercy) instead of a special-case branch.
-    if active.movement {
+    if active.movement_points > 0 {
         add_move_only_candidates(actor_pos, reach, maps, &mut candidates);
     }
 
@@ -451,7 +451,7 @@ mod tests {
             armor_bonus: 0,
             damage_taken_bonus: 0,
             action: true,
-            movement: true,
+            movement_points: 3,
             speed: 3,
             mana: None,
             rage: None,

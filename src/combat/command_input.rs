@@ -52,14 +52,14 @@ pub fn player_command_system(
     }
 
     // Auto-enter move mode after GrantMovement (e.g. Rush).
-    if c.has_bonus_move && c.ap.movement && !selection.move_mode {
+    if c.has_bonus_move && c.ap.can_move() && !selection.move_mode {
         selection.move_mode = true;
         selection.selected_ability = None;
         selection.selected_target = None;
     }
 
     // Auto-end turn if both resources are spent.
-    if !c.ap.action && !c.ap.movement {
+    if !c.ap.action && !c.ap.can_move() {
         end_turn.write(EndTurn { actor });
         selection.clear();
         return;
@@ -88,7 +88,7 @@ pub fn player_command_system(
         }
 
         if matches!(def.effect, EffectDef::ToggleMoveMode) {
-            if c.ap.movement {
+            if c.ap.can_move() {
                 selection.move_mode = !selection.move_mode;
                 if selection.move_mode {
                     selection.selected_ability = None;

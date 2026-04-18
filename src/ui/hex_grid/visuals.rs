@@ -6,7 +6,7 @@ use super::render::{
 };
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::game::components::{
-    ActiveCombatant, BonusMovement, Dead, Energy, Faction, HexCombatantQ, Mana, Rage, Speed,
+    ActionPoints, ActiveCombatant, Dead, Energy, Faction, HexCombatantQ, Mana, Rage,
     Team, UnitToken, Vital,
 };
 use crate::game::hex::{can_stop_on, hex_circle, hex_line, is_passable, Hex, LAYOUT};
@@ -44,6 +44,7 @@ pub fn ui_dirty_bridge(
     mana_q: Query<(), Changed<Mana>>,
     rage_q: Query<(), Changed<Rage>>,
     energy_q: Query<(), Changed<Energy>>,
+    ap_q: Query<(), Changed<ActionPoints>>,
     mut dirty: ResMut<UiDirty>,
     mut prev: Local<DirtyBridgePrev>,
 ) {
@@ -114,6 +115,10 @@ pub fn ui_dirty_bridge(
         dirty.0 |= UiDirtyFlags::ABILITY_PANEL | UiDirtyFlags::LABELS;
     }
 
+    if !ap_q.is_empty() {
+        dirty.0 |= UiDirtyFlags::OVERLAY | UiDirtyFlags::ABILITY_PANEL | UiDirtyFlags::MOVE_BTN;
+    }
+
     if hover.0 != prev.hover {
         prev.hover = hover.0;
         dirty.0 |= UiDirtyFlags::TOOLTIP | UiDirtyFlags::HEX_FILL;
@@ -142,7 +147,7 @@ pub fn update_hex_visuals(
     mats: Res<HexMaterials>,
     cells: Query<(Entity, &Hex, &Children)>,
     combatant_q: Query<HexCombatantQ>,
-    speed_q: Query<(&Speed, Option<&BonusMovement>)>,
+    ap_q: Query<&ActionPoints>,
     mut borders: Query<
         (&mut Visibility, &mut MeshMaterial2d<ColorMaterial>),
         (With<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>, Without<HexManaLabel>),
@@ -225,10 +230,10 @@ pub fn update_hex_visuals(
 
         overlay.movement = if sel.move_mode {
             if let Ok(actor) = active_q.single() {
-                if let (Some(actor_pos), Ok((speed, bonus))) =
-                    (positions.get(&actor), speed_q.get(actor))
+                if let (Some(actor_pos), Ok(ap)) =
+                    (positions.get(&actor), ap_q.get(actor))
                 {
-                    let max_steps = speed.0 + bonus.map_or(0, |b| b.0);
+                    let max_steps = ap.movement_points;
                     let enemy_pos: HashSet<Hex> = positions
                         .iter()
                         .filter(|(&e, _)| {

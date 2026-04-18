@@ -86,7 +86,7 @@ fn run_ai_turn(
     debug_state: &mut AiDebugState,
     names: &Query<&Name>,
 ) {
-    if !c.ap.action && !c.ap.movement {
+    if !c.ap.action && !c.ap.can_move() {
         msgs.end_turn.write(EndTurn { actor });
         return;
     }
@@ -200,8 +200,10 @@ fn run_ai_turn(
             msgs.use_ability.write(UseAbility { actor, ability, target, target_pos });
         }
         AiDecision::MoveCloser { path } | AiDecision::MoveOnlyRetreat { path } => {
+            // No EndTurn here: the next AI tick will re-plan with the updated
+            // pool. If nothing useful remains, `fallback_move`/the guard at the
+            // top of `run_ai_turn` will emit EndTurn.
             msgs.move_unit.write(MoveUnit { actor, path });
-            msgs.end_turn.write(EndTurn { actor });
         }
         AiDecision::EndTurn => {
             msgs.end_turn.write(EndTurn { actor });

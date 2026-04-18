@@ -16,7 +16,7 @@ pub(super) fn fallback_move(
     reach: &ReachableMap,
     maps: &InfluenceMaps,
 ) -> AiDecision {
-    if !active.movement {
+    if active.movement_points == 0 {
         return AiDecision::EndTurn;
     }
 
@@ -60,7 +60,9 @@ pub(super) fn fallback_move(
 
     if let Some((dest, _)) = best {
         if let Some(path) = reach.path_to(dest) {
-            return AiDecision::MoveCloser { path };
+            if !path.is_empty() {
+                return AiDecision::MoveCloser { path };
+            }
         }
     }
 
