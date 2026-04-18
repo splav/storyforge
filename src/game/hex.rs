@@ -2,6 +2,7 @@ pub use hexx::Hex;
 use hexx::{HexLayout, HexOrientation, OffsetHexMode};
 
 use bevy::math::Vec2;
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 pub const GRID_COLS: i32 = 8;
@@ -38,6 +39,19 @@ pub fn row_cols(r: i32) -> i32 {
 pub fn in_bounds(hex: Hex) -> bool {
     let [q, r] = hex_to_offset(hex);
     (0..GRID_ROWS).contains(&r) && (0..row_cols(r)).contains(&q)
+}
+
+/// A cell can be passed *through* if it's in bounds and not held by a blocker
+/// (an opposing-team unit from the mover's perspective). Friends don't block —
+/// they're in `occupants_excluding_blockers` but absent from `blockers`.
+pub fn is_passable(cell: Hex, blockers: &HashSet<Hex>) -> bool {
+    in_bounds(cell) && !blockers.contains(&cell)
+}
+
+/// A cell is a valid stop for a move if no one occupies it — except that the
+/// mover's own current tile counts as stoppable (a unit can "stay put").
+pub fn can_stop_on(cell: Hex, occupants: &HashSet<Hex>, self_pos: Option<Hex>) -> bool {
+    !occupants.contains(&cell) || self_pos == Some(cell)
 }
 
 /// All in-bounds cells within hex-distance ≤ radius from center.
@@ -89,6 +103,47 @@ pub fn visible_cells(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn passable_rejects_out_of_bounds() {
+        let set: HashSet<Hex> = HashSet::new();
+        assert!(!is_passable(hex_from_offset(99, 99), &set));
+    }
+
+    #[test]
+    fn passable_rejects_blocker() {
+        let b = hex_from_offset(2, 2);
+        let set: HashSet<Hex> = [b].into_iter().collect();
+        assert!(!is_passable(b, &set));
+    }
+
+    #[test]
+    fn passable_allows_in_bounds_non_blocker() {
+        let c = hex_from_offset(3, 3);
+        let set: HashSet<Hex> = HashSet::new();
+        assert!(is_passable(c, &set));
+    }
+
+    #[test]
+    fn can_stop_rejects_occupied() {
+        let c = hex_from_offset(3, 3);
+        let set: HashSet<Hex> = [c].into_iter().collect();
+        assert!(!can_stop_on(c, &set, None));
+    }
+
+    #[test]
+    fn can_stop_allows_self_tile_even_if_occupied() {
+        let c = hex_from_offset(3, 3);
+        let set: HashSet<Hex> = [c].into_iter().collect();
+        assert!(can_stop_on(c, &set, Some(c)));
+    }
+
+    #[test]
+    fn can_stop_allows_empty() {
+        let c = hex_from_offset(3, 3);
+        let set: HashSet<Hex> = HashSet::new();
+        assert!(can_stop_on(c, &set, None));
+    }
 
     #[test]
     fn circle_radius_0_is_center_only() {

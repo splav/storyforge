@@ -6,6 +6,7 @@ use crate::content::encounters::VictoryCondition;
 use crate::game::components::{
     ActionPoints, ActiveCombatant, ActiveStatus, Combatant, Dead, Faction, StatusEffects, Team, Vital, VictoryTarget,
 };
+use crate::core::StatusId;
 use crate::game::messages::{ApplyStatus, EndTurn};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{CombatObjective, TurnQueue};
@@ -67,7 +68,7 @@ pub fn advance_turn_system(
                 }
                 TickResult::PercentDot { target, percent, status } => {
                     if let Ok(mut v) = vitals.get_mut(*target) {
-                        let damage = (v.max_hp * *percent + 99) / 100;
+                        let damage = percent_dot_damage(v.max_hp, *percent);
                         v.apply_damage(damage);
                         log.push(CombatEvent::PoisonTick {
                             target: *target,
@@ -147,7 +148,7 @@ pub fn advance_turn_system(
                     }
                     TickResult::PercentDot { target, percent, status } => {
                         if let Ok(mut v) = vitals.get_mut(*target) {
-                            let damage = (v.max_hp * *percent + 99) / 100;
+                            let damage = percent_dot_damage(v.max_hp, *percent);
                             v.apply_damage(damage);
                             log.push(CombatEvent::PoisonTick {
                                 target: *target,
@@ -194,29 +195,54 @@ pub fn advance_turn_system(
     }
 }
 
-/// Returns `Some(true)` for victory, `Some(false)` for defeat, `None` if combat continues.
+/// Single-pass iteration over combatants → dispatch to `determine_outcome`.
 fn check_combat_end(
     combatants: &Query<(&Vital, &Faction, Option<&VictoryTarget>), With<Combatant>>,
     objective: &VictoryCondition,
 ) -> Option<bool> {
-    let players_alive = combatants.iter().any(|(v, f, _)| v.is_alive() && f.0 == Team::Player);
+    let mut players_alive = false;
+    let mut enemies_alive = false;
+    let mut target_alive = false;
+    for (v, f, tag) in combatants.iter() {
+        if !v.is_alive() {
+            continue;
+        }
+        match f.0 {
+            Team::Player => players_alive = true,
+            Team::Enemy => enemies_alive = true,
+        }
+        if tag.is_some() {
+            target_alive = true;
+        }
+    }
+    determine_outcome(players_alive, enemies_alive, target_alive, objective)
+}
+
+/// Pure victory/defeat decision. `Some(true)` = victory, `Some(false)` = defeat,
+/// `None` = combat continues. Party wipe always beats objective progress.
+pub(crate) fn determine_outcome(
+    players_alive: bool,
+    enemies_alive: bool,
+    target_alive: bool,
+    objective: &VictoryCondition,
+) -> Option<bool> {
     if !players_alive {
         return Some(false);
     }
     match objective {
         VictoryCondition::AllEnemiesDead => {
-            let enemies_alive = combatants
-                .iter()
-                .any(|(v, f, _)| v.is_alive() && f.0 == Team::Enemy);
             if enemies_alive { None } else { Some(true) }
         }
         VictoryCondition::KillTarget { .. } => {
-            let target_alive = combatants
-                .iter()
-                .any(|(v, _, tag)| v.is_alive() && tag.is_some());
             if target_alive { None } else { Some(true) }
         }
     }
+}
+
+/// Ceiling-divide percentage damage: at least 1 damage for any positive percent
+/// (rounds up so 1% of a 20-HP unit still ticks for 1 instead of 0).
+pub(crate) fn percent_dot_damage(max_hp: i32, percent: i32) -> i32 {
+    (max_hp * percent + 99) / 100
 }
 
 fn end_combat(
@@ -228,14 +254,13 @@ fn end_combat(
     next_phase.set(if victory { CombatPhase::Victory } else { CombatPhase::Defeat });
 }
 
-enum TickResult {
-    DotDamage { target: Entity, damage: i32, status: crate::core::StatusId },
-    PercentDot { target: Entity, percent: i32, status: crate::core::StatusId },
-    Expired { target: Entity, status: crate::core::StatusId },
+pub(crate) enum TickResult {
+    DotDamage { target: Entity, damage: i32, status: StatusId },
+    PercentDot { target: Entity, percent: i32, status: StatusId },
+    Expired { target: Entity, status: StatusId },
 }
 
-/// Ticks all statuses applied by `actor` across every entity.
-/// Returns DoT damage events and expired status events.
+/// Bevy wrapper: iterates all entities and delegates per-entity tick logic.
 fn tick_status_durations(
     actor: Entity,
     statuses: &mut Query<(Entity, &mut StatusEffects)>,
@@ -243,37 +268,226 @@ fn tick_status_durations(
 ) -> Vec<TickResult> {
     let mut results = Vec::new();
     for (target, mut se) in statuses.iter_mut() {
-        for s in se.0.iter_mut() {
-            if s.applier != actor {
-                continue;
-            }
-            // Apply DoT damage before decrementing.
-            if s.dot_per_tick > 0 {
-                results.push(TickResult::DotDamage {
+        results.extend(tick_statuses_on_entity(actor, target, &mut se.0, content));
+    }
+    results
+}
+
+/// Pure per-entity status tick: emit DoT events, decrement durations, drop expired.
+/// Only affects statuses whose `applier == actor`. `effects` is mutated in place.
+pub(crate) fn tick_statuses_on_entity(
+    actor: Entity,
+    target: Entity,
+    effects: &mut Vec<ActiveStatus>,
+    content: &ContentView,
+) -> Vec<TickResult> {
+    let mut results = Vec::new();
+    for s in effects.iter_mut() {
+        if s.applier != actor {
+            continue;
+        }
+        // Apply DoT damage before decrementing.
+        if s.dot_per_tick > 0 {
+            results.push(TickResult::DotDamage {
+                target,
+                damage: s.dot_per_tick,
+                status: s.id.clone(),
+            });
+        }
+        // Percentage-based DoT (heritage exhaustion).
+        if let Some(sd) = content.statuses.get(&s.id) {
+            if sd.hp_percent_dot > 0 {
+                results.push(TickResult::PercentDot {
                     target,
-                    damage: s.dot_per_tick,
+                    percent: sd.hp_percent_dot,
                     status: s.id.clone(),
                 });
             }
-            // Percentage-based DoT (heritage exhaustion).
-            if let Some(sd) = content.statuses.get(&s.id) {
-                if sd.hp_percent_dot > 0 {
-                    results.push(TickResult::PercentDot {
-                        target,
-                        percent: sd.hp_percent_dot,
-                        status: s.id.clone(),
-                    });
-                }
-            }
-            s.rounds_remaining = s.rounds_remaining.saturating_sub(1);
         }
-        let newly_expired: Vec<_> =
-            se.0.iter()
-                .filter(|s| s.applier == actor && s.rounds_remaining == 0)
-                .map(|s| TickResult::Expired { target, status: s.id.clone() })
-                .collect();
-        results.extend(newly_expired);
-        se.0.retain(|s| !(s.applier == actor && s.rounds_remaining == 0));
+        s.rounds_remaining = s.rounds_remaining.saturating_sub(1);
     }
+    let newly_expired: Vec<_> = effects
+        .iter()
+        .filter(|s| s.applier == actor && s.rounds_remaining == 0)
+        .map(|s| TickResult::Expired { target, status: s.id.clone() })
+        .collect();
+    results.extend(newly_expired);
+    effects.retain(|s| !(s.applier == actor && s.rounds_remaining == 0));
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::content_view::ContentView;
+
+    fn ent(id: u32) -> Entity {
+        Entity::from_raw_u32(id).expect("valid entity id")
+    }
+
+    // ── percent_dot_damage ──────────────────────────────────────────────
+
+    #[test]
+    fn percent_dot_exact_division() {
+        assert_eq!(percent_dot_damage(100, 10), 10);
+        assert_eq!(percent_dot_damage(20, 25), 5);
+    }
+
+    #[test]
+    fn percent_dot_ceils_remainder() {
+        // 20 * 1% = 0.2 → 1 damage after ceil
+        assert_eq!(percent_dot_damage(20, 1), 1);
+        // 7 * 10% = 0.7 → 1 damage after ceil
+        assert_eq!(percent_dot_damage(7, 10), 1);
+    }
+
+    #[test]
+    fn percent_dot_zero_percent_gives_zero() {
+        // Edge case: 0% should be 0, not 1 (callers guard with > 0 check anyway).
+        assert_eq!(percent_dot_damage(100, 0), 0);
+    }
+
+    // ── determine_outcome ───────────────────────────────────────────────
+
+    #[test]
+    fn outcome_defeat_when_no_players_alive() {
+        let obj = VictoryCondition::AllEnemiesDead;
+        assert_eq!(determine_outcome(false, true, true, &obj), Some(false));
+    }
+
+    #[test]
+    fn outcome_all_enemies_dead_victory() {
+        let obj = VictoryCondition::AllEnemiesDead;
+        assert_eq!(determine_outcome(true, false, false, &obj), Some(true));
+    }
+
+    #[test]
+    fn outcome_all_enemies_dead_continues_while_enemies_alive() {
+        let obj = VictoryCondition::AllEnemiesDead;
+        assert_eq!(determine_outcome(true, true, false, &obj), None);
+    }
+
+    #[test]
+    fn outcome_kill_target_victory_on_target_dead() {
+        let obj = VictoryCondition::KillTarget {
+            enemy_name: "boss".into(),
+            marker_color: [1.0, 0.0, 0.0],
+            description: None,
+        };
+        // Enemies still alive but target down → victory.
+        assert_eq!(determine_outcome(true, true, false, &obj), Some(true));
+    }
+
+    #[test]
+    fn outcome_kill_target_continues_while_target_alive() {
+        let obj = VictoryCondition::KillTarget {
+            enemy_name: "boss".into(),
+            marker_color: [1.0, 0.0, 0.0],
+            description: None,
+        };
+        assert_eq!(determine_outcome(true, false, true, &obj), None);
+    }
+
+    #[test]
+    fn outcome_party_wipe_beats_objective_completion() {
+        // Even if target is dead, a party wipe is a defeat, not a victory.
+        let obj = VictoryCondition::KillTarget {
+            enemy_name: "boss".into(),
+            marker_color: [1.0, 0.0, 0.0],
+            description: None,
+        };
+        assert_eq!(determine_outcome(false, false, false, &obj), Some(false));
+    }
+
+    // ── tick_statuses_on_entity ─────────────────────────────────────────
+
+    fn active_status(id: &str, applier: Entity, rounds: u32, dot: i32) -> ActiveStatus {
+        ActiveStatus {
+            id: id.into(),
+            rounds_remaining: rounds,
+            applier,
+            dot_per_tick: dot,
+        }
+    }
+
+    #[test]
+    fn tick_ignores_statuses_from_other_applier() {
+        let actor = ent(1);
+        let other = ent(2);
+        let target = ent(3);
+        let content = ContentView::load_global_for_tests();
+        let mut effects = vec![active_status("burning", other, 2, 3)];
+
+        let results = tick_statuses_on_entity(actor, target, &mut effects, &content);
+        assert!(results.is_empty());
+        // Untouched: still 2 rounds, still present.
+        assert_eq!(effects.len(), 1);
+        assert_eq!(effects[0].rounds_remaining, 2);
+    }
+
+    #[test]
+    fn tick_emits_dot_and_decrements() {
+        let actor = ent(1);
+        let target = ent(3);
+        let content = ContentView::load_global_for_tests();
+        let mut effects = vec![active_status("burning", actor, 3, 5)];
+
+        let results = tick_statuses_on_entity(actor, target, &mut effects, &content);
+        assert_eq!(results.len(), 1);
+        assert!(matches!(
+            &results[0],
+            TickResult::DotDamage { damage: 5, .. }
+        ));
+        assert_eq!(effects[0].rounds_remaining, 2);
+    }
+
+    #[test]
+    fn tick_emits_expired_and_removes_at_zero_rounds() {
+        let actor = ent(1);
+        let target = ent(3);
+        let content = ContentView::load_global_for_tests();
+        // 1 round remaining → after tick: 0 → expired.
+        let mut effects = vec![active_status("stunned", actor, 1, 0)];
+
+        let results = tick_statuses_on_entity(actor, target, &mut effects, &content);
+        assert_eq!(results.len(), 1);
+        assert!(matches!(&results[0], TickResult::Expired { .. }));
+        assert!(effects.is_empty(), "expired status should be removed");
+    }
+
+    #[test]
+    fn tick_emits_both_dot_and_expiration_in_same_call() {
+        let actor = ent(1);
+        let target = ent(3);
+        let content = ContentView::load_global_for_tests();
+        // dot + last round → both events from one status.
+        let mut effects = vec![active_status("burning", actor, 1, 4)];
+
+        let results = tick_statuses_on_entity(actor, target, &mut effects, &content);
+        assert_eq!(results.len(), 2);
+        assert!(matches!(&results[0], TickResult::DotDamage { damage: 4, .. }));
+        assert!(matches!(&results[1], TickResult::Expired { .. }));
+        assert!(effects.is_empty());
+    }
+
+    #[test]
+    fn tick_only_affects_matching_applier_in_mixed_list() {
+        let actor = ent(1);
+        let other = ent(2);
+        let target = ent(3);
+        let content = ContentView::load_global_for_tests();
+        let mut effects = vec![
+            active_status("burning", actor, 2, 3),
+            active_status("poisoned", other, 2, 4),
+            active_status("stunned", actor, 1, 0),
+        ];
+
+        let results = tick_statuses_on_entity(actor, target, &mut effects, &content);
+        // actor: burning → DotDamage; stunned → Expired.
+        assert_eq!(results.len(), 2);
+        // Other's status untouched.
+        assert_eq!(effects.len(), 2, "other applier's status should remain");
+        let poisoned = effects.iter().find(|s| s.id == "poisoned".into()).unwrap();
+        assert_eq!(poisoned.rounds_remaining, 2);
+    }
 }

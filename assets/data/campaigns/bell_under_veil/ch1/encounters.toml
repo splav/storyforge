@@ -18,11 +18,6 @@ hex_col  = 6
 hex_row  = 1
 
 [[encounters.enemies]]
-template = "beastblood_raider"
-hex_col  = 6
-hex_row  = 4
-
-[[encounters.enemies]]
 template = "wild_dog"
 hex_col  = 5
 hex_row  = 5
@@ -36,7 +31,7 @@ hex_row  = 5
 id   = "glassworks"
 name = "Заброшенная стекольня"
 
-victory = { type = "kill_target", enemy_name = "Проводник Договора", marker_color = [0.80, 0.25, 0.65] }
+victory = { type = "kill_target", enemy_name = "Проводник Договора", marker_color = [0.80, 0.25, 0.65], description = "Убить Проводника Договора" }
 
 # Проводник — в глубине, под прикрытием.
 [[encounters.enemies]]
@@ -50,16 +45,11 @@ template = "heavy_lifter"
 hex_col  = 5
 hex_row  = 3
 
-# Контрабандисты на флангах.
+# Контрабандист на фланге.
 [[encounters.enemies]]
 template = "smuggler"
 hex_col  = 6
 hex_row  = 1
-
-[[encounters.enemies]]
-template = "smuggler"
-hex_col  = 6
-hex_row  = 5
 
 
 # ── Бой 3. Искажённая чаща ──────────────────────────────────────────────────
@@ -71,7 +61,7 @@ hex_row  = 5
 id   = "twisted_grove"
 name = "Искажённая чаща"
 
-victory = { type = "kill_target", enemy_name = "Узел чащи", marker_color = [0.30, 0.70, 0.25] }
+victory = { type = "kill_target", enemy_name = "Узел чащи", marker_color = [0.30, 0.70, 0.25], description = "Уничтожить Узел чащи" }
 
 # Узел — глубоко в тылу, на центральной клетке.
 [[encounters.enemies]]
@@ -117,7 +107,7 @@ hex_row  = 3
 id   = "bell_crypt"
 name = "Колокольная крипта"
 
-victory = { type = "kill_target", enemy_name = "Настоятель Мерон", marker_color = [0.95, 0.85, 0.35] }
+victory = { type = "kill_target", enemy_name = "Настоятель Мерон", marker_color = [0.95, 0.85, 0.35], description = "Низвергнуть Настоятеля Мерона" }
 
 # Мерон — центральная клетка, защищён служками.
 [[encounters.enemies]]

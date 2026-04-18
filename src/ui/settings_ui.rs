@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use super::button::{spawn_standard_button, ButtonStyle};
 use crate::app_state::AppState;
 use crate::content::settings::{DifficultyPreset, GameSettings};

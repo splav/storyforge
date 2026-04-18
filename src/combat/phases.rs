@@ -13,6 +13,7 @@ use bevy::prelude::*;
 /// At most one phase per enemy per frame — cascading transitions are applied on
 /// subsequent ticks, which prevents accidental chains when a huge hit crosses
 /// several thresholds.
+#[allow(clippy::type_complexity)]
 pub fn phase_transition_system(
     mut commands: Commands,
     mut log: ResMut<CombatLog>,

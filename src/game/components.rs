@@ -116,6 +116,20 @@ pub struct Speed(pub i32);
 #[derive(Component)]
 pub struct BonusMovement(pub i32);
 
+/// Reactions available per round (attacks of opportunity, etc).
+/// Refilled to `max` at the start of each round.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Reactions {
+    pub remaining: u8,
+    pub max: u8,
+}
+
+impl Default for Reactions {
+    fn default() -> Self {
+        Self { remaining: 1, max: 1 }
+    }
+}
+
 #[derive(Component)]
 pub struct Initiative(pub i32);
 

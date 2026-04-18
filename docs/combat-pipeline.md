@@ -4,6 +4,8 @@
 
 Systems in `CombatPhase::AwaitCommand`, grouped by `CombatStep` sets, gated by `combat_ready()` (no active animations or popups). Ordered via `.chain()` within sets, sets themselves chained: `TurnStart → Command → Execute → Finalize`.
 
+Регистрация — в `combat::pipeline::CombatPipelinePlugin` (`src/combat/pipeline.rs`): plugin инкапсулирует `configure_sets` и `add_systems` для StartRound и всех четырёх `CombatStep`. `main.rs` подключает его одной строкой `.add_plugins(CombatPipelinePlugin)`.
+
 ```
 TurnStart: turn_start → skip_dead → skip_stunned → apply_auras
 Command:   pact_ai → player_command ∥ enemy_ai
@@ -86,7 +88,9 @@ Only for `Team::Enemy`. Smart ability selection:
 Respects `forces_targeting` (taunt).
 
 ### movement_system
-Processes `MoveUnit` messages. Validates: actor is active, has movement, path ≤ speed (or BonusMovement), destination empty and in bounds. Updates `HexPositions` (increments `generation` counter for precise UI change detection). Removes `BonusMovement` after use. Pushes `PendingAnim::Movement` to `AnimationQueue` for smooth token animation.
+Processes `MoveUnit` messages. Validates: actor is active, has movement, path ≤ speed + BonusMovement, destination empty and in bounds. Updates `HexPositions` (increments `generation` counter for precise UI change detection). Removes `BonusMovement` after use. Pushes `PendingAnim::Movement` to `AnimationQueue` for smooth token animation.
+
+Walks the path step by step, firing **Attacks of Opportunity** for each enemy that was adjacent to the previous hex but not to the next. Each provoker fires at most once per round (see `Reactions` in mechanics.md), applies weapon-attack damage with normal armor mitigation, and triggers the +1 rage gain on both sides. If AoO damage drops the mover's HP to 0, the remaining path is truncated (actor ends on the step where it died, gets `Dead` inserted).
 
 ### queue_enemy_popup
 Scans new `CombatLog` events (via `PopupCursor` cursor). Emits `PendingAnim::Popup` for:

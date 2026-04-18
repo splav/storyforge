@@ -214,7 +214,14 @@ fn ability_vote(def: &crate::content::abilities::AbilityDef) -> [f32; 5] {
         return v;
     }
 
-    // 2. Self-buff / taunt (Myself target, no damage) → Tank.
+    // 2. Summon → Support + Ranged (caster-style summoner, not a self-buff tank).
+    if matches!(def.effect, EffectDef::Summon { .. }) {
+        v[4] += weight * 0.7;
+        v[2] += weight * 0.3;
+        return v;
+    }
+
+    // 3. Self-buff / taunt (Myself target, no damage) → Tank.
     if def.target_type == TargetType::Myself && !has_damage(def) {
         v[0] += weight;
         return v;

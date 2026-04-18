@@ -58,12 +58,17 @@ BFS flood fill up to `max_steps`. Two predicates:
 
 Returns `HashSet<(i32, i32)>` of valid destinations.
 
+### Helpers: is_passable / can_stop_on (game/hex.rs)
+Единые boolean-хелперы для callsite'ов BFS:
+- `is_passable(cell, blockers: &HashSet<Hex>)` — `in_bounds(cell) && !blockers.contains(cell)`. Правило «что такое blocker» решает caller (враг для игрока, союзник-противник для AI threat map).
+- `can_stop_on(cell, occupants: &HashSet<Hex>, self_pos: Option<Hex>)` — клетка свободна, либо это собственная стартовая клетка юнита.
+
 ## Movement Rules
 
 - Allies are passable (can walk through, cannot stop on)
 - Enemies block movement
 - Speed component defines max steps per turn
-- BonusMovement overrides Speed when present (from GrantMovement abilities)
+- BonusMovement adds to Speed (from GrantMovement abilities); removed after move
 
 ## Visual Tokens
 

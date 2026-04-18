@@ -86,9 +86,19 @@ Self-target способность (клавиша `R`, effect `restore_resource
 
 ## Speed & Movement
 - `Speed(i32)` — max hex cells per movement action
-- `BonusMovement(i32)` — temporary override from GrantMovement abilities (e.g. Rush)
+- `BonusMovement(i32)` — additive bonus from GrantMovement abilities (e.g. Rush); суммируется со Speed, удаляется после первого move
 - Passability: can walk through allies, blocked by enemies
 - Landing: must end on empty cell (no stacking)
+
+## Attacks of Opportunity (AoO)
+
+Юнит, покидающий соседство с живым врагом, провоцирует у того одну атаку оружием.
+
+- **Триггер:** на каждом шаге пути, если враг был соседом предыдущего гекса и не является соседом нового. Срабатывает в момент выхода — если AoO убивает, оставшаяся часть пути отменяется, юнит-жертва остаётся на текущем шаге.
+- **Реакция:** одна `weapon_attack` базового оружия провоцирующего (dice + STR_mod, обычное армор-митигирование). Не тратит AP провоцирующего; тратит 1 заряд из `Reactions { remaining, max = 1 }`.
+- **Не провоцируют AoO:** телепорт, толчки (когда появятся). Обычное движение и Rush (bonus movement) — провоцируют.
+- **Не наносят AoO:** мёртвые, оглушённые (`skips_turn`), без мили-оружия (нет ability с `WeaponAttack` + `range.max == 1`), уже потратившие реакцию в этом раунде.
+- **Сброс реакций:** `build_turn_order` при старте раунда восстанавливает `remaining = max` у всех живых.
 
 ## Statuses
 

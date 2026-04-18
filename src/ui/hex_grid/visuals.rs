@@ -9,7 +9,7 @@ use crate::game::components::{
     ActiveCombatant, BonusMovement, Dead, Energy, Faction, HexCombatantQ, Mana, Rage, Speed,
     Team, UnitToken, Vital,
 };
-use crate::game::hex::{hex_circle, hex_line, in_bounds, Hex, LAYOUT};
+use crate::game::hex::{can_stop_on, hex_circle, hex_line, is_passable, Hex, LAYOUT};
 use crate::game::pathfinding::reachable_cells;
 use crate::game::resources::{
     HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags,
@@ -228,7 +228,7 @@ pub fn update_hex_visuals(
                 if let (Some(actor_pos), Ok((speed, bonus))) =
                     (positions.get(&actor), speed_q.get(actor))
                 {
-                    let max_steps = bonus.map_or(speed.0, |b| b.0);
+                    let max_steps = speed.0 + bonus.map_or(0, |b| b.0);
                     let enemy_pos: HashSet<Hex> = positions
                         .iter()
                         .filter(|(&e, _)| {
@@ -248,8 +248,8 @@ pub fn update_hex_visuals(
                     reachable_cells(
                         actor_pos,
                         max_steps,
-                        |h| in_bounds(h) && !enemy_pos.contains(&h),
-                        |h| !all_occupied.contains(&h),
+                        |h| is_passable(h, &enemy_pos),
+                        |h| can_stop_on(h, &all_occupied, None),
                     )
                 } else {
                     HashSet::new()

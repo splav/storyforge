@@ -6,6 +6,7 @@ pub mod command_input;
 pub mod enemy_popup;
 pub mod movement;
 pub mod phases;
+pub mod pipeline;
 pub mod resolution;
 pub mod spawn;
 pub mod skip_dead;

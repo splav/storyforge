@@ -98,7 +98,7 @@ fn spawn_combatants(
         if enemy.mana_max > 0 { ec.insert(Mana::new(enemy.mana_max)); }
         if enemy.energy_max > 0 { ec.insert(Energy::new(enemy.energy_max)); }
         if let Some(ref p) = enemy.path { ec.insert(CombatPath(p.clone())); }
-        if let VictoryCondition::KillTarget { enemy_name, marker_color } = &enc.victory {
+        if let VictoryCondition::KillTarget { enemy_name, marker_color, .. } = &enc.victory {
             if &enemy.name == enemy_name {
                 ec.insert(VictoryTarget { marker_color: *marker_color });
             }

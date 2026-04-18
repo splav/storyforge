@@ -135,13 +135,6 @@ pub fn player_command_system(
         selection.move_mode = false;
     }
 
-    // E → end turn manually.
-    if keyboard.just_pressed(KeyCode::KeyE) {
-        end_turn.write(EndTurn { actor });
-        selection.clear();
-        return;
-    }
-
     // Tab → cycle living targets (enemies for most abilities, allies for SingleAlly).
     if keyboard.just_pressed(KeyCode::Tab) && !selection.move_mode {
         let target_type = selection

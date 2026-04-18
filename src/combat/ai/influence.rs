@@ -1,17 +1,42 @@
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot, AiTags};
 use crate::game::components::Team;
-use crate::game::hex::{hex_from_offset, in_bounds, Hex, GRID_ROWS, row_cols};
+use crate::game::hex::{can_stop_on, hex_from_offset, is_passable, Hex, GRID_ROWS, row_cols};
 use crate::game::pathfinding::reachable_cells;
+use bevy::prelude::Resource;
 use std::collections::{HashMap, HashSet};
 
-// ── Tuning constants ────────────────────────────────────────────────────────
+// ── Tuning config ───────────────────────────────────────────────────────────
 
-const LAMBDA_SUPPORT: f32 = 2.5;
-const LAMBDA_OPPORTUNITY: f32 = 3.0;
-const W_KILL: f32 = 0.7;
-const W_THREAT: f32 = 0.3;
-const HEALER_SUPPORT_WEIGHT: f32 = 2.0;
-const MELEE_ADJ_WEIGHT: f32 = 1.5;
+/// Tunable constants for influence-map construction. Registered as a Bevy
+/// resource so designers can tweak balance without recompiling.
+#[derive(Resource, Clone, Debug)]
+pub struct InfluenceConfig {
+    /// Distance decay for ally-support falloff (larger = gentler drop-off).
+    pub lambda_support: f32,
+    /// Distance decay for opportunity falloff.
+    pub lambda_opportunity: f32,
+    /// Weight of "enemy is low HP" in target-value.
+    pub w_kill: f32,
+    /// Weight of "enemy is high threat" in target-value.
+    pub w_threat: f32,
+    /// Support-weight multiplier for allies flagged CAN_HEAL.
+    pub healer_support_weight: f32,
+    /// Support-weight multiplier for allies flagged MELEE_ONLY.
+    pub melee_adj_weight: f32,
+}
+
+impl Default for InfluenceConfig {
+    fn default() -> Self {
+        Self {
+            lambda_support: 2.5,
+            lambda_opportunity: 3.0,
+            w_kill: 0.7,
+            w_threat: 0.3,
+            healer_support_weight: 2.0,
+            melee_adj_weight: 1.5,
+        }
+    }
+}
 
 // ── Data types ───────────────────────────────────────────────────────────────
 
@@ -100,6 +125,7 @@ fn all_cells() -> Vec<Hex> {
 pub fn build_influence_maps(
     snap: &BattleSnapshot,
     active_team: Team,
+    cfg: &InfluenceConfig,
 ) -> InfluenceMaps {
     let cells = all_cells();
 
@@ -113,8 +139,8 @@ pub fn build_influence_maps(
     let enemy_positions: HashSet<Hex> = enemies.iter().map(|u| u.pos).collect();
 
     let danger = build_danger(&cells, &enemies, &ally_positions, &enemy_positions);
-    let ally_support = build_ally_support(&cells, &allies);
-    let opportunity = build_opportunity(&cells, &enemies);
+    let ally_support = build_ally_support(&cells, &allies, cfg);
+    let opportunity = build_opportunity(&cells, &enemies, cfg);
     let escape = build_escape(&cells, &danger, &ally_support);
 
     // Maps are normalized: danger/ally_support/opportunity ∈ [0, 1],
@@ -156,8 +182,8 @@ fn build_danger(
         let reachable = reachable_cells(
             enemy.pos,
             enemy.speed,
-            |h| in_bounds(h) && !ally_positions.contains(&h),
-            |h| !enemy_positions.contains(&h) || h == enemy.pos,
+            |h| is_passable(h, ally_positions),
+            |h| can_stop_on(h, enemy_positions, Some(enemy.pos)),
         );
 
         // From each reachable cell (+ current pos), compute distance-based danger.
@@ -187,20 +213,20 @@ fn build_danger(
 
 // ── Ally Support Map ─────────────────────────────────────────────────────────
 
-fn support_weight(ally: &UnitSnapshot) -> f32 {
+fn support_weight(ally: &UnitSnapshot, cfg: &InfluenceConfig) -> f32 {
     let mut w = 1.0;
     if ally.tags.contains(AiTags::CAN_HEAL) {
-        w = HEALER_SUPPORT_WEIGHT;
+        w = cfg.healer_support_weight;
     }
     if ally.tags.contains(AiTags::MELEE_ONLY) {
-        w *= MELEE_ADJ_WEIGHT;
+        w *= cfg.melee_adj_weight;
     }
     w
 }
 
-fn build_ally_support(cells: &[Hex], allies: &[&UnitSnapshot]) -> InfluenceMap {
+fn build_ally_support(cells: &[Hex], allies: &[&UnitSnapshot], cfg: &InfluenceConfig) -> InfluenceMap {
     let mut map = InfluenceMap::new();
-    let total_weight: f32 = allies.iter().map(|a| support_weight(a)).sum();
+    let total_weight: f32 = allies.iter().map(|a| support_weight(a, cfg)).sum();
     if total_weight == 0.0 {
         return map;
     }
@@ -209,8 +235,8 @@ fn build_ally_support(cells: &[Hex], allies: &[&UnitSnapshot]) -> InfluenceMap {
         let mut value = 0.0;
         for ally in allies {
             let dist = cell.unsigned_distance_to(ally.pos) as f32;
-            let w = support_weight(ally);
-            value += w * (-dist / LAMBDA_SUPPORT).exp();
+            let w = support_weight(ally, cfg);
+            value += w * (-dist / cfg.lambda_support).exp();
         }
         map.add(cell, value / total_weight);
     }
@@ -220,16 +246,16 @@ fn build_ally_support(cells: &[Hex], allies: &[&UnitSnapshot]) -> InfluenceMap {
 
 // ── Opportunity Map ──────────────────────────────────────────────────────────
 
-fn target_value(enemy: &UnitSnapshot, max_threat: f32) -> f32 {
+fn target_value(enemy: &UnitSnapshot, max_threat: f32, cfg: &InfluenceConfig) -> f32 {
     let hp_pct = enemy.hp_pct();
     let threat_norm = enemy.threat / max_threat;
-    W_KILL * (1.0 - hp_pct) + W_THREAT * threat_norm
+    cfg.w_kill * (1.0 - hp_pct) + cfg.w_threat * threat_norm
 }
 
-fn build_opportunity(cells: &[Hex], enemies: &[&UnitSnapshot]) -> InfluenceMap {
+fn build_opportunity(cells: &[Hex], enemies: &[&UnitSnapshot], cfg: &InfluenceConfig) -> InfluenceMap {
     let mut map = InfluenceMap::new();
     let max_threat = enemies.iter().map(|e| e.threat).fold(0.0f32, f32::max).max(f32::EPSILON);
-    let total_value: f32 = enemies.iter().map(|e| target_value(e, max_threat)).sum();
+    let total_value: f32 = enemies.iter().map(|e| target_value(e, max_threat, cfg)).sum();
     if total_value == 0.0 {
         return map;
     }
@@ -238,8 +264,8 @@ fn build_opportunity(cells: &[Hex], enemies: &[&UnitSnapshot]) -> InfluenceMap {
         let mut value = 0.0;
         for enemy in enemies {
             let dist = cell.unsigned_distance_to(enemy.pos) as f32;
-            let tv = target_value(enemy, max_threat);
-            value += tv * (-dist / LAMBDA_OPPORTUNITY).exp();
+            let tv = target_value(enemy, max_threat, cfg);
+            value += tv * (-dist / cfg.lambda_opportunity).exp();
         }
         map.add(cell, value / total_value);
     }
@@ -269,6 +295,7 @@ fn build_escape(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::hex::in_bounds;
     use crate::combat::ai::snapshot::AiTags;
     use crate::game::hex::hex_from_offset;
 
@@ -350,7 +377,7 @@ mod tests {
     fn ally_support_drops_with_distance() {
         let ally = unit(0, Team::Enemy, hex_from_offset(4, 3));
         let cells = all_cells();
-        let map = build_ally_support(&cells, &[&ally]);
+        let map = build_ally_support(&cells, &[&ally], &InfluenceConfig::default());
 
         let near = hex_from_offset(4, 2); // distance 1
         let far = hex_from_offset(0, 0);  // far away
@@ -369,8 +396,8 @@ mod tests {
         fighter2.tags = AiTags::empty();
 
         let cells = all_cells();
-        let with_healer = build_ally_support(&cells, &[&healer, &fighter1]);
-        let without_healer = build_ally_support(&cells, &[&fighter2, &fighter1]);
+        let with_healer = build_ally_support(&cells, &[&healer, &fighter1], &InfluenceConfig::default());
+        let without_healer = build_ally_support(&cells, &[&fighter2, &fighter1], &InfluenceConfig::default());
 
         // Cell near the healer/fighter2 position should be higher with healer
         // because healer contributes a larger share of total support.
@@ -422,7 +449,7 @@ mod tests {
         a2.tags = AiTags::CAN_HEAL;
         let cells = all_cells();
 
-        let map = build_ally_support(&cells, &[&a1, &a2]);
+        let map = build_ally_support(&cells, &[&a1, &a2], &InfluenceConfig::default());
         for (_, &v) in map.iter() {
             assert!((0.0..=1.0).contains(&v), "ally_support out of [0,1]: {v}");
         }
@@ -435,7 +462,7 @@ mod tests {
         let e2 = unit(1, Team::Enemy, hex_from_offset(6, 4));
         let cells = all_cells();
 
-        let map = build_opportunity(&cells, &[&e1, &e2]);
+        let map = build_opportunity(&cells, &[&e1, &e2], &InfluenceConfig::default());
         for (_, &v) in map.iter() {
             assert!((0.0..=1.0).contains(&v), "opportunity out of [0,1]: {v}");
         }
@@ -454,7 +481,7 @@ mod tests {
         healthy.threat = 10.0;
 
         let cells = all_cells();
-        let map = build_opportunity(&cells, &[&wounded, &healthy]);
+        let map = build_opportunity(&cells, &[&wounded, &healthy], &InfluenceConfig::default());
 
         // Cells adjacent to each target.
         let near_wounded = hex_from_offset(4, 2);
@@ -499,7 +526,7 @@ mod tests {
         let cells = all_cells();
 
         let danger = build_danger(&cells, &[&enemy], &HashSet::new(), &HashSet::new());
-        let ally_support = build_ally_support(&cells, &[&ally]);
+        let ally_support = build_ally_support(&cells, &[&ally], &InfluenceConfig::default());
         let escape = build_escape(&cells, &danger, &ally_support);
         for (_, &v) in escape.iter() {
             assert!((-1.0..=1.0).contains(&v), "escape out of [-1,1]: {v}");

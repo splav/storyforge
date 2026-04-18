@@ -14,6 +14,7 @@ pub struct CombatantBundle {
     pub abilities: Abilities,
     pub status_effects: StatusEffects,
     pub equipment: Equipment,
+    pub reactions: Reactions,
 }
 
 impl CombatantBundle {
@@ -37,6 +38,7 @@ impl CombatantBundle {
             abilities: Abilities(abilities),
             status_effects: StatusEffects::default(),
             equipment,
+            reactions: Reactions::default(),
         }
     }
 }

@@ -37,7 +37,7 @@ src/
     combat_scene.rs spawn_combat_scene, despawn_combatants, restart_combat_system
     input.rs        victory_input_system
   lib.rs            Re-exports all modules
-  main.rs           App builder: resources, messages, system registration
+  main.rs           App builder: resources, messages, UI/меню системы; combat-цепочка подключается через `CombatPipelinePlugin`
 
   core/
     mod.rs          modifier(stat), ResourceKind enum (Hp, Mana, Rage, Energy)
@@ -80,6 +80,7 @@ src/
     apply_effects.rs  Damage (armor), healing (with poison neutralization), rage gain, death marking
     phases.rs       phase_transition_system — in-place boss mutation when HP threshold fires
     advance_turn.rs  Status ticks + DoT, victory check (objective-aware), queue advance, AP reset
+    pipeline.rs     CombatPipelinePlugin — декларативная регистрация StartRound + CombatStep (TurnStart/Command/Execute/Finalize) систем
 
   persistence/
     mod.rs          PersistencePlugin, PersistencePaths resource, detect_paths()

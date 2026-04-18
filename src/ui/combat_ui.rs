@@ -9,7 +9,7 @@ use super::turn_order_ui::spawn_turn_order_panel;
 use crate::app_state::CombatPhase;
 use crate::game::components::{ActionPoints, ActiveCombatant, Combatant, Faction, Team};
 use crate::game::messages::RestartCombat;
-use crate::game::resources::{SelectionState, UiDirty, UiDirtyFlags};
+use crate::game::resources::{CombatObjective, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
 const CLR_HINT: Color = Color::srgb(0.55, 0.55, 0.30);
@@ -168,6 +168,7 @@ pub fn update_phase_hint(
     phase: Res<State<CombatPhase>>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     sel: Res<SelectionState>,
+    objective: Res<CombatObjective>,
     combatants: Query<(&Name, &Faction, &ActionPoints), With<Combatant>>,
     mut phase_q: Query<&mut Text, With<HudPhase>>,
 ) {
@@ -188,16 +189,22 @@ pub fn update_phase_hint(
                 .map(|(n, _, _)| n.as_str())
                 .unwrap_or("Враг");
 
-            if let Some((_, _, _ap)) = actor_info {
-                let mut hints = vec!["[E]: конец хода"];
+            let goal = objective.0.objective_text();
+            if actor_info.is_some() {
+                let mut hints: Vec<&str> = Vec::new();
                 if sel.move_mode {
                     hints.push("Клик: выбрать клетку");
                 } else if sel.selected_ability.is_some() && sel.selected_target.is_some() {
                     hints.push("Enter: подтвердить");
                 }
-                format!("Ход: {actor_name}  |  {}", hints.join("  "))
+                let head = if hints.is_empty() {
+                    format!("Ход: {actor_name}")
+                } else {
+                    format!("Ход: {actor_name}  |  {}", hints.join("  "))
+                };
+                format!("{head}\nЦель: {goal}")
             } else {
-                format!("Ход: {actor_name}")
+                format!("Ход: {actor_name}\nЦель: {goal}")
             }
         }
         CombatPhase::Victory => "★  ПОБЕДА  (Space)".into(),

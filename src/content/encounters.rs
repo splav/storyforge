@@ -24,7 +24,19 @@ pub enum VictoryCondition {
     KillTarget {
         enemy_name: String,
         marker_color: [f32; 3],
+        description: Option<String>,
     },
+}
+
+impl VictoryCondition {
+    /// Short Russian description shown in the combat HUD as the player's goal.
+    pub fn objective_text(&self) -> String {
+        match self {
+            VictoryCondition::AllEnemiesDead => "Победить всех врагов".into(),
+            VictoryCondition::KillTarget { description: Some(d), .. } => d.clone(),
+            VictoryCondition::KillTarget { enemy_name, .. } => format!("убить {enemy_name}"),
+        }
+    }
 }
 
 /// Default red-ish ring color when `marker_color` is not specified in TOML.
@@ -120,6 +132,8 @@ struct VictoryRecord {
     enemy_name: Option<String>,
     #[serde(default)]
     marker_color: Option<[f32; 3]>,
+    #[serde(default)]
+    description: Option<String>,
 }
 
 /// An enemy as it appears in `encounters.toml`.
@@ -379,6 +393,7 @@ pub fn load_encounters_from_str(
                             )
                         }),
                         marker_color: v.marker_color.unwrap_or(DEFAULT_TARGET_MARKER),
+                        description: v.description,
                     },
                     other => panic!(
                         "{path}: encounter '{}' has unknown victory type '{}'",

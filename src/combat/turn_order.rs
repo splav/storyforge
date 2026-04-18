@@ -2,7 +2,7 @@
 use crate::app_state::CombatPhase;
 use crate::combat::ai::reservations::Reservations;
 use crate::core::{modifier, DiceRng};
-use crate::game::components::{ActionPoints, ActiveCombatant, CombatStats, Combatant, Initiative, Vital};
+use crate::game::components::{ActionPoints, ActiveCombatant, CombatStats, Combatant, Initiative, Reactions, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{CombatContext, PresetInitiative, TurnQueue};
 use bevy::prelude::*;
@@ -27,6 +27,7 @@ pub fn build_turn_order(
             &mut ActionPoints,
             &CombatStats,
             &Vital,
+            Option<&mut Reactions>,
         ),
         With<Combatant>,
     >,
@@ -45,7 +46,7 @@ pub fn build_turn_order(
     // get a "virtual turn" where their applied statuses tick down.
     let mut order: Vec<(Entity, i32)> = combatants
         .iter_mut()
-        .map(|(e, name, mut init, mut ap, stats, v)| {
+        .map(|(e, name, mut init, mut ap, stats, v, reactions)| {
             if first_round {
                 if use_preset {
                     if let Some(&saved) = preset.0.get(name.as_str()) {
@@ -66,6 +67,9 @@ pub fn build_turn_order(
             if v.is_alive() {
                 ap.action = true;
                 ap.movement = true;
+                if let Some(mut r) = reactions {
+                    r.remaining = r.max;
+                }
             }
             (e, init.0)
         })

@@ -58,6 +58,12 @@ pub enum CombatEvent {
         from: hexx::Hex,
         to: hexx::Hex,
     },
+    OpportunityAttack {
+        attacker: Entity,
+        target: Entity,
+        damage: i32,
+        killed: bool,
+    },
     RageGained {
         actor: Entity,
         current: i32,
@@ -142,6 +148,10 @@ impl CombatEvent {
                 format!("  ○ {} пропускает ход [оглушён]", name(*actor))
             }
             CombatEvent::TurnEnded { actor } => format!("  ○ {} завершил ход", name(*actor)),
+            CombatEvent::OpportunityAttack { attacker, target, damage, killed } => {
+                let tail = if *killed { " ✗" } else { "" };
+                format!("  ⚔ AoO: {} → {} (-{} HP){}", name(*attacker), name(*target), damage, tail)
+            }
             CombatEvent::UnitMoved { actor, from, to } => {
                 let [fc, fr] = crate::game::hex::hex_to_offset(*from);
                 let [tc, tr] = crate::game::hex::hex_to_offset(*to);

@@ -7,8 +7,10 @@ use bevy::state::app::StatesPlugin;
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
     advance_turn::advance_turn_system, ai::debug::AiDebugState,
-    ai::difficulty::DifficultyProfile, ai::reservations::Reservations,
+    ai::difficulty::DifficultyProfile, ai::influence::InfluenceConfig,
+    ai::reservations::Reservations,
     apply_effects::apply_effects_system, ai::enemy_turn::enemy_ai_system,
+    movement::movement_system,
     phases::phase_transition_system,
     resolution::resolve_action_system,
     skip_dead::skip_stunned_turn_system,
@@ -184,6 +186,7 @@ pub fn stun_app() -> App {
         .init_resource::<DifficultyProfile>()
         .init_resource::<AiDebugState>()
         .init_resource::<Reservations>()
+        .init_resource::<InfluenceConfig>()
         .add_message::<ApplyDamage>()
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()
@@ -202,6 +205,41 @@ pub fn stun_app() -> App {
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand)),
         );
+    enter_await_command(&mut app);
+    app
+}
+
+pub fn movement_app() -> App {
+    use bevy::math::Vec2;
+    use storyforge::combat::turn_order::build_turn_order;
+    use storyforge::game::resources::PresetInitiative;
+    use storyforge::ui::animation::AnimationQueue;
+    use storyforge::ui::hex_grid::HexGridOffset;
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, StatesPlugin))
+        .init_state::<AppState>()
+        .add_sub_state::<CombatPhase>()
+        .init_resource::<CombatContext>()
+        .init_resource::<CombatObjective>()
+        .init_resource::<TurnQueue>()
+        .init_resource::<CombatLog>()
+        .init_resource::<GameDb>()
+        .insert_resource(ActiveContent(storyforge::content::content_view::ContentView::load_global_for_tests()))
+        .init_resource::<GameSettings>()
+        .init_resource::<SelectionState>()
+        .init_resource::<HexPositions>()
+        .init_resource::<DiceRng>()
+        .init_resource::<AnimationQueue>()
+        .init_resource::<Reservations>()
+        .init_resource::<PresetInitiative>()
+        .insert_resource(HexGridOffset(Vec2::ZERO))
+        .add_message::<MoveUnit>()
+        .add_systems(
+            Update,
+            movement_system.run_if(in_state(CombatPhase::AwaitCommand)),
+        )
+        .add_systems(Update, build_turn_order.run_if(in_state(CombatPhase::StartRound)));
     enter_await_command(&mut app);
     app
 }

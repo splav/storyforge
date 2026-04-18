@@ -11,7 +11,7 @@ race  = "beastblood"
 speed = 5
 
 stats     = { max_hp = 10, strength = 5, dexterity = 3, constitution = 2, intelligence = -4, wisdom = -2, charisma = -4 }
-equipment = { main_hand = "short_sword", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
+equipment = { main_hand = "dagger", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
 
 ability_ids = ["melee_attack"]
 ai_role     = "bruiser"
@@ -50,7 +50,7 @@ race  = "human"
 speed = 4
 
 stats     = { max_hp = 10, strength = 3, dexterity = 4, constitution = 0, intelligence = 0, wisdom = -2, charisma = 0 }
-equipment = { main_hand = "short_sword", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
+equipment = { main_hand = "dagger", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
 resources = { energy = 3 }
 
 ability_ids = ["melee_attack", "backstab"]
@@ -63,7 +63,7 @@ race  = "human"
 speed = 3
 
 stats     = { max_hp = 16, strength = 7, dexterity = -2, constitution = 4, intelligence = -2, wisdom = -2, charisma = -2 }
-equipment = { main_hand = "long_sword", chest = "chainmail", legs = "plate_greaves", feet = "iron_boots" }
+equipment = { main_hand = "short_sword", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
 
 ability_ids = ["melee_attack", "taunt"]
 ai_role     = "bruiser"

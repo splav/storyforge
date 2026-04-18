@@ -2,7 +2,7 @@
 use crate::content::content_view::{ActiveContent, ContentView};
 use crate::combat::ai::debug::AiDebugState;
 use crate::combat::ai::difficulty::DifficultyProfile;
-use crate::combat::ai::influence::build_influence_maps;
+use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
@@ -16,7 +16,7 @@ use crate::game::components::{
     ActiveCombatant, AiCombatantQ, AiCombatantQItem,
     Combatant, StatusEffects, Team,
 };
-use crate::game::hex::{in_bounds, Hex};
+use crate::game::hex::{can_stop_on, is_passable, Hex};
 use crate::game::messages::{EndTurn, MoveUnit, UseAbility};
 use crate::game::pathfinding::reachable_with_paths;
 use crate::game::resources::{CombatContext, HexPositions};
@@ -39,6 +39,7 @@ pub fn enemy_ai_system(
     content: Res<ActiveContent>,
     settings: Res<GameSettings>,
     difficulty: Res<DifficultyProfile>,
+    inf_cfg: Res<InfluenceConfig>,
     positions: Res<HexPositions>,
     combat_ctx: Res<CombatContext>,
     mut rng: ResMut<DiceRng>,
@@ -58,7 +59,7 @@ pub fn enemy_ai_system(
         return;
     }
     run_ai_turn(
-        actor, Team::Player, &c, &content, &settings, &difficulty, &positions,
+        actor, Team::Player, &c, &content, &settings, &difficulty, &inf_cfg, &positions,
         &combat_ctx, &mut rng, &mut reservations, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );
@@ -72,6 +73,7 @@ fn run_ai_turn(
     content: &ContentView,
     settings: &GameSettings,
     difficulty: &DifficultyProfile,
+    inf_cfg: &InfluenceConfig,
     positions: &HexPositions,
     combat_ctx: &CombatContext,
     rng: &mut DiceRng,
@@ -98,7 +100,7 @@ fn run_ai_turn(
     // Build snapshot and influence maps.
     let actor_team = c.faction.0;
     let snap = build_snapshot(actor, combat_ctx.round, combatants, statuses, positions, roles, content);
-    let maps = build_influence_maps(&snap, actor_team);
+    let maps = build_influence_maps(&snap, actor_team, inf_cfg);
 
     // Build reachable tiles for movement. Use the snapshot's status-adjusted
     // speed so paths respect debuffs like Истощение — otherwise the AI plans
@@ -110,9 +112,11 @@ fn run_ai_turn(
         .unit(actor)
         .map(|u| u.speed.max(0))
         .unwrap_or(c.speed.0);
-    let own_team_positions: HashSet<Hex> = snap
-        .allies_of(actor_team)
-        .filter(|u| u.entity != actor)
+    // Passability matches player movement rules: enemies block, allies are walked
+    // through. `can_stop` still uses all occupied tiles — a unit can't end its
+    // move on top of a teammate even though it can pass through.
+    let enemy_positions: HashSet<Hex> = snap
+        .enemies_of(actor_team)
         .map(|u| u.pos)
         .collect();
     let all_occupied: HashSet<Hex> = positions
@@ -123,8 +127,8 @@ fn run_ai_turn(
     let reach = reachable_with_paths(
         actor_pos,
         effective_speed,
-        |h| in_bounds(h) && !own_team_positions.contains(&h),
-        |h| !all_occupied.contains(&h),
+        |h| is_passable(h, &enemy_positions),
+        |h| can_stop_on(h, &all_occupied, None),
     );
 
     // Build utility context.
@@ -224,6 +228,7 @@ pub fn pact_ai_system(
     content: Res<ActiveContent>,
     settings: Res<GameSettings>,
     difficulty: Res<DifficultyProfile>,
+    inf_cfg: Res<InfluenceConfig>,
     positions: Res<HexPositions>,
     combat_ctx: Res<CombatContext>,
     mut rng: ResMut<DiceRng>,
@@ -246,7 +251,7 @@ pub fn pact_ai_system(
         return;
     }
     run_ai_turn(
-        actor, Team::Enemy, &c, &content, &settings, &difficulty, &positions,
+        actor, Team::Enemy, &c, &content, &settings, &difficulty, &inf_cfg, &positions,
         &combat_ctx, &mut rng, &mut reservations, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );

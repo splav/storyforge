@@ -3,7 +3,7 @@ use crate::content::content_view::ActiveContent;
 use super::render::{HexGridOffset, HexHover, HexLastClick, HexTooltip, DOUBLE_CLICK_SECS};
 use crate::content::abilities::AoEShape;
 use crate::game::components::{ActionPoints, ActiveCombatant, BonusMovement, Combatant, Dead, Energy, Faction, Mana, Rage, Speed, StatusEffects, Team, Vital};
-use crate::game::hex::{in_bounds, Hex, LAYOUT};
+use crate::game::hex::{in_bounds, is_passable, Hex, LAYOUT};
 use crate::game::messages::{MoveUnit, UseAbility};
 use crate::game::pathfinding::find_path;
 use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
@@ -192,7 +192,7 @@ fn try_move(
         return false;
     }
     let Some(actor_pos) = positions.get(&actor) else { return false };
-    let max_steps = bonus.map_or(speed.0, |b| b.0);
+    let max_steps = speed.0 + bonus.map_or(0, |b| b.0);
     let enemy_pos: HashSet<Hex> = positions
         .iter()
         .filter(|(&e, _)| {
@@ -203,8 +203,7 @@ fn try_move(
         })
         .map(|(_, &p)| p)
         .collect();
-    let is_passable = |h: Hex| in_bounds(h) && !enemy_pos.contains(&h);
-    if let Some(path) = find_path(actor_pos, target, is_passable) {
+    if let Some(path) = find_path(actor_pos, target, |h| is_passable(h, &enemy_pos)) {
         if path.len() as i32 <= max_steps {
             move_unit.write(MoveUnit { actor, path });
             return true;
