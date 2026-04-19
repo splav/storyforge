@@ -64,6 +64,26 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 
 Планировщик строит планы на предпосылке о статичном speed, но live pipeline может его менять.
 
+### 1.8. `kill_max` и `focus_max` — параллельная патология с intent_max
+
+`scorer.rs` агрегирует `kill_max` и `focus_max` как **max по всем Cast-шагам плана** без discount и без гейтинга по committed prefix.
+
+Последствие то же, что было у intent (issue 1.3, fixed): план `[Move-random, Move-random, Cast-kill-X]` получает `kill_max=1.0` и `focus_max=target_priority(X)` за буквально не-фиксирующийся Cast в шаге-2. Честный `[Move-toward-X]` (consumed=1) получает `kill_max=0` (Cast-шагов в committed prefix нет — всё выбрасывается).
+
+Фикс зеркальный 1.3: gate'ить агрегацию kill/focus через `committed_step_count()`. Под вопросом только регрессии viability-подобного толка (kill/focus для бандл-шагов — OK, для deep-планов исчезают).
+
+### 1.9. FocusTarget viability threshold (1.0) не согласован с committed-prefix intent (followup к 1.3)
+
+После фикса 1.3 `intent_score(FocusTarget, Move) = 0.0`. Committed Move-toward-focus даёт intent_factor=0.0. Viability threshold для FocusTarget = **1.0** (`intent.rs:316`), так что план приближения к фокус-цели всегда валится в viability fallback → `default_focus_target` переключается на другого врага.
+
+Два варианта фикса:
+- **A.** В `intent_score(FocusTarget, Move)` возвращать +положительное значение если Move сокращает дистанцию до фокус-цели (что-то вроде `1/(1+dist_after)`). Approach-Move получает частичный кредит.
+- **B.** Снизить FocusTarget threshold до 0.0 или 0.3 — плану без committed Cast на фокус всё равно разрешаем позиционную работу под FocusTarget.
+
+A чище (сохраняет viability как реальную сигнализацию), но требует нового веса. B проще, но делает threshold скорее дока-номинальной.
+
+Проверять на игровых данных: под новой семантикой AI должен чаще переключать таргеты в длинных приближениях — это может быть желаемое поведение («каждый тик — свежее решение»), а может и нет.
+
 ---
 
 ## 2. Дублирование
@@ -119,11 +139,17 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 
 ## 3. Сомнительные абстракции
 
-### 3.1. `ScoredStep::from_plan_committed` размазывает bundling-логику
+### 3.1. Bundling-логика размазана по трём местам
 
-`factors/mod.rs:104-126` реплицирует ровно ту же pattern-match, что и `commit_plan` (`picker.rs:45-83`): empty → Move, `[Cast,..]` → Cast, `[Move, Cast, ..]` → Cast@dest, иначе Move@dest.
+Правила committed-prefix (`[Cast,..]→1 step`, `[Move,Cast,..]→2 steps`, `[Move,..]→1 step`) живут в трёх параллельных pattern-match'ах:
 
-Если однажды будет третий вариант bundling'а (Move+Cast+Move), обе надо править синхронно.
+- `picker::commit_plan` (`picker.rs:45-83`) — конструирует `AiDecision`.
+- `ScoredStep::from_plan_committed` (`factors/mod.rs:104-126`) — строит single-step view для debug и `default_focus_target`.
+- `TurnPlan::committed_step_count` (`types.rs`, добавлено фиксом 1.3) — возвращает число закоммиченных шагов для scorer-gating.
+
+Все три руками повторяют одни и те же match-arms. При добавлении нового варианта бандлинга (например, `[Move, Cast, Move]` — telegraph + attack + retreat) — три синхронные правки, drift гарантирован если хоть одну забыть.
+
+Подход к фиксу: свести к одному helper'у (например, `TurnPlan::committed_prefix() -> (consumed: usize, view: CommittedView)`), остальное derive'ить из него.
 
 ### 3.2. `PickMechanics` протаскивается через all pick API
 
@@ -225,6 +251,20 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 
 `role.rs:190-191`: `p.tank += (eff_hp / 20.0).clamp(0.3, 2.0)` — **всегда** добавляется минимум 0.3, независимо от tank-абилок. У 12 HP glass-cannon голый `eff_hp/20 = 0.6 → tank += 0.6`. Это искажает профиль: любой юнит обычных 15–20 HP уже получит ~1.0 tank-веса, которого нет в его kit-диагностике.
 
+### 5.8. Test-helper `make_ctx` дублирован
+
+`generator.rs:677-693` и `picker.rs:347-362` определяют почти идентичный `make_ctx` для построения `UtilityContext` в тестах. Оба строят `AiWorld { content, difficulty }` + `ActorCtx { caster, abilities, crit_fail_effect: Miss, crit_fail_chance: 0.0 }`. Различия только в cosmetic окружении (какие тесты импортируют что).
+
+Если добавить третий суб-ctx (например, `TurnInfra`), три копии надо править синхронно. Стоит вынести в `#[cfg(test)] pub(crate) mod test_helpers` под `ai/`.
+
+### 5.9. `TurnPlan.sim_snapshots` инвариант только под debug_assert
+
+После фикса 1.2: scorer читает `plan.sim_snapshots[idx - 1]` с предположением `sim_snapshots.len() == steps.len()`. Generator держит этот инвариант (push на каждый apply_step), но `#[serde(skip)]` означает, что десериализованный `TurnPlan` приходит с **пустым** `sim_snapshots` — если scorer когда-нибудь будет вызван на таком плане, в release-сборке будет index out of bounds.
+
+Сегодня безопасно: `replay_ai_log` (единственный call-site десериализации) считает факторы вручную, scorer не зовёт. Но ловушка ждёт.
+
+Подход к фиксу: либо сериализовать sim_snapshots (раздует лог), либо убрать инвариант (fallback к `snap` на миссе), либо typestate (`ScoredPlan` vs. `DeserializedPlan`).
+
 ---
 
 ## Приоритет фиксов
@@ -234,10 +274,13 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 | 1.1 `UtilityContext` god-struct | читабельность, dead field | низкий | ✓ 086b522 |
 | 1.2 Двойная симуляция в generator+scorer | CPU, O(plans·depth) лишних clone | средний | ✓ 8809b9e |
 | 1.3 Intent max-over-steps vs. committed-prefix | корректность скоринга | средний | ✓ b2e2237 |
+| 1.8 `kill_max`/`focus_max` — параллельная 1.3 патология | корректность скоринга | средний | — |
+| 1.9 FocusTarget viability threshold не согласован с 1.3 | viability fallback loop | низкий | — |
 | 2.1 `build_reach` × 3 | DRY | низкий | — |
 | 2.2 `plan_has_self_aoe` своя геометрия AoE | drift-bug waiting | низкий | — |
 | 2.3 AoE hits filtering × 4 | friendly-fire drift | средний | — |
-| 3.1 `from_plan_committed` дублирует `commit_plan` | drift bundling | низкий | — |
+| 3.1 Bundling rules × 3 мест (усугубилось после 1.3) | drift bundling | низкий | — |
 | 3.6 `CritFail` + `mana_overload` + `primary=None` | type safety | средний | — |
 | 4.1 Debug vs log «factors» имеют разную семантику | аналитика вводит в заблуждение | низкий | — |
 | 5.7 Tank-floor в `infer_profile` всегда ≥ 0.3 | role mis-inference | средний | — |
+| 5.9 sim_snapshots инвариант только debug_assert | release-build crash если scorer зовут на десериализованном | низкий | — |
