@@ -1,8 +1,8 @@
 use crate::content::content_view::ContentView;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::scoring::{applies_cc, estimate_st_damage};
-use crate::content::abilities::{AoEShape, CasterContext, EffectDef, TargetType};
-use crate::core::{AbilityId, StatusId};
+use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
+use crate::core::{AbilityId, ResourceKind, StatusId};
 use crate::game::components::{
     AiCombatantQ, Combatant, StatusEffects, Team,
 };
@@ -138,6 +138,46 @@ impl UnitSnapshot {
     /// Use for threshold checks like "below 30% HP triggers LOW_HP".
     pub fn hp_pct(&self) -> f32 {
         self.hp as f32 / self.max_hp.max(1) as f32
+    }
+
+    /// Current amount in the spendable pool for `kind`. `Option` resources
+    /// (mana/rage/energy) yield 0 when absent.
+    pub fn resource_amount(&self, kind: ResourceKind) -> i32 {
+        pool_amount(
+            kind,
+            self.hp,
+            self.mana.map(|(c, _)| c).unwrap_or(0),
+            self.rage.map(|(c, _)| c).unwrap_or(0),
+            self.energy.map(|(c, _)| c).unwrap_or(0),
+        )
+    }
+
+    /// True iff the unit has enough AP and every resource cost to cast `def`.
+    pub fn can_afford(&self, def: &AbilityDef) -> bool {
+        self.action_points >= def.cost_ap
+            && def
+                .costs
+                .iter()
+                .all(|c| self.resource_amount(c.resource) >= c.amount)
+    }
+}
+
+/// Low-level resource-pool lookup. The one place that knows the
+/// `ResourceKind` match arms; everybody else — `UnitSnapshot` methods,
+/// `compute_tags` during snapshot construction, scarcity scoring — funnels
+/// through this so the four-arm match doesn't replicate across the crate.
+pub(crate) fn pool_amount(
+    kind: ResourceKind,
+    hp: i32,
+    mana: i32,
+    rage: i32,
+    energy: i32,
+) -> i32 {
+    match kind {
+        ResourceKind::Hp => hp,
+        ResourceKind::Mana => mana,
+        ResourceKind::Rage => rage,
+        ResourceKind::Energy => energy,
     }
 }
 
@@ -311,13 +351,8 @@ fn compute_tags(
         }
 
         let can_afford = def.costs.iter().all(|cost| {
-            let pool = match cost.resource {
-                crate::core::ResourceKind::Hp => c.vital.hp,
-                crate::core::ResourceKind::Mana => resources.0,
-                crate::core::ResourceKind::Rage => resources.1,
-                crate::core::ResourceKind::Energy => resources.2,
-            };
-            pool >= cost.amount
+            pool_amount(cost.resource, c.vital.hp, resources.0, resources.1, resources.2)
+                >= cost.amount
         });
 
         if can_afford {
@@ -386,4 +421,103 @@ fn status_bonuses(
             acc.damage_taken_bonus += sd.damage_taken_bonus;
             acc
         })
+}
+
+#[cfg(test)]
+mod affordability_tests {
+    use super::*;
+    use crate::combat::ai::role::AiRole;
+    use crate::content::abilities::{AbilityRange, AoEShape, EffectDef, ResourceCost};
+    use crate::core::DiceExpr;
+    use crate::game::hex::hex_from_offset;
+
+    fn base_unit() -> UnitSnapshot {
+        UnitSnapshot {
+            entity: Entity::from_raw_u32(1).expect("valid"),
+            team: Team::Enemy,
+            role: AxisProfile::from(AiRole::Bruiser),
+            pos: hex_from_offset(0, 0),
+            hp: 20,
+            max_hp: 20,
+            armor: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            action_points: 2,
+            max_ap: 2,
+            movement_points: 3,
+            speed: 3,
+            mana: Some((5, 10)),
+            rage: Some((3, 10)),
+            energy: Some((4, 10)),
+            abilities: Vec::new(),
+            threat: 0.0,
+            tags: AiTags::empty(),
+            max_attack_range: 1,
+            summoner: None,
+            reactions_left: 1,
+            aoo_expected_damage: None,
+            statuses: Vec::new(),
+        }
+    }
+
+    fn def(cost_ap: i32, costs: Vec<ResourceCost>) -> AbilityDef {
+        AbilityDef {
+            id: AbilityId::from("x"),
+            name: "x".into(),
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 1 },
+            effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            costs,
+            cost_ap,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: Vec::new(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            key: None,
+        }
+    }
+
+    fn cost(kind: ResourceKind, amount: i32) -> ResourceCost {
+        ResourceCost { resource: kind, amount }
+    }
+
+    #[test]
+    fn can_afford_covers_ap_and_all_resource_kinds() {
+        let u = base_unit();
+        // (name, ap_cost, costs, expected can_afford)
+        let cases: Vec<(&str, i32, Vec<ResourceCost>, bool)> = vec![
+            ("free ability",        1, vec![],                              true),
+            ("AP shortage",         3, vec![],                              false),
+            ("mana ok",             1, vec![cost(ResourceKind::Mana, 5)],   true),
+            ("mana short",          1, vec![cost(ResourceKind::Mana, 6)],   false),
+            ("rage ok",             1, vec![cost(ResourceKind::Rage, 3)],   true),
+            ("rage short",          1, vec![cost(ResourceKind::Rage, 4)],   false),
+            ("energy ok",           1, vec![cost(ResourceKind::Energy, 4)], true),
+            ("energy short",        1, vec![cost(ResourceKind::Energy, 5)], false),
+            ("hp ok",               1, vec![cost(ResourceKind::Hp, 20)],    true),
+            ("hp short",            1, vec![cost(ResourceKind::Hp, 21)],    false),
+            ("two costs both ok",   1, vec![cost(ResourceKind::Mana, 5), cost(ResourceKind::Rage, 3)], true),
+            ("two costs one short", 1, vec![cost(ResourceKind::Mana, 5), cost(ResourceKind::Rage, 4)], false),
+        ];
+        for (name, ap_cost, costs, want) in cases {
+            let d = def(ap_cost, costs);
+            assert_eq!(u.can_afford(&d), want, "{name}");
+        }
+    }
+
+    #[test]
+    fn resource_amount_treats_absent_option_pools_as_zero() {
+        let mut u = base_unit();
+        u.mana = None;
+        u.rage = None;
+        u.energy = None;
+        assert_eq!(u.resource_amount(ResourceKind::Mana), 0);
+        assert_eq!(u.resource_amount(ResourceKind::Rage), 0);
+        assert_eq!(u.resource_amount(ResourceKind::Energy), 0);
+        assert_eq!(u.resource_amount(ResourceKind::Hp), u.hp);
+        // Any positive cost on an absent pool fails.
+        let d = def(1, vec![cost(ResourceKind::Mana, 1)]);
+        assert!(!u.can_afford(&d));
+    }
 }

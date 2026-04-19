@@ -8,7 +8,6 @@ use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::UtilityContext;
 use crate::content::abilities::{AoEShape, TargetType};
-use crate::core::ResourceKind;
 
 /// Compute resource-scarcity factor: `swing_value - resource_ratio`.
 /// Free abilities return 0.0 (neutral). Expensive abilities on low-value
@@ -38,12 +37,7 @@ pub(super) fn compute_scarcity(
         .costs
         .iter()
         .map(|c| {
-            let pool = match c.resource {
-                ResourceKind::Hp => active.hp,
-                ResourceKind::Mana => active.mana.map(|(cur, _)| cur).unwrap_or(0),
-                ResourceKind::Rage => active.rage.map(|(cur, _)| cur).unwrap_or(0),
-                ResourceKind::Energy => active.energy.map(|(cur, _)| cur).unwrap_or(0),
-            };
+            let pool = active.resource_amount(c.resource);
             if pool <= 0 {
                 return 1.0;
             }

@@ -17,7 +17,7 @@ use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::UtilityContext;
 use crate::content::abilities::{AbilityDef, AoEShape, TargetType};
-use crate::core::{AbilityId, ResourceKind};
+use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use crate::game::pathfinding::ReachableMap;
 use bevy::prelude::Entity;
@@ -222,7 +222,7 @@ fn enumerate_next_steps(
     // Cast steps from the actor's current sim position.
     for ability_id in &ctx.actor.abilities.0 {
         let Some(def) = ctx.world.content.abilities.get(ability_id) else { continue };
-        if !can_afford(actor, def) {
+        if !actor.can_afford(def) {
             continue;
         }
         let targets = pick_targets(def, actor, sim);
@@ -252,25 +252,6 @@ fn enumerate_next_steps(
     }
 
     steps
-}
-
-/// AP + resource affordability on the sim state (mirrors `can_afford_snap`).
-fn can_afford(actor: &UnitSnapshot, def: &AbilityDef) -> bool {
-    if actor.action_points < def.cost_ap {
-        return false;
-    }
-    for cost in &def.costs {
-        let pool = match cost.resource {
-            ResourceKind::Hp => actor.hp,
-            ResourceKind::Mana => actor.mana.map(|(c, _)| c).unwrap_or(0),
-            ResourceKind::Rage => actor.rage.map(|(c, _)| c).unwrap_or(0),
-            ResourceKind::Energy => actor.energy.map(|(c, _)| c).unwrap_or(0),
-        };
-        if pool < cost.amount {
-            return false;
-        }
-    }
-    true
 }
 
 /// Hard constraints on a candidate Cast step. Rejected casts are never emitted
