@@ -18,8 +18,8 @@ use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::UtilityContext;
 use crate::content::abilities::{AbilityDef, AoEShape, TargetType};
 use crate::core::{AbilityId, ResourceKind};
-use crate::game::hex::{can_stop_on, is_passable, Hex};
-use crate::game::pathfinding::{reachable_with_paths, ReachableMap};
+use crate::game::hex::Hex;
+use crate::game::pathfinding::ReachableMap;
 use bevy::prelude::Entity;
 use std::collections::{HashMap, HashSet};
 
@@ -240,7 +240,7 @@ fn enumerate_next_steps(
 
     // Move steps (if MP > 0). Skipped if actor is grounded.
     if actor.movement_points > 0 {
-        let reach = build_reach(sim, blocked_tiles);
+        let reach = super::reach_from(&sim.snapshot, actor, blocked_tiles);
         let top_tiles = pick_top_move_tiles(&reach, sim, maps, actor.pos);
         for tile in top_tiles {
             if let Some(path) = reach.path_to(tile) {
@@ -423,38 +423,6 @@ fn killability(u: &UnitSnapshot) -> f32 {
         return 0.0;
     }
     1.0 - (u.eff_hp() as f32 / eff_max)
-}
-
-/// Hex BFS respecting sim-time positions (dead enemies freed) UNION the real
-/// world's blocked tiles (corpses stay as physical obstacles — matches what
-/// `movement.rs` enforces, so paths we plan won't collide on insert).
-fn build_reach(sim: &SimState, blocked_tiles: &HashSet<Hex>) -> ReachableMap {
-    let Some(actor) = sim.actor_unit() else {
-        return reachable_with_paths(Hex::ZERO, 0, |_| false, |_| false);
-    };
-
-    // Enemies within the sim may have been killed mid-plan; real world
-    // corpses are added via `blocked_tiles` so paths can't stop there.
-    let enemy_positions: HashSet<Hex> = sim
-        .snapshot
-        .enemies_of(actor.team)
-        .map(|u| u.pos)
-        .collect();
-    let mut all_occupied: HashSet<Hex> = sim
-        .snapshot
-        .units
-        .iter()
-        .filter(|u| u.entity != sim.actor)
-        .map(|u| u.pos)
-        .collect();
-    all_occupied.extend(blocked_tiles.iter().copied());
-
-    reachable_with_paths(
-        actor.pos,
-        actor.movement_points,
-        move |h| is_passable(h, &enemy_positions),
-        move |h| can_stop_on(h, &all_occupied, None),
-    )
 }
 
 /// Diverse move-tile picker. Returns up to

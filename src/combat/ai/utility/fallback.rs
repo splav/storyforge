@@ -4,9 +4,9 @@
 
 use super::AiDecision;
 use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::planning::reach_from;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-use crate::game::hex::{can_stop_on, is_passable, Hex};
-use crate::game::pathfinding::{reachable_with_paths, ReachableMap};
+use crate::game::hex::Hex;
 use std::collections::HashSet;
 
 pub(super) fn fallback_move(
@@ -24,7 +24,7 @@ pub(super) fn fallback_move(
         return AiDecision::EndTurn;
     }
 
-    let reach = build_fallback_reach(active, blocked_tiles, snap);
+    let reach = reach_from(snap, active, blocked_tiles);
 
     // LOW_HP: retreat to the tile with lowest danger.
     if active.tags.contains(AiTags::LOW_HP) {
@@ -68,33 +68,4 @@ pub(super) fn fallback_move(
     }
 
     AiDecision::EndTurn
-}
-
-/// BFS from `active.pos` with the same passability/stop rules as the planner.
-/// Duplicates a small slice of `generator::build_reach`, but this path is only
-/// hit in edge cases (actor missing from the snapshot) so sharing isn't worth
-/// the plumbing.
-fn build_fallback_reach(
-    active: &UnitSnapshot,
-    blocked_tiles: &HashSet<Hex>,
-    snap: &BattleSnapshot,
-) -> ReachableMap {
-    let enemy_positions: HashSet<Hex> = snap
-        .enemies_of(active.team)
-        .map(|u| u.pos)
-        .collect();
-    let mut all_occupied: HashSet<Hex> = snap
-        .units
-        .iter()
-        .filter(|u| u.entity != active.entity)
-        .map(|u| u.pos)
-        .collect();
-    all_occupied.extend(blocked_tiles.iter().copied());
-
-    reachable_with_paths(
-        active.pos,
-        active.movement_points,
-        move |h| is_passable(h, &enemy_positions),
-        move |h| can_stop_on(h, &all_occupied, None),
-    )
 }
