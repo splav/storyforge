@@ -15,9 +15,12 @@
 //!   by ×0.5. Post-kill heal/move actions still contribute (preserves info
 //!   that Plan B does more than Plan A), but they're properly treated as
 //!   bonuses rather than peers of the goal-achieving step.
-//! - `kill`: max across steps (binary "did this plan kill anyone?"), not
-//!   discounted — a goal outcome is valued at achievement magnitude.
-//! - `focus`: max target_priority across casts, not discounted.
+//! - `kill`: max across Cast steps **in the committed prefix** (binary "did
+//!   this tick's commit kill anyone?"), not discounted. Gated for the same
+//!   reason as `intent`: a tail Cast the plan never fires shouldn't claim
+//!   credit for a kill.
+//! - `focus`: max target_priority across Cast steps **in the committed
+//!   prefix**, not discounted. Same rationale.
 //! - `intent`: max intent_score across the **committed prefix**
 //!   (`steps[..committed_step_count]`), not across the whole plan. Deep
 //!   uncommitted steps don't execute this tick — aggregating their intent
@@ -281,17 +284,23 @@ pub fn compute_plan_factors(
                 maps,
                 reservations,
             );
-            // Discounted cumulative factors.
+            // Discounted cumulative factors — tail Casts keep contributing,
+            // but the geometric discount reflects execution uncertainty.
             damage_sum += raw[0] * step_weight;
             cc_sum += raw[2] * step_weight;
             heal_sum += raw[3] * step_weight;
             scarcity_sum += raw[8] * step_weight;
-            // Un-discounted outcome/priority signals.
-            if raw[1] > kill_max {
-                kill_max = raw[1];
-            }
-            if raw[6] > focus_max {
-                focus_max = raw[6];
+            // Max outcome/priority signals — only from Casts that actually
+            // commit this tick (see module doc). Otherwise a plan like
+            // `[Move, Move, Cast-kill-X]` would claim kill=1 on a Cast
+            // that next tick's re-plan will never fire as step-0.
+            if idx < committed {
+                if raw[1] > kill_max {
+                    kill_max = raw[1];
+                }
+                if raw[6] > focus_max {
+                    focus_max = raw[6];
+                }
             }
         }
 
@@ -425,13 +434,12 @@ mod tests {
         }
     }
 
-    /// `[Move, Move, Cast@focus]` → committed_step_count == 1. The Cast on
-    /// step-2 targets the FocusTarget intent (intent_score = 1.0), but never
-    /// fires this tick. Intent factor must be 0.0 — otherwise plans with
-    /// "great intent alignment buried in the uncommitted tail" would
-    /// out-score honest plans that commit to an intent-aligned first step.
+    /// Max-aggregated factors (intent, kill, focus) must reflect what
+    /// `commit_plan` actually fires this tick — not the uncommitted tail.
+    /// Plans like `[Move-random, Move-random, Cast@focus]` used to steal
+    /// intent=1 / focus=high from a Cast that will never fire as step-0.
     #[test]
-    fn intent_factor_ignores_uncommitted_tail_cast() {
+    fn max_factors_respect_committed_prefix() {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let focus = unit(2, Team::Player, hex_from_offset(5, 0));
         let actor_id = actor.entity;
@@ -449,96 +457,65 @@ mod tests {
         let ctx = test_ctx(&content, &difficulty, &abilities);
         let maps = empty_maps();
         let reservations = Reservations::default();
-
-        // Same snap in every sim_snapshots slot — the test checks intent
-        // aggregation, not sim accuracy. compute_plan_factors only reads
-        // sim_snapshots[idx-1] to pull `sim_actor`; equal snapshots suffice.
-        let plan = TurnPlan {
-            steps: vec![
-                PlanStep::Move { path: vec![hex_from_offset(0, 1)] },
-                PlanStep::Move { path: vec![hex_from_offset(0, 2)] },
-                PlanStep::Cast {
-                    ability: "melee_attack".into(),
-                    target: focus_id,
-                    target_pos: focus.pos,
-                },
-            ],
-            final_pos: hex_from_offset(0, 2),
-            residual_ap: 1,
-            residual_mp: 0,
-            outcomes: vec![
-                StepOutcome::default(),
-                StepOutcome::default(),
-                StepOutcome::default(),
-            ],
-            partial_score: 0.0,
-            sim_snapshots: vec![snap.clone(), snap.clone(), snap.clone()],
-        };
-        assert_eq!(plan.committed_step_count(), 1, "solo Move commits 1 step");
-
         let intent = TacticalIntent::FocusTarget { target: focus_id };
-        let factors = compute_plan_factors(
-            &plan, &actor, &intent, &ctx, &snap, &maps, &reservations,
-        );
-        // Index 7 is the intent factor. Committed step 0 is a Move → 0.0;
-        // step 2 Cast on focus (intent_score=1.0) is beyond the committed
-        // prefix and must not lift the factor.
-        assert_eq!(
-            factors[7], 0.0,
-            "uncommitted tail Cast must not contribute (got {})",
-            factors[7],
-        );
-    }
 
-    /// `[Move, Cast@focus]` → committed_step_count == 2 (Move+Cast bundle
-    /// fires atomically this tick). The Cast on focus IS within the
-    /// committed prefix, so intent factor should be 1.0.
-    #[test]
-    fn intent_factor_includes_bundled_cast() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        let focus = unit(2, Team::Player, hex_from_offset(2, 0));
-        let actor_id = actor.entity;
-        let focus_id = focus.entity;
-
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), focus.clone()],
-            active_unit: actor_id,
-            round: 1,
+        // Build a plan with the given leading steps; pads sim_snapshots with
+        // the caller's snap — scorer only reads them for pre-step `sim_actor`
+        // extraction, equal snapshots suffice for these tests.
+        let build_plan = |steps: Vec<PlanStep>| {
+            let len = steps.len();
+            TurnPlan {
+                steps,
+                final_pos: hex_from_offset(0, 0),
+                residual_ap: 0,
+                residual_mp: 0,
+                outcomes: vec![StepOutcome::default(); len],
+                partial_score: 0.0,
+                sim_snapshots: vec![snap.clone(); len],
+            }
         };
-        let content =
-            crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = DifficultyProfile::normal();
-        let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = test_ctx(&content, &difficulty, &abilities);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-
-        let plan = TurnPlan {
-            steps: vec![
-                PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
-                PlanStep::Cast {
-                    ability: "melee_attack".into(),
-                    target: focus_id,
-                    target_pos: focus.pos,
-                },
-            ],
-            final_pos: hex_from_offset(1, 0),
-            residual_ap: 1,
-            residual_mp: 2,
-            outcomes: vec![StepOutcome::default(), StepOutcome::default()],
-            partial_score: 0.0,
-            sim_snapshots: vec![snap.clone(), snap.clone()],
+        let cast_on_focus = || PlanStep::Cast {
+            ability: "melee_attack".into(),
+            target: focus_id,
+            target_pos: focus.pos,
         };
-        assert_eq!(plan.committed_step_count(), 2, "Move+Cast bundle commits 2");
+        let mov = |q, r| PlanStep::Move { path: vec![hex_from_offset(q, r)] };
 
-        let intent = TacticalIntent::FocusTarget { target: focus_id };
-        let factors = compute_plan_factors(
-            &plan, &actor, &intent, &ctx, &snap, &maps, &reservations,
-        );
-        assert!(
-            (factors[7] - 1.0).abs() < 0.001,
-            "bundled Cast on focus should yield intent factor 1.0 (got {})",
-            factors[7],
-        );
+        // (plan description, plan, expected committed count, signal expected)
+        enum Signal { Zero, Positive }
+        let cases: Vec<(&str, TurnPlan, usize, Signal)> = vec![
+            (
+                "Move-Move-Cast@focus — tail Cast doesn't count",
+                build_plan(vec![mov(0, 1), mov(0, 2), cast_on_focus()]),
+                1,
+                Signal::Zero,
+            ),
+            (
+                "Move-Cast@focus bundle — Cast is in committed prefix",
+                build_plan(vec![mov(1, 0), cast_on_focus()]),
+                2,
+                Signal::Positive,
+            ),
+        ];
+
+        for (name, plan, want_commit, want_signal) in cases {
+            assert_eq!(plan.committed_step_count(), want_commit, "{name}: commit count");
+            let f = compute_plan_factors(
+                &plan, &actor, &intent, &ctx, &snap, &maps, &reservations,
+            );
+            // factors: [0 dmg, 1 kill, 2 cc, 3 heal, 4 pos, 5 risk,
+            //           6 focus, 7 intent, 8 scarcity]
+            let (intent_val, focus_val) = (f[7], f[6]);
+            match want_signal {
+                Signal::Zero => {
+                    assert_eq!(intent_val, 0.0, "{name}: intent");
+                    assert_eq!(focus_val, 0.0, "{name}: focus");
+                }
+                Signal::Positive => {
+                    assert!(intent_val > 0.0, "{name}: intent = {intent_val}");
+                    assert!(focus_val > 0.0, "{name}: focus = {focus_val}");
+                }
+            }
+        }
     }
 }
