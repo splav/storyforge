@@ -34,11 +34,15 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 
 **Исправлено:** `TurnPlan.sim_snapshots: Vec<BattleSnapshot>` (runtime-only, `#[serde(skip)]`) — generator кэширует post-step snapshot при extend; scorer читает pre-step из кэша; `replay()` удалён.
 
-### 1.3. Intent factor max-агрегация vs. committed-prefix семантика
+### 1.3. Intent factor max-агрегация vs. committed-prefix семантика ✓ fixed (b2e2237)
 
-`scorer.rs:237-248` берёт `intent_max = max(intent_score)` **по всем шагам плана**. Но `commit_plan` коммитит только первый (solo) или первые два (Move+Cast bundle). План с плохим шагом-1 и сильным шагом-3 получит высокий `intent` факторный сигнал, хотя шаг-3 никогда не выполнится.
+`scorer.rs:237-248` брал `intent_max = max(intent_score)` **по всем шагам плана**. Но `commit_plan` коммитит только первый (solo) или первые два (Move+Cast bundle). План с плохим шагом-1 и сильным шагом-3 получал высокий `intent` факторный сигнал, хотя шаг-3 никогда не выполнится.
 
-Это поощряет планы, чей «intent-align» сидит в хвосте — хвост будет выброшен.
+Это поощряло планы, чей «intent-align» сидит в хвосте — хвост всё равно выбрасывался.
+
+**Исправлено:** добавлен `TurnPlan::committed_step_count()` (зеркало `commit_plan` match-arms). В scorer'е `intent_score` теперь попадает в агрегацию только при `idx < committed_count`. Cast/Move в committed prefix участвуют без изменений.
+
+**Параллельный issue, не тронут:** `kill_max` и `focus_max` используют ту же max-over-all-Cast-steps схему с аналогичной патологией. Лечить отдельным фиксом если регрессии заметны.
 
 ### 1.4. `BattleSnapshot.active_unit` — почти неиспользуемое поле
 
@@ -229,7 +233,7 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 |---|---|---|---|
 | 1.1 `UtilityContext` god-struct | читабельность, dead field | низкий | ✓ 086b522 |
 | 1.2 Двойная симуляция в generator+scorer | CPU, O(plans·depth) лишних clone | средний | ✓ 8809b9e |
-| 1.3 Intent max-over-steps vs. committed-prefix | корректность скоринга | средний | — |
+| 1.3 Intent max-over-steps vs. committed-prefix | корректность скоринга | средний | ✓ b2e2237 |
 | 2.1 `build_reach` × 3 | DRY | низкий | — |
 | 2.2 `plan_has_self_aoe` своя геометрия AoE | drift-bug waiting | низкий | — |
 | 2.3 AoE hits filtering × 4 | friendly-fire drift | средний | — |
