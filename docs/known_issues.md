@@ -190,11 +190,13 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 
 ## 4. Другие архитектурные проблемы
 
-### 4.1. Debug-снапшот re-вычисляет факторы, но в другой семантике
+### 4.1. Debug-снапшот re-вычисляет факторы, но в другой семантике ✓ fixed (9135940)
 
-`debug.rs:485-509`: `compute_factors(&ScoredStep::from_plan_committed, ...)` per top-5 — но это даёт **per-single-step** числа, тогда как `raw_factors` из scoring — это plan-aggregate (discounted sum / max).
+`debug.rs:485-509` re-запускал `compute_factors(&ScoredStep::from_plan_committed, ...)` per top-5 — это давало **per-single-step** числа, тогда как `raw_factors` из scoring — plan-aggregate (discounted sum).
 
-В дебаге и в JSONL-логе одинаково зовутся «factors», а числа разные. Смысловой сдвиг скрыт.
+В дебаге и в JSONL-логе одинаково звались «factors», а числа были разные. Смысловой сдвиг скрыт.
+
+**Исправлено:** `build_debug_snapshot` теперь принимает `raw_factors: &[[f32; NUM_FACTORS]]` параметром — те же plan-aggregate значения, что уходят в log. Нет recompute'а, нет drift'а.
 
 ### 4.2. `reservations` — global mutable state, mutation в одном pass со scoring
 
@@ -297,6 +299,6 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 | 2.7 `score_plans` dead wrapper | dead code | низкий | ✓ 664eea8 |
 | 1.4 `active_unit` почти dead field | trivial DRY | низкий | ✓ 664eea8 |
 | 3.6 `CritFail` + `mana_overload` + `primary=None` | type safety | средний | — |
-| 4.1 Debug vs log «factors» имеют разную семантику | аналитика вводит в заблуждение | низкий | — |
+| 4.1 Debug vs log «factors» имеют разную семантику | аналитика вводит в заблуждение | низкий | ✓ 9135940 |
 | 5.7 Tank-floor в `infer_profile` всегда ≥ 0.3 | role mis-inference | средний | — |
 | 5.9 sim_snapshots инвариант только debug_assert | release-build crash если scorer зовут на десериализованном | низкий | — |
