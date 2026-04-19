@@ -23,8 +23,12 @@ FORCES_TARGETING_BIT = 0b0010_0000  # AiTags::FORCES_TARGETING (src/combat/ai/sn
 
 
 def to_cube(h):
+    # Even-r Pointy (hexx OffsetHexMode::Even): even rows are shifted right,
+    # so q = col - (row + (row & 1)) / 2. Earlier we had `row - (row & 1)`
+    # which matched only on even rows and silently misreported distances on
+    # odd rows — false-positive AoO reports were the symptom.
     col, row = h
-    x = col - (row - (row & 1)) // 2
+    x = col - (row + (row & 1)) // 2
     z = row
     return (x, -x - z, z)
 
@@ -50,8 +54,13 @@ def analyze_entry(d):
     target = cd.get("target_id")
     ability = cd.get("ability")
 
+    # Taunt only restricts SingleEnemy casts. A cast on self or an ally (same
+    # team as actor) is always allowed. Infer by looking up the target unit's
+    # team in the snapshot.
+    target_unit = next((u for u in snap["units"] if u["entity"] == target), None)
+    cast_on_enemy = target_unit is not None and target_unit["team"] != team
     taunt_violated = bool(
-        taunters and target is not None and target not in taunters and ability
+        taunters and cast_on_enemy and target not in taunters and ability
     )
 
     aoo_hits = []
