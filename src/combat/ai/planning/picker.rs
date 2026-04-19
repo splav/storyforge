@@ -15,10 +15,7 @@ pub struct PickMechanics {
     pub chosen_pos: usize,
 }
 
-use crate::combat::ai::factors::aoe_area;
-use crate::combat::ai::influence::InfluenceMaps;
-use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::planning::scorer::compute_plan_factors;
+use crate::combat::ai::factors::{aoe_area, aoe_hits, CC_IDX, KILL_IDX, NUM_FACTORS};
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::scoring::{applies_cc, score_action};
@@ -85,33 +82,21 @@ pub fn commit_plan(plan: &TurnPlan, actor_pos: Hex) -> (AiDecision, usize) {
     (decision, consumed)
 }
 
-/// Mercy cruelty for a plan: how harsh does this plan feel? Kill dominates;
-/// CC caps at 0.5 regardless of magnitude.
-fn mercy_cruelty(
-    plan: &TurnPlan,
-    active: &UnitSnapshot,
-    intent: &TacticalIntent,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    reservations: &Reservations,
-) -> f32 {
-    let f = compute_plan_factors(plan, active, intent, ctx, snap, maps, reservations);
-    // factors: [dmg, kill, cc, heal, pos, risk, focus, intent, scarcity]
-    f[1] + (f[2] * 0.1).min(0.5)
+/// Mercy cruelty for a plan: how harsh does it feel? Kill dominates; CC caps
+/// at 0.5 regardless of magnitude. Reads the **precomputed** raw factor row
+/// for `plan` — previously we re-ran `compute_plan_factors` per plan in the
+/// mercy window, which was a full plan-walk + per-step factor recomputation
+/// just to grab two numbers we already had.
+fn mercy_cruelty(raw: &[f32; NUM_FACTORS]) -> f32 {
+    raw[KILL_IDX] + (raw[CC_IDX] * 0.1).min(0.5)
 }
 
 /// Pick the winning plan. Mirrors `pick_best_candidate` — window-bounded top-K
 /// sampling with a mercy tie-breaker applied only inside the near-best window.
 pub fn pick_best_plan(
     scored: &[f32],
-    plans: &[TurnPlan],
-    active: &UnitSnapshot,
-    intent: &TacticalIntent,
+    raw_factors: &[[f32; NUM_FACTORS]],
     ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    reservations: &Reservations,
     rng: &mut DiceRng,
 ) -> (usize, PickMechanics) {
     let top_k_req = ctx.world.difficulty.top_k_choice();
@@ -145,11 +130,7 @@ pub fn pick_best_plan(
         if mercy_end > 1 {
             let mut windowed: Vec<(usize, f32)> = ranked[..mercy_end]
                 .iter()
-                .map(|&(i, s)| {
-                    let cruel =
-                        mercy_cruelty(&plans[i], active, intent, ctx, snap, maps, reservations);
-                    (i, s - m * cruel)
-                })
+                .map(|&(i, s)| (i, s - m * mercy_cruelty(&raw_factors[i])))
                 .collect();
             windowed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             for (slot, item) in windowed.into_iter().enumerate() {
@@ -181,11 +162,9 @@ pub fn pick_best_plan(
             },
         );
     }
-    let chosen_pos = if pool.len() == 1 {
-        0
-    } else {
-        (rng.roll_d(pool.len() as u32) as usize).saturating_sub(1)
-    };
+    // `roll_d(N)` returns `1..=N`; shift to a 0-based index.
+    // Precondition: `pool.len() >= 1` (the early-return above catches empty).
+    let chosen_pos = (rng.roll_d(pool.len() as u32) - 1) as usize;
     (
         pool[chosen_pos].0,
         PickMechanics {
@@ -234,8 +213,9 @@ pub fn record_committed_reservations(
                     vec![*target]
                 } else {
                     let area = aoe_area(def, *target_pos, caster_tile);
-                    snap.enemies_of(active.team)
-                        .filter(|e| area.contains(&e.pos))
+                    aoe_hits(&area, active, snap)
+                        .enemies
+                        .iter()
                         .map(|e| e.entity)
                         .collect()
                 };

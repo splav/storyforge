@@ -13,14 +13,15 @@
 #![allow(clippy::too_many_arguments)]
 
 mod adjustments;
+mod aoe_hits;
 mod offensive;
 mod scarcity;
 
 pub use adjustments::crit_fail_adjusted;
+pub use aoe_hits::{aoe_hits, AoeHits};
 pub use offensive::aoe_area;
 
 use crate::combat::ai::influence::InfluenceMaps;
-use crate::combat::ai::intent::{intent_score, TacticalIntent};
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::reservations::Reservations;
@@ -134,6 +135,21 @@ impl<'a> ScoredStep<'a> {
 /// 9 utility factors: damage, kill, cc, heal, position, risk, focus, intent, scarcity.
 pub const NUM_FACTORS: usize = 9;
 
+// Named indices into the factor array. Use these anywhere a factor is read
+// by number — `raw[DAMAGE_IDX]` makes intent obvious and makes a future
+// reorder impossible to miss. The definitional array in
+// `scorer::compute_plan_factors_sans_intent` stays positional on purpose
+// (it's the one place *declaring* the layout).
+pub const DAMAGE_IDX: usize = 0;
+pub const KILL_IDX: usize = 1;
+pub const CC_IDX: usize = 2;
+pub const HEAL_IDX: usize = 3;
+pub const POSITION_IDX: usize = 4;
+pub const RISK_IDX: usize = 5;
+pub const FOCUS_IDX: usize = 6;
+pub const INTENT_IDX: usize = 7;
+pub const SCARCITY_IDX: usize = 8;
+
 /// Factors that can be negative (position, intent, scarcity).
 /// These use symmetric normalization in `planning::scorer`: divide by
 /// `max(|min|, |max|)` → [-1, 1]. Non-negative factors use max normalization
@@ -151,12 +167,17 @@ pub(super) struct OffensiveFactors {
     pub(super) cc: f32,
 }
 
-/// Compute the 9 raw utility factors for a single scored step.
-/// Axes: [damage, kill, cc, heal, position, risk, focus, intent, scarcity].
+/// Compute the 9 raw utility factors for a single scored step — **excluding**
+/// the intent factor. `factor[7]` (intent) is returned as `0.0` and aggregated
+/// separately at the plan level by `scorer::compute_plan_intent_sum`. This
+/// split lets the utility pipeline cache the intent-independent factors once
+/// per plan and re-apply a new intent (viability fallback, LastStand rescore)
+/// without redoing damage/heal/kill/cc/position/risk/focus/scarcity math.
+///
+/// Axes: [damage, kill, cc, heal, position, risk, focus, 0.0, scarcity].
 pub fn compute_factors(
     step: &ScoredStep,
     active: &UnitSnapshot,
-    intent: &TacticalIntent,
     ctx: &UtilityContext,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
@@ -178,7 +199,6 @@ pub fn compute_factors(
         .and_then(|t| snap.unit(t))
         .map(|t| target_priority(active, t, snap))
         .unwrap_or(0.0);
-    let intent_val = intent_score(intent, step, active, snap, maps, ctx.world.content, ctx.world.difficulty);
 
     adjustments::apply_reservation_adjustments(step, &mut off, &mut focus, &mut position, snap, ctx, reservations);
 
@@ -187,7 +207,7 @@ pub fn compute_factors(
         ScoredStep::Move { .. } => 0.0,
     };
 
-    [off.damage, off.kill, off.cc, off.heal, position, risk, focus, intent_val, scarcity]
+    [off.damage, off.kill, off.cc, off.heal, position, risk, focus, 0.0, scarcity]
 }
 
 #[cfg(test)]

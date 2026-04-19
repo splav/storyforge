@@ -1,4 +1,5 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
+use crate::combat::effects_math::final_damage_i32;
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::content::content_view::ActiveContent;
 use crate::core::DiceRng;
@@ -192,7 +193,8 @@ pub fn movement_system(
                 }
                 let (roll, _dice_str) = rng.roll_dice(&p.dice);
                 let raw = roll + p.str_mod;
-                let final_dmg = (raw - a_total_armor + a_vulnerability).max(1);
+                let final_dmg =
+                    final_damage_i32(raw, a_total_armor, a_vulnerability, /* pierces_armor */ false);
                 hp_sim = (hp_sim - final_dmg).max(0);
                 p.reactions_left -= 1;
                 let killed = hp_sim == 0;

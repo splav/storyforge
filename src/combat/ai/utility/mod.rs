@@ -23,7 +23,7 @@ use crate::combat::ai::intent::{
 use crate::combat::ai::log::{self, AiLogger, IntentBlock};
 use crate::combat::ai::planning::{
     apply_protect_self_mask, commit_plan, generate_plans, pick_best_plan,
-    record_committed_reservations, sanity_adjust_plans, score_plans_with_raw,
+    record_committed_reservations, rescore_with_intent, sanity_adjust_plans, score_plans_with_raw,
 };
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::snapshot::BattleSnapshot;
@@ -99,14 +99,6 @@ pub struct UtilityContext<'a> {
     pub actor: ActorCtx<'a>,
 }
 
-/// Shared empty set for tests and scopes where no tile is considered blocked.
-/// Safe to borrow at any lifetime thanks to the `'static` backing.
-pub fn empty_blocked_tiles() -> &'static HashSet<Hex> {
-    use std::sync::OnceLock;
-    static EMPTY: OnceLock<HashSet<Hex>> = OnceLock::new();
-    EMPTY.get_or_init(HashSet::new)
-}
-
 // ── Main entry point ────────────────────────────────────────────────────────
 
 /// Top-level decision function. Replaces evaluate_targets + plan_movement.
@@ -168,11 +160,13 @@ pub fn pick_action(
     // Plan generation is intent-agnostic, so rescoring against the same pool
     // is enough.
     if let Some(threshold) = intent_viability_threshold(&intent) {
-        // `raw_factors[p][7]` is the per-plan max intent_score from
-        // `compute_plan_factors`; max over plans = max over (plan, step).
+        // Per-plan intent_sum produced by `compute_plan_intent_sum`; the max
+        // over plans answers "can any candidate plan realistically execute
+        // the chosen intent?"
+        use crate::combat::ai::factors::INTENT_IDX;
         let max_align = raw_factors
             .iter()
-            .map(|f| f[7])
+            .map(|f| f[INTENT_IDX])
             .fold(f32::NEG_INFINITY, f32::max);
         if max_align < threshold {
             let hp_pct = active.hp_pct();
@@ -207,11 +201,11 @@ pub fn pick_action(
             if let Some(new) = new_intent {
                 if intent.kind() != new.kind() || intent.target() != new.target() {
                     intent = new;
-                    let (new_scored, new_raw) = score_plans_with_raw(
-                        &plans, active, &intent, ctx, snap, maps, reservations, rng,
+                    // Reuse the non-intent factor columns; only the intent
+                    // column (factor[7]) depends on the chosen intent.
+                    scored = rescore_with_intent(
+                        &plans, &mut raw_factors, &intent, active, ctx, snap, maps, rng,
                     );
-                    scored = new_scored;
-                    raw_factors = new_raw;
                 }
             }
         }
@@ -237,19 +231,19 @@ pub fn pick_action(
         );
         if !any_defensive {
             let last_stand = TacticalIntent::LastStand;
-            let (ls_scored, ls_raw) = score_plans_with_raw(
-                &plans, active, &last_stand, ctx, snap, maps, reservations, rng,
+            // Same reuse as the viability fallback: intent-independent
+            // factors stay; only factor[7] refreshes under LastStand.
+            scored = rescore_with_intent(
+                &plans, &mut raw_factors, &last_stand, active, ctx, snap, maps, rng,
             );
-            scored = ls_scored;
-            raw_factors = ls_raw;
             intent_reason = format!("{intent_reason} → LastStand (no defensive plan)");
         }
     }
 
     // Pick best plan via mercy + top-K window (same math as single-candidate pick).
-    let (best_idx, pick_mech) = pick_best_plan(
-        &scored, &plans, active, &intent, ctx, snap, maps, reservations, rng,
-    );
+    // `raw_factors` is threaded in so mercy_cruelty reads the precomputed
+    // kill/cc columns instead of recomputing plan factors per window slot.
+    let (best_idx, pick_mech) = pick_best_plan(&scored, &raw_factors, ctx, rng);
 
     let best_plan = &plans[best_idx];
     let (decision, consumed) = commit_plan(best_plan, actor_pos);

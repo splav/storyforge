@@ -76,35 +76,64 @@ pub struct AbilityOutcome {
     /// `primary` is non-dice (`GrantMovement`, `RestoreResources`, `Summon`,
     /// `None`). Carried here so real backend can log without re-rolling.
     pub breakdown: String,
-    /// Critical-failure side effect. `Some` ⇒ primary effects are skipped
-    /// (`primary` is `None`, `affected` / `statuses` are empty); backend
-    /// applies the carried side effect and logs `CriticalMiss`.
-    pub crit_fail: Option<CritFail>,
-    /// `true` iff a crit-fail mapped to `ManaOverload` **and** the ability has
-    /// a mana cost — primary effects still fire, but the backend must double
-    /// the mana cost (with HP deficit damage on underspend) and log
-    /// `WillOverload`.
-    pub mana_overload: bool,
+    /// Crit-fail state for this cast. A single value replaces the old
+    /// `Option<CritFail>` + `mana_overload: bool` pair, which could encode
+    /// contradictions (`Some(Miss)` with `mana_overload = true`, etc.).
+    /// `Miss` / `SelfStatus` / `SelfDamage` imply `primary == None` with
+    /// `affected` / `statuses` empty; `ManaOverload` keeps the primary
+    /// payload and tells the backend to double the mana cost; `None`
+    /// is the normal resolution path.
+    pub crit: CritOutcome,
 }
 
-/// Crit-fail side effect applied to the actor. Compute-side mapping lives in
-/// `compute_ability_outcome`; backends just consume the variant.
+/// Crit-fail outcome. Single source of truth for "what did the crit do?" —
+/// collapses the old three-field encoding into one enum so invalid combinations
+/// (e.g., ManaOverload + primary-skipping side effect) are unrepresentable.
 #[derive(Debug)]
-pub enum CritFail {
-    /// No side effect — only the `CriticalMiss` combat-log entry.
+pub enum CritOutcome {
+    /// No crit-fail; the rest of the outcome is the normal resolution path.
+    None,
+    /// Crit-fail with no carried side effect. Primary effects and status
+    /// applications are dropped. Backend logs `CriticalMiss`.
     Miss,
-    /// Apply a status to the actor (BrokenFaith / Exhaustion / PactControl).
+    /// Crit-fail applied a status to the caster (BrokenFaith / Exhaustion /
+    /// PactControl). Primary effects and status applications are dropped.
+    /// Backend logs `CriticalMiss` + `CritFailSideEffect`.
     SelfStatus {
         status: StatusId,
         duration_rounds: u32,
         log_description: String,
     },
-    /// Deal self-damage to the actor (CircuitBreach).
+    /// Crit-fail dealt self-damage to the caster (CircuitBreach). Primary
+    /// effects and status applications are dropped. Backend logs
+    /// `CriticalMiss` + `CritFailSideEffect`.
     SelfDamage {
         amount: i32,
         damage_breakdown: String,
         log_description: String,
     },
+    /// Crit-fail mapped to ManaOverload: primary effects **still fire**, but
+    /// the backend doubles the mana cost (with HP-deficit damage on
+    /// underspend) and logs `WillOverload`. Only reachable when the cast has
+    /// a non-zero mana cost and the path's crit-fail effect is `ManaOverload`.
+    ManaOverload,
+}
+
+impl CritOutcome {
+    /// Whether primary effects + statuses are suppressed by this crit outcome.
+    /// True for `Miss` / `SelfStatus` / `SelfDamage` (they skip primary);
+    /// false for `None` (no crit) and `ManaOverload` (primary still fires).
+    pub fn skips_primary(&self) -> bool {
+        matches!(
+            self,
+            Self::Miss | Self::SelfStatus { .. } | Self::SelfDamage { .. }
+        )
+    }
+
+    /// True iff this cast should double its mana cost (ManaOverload branch).
+    pub fn is_mana_overload(&self) -> bool {
+        matches!(self, Self::ManaOverload)
+    }
 }
 
 #[derive(Debug)]
@@ -140,10 +169,11 @@ pub struct StatusApply {
 /// before acquiring the rng / caster's mutable components.
 ///
 /// Crit-fail is rolled here through `rng.roll_crit_fail`: real rolls a real
-/// die, sim (via `ExpectedValue`) always returns `false`. A crit that maps
-/// to `ManaOverload` fires primary effects with the `mana_overload` flag
-/// set; any other crit variant skips primary effects and surfaces a
-/// `CritFail` side effect on `outcome.crit_fail`.
+/// die, sim (via `ExpectedValue`) always returns `false`. The chosen
+/// `CritOutcome` variant is the single authority on what happened —
+/// `ManaOverload` keeps the normal payload with a cost-doubling flag,
+/// `Miss` / `SelfStatus` / `SelfDamage` suppress the payload entirely,
+/// `None` is the no-crit path.
 #[allow(clippy::too_many_arguments)]
 pub fn compute_ability_outcome<R: DiceSource>(
     actor: Entity,
@@ -162,20 +192,20 @@ pub fn compute_ability_outcome<R: DiceSource>(
         .filter(|c| matches!(c.resource, ResourceKind::Mana))
         .map(|c| c.amount)
         .sum();
-    let mana_overload = crit_failed
-        && matches!(crit_fail_effect, CritFailEffect::ManaOverload)
-        && mana_cost > 0;
-    let skip_effects = crit_failed && !mana_overload;
 
-    if skip_effects {
-        let crit = map_crit_fail(crit_fail_effect, mana_cost);
+    let crit = if crit_failed {
+        map_crit_fail(crit_fail_effect, mana_cost)
+    } else {
+        CritOutcome::None
+    };
+
+    if crit.skips_primary() {
         return AbilityOutcome {
             affected: Vec::new(),
             primary: OutcomePrimary::None,
             statuses: Vec::new(),
             breakdown: String::new(),
-            crit_fail: Some(crit),
-            mana_overload: false,
+            crit,
         };
     }
 
@@ -243,36 +273,43 @@ pub fn compute_ability_outcome<R: DiceSource>(
         primary,
         statuses,
         breakdown,
-        crit_fail: None,
-        mana_overload,
+        crit,
     }
 }
 
-/// Map a path's `CritFailEffect` to the concrete side-effect variant that
-/// backends apply. Strings used here come from the live pipeline's log
-/// copy — moved into shared code so both backends read identical text.
-fn map_crit_fail(effect: &CritFailEffect, mana_cost: i32) -> CritFail {
+/// Map a path's `CritFailEffect` to the concrete `CritOutcome` variant that
+/// backends consume. `ManaOverload` only applies when there's a mana cost to
+/// double — otherwise it degrades to a plain `Miss`. Strings come from the
+/// live pipeline's log copy so both backends render identical text.
+fn map_crit_fail(effect: &CritFailEffect, mana_cost: i32) -> CritOutcome {
     match effect {
-        CritFailEffect::Miss | CritFailEffect::ManaOverload => CritFail::Miss,
-        CritFailEffect::BrokenFaith => CritFail::SelfStatus {
+        CritFailEffect::Miss => CritOutcome::Miss,
+        CritFailEffect::ManaOverload => {
+            if mana_cost > 0 {
+                CritOutcome::ManaOverload
+            } else {
+                CritOutcome::Miss
+            }
+        }
+        CritFailEffect::BrokenFaith => CritOutcome::SelfStatus {
             status: StatusId::from("broken_faith"),
             duration_rounds: 1,
             log_description: "Сломленная вера — магия заблокирована на 1 ход".into(),
         },
         CritFailEffect::CircuitBreach => {
             let amount = (mana_cost + 1) / 2;
-            CritFail::SelfDamage {
+            CritOutcome::SelfDamage {
                 amount,
                 damage_breakdown: format!("разгерметизация: {mana_cost}/2={amount}"),
                 log_description: format!("Разгерметизация контура — {amount} урона себе"),
             }
         }
-        CritFailEffect::Exhaustion => CritFail::SelfStatus {
+        CritFailEffect::Exhaustion => CritOutcome::SelfStatus {
             status: StatusId::from("exhaustion"),
             duration_rounds: 2,
             log_description: "Телесный откат — истощение на 2 хода".into(),
         },
-        CritFailEffect::PactControl => CritFail::SelfStatus {
+        CritFailEffect::PactControl => CritOutcome::SelfStatus {
             status: StatusId::from("pact_control"),
             duration_rounds: 1,
             log_description: "Власть договора — AI управляет на 1 ход".into(),
@@ -351,10 +388,11 @@ mod tests {
             ent(1), &def, vec![ent(2)], &ctx(),
             false, 20, &CritFailEffect::Miss, &mut dice,
         );
-        assert!(matches!(outcome.crit_fail, Some(CritFail::Miss)));
+        assert!(matches!(outcome.crit, CritOutcome::Miss));
+        assert!(outcome.crit.skips_primary());
+        assert!(!outcome.crit.is_mana_overload());
         assert!(outcome.affected.is_empty());
         assert!(matches!(outcome.primary, OutcomePrimary::None));
-        assert!(!outcome.mana_overload);
     }
 
     #[test]
@@ -365,12 +403,12 @@ mod tests {
             ent(1), &def, vec![ent(2)], &ctx(),
             false, 20, &CritFailEffect::BrokenFaith, &mut dice,
         );
-        match outcome.crit_fail {
-            Some(CritFail::SelfStatus { status, duration_rounds, .. }) => {
+        match outcome.crit {
+            CritOutcome::SelfStatus { status, duration_rounds, .. } => {
                 assert_eq!(status.0, "broken_faith");
                 assert_eq!(duration_rounds, 1);
             }
-            _ => panic!("expected SelfStatus, got {:?}", outcome.crit_fail),
+            other => panic!("expected SelfStatus, got {other:?}"),
         }
     }
 
@@ -383,9 +421,9 @@ mod tests {
             ent(1), &def, vec![ent(2)], &ctx(),
             false, 20, &CritFailEffect::CircuitBreach, &mut dice,
         );
-        match outcome.crit_fail {
-            Some(CritFail::SelfDamage { amount, .. }) => assert_eq!(amount, 3),
-            _ => panic!("expected SelfDamage, got {:?}", outcome.crit_fail),
+        match outcome.crit {
+            CritOutcome::SelfDamage { amount, .. } => assert_eq!(amount, 3),
+            other => panic!("expected SelfDamage, got {other:?}"),
         }
     }
 
@@ -397,8 +435,9 @@ mod tests {
             ent(1), &def, vec![ent(2)], &ctx(),
             false, 20, &CritFailEffect::ManaOverload, &mut dice,
         );
-        assert!(outcome.crit_fail.is_none(), "overload doesn't skip effects");
-        assert!(outcome.mana_overload, "overload flag set");
+        assert!(matches!(outcome.crit, CritOutcome::ManaOverload));
+        assert!(outcome.crit.is_mana_overload());
+        assert!(!outcome.crit.skips_primary(), "overload keeps the primary payload");
         assert!(matches!(outcome.primary, OutcomePrimary::Damage { .. }));
     }
 
@@ -411,8 +450,8 @@ mod tests {
             ent(1), &def, vec![ent(2)], &ctx(),
             false, 20, &CritFailEffect::ManaOverload, &mut dice,
         );
-        assert!(matches!(outcome.crit_fail, Some(CritFail::Miss)));
-        assert!(!outcome.mana_overload);
+        assert!(matches!(outcome.crit, CritOutcome::Miss));
+        assert!(!outcome.crit.is_mana_overload());
         assert!(matches!(outcome.primary, OutcomePrimary::None));
     }
 
@@ -424,8 +463,9 @@ mod tests {
             ent(1), &def, vec![ent(2)], &ctx(),
             false, 20, &CritFailEffect::Miss, &mut dice,
         );
-        assert!(outcome.crit_fail.is_none());
-        assert!(!outcome.mana_overload);
+        assert!(matches!(outcome.crit, CritOutcome::None));
+        assert!(!outcome.crit.skips_primary());
+        assert!(!outcome.crit.is_mana_overload());
         match outcome.primary {
             OutcomePrimary::Damage { raw, .. } => assert_eq!(raw, 5),
             _ => panic!("expected Damage"),

@@ -9,7 +9,7 @@
 //! No persistent state: every tick starts fresh. Revalidation of a committed
 //! plan lives in Phase 4.
 
-use crate::combat::ai::factors::aoe_area;
+use crate::combat::ai::factors::{aoe_area, aoe_hits};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::sim::SimState;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
@@ -219,6 +219,15 @@ fn enumerate_next_steps(
     };
     let mut steps: Vec<PlanStep> = Vec::new();
 
+    // Hoisted once out of the ability × target loop: which enemy (if any) is
+    // taunting us? `is_valid_cast` used to re-scan all enemies per candidate,
+    // making taunt-filtering quadratic over (abilities × targets).
+    let taunter = sim
+        .snapshot
+        .enemies_of(actor.team)
+        .find(|e| e.tags.contains(AiTags::FORCES_TARGETING))
+        .map(|e| e.entity);
+
     // Cast steps from the actor's current sim position.
     for ability_id in &ctx.actor.abilities.0 {
         let Some(def) = ctx.world.content.abilities.get(ability_id) else { continue };
@@ -227,7 +236,7 @@ fn enumerate_next_steps(
         }
         let targets = pick_targets(def, actor, sim);
         for (target, target_pos) in targets {
-            if !is_valid_cast(def, actor, target, target_pos, sim, ctx) {
+            if !is_valid_cast(def, actor, target, target_pos, sim, ctx, taunter) {
                 continue;
             }
             steps.push(PlanStep::Cast {
@@ -278,21 +287,14 @@ fn is_valid_cast(
     target_pos: Hex,
     sim: &SimState,
     ctx: &UtilityContext,
+    taunter: Option<Entity>,
 ) -> bool {
-    // Taunt: restrict SingleEnemy to taunters when any enemy is taunting.
+    // Taunt: restrict SingleEnemy to the taunter when one is active.
     if matches!(def.target_type, TargetType::SingleEnemy) {
-        let mut has_taunter = false;
-        let mut target_is_taunter = false;
-        for e in sim.snapshot.enemies_of(actor.team) {
-            if e.tags.contains(AiTags::FORCES_TARGETING) {
-                has_taunter = true;
-                if e.entity == target {
-                    target_is_taunter = true;
-                }
+        if let Some(t) = taunter {
+            if target != t {
+                return false;
             }
-        }
-        if has_taunter && !target_is_taunter {
-            return false;
         }
     }
 
@@ -314,22 +316,13 @@ fn is_valid_cast(
         }
     }
 
-    // AoE friendly-fire: allies hit without enough enemies to justify.
+    // AoE friendly-fire: allies hit without enough enemies to justify. Actor
+    // counts as an ally (caster in own blast tightens the ratio).
     if def.aoe != AoEShape::None && def.friendly_fire {
         let area = aoe_area(def, target_pos, actor.pos);
-        let mut allies_hit = 0usize;
-        let mut enemies_hit = 0usize;
-        for u in &sim.snapshot.units {
-            if !area.contains(&u.pos) {
-                continue;
-            }
-            if u.team == actor.team {
-                allies_hit += 1;
-            } else {
-                enemies_hit += 1;
-            }
-        }
-        if allies_hit > 0 && enemies_hit < allies_hit * 2 {
+        let hits = aoe_hits(&area, actor, &sim.snapshot);
+        let allies_hit = hits.ally_count_with_self();
+        if allies_hit > 0 && hits.enemies.len() < allies_hit * 2 {
             return false;
         }
     }
@@ -656,7 +649,8 @@ mod tests {
         };
         let maps = empty_maps();
 
-        let plans = generate_plans(actor_id, &ctx, crate::combat::ai::utility::empty_blocked_tiles(), &snap, &maps);
+        let blocked = HashSet::<Hex>::new();
+        let plans = generate_plans(actor_id, &ctx, &blocked, &snap, &maps);
 
         // At least one empty plan (seed) + one single-cast plan.
         assert!(plans.iter().any(|p| p.steps.is_empty()), "seed plan must exist");
@@ -702,7 +696,8 @@ mod tests {
         };
         let maps = empty_maps();
 
-        let plans = generate_plans(actor_id, &ctx, crate::combat::ai::utility::empty_blocked_tiles(), &snap, &maps);
+        let blocked = HashSet::<Hex>::new();
+        let plans = generate_plans(actor_id, &ctx, &blocked, &snap, &maps);
 
         // Count plans by depth. Beam=2 ⇒ depth-1 frontier size ≤ 2, depth-2 ≤ 2.
         let at_depth_1 = plans.iter().filter(|p| p.steps.len() == 1).count();
@@ -743,7 +738,8 @@ mod tests {
         };
         let maps = empty_maps();
 
-        let plans = generate_plans(actor_id, &ctx, crate::combat::ai::utility::empty_blocked_tiles(), &snap, &maps);
+        let blocked = HashSet::<Hex>::new();
+        let plans = generate_plans(actor_id, &ctx, &blocked, &snap, &maps);
 
         // Find depth-2 plans that target the weak unit first. In step 2 they
         // must not cast at weak again (it's dead post step 1).
@@ -789,7 +785,8 @@ mod tests {
         };
         let maps = empty_maps();
 
-        let plans = generate_plans(actor_id, &ctx, crate::combat::ai::utility::empty_blocked_tiles(), &snap, &maps);
+        let blocked = HashSet::<Hex>::new();
+        let plans = generate_plans(actor_id, &ctx, &blocked, &snap, &maps);
 
         // With max_ap=1, no plan should have more than one Cast step.
         for p in &plans {
@@ -1005,12 +1002,13 @@ mod tests {
         };
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
+        let taunter_ent = Some(taunter.entity);
         assert!(
-            is_valid_cast(&def, &actor, taunter.entity, taunter.pos, &sim, &ctx),
+            is_valid_cast(&def, &actor, taunter.entity, taunter.pos, &sim, &ctx, taunter_ent),
             "cast on taunter should be allowed",
         );
         assert!(
-            !is_valid_cast(&def, &actor, other.entity, other.pos, &sim, &ctx),
+            !is_valid_cast(&def, &actor, other.entity, other.pos, &sim, &ctx, taunter_ent),
             "cast on non-taunter must be rejected under taunt",
         );
     }
@@ -1032,6 +1030,7 @@ mod tests {
         let abilities = Abilities(vec![heal.id.clone()]);
         let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
 
+        let taunter_ent = Some(taunter.entity);
         let snap = BattleSnapshot {
             units: vec![actor.clone(), taunter, ally.clone()],
             round: 1,
@@ -1039,7 +1038,7 @@ mod tests {
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
-            is_valid_cast(&heal, &actor, ally.entity, ally.pos, &sim, &ctx),
+            is_valid_cast(&heal, &actor, ally.entity, ally.pos, &sim, &ctx, taunter_ent),
             "heal on wounded ally must remain valid under taunt",
         );
     }
@@ -1064,8 +1063,8 @@ mod tests {
         };
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
-        assert!(is_valid_cast(&def, &actor, a.entity, a.pos, &sim, &ctx));
-        assert!(is_valid_cast(&def, &actor, b.entity, b.pos, &sim, &ctx));
+        assert!(is_valid_cast(&def, &actor, a.entity, a.pos, &sim, &ctx, None));
+        assert!(is_valid_cast(&def, &actor, b.entity, b.pos, &sim, &ctx, None));
     }
 
     // Rule 2: Overheal
@@ -1095,11 +1094,11 @@ mod tests {
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
-            !is_valid_cast(&heal, &actor, fine.entity, fine.pos, &sim, &ctx),
+            !is_valid_cast(&heal, &actor, fine.entity, fine.pos, &sim, &ctx, None),
             "heal on near-full ally must be rejected",
         );
         assert!(
-            is_valid_cast(&heal, &actor, hurt.entity, hurt.pos, &sim, &ctx),
+            is_valid_cast(&heal, &actor, hurt.entity, hurt.pos, &sim, &ctx, None),
             "heal on wounded ally must be allowed",
         );
     }
@@ -1130,11 +1129,11 @@ mod tests {
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
-            !is_valid_cast(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx),
+            !is_valid_cast(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx, None),
             "single-target CC on already-stunned target must be rejected",
         );
         assert!(
-            is_valid_cast(&def, &actor, awake.entity, awake.pos, &sim, &ctx),
+            is_valid_cast(&def, &actor, awake.entity, awake.pos, &sim, &ctx, None),
             "CC on un-stunned target must be allowed",
         );
     }
@@ -1164,7 +1163,7 @@ mod tests {
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
-            is_valid_cast(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx),
+            is_valid_cast(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx, None),
             "AoE CC must not be rejected just because the primary target is stunned",
         );
     }
@@ -1194,7 +1193,7 @@ mod tests {
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
-            !is_valid_cast(&def, &actor, enemy.entity, enemy.pos, &sim, &ctx),
+            !is_valid_cast(&def, &actor, enemy.entity, enemy.pos, &sim, &ctx, None),
             "friendly-fire AoE that hits self without 2x enemy value must be rejected",
         );
     }
@@ -1223,7 +1222,7 @@ mod tests {
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
-            is_valid_cast(&def, &actor, e1.entity, e1.pos, &sim, &ctx),
+            is_valid_cast(&def, &actor, e1.entity, e1.pos, &sim, &ctx, None),
             "AoE must be accepted when enemies_hit >= 2*allies_hit",
         );
     }
@@ -1256,7 +1255,8 @@ mod tests {
         };
         let maps = empty_maps();
 
-        let plans = generate_plans(actor_id, &ctx, crate::combat::ai::utility::empty_blocked_tiles(), &snap, &maps);
+        let blocked = HashSet::<Hex>::new();
+        let plans = generate_plans(actor_id, &ctx, &blocked, &snap, &maps);
 
         // No plan in the pool may contain a Cast at anyone other than the taunter.
         for p in &plans {
@@ -1301,7 +1301,7 @@ mod tests {
         // either stays in place or walks toward the taunter (handled by the
         // Move pipeline, not by this filter).
         assert!(
-            !is_valid_cast(&def, &actor, nearby.entity, nearby.pos, &sim, &ctx),
+            !is_valid_cast(&def, &actor, nearby.entity, nearby.pos, &sim, &ctx, Some(taunter.entity)),
             "taunted melee-only actor must not attack adjacent non-taunter",
         );
     }

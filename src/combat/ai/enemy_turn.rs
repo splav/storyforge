@@ -161,29 +161,29 @@ fn run_ai_turn(
         HashMap::new()
     };
 
-    // Get or create AI memory for this actor.
-    let mut memory = memories
-        .get_mut(actor)
-        .map(|mut m| std::mem::take(&mut *m))
-        .unwrap_or_default();
-
     if snap.unit(actor).is_none() {
         msgs.end_turn.write(EndTurn { actor });
         return;
     }
+
+    // Borrow the actor's persistent `AiMemory` directly from the query —
+    // writes land in place, no take/put dance. Actors without the component
+    // get a short-lived default; mutations to it are discarded when the
+    // function returns (matches the previous behaviour, where the write-back
+    // branch also silently dropped the memory).
+    let mut fallback_memory = AiMemory::default();
+    let memory_ref: &mut AiMemory = match memories.get_mut(actor) {
+        Ok(m) => m.into_inner(),
+        Err(_) => &mut fallback_memory,
+    };
 
     // Fresh plan every tick — no cross-tick resume. Lookahead inside the beam
     // search still shapes the step[0] choice, but only step[0] executes; the
     // remainder is reconsidered on the next tick against actual world state.
     let (decision, debug_snapshot) = pick_action(
         actor, actor_pos, &ctx, &all_occupied, &snap, &maps, rng,
-        &mut memory, reservations, logger, debug, &debug_names,
+        memory_ref, reservations, logger, debug, &debug_names,
     );
-
-    // Write memory back.
-    if let Ok(mut mem) = memories.get_mut(actor) {
-        *mem = memory;
-    }
 
     // Store debug data: maps always (for overlay), snapshot for console log.
     if debug {

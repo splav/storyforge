@@ -17,6 +17,7 @@ use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::UtilityContext;
+use crate::combat::effects_math::final_damage_f32;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ContentView;
 use crate::game::hex::{has_los, in_bounds, Hex};
@@ -199,8 +200,7 @@ fn expected_aoo_damage(
             }
         }
         if triggered {
-            let net = (raw - mitigation + vuln).max(1.0);
-            total += net;
+            total += final_damage_f32(raw, mitigation, vuln, /* pierces_armor */ false);
         }
     }
     total

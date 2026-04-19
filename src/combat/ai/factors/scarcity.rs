@@ -2,6 +2,7 @@
 
 #![allow(clippy::too_many_arguments)]
 
+use super::aoe_hits::aoe_hits;
 use super::offensive::aoe_area;
 use super::ScoredStep;
 use crate::combat::ai::scoring::applies_cc;
@@ -50,21 +51,27 @@ pub(super) fn compute_scarcity(
 
     let target_unit = snap.unit(*target);
 
+    // Classify AoE hits once; both the victim pick and the multi-hit bonus
+    // below read from the same list.
+    let aoe_enemies: Vec<&UnitSnapshot> = if def.aoe == AoEShape::None {
+        Vec::new()
+    } else {
+        let area = aoe_area(def, *target_pos, *caster_tile);
+        aoe_hits(&area, active, snap).enemies
+    };
+
     // Kill bonus.
     if kill > 0.0 {
         swing += 0.8;
         // Extra value for killing high-value targets. For AoE (target is
         // a sentinel), credit the highest-value enemy hit.
         let victim = target_unit.or_else(|| {
-            if def.aoe == AoEShape::None { return None; }
-            let area = aoe_area(def, *target_pos, *caster_tile);
-            snap.enemies_of(active.team)
-                .filter(|e| area.contains(&e.pos))
-                .max_by(|a, b| {
-                    a.role.role_value()
-                        .partial_cmp(&b.role.role_value())
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
+            aoe_enemies.iter().copied().max_by(|a, b| {
+                a.role
+                    .role_value()
+                    .partial_cmp(&b.role.role_value())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
         if let Some(t) = victim {
             // Role-based kill bonus scales with target's priority value
@@ -74,15 +81,8 @@ pub(super) fn compute_scarcity(
     }
 
     // AoE multi-hit bonus.
-    if def.aoe != AoEShape::None {
-        let area = aoe_area(def, *target_pos, *caster_tile);
-        let hits = snap
-            .enemies_of(active.team)
-            .filter(|e| area.contains(&e.pos))
-            .count();
-        if hits > 1 {
-            swing += 0.2 * (hits - 1) as f32;
-        }
+    if aoe_enemies.len() > 1 {
+        swing += 0.2 * (aoe_enemies.len() - 1) as f32;
     }
 
     // CC on high-threat unstunned target. Non-AoE only — AoE CC is already

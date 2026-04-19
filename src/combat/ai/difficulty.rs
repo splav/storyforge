@@ -138,10 +138,14 @@ impl DifficultyProfile {
         lerp(-0.9, -0.3, self.awareness)
     }
 
-    /// Scales the anti-overkill penalty applied to damage when previous units
-    /// have already reserved enough damage to kill the target.
-    /// Returns the residual multiplier (lower = harsher penalty).
-    pub fn overkill_damage_multiplier(&self) -> f32 {
+    /// Residual multiplier applied to offensive signals (damage AND kill)
+    /// when previous units have already reserved enough damage to kill the
+    /// target. Lower = harsher penalty; hard AI drops to the 0.15 floor so
+    /// it almost never doubles up, easy AI keeps ~0.72 so un-coordinated
+    /// play still happens. Applied uniformly to damage and kill — zeroing
+    /// kill while leaking damage through was inconsistent and left overkill
+    /// plans attractive in damage-dominant batches.
+    pub fn overkill_multiplier(&self) -> f32 {
         (1.0 - 0.7 * self.coordination).clamp(0.15, 1.0)
     }
 

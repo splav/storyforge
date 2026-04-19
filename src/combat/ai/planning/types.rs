@@ -49,7 +49,15 @@ pub struct TurnPlan {
     /// Sim snapshot cached after each applied step. `sim_snapshots[k]` is the
     /// world state AFTER `steps[0..=k]` have been simulated. The "pre-step-k"
     /// snapshot a scorer needs is `sim_snapshots[k-1]` for k>0, or the
-    /// original snapshot for k=0. Invariant: `sim_snapshots.len() == steps.len()`.
+    /// original snapshot for k=0.
+    ///
+    /// **Shape invariant** — exactly one of:
+    /// - `sim_snapshots.len() == steps.len()` (generator-filled, normal path).
+    /// - `sim_snapshots.is_empty()` (deserialized plan — `#[serde(skip)]`
+    ///   drops the vec at round-trip). Readers must tolerate this via
+    ///   [`TurnPlan::pre_step_snapshot`] instead of direct indexing, so a
+    ///   replay tool that accidentally hands a deserialized plan to the
+    ///   scorer gets stale-but-safe factors rather than an OOB panic.
     ///
     /// Populated inside `generate_plans` (we already ran the sim there to
     /// produce `outcomes`; caching the resulting state costs one `.clone()`
@@ -58,6 +66,24 @@ pub struct TurnPlan {
     /// because snapshots are derivable from `snapshot + steps`.
     #[serde(skip)]
     pub sim_snapshots: Vec<BattleSnapshot>,
+}
+
+impl TurnPlan {
+    /// Pre-step snapshot for step `idx`. Returns `initial` for `idx == 0`
+    /// (no prior step) and also when `sim_snapshots` is empty (deserialized
+    /// plan — see shape invariant on `sim_snapshots`). Prefer this over
+    /// direct `plan.sim_snapshots[idx - 1]` indexing anywhere a scorer might
+    /// run on a deserialized plan — it's the only safe access pattern.
+    pub fn pre_step_snapshot<'a>(
+        &'a self,
+        idx: usize,
+        initial: &'a BattleSnapshot,
+    ) -> &'a BattleSnapshot {
+        if idx == 0 {
+            return initial;
+        }
+        self.sim_snapshots.get(idx - 1).unwrap_or(initial)
+    }
 }
 
 /// Structural decomposition of a plan's *committed prefix* — the first one or

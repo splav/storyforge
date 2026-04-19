@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::combat::effects_outcome::{
-    compute_ability_outcome, CritFail, OutcomePrimary, RngDice,
+    compute_ability_outcome, CritOutcome, OutcomePrimary, RngDice,
 };
 use crate::combat::effects_state::{compute_affected_targets, TargetRef, TargetState};
 use crate::content::content_view::ActiveContent;
@@ -122,37 +122,42 @@ pub fn resolve_action_system(
             )
         };
 
-        if let Some(crit) = &outcome.crit_fail {
-            log.push(CombatEvent::CriticalMiss { actor: ev.actor });
-            match crit {
-                CritFail::Miss => {}
-                CritFail::SelfStatus { status, duration_rounds, log_description } => {
-                    status_writer.write(ApplyStatus {
+        // Crit-fail side effects (if any). `ManaOverload` does NOT log
+        // `CriticalMiss` — it surfaces through `WillOverload` at mana-payment
+        // time below. The `skips_primary()` branches all share the miss log.
+        match &outcome.crit {
+            CritOutcome::None | CritOutcome::ManaOverload => {}
+            CritOutcome::Miss => {
+                log.push(CombatEvent::CriticalMiss { actor: ev.actor });
+            }
+            CritOutcome::SelfStatus { status, duration_rounds, log_description } => {
+                log.push(CombatEvent::CriticalMiss { actor: ev.actor });
+                status_writer.write(ApplyStatus {
+                    source: ev.actor,
+                    target: ev.actor,
+                    status: status.clone(),
+                    duration_rounds: *duration_rounds,
+                });
+                log.push(CombatEvent::CritFailSideEffect {
+                    actor: ev.actor,
+                    effect_name: log_description.clone(),
+                });
+            }
+            CritOutcome::SelfDamage { amount, damage_breakdown, log_description } => {
+                log.push(CombatEvent::CriticalMiss { actor: ev.actor });
+                if *amount > 0 {
+                    dmg_writer.write(ApplyDamage {
                         source: ev.actor,
                         target: ev.actor,
-                        status: status.clone(),
-                        duration_rounds: *duration_rounds,
-                    });
-                    log.push(CombatEvent::CritFailSideEffect {
-                        actor: ev.actor,
-                        effect_name: log_description.clone(),
+                        amount: *amount,
+                        breakdown: damage_breakdown.clone(),
+                        pierces_armor: true,
                     });
                 }
-                CritFail::SelfDamage { amount, damage_breakdown, log_description } => {
-                    if *amount > 0 {
-                        dmg_writer.write(ApplyDamage {
-                            source: ev.actor,
-                            target: ev.actor,
-                            amount: *amount,
-                            breakdown: damage_breakdown.clone(),
-                            pierces_armor: true,
-                        });
-                    }
-                    log.push(CombatEvent::CritFailSideEffect {
-                        actor: ev.actor,
-                        effect_name: log_description.clone(),
-                    });
-                }
+                log.push(CombatEvent::CritFailSideEffect {
+                    actor: ev.actor,
+                    effect_name: log_description.clone(),
+                });
             }
         }
 
@@ -214,7 +219,7 @@ pub fn resolve_action_system(
             });
         }
 
-        let mana_overload = outcome.mana_overload;
+        let mana_overload = outcome.crit.is_mana_overload();
 
         // Pay resource costs (always, even on crit miss).
         for cost in &def.costs {

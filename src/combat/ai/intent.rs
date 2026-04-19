@@ -1,6 +1,6 @@
 use crate::content::content_view::ContentView;
 use crate::combat::ai::difficulty::DifficultyProfile;
-use crate::combat::ai::factors::aoe_area;
+use crate::combat::ai::factors::{aoe_area, aoe_hits};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::applies_cc;
@@ -508,7 +508,7 @@ pub fn intent_score(
             }
             let area = aoe_area(def, target_pos, step.caster_tile());
             let total = snap.enemies_of(active.team).count() as f32;
-            let hit = snap.enemies_of(active.team).filter(|e| area.contains(&e.pos)).count() as f32;
+            let hit = aoe_hits(&area, active, snap).enemies.len() as f32;
             if total > 0.0 { hit / total } else { 0.0 }
         }
         TacticalIntent::LastStand => {

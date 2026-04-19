@@ -1,304 +1,230 @@
 # Known Issues — AI subsystem
 
-Архитектурный аудит `src/combat/ai/` + `src/combat/effects_*.rs` (~9600 строк).
+Повторный аудит `src/combat/ai/` + `src/combat/effects_*.rs` (~10 300 строк).
 Дата: 2026-04-19.
 
-Разбит на 5 осей: архитектура, дублирование, сомнительные абстракции, прочие проблемы, странная логика.
+Разбит на 5 осей: архитектура, дублирование, сомнительные абстракции, прочие проблемы, странная логика. Ранее исправленные находки (1.1–1.4, 1.8–1.10, 2.1–2.2, 2.4–2.5, 2.7, 3.1, 4.1) вырезаны — смотрите git-историю.
 
-Статус-разметка: **✓ fixed** — исправлено в коммите, описание оставлено для контекста.
+**Статус-разметка:** **✓ fixed** — исправлено в текущем цикле; описание оставлено для контекста.
 
 ---
 
 ## 1. Архитектурные проблемы
 
-### 1.1. `UtilityContext` — god-struct со смешанными обязанностями ✓ fixed (086b522)
+### 1.1. `sanity_adjust_plans` смешивает penalties + bonus
 
-`utility/mod.rs:63-78` тащил через все слои 7 разнородных полей:
-- статические: `content`, `difficulty`
-- per-actor: `caster`, `abilities`
-- scoring-tuning: `crit_fail_effect`, `crit_fail_chance`
-- per-turn infra: `blocked_tiles`
-- `opponent_team` — не читался после построения snapshot (target'ы берутся через `snap.enemies_of(actor.team)`)
+`sanity.rs:147–156`, пункт 7 — мультипликативный **+10 % bonus** за «safer tile + useful cast». Остальные 6 проверок — штрафы. Если sanity — это «проверка на глупости», то bonus — логически принадлежит scoring-этажу, а не sanity-этажу. Границы размыты, и следующий «ещё один бонус» легко добавится сбоку, раздув sanity в ad-hoc mini-scorer.
 
-Результат — `#![allow(clippy::too_many_arguments)]` на каждом файле.
+### 1.2. `run_ai_turn` — всё ещё god-function
 
-**Исправлено:** `UtilityContext { world: AiWorld, actor: ActorCtx }` — world-scope и per-actor разделены; `opponent_team` удалён; `blocked_tiles` вынесен в явный параметр entry-point функций.
+`enemy_turn.rs:82–215` — 133 строки, 14 параметров (уже с двумя `SystemParam`-группировками `AiEnv`/`AiMessages`). Делает снапшот, maps, ctx, memory, зовёт `pick_action`, декомпозирует `AiDecision` в сообщения. `SystemParam`-bundling обошёл лимит Bevy, но само засилье параметров осталось.
 
-### 1.2. Двойная симуляция одного плана ✓ fixed (8809b9e)
-
-`generator.rs:71` → `replay(snap, actor, &plan.steps, ctx)` строил sim'ы при beam-search; каждое расширение клонило snapshot и гоняло `apply_step`.
-
-Затем `scorer.rs:201` в `compute_plan_factors` **снова** создавал `SimState::from_snapshot(snap, ...)` и повторно применял все шаги, чтобы получить pre-step позицию для `ScoredStep::from_plan_step`.
-
-Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth) лишних `clone + apply_step` на каждый тик.
-
-**Исправлено:** `TurnPlan.sim_snapshots: Vec<BattleSnapshot>` (runtime-only, `#[serde(skip)]`) — generator кэширует post-step snapshot при extend; scorer читает pre-step из кэша; `replay()` удалён.
-
-### 1.3. Intent factor max-агрегация vs. committed-prefix семантика ✓ superseded (b517b05)
-
-`scorer.rs:237-248` брал `intent_max = max(intent_score)` **по всем шагам плана**. Но `commit_plan` коммитит только первый (solo) или первые два (Move+Cast bundle). План с плохим шагом-1 и сильным шагом-3 получал высокий `intent` факторный сигнал, хотя шаг-3 никогда не выполнится.
-
-**Первый фикс (b2e2237):** gate — `intent_score` участвует в агрегации только при `idx < committed_step_count`. Решал патологию, но отсекал real signal от длинных approach-планов.
-
-**Superseded (b517b05):** переход на discounted sum. Intent аккумулируется по всем шагам с `step_weight = base^k`. Deep approach plans получают частичный signal (0.72 на depth 3), direct Cast даёт 1.0 — gradient вместо binary. Патология 1.3 решается через самой decay'ой — plохой глубокий Cast весит меньше commit'нутого, position/risk выбирают между plans с одинаковым первым шагом.
-
-### 1.4. `BattleSnapshot.active_unit` — почти неиспользуемое поле ✓ fixed (664eea8)
-
-Записывалось в `build_snapshot`, читалось только `active()` helper (который сам нигде не вызывался) и для `allies_of` фильтра «сам себя» в `influence.rs:135`.
-
-**Исправлено:** поле `active_unit` и метод `active()` удалены. `build_influence_maps` теперь принимает `active_entity: Entity` явным параметром. Тесты освободились от 18+ фиктивных `active_unit: ...` инициализаций.
-
-### 1.5. `sanity_adjust_plans` смешивает penalties + bonus
-
-`sanity.rs:146-155` пункт 7 — **multiplicative +10% bonus** за «safer tile + useful cast». Остальные 6 пунктов — штрафы. Если «sanity» — это проверка на глупости, то бонус там чужеродный; логически он принадлежит scoring-этажу.
-
-### 1.6. `run_ai_turn` — всё ещё god-function
-
-`enemy_turn.rs:82-217` — 136 строк, 14 параметров (уже с двумя `SystemParam` группировками). `AiEnv` и `AiMessages` только обошли лимит Bevy, но не решили само засилье.
-
-### 1.7. Drift sim ↔ real не закрыт
+### 1.3. Drift sim ↔ real не закрыт
 
 `docs/ai.md` сам признаёт:
-- drift #3 (rage-gain не моделируется в sim)
-- speed mid-plan не re-flow в pathing
+- **rage-gain не моделируется в sim** (real даёт +1 rage attacker/defender на damage — планировщик про это не знает).
+- **speed mid-plan не re-flow в pathing**: `UnitSnapshot.speed = base + status_bonus` сохраняет агрегат, но не базу. Статус, меняющий speed в step[k], не пересчитывает achievable tiles для step[k+1].
 
-Планировщик строит планы на предпосылке о статичном speed, но live pipeline может его менять.
+Оба дрифта описаны — не зафиксированы.
 
-### 1.8. `kill_max` и `focus_max` — параллельная патология с intent_max ✓ superseded (b517b05)
+### 1.4. Scoring прогонялся до 3 раз за один тик ✓ fixed
 
-`scorer.rs` агрегировал `kill_max` и `focus_max` как **max по всем Cast-шагам плана** без discount и без гейтинга по committed prefix.
+Было: `utility/mod.rs` звал полный `score_plans_with_raw` при viability fallback (стр. 210) и при LastStand-re-score (стр. 240) — каждый полный пересчёт factors per plan. Плюс `picker::mercy_cruelty` для каждого plan в mercy window звал `compute_plan_factors`, чтобы прочитать два числа (kill, cc), уже лежавшие в `raw_factors`.
 
-**Первый фикс (09659d5):** зеркально 1.3 — committed-prefix gate. Решал патологию, но отсекал real signal.
-
-**Superseded (b517b05):** вместе с 1.3 переход на discounted sum. `kill_sum` и `focus_sum` аккумулируют per-Cast с `step_weight = base^k`. Плюс неочевидное улучшение: plan убивающий 2-х врагов теперь scorится выше plan убивающего 1-го (max collapsing их equal); plan с двумя Cast'ами на priority targets опережает один Cast. Consistent с damage/cc/heal/scarcity — все Cast-факторы теперь аккумуляты.
-
-### 1.9. FocusTarget viability threshold не согласован с intent aggregation ✓ fixed (b517b05)
-
-После фикса 1.3 (gate era) `intent_score(FocusTarget, Move) = 0.0`. Committed Move-toward-focus давал intent_factor=0.0. Viability threshold для FocusTarget = **1.0** — план приближения к focus-цели всегда валился в viability fallback → `default_focus_target` переключался на другого врага.
-
-**Исправлено (b517b05):** с переходом на discounted sum (superseding 1.3/1.8), intent план approach'а с Cast@focus где-то в хвосте аккумулирует 0.72–1.0. Threshold снижен с 1.0 до **0.5** — approach-and-strike trajectory проходит viability, "no reachable focus at all" plans всё ещё попадают в fallback.
-
-### 1.10. Post-goal bump был произвольный `×0.5` ✓ fixed (ea38be5)
-
-В scorer'е был `POST_GOAL_DISCOUNT = 0.5`: когда шаг убивает текущую цель интента, **все** дальнейшие Cast-шаги получали дополнительный `×0.5` к step_weight — их damage/cc/heal/scarcity вклады халфились. Rationale в docs: "post-kill actions are bonuses, not peers of the goal step".
-
-Проблема: семантика "bonus" неопределена. `×0.5` — произвольная магия. Если план после убийства focus-цели продолжает полезные действия (heal союзника, CC другого врага) — эти действия **сами по себе** полезны. Их scoring не должен ни поощряться, ни штрафоваться фактом предшествующего kill'а.
-
-**Исправлено:** `POST_GOAL_DISCOUNT` удалён. step_weight теперь чисто геометрический (`base^k`), без post-goal bump'а. Intent aggregation **пропускает** шаги после goal (они ортогональны satisfied intent'у). Другие факторы scorят post-goal действия по их merit без лишнего множителя.
+**Исправлено:**
+- `factors::compute_factors` больше не принимает intent: `factor[7]` заполняется отдельно на plan-level.
+- `scorer` расщеплён: `compute_plan_factors_sans_intent` (intent-независимые агрегаты) + `compute_plan_intent_sum` (только intent column с `goal_achieved`-latching). `compute_plan_factors` оставлен как thin combinator.
+- Новый `rescore_with_intent(plans, raw: &mut [...], new_intent, …) -> Vec<f32>` переписывает только `raw[_][7]` и пропускает весь intent-независимый compute. Используется в viability fallback и LastStand.
+- `pick_best_plan` принимает `raw_factors`; `mercy_cruelty` читает `raw[1]`/`raw[2]` вместо recompute. Сигнатура похудела с 9 до 4 параметров.
+- Equivalence-тест `rescore_matches_full_score_under_same_intent` в `scorer.rs` пинает, что reuse пути = full recompute путь (на hard difficulty без noise).
 
 ---
 
 ## 2. Дублирование
 
-### 2.1. `build_reach` — 2 идентичных BFS (+ отдельная data-prep) ✓ fixed (51ce0bd)
+### 2.1. AoE filtering of hits — 7 копий ✓ fixed
 
-Исходный аудит насчитал «3 реализации», но `enemy_turn.rs:124-128` — это не BFS, а конструкция входного `HashSet<Hex>` для `blocked_tiles`. Реальная дупликация:
+Было: 7 независимых мест иteprировали `snap.units` и фильтровали по `area.contains(&pos)` — `offensive` (3 sub-вызова), `picker::record_committed_reservations`, `scarcity` (2×), `intent::SetupAOE`, `generator::is_valid_cast`. Плюс баг: `compute_aoe_damage` зовал `snap.allies_of(team)` (включает сам актор) и **затем** отдельно вычитал self-урон — кастера штрафовали дважды.
 
-- `generator.rs:432-459` — для sim внутри beam-search
-- `fallback.rs:77-100` — edge-case когда актор пропал
+**Исправлено:** добавлен `factors::aoe_hits(area, active, snap) -> AoeHits { enemies, allies, self_hit }` — один проход, чистое разделение. 7 сайтов переведены на helper; `compute_aoe_damage` стал thin-wrapper (`enemy_sum − splash_sum`, splash = allies ∪ self через `chain(hits.self_hit.then_some(active))`). Double-count бага нет by construction — regression-тест пришит в `factors/aoe_hits.rs`.
 
-Комментарий в `fallback.rs` прямо признавал: «duplicates but edge case». Две BFS-обёртки были байт-идентичны кроме источника `(actor, snapshot)` пары.
+### 2.2. Проходы по статусам — 3 раза
 
-**Исправлено:** `planning/reach.rs::reach_from(snap, actor, blocked_tiles)` — единственный helper. Обе копии удалены, generator и fallback зовут общий API. Defensive early-return на `sim.actor_unit() == None` был мёртвым (upstream caller filters), новая сигнатура требует `&UnitSnapshot` — невозможное состояние не выражается.
+`build_snapshot` делает два прохода по одному и тому же `StatusEffects`:
+- `compute_tags` (`snapshot.rs:385–397`) — флаги IS_STUNNED / FORCES_TARGETING.
+- `status_bonuses` (`snapshot.rs:411–428`) — speed/armor/damage_taken агрегаты.
 
-### 2.2. AoE area — 5 мест, одно самописное ✓ fixed (be9fe65)
+Плюс `refresh_status_aggregates` (`snapshot.rs:113–121`) в sim mid-plan. Три прохода по одному списку с пересекающимися выборками полей.
 
-Канонический `effects_math::aoe_cells` + `factors/offensive::aoe_area` (HashSet-wrapper) используются в scoring, picker, intent, generator.
+### 2.3. Test-helper `ctx`-builder — 3 копии
 
-А `sanity.rs:240-246` (`plan_has_self_aoe`) **переопределял** геометрию: ручной `hex_circle` / `hex_line`, минуя общий `aoe_cells`. Добавление `AoEShape::Cone` молча обошло бы self-AoE проверку.
+- `generator.rs:612–628` — `make_ctx`.
+- `scorer.rs:389–405` — `test_ctx`.
+- `scarcity.rs:186–201` — `scarcity_ctx`.
 
-**Исправлено:** `plan_has_self_aoe` перведён на `aoe_area`. Dead импорты `hex_circle`/`hex_line` удалены. Regression-тест пришит.
+Все три собирают одинаковый `UtilityContext { world: AiWorld { content, difficulty }, actor: ActorCtx { caster, abilities, crit_fail_effect: Miss, crit_fail_chance: 0.0 } }`. Добавим 4-й sub-ctx — три синхронные правки.
 
-### 2.3. AoE filtering of hits — 4 копии
+Вынос в `#[cfg(test)] pub(crate) mod test_helpers` внутри `ai/` решает.
 
-`compute_affected_targets<TargetState>` в `effects_state.rs` — канон. Но:
-- `offensive::compute_aoe_damage` (line 82-110)
-- `offensive::compute_offensive` (AoE ветка line 53-69)
-- `picker::record_committed_reservations` (line 232-238)
-- `sanity`, `scarcity`
+### 2.4. `worst_path_danger` дублирует `path_danger_max` scorer'а
 
-Везде самописное `snap.enemies_of(team).filter(|e| area.contains(&e.pos))`. Friendly-fire семантика реализована неполно (в scoring — только сам actor, в канонической — и allies).
-
-### 2.4. `killability` — две копии ✓ fixed (664eea8)
-
-- `target_priority.rs:36`: `1 - eff_hp/eff_max` inline
-- `generator.rs:421-427`: идентичная private fn
-
-**Исправлено:** добавлен метод `UnitSnapshot::killability(&self) -> f32` с zero-eff-max guard. Оба call site'а переведены на метод, приватная fn удалена.
-
-### 2.5. «Can afford» — три копии ✓ fixed (2ad7c97)
-
-- `generator::can_afford` (AP+ресурсы, UnitSnapshot)
-- `snapshot::compute_tags` (inline по Bevy query, line 313-321)
-- `scarcity::compute_scarcity` (resource_ratio по тем же полям, line 37-52)
-
-Все три читали `match resource {Hp|Mana|Rage|Energy}` одинаково.
-
-**Исправлено:** введён low-level `pool_amount(kind, hp, mana, rage, energy)` в `snapshot.rs`; на `UnitSnapshot` добавлены методы `resource_amount(kind)` и `can_afford(def)`. Все три call site'а пустили через общий helper — match на ResourceKind живёт в одной функции.
-
-### 2.6. Проходы по статусам — три
-
-В `build_snapshot` отдельно `compute_tags`, отдельно `status_bonuses` (`snapshot.rs:373-389`), плюс `refresh_status_aggregates` (`snapshot.rs:115-123`) в sim. Три прохода по `StatusEffects` на одном юните с пересекающимися полями.
-
-### 2.7. `score_plans` — мёртвая обёртка ✓ fixed (664eea8)
-
-`scorer.rs:48-59` — `score_plans(...) { score_plans_with_raw(...).0 }`. Единственный вызов `pick_action` идёт в `_with_raw`. Обёртка была только в `pub use`.
-
-**Исправлено:** fn удалена, pub use обновлён, doc-refs в difficulty.rs и sanity.rs перенаправлены на `score_plans_with_raw`.
+`sanity.rs:209–225` считает максимум danger по `start → plan.final_pos`. scorer.rs:211–236 уже посчитал ровно это же значение внутри `compute_plan_factors`. sanity зовётся **после** scoring на тех же планах; доступа к scorer-локалу нет, поэтому считается второй раз. Можно вернуть `path_danger_max` из scorer'а (через faktор `risk` в обратную сторону или отдельным каналом) и передать в sanity.
 
 ---
 
 ## 3. Сомнительные абстракции
 
-### 3.1. Bundling-логика размазана по трём местам ✓ fixed (0bc399a)
+### 3.1. `PickMechanics` протаскивается через весь pick API
 
-Правила committed-prefix (`[Cast,..]→1 step`, `[Move,Cast,..]→2 steps`, `[Move,..]→1 step`) жили в трёх параллельных pattern-match'ах:
+`picker.rs:8–16` + возврат `(usize, PickMechanics)` из `pick_best_plan`. `PickMechanics` нужен **только** для debug overlay (`debug.rs:474, 510–532`). В production-пути это неиспользуемая allocation-чересчур структура.
 
-- `picker::commit_plan` (`picker.rs:45-83`) — конструировал `AiDecision`.
-- `ScoredStep::from_plan_committed` (`factors/mod.rs:104-126`) — строил single-step view для debug и `default_focus_target`.
-- `TurnPlan::committed_step_count` (`types.rs`, добавлено фиксом 1.3) — возвращал число закоммиченных шагов для scorer-gating.
+Расщепить: `pick_best_plan` возвращает index; `pick_best_plan_with_mechanics` — index + mechanics для debug. В utility/mod.rs звать второй вариант при `debug=true`, первый иначе.
 
-Все три руками повторяли одни и те же match-arms. При добавлении нового варианта бандлинга — три синхронные правки, drift гарантирован если хоть одну забыть.
+### 3.2. `DiceSource::roll_crit_fail` + `CritFailEffect::Miss` — deadweight в sim-пути
 
-**Исправлено:** введён `CommittedPrefix<'a>` enum (`types.rs`) с 4 вариантами + `TurnPlan::committed_prefix()`. Все три потребителя матчат на enum'е; новый вариант бандлинга — один arm в enum + compile-error укажет три места где нужно дописать. Edge cases (empty path → EndTurn/CastInPlace) остались слоем над prefix в `commit_plan`, не протекли в общий контракт.
+`sim.rs:143–151` явно передаёт `crit_fail_die = 20`, `effect = CritFailEffect::Miss`, рядом комментарий: «ignored in practice». `ExpectedValue::roll_crit_fail` хардкодит `false`. То есть sim **никогда** не читает ни die, ни effect. Три параметра существуют только ради симметрии с real backend.
 
-### 3.2. `PickMechanics` протаскивается через all pick API
+Знак того, что `DiceSource` — не та абстракция: реальный водораздел между backends — «вероятностный vs. MAP-estimate», а не «источник случайности». Можно сузить trait до `roll_dice` и вынести crit-fail через отдельный entry point real-backend'а.
 
-`picker.rs:8-16` + возврат `(usize, PickMechanics)` — но `PickMechanics` используется только для debug overlay. Для реального pick'а это ненужный груз. Лучше две функции: `pick_best_plan` возвращающая index, и `pick_best_plan_with_mechanics` для debug.
+### 3.3. `empty_blocked_tiles() -> &'static HashSet<Hex>` через `OnceLock` ✓ fixed
 
-### 3.3. `DiceSource::roll_crit_fail` + `CritFailEffect::Miss` — deadweight в sim-пути
+`utility/mod.rs:103–108` хранил `&'static HashSet` через `OnceLock` только ради тестов, которые не хотели материализовать пустой сет. Helper удалён; 5 тестов в `generator.rs` теперь создают локальный `HashSet::<Hex>::new()` перед вызовом — на строку длиннее, без `OnceLock` костыля.
 
-`sim.rs:143-151` явно передаёт `crit_fail_die = 20`, `effect = CritFailEffect::Miss`, и тут же комментарий: «ignored in practice». Это симптом того, что абстракция `DiceSource` не совсем та, что нужна — реальный водораздел «вероятностный/MAP», а не «источник случайности».
+### 3.4. `AiDecision::MoveCloser` vs. `MoveOnlyRetreat`
 
-### 3.4. `empty_blocked_tiles() -> &'static HashSet` через `OnceLock` — костыль
+Два варианта с одинаковым payload (`{ path: Vec<Hex> }`). Обработка в `enemy_turn.rs:205` — один `|`-pattern. Различие только семантическое:
+- `MoveOnlyRetreat` — из `commit_plan` (best plan-move).
+- `MoveCloser` — из `fallback_move` (планов нет).
 
-`utility/mod.rs:82-87` — чтобы тесты могли построить ctx. Запах: signature `blocked_tiles: &HashSet<Hex>` слишком жёсткая. Стоило бы `Cow<HashSet<Hex>>` или `Option<&HashSet<Hex>>` (None = empty).
+Различие нужно только для лейбла в debug/log (`log.rs:161–162`, `debug.rs:609–614`). Можно оставить одну enum variant с `origin: MoveOrigin` полем (enum { BestPlan, Fallback }) — семантика сохранена, арм'ы сливаются.
 
-### 3.5. `AiDecision::MoveCloser` vs. `MoveOnlyRetreat`
+### 3.5. `CritFail` enum + `mana_overload: bool` + `primary: None` — тройное кодирование одного события ✓ fixed
 
-Два варианта с одинаковым payload и одинаковой обработкой (`enemy_turn.rs:207-212` — `|` pattern). Различие только семантическое (retreat vs approach) — используется в debug-строке. Семантика теряется сразу после commit'а. Слить.
+Было: `crit_fail: Option<CritFail>` + `mana_overload: bool` + неявный invariant «crit_fail.is_some() ⇒ primary == None». Невалидные комбо вроде `Some(Miss) + mana_overload: true` были типово выразимы.
 
-### 3.6. `CritFail` enum + `mana_overload: bool` + `primary: None` — тройное кодирование одного события
+**Исправлено:** коллапс в один `CritOutcome { None, Miss, SelfStatus, SelfDamage, ManaOverload }` с методами `skips_primary()` / `is_mana_overload()`. Компилятор теперь гарантирует, что «crit случился в ManaOverload» и «crit skipped primary» — взаимоисключающие состояния. `map_crit_fail` напрямую эмитит варианты (в том числе graceful-fallback `ManaOverload → Miss` при zero-mana-cost). `resolution.rs` match'ит на одном enum'е с exhaustive-арми; `AbilityOutcome` лишилось одного поля.
 
-`effects_outcome.rs:71-88`: `crit_fail: Option<CritFail>`, `mana_overload: bool`, и при crit-fail `primary` принудительно None. Три флага кодируют один факт; легко создать невозможные комбинации.
+### 3.6. `plan_summon_bonus` — post-normalization additive hack
 
-### 3.7. `plan_summon_bonus` — post-normalization additive-hack
-
-`scorer.rs:127` подмешивает `summon_bonus` **после** `dot(weights, normalized_factors)`. Каждый следующий «особый бонус» будет так же bolted-on сбоку. Этой абстракции нет имени — неявный 10-й фактор.
+`scorer.rs:125, 141–179`. После `dot(weights, normalized_factors)` подмешивается `summon_bonus` в HP-эквиваленте. Неявный 10-й factor без места в `NUM_FACTORS`, без нормализации, без role-weights. Каждый следующий «особый бонус» будет так же bolted-on сбоку. Абстракции, которая принимает «factor who doesn't fit 9-factor tensor» — пока нет.
 
 ---
 
 ## 4. Другие архитектурные проблемы
 
-### 4.1. Debug-снапшот re-вычисляет факторы, но в другой семантике ✓ fixed (9135940)
+### 4.1. `reservations` — global mutable state, mutation в одном pass со scoring
 
-`debug.rs:485-509` re-запускал `compute_factors(&ScoredStep::from_plan_committed, ...)` per top-5 — это давало **per-single-step** числа, тогда как `raw_factors` из scoring — plan-aggregate (discounted sum).
+`pick_action` читает reservations внутри factor-adjustments (`adjustments.rs:22–40`), затем после commit'а пишет (`record_committed_reservations`). Работает только в single-threaded Bevy system; не годится для параллельного выполнения AI-тиков разных юнитов. При переходе на async/parallel AI каждый тик должен взять snapshot reservations при старте и закоммитить дельту в конце.
 
-В дебаге и в JSONL-логе одинаково звались «factors», а числа были разные. Смысловой сдвиг скрыт.
+### 4.2. `memory` copy-out / copy-in каждый тик ✓ fixed
 
-**Исправлено:** `build_debug_snapshot` теперь принимает `raw_factors: &[[f32; NUM_FACTORS]]` параметром — те же plan-aggregate значения, что уходят в log. Нет recompute'а, нет drift'а.
+Было: `std::mem::take(&mut *m)` + write-back `*mem = memory;` на выходе. Исправлено: прямой `Mut<AiMemory>::into_inner()` → `&mut AiMemory`, пробрасываемый в `pick_action`. Актору без компонента даётся короткоживущий локальный default (мутации отбрасываются, как и раньше в else-ветке write-back'а).
 
-### 4.2. `reservations` — global mutable state, mutation в одном pass со scoring
+### 4.3. Hard thresholds в `select_intent` vs. `difficulty.rs`
 
-`pick_action` читает reservations внутри factor-adjustments (`adjustments.rs:22-38`), затем после commit'а пишет (`record_committed_reservations`). Работает только в single-threaded Bevy system; не годится для параллельного выполнения AI-тиков разных юнитов.
+Рядом в intent selection живут:
+- `intent.rs:162` — hard-coded `hp_pct < 0.4` для ProtectSelf.
+- `snapshot.rs:334` — hard-coded `hp_pct < 0.3` для `LOW_HP` tag.
 
-### 4.3. `memory` copy-out / copy-in каждый тик
+Но survival/panic thresholds уже живут в `difficulty.survival_hp_threshold()` / `awareness_danger_threshold()`. Смешение difficulty-driven и магических констант в одном модуле — тяжёлый случай drift'а при балансе.
 
-`enemy_turn.rs:167-170`: `std::mem::take(&mut *m)` выхватывает всю `AiMemory`, потом `*mem = memory;` заливает обратно. Лишняя копия — ссылки из `memories.get_mut(actor)` хватило бы, если сигнатура `pick_action` приняла бы `&mut AiMemory`.
+### 4.4. `default_focus_target` крутится через «plans → committed step targets»
 
-### 4.4. Hard thresholds в `select_intent`
+`intent.rs:344–371`: множество «достижимых target'ов» выводится как
+```rust
+plans.iter().filter_map(|p| ScoredStep::from_plan_committed(p, actor_pos).target())
+```
 
-- `intent.rs:162` (`hp_pct < 0.4`)
-- `snapshot.rs:290` (`hp_pct < 0.3` для LOW_HP)
+То есть «какие враги достижимы» выводится косвенно через планировщик — при условии, что он породил хоть один план на каждый живой target. Прямее: `enemies_of.filter(|e| reach_budget >= dist)`. Текущая форма скрывает зависимость от output'а beam-search'а внутри intent.rs.
 
-Рядом с `difficulty.survival_hp_threshold()` — смешение difficulty-driven и hard-coded порогов в одном модуле.
+### 4.5. AoO damage formula дублирован в 2 местах ✓ fixed
 
-### 4.5. `default_focus_target` крутится через «plans → committed step targets»
+Было: `(raw − armor + vuln).max(1)` инлайнится в `movement.rs:195` (real pipeline) и `sanity.rs:202` (plan-level penalty). Канонический `effects_math::final_damage_{i32,f32}` уже был, но зовёт его только `sim.rs`.
 
-`intent.rs:344-348`: множество «reachable targets» — это `plans.iter().map(|p| ScoredStep::from_plan_committed(p).target())`. То есть «какие враги достижимы» выводится косвенно через планировщик.
+**Исправлено:** оба call-site'а переведены на `final_damage_{i32,f32}(raw, armor, vuln, /* pierces_armor */ false)`. `snapshot::build_snapshot` (хранит pre-mitigation raw) не трогали — это upstream-data, не дублирующая формула.
 
-Прямее было бы: `enemies_of.filter(|e| reach_budget >= dist)`. Сейчас `default_focus_target` полагается на то, что планировщик породил хоть один план на каждый живой target.
+### 4.6. `raw_factors[p][7]` — хардкод индекса фактора ✓ fixed
 
-### 4.6. AoO handling дублирован в двух слоях
-
-- `sanity::expected_aoo_damage` (plan-level penalty)
-- `snapshot::build_snapshot` (aoo_expected_damage на UnitSnapshot как источник)
-
-Расчёт `net = raw - armor + vuln` — только в sanity. А live pipeline `movement.rs` (упомянут в комменте) — третий источник. 3 места, легко рассинхронизировать.
-
-### 4.7. `enemies_of` / `allies_of` hardcoded на 2-team
-
-`snapshot.rs:264-275` — match на `Team::Player/Enemy`. Не масштабируется. Возможно, сознательный дизайн — стоит зафиксировать enum exhaustive.
+Было: магические индексы `[7]` (intent), `[1]`/`[2]` (kill/cc), `weights[8]` (scarcity) раскиданы по scorer / picker / utility. **Исправлено:** в `factors/mod.rs` добавлены `DAMAGE_IDX … SCARCITY_IDX` рядом с `SIGNED_FACTOR`. Все **reader**-сайты переведены на именованные константы; оставлен литерал только в одном месте — финальной return-строке `compute_plan_factors_sans_intent`, которая **объявляет** layout.
 
 ---
 
 ## 5. Странная логика
 
-### 5.1. `picker::pick_best_plan` — sample через `rng.roll_d(len).saturating_sub(1)`
+### 5.1. `picker::pick_best_plan` — sample через `rng.roll_d(len).saturating_sub(1)` ✓ fixed
 
-`picker.rs:184`. `roll_d` семантика — 1..=N, вычли 1 → 0-based. Если `pool.len() == 0`, `saturating_sub(1) = 0`, а `pool[0]` panic-unsafe (хотя есть `pool.is_empty()` guard выше). Стиль fragile — идиоматичнее `rng.gen_range(0..pool.len())`.
+`saturating_sub(1)` был защитой от невозможного случая (`roll_d` возвращает `1..=N`, не ноль — с guard'ом `pool.is_empty()` выше). Заменено на прямое `(rng.roll_d(pool.len() as u32) - 1) as usize`, precondition вынесен в комментарий. `if pool.len() == 1 { 0 }` специальная ветка тоже ушла — `roll_d(1)` детерминированно возвращает 1, поэтому общий путь корректен для всех `len ≥ 1`.
 
 ### 5.2. `plan_is_defensive` — empty plan = defensive by default
 
-`sanity.rs:295`: `let Some(first) = plan.steps.first() else { return true };`. Под `ProtectSelf` это означает, что «ничего не делать» всегда считается защитной опцией. Но если актор стоит в high-danger тайле, empty plan = самоубийство. Логика справедлива только для low-danger позиций.
+`sanity.rs:292`: `let Some(first) = plan.steps.first() else { return true };`. Под ProtectSelf это означает, что «ничего не делать» **всегда** считается защитной опцией. Но если актор стоит в high-danger тайле, empty plan = самоубийство. Справедливо только для low-danger позиций.
 
 ### 5.3. `score_action` для `Heal` возвращает HP-equivalent через `target.threat`
 
-`scoring.rs:42-43`: `delta_pct × target.threat`. Т.е. «хилнуть союзника» оценивается как «сколько его damage output мы спасли». Но `threat` — это max-ST-damage (см. `estimate_st_damage`), не per-round DPR. За 1 round unit атакует может 1–2 раза. Скейлинг «HP-equiv» натянут.
+`scoring.rs:42–43`: `delta_pct × target.threat`. Т.е. «хилнуть союзника» оценивается как «сколько его damage output мы спасли». Но `threat` — это max-ST-damage (см. `estimate_st_damage`), не per-round DPR. За 1 round юнит атакует 1–2 раза. Скейлинг «HP-equiv via threat» натянут; HP-equiv через «сколько рантов он ещё продержится» был бы корректнее.
 
-### 5.4. `focus_max` для empty-plan — специальный hack
+### 5.4. `focus_sum` empty-plan spec-case
 
-`scorer.rs:301-307`. Симптом: factor-aggregation плохо определена для «do nothing»; приходится городить исключение.
+`scorer.rs:303–310`. «Для пустого плана подменяем focus_sum = max(target_priority по всем enemies)», чтобы «ничего не делать» не зарэнкалось с focus=0. Симптом: factor-aggregation плохо определена для «do nothing». Move-only планы (`Move` не вносит в focus_sum ничего) тоже получают focus=0 — но на них этот хак не распространяется. Асимметрия внутри одного and the same «aggregation не покрывает случай».
 
-### 5.5. Taunt-check — full O(n) сканинг на каждый cast-кандидат
+### 5.5. Taunt-check — full O(n) скан на каждый Cast-кандидат ✓ fixed
 
-`generator.rs:302-316`: для каждой ability × каждая цель сканирует `sim.snapshot.enemies_of(actor.team)` в поисках FORCES_TARGETING. Это можно 1 раз вынести наружу цикла `enumerate_next_steps`. Сейчас — квадратично по targets × abilities.
+Было: `is_valid_cast` на каждый (ability × target) сканировал `snapshot.enemies_of(team)` в поисках `FORCES_TARGETING`. **Исправлено:** сканер поднят на уровень `enumerate_next_steps` (один проход в начале функции → `taunter: Option<Entity>`). `is_valid_cast` принимает параметр и делает O(1) сравнение `target != taunter`. Квадратика превратилась в линейную.
 
-### 5.6. `overkill_damage_multiplier` обнуляет kill вместе с уменьшением damage
+### 5.6. `overkill_damage_multiplier` обнуляет kill вместе с уменьшением damage ✓ fixed
 
-`adjustments.rs:27-29`: `off.damage *= mult; off.kill = 0.0`. Damage-multiplier — «residual мультипликатор», kill — бинарное «убьёт ли».
+Было: `off.damage *= mult; off.kill = 0.0;` — kill абсолютный ноль, damage через мультипликатор. На hard (`mult≈0.15`) план «добиваем уже-мёртвого» сохранял 15 % damage-signal, в damage-dominant батчах оставался конкурентным.
 
-Если reservations достаточно убивают цель, **наш ход не kill** — правильно обнулить. Но на hard-difficulty multiplier = 0.3, damage падает до 30%, kill → 0, а на самом деле нас-то кто-то должен добить. Агрессивно.
+**Исправлено:** мультипликатор применяется к **обоим** сигналам — `off.damage *= mult; off.kill *= mult;`. Одна difficulty-ручка, один consistent эффект: easy AI всё ещё иногда оверкилит (mult≈0.72 сохраняет signal), hard AI почти никогда (floor 0.15). Метод переименован `overkill_damage_multiplier` → `overkill_multiplier` (имя соответствует scope'у). Regression-тест `overkill_scales_damage_and_kill_uniformly`.
 
-### 5.7. `infer_profile` Tank-floor всегда ≥ 0.3
+### 5.7. `apply_reservation_adjustments` — `position *= 0.5` на SIGNED факторе ✓ fixed
 
-`role.rs:190-191`: `p.tank += (eff_hp / 20.0).clamp(0.3, 2.0)` — **всегда** добавляется минимум 0.3, независимо от tank-абилок. У 12 HP glass-cannon голый `eff_hp/20 = 0.6 → tank += 0.6`. Это искажает профиль: любой юнит обычных 15–20 HP уже получит ~1.0 tank-веса, которого нет в его kit-диагностике.
+Было: `if reservations.is_tile_reserved(tile) { *position *= 0.5; }`. `position` — signed factor (`SIGNED_FACTOR[4] = true`), так что `*= 0.5` правильно штрафовал только при `position > 0`. При `position < 0` амплитуда уменьшалась — tile с плохой оценкой, зарезервированный союзником, выглядел **лучше**, чем без резервации.
 
-### 5.8. Test-helper `make_ctx` дублирован
+**Исправлено:** subtractive penalty `*position -= RESERVED_TILE_PENALTY` (0.5, совпадает по величине со старым мультипликативом при `position ≈ 1.0`). Корректно толкает вниз при любом знаке. Regression-тест пришит: `reserved_tile_penalises_both_signs` в `factors/adjustments.rs`.
 
-`generator.rs:677-693` и `picker.rs:347-362` определяют почти идентичный `make_ctx` для построения `UtilityContext` в тестах. Оба строят `AiWorld { content, difficulty }` + `ActorCtx { caster, abilities, crit_fail_effect: Miss, crit_fail_chance: 0.0 }`. Различия только в cosmetic окружении (какие тесты импортируют что).
+### 5.8. `infer_profile` Tank-floor всегда ≥ 0.3
 
-Если добавить третий суб-ctx (например, `TurnInfra`), три копии надо править синхронно. Стоит вынести в `#[cfg(test)] pub(crate) mod test_helpers` под `ai/`.
+`role.rs:190–191`: `p.tank += (eff_hp / 20.0).clamp(0.3, 2.0)` — **всегда** добавляется минимум 0.3 независимо от tank-абилок. 12 HP glass-cannon голый `eff_hp/20 = 0.6 → tank += 0.6`. Это искажает профиль: любой юнит обычных 15–20 HP уже получит ~1.0 tank-веса, которого нет в его kit-диагностике. Проявляется в тестах (`infer_molnienosets_is_melee_assassin`) — mix[0] «<0.25 tank for glass cannon» держится, но только благодаря bias^1.5.
 
-### 5.9. `TurnPlan.sim_snapshots` инвариант только под debug_assert
+### 5.9. `TurnPlan.sim_snapshots` инвариант только под `debug_assert_eq!` ✓ fixed
 
-После фикса 1.2: scorer читает `plan.sim_snapshots[idx - 1]` с предположением `sim_snapshots.len() == steps.len()`. Generator держит этот инвариант (push на каждый apply_step), но `#[serde(skip)]` означает, что десериализованный `TurnPlan` приходит с **пустым** `sim_snapshots` — если scorer когда-нибудь будет вызван на таком плане, в release-сборке будет index out of bounds.
+Было: scorer читал `plan.sim_snapshots[idx − 1]` с hard-assumption `len == steps.len()`. `#[serde(skip)]` ронял вектор при round-trip'е → любой caller на десериализованном плане (replay-tool, будущий editor) получил бы OOB panic в release.
 
-Сегодня безопасно: `replay_ai_log` (единственный call-site десериализации) считает факторы вручную, scorer не зовёт. Но ловушка ждёт.
-
-Подход к фиксу: либо сериализовать sim_snapshots (раздует лог), либо убрать инвариант (fallback к `snap` на миссе), либо typestate (`ScoredPlan` vs. `DeserializedPlan`).
+**Исправлено:** shape-invariant расширен на «generator-filled **или** empty», закодирован в doc'е `TurnPlan::sim_snapshots`. Добавлен `TurnPlan::pre_step_snapshot(idx, initial)` — safe accessor, fall-back'ит на `initial` и при `idx == 0`, и при пустом векторе. Оба scorer loop'а (sans_intent + intent_sum) переведены на него; `debug_assert_eq!` смягчён до `is_empty() || len == steps.len()`. Factors на десериализованном плане чуть устаревают (все шаги видят initial snapshot), но **не крашатся** — guarantee «safe, not accurate». Regression-тест `scorer_tolerates_empty_sim_snapshots_from_deserialized_plan`.
 
 ---
 
 ## Приоритет фиксов
 
-| Находка | Влияние | Риск фикса | Статус |
-|---|---|---|---|
-| 1.1 `UtilityContext` god-struct | читабельность, dead field | низкий | ✓ 086b522 |
-| 1.2 Двойная симуляция в generator+scorer | CPU, O(plans·depth) лишних clone | средний | ✓ 8809b9e |
-| 1.3 Intent max-over-steps vs. committed-prefix | корректность скоринга | средний | ✓ b517b05 (superseded gate@b2e2237) |
-| 1.8 `kill_max`/`focus_max` — параллельная 1.3 патология | корректность скоринга | средний | ✓ b517b05 (superseded gate@09659d5) |
-| 1.9 FocusTarget viability threshold не согласован | viability fallback loop | низкий | ✓ b517b05 |
-| 1.10 post-goal произвольный `×0.5` bump | семантика scoring | низкий | ✓ ea38be5 |
-| 2.1 `build_reach` × 2 | DRY | низкий | ✓ 51ce0bd |
-| 2.2 `plan_has_self_aoe` своя геометрия AoE | drift-bug waiting | низкий | ✓ be9fe65 |
-| 2.3 AoE hits filtering × 4 | friendly-fire drift | средний | — |
-| 3.1 Bundling rules × 3 мест (усугубилось после 1.3) | drift bundling | низкий | ✓ 0bc399a |
-| 2.4 `killability` × 2 | trivial DRY | низкий | ✓ 664eea8 |
-| 2.5 «Can afford» × 3 | DRY | низкий | ✓ 2ad7c97 |
-| 2.7 `score_plans` dead wrapper | dead code | низкий | ✓ 664eea8 |
-| 1.4 `active_unit` почти dead field | trivial DRY | низкий | ✓ 664eea8 |
-| 3.6 `CritFail` + `mana_overload` + `primary=None` | type safety | средний | — |
-| 4.1 Debug vs log «factors» имеют разную семантику | аналитика вводит в заблуждение | низкий | ✓ 9135940 |
-| 5.7 Tank-floor в `infer_profile` всегда ≥ 0.3 | role mis-inference | средний | — |
-| 5.9 sim_snapshots инвариант только debug_assert | release-build crash если scorer зовут на десериализованном | низкий | — |
+| Находка | Влияние | Риск фикса |
+|---|---|---|
+| 1.4 Scoring прогонялся до 3× | CPU, худший случай | средний | ✓ fixed |
+| 2.1 AoE hits filtering × 7 + self double-count | friendly-fire drift | средний | ✓ fixed |
+| 4.5 AoO формула дубль в movement + sanity | drift формулы | низкий | ✓ fixed |
+| 5.7 `position *= 0.5` на signed факторе | корректность скоринга | низкий | ✓ fixed |
+| 5.6 overkill mult теперь симметричен по damage/kill | аггрессивность hard AI | низкий | ✓ fixed |
+| 3.5 CritFail + mana_overload + primary=None → одна enum | type safety | средний | ✓ fixed |
+| 3.6 `plan_summon_bonus` post-norm hack | расширяемость | средний |
+| 5.8 Tank-floor ≥ 0.3 в `infer_profile` | role mis-inference | низкий |
+| 5.9 sim_snapshots инвариант только debug_assert | release-crash на deser | низкий | ✓ fixed |
+| 2.2 Status passes × 3 | perf + DRY | низкий |
+| 2.3 Test-helper ctx × 3 | test DRY | тривиальный |
+| 2.4 `worst_path_danger` дубль | DRY | низкий |
+| 3.1 `PickMechanics` через production-путь | layering | низкий |
+| 3.2 `DiceSource::roll_crit_fail` deadweight | API hygiene | низкий |
+| 3.3 `empty_blocked_tiles` OnceLock | test-only хак | тривиальный | ✓ fixed |
+| 3.4 `MoveCloser` vs `MoveOnlyRetreat` | enum hygiene | тривиальный |
+| 4.1 `reservations` global mut | future concurrency | средний |
+| 4.2 `memory` copy-out/in | perf | тривиальный | ✓ fixed |
+| 4.3 Hard thresholds в `select_intent` | balance drift | низкий |
+| 4.4 `default_focus_target` через plans | layering | низкий |
+| 4.6 `raw_factors[_][7]` magic index | brittleness | тривиальный | ✓ fixed |
+| 5.1 `rng.roll_d.saturating_sub(1)` | fragility | тривиальный | ✓ fixed |
+| 5.2 `plan_is_defensive` пустой plan = defensive | corner-case | низкий |
+| 5.3 `score_action` Heal via threat | scoring semantics | средний |
+| 5.4 `focus_sum` empty-plan spec-case | scoring уродство | низкий |
+| 5.5 Taunt-check O(n) per Cast | perf | тривиальный | ✓ fixed |
+| 1.1 sanity штрафы + bonus | разделение зон | низкий |
+| 1.2 `run_ai_turn` god-function | читабельность | средний |
+| 1.3 Drift sim ↔ real (rage, speed) | корректность sim | средний |

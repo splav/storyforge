@@ -3,6 +3,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use super::adjustments::crit_fail_adjusted;
+use super::aoe_hits::{aoe_hits, AoeHits};
 use super::OffensiveFactors;
 use crate::combat::ai::scoring::score_action;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -52,17 +53,15 @@ pub(super) fn compute_offensive(
         (damage, heal, kill, cc)
     } else {
         let area = aoe_area(def, target_pos, caster_tile);
-        let damage = compute_aoe_damage(def, &area, active, ctx, snap);
-        let hit_enemies: Vec<&UnitSnapshot> = snap
-            .enemies_of(active.team)
-            .filter(|e| area.contains(&e.pos))
-            .collect();
-        let kill = if hit_enemies.iter().any(|e| single_target_kill(def, e, ctx) > 0.0) {
+        let hits = aoe_hits(&area, active, snap);
+        let damage = compute_aoe_damage(def, &hits, active, ctx);
+        let kill = if hits.enemies.iter().any(|e| single_target_kill(def, e, ctx) > 0.0) {
             1.0
         } else {
             0.0
         };
-        let cc: f32 = hit_enemies
+        let cc: f32 = hits
+            .enemies
             .iter()
             .map(|e| status_cc_value(def, e.threat, ctx))
             .sum();
@@ -79,34 +78,47 @@ pub fn aoe_area(def: &AbilityDef, target_pos: Hex, caster_tile: Hex) -> HashSet<
     aoe_cells(def.aoe, caster_tile, target_pos).into_iter().collect()
 }
 
+/// `raw × (1 + raw/max_hp)` — punishes plans that chunk a non-enemy's HP%
+/// harder, so a fireball on a full-HP ally is worse than on a nicked one.
+fn friendly_fire_penalty(def: &AbilityDef, u: &UnitSnapshot, ctx: &UtilityContext) -> f32 {
+    let raw = score_action(def, u, ctx.actor.caster, ctx.world.content).abs();
+    raw * (1.0 + raw / u.max_hp.max(1) as f32)
+}
+
+/// Net AoE damage = enemies hit minus friendly-fire splash, crit-fail-adjusted.
+///
+/// `hits.allies` excludes the actor — `self_hit` carries it separately — so
+/// chaining the two iterators penalises the caster at most once even when
+/// they stand in their own blast. Before this consolidation, iterating
+/// `allies_of(team)` (which includes self) plus an explicit self-branch
+/// subtracted self-damage twice.
 fn compute_aoe_damage(
     def: &AbilityDef,
-    area: &HashSet<Hex>,
+    hits: &AoeHits,
     active: &UnitSnapshot,
     ctx: &UtilityContext,
-    snap: &BattleSnapshot,
 ) -> f32 {
-    let mut damage = 0.0f32;
-    for enemy in snap.enemies_of(active.team) {
-        if area.contains(&enemy.pos) {
-            damage += score_action(def, enemy, ctx.actor.caster, ctx.world.content);
-        }
-    }
-    if def.friendly_fire {
-        for ally in snap.allies_of(active.team) {
-            if area.contains(&ally.pos) {
-                let raw = score_action(def, ally, ctx.actor.caster, ctx.world.content).abs();
-                let hp_fraction = raw / ally.max_hp.max(1) as f32;
-                damage -= raw * (1.0 + hp_fraction);
-            }
-        }
-        if area.contains(&active.pos) {
-            let raw = score_action(def, active, ctx.actor.caster, ctx.world.content).abs();
-            let hp_fraction = raw / active.max_hp.max(1) as f32;
-            damage -= raw * (1.0 + hp_fraction);
-        }
-    }
-    crit_fail_adjusted(damage, def, &ctx.actor.crit_fail_effect, ctx.actor.crit_fail_chance)
+    let enemy_damage: f32 = hits
+        .enemies
+        .iter()
+        .map(|e| score_action(def, e, ctx.actor.caster, ctx.world.content))
+        .sum();
+    let splash: f32 = if def.friendly_fire {
+        hits.allies
+            .iter()
+            .copied()
+            .chain(hits.self_hit.then_some(active))
+            .map(|u| friendly_fire_penalty(def, u, ctx))
+            .sum()
+    } else {
+        0.0
+    };
+    crit_fail_adjusted(
+        enemy_damage - splash,
+        def,
+        &ctx.actor.crit_fail_effect,
+        ctx.actor.crit_fail_chance,
+    )
 }
 
 /// Does `def`'s expected damage overkill `target`? Returns 1.0 or 0.0.
