@@ -180,8 +180,14 @@ impl From<&AiDecision> for DecisionBlock {
                 target_id: target.to_bits(),
                 target_pos: [target_pos.x, target_pos.y],
             },
-            AiDecision::MoveOnlyRetreat { path: p } => Self::MoveOnlyRetreat { path: path(p) },
-            AiDecision::MoveCloser { path: p } => Self::MoveCloser { path: path(p) },
+            AiDecision::Move { path: p, origin } => match origin {
+                crate::combat::ai::utility::MoveOrigin::BestPlan => {
+                    Self::MoveOnlyRetreat { path: path(p) }
+                }
+                crate::combat::ai::utility::MoveOrigin::Fallback => {
+                    Self::MoveCloser { path: path(p) }
+                }
+            },
         }
     }
 }

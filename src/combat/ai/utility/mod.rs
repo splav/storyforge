@@ -23,7 +23,8 @@ use crate::combat::ai::intent::{
 use crate::combat::ai::log::{self, AiLogger, IntentBlock};
 use crate::combat::ai::planning::{
     apply_protect_self_mask, commit_plan, generate_plans, pick_best_plan,
-    record_committed_reservations, rescore_with_intent, sanity_adjust_plans, score_plans_with_raw,
+    pick_best_plan_with_mechanics, record_committed_reservations, rescore_with_intent,
+    sanity_adjust_plans, score_plans_with_raw,
 };
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::snapshot::BattleSnapshot;
@@ -49,13 +50,26 @@ pub enum AiDecision {
         target: Entity,
         target_pos: Hex,
     },
-    MoveCloser {
+    /// Pure movement (no cast bundled). `origin` records whether this came
+    /// from `commit_plan` (best plan after scoring) or from `fallback_move`
+    /// (no plans survived beam search). Runtime handling is identical — the
+    /// distinction only labels debug/log output.
+    Move {
         path: Vec<Hex>,
-    },
-    MoveOnlyRetreat {
-        path: Vec<Hex>,
+        origin: MoveOrigin,
     },
     EndTurn,
+}
+
+/// Source of a `Move` decision. See `AiDecision::Move`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MoveOrigin {
+    /// Came out of `picker::commit_plan` — winning plan's first step is a
+    /// move-only prefix. Historically labelled "MoveOnlyRetreat".
+    BestPlan,
+    /// Came out of `utility::fallback::fallback_move` — no plans were
+    /// generated. Historically labelled "MoveCloser".
+    Fallback,
 }
 
 // ── Context ─────────────────────────────────────────────────────────────────
@@ -240,10 +254,18 @@ pub fn pick_action(
         }
     }
 
-    // Pick best plan via mercy + top-K window (same math as single-candidate pick).
-    // `raw_factors` is threaded in so mercy_cruelty reads the precomputed
-    // kill/cc columns instead of recomputing plan factors per window slot.
-    let (best_idx, pick_mech) = pick_best_plan(&scored, &raw_factors, ctx, rng);
+    // Pick best plan via mercy + top-K window (same math as single-candidate
+    // pick). `raw_factors` is threaded in so mercy_cruelty reads the
+    // precomputed kill/cc columns instead of recomputing plan factors per
+    // window slot. Debug overlay needs the per-pool breakdown
+    // (`PickMechanics`); the production path skips that allocation.
+    let (best_idx, pick_mech) = if debug {
+        let (idx, mech) =
+            pick_best_plan_with_mechanics(&scored, &raw_factors, ctx, rng);
+        (idx, Some(mech))
+    } else {
+        (pick_best_plan(&scored, &raw_factors, ctx, rng), None)
+    };
 
     let best_plan = &plans[best_idx];
     let (decision, consumed) = commit_plan(best_plan, actor_pos);
@@ -253,7 +275,7 @@ pub fn pick_action(
     let debug_snapshot = if debug {
         Some(build_debug_snapshot(
             active, actor_pos, &intent, &intent_reason, &plans, &scored,
-            &raw_factors, &decision, snap, maps, debug_names, Some(&pick_mech),
+            &raw_factors, &decision, snap, maps, debug_names, pick_mech.as_ref(),
         ))
     } else {
         None

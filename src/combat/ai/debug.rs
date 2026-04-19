@@ -606,11 +606,10 @@ fn decision_debug(
                 dest_influence: Some(tile_influence_at(dest, &active.role, maps)),
             }
         }
-        AiDecision::MoveCloser { path } | AiDecision::MoveOnlyRetreat { path } => {
-            let label = if matches!(decision, AiDecision::MoveOnlyRetreat { .. }) {
-                "MoveOnlyRetreat"
-            } else {
-                "MoveCloser"
+        AiDecision::Move { path, origin } => {
+            let label = match origin {
+                crate::combat::ai::utility::MoveOrigin::BestPlan => "MoveOnlyRetreat",
+                crate::combat::ai::utility::MoveOrigin::Fallback => "MoveCloser",
             };
             let dest = path.last().copied().unwrap_or(actor_pos);
             let prefix = match fallback_reason {

@@ -21,12 +21,14 @@ use bevy::prelude::Entity;
 /// Source of dice rolls during outcome computation. Real uses the shared
 /// `DiceRng`; sim uses `ExpectedValue` (collapsed to the mean, floored to
 /// integer to match the game's integer damage contract).
+///
+/// Crit-fail is **not** part of this trait: the real backend rolls it
+/// explicitly before calling `compute_ability_outcome` and passes the bool
+/// in. Sim never crit-fails by construction. Keeping crit-fail out of the
+/// trait removes the deadweight `roll_crit_fail` (sim hardcoded `false`)
+/// and the deadweight `crit_fail_die` parameter from the sim path.
 pub trait DiceSource {
     fn roll_dice(&mut self, expr: &DiceExpr, disadvantage: bool) -> (i32, String);
-    /// Critical failure check. Real rolls `1..=die` and returns `true` on 1;
-    /// sim treats abilities as always succeeding (returns `false`) — matches
-    /// the planner's greedy-replan assumption.
-    fn roll_crit_fail(&mut self, crit_fail_die: u32) -> bool;
 }
 
 /// Wraps `&mut DiceRng` for the live pipeline. Rolls integers through the
@@ -41,9 +43,6 @@ impl DiceSource for RngDice<'_> {
             self.0.roll_dice(expr)
         }
     }
-    fn roll_crit_fail(&mut self, die: u32) -> bool {
-        self.0.roll_d(die) == 1
-    }
 }
 
 /// Deterministic expected-value source for the planner. Returns
@@ -55,9 +54,6 @@ pub struct ExpectedValue;
 impl DiceSource for ExpectedValue {
     fn roll_dice(&mut self, expr: &DiceExpr, _disadvantage: bool) -> (i32, String) {
         (expr.expected().round() as i32, String::new())
-    }
-    fn roll_crit_fail(&mut self, _die: u32) -> bool {
-        false
     }
 }
 
@@ -168,12 +164,13 @@ pub struct StatusApply {
 /// — split out so the Bevy backend can release its target-enumeration query
 /// before acquiring the rng / caster's mutable components.
 ///
-/// Crit-fail is rolled here through `rng.roll_crit_fail`: real rolls a real
-/// die, sim (via `ExpectedValue`) always returns `false`. The chosen
-/// `CritOutcome` variant is the single authority on what happened —
+/// `crit_failed` is decided by the caller — real backend rolls
+/// `1..=settings.crit_fail_die` against `1`, sim always passes `false`. The
+/// chosen `CritOutcome` variant is the single authority on what happened —
 /// `ManaOverload` keeps the normal payload with a cost-doubling flag,
 /// `Miss` / `SelfStatus` / `SelfDamage` suppress the payload entirely,
-/// `None` is the no-crit path.
+/// `None` is the no-crit path. `crit_fail_effect` is only consulted when
+/// `crit_failed` is true; sim callers may pass any placeholder.
 #[allow(clippy::too_many_arguments)]
 pub fn compute_ability_outcome<R: DiceSource>(
     actor: Entity,
@@ -181,11 +178,10 @@ pub fn compute_ability_outcome<R: DiceSource>(
     affected: Vec<Entity>,
     caster_ctx: &CasterContext,
     disadvantage: bool,
-    crit_fail_die: u32,
+    crit_failed: bool,
     crit_fail_effect: &CritFailEffect,
     rng: &mut R,
 ) -> AbilityOutcome {
-    let crit_failed = rng.roll_crit_fail(crit_fail_die);
     let mana_cost: i32 = def
         .costs
         .iter()
@@ -340,17 +336,15 @@ mod tests {
         Entity::from_raw_u32(id).expect("valid entity id")
     }
 
-    /// `DiceSource` double that forces crit-fail and returns a fixed dice roll.
+    /// `DiceSource` double that returns a fixed dice roll. Crit-fail used to
+    /// be a method on the trait; it now lives at the call site, so tests
+    /// just pass `crit_failed: bool` straight to `compute_ability_outcome`.
     struct MockDice {
-        crit_fail: bool,
         roll: i32,
     }
     impl DiceSource for MockDice {
         fn roll_dice(&mut self, _expr: &DiceExpr, _dis: bool) -> (i32, String) {
             (self.roll, format!("mock({})", self.roll))
-        }
-        fn roll_crit_fail(&mut self, _die: u32) -> bool {
-            self.crit_fail
         }
     }
 
@@ -383,10 +377,10 @@ mod tests {
     #[test]
     fn crit_fail_miss_variant_skips_primary() {
         let def = damage_ability(0);
-        let mut dice = MockDice { crit_fail: true, roll: 6 };
+        let mut dice = MockDice { roll: 6 };
         let outcome = compute_ability_outcome(
             ent(1), &def, vec![ent(2)], &ctx(),
-            false, 20, &CritFailEffect::Miss, &mut dice,
+            false, true, &CritFailEffect::Miss, &mut dice,
         );
         assert!(matches!(outcome.crit, CritOutcome::Miss));
         assert!(outcome.crit.skips_primary());
@@ -398,10 +392,10 @@ mod tests {
     #[test]
     fn crit_fail_broken_faith_produces_self_status() {
         let def = damage_ability(0);
-        let mut dice = MockDice { crit_fail: true, roll: 6 };
+        let mut dice = MockDice { roll: 6 };
         let outcome = compute_ability_outcome(
             ent(1), &def, vec![ent(2)], &ctx(),
-            false, 20, &CritFailEffect::BrokenFaith, &mut dice,
+            false, true, &CritFailEffect::BrokenFaith, &mut dice,
         );
         match outcome.crit {
             CritOutcome::SelfStatus { status, duration_rounds, .. } => {
@@ -416,10 +410,10 @@ mod tests {
     fn crit_fail_circuit_breach_self_damage_uses_mana_cost() {
         // mana_cost=5 → self_damage = (5+1)/2 = 3.
         let def = damage_ability(5);
-        let mut dice = MockDice { crit_fail: true, roll: 6 };
+        let mut dice = MockDice { roll: 6 };
         let outcome = compute_ability_outcome(
             ent(1), &def, vec![ent(2)], &ctx(),
-            false, 20, &CritFailEffect::CircuitBreach, &mut dice,
+            false, true, &CritFailEffect::CircuitBreach, &mut dice,
         );
         match outcome.crit {
             CritOutcome::SelfDamage { amount, .. } => assert_eq!(amount, 3),
@@ -430,10 +424,10 @@ mod tests {
     #[test]
     fn crit_fail_mana_overload_with_mana_cost_fires_effects_and_flags_overload() {
         let def = damage_ability(5);
-        let mut dice = MockDice { crit_fail: true, roll: 6 };
+        let mut dice = MockDice { roll: 6 };
         let outcome = compute_ability_outcome(
             ent(1), &def, vec![ent(2)], &ctx(),
-            false, 20, &CritFailEffect::ManaOverload, &mut dice,
+            false, true, &CritFailEffect::ManaOverload, &mut dice,
         );
         assert!(matches!(outcome.crit, CritOutcome::ManaOverload));
         assert!(outcome.crit.is_mana_overload());
@@ -445,10 +439,10 @@ mod tests {
     fn crit_fail_mana_overload_without_mana_cost_falls_back_to_miss() {
         // No mana cost → overload doesn't apply → treat as plain miss.
         let def = damage_ability(0);
-        let mut dice = MockDice { crit_fail: true, roll: 6 };
+        let mut dice = MockDice { roll: 6 };
         let outcome = compute_ability_outcome(
             ent(1), &def, vec![ent(2)], &ctx(),
-            false, 20, &CritFailEffect::ManaOverload, &mut dice,
+            false, true, &CritFailEffect::ManaOverload, &mut dice,
         );
         assert!(matches!(outcome.crit, CritOutcome::Miss));
         assert!(!outcome.crit.is_mana_overload());
@@ -458,10 +452,10 @@ mod tests {
     #[test]
     fn no_crit_fail_fires_primary_effect() {
         let def = damage_ability(0);
-        let mut dice = MockDice { crit_fail: false, roll: 5 };
+        let mut dice = MockDice { roll: 5 };
         let outcome = compute_ability_outcome(
             ent(1), &def, vec![ent(2)], &ctx(),
-            false, 20, &CritFailEffect::Miss, &mut dice,
+            false, false, &CritFailEffect::Miss, &mut dice,
         );
         assert!(matches!(outcome.crit, CritOutcome::None));
         assert!(!outcome.crit.skips_primary());

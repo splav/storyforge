@@ -2,7 +2,7 @@
 //! only when the actor is dead/missing from the snapshot). Close-in or
 //! retreat, depending on HP.
 
-use super::AiDecision;
+use super::{AiDecision, MoveOrigin};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::reach_from;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
@@ -41,7 +41,7 @@ pub(super) fn fallback_move(
         if let Some(dest) = safest {
             if let Some(path) = reach.path_to(dest) {
                 if !path.is_empty() {
-                    return AiDecision::MoveCloser { path };
+                    return AiDecision::Move { path, origin: MoveOrigin::Fallback };
                 }
             }
         }
@@ -62,7 +62,7 @@ pub(super) fn fallback_move(
     if let Some((dest, _)) = best {
         if let Some(path) = reach.path_to(dest) {
             if !path.is_empty() {
-                return AiDecision::MoveCloser { path };
+                return AiDecision::Move { path, origin: MoveOrigin::Fallback };
             }
         }
     }

@@ -202,7 +202,7 @@ fn run_ai_turn(
             msgs.move_unit.write(MoveUnit { actor, path });
             msgs.use_ability.write(UseAbility { actor, ability, target, target_pos });
         }
-        AiDecision::MoveCloser { path } | AiDecision::MoveOnlyRetreat { path } => {
+        AiDecision::Move { path, .. } => {
             // No EndTurn here: the next AI tick will re-plan with the updated
             // pool. If nothing useful remains, `fallback_move`/the guard at the
             // top of `run_ai_turn` will emit EndTurn.

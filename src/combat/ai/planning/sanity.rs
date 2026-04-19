@@ -13,6 +13,7 @@
 
 use crate::combat::ai::factors::aoe_area;
 use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::planning::scorer::worst_path_danger;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
@@ -65,10 +66,10 @@ pub fn sanity_adjust_plans(
         let mut penalty = 1.0f32;
         let final_pos = plan.final_pos;
 
-        // Worst danger the actor touches across moves + resting tile. Matches
-        // scorer's path_danger_max so the factor and the penalty look at the
-        // same signal.
-        let max_path_danger = worst_path_danger(active.pos, plan, maps);
+        // Worst danger the actor touches across moves + resting tile.
+        // Shared helper with scorer (`scorer::worst_path_danger`) so the
+        // factor and the penalty look at exactly the same signal.
+        let max_path_danger = worst_path_danger(plan, maps);
 
         // 1. Survival: low-HP actor crossing/resting on dangerous tiles.
         // Uses `max_path_danger` rather than just final_pos so "walk through
@@ -204,24 +205,6 @@ fn expected_aoo_damage(
         }
     }
     total
-}
-
-fn worst_path_danger(start: Hex, plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
-    let mut max_d = maps.danger.get(plan.final_pos);
-    let mut pos = start;
-    for step in &plan.steps {
-        if let PlanStep::Move { path } = step {
-            for &h in path {
-                let d = maps.danger.get(h);
-                if d > max_d {
-                    max_d = d;
-                }
-                pos = h;
-            }
-        }
-    }
-    let _ = pos;
-    max_d
 }
 
 fn plan_has_self_aoe(active: &UnitSnapshot, plan: &TurnPlan, ctx: &UtilityContext) -> bool {

@@ -59,6 +59,27 @@ use crate::core::DiceRng;
 use crate::game::components::Abilities;
 use bevy::prelude::Entity;
 
+/// Worst danger value across the plan's path tiles + its final tile.
+/// Excludes the actor's starting tile — callers that care about it (the
+/// scorer's risk factor) fold it in on top. Sanity uses this directly
+/// because it tracks `current_danger` (the start) through a separate
+/// signal. Single source of truth for "how exposed does this plan get
+/// while traversing".
+pub fn worst_path_danger(plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
+    let mut max_d = maps.danger.get(plan.final_pos);
+    for step in &plan.steps {
+        if let PlanStep::Move { path } = step {
+            for &h in path {
+                let d = maps.danger.get(h);
+                if d > max_d {
+                    max_d = d;
+                }
+            }
+        }
+    }
+    max_d
+}
+
 /// Top-level entry. Produces one composite score per plan plus the raw
 /// pre-normalization factor matrix (so log writers / offline tools can
 /// recalibrate weights without rerunning sim).
@@ -262,7 +283,14 @@ pub fn compute_plan_factors_sans_intent(
     let mut cc_sum = 0.0f32;
     let mut scarcity_sum = 0.0f32;
     let mut focus_sum = 0.0f32;
-    let mut path_danger_max = maps.danger.get(active.pos);
+    // Worst danger across path tiles + final tile. Helper is shared with
+    // sanity's `worst_path_danger`; we additionally fold in `active.pos`
+    // because a plan that *stays put* in a dangerous tile should still see
+    // the starting tile reflected in its risk factor (sanity ignores
+    // `active.pos` because its survival penalty already keys off
+    // `current_danger` separately).
+    let path_danger_max =
+        worst_path_danger(plan, maps).max(maps.danger.get(active.pos));
 
     let base_discount = ctx.world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;
@@ -272,15 +300,6 @@ pub fn compute_plan_factors_sans_intent(
         let Some(sim_actor) = pre_snap.unit(active.entity).cloned() else {
             break;
         };
-
-        if let PlanStep::Move { path } = step {
-            for &h in path {
-                let d = maps.danger.get(h);
-                if d > path_danger_max {
-                    path_danger_max = d;
-                }
-            }
-        }
 
         let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
 
@@ -308,8 +327,8 @@ pub fn compute_plan_factors_sans_intent(
     }
 
     let position = evaluate_position(plan.final_pos, &active.role, maps);
-    let final_danger = path_danger_max.max(maps.danger.get(plan.final_pos));
-    let risk = 1.0 - final_danger;
+    // `path_danger_max` already includes `plan.final_pos` (via helper).
+    let risk = 1.0 - path_danger_max;
 
     // Focus floor for empty plans: use the best priority target on current
     // snapshot so "do nothing" doesn't misleadingly score with focus=0.
@@ -412,8 +431,6 @@ mod tests {
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::role::{AiRole, AxisProfile};
     use crate::combat::ai::snapshot::AiTags;
-    use crate::combat::ai::utility::{ActorCtx, AiWorld};
-    use crate::content::races::CritFailEffect;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
     use bevy::prelude::Entity;
@@ -456,22 +473,19 @@ mod tests {
         }
     }
 
+    /// Default test caster (zero modifiers, no weapon).
+    const DEFAULT_CASTER: CasterContext = CasterContext {
+        str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None,
+    };
+
     fn test_ctx<'a>(
         content: &'a crate::content::content_view::ContentView,
         difficulty: &'a DifficultyProfile,
         abilities: &'a Abilities,
     ) -> UtilityContext<'a> {
-        UtilityContext {
-            world: AiWorld { content, difficulty },
-            actor: ActorCtx {
-                caster: &CasterContext {
-                    str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None,
-                },
-                abilities,
-                crit_fail_effect: CritFailEffect::Miss,
-                crit_fail_chance: 0.0,
-            },
-        }
+        crate::combat::ai::test_helpers::make_test_ctx(
+            content, difficulty, &DEFAULT_CASTER, abilities,
+        )
     }
 
     /// Under discounted-sum aggregation, a single Cast@focus at depth k

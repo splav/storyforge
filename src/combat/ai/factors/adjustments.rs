@@ -55,34 +55,45 @@ pub(super) fn apply_reservation_adjustments(
     }
 }
 
+pub fn crit_fail_adjusted(
+    score: f32,
+    def: &AbilityDef,
+    effect: &CritFailEffect,
+    chance: f32,
+) -> f32 {
+    match effect {
+        CritFailEffect::ManaOverload => {
+            let mana_cost: f32 = def
+                .costs
+                .iter()
+                .filter(|c| c.resource == ResourceKind::Mana)
+                .map(|c| c.amount as f32)
+                .sum();
+            score - chance * mana_cost
+        }
+        CritFailEffect::CircuitBreach => {
+            let mana_cost: f32 = def
+                .costs
+                .iter()
+                .filter(|c| c.resource == ResourceKind::Mana)
+                .map(|c| c.amount as f32)
+                .sum();
+            score * (1.0 - chance) - chance * mana_cost * 0.5
+        }
+        _ => score * (1.0 - chance),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::utility::{ActorCtx, AiWorld, UtilityContext};
+    use crate::combat::ai::test_helpers::make_test_ctx as make_ctx;
     use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
-    use crate::content::races::CritFailEffect;
     use crate::game::components::Abilities;
     use crate::game::hex::hex_from_offset;
-
-    fn make_ctx<'a>(
-        content: &'a ContentView,
-        difficulty: &'a DifficultyProfile,
-        caster: &'a CasterContext,
-        abilities: &'a Abilities,
-    ) -> UtilityContext<'a> {
-        UtilityContext {
-            world: AiWorld { content, difficulty },
-            actor: ActorCtx {
-                caster,
-                abilities,
-                crit_fail_effect: CritFailEffect::Miss,
-                crit_fail_chance: 0.0,
-            },
-        }
-    }
 
     /// Regression: reserved-tile penalty must always push `position` down,
     /// regardless of sign. Old code did `*= 0.5`, which flipped the effect on
@@ -218,34 +229,5 @@ mod tests {
         let mut position = -0.5f32;
         apply_reservation_adjustments(&step, &mut off, &mut focus, &mut position, &snap, &ctx, &reservations);
         assert_eq!(position, -0.5);
-    }
-}
-
-pub fn crit_fail_adjusted(
-    score: f32,
-    def: &AbilityDef,
-    effect: &CritFailEffect,
-    chance: f32,
-) -> f32 {
-    match effect {
-        CritFailEffect::ManaOverload => {
-            let mana_cost: f32 = def
-                .costs
-                .iter()
-                .filter(|c| c.resource == ResourceKind::Mana)
-                .map(|c| c.amount as f32)
-                .sum();
-            score - chance * mana_cost
-        }
-        CritFailEffect::CircuitBreach => {
-            let mana_cost: f32 = def
-                .costs
-                .iter()
-                .filter(|c| c.resource == ResourceKind::Mana)
-                .map(|c| c.amount as f32)
-                .sum();
-            score * (1.0 - chance) - chance * mana_cost * 0.5
-        }
-        _ => score * (1.0 - chance),
     }
 }

@@ -105,9 +105,10 @@ pub fn resolve_action_system(
             .and_then(|cp| content.paths.get(&cp.0))
             .map_or(CritFailEffect::Miss, |p| p.crit_fail_effect.clone());
 
-        // Shared core rolls crit-fail (if any), enumerates affected targets
-        // already done by caller above, and returns either a side-effect
-        // (`outcome.crit_fail`) or the normal damage/heal/status payload.
+        // Roll crit-fail at the call site (real backend only); shared core
+        // takes the bool and returns either a side-effect (`outcome.crit`)
+        // or the normal damage/heal/status payload.
+        let crit_failed = rng.roll_d(settings.crit_fail_die) == 1;
         let outcome = {
             let mut dice = RngDice(&mut rng);
             compute_ability_outcome(
@@ -116,7 +117,7 @@ pub fn resolve_action_system(
                 affected,
                 &caster_ctx,
                 ev.disadvantage,
-                settings.crit_fail_die,
+                crit_failed,
                 &crit_fail_effect,
                 &mut dice,
             )

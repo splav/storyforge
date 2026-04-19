@@ -14,7 +14,8 @@ pub mod types;
 
 pub use generator::generate_plans;
 pub use picker::{
-    commit_plan, pick_best_plan, record_committed_reservations, PickMechanics,
+    commit_plan, pick_best_plan, pick_best_plan_with_mechanics,
+    record_committed_reservations, PickMechanics,
 };
 pub use reach::reach_from;
 pub use sanity::{apply_protect_self_mask, plan_is_defensive, sanity_adjust_plans};

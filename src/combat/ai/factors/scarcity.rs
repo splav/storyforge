@@ -128,7 +128,6 @@ mod tests {
     use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
     use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
-    use crate::content::races::CritFailEffect;
     use crate::core::AbilityId;
     use crate::game::components::{Abilities, Team};
     use crate::game::hex::{hex_from_offset, Hex};
@@ -183,21 +182,19 @@ mod tests {
         }
     }
 
+    /// int_mod=3 to keep INT-mod-sensitive scoring nontrivial in this suite.
+    const SCARCITY_CASTER: CasterContext = CasterContext {
+        str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None,
+    };
+
     fn scarcity_ctx<'a>(
         content: &'a ContentView,
         difficulty: &'a DifficultyProfile,
         abilities: &'a Abilities,
     ) -> UtilityContext<'a> {
-        use crate::combat::ai::utility::{ActorCtx, AiWorld};
-        UtilityContext {
-            world: AiWorld { content, difficulty },
-            actor: ActorCtx {
-                caster: &CasterContext { str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None },
-                abilities,
-                crit_fail_effect: CritFailEffect::Miss,
-                crit_fail_chance: 0.0,
-            },
-        }
+        crate::combat::ai::test_helpers::make_test_ctx(
+            content, difficulty, &SCARCITY_CASTER, abilities,
+        )
     }
 
     #[test]

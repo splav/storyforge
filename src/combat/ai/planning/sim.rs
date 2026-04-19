@@ -137,15 +137,15 @@ impl SimState {
             let state = SnapshotTargetState(&self.snapshot);
             compute_affected_targets(self.actor, def, primary, target_pos, &state)
         };
-        // Sim never observes crit fail (`ExpectedValue::roll_crit_fail` is
-        // hardcoded to `false`), so the die / effect passed here are ignored
-        // in practice — `CritFailEffect::Miss` is a safe placeholder that
-        // makes the call site obvious.
+        // Sim never crit-fails by construction (matches the planner's
+        // greedy-replan assumption); pass `false` directly. The
+        // `CritFailEffect` arg is unused on the no-crit path — `Miss` is a
+        // harmless placeholder.
         let mut dice = ExpectedValue;
         let ability_outcome = compute_ability_outcome(
             self.actor, def, affected, caster_ctx,
             /* disadvantage */ false,
-            /* crit_fail_die */ 20,
+            /* crit_failed */ false,
             &CritFailEffect::Miss,
             &mut dice,
         );

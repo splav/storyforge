@@ -20,7 +20,7 @@ use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::scoring::{applies_cc, score_action};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::{AiDecision, UtilityContext};
+use crate::combat::ai::utility::{AiDecision, MoveOrigin, UtilityContext};
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::core::DiceRng;
 use crate::game::hex::Hex;
@@ -37,8 +37,8 @@ use bevy::prelude::Entity;
 /// - `[Move, Cast, ..]` → `MoveAndCast` (or `CastInPlace` if the move path
 ///   is empty), 2 steps. One atomic tick preserves the engine contract
 ///   (one `UseAbility` per actor-turn pathfind).
-/// - `[Move, ..]` → `MoveOnlyRetreat` (or `EndTurn` when the path is a no-op),
-///   1 step.
+/// - `[Move, ..]` → `Move { origin: BestPlan }` (or `EndTurn` when the path is
+///   a no-op), 1 step.
 pub fn commit_plan(plan: &TurnPlan, actor_pos: Hex) -> (AiDecision, usize) {
     // Structural decomposition lives on TurnPlan; we only decide how each
     // prefix shape maps to an `AiDecision` (with a few no-op short-circuits
@@ -75,7 +75,10 @@ pub fn commit_plan(plan: &TurnPlan, actor_pos: Hex) -> (AiDecision, usize) {
             if path.is_empty() || dest == actor_pos {
                 AiDecision::EndTurn
             } else {
-                AiDecision::MoveOnlyRetreat { path: path.to_vec() }
+                AiDecision::Move {
+                    path: path.to_vec(),
+                    origin: MoveOrigin::BestPlan,
+                }
             }
         }
     };
@@ -93,28 +96,59 @@ fn mercy_cruelty(raw: &[f32; NUM_FACTORS]) -> f32 {
 
 /// Pick the winning plan. Mirrors `pick_best_candidate` — window-bounded top-K
 /// sampling with a mercy tie-breaker applied only inside the near-best window.
+///
+/// Production hot-path: returns just the chosen plan index, no
+/// `PickMechanics` allocation. Use [`pick_best_plan_with_mechanics`] when
+/// debug overlay needs the per-pool breakdown.
 pub fn pick_best_plan(
     scored: &[f32],
     raw_factors: &[[f32; NUM_FACTORS]],
     ctx: &UtilityContext,
     rng: &mut DiceRng,
+) -> usize {
+    pick_inner(scored, raw_factors, ctx, rng, false).0
+}
+
+/// Same as [`pick_best_plan`] but additionally returns the `PickMechanics`
+/// breakdown (top_k, window, mercy bookkeeping, ranked pool). Allocates one
+/// `Vec<(usize, f32)>` for the pool — used only on debug-enabled ticks.
+pub fn pick_best_plan_with_mechanics(
+    scored: &[f32],
+    raw_factors: &[[f32; NUM_FACTORS]],
+    ctx: &UtilityContext,
+    rng: &mut DiceRng,
 ) -> (usize, PickMechanics) {
+    let (idx, mech) = pick_inner(scored, raw_factors, ctx, rng, true);
+    (idx, mech.expect("record=true always produces mechanics"))
+}
+
+/// Shared selection core. When `record == false`, `pool` is never
+/// materialized — that's the only allocation savings this split buys, but
+/// `pick_best_plan` runs every AI tick while debug runs once per F-toggle.
+fn pick_inner(
+    scored: &[f32],
+    raw_factors: &[[f32; NUM_FACTORS]],
+    ctx: &UtilityContext,
+    rng: &mut DiceRng,
+    record: bool,
+) -> (usize, Option<PickMechanics>) {
     let top_k_req = ctx.world.difficulty.top_k_choice();
     let m = ctx.world.difficulty.mercy_margin();
     let window = (ctx.world.difficulty.score_noise() * 2.0).max(0.05);
 
+    let make_mech = |top_k, mercy_applied, pool, chosen_pos| {
+        record.then_some(PickMechanics {
+            top_k,
+            window,
+            mercy_margin: m,
+            mercy_applied,
+            pool,
+            chosen_pos,
+        })
+    };
+
     if scored.is_empty() {
-        return (
-            0,
-            PickMechanics {
-                top_k: top_k_req,
-                window,
-                mercy_margin: m,
-                mercy_applied: false,
-                pool: vec![],
-                chosen_pos: 0,
-            },
-        );
+        return (0, make_mech(top_k_req, false, vec![], 0));
     }
 
     let mut ranked: Vec<(usize, f32)> = scored.iter().copied().enumerate().collect();
@@ -142,6 +176,30 @@ pub fn pick_best_plan(
 
     let k = top_k_req.max(1).min(ranked.len());
     let best_after = ranked[0].1;
+
+    // Two paths: production picks via a streaming scan (no pool alloc); debug
+    // materializes the pool so the overlay can render it.
+    if !record {
+        // Reservoir-style choice: count survivors, roll, walk to the chosen one.
+        let pool_len = ranked
+            .iter()
+            .take(k)
+            .filter(|(_, s)| s.is_finite() && *s >= best_after - window)
+            .count();
+        if pool_len == 0 {
+            return (ranked[0].0, None);
+        }
+        let chosen_pos = (rng.roll_d(pool_len as u32) - 1) as usize;
+        let chosen_idx = ranked
+            .iter()
+            .take(k)
+            .filter(|(_, s)| s.is_finite() && *s >= best_after - window)
+            .nth(chosen_pos)
+            .expect("chosen_pos < pool_len by construction")
+            .0;
+        return (chosen_idx, None);
+    }
+
     let pool: Vec<(usize, f32)> = ranked
         .iter()
         .take(k)
@@ -152,30 +210,14 @@ pub fn pick_best_plan(
     if pool.is_empty() {
         return (
             ranked[0].0,
-            PickMechanics {
-                top_k: k,
-                window,
-                mercy_margin: m,
-                mercy_applied,
-                pool: vec![(ranked[0].0, ranked[0].1)],
-                chosen_pos: 0,
-            },
+            make_mech(k, mercy_applied, vec![(ranked[0].0, ranked[0].1)], 0),
         );
     }
     // `roll_d(N)` returns `1..=N`; shift to a 0-based index.
     // Precondition: `pool.len() >= 1` (the early-return above catches empty).
     let chosen_pos = (rng.roll_d(pool.len() as u32) - 1) as usize;
-    (
-        pool[chosen_pos].0,
-        PickMechanics {
-            top_k: k,
-            window,
-            mercy_margin: m,
-            mercy_applied,
-            pool,
-            chosen_pos,
-        },
-    )
+    let chosen_idx = pool[chosen_pos].0;
+    (chosen_idx, make_mech(k, mercy_applied, pool, chosen_pos))
 }
 
 /// Record reservations for the **committed** prefix of the winning plan so
@@ -314,7 +356,10 @@ mod tests {
     fn commit_solo_move_consumes_one() {
         let plan = plan_from(vec![PlanStep::Move { path: vec![hex_from_offset(1, 0)] }]);
         let (decision, consumed) = commit_plan(&plan, hex_from_offset(0, 0));
-        assert!(matches!(decision, AiDecision::MoveOnlyRetreat { .. }));
+        assert!(matches!(
+            decision,
+            AiDecision::Move { origin: MoveOrigin::BestPlan, .. }
+        ));
         assert_eq!(consumed, 1);
     }
 

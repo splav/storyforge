@@ -14,3 +14,6 @@ pub mod scoring;
 pub mod snapshot;
 pub mod target_priority;
 pub mod utility;
+
+#[cfg(test)]
+pub(crate) mod test_helpers;

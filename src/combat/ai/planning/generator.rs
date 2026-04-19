@@ -519,7 +519,6 @@ mod tests {
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
     };
     use crate::content::content_view::ContentView;
-    use crate::content::races::CritFailEffect;
     use crate::core::{AbilityId, DiceExpr};
     use crate::game::components::{Abilities, Team};
     use crate::game::hex::hex_from_offset;
@@ -602,23 +601,7 @@ mod tests {
         }
     }
 
-    fn make_ctx<'a>(
-        content: &'a ContentView,
-        difficulty: &'a DifficultyProfile,
-        caster: &'a CasterContext,
-        abilities: &'a Abilities,
-    ) -> UtilityContext<'a> {
-        use crate::combat::ai::utility::{ActorCtx, AiWorld};
-        UtilityContext {
-            world: AiWorld { content, difficulty },
-            actor: ActorCtx {
-                caster,
-                abilities,
-                crit_fail_effect: CritFailEffect::Miss,
-                crit_fail_chance: 0.0,
-            },
-        }
-    }
+    use crate::combat::ai::test_helpers::make_test_ctx as make_ctx;
 
     // ── Depth-1 generation ──────────────────────────────────────────────────
 
