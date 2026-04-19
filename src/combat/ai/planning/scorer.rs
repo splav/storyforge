@@ -26,25 +26,22 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use crate::combat::ai::candidates::{ActionCandidate, CandidateKind};
-use crate::combat::ai::factors::{self, NUM_FACTORS};
+use crate::combat::ai::factors::{self, ScoredStep, NUM_FACTORS, SIGNED_FACTOR};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{intent_score, TacticalIntent};
 use crate::combat::ai::planning::sim::SimState;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::reservations::Reservations;
+use crate::combat::ai::scoring::estimate_st_damage;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
 use crate::combat::ai::utility::UtilityContext;
+use crate::content::abilities::{CasterContext, EffectDef};
+use crate::core::modifier;
 use crate::core::DiceRng;
+use crate::game::components::Abilities;
 use bevy::prelude::Entity;
-
-/// Factors with negative values use symmetric normalization (mirrors
-/// `factors/mod.rs::SIGNED_FACTOR`). Position/intent/scarcity can go negative.
-const SIGNED_FACTOR: [bool; NUM_FACTORS] = [
-    false, false, false, false, true, false, false, true, true,
-];
 
 /// Top-level entry. Produces one composite score per plan using the same
 /// normalization+weight+noise pipeline as `score_candidates`.
@@ -112,7 +109,8 @@ pub fn score_plans_with_raw(
 
     let scores: Vec<f32> = raw
         .iter()
-        .map(|factors| {
+        .zip(plans.iter())
+        .map(|(factors, plan)| {
             let mut score = 0.0f32;
             for i in 0..NUM_FACTORS {
                 let normalized = if denom[i] > f32::EPSILON {
@@ -122,6 +120,11 @@ pub fn score_plans_with_raw(
                 };
                 score += normalized * weights[i];
             }
+            // Summon bonus bypasses normalisation: the factor pipeline can't
+            // see the strategic value of creating an ally, and for hybrid
+            // roles the damage-axis weight is too low to lift a raw summon
+            // score on its own.
+            score += plan_summon_bonus(plan, active, ctx, snap);
             if noise_amp > 0.0 {
                 let noise = (rng.roll_d(1000) as f32 / 500.0 - 1.0) * noise_amp;
                 score += noise;
@@ -130,6 +133,51 @@ pub fn score_plans_with_raw(
         })
         .collect();
     (scores, raw)
+}
+
+/// Additive post-normalisation bonus for every `Summon` cast in the plan.
+/// Each summon contributes `summon_dpr × decay`, where `decay = 1 − count/cap`
+/// is recomputed against a **running** summon count so a multi-summon plan
+/// doesn't get linear credit as the roster fills. Zero for plans without any
+/// summon casts.
+fn plan_summon_bonus(
+    plan: &TurnPlan,
+    active: &UnitSnapshot,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+) -> f32 {
+    let mut count = snap
+        .units
+        .iter()
+        .filter(|u| u.summoner == Some(active.entity))
+        .count() as f32;
+
+    let mut total = 0.0f32;
+    for step in &plan.steps {
+        let PlanStep::Cast { ability, .. } = step else { continue };
+        let Some(def) = ctx.content.abilities.get(ability) else { continue };
+        let EffectDef::Summon { template, max_active } = &def.effect else { continue };
+
+        let cap = max_active.unwrap_or(3).max(1) as f32;
+        let decay = (1.0 - (count / cap)).max(0.0);
+        if decay <= 0.0 {
+            continue;
+        }
+
+        let Some(tpl) = ctx.content.unit_templates.get(template) else { continue };
+        let weapon = ctx.content.weapons.get(&tpl.equipment.main_hand);
+        let caster_ctx = CasterContext {
+            str_mod: modifier(tpl.stats.strength),
+            int_mod: modifier(tpl.stats.intelligence),
+            spell_power: weapon.map_or(0, |wd| wd.spell_power),
+            weapon_dice: weapon.map(|wd| wd.dice.clone()),
+        };
+        let abilities = Abilities(tpl.ability_ids.clone());
+        let dpr = estimate_st_damage(&caster_ctx, &abilities, ctx.content);
+        total += dpr * decay;
+        count += 1.0;
+    }
+    total
 }
 
 /// Extra multiplicative discount on step_weight applied **after** a step that
@@ -172,37 +220,23 @@ pub fn compute_plan_factors(
             None => break,
         };
 
-        let candidate = match step {
-            PlanStep::Cast { ability, target, target_pos } => ActionCandidate {
-                tile: sim_actor.pos,
-                path: Vec::new(),
-                kind: CandidateKind::Cast {
-                    ability: ability.clone(),
-                    target_pos: *target_pos,
-                    target: Some(*target),
-                },
-            },
-            PlanStep::Move { path } => {
-                for &h in path {
-                    let d = maps.danger.get(h);
-                    if d > path_danger_max {
-                        path_danger_max = d;
-                    }
-                }
-                let dest = *path.last().unwrap_or(&sim_actor.pos);
-                ActionCandidate {
-                    tile: dest,
-                    path: path.clone(),
-                    kind: CandidateKind::MoveOnly,
+        if let PlanStep::Move { path } = step {
+            // Track worst-tile danger across the path before the view is built.
+            for &h in path {
+                let d = maps.danger.get(h);
+                if d > path_danger_max {
+                    path_danger_max = d;
                 }
             }
-        };
+        }
+
+        let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
 
         // Intent factor participates uniformly across Cast and Move steps —
         // taken as the max, so it's not scaled by step_weight.
         let iv = intent_score(
             intent,
-            &candidate,
+            &scored_step,
             &sim_actor,
             &sim.snapshot,
             maps,
@@ -215,7 +249,7 @@ pub fn compute_plan_factors(
 
         if let PlanStep::Cast { .. } = step {
             let raw = factors::compute_factors(
-                &candidate,
+                &scored_step,
                 &sim_actor,
                 intent,
                 ctx,

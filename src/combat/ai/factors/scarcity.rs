@@ -3,7 +3,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use super::offensive::aoe_area;
-use crate::combat::ai::candidates::{ActionCandidate, CandidateKind};
+use super::ScoredStep;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::UtilityContext;
@@ -15,16 +15,16 @@ use crate::core::ResourceKind;
 /// situations get negative scores; expensive abilities in high-swing moments
 /// get positive scores.
 pub(super) fn compute_scarcity(
-    candidate: &ActionCandidate,
+    step: &ScoredStep,
     active: &UnitSnapshot,
     kill: f32,
     ctx: &UtilityContext,
     snap: &BattleSnapshot,
 ) -> f32 {
-    let CandidateKind::Cast { ability, target_pos, target } = &candidate.kind else {
+    let ScoredStep::Cast { ability, target_pos, target, caster_tile } = step else {
         return 0.0;
     };
-    let Some(def) = ctx.content.abilities.get(ability) else {
+    let Some(def) = ctx.content.abilities.get(*ability) else {
         return 0.0;
     };
 
@@ -54,16 +54,16 @@ pub(super) fn compute_scarcity(
     // swing_value: situational justification for spending.
     let mut swing = 0.0f32;
 
-    let target_unit = target.and_then(|t| snap.unit(t));
+    let target_unit = snap.unit(*target);
 
     // Kill bonus.
     if kill > 0.0 {
         swing += 0.8;
-        // Extra value for killing high-value targets. For AoE (no single target),
-        // credit the highest-value enemy hit — that's the kill the factor captures.
+        // Extra value for killing high-value targets. For AoE (target is
+        // a sentinel), credit the highest-value enemy hit.
         let victim = target_unit.or_else(|| {
             if def.aoe == AoEShape::None { return None; }
-            let area = aoe_area(def, *target_pos, candidate.tile);
+            let area = aoe_area(def, *target_pos, *caster_tile);
             snap.enemies_of(active.team)
                 .filter(|e| area.contains(&e.pos))
                 .max_by(|a, b| {
@@ -81,7 +81,7 @@ pub(super) fn compute_scarcity(
 
     // AoE multi-hit bonus.
     if def.aoe != AoEShape::None {
-        let area = aoe_area(def, *target_pos, candidate.tile);
+        let area = aoe_area(def, *target_pos, *caster_tile);
         let hits = snap
             .enemies_of(active.team)
             .filter(|e| area.contains(&e.pos))
@@ -129,13 +129,13 @@ fn has_free_attack(ctx: &UtilityContext) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::candidates::{ActionCandidate, CandidateKind};
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::role::{AiRole, AxisProfile};
     use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
     use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
     use crate::content::races::CritFailEffect;
+    use crate::core::AbilityId;
     use crate::game::components::{Abilities, Team};
     use crate::game::hex::{hex_from_offset, Hex};
     use bevy::prelude::*;
@@ -165,6 +165,7 @@ mod tests {
             summoner: None,
             reactions_left: 0,
             aoo_expected_damage: None,
+            statuses: Vec::new(),
         }
     }
 
@@ -173,20 +174,20 @@ mod tests {
         BattleSnapshot { units, active_unit: active, round: 1 }
     }
 
-    fn cast(tile: Hex, ability: &str, target_pos: Hex, target: Entity) -> ActionCandidate {
-        ActionCandidate {
-            tile,
-            path: vec![],
-            kind: CandidateKind::Cast {
-                ability: ability.into(),
-                target_pos,
-                target: Some(target),
-            },
+    /// Test helpers return (AbilityId, step-factory). Tests own the owned
+    /// `AbilityId` so the ref in `ScoredStep::Cast` stays valid.
+    fn cast_step<'a>(
+        tile: Hex,
+        ability: &'a AbilityId,
+        target_pos: Hex,
+        target: Entity,
+    ) -> ScoredStep<'a> {
+        ScoredStep::Cast {
+            ability,
+            target,
+            target_pos,
+            caster_tile: tile,
         }
-    }
-
-    fn candidate(tile: Hex, target: Entity) -> ActionCandidate {
-        cast(tile, "melee_attack", tile, target)
     }
 
     fn scarcity_ctx<'a>(
@@ -217,8 +218,9 @@ mod tests {
         let abilities = Abilities(vec!["melee_attack".into()]);
         let ctx = scarcity_ctx(&content, &diff, &abilities);
 
-        let c = candidate(tile, enemy.entity);
-        let score = compute_scarcity(&c, &active, 0.0, &ctx, &s);
+        let ab = AbilityId::from("melee_attack");
+        let step = cast_step(tile, &ab, tile, enemy.entity);
+        let score = compute_scarcity(&step, &active, 0.0, &ctx, &s);
         assert_eq!(score, 0.0, "free ability should have zero scarcity");
     }
 
@@ -238,8 +240,9 @@ mod tests {
         let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
         let ctx = scarcity_ctx(&content, &diff, &abilities);
 
-        let c = cast(tile, "fireball", enemy.pos, enemy.entity);
-        let score = compute_scarcity(&c, &active, 0.0, &ctx, &s);
+        let ab = AbilityId::from("fireball");
+        let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
+        let score = compute_scarcity(&step, &active, 0.0, &ctx, &s);
         assert!(
             score < 0.0,
             "expensive ability on dying target should get negative scarcity, got {:.2}",
@@ -264,8 +267,9 @@ mod tests {
         let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
         let ctx = scarcity_ctx(&content, &diff, &abilities);
 
-        let c = cast(tile, "fireball", enemy.pos, enemy.entity);
-        let score = compute_scarcity(&c, &active, 1.0, &ctx, &s);
+        let ab = AbilityId::from("fireball");
+        let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
+        let score = compute_scarcity(&step, &active, 1.0, &ctx, &s);
         assert!(
             score > 0.0,
             "kill on support should yield positive scarcity, got {:.2}",
@@ -295,8 +299,9 @@ mod tests {
         let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
         let ctx = scarcity_ctx(&content, &diff, &abilities);
 
-        let c = cast(tile, "fireball", e1.pos, e1.entity);
-        let score = compute_scarcity(&c, &active, 0.0, &ctx, &s);
+        let ab = AbilityId::from("fireball");
+        let step = cast_step(tile, &ab, e1.pos, e1.entity);
+        let score = compute_scarcity(&step, &active, 0.0, &ctx, &s);
         assert!(
             score > 0.0,
             "AoE on cluster should yield positive scarcity, got {:.2}",
@@ -317,21 +322,22 @@ mod tests {
         let abilities = Abilities(vec!["fireball".into()]);
         let ctx = scarcity_ctx(&content, &diff, &abilities);
 
-        let c = cast(tile, "fireball", enemy.pos, enemy.entity);
+        let ab = AbilityId::from("fireball");
+        let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
 
         let s_r1 = BattleSnapshot {
             units: vec![active.clone(), enemy.clone()],
             active_unit: active.entity,
             round: 1,
         };
-        let score_r1 = compute_scarcity(&c, &active, 0.0, &ctx, &s_r1);
+        let score_r1 = compute_scarcity(&step, &active, 0.0, &ctx, &s_r1);
 
         let s_r3 = BattleSnapshot {
             units: vec![active.clone(), enemy.clone()],
             active_unit: active.entity,
             round: 3,
         };
-        let score_r3 = compute_scarcity(&c, &active, 0.0, &ctx, &s_r3);
+        let score_r3 = compute_scarcity(&step, &active, 0.0, &ctx, &s_r3);
 
         assert!(
             score_r1 < score_r3,

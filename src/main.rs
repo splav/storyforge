@@ -47,7 +47,6 @@ fn main() {
             ..Default::default()
         })
         .init_resource::<combat::ai::reservations::Reservations>()
-        .init_resource::<storyforge::game::components::ActivePlans>()
         .init_resource::<combat::ai::log::AiLogger>()
         .init_resource::<combat::ai::influence::InfluenceConfig>()
         .insert_resource(settings)

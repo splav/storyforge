@@ -104,6 +104,7 @@ mod tests {
             summoner: None,
             reactions_left: 0,
             aoo_expected_damage: None,
+            statuses: Vec::new(),
         }
     }
 

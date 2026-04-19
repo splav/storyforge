@@ -1,7 +1,6 @@
 //! Reservation-based coordination adjustments + crit-fail expected-value.
 
-use super::OffensiveFactors;
-use crate::combat::ai::candidates::ActionCandidate;
+use super::{OffensiveFactors, ScoredStep};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::snapshot::BattleSnapshot;
 use crate::combat::ai::utility::UtilityContext;
@@ -11,7 +10,7 @@ use crate::core::ResourceKind;
 
 /// Coordination knob: overkill penalty + focus-fire bonus + duplicate-CC + tile collision.
 pub(super) fn apply_reservation_adjustments(
-    candidate: &ActionCandidate,
+    step: &ScoredStep,
     off: &mut OffensiveFactors,
     focus: &mut f32,
     position: &mut f32,
@@ -19,7 +18,7 @@ pub(super) fn apply_reservation_adjustments(
     ctx: &UtilityContext,
     reservations: &Reservations,
 ) {
-    if let Some(target_ent) = candidate.target() {
+    if let Some(target_ent) = step.target() {
         let reserved_dmg = reservations.reserved_damage(target_ent);
         if reserved_dmg > 0.0 {
             if let Some(target_unit) = snap.unit(target_ent) {
@@ -36,7 +35,7 @@ pub(super) fn apply_reservation_adjustments(
             off.cc *= 0.15;
         }
     }
-    if reservations.is_tile_reserved(candidate.tile) {
+    if reservations.is_tile_reserved(step.caster_tile()) {
         *position *= 0.5;
     }
 }

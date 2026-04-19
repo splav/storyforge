@@ -14,9 +14,6 @@ pub struct DifficultyProfile {
     /// [0..1] Quality of the final pick. Derives score_noise (high = 0) and
     /// top_k (high = always best). Single exposed knob for two internal effects.
     pub decision_quality: f32,
-    /// Cap on candidates kept after dedup. Low = shallower search, misses
-    /// clever move+cast lines.
-    pub candidate_budget: usize,
     /// Multiplier on role_weights[intent]. Low = intent is a suggestion;
     /// high = AI really plays around the chosen intent.
     pub intent_commitment: f32,
@@ -52,7 +49,6 @@ impl DifficultyProfile {
         Self {
             awareness: 0.55,
             decision_quality: 0.30,
-            candidate_budget: 12,
             intent_commitment: 0.75,
             survival_instinct: 0.55,
             resource_discipline: 0.60,
@@ -68,7 +64,6 @@ impl DifficultyProfile {
         Self {
             awareness: 0.80,
             decision_quality: 0.75,
-            candidate_budget: 20,
             intent_commitment: 1.00,
             survival_instinct: 0.80,
             resource_discipline: 1.00,
@@ -84,7 +79,6 @@ impl DifficultyProfile {
         Self {
             awareness: 1.00,
             decision_quality: 1.00,
-            candidate_budget: 30,
             intent_commitment: 1.20,
             survival_instinct: 1.00,
             resource_discipline: 1.20,
@@ -99,7 +93,7 @@ impl DifficultyProfile {
     // ── Derived parameters ──────────────────────────────────────────────
     // All reads go through these methods so the mapping lives in one place.
 
-    /// Random noise added per-candidate in score_candidates. 0 = deterministic.
+    /// Random noise added per-plan in `score_plans`. 0 = deterministic.
     pub fn score_noise(&self) -> f32 {
         lerp(0.6, 0.0, self.decision_quality)
     }

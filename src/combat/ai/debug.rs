@@ -6,10 +6,9 @@ use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
-use crate::combat::ai::factors::compute_factors;
-use crate::combat::ai::utility::{
-    ActionCandidate, AiDecision, CandidateKind, PickMechanics, UtilityContext,
-};
+use crate::combat::ai::factors::{compute_factors, ScoredStep};
+use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::utility::{AiDecision, PickMechanics, UtilityContext};
 use crate::game::hex::{hex_to_offset, Hex};
 use crate::game::resources::{UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
@@ -424,8 +423,8 @@ fn name_of(entity: Entity, names: &HashMap<Entity, String>) -> String {
     names.get(&entity).cloned().unwrap_or_else(|| format!("{:?}", entity))
 }
 
-fn target_label(target: Option<Entity>, names: &HashMap<Entity, String>) -> String {
-    target.map_or_else(|| "(area)".into(), |e| name_of(e, names))
+fn target_label(target: Entity, names: &HashMap<Entity, String>) -> String {
+    name_of(target, names)
 }
 
 fn fmt_offset(hex: Hex) -> String {
@@ -462,7 +461,7 @@ pub fn build_debug_snapshot(
     actor_pos: Hex,
     intent: &TacticalIntent,
     intent_reason: &str,
-    candidates: &[ActionCandidate],
+    plans: &[TurnPlan],
     scores: &[f32],
     decision: &AiDecision,
     ctx: &UtilityContext,
@@ -472,8 +471,8 @@ pub fn build_debug_snapshot(
     names: &HashMap<Entity, String>,
     pick_mech: Option<&PickMechanics>,
 ) -> AiDebugSnapshot {
-    // Top 5 candidates by score — skip -inf masked entries so the log shows
-    // only candidates actually in play (ProtectSelf masks non-defensive to -inf).
+    // Top 5 plans by score — skip -inf masked entries so the log shows
+    // only plans actually in play (ProtectSelf masks non-defensive to -inf).
     let mut indexed: Vec<(usize, f32)> = scores
         .iter()
         .copied()
@@ -486,21 +485,22 @@ pub fn build_debug_snapshot(
     let top_candidates: Vec<CandidateDebug> = indexed
         .iter()
         .map(|&(i, total)| {
-            let c = &candidates[i];
+            let step = ScoredStep::from_plan_committed(&plans[i], actor_pos);
             // compute_factors is deterministic — re-running for display gives
-            // exactly what score_candidates saw, so no drift risk here.
-            let raw = compute_factors(c, active, intent, ctx, snap, maps, reservations);
-            let (ability_label, target_name, is_move_only) = match &c.kind {
-                CandidateKind::Cast { ability, target, .. } => {
+            // exactly what scoring saw, no drift risk.
+            let raw = compute_factors(&step, active, intent, ctx, snap, maps, reservations);
+            let (ability_label, target_name, is_move_only) = match &step {
+                ScoredStep::Cast { ability, target, .. } => {
                     (ability.0.clone(), target_label(*target, names), false)
                 }
-                CandidateKind::MoveOnly => (String::new(), String::new(), true),
+                ScoredStep::Move { .. } => (String::new(), String::new(), true),
             };
+            let tile = step.caster_tile();
             CandidateDebug {
                 ability: ability_label,
                 target_name,
-                tile: hex_to_offset(c.tile),
-                tile_influence: tile_influence_at(c.tile, &active.role, maps),
+                tile: hex_to_offset(tile),
+                tile_influence: tile_influence_at(tile, &active.role, maps),
                 raw,
                 total,
                 is_move_only,
@@ -517,13 +517,13 @@ pub fn build_debug_snapshot(
             .pool
             .iter()
             .map(|&(idx, score)| {
-                let c = &candidates[idx];
-                let label = match &c.kind {
-                    CandidateKind::Cast { ability, target, .. } => {
+                let step = ScoredStep::from_plan_committed(&plans[idx], actor_pos);
+                let label = match &step {
+                    ScoredStep::Cast { ability, target, .. } => {
                         format!("{} → {}", ability, target_label(*target, names))
                     }
-                    CandidateKind::MoveOnly => {
-                        format!("retreat to {}", fmt_offset(c.tile))
+                    ScoredStep::Move { caster_tile } => {
+                        format!("retreat to {}", fmt_offset(*caster_tile))
                     }
                 };
                 PoolEntry { label, score }
@@ -543,7 +543,7 @@ pub fn build_debug_snapshot(
         top_candidates,
         pick,
         decision: decision_debug(decision, actor_pos, None, active, maps, names),
-        candidate_count: candidates.len(),
+        candidate_count: plans.len(),
     }
 }
 

@@ -1,11 +1,9 @@
-//! 9-factor scoring pipeline.
+//! Per-step 9-factor computation.
 //!
-//! Takes a candidate pool and produces one composite score per candidate by
-//! combining `[damage, kill, cc, heal, position, risk, focus, intent, scarcity]`
-//! with role-axis weights, per-factor difficulty multipliers, and noise.
-//!
-//! `score_candidates` is the public entry. `compute_factors` is exposed so the
-//! debug printer can display the raw per-factor breakdown for top-K candidates.
+//! Produces `[damage, kill, cc, heal, position, risk, focus, intent, scarcity]`
+//! for a single `ScoredStep`. Normalisation, role-axis weighting and the
+//! plan-level aggregation (discounted sums, max-across-steps) live in
+//! `combat::ai::planning::scorer`.
 //!
 //! Module layout:
 //! - `offensive` — damage / heal / kill / cc (single-target and AoE), `aoe_area`.
@@ -21,19 +19,112 @@ mod scarcity;
 pub use adjustments::crit_fail_adjusted;
 pub use offensive::aoe_area;
 
-use crate::combat::ai::candidates::{ActionCandidate, CandidateKind};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{intent_score, TacticalIntent};
+use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::reservations::Reservations;
-use crate::combat::ai::scoring::estimate_st_damage;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
 use crate::combat::ai::utility::UtilityContext;
-use crate::content::abilities::{CasterContext, EffectDef};
-use crate::core::modifier;
-use crate::core::DiceRng;
-use crate::game::components::Abilities;
+use crate::core::AbilityId;
+use crate::game::hex::Hex;
+use bevy::prelude::Entity;
+
+// ── Scored step ─────────────────────────────────────────────────────────────
+
+/// A single plan step as seen by the scoring layer — a lightweight ref-based
+/// view over `PlanStep` plus the caster position that step happens *at*.
+///
+/// Replaces the owned `ActionCandidate` that used to pivot between planning
+/// and scoring. Scoring now pays zero allocations per step; debug walks
+/// `TurnPlan` directly.
+///
+/// For `Cast`: `caster_tile` is the actor's tile when the spell fires (the
+/// actor doesn't move during a pure cast). For `Move`: `caster_tile` is the
+/// *destination* — position/risk factors are keyed off the tile the actor
+/// ends up on, not the one it's leaving.
+pub enum ScoredStep<'a> {
+    Cast {
+        ability: &'a AbilityId,
+        target: Entity,
+        target_pos: Hex,
+        caster_tile: Hex,
+    },
+    Move {
+        caster_tile: Hex,
+    },
+}
+
+impl<'a> ScoredStep<'a> {
+    pub fn caster_tile(&self) -> Hex {
+        match self {
+            Self::Cast { caster_tile, .. } | Self::Move { caster_tile } => *caster_tile,
+        }
+    }
+
+    pub fn target(&self) -> Option<Entity> {
+        match self {
+            Self::Cast { target, .. } => Some(*target),
+            Self::Move { .. } => None,
+        }
+    }
+
+    pub fn ability(&self) -> Option<&AbilityId> {
+        match self {
+            Self::Cast { ability, .. } => Some(*ability),
+            Self::Move { .. } => None,
+        }
+    }
+
+    pub fn is_move_only(&self) -> bool {
+        matches!(self, Self::Move { .. })
+    }
+
+    /// Build from a `PlanStep`. `pre_step_pos` is where the actor stood right
+    /// before this step; for `Move`, the tile auto-advances to the path's
+    /// destination so position factors see the endpoint.
+    pub fn from_plan_step(step: &'a PlanStep, pre_step_pos: Hex) -> Self {
+        match step {
+            PlanStep::Cast { ability, target, target_pos } => Self::Cast {
+                ability,
+                target: *target,
+                target_pos: *target_pos,
+                caster_tile: pre_step_pos,
+            },
+            PlanStep::Move { path } => Self::Move {
+                caster_tile: *path.last().unwrap_or(&pre_step_pos),
+            },
+        }
+    }
+
+    /// Build the view of what `commit_plan` would actually execute this tick
+    /// — first step for solo or leading move, bundled Cast when preceded by
+    /// a Move. Used by the debug formatter.
+    pub fn from_plan_committed(plan: &'a TurnPlan, actor_pos: Hex) -> Self {
+        match plan.steps.as_slice() {
+            [] => Self::Move { caster_tile: actor_pos },
+            [PlanStep::Cast { ability, target, target_pos }, ..] => Self::Cast {
+                ability,
+                target: *target,
+                target_pos: *target_pos,
+                caster_tile: actor_pos,
+            },
+            [PlanStep::Move { path }, rest @ ..] => {
+                let dest = *path.last().unwrap_or(&actor_pos);
+                match rest.first() {
+                    Some(PlanStep::Cast { ability, target, target_pos }) => Self::Cast {
+                        ability,
+                        target: *target,
+                        target_pos: *target_pos,
+                        caster_tile: dest,
+                    },
+                    _ => Self::Move { caster_tile: dest },
+                }
+            }
+        }
+    }
+}
 
 // ── Factor layout ───────────────────────────────────────────────────────────
 
@@ -41,13 +132,14 @@ use crate::game::components::Abilities;
 pub const NUM_FACTORS: usize = 9;
 
 /// Factors that can be negative (position, intent, scarcity).
-/// These use symmetric normalization: divide by max(|min|, |max|) → [-1, 1].
-/// Non-negative factors use standard max normalization → [0, 1].
-const SIGNED_FACTOR: [bool; NUM_FACTORS] = [
+/// These use symmetric normalization in `planning::scorer`: divide by
+/// `max(|min|, |max|)` → [-1, 1]. Non-negative factors use max normalization
+/// → [0, 1].
+pub const SIGNED_FACTOR: [bool; NUM_FACTORS] = [
     false, false, false, false, true, false, false, true, true,
 ];
 
-/// Per-candidate offensive factors (populated only for Cast).
+/// Per-step offensive factors (populated only for Cast).
 #[derive(Default)]
 pub(super) struct OffensiveFactors {
     pub(super) damage: f32,
@@ -56,128 +148,10 @@ pub(super) struct OffensiveFactors {
     pub(super) cc: f32,
 }
 
-// ── Top-level scoring ───────────────────────────────────────────────────────
-
-pub fn score_candidates(
-    candidates: &[ActionCandidate],
-    active: &UnitSnapshot,
-    intent: &TacticalIntent,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    reservations: &Reservations,
-    rng: &mut DiceRng,
-) -> Vec<f32> {
-    if candidates.is_empty() {
-        return vec![];
-    }
-
-    // Compute raw factors for each candidate.
-    let raw: Vec<[f32; NUM_FACTORS]> = candidates
-        .iter()
-        .map(|c| compute_factors(c, active, intent, ctx, snap, maps, reservations))
-        .collect();
-
-    // Find per-factor extremes for normalization.
-    let mut maxes = [0.0f32; NUM_FACTORS];
-    let mut mins = [0.0f32; NUM_FACTORS];
-    for factors in &raw {
-        for (i, &v) in factors.iter().enumerate() {
-            if v > maxes[i] { maxes[i] = v; }
-            if v < mins[i] { mins[i] = v; }
-        }
-    }
-
-    // Compute normalization denominator per factor.
-    let mut denom = [0.0f32; NUM_FACTORS];
-    for i in 0..NUM_FACTORS {
-        denom[i] = if SIGNED_FACTOR[i] {
-            // Symmetric: divide by max absolute value → [-1, 1]
-            mins[i].abs().max(maxes[i].abs())
-        } else {
-            // Non-negative: divide by max → [0, 1]
-            maxes[i]
-        };
-    }
-
-    // Normalize and apply composed axis weights, with per-factor difficulty multipliers.
-    let mut weights = active.role.factor_weights();
-    // intent factor (idx 7): scaled by intent_commitment.
-    weights[7] *= ctx.difficulty.intent_commitment;
-    // scarcity factor (idx 8): scaled by resource_discipline.
-    weights[8] *= ctx.difficulty.resource_discipline;
-
-    let noise_amp = ctx.difficulty.score_noise();
-
-    raw.iter()
-        .zip(candidates.iter())
-        .map(|(factors, candidate)| {
-            let mut score = 0.0f32;
-            for i in 0..NUM_FACTORS {
-                let normalized = if denom[i] > f32::EPSILON {
-                    factors[i] / denom[i]
-                } else {
-                    0.0
-                };
-                score += normalized * weights[i];
-            }
-
-            // Summon bonus bypasses normalization: the factor pipeline can't
-            // see the strategic value of creating an ally, and for hybrid roles
-            // the damage-axis weight is too low to lift a raw summon score.
-            score += summon_bonus(candidate, active, ctx, snap);
-
-            // Add noise.
-            if noise_amp > 0.0 {
-                let noise = (rng.roll_d(1000) as f32 / 500.0 - 1.0) * noise_amp;
-                score += noise;
-            }
-
-            score
-        })
-        .collect()
-}
-
-/// Additive bonus applied post-normalization when the candidate is a Summon.
-/// Valued as `summon_dpr × decay` — the factor pipeline can't see the
-/// strategic value of creating an ally, and normalization would erase any
-/// single-factor contribution.
-fn summon_bonus(
-    candidate: &ActionCandidate,
-    active: &UnitSnapshot,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-) -> f32 {
-    let CandidateKind::Cast { ability, .. } = &candidate.kind else { return 0.0 };
-    let Some(def) = ctx.content.abilities.get(ability) else { return 0.0 };
-    let EffectDef::Summon { template, max_active } = &def.effect else { return 0.0 };
-
-    let cap = max_active.unwrap_or(3).max(1) as f32;
-    let count = snap
-        .units
-        .iter()
-        .filter(|u| u.summoner == Some(active.entity))
-        .count() as f32;
-    let decay = (1.0 - (count / cap)).max(0.0);
-    if decay <= 0.0 { return 0.0 }
-
-    let Some(tpl) = ctx.content.unit_templates.get(template) else { return 0.0 };
-    let weapon = ctx.content.weapons.get(&tpl.equipment.main_hand);
-    let caster_ctx = CasterContext {
-        str_mod: modifier(tpl.stats.strength),
-        int_mod: modifier(tpl.stats.intelligence),
-        spell_power: weapon.map_or(0, |wd| wd.spell_power),
-        weapon_dice: weapon.map(|wd| wd.dice.clone()),
-    };
-    let abilities = Abilities(tpl.ability_ids.clone());
-    let dpr = estimate_st_damage(&caster_ctx, &abilities, ctx.content);
-    dpr * decay
-}
-
-/// Compute the 9 raw utility factors for a single candidate.
+/// Compute the 9 raw utility factors for a single scored step.
 /// Axes: [damage, kill, cc, heal, position, risk, focus, intent, scarcity].
 pub fn compute_factors(
-    candidate: &ActionCandidate,
+    step: &ScoredStep,
     active: &UnitSnapshot,
     intent: &TacticalIntent,
     ctx: &UtilityContext,
@@ -185,27 +159,29 @@ pub fn compute_factors(
     maps: &InfluenceMaps,
     reservations: &Reservations,
 ) -> [f32; NUM_FACTORS] {
-    let mut off = match &candidate.kind {
-        CandidateKind::Cast { ability, target_pos, target } => {
-            offensive::compute_offensive(ability, *target_pos, *target, candidate.tile, active, ctx, snap)
+    let tile = step.caster_tile();
+
+    let mut off = match step {
+        ScoredStep::Cast { ability, target_pos, target, caster_tile } => {
+            offensive::compute_offensive(ability, *target_pos, *target, *caster_tile, active, ctx, snap)
         }
-        CandidateKind::MoveOnly => OffensiveFactors::default(),
+        ScoredStep::Move { .. } => OffensiveFactors::default(),
     };
 
-    let mut position = evaluate_position(candidate.tile, &active.role, maps);
-    let risk = 1.0 - maps.danger.get(candidate.tile);
-    let mut focus = candidate
+    let mut position = evaluate_position(tile, &active.role, maps);
+    let risk = 1.0 - maps.danger.get(tile);
+    let mut focus = step
         .target()
         .and_then(|t| snap.unit(t))
         .map(|t| target_priority(active, t, snap))
         .unwrap_or(0.0);
-    let intent_val = intent_score(intent, candidate, active, snap, maps, ctx.content, ctx.difficulty);
+    let intent_val = intent_score(intent, step, active, snap, maps, ctx.content, ctx.difficulty);
 
-    adjustments::apply_reservation_adjustments(candidate, &mut off, &mut focus, &mut position, snap, ctx, reservations);
+    adjustments::apply_reservation_adjustments(step, &mut off, &mut focus, &mut position, snap, ctx, reservations);
 
-    let scarcity = match &candidate.kind {
-        CandidateKind::Cast { .. } => scarcity::compute_scarcity(candidate, active, off.kill, ctx, snap),
-        CandidateKind::MoveOnly => 0.0,
+    let scarcity = match step {
+        ScoredStep::Cast { .. } => scarcity::compute_scarcity(step, active, off.kill, ctx, snap),
+        ScoredStep::Move { .. } => 0.0,
     };
 
     [off.damage, off.kill, off.cc, off.heal, position, risk, focus, intent_val, scarcity]

@@ -1,4 +1,5 @@
 #![allow(clippy::too_many_arguments)]
+use crate::combat::effects_math::final_damage_i32;
 use crate::content::content_view::ActiveContent;
 use crate::game::components::{Combatant, Dead, Rage, StatusEffects, Vital};
 use crate::game::messages::{ApplyDamage, ApplyHeal};
@@ -51,20 +52,15 @@ pub fn apply_effects_system(
             })
             .unwrap_or((0, 0));
 
-        let total_armor = if *pierces_armor {
-            0
-        } else {
-            v.armor + status_sums.0
-        };
-        let vulnerability = status_sums.1;
-
-        let final_damage = (raw - total_armor + vulnerability).max(1);
+        let final_damage =
+            final_damage_i32(*raw, v.armor + status_sums.0, status_sums.1, *pierces_armor);
+        let armor_reduced = if *pierces_armor { 0 } else { v.armor + status_sums.0 };
         v.apply_damage(final_damage);
 
         log.push(CombatEvent::DamageResult {
             target: *target,
             formula: formula.clone(),
-            armor_reduced: total_armor,
+            armor_reduced,
             final_damage,
         });
 

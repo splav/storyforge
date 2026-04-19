@@ -13,8 +13,7 @@ pub mod types;
 
 pub use generator::generate_plans;
 pub use picker::{
-    decision_from_plan, decision_from_steps, pick_best_plan, plan_to_candidate,
-    record_plan_reservation, steps_consumed_by_decision, validate_plan_step,
+    commit_plan, pick_best_plan, record_committed_reservations, PickMechanics,
 };
 pub use sanity::{apply_protect_self_mask, plan_is_defensive, sanity_adjust_plans};
 pub use scorer::{compute_plan_factors, score_plans, score_plans_with_raw};

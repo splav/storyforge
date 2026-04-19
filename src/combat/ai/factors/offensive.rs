@@ -7,16 +7,17 @@ use super::OffensiveFactors;
 use crate::combat::ai::scoring::score_action;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::UtilityContext;
+use crate::combat::effects_math::aoe_cells;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 use crate::core::AbilityId;
-use crate::game::hex::{hex_circle, hex_line, Hex};
+use crate::game::hex::Hex;
 use bevy::prelude::*;
 use std::collections::HashSet;
 
 pub(super) fn compute_offensive(
     ability: &AbilityId,
     target_pos: Hex,
-    target: Option<Entity>,
+    target: Entity,
     caster_tile: Hex,
     active: &UnitSnapshot,
     ctx: &UtilityContext,
@@ -33,7 +34,7 @@ pub(super) fn compute_offensive(
     let (damage, heal, kill, cc) = if def.aoe == AoEShape::None {
         let mut damage = 0.0f32;
         let mut heal = 0.0f32;
-        let target_unit = target.and_then(|t| snap.unit(t));
+        let target_unit = snap.unit(target);
         if let Some(target_unit) = target_unit {
             let raw = score_action(def, target_unit, ctx.caster, ctx.content);
             let adjusted = crit_fail_adjusted(raw, def, &ctx.crit_fail_effect, ctx.crit_fail_chance);
@@ -71,13 +72,11 @@ pub(super) fn compute_offensive(
     OffensiveFactors { damage, heal, kill, cc }
 }
 
-/// Expand an AoE def into the set of affected tiles.
+/// Expand an AoE def into the set of affected tiles. Thin wrapper over
+/// `effects_math::aoe_cells` that materialises the result as a `HashSet` for
+/// fast `contains` checks in the planner.
 pub fn aoe_area(def: &AbilityDef, target_pos: Hex, caster_tile: Hex) -> HashSet<Hex> {
-    match def.aoe {
-        AoEShape::Circle { radius } => hex_circle(target_pos, radius).into_iter().collect(),
-        AoEShape::Line { length } => hex_line(caster_tile, target_pos, length).into_iter().collect(),
-        AoEShape::None => HashSet::new(),
-    }
+    aoe_cells(def.aoe, caster_tile, target_pos).into_iter().collect()
 }
 
 fn compute_aoe_damage(

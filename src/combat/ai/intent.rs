@@ -6,8 +6,10 @@ use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
-use crate::combat::ai::utility::{ActionCandidate, CandidateKind};
+use crate::combat::ai::factors::ScoredStep;
+use crate::combat::ai::planning::types::TurnPlan;
 use crate::content::abilities::{AoEShape, TargetType};
+use crate::game::hex::Hex;
 use bevy::prelude::*;
 
 /// Penalty values for soft intent misalignment.
@@ -334,12 +336,15 @@ pub fn intent_viability_threshold(intent: &TacticalIntent) -> Option<f32> {
 pub fn default_focus_target(
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
-    candidates: &[ActionCandidate],
+    plans: &[TurnPlan],
+    actor_pos: Hex,
     exclude: Option<Entity>,
 ) -> Option<Entity> {
-    let reachable: std::collections::HashSet<Entity> = candidates
+    // A plan's "reachable target" is the target of its committed prefix —
+    // matches what the actor would actually hit this tick.
+    let reachable: std::collections::HashSet<Entity> = plans
         .iter()
-        .filter_map(|c| c.target())
+        .filter_map(|p| ScoredStep::from_plan_committed(p, actor_pos).target())
         .collect();
 
     let pick_best = |include_reachable_only: bool| {
@@ -372,29 +377,29 @@ pub fn update_memory(memory: &mut AiMemory, intent: &TacticalIntent) {
 
 // ── Intent → utility score (factor[7]) ──────────────────────────────────────
 
-/// Compute how well a candidate aligns with the current intent.
+/// Compute how well a scored step aligns with the current intent.
 /// Positive = aligned, zero = neutral, negative = misaligned (soft penalty).
 pub fn intent_score(
     intent: &TacticalIntent,
-    candidate: &ActionCandidate,
+    step: &ScoredStep,
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     content: &ContentView,
     difficulty: &DifficultyProfile,
 ) -> f32 {
-    // MoveOnly candidates: scored only on position-related intent axes.
-    let cast = match &candidate.kind {
-        CandidateKind::Cast { ability, target_pos, target } => {
-            Some((ability, *target_pos, *target))
+    // Move steps: scored only on position-related intent axes.
+    let cast = match step {
+        ScoredStep::Cast { ability, target_pos, target, .. } => {
+            Some((*ability, *target_pos, *target))
         }
-        CandidateKind::MoveOnly => None,
+        ScoredStep::Move { .. } => None,
     };
 
     match intent {
         TacticalIntent::FocusTarget { target: focus } => match cast {
             Some((ability, _, target)) => {
-                if target == Some(*focus) {
+                if target == *focus {
                     return 1.0;
                 }
                 let Some(def) = content.abilities.get(ability) else {
@@ -404,8 +409,8 @@ pub fn intent_score(
                 // area catches the focus even without naming it.
                 if def.aoe != AoEShape::None {
                     if let Some(focus_unit) = snap.unit(*focus) {
-                        if let CandidateKind::Cast { target_pos, .. } = &candidate.kind {
-                            let area = aoe_area(def, *target_pos, candidate.tile);
+                        if let ScoredStep::Cast { target_pos, caster_tile, .. } = step {
+                            let area = aoe_area(def, *target_pos, *caster_tile);
                             if area.contains(&focus_unit.pos) {
                                 return 0.6;
                             }
@@ -424,9 +429,9 @@ pub fn intent_score(
                     return 0.0;
                 };
                 let is_cc = applies_cc(def, content);
-                if is_cc && target == Some(*cc_target) { 1.0 }
+                if is_cc && target == *cc_target { 1.0 }
                 else if is_cc { MISALIGN_PENALTY }
-                else if target == Some(*cc_target) { 0.5 }
+                else if target == *cc_target { 0.5 }
                 else { 0.0 }
             }
             None => 0.0,
@@ -435,7 +440,7 @@ pub fn intent_score(
             // Tiered: strong improvement rewarded, any improvement neutral,
             // no improvement penalized — mildly if casting, hard if just moving.
             let current = evaluate_position(active.pos, &active.role, maps);
-            let new = evaluate_position(candidate.tile, &active.role, maps);
+            let new = evaluate_position(step.caster_tile(), &active.role, maps);
             let improvement = new - current;
             let min_improv = difficulty.reposition_min_improvement();
             if improvement >= min_improv {
@@ -454,7 +459,7 @@ pub fn intent_score(
             // staying put to save yourself is protecting self, regardless of
             // tile danger. Otherwise use tile safety.
             if let Some((ability, _, target)) = cast {
-                if target == Some(active.entity) {
+                if target == active.entity {
                     if let Some(def) = content.abilities.get(ability) {
                         if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
                             return 1.0;
@@ -462,14 +467,14 @@ pub fn intent_score(
                     }
                 }
             }
-            1.0 - maps.danger.get(candidate.tile)
+            1.0 - maps.danger.get(step.caster_tile())
         }
         TacticalIntent::ProtectAlly { ally } => match cast {
             Some((ability, _, target)) => {
                 let Some(def) = content.abilities.get(ability) else { return 0.0 };
                 if def.target_type == TargetType::SingleAlly {
-                    if target == Some(*ally) { 1.0 } else { MILD_PENALTY }
-                } else if snap.unit(*ally).is_some_and(|a| candidate.tile.unsigned_distance_to(a.pos) <= 1) {
+                    if target == *ally { 1.0 } else { MILD_PENALTY }
+                } else if snap.unit(*ally).is_some_and(|a| step.caster_tile().unsigned_distance_to(a.pos) <= 1) {
                     0.5
                 } else {
                     0.0
@@ -477,7 +482,7 @@ pub fn intent_score(
             }
             // Move adjacent to the wounded ally = mild support (bodyguard).
             None => {
-                if snap.unit(*ally).is_some_and(|a| candidate.tile.unsigned_distance_to(a.pos) <= 1) {
+                if snap.unit(*ally).is_some_and(|a| step.caster_tile().unsigned_distance_to(a.pos) <= 1) {
                     0.5
                 } else {
                     0.0
@@ -493,7 +498,7 @@ pub fn intent_score(
             if def.aoe == AoEShape::None {
                 return MILD_PENALTY;
             }
-            let area = aoe_area(def, target_pos, candidate.tile);
+            let area = aoe_area(def, target_pos, step.caster_tile());
             let total = snap.enemies_of(active.team).count() as f32;
             let hit = snap.enemies_of(active.team).filter(|e| area.contains(&e.pos)).count() as f32;
             if total > 0.0 { hit / total } else { 0.0 }
@@ -509,7 +514,7 @@ pub fn intent_score(
             if matches!(def.target_type, TargetType::SingleEnemy) {
                 score += 0.5;
             }
-            if let Some(target_unit) = target.and_then(|t| snap.unit(t)) {
+            if let Some(target_unit) = snap.unit(target) {
                 if applies_cc(def, content) && !target_unit.tags.contains(AiTags::IS_STUNNED) {
                     score += 0.8;
                 }
@@ -533,7 +538,7 @@ mod tests {
     use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
     use crate::combat::ai::role::{AiRole, AxisProfile};
     use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-    use crate::combat::ai::utility::ActionCandidate;
+    use crate::core::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
     
@@ -578,18 +583,18 @@ mod tests {
             summoner: None,
             reactions_left: 0,
             aoo_expected_damage: None,
+            statuses: Vec::new(),
         }
     }
 
-    fn dummy_candidate(tile: Hex) -> ActionCandidate {
-        ActionCandidate {
-            tile,
-            path: vec![],
-            kind: CandidateKind::Cast {
-                ability: "melee_attack".into(),
-                target_pos: tile,
-                target: Some(Entity::from_raw_u32(1).expect("valid")),
-            },
+    /// Caller owns the `AbilityId` so the `ScoredStep` ref stays valid for
+    /// the scope of the test.
+    fn dummy_step<'a>(tile: Hex, ability: &'a AbilityId) -> ScoredStep<'a> {
+        ScoredStep::Cast {
+            ability,
+            target: Entity::from_raw_u32(1).expect("valid"),
+            target_pos: tile,
+            caster_tile: tile,
         }
     }
 
@@ -623,9 +628,10 @@ mod tests {
         let intent = TacticalIntent::Reposition;
         let difficulty = DifficultyProfile::default();
 
+        let ab = AbilityId::from("melee_attack");
         let score_worse = intent_score(
             &intent,
-            &dummy_candidate(worse),
+            &dummy_step(worse, &ab),
             &active,
             &snap,
             &maps,
@@ -634,7 +640,7 @@ mod tests {
         );
         let score_better = intent_score(
             &intent,
-            &dummy_candidate(better),
+            &dummy_step(better, &ab),
             &active,
             &snap,
             &maps,

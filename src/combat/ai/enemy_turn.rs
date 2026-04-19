@@ -5,9 +5,6 @@ use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::log::AiLogger;
-use crate::combat::ai::planning::{
-    decision_from_steps, steps_consumed_by_decision, validate_plan_step,
-};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::build_snapshot;
@@ -17,12 +14,10 @@ use crate::content::races::CritFailEffect;
 use crate::content::settings::GameSettings;
 use crate::core::DiceRng;
 use crate::game::components::{
-    ActivePlan, ActivePlans, ActiveCombatant, AiCombatantQ, AiCombatantQItem,
-    Combatant, StatusEffects, Team,
+    ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, StatusEffects, Team,
 };
-use crate::game::hex::{can_stop_on, is_passable, Hex};
+use crate::game::hex::Hex;
 use crate::game::messages::{EndTurn, MoveUnit, UseAbility};
-use crate::game::pathfinding::reachable_with_paths;
 use crate::game::resources::{CombatContext, HexPositions};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -39,8 +34,7 @@ pub struct AiMessages<'w> {
 
 /// Shared read-only resources used during AI decision making. Bundling
 /// everything we just *read* into one `SystemParam` slot keeps the two AI
-/// systems under Bevy's 16-parameter limit while we add mutable state like
-/// `ActivePlans` and `Reservations`.
+/// systems under Bevy's 16-parameter limit.
 #[derive(SystemParam)]
 pub struct AiEnv<'w> {
     content: Res<'w, ActiveContent>,
@@ -57,7 +51,6 @@ pub fn enemy_ai_system(
     env: AiEnv,
     mut rng: ResMut<DiceRng>,
     mut reservations: ResMut<Reservations>,
-    mut active_plans: ResMut<ActivePlans>,
     mut logger: ResMut<AiLogger>,
     mut msgs: AiMessages,
     mut debug_state: ResMut<AiDebugState>,
@@ -74,13 +67,18 @@ pub fn enemy_ai_system(
         return;
     }
     run_ai_turn(
-        actor, Team::Player, &c, &env, &mut rng, &mut reservations, &mut active_plans,
+        actor, Team::Player, &c, &env, &mut rng, &mut reservations,
         &mut logger, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );
 }
 
-/// Shared AI logic for both enemy_ai and pact_ai. `opponent_team` is who to attack.
+/// Shared AI logic for both enemy_ai and pact_ai. `opponent_team` is who to
+/// attack. Every tick re-plans from scratch — there is no cross-tick plan
+/// storage. Multi-step beam search still informs the choice of step[0], but
+/// the remainder of the plan is discarded after each commit so subsequent
+/// ticks see actual post-action state (accounts for crit-fail, misses, allies
+/// killing the target, player reactions, etc.).
 fn run_ai_turn(
     actor: Entity,
     opponent_team: Team,
@@ -88,7 +86,6 @@ fn run_ai_turn(
     env: &AiEnv,
     rng: &mut DiceRng,
     reservations: &mut Reservations,
-    active_plans: &mut ActivePlans,
     logger: &mut AiLogger,
     msgs: &mut AiMessages,
     combatants: &Query<AiCombatantQ, With<Combatant>>,
@@ -120,34 +117,15 @@ fn run_ai_turn(
     let snap = build_snapshot(actor, combat_ctx.round, combatants, statuses, positions, roles, content);
     let maps = build_influence_maps(&snap, actor_team, inf_cfg);
 
-    // Build reachable tiles for movement. Use the snapshot's status-adjusted
-    // speed so paths respect debuffs like Истощение — otherwise the AI plans
-    // routes that movement_system silently rejects, dropping the action.
-    // .max(0) lets `speed = 0` (immobile) stay zero, while still clamping negative
-    // status debuffs. With effective_speed = 0, reachable_with_paths returns only
-    // the actor's own tile, so AI naturally plans without movement.
-    let effective_speed = snap
-        .unit(actor)
-        .map(|u| u.speed.max(0))
-        .unwrap_or(c.speed.0);
-    // Passability matches player movement rules: enemies block, allies are walked
-    // through. `can_stop` still uses all occupied tiles — a unit can't end its
-    // move on top of a teammate even though it can pass through.
-    let enemy_positions: HashSet<Hex> = snap
-        .enemies_of(actor_team)
-        .map(|u| u.pos)
-        .collect();
+    // `blocked_tiles` mirrors `HexPositions` minus the actor — the planner
+    // treats these as occupied (corpses still block stop-tiles even though the
+    // snapshot filters dead units out for scoring). Plan-level BFS happens
+    // inside `planning::generator` per sim state; no outer reach build.
     let all_occupied: HashSet<Hex> = positions
         .iter()
         .filter(|(&e, _)| e != actor)
         .map(|(_, &p)| p)
         .collect();
-    let reach = reachable_with_paths(
-        actor_pos,
-        effective_speed,
-        |h| is_passable(h, &enemy_positions),
-        |h| can_stop_on(h, &all_occupied, None),
-    );
 
     // Build utility context.
     let caster = build_caster_ctx(c, content);
@@ -191,40 +169,18 @@ fn run_ai_turn(
         .map(|mut m| std::mem::take(&mut *m))
         .unwrap_or_default();
 
-    // ── Resume a committed plan if one exists and still validates ──────
-    // If the stored plan's next step still executes cleanly in the current
-    // world, commit it (bundling Move→Cast as usual) and skip fresh pick_action
-    // entirely — this is what gives multi-step plans their *coherence* across
-    // ticks (the retreat lands on the exact planned tile).
-    let Some(active_snap) = snap.unit(actor) else {
+    if snap.unit(actor).is_none() {
         msgs.end_turn.write(EndTurn { actor });
         return;
-    };
-    let resumed: Option<AiDecision> = try_resume_plan(
-        actor, actor_pos, &ctx, &snap, active_snap, active_plans,
-    );
+    }
 
-    let (decision, debug_snapshot) = if let Some(d) = resumed {
-        (d, None)
-    } else {
-        // Drop any stale plan so store-below doesn't overwrite a wrong one.
-        active_plans.0.remove(&actor);
-        let (d, ds, plan) = pick_action(
-            actor, actor_pos, &ctx, &snap, &maps, &reach, rng,
-            &mut memory, reservations, logger, debug, &debug_names,
-        );
-        // Store plan iff it has steps beyond what the first commit consumes.
-        if let Some(plan) = plan {
-            let consumed = steps_consumed_by_decision(&plan.steps);
-            if consumed < plan.steps.len() {
-                active_plans.0.insert(
-                    actor,
-                    ActivePlan { steps: plan.steps, cursor: consumed },
-                );
-            }
-        }
-        (d, ds)
-    };
+    // Fresh plan every tick — no cross-tick resume. Lookahead inside the beam
+    // search still shapes the step[0] choice, but only step[0] executes; the
+    // remainder is reconsidered on the next tick against actual world state.
+    let (decision, debug_snapshot) = pick_action(
+        actor, actor_pos, &ctx, &snap, &maps, rng,
+        &mut memory, reservations, logger, debug, &debug_names,
+    );
 
     // Write memory back.
     if let Ok(mut mem) = memories.get_mut(actor) {
@@ -266,94 +222,6 @@ fn build_caster_ctx(c: &AiCombatantQItem, content: &ContentView) -> CasterContex
     CasterContext::new(c.stats, Some(c.equipment), &content.weapons)
 }
 
-/// Short human-readable representation of a plan step for debug logs.
-fn fmt_step(step: &crate::combat::ai::planning::PlanStep) -> String {
-    use crate::combat::ai::planning::PlanStep;
-    match step {
-        PlanStep::Move { path } => {
-            let last = path.last().copied().unwrap_or_default();
-            format!("Move→({},{}) via {} tiles", last.x, last.y, path.len())
-        }
-        PlanStep::Cast { ability, target, target_pos } => format!(
-            "Cast {} → {:?} @ ({},{})",
-            ability.0, target, target_pos.x, target_pos.y,
-        ),
-    }
-}
-
-/// Try to resume the actor's stored plan: validate the current cursor step,
-/// and — if valid — commit it (bundling Move→Cast when applicable) and advance
-/// the cursor. Returns `Some(decision)` on successful resume; returns `None`
-/// (and does **not** mutate the stored plan) if no plan exists or validation
-/// fails. Caller is responsible for dropping a stale plan before replanning.
-fn try_resume_plan(
-    actor: Entity,
-    actor_pos: crate::game::hex::Hex,
-    ctx: &UtilityContext,
-    snap: &crate::combat::ai::snapshot::BattleSnapshot,
-    active_snap: &crate::combat::ai::snapshot::UnitSnapshot,
-    active_plans: &mut ActivePlans,
-) -> Option<AiDecision> {
-    let plan = active_plans.0.get_mut(&actor)?;
-    if plan.cursor >= plan.steps.len() {
-        active_plans.0.remove(&actor);
-        return None;
-    }
-
-    let suffix = &plan.steps[plan.cursor..];
-    // Validate the *first* step of the suffix. Bundled Move→Cast validates
-    // the move here; the cast half will validate on its own next frame if
-    // we somehow split the bundle — current engine commits both atomically
-    // so a single validation is sufficient.
-    let next_step = &suffix[0];
-    if let Err(reason) = validate_plan_step(next_step, active_snap, snap, ctx) {
-        info!(
-            "AI plan invalidated for {:?} at cursor {}/{}: {} ({})",
-            actor,
-            plan.cursor,
-            plan.steps.len(),
-            reason,
-            fmt_step(next_step),
-        );
-        return None;
-    }
-    // If the bundle is Move→Cast, also validate the cast against the
-    // post-move position to catch "cast from new tile fails" cases.
-    if suffix.len() >= 2 {
-        if let (
-            crate::combat::ai::planning::PlanStep::Move { path },
-            crate::combat::ai::planning::PlanStep::Cast { .. },
-        ) = (&suffix[0], &suffix[1])
-        {
-            if let Some(&dest) = path.last() {
-                // Synthesize a projected actor at the move destination — only
-                // `pos`, `action_points`, resources matter for the cast validation.
-                let mut projected = active_snap.clone();
-                projected.pos = dest;
-                projected.movement_points =
-                    (projected.movement_points - path.len() as i32).max(0);
-                if let Err(reason) = validate_plan_step(&suffix[1], &projected, snap, ctx) {
-                    info!(
-                        "AI plan bundle cast invalid for {:?} ({}): {}",
-                        actor,
-                        fmt_step(&suffix[1]),
-                        reason,
-                    );
-                    return None;
-                }
-            }
-        }
-    }
-
-    let decision = decision_from_steps(suffix, actor, actor_pos);
-    let consumed = steps_consumed_by_decision(suffix);
-    plan.cursor += consumed;
-    if plan.cursor >= plan.steps.len() {
-        active_plans.0.remove(&actor);
-    }
-    Some(decision)
-}
-
 // ── Pact AI: AI controls hero under pact_control status ───────────────────
 
 pub fn has_ai_control_status(entity: Entity, statuses: &Query<&StatusEffects>, content: &ContentView) -> bool {
@@ -367,7 +235,6 @@ pub fn pact_ai_system(
     env: AiEnv,
     mut rng: ResMut<DiceRng>,
     mut reservations: ResMut<Reservations>,
-    mut active_plans: ResMut<ActivePlans>,
     mut logger: ResMut<AiLogger>,
     mut msgs: AiMessages,
     mut debug_state: ResMut<AiDebugState>,
@@ -387,7 +254,7 @@ pub fn pact_ai_system(
         return;
     }
     run_ai_turn(
-        actor, Team::Enemy, &c, &env, &mut rng, &mut reservations, &mut active_plans,
+        actor, Team::Enemy, &c, &env, &mut rng, &mut reservations,
         &mut logger, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );

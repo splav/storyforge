@@ -1,13 +1,16 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
+use crate::combat::effects_outcome::{
+    compute_ability_outcome, CritFail, OutcomePrimary, RngDice,
+};
+use crate::combat::effects_state::{compute_affected_targets, TargetRef, TargetState};
 use crate::content::content_view::ActiveContent;
-use crate::content::abilities::{AoEShape, CasterContext, EffectDef, StatusOn, TargetType};
+use crate::content::abilities::{AoEShape, CasterContext, EffectDef, TargetType};
 use crate::content::races::CritFailEffect;
 use crate::content::settings::GameSettings;
 use crate::core::{DiceRng, ResourceKind};
 use crate::game::components::{
     ActionPoints, BonusMovement, CombatPath, CombatStats, Combatant, Energy, Equipment, Faction, Mana, Rage, Team, Vital,
 };
-use crate::game::hex::{hex_circle, hex_line};
 use crate::game::messages::{ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, SpawnUnit, ValidatedAction};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::HexPositions;
@@ -53,16 +56,16 @@ pub fn resolve_action_system(
             TargetType::SingleEnemy | TargetType::SingleAlly => ev.target,
         };
 
-        // Phase 1: compute AoE targets using read-only combatant query.
-        let affected: Vec<Entity> = compute_aoe_targets(
-            ev.actor,
-            ev.target_pos,
-            def.aoe,
-            def.friendly_fire,
-            primary_target,
-            &positions,
-            &actors.p1(),
-        );
+        // Phase 1: compute affected entities using read-only combatant query.
+        // Shared with the AI sim — see `combat::effects_state`.
+        let affected: Vec<Entity> = {
+            let combatants = actors.p1();
+            let state = BevyTargetState {
+                positions: &positions,
+                combatants: &combatants,
+            };
+            compute_affected_targets(ev.actor, def, primary_target, ev.target_pos, &state)
+        };
 
         // Phase 2: access actor mutably for costs, dice, effects.
         let mut actor_q = actors.p0();
@@ -97,149 +100,121 @@ pub fn resolve_action_system(
             cost_str,
         });
 
-        // Critical failure check: roll = 1.
-        let crit_roll = rng.roll_d(settings.crit_fail_die);
-        let crit_fail = crit_roll == 1;
-
-        // Determine crit fail behaviour from actor's path.
+        let caster_ctx = CasterContext::new(stats, equip, &content.weapons);
         let crit_fail_effect = combat_path
             .and_then(|cp| content.paths.get(&cp.0))
             .map_or(CritFailEffect::Miss, |p| p.crit_fail_effect.clone());
 
-        // ManaOverload: ability fires, mana ×2. All others: miss + side effect.
-        let mana_overload = crit_fail && crit_fail_effect == CritFailEffect::ManaOverload
-            && def.costs.iter().any(|c| c.resource == ResourceKind::Mana);
-        let skip_effects = crit_fail && !mana_overload;
+        // Shared core rolls crit-fail (if any), enumerates affected targets
+        // already done by caller above, and returns either a side-effect
+        // (`outcome.crit_fail`) or the normal damage/heal/status payload.
+        let outcome = {
+            let mut dice = RngDice(&mut rng);
+            compute_ability_outcome(
+                ev.actor,
+                def,
+                affected,
+                &caster_ctx,
+                ev.disadvantage,
+                settings.crit_fail_die,
+                &crit_fail_effect,
+                &mut dice,
+            )
+        };
 
-        if skip_effects {
+        if let Some(crit) = &outcome.crit_fail {
             log.push(CombatEvent::CriticalMiss { actor: ev.actor });
-        }
-
-        // Apply crit fail side effects (all are miss + side effect, except ManaOverload).
-        if crit_fail && skip_effects {
-            let mana_cost: i32 = def.costs.iter()
-                .filter(|c| c.resource == ResourceKind::Mana)
-                .map(|c| c.amount)
-                .sum();
-            match &crit_fail_effect {
-                CritFailEffect::BrokenFaith => {
+            match crit {
+                CritFail::Miss => {}
+                CritFail::SelfStatus { status, duration_rounds, log_description } => {
                     status_writer.write(ApplyStatus {
-                        source: ev.actor, target: ev.actor,
-                        status: "broken_faith".into(), duration_rounds: 1,
+                        source: ev.actor,
+                        target: ev.actor,
+                        status: status.clone(),
+                        duration_rounds: *duration_rounds,
                     });
                     log.push(CombatEvent::CritFailSideEffect {
                         actor: ev.actor,
-                        effect_name: "Сломленная вера — магия заблокирована на 1 ход".into(),
+                        effect_name: log_description.clone(),
                     });
                 }
-                CritFailEffect::CircuitBreach => {
-                    let self_damage = (mana_cost + 1) / 2;
-                    if self_damage > 0 {
+                CritFail::SelfDamage { amount, damage_breakdown, log_description } => {
+                    if *amount > 0 {
                         dmg_writer.write(ApplyDamage {
-                            source: ev.actor, target: ev.actor,
-                            amount: self_damage,
-                            breakdown: format!("разгерметизация: {mana_cost}/2={self_damage}"),
+                            source: ev.actor,
+                            target: ev.actor,
+                            amount: *amount,
+                            breakdown: damage_breakdown.clone(),
                             pierces_armor: true,
                         });
                     }
                     log.push(CombatEvent::CritFailSideEffect {
                         actor: ev.actor,
-                        effect_name: format!("Разгерметизация контура — {self_damage} урона себе"),
+                        effect_name: log_description.clone(),
                     });
                 }
-                CritFailEffect::Exhaustion => {
-                    status_writer.write(ApplyStatus {
-                        source: ev.actor, target: ev.actor,
-                        status: "exhaustion".into(), duration_rounds: 2,
-                    });
-                    log.push(CombatEvent::CritFailSideEffect {
-                        actor: ev.actor,
-                        effect_name: "Телесный откат — истощение на 2 хода".into(),
-                    });
-                }
-                CritFailEffect::PactControl => {
-                    status_writer.write(ApplyStatus {
-                        source: ev.actor, target: ev.actor,
-                        status: "pact_control".into(), duration_rounds: 1,
-                    });
-                    log.push(CombatEvent::CritFailSideEffect {
-                        actor: ev.actor,
-                        effect_name: "Власть договора — AI управляет на 1 ход".into(),
-                    });
-                }
-                CritFailEffect::Miss | CritFailEffect::ManaOverload => {}
             }
         }
 
-        let ctx = CasterContext::new(stats, equip, &content.weapons);
-
-        if !skip_effects {
-            if let Some(calc) = def.effect.calc(&ctx) {
-                let (roll_total, dice_str) = if let Some(ref dice) = calc.dice {
-                    if ev.disadvantage {
-                        rng.roll_dice_disadvantage(dice)
-                    } else {
-                        rng.roll_dice(dice)
-                    }
-                } else {
-                    (0, String::new())
-                };
-                let raw = roll_total + calc.bonus;
-                let breakdown = effect_breakdown(&dice_str, calc.bonus, raw);
-
-                for &target in &affected {
-                    if calc.is_heal {
-                        heal_writer.write(ApplyHeal {
-                            source: ev.actor,
-                            target,
-                            amount: raw,
-                            breakdown: breakdown.clone(),
-                        });
-                    } else {
-                        dmg_writer.write(ApplyDamage {
-                            source: ev.actor,
-                            target,
-                            amount: raw,
-                            breakdown: breakdown.clone(),
-                            pierces_armor: calc.pierces_armor,
-                        });
-                    }
+        // Primary effects + statuses only run when no crit-fail skipped them.
+        // `compute_ability_outcome` returns `primary = None` and empty
+        // `statuses` on skip paths, so these matches no-op naturally.
+        match &outcome.primary {
+            OutcomePrimary::Damage { raw, pierces_armor } => {
+                for &target in &outcome.affected {
+                    dmg_writer.write(ApplyDamage {
+                        source: ev.actor,
+                        target,
+                        amount: *raw,
+                        breakdown: outcome.breakdown.clone(),
+                        pierces_armor: *pierces_armor,
+                    });
                 }
-            } else if let EffectDef::GrantMovement { distance } = &def.effect {
+            }
+            OutcomePrimary::Heal { amount } => {
+                for &target in &outcome.affected {
+                    heal_writer.write(ApplyHeal {
+                        source: ev.actor,
+                        target,
+                        amount: *amount,
+                        breakdown: outcome.breakdown.clone(),
+                    });
+                }
+            }
+            OutcomePrimary::GrantMovement { distance } => {
                 ap.movement_points += *distance;
                 commands.entity(ev.actor).insert(BonusMovement);
-            } else if matches!(def.effect, EffectDef::RestoreResources) {
+            }
+            OutcomePrimary::RestoreResources => {
                 if let Some(ref mut m) = mana { m.restore(1); }
                 if let Some(ref mut r) = rage { r.gain(); }
                 if let Some(ref mut e) = energy { e.restore(1); }
                 vital.apply_heal(1);
-            } else if let EffectDef::Summon { template, max_active } = &def.effect {
+            }
+            OutcomePrimary::Summon { template, max_active } => {
                 spawn_writer.write(SpawnUnit {
                     summoner: ev.actor,
                     template_id: template.clone(),
                     max_active: *max_active,
                 });
             }
-
-            for sa in &def.statuses {
-                for &target in &affected {
-                    let status_target = match sa.on {
-                        StatusOn::Target => target,
-                        StatusOn::MySelf => ev.actor,
-                    };
-                    status_writer.write(ApplyStatus {
-                        source: ev.actor,
-                        target: status_target,
-                        status: sa.status.clone(),
-                        duration_rounds: sa.duration_rounds,
-                    });
-                    log.push(CombatEvent::StatusApplied {
-                        target: status_target,
-                        status: sa.status.clone(),
-                    });
-                }
-            }
+            OutcomePrimary::None => {}
         }
+
+        for app in &outcome.statuses {
+            status_writer.write(ApplyStatus {
+                source: ev.actor,
+                target: app.target,
+                status: app.status.clone(),
+                duration_rounds: app.duration_rounds,
+            });
+            log.push(CombatEvent::StatusApplied {
+                target: app.target,
+                status: app.status.clone(),
+            });
+        }
+
+        let mana_overload = outcome.mana_overload;
 
         // Pay resource costs (always, even on crit miss).
         for cost in &def.costs {
@@ -277,70 +252,29 @@ pub fn resolve_action_system(
     }
 }
 
-/// Compute all entities affected by an ability.
-/// For single-target (no AoE): returns just the primary target.
-/// For AoE: returns all living combatants in the area, filtered by friendly_fire.
-fn compute_aoe_targets(
-    actor: Entity,
-    target_pos: hexx::Hex,
-    aoe: AoEShape,
-    friendly_fire: bool,
-    primary_target: Entity,
-    positions: &HexPositions,
-    combatant_q: &Query<(Entity, &Faction, &Vital), With<Combatant>>,
-) -> Vec<Entity> {
-    if aoe == AoEShape::None {
-        return vec![primary_target];
-    }
-
-    let actor_pos = positions.get(&actor).unwrap_or(hexx::Hex::ZERO);
-
-    let affected_cells: Vec<hexx::Hex> = match aoe {
-        AoEShape::None => unreachable!(),
-        AoEShape::Circle { radius } => hex_circle(target_pos, radius),
-        AoEShape::Line { length } => hex_line(actor_pos, target_pos, length),
-    };
-
-    let actor_team = combatant_q
-        .get(actor)
-        .map(|(_, f, _)| f.0)
-        .unwrap_or(Team::Player);
-
-    let mut targets = Vec::new();
-    for &cell in &affected_cells {
-        if let Some(entity) = positions.entity_at(cell) {
-            if entity == actor {
-                if friendly_fire {
-                    if let Ok((_, _, vital)) = combatant_q.get(entity) {
-                        if vital.is_alive() {
-                            targets.push(entity);
-                        }
-                    }
-                }
-                continue;
-            }
-            if let Ok((_, faction, vital)) = combatant_q.get(entity) {
-                if !vital.is_alive() {
-                    continue;
-                }
-                if !friendly_fire && faction.0 == actor_team {
-                    continue;
-                }
-                targets.push(entity);
-            }
-        }
-    }
-
-    targets
+/// `TargetState` adapter over the live combatant query + `HexPositions`.
+/// Thin shim — the filtering logic lives in
+/// `combat::effects_state::compute_affected_targets`.
+struct BevyTargetState<'a, 'w, 's> {
+    positions: &'a HexPositions,
+    combatants: &'a Query<'w, 's, (Entity, &'static Faction, &'static Vital), With<Combatant>>,
 }
 
-fn effect_breakdown(dice_str: &str, bonus: i32, total: i32) -> String {
-    if dice_str.is_empty() {
-        return format!("{total}");
+impl TargetState for BevyTargetState<'_, '_, '_> {
+    fn actor_pos(&self, actor: Entity) -> Option<hexx::Hex> {
+        self.positions.get(&actor)
     }
-    if bonus == 0 {
-        format!("{dice_str} = {total}")
-    } else {
-        format!("{dice_str} + {bonus} = {total}")
+    fn unit_at_cell(&self, pos: hexx::Hex) -> Option<TargetRef> {
+        let entity = self.positions.entity_at(pos)?;
+        let (_, faction, vital) = self.combatants.get(entity).ok()?;
+        Some(TargetRef {
+            entity,
+            team: faction.0,
+            alive: vital.is_alive(),
+        })
+    }
+    fn team_of(&self, entity: Entity) -> Option<Team> {
+        self.combatants.get(entity).ok().map(|(_, f, _)| f.0)
     }
 }
+

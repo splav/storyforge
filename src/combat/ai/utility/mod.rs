@@ -1,19 +1,16 @@
 //! Top-level AI decision pipeline.
 //!
 //! Layout:
-//! - `pick` — final top-K + mercy candidate selection, post-pick reservations.
-//! - `sanity` — multiplicative penalties for dangerous/bad candidates + defensive classification.
-//! - `fallback` — moves used when no cast candidates survive.
+//! - `fallback` — moves used when no plan candidates survive beam search.
+//!
+//! Plan generation, scoring, sanity adjustment and final pick live in
+//! `combat::ai::planning`. This module wires them together.
 
 #![allow(clippy::too_many_arguments)]
 
 mod fallback;
-mod pick;
-mod sanity;
 
-pub use pick::PickMechanics;
-
-pub use crate::combat::ai::candidates::{ActionCandidate, CandidateKind};
+pub use crate::combat::ai::planning::PickMechanics;
 
 use crate::content::content_view::ContentView;
 use crate::combat::ai::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
@@ -25,18 +22,16 @@ use crate::combat::ai::intent::{
 };
 use crate::combat::ai::log::{self, AiLogger, IntentBlock};
 use crate::combat::ai::planning::{
-    apply_protect_self_mask, decision_from_plan, generate_plans, pick_best_plan,
-    plan_to_candidate, record_plan_reservation, sanity_adjust_plans, score_plans_with_raw,
-    PlanStep, TurnPlan,
+    apply_protect_self_mask, commit_plan, generate_plans, pick_best_plan,
+    record_committed_reservations, sanity_adjust_plans, score_plans_with_raw,
 };
 use crate::combat::ai::reservations::Reservations;
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::snapshot::BattleSnapshot;
 use crate::content::abilities::CasterContext;
 use crate::content::races::CritFailEffect;
 use crate::core::{AbilityId, DiceRng};
 use crate::game::components::{Abilities, Team};
 use crate::game::hex::Hex;
-use crate::game::pathfinding::ReachableMap;
 use bevy::prelude::*;
 use std::collections::HashMap;
 
@@ -101,19 +96,18 @@ pub fn pick_action(
     ctx: &UtilityContext,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
-    reach: &ReachableMap,
     rng: &mut DiceRng,
     memory: &mut AiMemory,
     reservations: &mut Reservations,
     logger: &mut AiLogger,
     debug: bool,
     debug_names: &HashMap<Entity, String>,
-) -> (AiDecision, Option<AiDebugSnapshot>, Option<TurnPlan>) {
+) -> (AiDecision, Option<AiDebugSnapshot>) {
     let log_on = logger.is_enabled();
     let t0 = if log_on { Some(std::time::Instant::now()) } else { None };
 
     let Some(active) = snap.unit(actor) else {
-        return (AiDecision::EndTurn, None, None);
+        return (AiDecision::EndTurn, None);
     };
 
     // ── Select tactical intent ──────────────────────────────────────────
@@ -126,14 +120,14 @@ pub fn pick_action(
     let plans = generate_plans(actor, ctx, snap, maps);
 
     if plans.is_empty() {
-        let decision = fallback::fallback_move(actor_pos, active, ctx, snap, reach, maps);
+        let decision = fallback::fallback_move(active, ctx, snap, maps);
         let ds = if debug {
             Some(build_fallback_debug(
                 active, actor_pos, &intent, &intent_reason, &decision,
                 "no plans generated", ctx, snap, maps, debug_names,
             ))
         } else { None };
-        return (decision, ds, None);
+        return (decision, ds);
     }
 
     // ── Score plans under the chosen intent ────────────────────────────
@@ -152,7 +146,12 @@ pub fn pick_action(
     // Plan generation is intent-agnostic, so rescoring against the same pool
     // is enough.
     if let Some(threshold) = intent_viability_threshold(&intent) {
-        let max_align = max_intent_signal(&plans, &intent, active, ctx, snap, maps);
+        // `raw_factors[p][7]` is the per-plan max intent_score from
+        // `compute_plan_factors`; max over plans = max over (plan, step).
+        let max_align = raw_factors
+            .iter()
+            .map(|f| f[7])
+            .fold(f32::NEG_INFINITY, f32::max);
         if max_align < threshold {
             let hp_pct = active.hp_pct();
             let actor_danger = maps.danger.get(active.pos);
@@ -173,11 +172,7 @@ pub fn pick_action(
                     TacticalIntent::FocusTarget { target } => Some(*target),
                     _ => None,
                 };
-                let cand_stubs: Vec<_> = plans
-                    .iter()
-                    .map(|p| plan_to_candidate(p, actor_pos))
-                    .collect();
-                default_focus_target(active, snap, &cand_stubs, exclude).map(|t| {
+                default_focus_target(active, snap, &plans, actor_pos, exclude).map(|t| {
                     let original_label = format!("{:?}", intent.kind());
                     intent_reason = format!(
                         "fallback from {}: max_align={:.2}<threshold={:.2}",
@@ -235,22 +230,25 @@ pub fn pick_action(
     );
 
     let best_plan = &plans[best_idx];
-    let decision = decision_from_plan(best_plan, actor, actor_pos);
+    let (decision, consumed) = commit_plan(best_plan, actor_pos);
 
-    // Build debug snapshot — reuse the existing formatter with synthesized
-    // candidates (each plan → its committed first-tick action).
+    // Debug formatter walks the plans directly — one `ScoredStep` per plan
+    // representing the committed first-tick action.
     let debug_snapshot = if debug {
-        let cand_view: Vec<_> = plans.iter().map(|p| plan_to_candidate(p, actor_pos)).collect();
         Some(build_debug_snapshot(
-            active, actor_pos, &intent, &intent_reason, &cand_view, &scored, &decision,
+            active, actor_pos, &intent, &intent_reason, &plans, &scored, &decision,
             ctx, snap, maps, reservations, debug_names, Some(&pick_mech),
         ))
     } else {
         None
     };
 
-    // Record reservations for every cast in the winning plan.
-    record_plan_reservation(best_plan, active, ctx, snap, reservations, actor_pos);
+    // Reserve only the prefix that will actually execute this tick — every
+    // subsequent tick re-plans from scratch, so reserving the full plan
+    // would leave ghost reservations on actions that never happen.
+    record_committed_reservations(
+        best_plan, consumed, active, ctx, snap, reservations, actor_pos,
+    );
 
     // ── AI log: write structured entry for offline analysis ────────────
     if log_on {
@@ -295,55 +293,5 @@ pub fn pick_action(
         }
     }
 
-    (decision, debug_snapshot, Some(best_plan.clone()))
-}
-
-/// Maximum per-step intent score across the plan pool. Used by the viability
-/// guard to decide if the chosen intent can actually be executed.
-fn max_intent_signal(
-    plans: &[TurnPlan],
-    intent: &TacticalIntent,
-    active: &UnitSnapshot,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-) -> f32 {
-    use crate::combat::ai::intent::intent_score;
-    use crate::combat::ai::planning::SimState;
-
-    let mut best = f32::NEG_INFINITY;
-    for plan in plans {
-        let mut sim = SimState::from_snapshot(snap, active.entity);
-        for step in &plan.steps {
-            let sim_actor = match sim.actor_unit() {
-                Some(u) => u.clone(),
-                None => break,
-            };
-            let cand = plan_step_to_candidate(step, &sim_actor.pos);
-            let v = intent_score(intent, &cand, &sim_actor, &sim.snapshot, maps, ctx.content, ctx.difficulty);
-            if v > best { best = v; }
-            sim.apply_step(step, ctx.caster, ctx.content);
-        }
-    }
-    if best.is_finite() { best } else { 0.0 }
-}
-
-fn plan_step_to_candidate(step: &PlanStep, from: &Hex) -> crate::combat::ai::candidates::ActionCandidate {
-    use crate::combat::ai::candidates::{ActionCandidate, CandidateKind};
-    match step {
-        PlanStep::Cast { ability, target, target_pos } => ActionCandidate {
-            tile: *from,
-            path: Vec::new(),
-            kind: CandidateKind::Cast {
-                ability: ability.clone(),
-                target_pos: *target_pos,
-                target: Some(*target),
-            },
-        },
-        PlanStep::Move { path } => ActionCandidate {
-            tile: *path.last().unwrap_or(from),
-            path: path.clone(),
-            kind: CandidateKind::MoveOnly,
-        },
-    }
+    (decision, debug_snapshot)
 }

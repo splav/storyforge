@@ -3,7 +3,7 @@ use crate::app_state::CombatPhase;
 use crate::combat::ai::reservations::Reservations;
 use crate::content::content_view::ActiveContent;
 use crate::core::{modifier, DiceRng};
-use crate::game::components::{ActionPoints, ActivePlans, ActiveCombatant, CombatStats, Combatant, Initiative, Reactions, Speed, StatusEffects, Vital};
+use crate::game::components::{ActionPoints, ActiveCombatant, CombatStats, Combatant, Initiative, Reactions, Speed, StatusEffects, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{CombatContext, PresetInitiative, TurnQueue};
 use bevy::prelude::*;
@@ -34,7 +34,6 @@ pub fn build_turn_order(
     mut rng: ResMut<DiceRng>,
     mut preset: ResMut<PresetInitiative>,
     mut reservations: ResMut<Reservations>,
-    mut active_plans: ResMut<ActivePlans>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
     content: Res<ActiveContent>,
     active_q: Query<Entity, With<ActiveCombatant>>,
@@ -56,7 +55,6 @@ pub fn build_turn_order(
     ctx.round += 1;
     log.push(CombatEvent::RoundStarted { round: ctx.round });
     reservations.clear();
-    active_plans.0.clear();
 
     let first_round = ctx.round == 1;
     let use_preset = first_round && !preset.0.is_empty();

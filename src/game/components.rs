@@ -118,27 +118,6 @@ pub struct Speed(pub i32);
 #[derive(Component)]
 pub struct BonusMovement;
 
-/// Multi-step plan committed by the AI last tick. While present, subsequent
-/// AI ticks execute the remaining steps one bundle at a time instead of
-/// regenerating from scratch — gives plan *coherence* (actor lands on the
-/// exact retreat tile the plan envisioned). Validation on each resume drops
-/// the entry if the world shifted enough to make the next step impossible;
-/// the AI then replans fresh.
-///
-/// `cursor` points to the next step to execute. When `cursor >= steps.len()`,
-/// the plan is finished and the entry should be removed.
-#[derive(Clone, Debug)]
-pub struct ActivePlan {
-    pub steps: Vec<crate::combat::ai::planning::PlanStep>,
-    pub cursor: usize,
-}
-
-/// Per-actor committed plan table. Resource form avoids the Bevy 16-param
-/// system limit that a `Query<&mut ActivePlan>` + `Commands` pair would push
-/// `enemy_ai_system` past. Cleared at round start alongside reservations.
-#[derive(Resource, Default, Debug)]
-pub struct ActivePlans(pub std::collections::HashMap<Entity, ActivePlan>);
-
 /// Reactions available per round (attacks of opportunity, etc).
 /// Refilled to `max` at the start of each round.
 #[derive(Component, Clone, Copy, Debug)]

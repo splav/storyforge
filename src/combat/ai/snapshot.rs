@@ -2,7 +2,7 @@ use crate::content::content_view::ContentView;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::scoring::{applies_cc, estimate_st_damage};
 use crate::content::abilities::{AoEShape, CasterContext, EffectDef, TargetType};
-use crate::core::AbilityId;
+use crate::core::{AbilityId, StatusId};
 use crate::game::components::{
     AiCombatantQ, Combatant, StatusEffects, Team,
 };
@@ -81,9 +81,46 @@ pub struct UnitSnapshot {
     /// Schema v2+: absent on v1 logs → `None`.
     #[serde(default)]
     pub aoo_expected_damage: Option<f32>,
+    /// Active status effects on this unit — mirrors the `StatusEffects`
+    /// component (minus the `applier` Entity, which isn't needed for AI
+    /// reasoning). Sim mutates this list on per-step status applications so
+    /// that downstream steps see status-derived bonuses / DoT cleanse / stun.
+    /// Schema v3+: absent on older logs → empty vec.
+    #[serde(default)]
+    pub statuses: Vec<ActiveStatusView>,
+}
+
+/// Snapshot-shaped mirror of `ActiveStatus` (components.rs). Drops `applier`
+/// since the AI layer never needs to know who put the status on — only the
+/// status id, duration, and per-tick DoT damage are consulted.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ActiveStatusView {
+    pub id: StatusId,
+    pub rounds_remaining: u32,
+    pub dot_per_tick: i32,
 }
 
 fn default_reactions_left() -> i32 { 1 }
+
+/// Re-aggregate `armor_bonus` / `damage_taken_bonus` on `unit` from its
+/// current `statuses` list. Call after sim mutates the status list
+/// (apply/cleanse/removal) so downstream damage math sees fresh aggregates
+/// instead of the stale snapshot-time value.
+///
+/// **Not** recomputed: `speed` — base speed isn't tracked separately on the
+/// snapshot (only `base + aggregate` is stored), so deriving the new speed
+/// mid-plan would require knowing what the aggregate was at snapshot time.
+/// Speed-affecting statuses applied mid-plan therefore don't re-flow into
+/// the planner's pathing; accept that limitation for now.
+pub fn refresh_status_aggregates(unit: &mut UnitSnapshot, content: &ContentView) {
+    let (armor_bonus, damage_taken_bonus) = unit
+        .statuses
+        .iter()
+        .filter_map(|s| content.statuses.get(&s.id))
+        .fold((0, 0), |(a, v), sd| (a + sd.armor_bonus, v + sd.damage_taken_bonus));
+    unit.armor_bonus = armor_bonus;
+    unit.damage_taken_bonus = damage_taken_bonus;
+}
 
 impl UnitSnapshot {
     /// Effective HP: raw HP plus base and status armor — the real damage
@@ -160,6 +197,19 @@ pub fn build_snapshot(
                 };
             let reactions_left = c.reactions.map(|r| r.remaining as i32).unwrap_or(0);
 
+            let statuses = statuses_q
+                .get(c.entity)
+                .map(|se| {
+                    se.0.iter()
+                        .map(|s| ActiveStatusView {
+                            id: s.id.clone(),
+                            rounds_remaining: s.rounds_remaining,
+                            dot_per_tick: s.dot_per_tick,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
             Some(UnitSnapshot {
                 entity: c.entity,
                 team: c.faction.0,
@@ -184,6 +234,7 @@ pub fn build_snapshot(
                 summoner: c.summoned_by.map(|s| s.0),
                 reactions_left,
                 aoo_expected_damage,
+                statuses,
             })
         })
         .collect();

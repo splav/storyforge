@@ -3,7 +3,18 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use crate::combat::ai::candidates::{ActionCandidate, CandidateKind};
+/// Raw mechanics output from `pick_best_plan`. The outer layer converts pool
+/// indices into human-readable labels for debug output.
+pub struct PickMechanics {
+    pub top_k: usize,
+    pub window: f32,
+    pub mercy_margin: f32,
+    pub mercy_applied: bool,
+    /// `(plan_index, final_score)` in pool order.
+    pub pool: Vec<(usize, f32)>,
+    pub chosen_pos: usize,
+}
+
 use crate::combat::ai::factors::aoe_area;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::TacticalIntent;
@@ -12,33 +23,38 @@ use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::scoring::{applies_cc, score_action};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::{AiDecision, PickMechanics, UtilityContext};
+use crate::combat::ai::utility::{AiDecision, UtilityContext};
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::core::DiceRng;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 
 /// Commit the winning plan's first step (or first two, if they're a
-/// Move→Cast bundle) as a single `AiDecision`. The remainder replans on
-/// subsequent ticks (or resumes via `ActivePlan` in Phase 4 flow).
-pub fn decision_from_plan(plan: &TurnPlan, actor: Entity, actor_pos: Hex) -> AiDecision {
-    decision_from_steps(&plan.steps, actor, actor_pos)
-}
-
-/// Commit the leading step(s) of a plan **suffix** as an AiDecision. Used
-/// when resuming a stored `ActivePlan` from `steps[cursor..]`.
-pub fn decision_from_steps(steps: &[PlanStep], actor: Entity, actor_pos: Hex) -> AiDecision {
-    match steps {
-        [] => AiDecision::EndTurn,
-        [PlanStep::Cast { ability, target, target_pos }, ..] => AiDecision::CastInPlace {
-            ability: ability.clone(),
-            target: *target,
-            target_pos: *target_pos,
-        },
-        // Bundle Move→Cast into a single atomic tick so the existing engine
-        // contract (one UseAbility per actor-turn pathfind) is preserved.
+/// Move→Cast bundle) as a single `AiDecision`, along with how many steps
+/// of the plan the decision consumed. The remainder of the plan is
+/// discarded — every AI tick re-plans from scratch.
+///
+/// Bundling rules (`consumed` follows the match arm):
+/// - Empty plan → `EndTurn`, 0 steps.
+/// - `[Cast, ..]` → `CastInPlace`, 1 step.
+/// - `[Move, Cast, ..]` → `MoveAndCast` (or `CastInPlace` if the move path
+///   is empty), 2 steps. One atomic tick preserves the engine contract
+///   (one `UseAbility` per actor-turn pathfind).
+/// - `[Move, ..]` → `MoveOnlyRetreat` (or `EndTurn` when the path is a no-op),
+///   1 step.
+pub fn commit_plan(plan: &TurnPlan, actor_pos: Hex) -> (AiDecision, usize) {
+    match plan.steps.as_slice() {
+        [] => (AiDecision::EndTurn, 0),
+        [PlanStep::Cast { ability, target, target_pos }, ..] => (
+            AiDecision::CastInPlace {
+                ability: ability.clone(),
+                target: *target,
+                target_pos: *target_pos,
+            },
+            1,
+        ),
         [PlanStep::Move { path }, PlanStep::Cast { ability, target, target_pos }, ..] => {
-            if path.is_empty() {
+            let decision = if path.is_empty() {
                 AiDecision::CastInPlace {
                     ability: ability.clone(),
                     target: *target,
@@ -51,133 +67,18 @@ pub fn decision_from_steps(steps: &[PlanStep], actor: Entity, actor_pos: Hex) ->
                     target: *target,
                     target_pos: *target_pos,
                 }
-            }
+            };
+            (decision, 2)
         }
         [PlanStep::Move { path }, ..] => {
             let dest = path.last().copied().unwrap_or(actor_pos);
-            if path.is_empty() || dest == actor_pos {
+            let decision = if path.is_empty() || dest == actor_pos {
                 AiDecision::EndTurn
             } else {
                 AiDecision::MoveOnlyRetreat { path: path.clone() }
-            }
-        }
-    }
-    .fallback_on_actor(actor)
-}
-
-/// How many steps from `steps` does `decision_from_steps` commit this tick?
-/// Mirrors the match in `decision_from_steps`: Move→Cast bundles consume 2,
-/// single-step decisions consume 1, empty consumes 0.
-pub fn steps_consumed_by_decision(steps: &[PlanStep]) -> usize {
-    match steps {
-        [] => 0,
-        [PlanStep::Move { .. }, PlanStep::Cast { .. }, ..] => 2,
-        _ => 1,
-    }
-}
-
-/// Can the resumed step still execute given the current world? Returns an
-/// error message describing *why* the step is no longer valid — useful both
-/// for invalidation branching and for debug logs. Only checks **hard**
-/// constraints (state can't change in-flight). Soft quality concerns (did
-/// the situation get much better for a different plan?) belong to
-/// opportunistic-replan, not validation.
-pub fn validate_plan_step(
-    step: &PlanStep,
-    actor: &UnitSnapshot,
-    snap: &BattleSnapshot,
-    ctx: &UtilityContext,
-) -> Result<(), &'static str> {
-    match step {
-        PlanStep::Cast { ability, target, target_pos } => {
-            let def = ctx
-                .content
-                .abilities
-                .get(ability)
-                .ok_or("ability no longer in content")?;
-            if actor.action_points < def.cost_ap {
-                return Err("insufficient AP");
-            }
-            // Resource affordability mirrors can_afford_snap.
-            for cost in &def.costs {
-                let pool = match cost.resource {
-                    crate::core::ResourceKind::Hp => actor.hp,
-                    crate::core::ResourceKind::Mana => actor.mana.map(|(c, _)| c).unwrap_or(0),
-                    crate::core::ResourceKind::Rage => actor.rage.map(|(c, _)| c).unwrap_or(0),
-                    crate::core::ResourceKind::Energy => actor.energy.map(|(c, _)| c).unwrap_or(0),
-                };
-                if pool < cost.amount {
-                    return Err("insufficient resource");
-                }
-            }
-            // Target liveness: AoE centred on a tile can still fire without a
-            // primary unit, but single-target abilities need the entity alive.
-            if !matches!(def.aoe, crate::content::abilities::AoEShape::None) {
-                // AoE: check range to target_pos rather than an entity.
-                if def.range.max > 0 {
-                    let dist = actor.pos.unsigned_distance_to(*target_pos);
-                    if dist > def.range.max {
-                        return Err("AoE target_pos out of range");
-                    }
-                }
-                return Ok(());
-            }
-            let Some(target_unit) = snap.unit(*target) else {
-                return Err("target unit gone");
             };
-            if def.range.max > 0 {
-                let dist = actor.pos.unsigned_distance_to(target_unit.pos);
-                if dist > def.range.max {
-                    return Err("target out of range");
-                }
-            }
-            Ok(())
+            (decision, 1)
         }
-        PlanStep::Move { path } => {
-            if path.is_empty() {
-                return Err("empty path");
-            }
-            if actor.movement_points < path.len() as i32 {
-                return Err("insufficient MP");
-            }
-            // Path passability: only *live* enemies block traversal. Corpses
-            // are walkable (matches the real movement system's contract).
-            let enemy_positions: std::collections::HashSet<Hex> = snap
-                .enemies_of(actor.team)
-                .map(|u| u.pos)
-                .collect();
-            for h in path {
-                if !crate::game::hex::is_passable(*h, &enemy_positions) {
-                    return Err("path blocked");
-                }
-            }
-            // Destination check: must match the real `HexPositions` view,
-            // not `snap.units`. The snapshot filters out dead units (for
-            // scoring purposes), but their `HexPositions` entries persist so
-            // that `movement.rs` still treats those tiles as occupied. If a
-            // unit died on the planned destination between plan generation
-            // and resume, `snap.units.contains(pos)` returns false but
-            // `positions.insert(actor, pos)` still panics on the corpse.
-            // `ctx.blocked_tiles` reflects the HexPositions truth minus the
-            // actor themself, so it catches both cases.
-            let dest = *path.last().expect("non-empty path");
-            if ctx.blocked_tiles.contains(&dest) {
-                return Err("destination occupied");
-            }
-            Ok(())
-        }
-    }
-}
-
-// Internal: assign `actor` to any AiDecision that needs it (none here, but
-// this keeps the chain consistent if we add `FallbackEndTurn { actor }`-style
-// variants later). Today this is an identity no-op.
-trait DecisionActor {
-    fn fallback_on_actor(self, actor: Entity) -> Self;
-}
-impl DecisionActor for AiDecision {
-    fn fallback_on_actor(self, _actor: Entity) -> Self {
-        self
     }
 }
 
@@ -295,53 +196,20 @@ pub fn pick_best_plan(
     )
 }
 
-/// Adapter: synthesize an `ActionCandidate` that represents the plan's
-/// **committed** first-tick action (matches what `decision_from_plan` emits).
-/// Used only for debug output compatibility — the existing debug formatter
-/// walks over candidates.
-pub fn plan_to_candidate(plan: &TurnPlan, actor_pos: Hex) -> ActionCandidate {
-    match plan.steps.as_slice() {
-        [] => ActionCandidate {
-            tile: actor_pos,
-            path: Vec::new(),
-            kind: CandidateKind::MoveOnly,
-        },
-        [PlanStep::Cast { ability, target, target_pos }, ..] => ActionCandidate {
-            tile: actor_pos,
-            path: Vec::new(),
-            kind: CandidateKind::Cast {
-                ability: ability.clone(),
-                target_pos: *target_pos,
-                target: Some(*target),
-            },
-        },
-        [PlanStep::Move { path }, rest @ ..] => {
-            let tile = *path.last().unwrap_or(&actor_pos);
-            match rest.first() {
-                Some(PlanStep::Cast { ability, target, target_pos }) => ActionCandidate {
-                    tile,
-                    path: path.clone(),
-                    kind: CandidateKind::Cast {
-                        ability: ability.clone(),
-                        target_pos: *target_pos,
-                        target: Some(*target),
-                    },
-                },
-                _ => ActionCandidate {
-                    tile,
-                    path: path.clone(),
-                    kind: CandidateKind::MoveOnly,
-                },
-            }
-        }
-    }
-}
-
-/// Record reservations for every cast in the winning plan so subsequent AI
-/// units this round coordinate (avoid overkill, duplicate CC, tile
-/// collisions). Mirrors `pick::record_reservation` but walks the full plan.
-pub fn record_plan_reservation(
+/// Record reservations for the **committed** prefix of the winning plan so
+/// subsequent AI units this round coordinate (avoid overkill, duplicate CC,
+/// tile collisions). Only the first `consumed` steps — the ones this tick
+/// actually emits as an `AiDecision` — are recorded. Future plan steps stay
+/// invisible to the reservation layer until they themselves commit on a later
+/// tick; this trades a slightly weaker coordination signal for freedom from
+/// ghost reservations when plans get invalidated mid-flight.
+///
+/// `consumed` comes from `steps_consumed_by_decision` and matches the match
+/// arm in `decision_from_steps` (1 for a solo cast/move, 2 for a Move→Cast
+/// bundle).
+pub fn record_committed_reservations(
     plan: &TurnPlan,
+    consumed: usize,
     active: &UnitSnapshot,
     ctx: &UtilityContext,
     snap: &BattleSnapshot,
@@ -349,7 +217,7 @@ pub fn record_plan_reservation(
     actor_pos: Hex,
 ) {
     let mut caster_tile = actor_pos;
-    for step in &plan.steps {
+    for step in plan.steps.iter().take(consumed) {
         match step {
             PlanStep::Move { path } => {
                 if let Some(&dest) = path.last() {
@@ -385,8 +253,10 @@ pub fn record_plan_reservation(
         }
     }
 
-    if plan.final_pos != actor_pos {
-        reservations.reserve_tile(plan.final_pos);
+    // Reserve the tile we'll actually stop on this tick (end of the committed
+    // prefix), not the plan's eventual `final_pos` — same no-ghost principle.
+    if caster_tile != actor_pos {
+        reservations.reserve_tile(caster_tile);
     }
 }
 
@@ -437,6 +307,7 @@ mod tests {
             summoner: None,
             reactions_left: 0,
             aoo_expected_damage: None,
+            statuses: Vec::new(),
         }
     }
 
@@ -491,310 +362,50 @@ mod tests {
         }
     }
 
-    // ── steps_consumed_by_decision ─────────────────────────────────────────
+    // ── commit_plan: (decision, consumed) shape for each plan arm ──────────
 
-    #[test]
-    fn consumed_empty_is_zero() {
-        assert_eq!(steps_consumed_by_decision(&[]), 0);
+    fn plan_from(steps: Vec<PlanStep>) -> TurnPlan {
+        TurnPlan {
+            steps,
+            final_pos: hex_from_offset(0, 0),
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: Vec::new(),
+            partial_score: 0.0,
+        }
     }
 
     #[test]
-    fn consumed_solo_cast_is_one() {
-        let steps = vec![PlanStep::Cast {
+    fn commit_empty_plan_ends_turn() {
+        let (decision, consumed) = commit_plan(&plan_from(vec![]), hex_from_offset(0, 0));
+        assert!(matches!(decision, AiDecision::EndTurn));
+        assert_eq!(consumed, 0);
+    }
+
+    #[test]
+    fn commit_solo_cast_consumes_one() {
+        let plan = plan_from(vec![PlanStep::Cast {
             ability: AbilityId::from("strike"),
             target: ent(1),
             target_pos: hex_from_offset(0, 0),
-        }];
-        assert_eq!(steps_consumed_by_decision(&steps), 1);
+        }]);
+        let (decision, consumed) = commit_plan(&plan, hex_from_offset(0, 0));
+        assert!(matches!(decision, AiDecision::CastInPlace { .. }));
+        assert_eq!(consumed, 1);
     }
 
     #[test]
-    fn consumed_move_cast_bundle_is_two() {
-        let steps = vec![
-            PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
-            PlanStep::Cast {
-                ability: AbilityId::from("strike"),
-                target: ent(1),
-                target_pos: hex_from_offset(2, 0),
-            },
-        ];
-        assert_eq!(steps_consumed_by_decision(&steps), 2);
-    }
-
-    #[test]
-    fn consumed_solo_move_is_one() {
-        let steps = vec![PlanStep::Move { path: vec![hex_from_offset(1, 0)] }];
-        assert_eq!(steps_consumed_by_decision(&steps), 1);
-    }
-
-    #[test]
-    fn consumed_move_move_is_one_no_bundle() {
-        // Only Move→Cast bundles; Move→Move commits one at a time.
-        let steps = vec![
-            PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
-            PlanStep::Move { path: vec![hex_from_offset(2, 0)] },
-        ];
-        assert_eq!(steps_consumed_by_decision(&steps), 1);
-    }
-
-    // ── validate_plan_step happy paths + failures ──────────────────────────
-
-    #[test]
-    fn validate_cast_ok_when_target_alive_and_in_range() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        let target = unit(2, Team::Player, hex_from_offset(1, 0));
-        let target_id = target.entity;
-
-        let mut content = empty_content();
-        let def = ability("strike", 1, 1);
-        content.abilities.insert(def.id.clone(), def.clone());
-
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
-
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), target],
-            active_unit: actor.entity,
-            round: 1,
-        };
-
-        let step = PlanStep::Cast {
-            ability: def.id,
-            target: target_id,
-            target_pos: hex_from_offset(1, 0),
-        };
-        assert!(validate_plan_step(&step, &actor, &snap, &ctx).is_ok());
-    }
-
-    #[test]
-    fn validate_cast_fails_when_target_gone() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        let target_id = ent(2);
-
-        let mut content = empty_content();
-        let def = ability("strike", 1, 1);
-        content.abilities.insert(def.id.clone(), def.clone());
-
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
-
-        // Snapshot has no target unit → validation must fail.
-        let snap = BattleSnapshot {
-            units: vec![actor.clone()],
-            active_unit: actor.entity,
-            round: 1,
-        };
-
-        let step = PlanStep::Cast {
-            ability: def.id,
-            target: target_id,
-            target_pos: hex_from_offset(1, 0),
-        };
-        assert_eq!(
-            validate_plan_step(&step, &actor, &snap, &ctx),
-            Err("target unit gone"),
-        );
-    }
-
-    #[test]
-    fn validate_cast_fails_when_target_out_of_range() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        let target = unit(2, Team::Player, hex_from_offset(5, 0));
-        let target_id = target.entity;
-
-        let mut content = empty_content();
-        let def = ability("strike", 1, 1);
-        content.abilities.insert(def.id.clone(), def.clone());
-
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
-
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), target.clone()],
-            active_unit: actor.entity,
-            round: 1,
-        };
-
-        let step = PlanStep::Cast {
-            ability: def.id,
-            target: target_id,
-            target_pos: target.pos,
-        };
-        assert_eq!(
-            validate_plan_step(&step, &actor, &snap, &ctx),
-            Err("target out of range"),
-        );
-    }
-
-    #[test]
-    fn validate_cast_fails_when_ap_depleted() {
-        let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        actor.action_points = 0; // spent
-        let target = unit(2, Team::Player, hex_from_offset(1, 0));
-        let target_id = target.entity;
-
-        let mut content = empty_content();
-        let def = ability("strike", 1, 1);
-        content.abilities.insert(def.id.clone(), def.clone());
-
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
-
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), target],
-            active_unit: actor.entity,
-            round: 1,
-        };
-
-        let step = PlanStep::Cast {
-            ability: def.id,
-            target: target_id,
-            target_pos: hex_from_offset(1, 0),
-        };
-        assert_eq!(
-            validate_plan_step(&step, &actor, &snap, &ctx),
-            Err("insufficient AP"),
-        );
-    }
-
-    #[test]
-    fn validate_move_ok_when_path_clear_and_mp_enough() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        let mut content = empty_content();
-        let def = ability("strike", 1, 1);
-        content.abilities.insert(def.id.clone(), def);
-
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
-
-        let snap = BattleSnapshot {
-            units: vec![actor.clone()],
-            active_unit: actor.entity,
-            round: 1,
-        };
-
-        let step = PlanStep::Move { path: vec![hex_from_offset(1, 0), hex_from_offset(2, 0)] };
-        assert!(validate_plan_step(&step, &actor, &snap, &ctx).is_ok());
-    }
-
-    #[test]
-    fn validate_move_fails_when_destination_occupied_by_blocker() {
-        // Destination (2,0) blocked via ctx.blocked_tiles — mirrors real
-        // `HexPositions` including corpses of dead units.
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        let mut content = empty_content();
-        let def = ability("strike", 1, 1);
-        content.abilities.insert(def.id.clone(), def);
-
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![]);
-
-        // Build a custom blocker set containing the destination.
-        let mut blocked: std::collections::HashSet<Hex> = std::collections::HashSet::new();
-        blocked.insert(hex_from_offset(2, 0));
-        let ctx = UtilityContext {
-            content: &content,
-            difficulty: &difficulty,
-            caster: &caster,
-            abilities: &abilities,
-            opponent_team: Team::Player,
-            crit_fail_effect: CritFailEffect::Miss,
-            crit_fail_chance: 0.0,
-            blocked_tiles: &blocked,
-        };
-
-        let snap = BattleSnapshot {
-            units: vec![actor.clone()],
-            active_unit: actor.entity,
-            round: 1,
-        };
-
-        let step = PlanStep::Move { path: vec![hex_from_offset(1, 0), hex_from_offset(2, 0)] };
-        assert_eq!(
-            validate_plan_step(&step, &actor, &snap, &ctx),
-            Err("destination occupied"),
-        );
-    }
-
-    #[test]
-    fn validate_move_fails_when_path_blocked_by_enemy() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        let blocker = unit(2, Team::Player, hex_from_offset(1, 0));
-        let mut content = empty_content();
-        let def = ability("strike", 1, 1);
-        content.abilities.insert(def.id.clone(), def);
-
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
-
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), blocker],
-            active_unit: actor.entity,
-            round: 1,
-        };
-
-        let step = PlanStep::Move { path: vec![hex_from_offset(1, 0), hex_from_offset(2, 0)] };
-        assert_eq!(
-            validate_plan_step(&step, &actor, &snap, &ctx),
-            Err("path blocked"),
-        );
-    }
-
-    #[test]
-    fn validate_move_fails_when_mp_insufficient() {
-        let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        actor.movement_points = 1; // only 1 MP
-
-        let mut content = empty_content();
-        let def = ability("strike", 1, 1);
-        content.abilities.insert(def.id.clone(), def);
-
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
-
-        let snap = BattleSnapshot {
-            units: vec![actor.clone()],
-            active_unit: actor.entity,
-            round: 1,
-        };
-
-        let step = PlanStep::Move { path: vec![hex_from_offset(1, 0), hex_from_offset(2, 0)] };
-        assert_eq!(
-            validate_plan_step(&step, &actor, &snap, &ctx),
-            Err("insufficient MP"),
-        );
-    }
-
-    // ── decision_from_steps suffix behavior ────────────────────────────────
-
-    #[test]
-    fn decision_from_steps_bundles_move_cast_suffix() {
-        let actor = ent(1);
-        let actor_pos = hex_from_offset(0, 0);
-        let steps = vec![
+    fn commit_move_cast_bundles_into_two() {
+        let plan = plan_from(vec![
             PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
             PlanStep::Cast {
                 ability: AbilityId::from("strike"),
                 target: ent(2),
                 target_pos: hex_from_offset(2, 0),
             },
-        ];
-        match decision_from_steps(&steps, actor, actor_pos) {
+        ]);
+        let (decision, consumed) = commit_plan(&plan, hex_from_offset(0, 0));
+        match decision {
             AiDecision::MoveAndCast { path, ability, target, .. } => {
                 assert_eq!(path.len(), 1);
                 assert_eq!(ability.0, "strike");
@@ -802,5 +413,24 @@ mod tests {
             }
             other => panic!("expected MoveAndCast, got {:?}", std::mem::discriminant(&other)),
         }
+        assert_eq!(consumed, 2);
+    }
+
+    #[test]
+    fn commit_solo_move_consumes_one() {
+        let plan = plan_from(vec![PlanStep::Move { path: vec![hex_from_offset(1, 0)] }]);
+        let (decision, consumed) = commit_plan(&plan, hex_from_offset(0, 0));
+        assert!(matches!(decision, AiDecision::MoveOnlyRetreat { .. }));
+        assert_eq!(consumed, 1);
+    }
+
+    #[test]
+    fn commit_move_move_keeps_first_only_no_bundle() {
+        let plan = plan_from(vec![
+            PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
+            PlanStep::Move { path: vec![hex_from_offset(2, 0)] },
+        ]);
+        let (_, consumed) = commit_plan(&plan, hex_from_offset(0, 0));
+        assert_eq!(consumed, 1, "Move→Move does not bundle");
     }
 }

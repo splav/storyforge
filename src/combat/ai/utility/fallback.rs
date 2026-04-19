@@ -1,19 +1,18 @@
-//! Fallback moves when no cast candidates survive: close-in or retreat.
+//! Fallback moves when plan generation produces no usable plans (normally
+//! only when the actor is dead/missing from the snapshot). Close-in or
+//! retreat, depending on HP.
 
 use super::{AiDecision, UtilityContext};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-use crate::game::hex::Hex;
-use crate::game::pathfinding::ReachableMap;
+use crate::game::hex::{can_stop_on, is_passable, Hex};
+use crate::game::pathfinding::{reachable_with_paths, ReachableMap};
+use std::collections::HashSet;
 
-/// When no attack candidates exist, move closer to enemies —
-/// or retreat to the safest tile if LOW_HP.
 pub(super) fn fallback_move(
-    _actor_pos: Hex,
     active: &UnitSnapshot,
-    _ctx: &UtilityContext,
+    ctx: &UtilityContext,
     snap: &BattleSnapshot,
-    reach: &ReachableMap,
     maps: &InfluenceMaps,
 ) -> AiDecision {
     if active.movement_points == 0 {
@@ -24,6 +23,8 @@ pub(super) fn fallback_move(
     if enemies.is_empty() {
         return AiDecision::EndTurn;
     }
+
+    let reach = build_fallback_reach(active, ctx, snap);
 
     // LOW_HP: retreat to the tile with lowest danger.
     if active.tags.contains(AiTags::LOW_HP) {
@@ -67,4 +68,33 @@ pub(super) fn fallback_move(
     }
 
     AiDecision::EndTurn
+}
+
+/// BFS from `active.pos` with the same passability/stop rules as the planner.
+/// Duplicates a small slice of `generator::build_reach`, but this path is only
+/// hit in edge cases (actor missing from the snapshot) so sharing isn't worth
+/// the plumbing.
+fn build_fallback_reach(
+    active: &UnitSnapshot,
+    ctx: &UtilityContext,
+    snap: &BattleSnapshot,
+) -> ReachableMap {
+    let enemy_positions: HashSet<Hex> = snap
+        .enemies_of(active.team)
+        .map(|u| u.pos)
+        .collect();
+    let mut all_occupied: HashSet<Hex> = snap
+        .units
+        .iter()
+        .filter(|u| u.entity != active.entity)
+        .map(|u| u.pos)
+        .collect();
+    all_occupied.extend(ctx.blocked_tiles.iter().copied());
+
+    reachable_with_paths(
+        active.pos,
+        active.movement_points,
+        move |h| is_passable(h, &enemy_positions),
+        move |h| can_stop_on(h, &all_occupied, None),
+    )
 }
