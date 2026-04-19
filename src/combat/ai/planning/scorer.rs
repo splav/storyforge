@@ -18,8 +18,13 @@
 //! - `kill`: max across steps (binary "did this plan kill anyone?"), not
 //!   discounted — a goal outcome is valued at achievement magnitude.
 //! - `focus`: max target_priority across casts, not discounted.
-//! - `intent`: max intent_score across steps, not discounted. Moves
-//!   participate so Reposition intent lands on the move step.
+//! - `intent`: max intent_score across the **committed prefix**
+//!   (`steps[..committed_step_count]`), not across the whole plan. Deep
+//!   uncommitted steps don't execute this tick — aggregating their intent
+//!   would reward plans whose alignment sits in the discarded tail
+//!   (e.g. `[Move-random, Move-random, Cast@focus]` getting intent=1.0
+//!   while committing a useless first Move). Moves inside the committed
+//!   prefix still participate so Reposition intent lands on the move step.
 //! - `position`: `evaluate_position(final_pos)` — terminal.
 //! - `risk`: `1 − max_danger_along_path` — worst tile the actor traverses or
 //!   casts from.
@@ -220,6 +225,9 @@ pub fn compute_plan_factors(
     let base_discount = ctx.world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;
     let mut goal_achieved = false;
+    // Intent aggregation is bounded to the committed prefix: deep steps
+    // don't fire this tick and their intent signal is spurious (see module doc).
+    let committed = plan.committed_step_count();
 
     for (idx, step) in plan.steps.iter().enumerate() {
         // Pre-step snapshot: cached post-state of the previous step, or the
@@ -246,18 +254,21 @@ pub fn compute_plan_factors(
         let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
 
         // Intent factor participates uniformly across Cast and Move steps —
-        // taken as the max, so it's not scaled by step_weight.
-        let iv = intent_score(
-            intent,
-            &scored_step,
-            &sim_actor,
-            pre_snap,
-            maps,
-            ctx.world.content,
-            ctx.world.difficulty,
-        );
-        if iv > intent_max {
-            intent_max = iv;
+        // taken as the max, so it's not scaled by step_weight. Gated to the
+        // committed prefix: tail steps don't fire this tick.
+        if idx < committed {
+            let iv = intent_score(
+                intent,
+                &scored_step,
+                &sim_actor,
+                pre_snap,
+                maps,
+                ctx.world.content,
+                ctx.world.difficulty,
+            );
+            if iv > intent_max {
+                intent_max = iv;
+            }
         }
 
         if let PlanStep::Cast { .. } = step {
@@ -342,4 +353,192 @@ fn killed_intent_target(killed: &[Entity], intent: &TacticalIntent) -> bool {
         _ => return false,
     };
     killed.contains(&target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
+    use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
+    use crate::combat::ai::role::{AiRole, AxisProfile};
+    use crate::combat::ai::snapshot::AiTags;
+    use crate::combat::ai::utility::{ActorCtx, AiWorld};
+    use crate::content::races::CritFailEffect;
+    use crate::game::components::Team;
+    use crate::game::hex::{hex_from_offset, Hex};
+    use bevy::prelude::Entity;
+
+    fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
+        UnitSnapshot {
+            entity: Entity::from_raw_u32(id).expect("valid"),
+            team,
+            role: AxisProfile::from(AiRole::Bruiser),
+            pos,
+            hp: 20,
+            max_hp: 20,
+            armor: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            action_points: 2,
+            max_ap: 2,
+            movement_points: 3,
+            speed: 3,
+            mana: None,
+            rage: None,
+            energy: None,
+            abilities: vec!["melee_attack".into()],
+            threat: 5.0,
+            tags: AiTags::MELEE_ONLY,
+            max_attack_range: 1,
+            summoner: None,
+            reactions_left: 0,
+            aoo_expected_damage: None,
+            statuses: Vec::new(),
+        }
+    }
+
+    fn empty_maps() -> InfluenceMaps {
+        InfluenceMaps {
+            danger: InfluenceMap::new(),
+            ally_support: InfluenceMap::new(),
+            opportunity: InfluenceMap::new(),
+            escape: InfluenceMap::new(),
+        }
+    }
+
+    fn test_ctx<'a>(
+        content: &'a crate::content::content_view::ContentView,
+        difficulty: &'a DifficultyProfile,
+        abilities: &'a Abilities,
+    ) -> UtilityContext<'a> {
+        UtilityContext {
+            world: AiWorld { content, difficulty },
+            actor: ActorCtx {
+                caster: &CasterContext {
+                    str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None,
+                },
+                abilities,
+                crit_fail_effect: CritFailEffect::Miss,
+                crit_fail_chance: 0.0,
+            },
+        }
+    }
+
+    /// `[Move, Move, Cast@focus]` → committed_step_count == 1. The Cast on
+    /// step-2 targets the FocusTarget intent (intent_score = 1.0), but never
+    /// fires this tick. Intent factor must be 0.0 — otherwise plans with
+    /// "great intent alignment buried in the uncommitted tail" would
+    /// out-score honest plans that commit to an intent-aligned first step.
+    #[test]
+    fn intent_factor_ignores_uncommitted_tail_cast() {
+        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
+        let focus = unit(2, Team::Player, hex_from_offset(5, 0));
+        let actor_id = actor.entity;
+        let focus_id = focus.entity;
+
+        let snap = BattleSnapshot {
+            units: vec![actor.clone(), focus.clone()],
+            active_unit: actor_id,
+            round: 1,
+        };
+        let content =
+            crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::normal();
+        let abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = test_ctx(&content, &difficulty, &abilities);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+
+        // Same snap in every sim_snapshots slot — the test checks intent
+        // aggregation, not sim accuracy. compute_plan_factors only reads
+        // sim_snapshots[idx-1] to pull `sim_actor`; equal snapshots suffice.
+        let plan = TurnPlan {
+            steps: vec![
+                PlanStep::Move { path: vec![hex_from_offset(0, 1)] },
+                PlanStep::Move { path: vec![hex_from_offset(0, 2)] },
+                PlanStep::Cast {
+                    ability: "melee_attack".into(),
+                    target: focus_id,
+                    target_pos: focus.pos,
+                },
+            ],
+            final_pos: hex_from_offset(0, 2),
+            residual_ap: 1,
+            residual_mp: 0,
+            outcomes: vec![
+                StepOutcome::default(),
+                StepOutcome::default(),
+                StepOutcome::default(),
+            ],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(), snap.clone(), snap.clone()],
+        };
+        assert_eq!(plan.committed_step_count(), 1, "solo Move commits 1 step");
+
+        let intent = TacticalIntent::FocusTarget { target: focus_id };
+        let factors = compute_plan_factors(
+            &plan, &actor, &intent, &ctx, &snap, &maps, &reservations,
+        );
+        // Index 7 is the intent factor. Committed step 0 is a Move → 0.0;
+        // step 2 Cast on focus (intent_score=1.0) is beyond the committed
+        // prefix and must not lift the factor.
+        assert_eq!(
+            factors[7], 0.0,
+            "uncommitted tail Cast must not contribute (got {})",
+            factors[7],
+        );
+    }
+
+    /// `[Move, Cast@focus]` → committed_step_count == 2 (Move+Cast bundle
+    /// fires atomically this tick). The Cast on focus IS within the
+    /// committed prefix, so intent factor should be 1.0.
+    #[test]
+    fn intent_factor_includes_bundled_cast() {
+        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
+        let focus = unit(2, Team::Player, hex_from_offset(2, 0));
+        let actor_id = actor.entity;
+        let focus_id = focus.entity;
+
+        let snap = BattleSnapshot {
+            units: vec![actor.clone(), focus.clone()],
+            active_unit: actor_id,
+            round: 1,
+        };
+        let content =
+            crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::normal();
+        let abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = test_ctx(&content, &difficulty, &abilities);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+
+        let plan = TurnPlan {
+            steps: vec![
+                PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
+                PlanStep::Cast {
+                    ability: "melee_attack".into(),
+                    target: focus_id,
+                    target_pos: focus.pos,
+                },
+            ],
+            final_pos: hex_from_offset(1, 0),
+            residual_ap: 1,
+            residual_mp: 2,
+            outcomes: vec![StepOutcome::default(), StepOutcome::default()],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(), snap.clone()],
+        };
+        assert_eq!(plan.committed_step_count(), 2, "Move+Cast bundle commits 2");
+
+        let intent = TacticalIntent::FocusTarget { target: focus_id };
+        let factors = compute_plan_factors(
+            &plan, &actor, &intent, &ctx, &snap, &maps, &reservations,
+        );
+        assert!(
+            (factors[7] - 1.0).abs() < 0.001,
+            "bundled Cast on focus should yield intent factor 1.0 (got {})",
+            factors[7],
+        );
+    }
 }

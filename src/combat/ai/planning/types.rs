@@ -60,6 +60,28 @@ pub struct TurnPlan {
     pub sim_snapshots: Vec<BattleSnapshot>,
 }
 
+impl TurnPlan {
+    /// Number of leading steps that would be emitted as the `AiDecision` if
+    /// this plan were picked — i.e. the *committed prefix*. Mirrors the match
+    /// arms of `commit_plan`:
+    /// - `[]` → 0
+    /// - `[Cast, ..]` → 1
+    /// - `[Move, Cast, ..]` → 2 (bundle fires atomically this tick)
+    /// - `[Move, ..]` → 1
+    ///
+    /// Scoring uses this to gate factors that would otherwise reward alignment
+    /// in the *uncommitted tail* — steps that never execute because the next
+    /// AI tick re-plans from scratch against the post-commit world.
+    pub fn committed_step_count(&self) -> usize {
+        match self.steps.as_slice() {
+            [] => 0,
+            [PlanStep::Cast { .. }, ..] => 1,
+            [PlanStep::Move { .. }, PlanStep::Cast { .. }, ..] => 2,
+            [PlanStep::Move { .. }, ..] => 1,
+        }
+    }
+}
+
 /// Effects produced by a single simulated step. Used by scoring to accumulate
 /// per-plan factors (damage/kill/heal/cc totals, worst-path danger, etc.).
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
