@@ -21,7 +21,7 @@ pub use offensive::aoe_area;
 
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{intent_score, TacticalIntent};
-use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -102,25 +102,28 @@ impl<'a> ScoredStep<'a> {
     /// — first step for solo or leading move, bundled Cast when preceded by
     /// a Move. Used by the debug formatter.
     pub fn from_plan_committed(plan: &'a TurnPlan, actor_pos: Hex) -> Self {
-        match plan.steps.as_slice() {
-            [] => Self::Move { caster_tile: actor_pos },
-            [PlanStep::Cast { ability, target, target_pos }, ..] => Self::Cast {
+        // Bundling rule comes from `TurnPlan::committed_prefix` — one source
+        // of truth shared with `commit_plan` and `committed_step_count`.
+        match plan.committed_prefix() {
+            CommittedPrefix::EndTurn => Self::Move { caster_tile: actor_pos },
+            CommittedPrefix::Cast { ability, target, target_pos } => Self::Cast {
                 ability,
-                target: *target,
-                target_pos: *target_pos,
+                target,
+                target_pos,
                 caster_tile: actor_pos,
             },
-            [PlanStep::Move { path }, rest @ ..] => {
-                let dest = *path.last().unwrap_or(&actor_pos);
-                match rest.first() {
-                    Some(PlanStep::Cast { ability, target, target_pos }) => Self::Cast {
-                        ability,
-                        target: *target,
-                        target_pos: *target_pos,
-                        caster_tile: dest,
-                    },
-                    _ => Self::Move { caster_tile: dest },
+            CommittedPrefix::MoveThenCast { path, ability, target, target_pos } => {
+                let dest = path.last().copied().unwrap_or(actor_pos);
+                Self::Cast {
+                    ability,
+                    target,
+                    target_pos,
+                    caster_tile: dest,
                 }
+            }
+            CommittedPrefix::MoveOnly { path } => {
+                let dest = path.last().copied().unwrap_or(actor_pos);
+                Self::Move { caster_tile: dest }
             }
         }
     }

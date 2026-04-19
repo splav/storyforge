@@ -19,7 +19,7 @@ use crate::combat::ai::factors::aoe_area;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::scorer::compute_plan_factors;
-use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::scoring::{applies_cc, score_action};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -43,43 +43,46 @@ use bevy::prelude::Entity;
 /// - `[Move, ..]` → `MoveOnlyRetreat` (or `EndTurn` when the path is a no-op),
 ///   1 step.
 pub fn commit_plan(plan: &TurnPlan, actor_pos: Hex) -> (AiDecision, usize) {
-    match plan.steps.as_slice() {
-        [] => (AiDecision::EndTurn, 0),
-        [PlanStep::Cast { ability, target, target_pos }, ..] => (
-            AiDecision::CastInPlace {
-                ability: ability.clone(),
-                target: *target,
-                target_pos: *target_pos,
-            },
-            1,
-        ),
-        [PlanStep::Move { path }, PlanStep::Cast { ability, target, target_pos }, ..] => {
-            let decision = if path.is_empty() {
+    // Structural decomposition lives on TurnPlan; we only decide how each
+    // prefix shape maps to an `AiDecision` (with a few no-op short-circuits
+    // for empty-path degenerate cases).
+    let prefix = plan.committed_prefix();
+    let consumed = prefix.step_count();
+    let decision = match prefix {
+        CommittedPrefix::EndTurn => AiDecision::EndTurn,
+        CommittedPrefix::Cast { ability, target, target_pos } => AiDecision::CastInPlace {
+            ability: ability.clone(),
+            target,
+            target_pos,
+        },
+        CommittedPrefix::MoveThenCast { path, ability, target, target_pos } => {
+            // Degenerate bundle (empty move path) collapses to a bare cast.
+            if path.is_empty() {
                 AiDecision::CastInPlace {
                     ability: ability.clone(),
-                    target: *target,
-                    target_pos: *target_pos,
+                    target,
+                    target_pos,
                 }
             } else {
                 AiDecision::MoveAndCast {
-                    path: path.clone(),
+                    path: path.to_vec(),
                     ability: ability.clone(),
-                    target: *target,
-                    target_pos: *target_pos,
+                    target,
+                    target_pos,
                 }
-            };
-            (decision, 2)
+            }
         }
-        [PlanStep::Move { path }, ..] => {
+        CommittedPrefix::MoveOnly { path } => {
+            // Degenerate move (empty path or stays put) ends the turn instead.
             let dest = path.last().copied().unwrap_or(actor_pos);
-            let decision = if path.is_empty() || dest == actor_pos {
+            if path.is_empty() || dest == actor_pos {
                 AiDecision::EndTurn
             } else {
-                AiDecision::MoveOnlyRetreat { path: path.clone() }
-            };
-            (decision, 1)
+                AiDecision::MoveOnlyRetreat { path: path.to_vec() }
+            }
         }
-    }
+    };
+    (decision, consumed)
 }
 
 /// Mercy cruelty for a plan: how harsh does this plan feel? Kill dominates;

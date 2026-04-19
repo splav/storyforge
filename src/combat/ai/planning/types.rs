@@ -60,24 +60,142 @@ pub struct TurnPlan {
     pub sim_snapshots: Vec<BattleSnapshot>,
 }
 
+/// Structural decomposition of a plan's *committed prefix* — the first one or
+/// two steps that would actually execute if this plan were picked. The next
+/// AI tick re-plans from scratch, so anything past this prefix is lookahead
+/// and doesn't fire.
+///
+/// Single source of truth for the bundling rule, consumed by three places
+/// that used to each ship their own parallel pattern-match on `plan.steps`:
+///
+/// - `picker::commit_plan` wraps a prefix into an `AiDecision` (with a few
+///   edge cases — empty path → `EndTurn`, etc. — layered on top).
+/// - `ScoredStep::from_plan_committed` converts a prefix into a single
+///   `ScoredStep` view for debug/log formatting.
+/// - `TurnPlan::committed_step_count` just asks for the step count.
+///
+/// Adding a new bundling variant (say `[Cast, Move]` for strike-and-retreat)
+/// is now one enum arm; the compiler will point at the three consumers that
+/// need to grow matching arms, instead of letting one fall out of sync.
+pub enum CommittedPrefix<'a> {
+    /// Empty plan — nothing commits this tick.
+    EndTurn,
+    /// Solo Cast — the single step fires from the actor's current tile.
+    Cast {
+        ability: &'a AbilityId,
+        target: Entity,
+        target_pos: Hex,
+    },
+    /// Move→Cast bundle — both steps fire atomically this tick. Cast runs
+    /// from the move destination.
+    MoveThenCast {
+        path: &'a [Hex],
+        ability: &'a AbilityId,
+        target: Entity,
+        target_pos: Hex,
+    },
+    /// Solo Move (no bundled Cast on the next slice) — only the move commits.
+    MoveOnly { path: &'a [Hex] },
+}
+
+impl CommittedPrefix<'_> {
+    /// How many of `plan.steps` this prefix consumes.
+    pub fn step_count(&self) -> usize {
+        match self {
+            Self::EndTurn => 0,
+            Self::Cast { .. } | Self::MoveOnly { .. } => 1,
+            Self::MoveThenCast { .. } => 2,
+        }
+    }
+}
+
 impl TurnPlan {
-    /// Number of leading steps that would be emitted as the `AiDecision` if
-    /// this plan were picked — i.e. the *committed prefix*. Mirrors the match
-    /// arms of `commit_plan`:
-    /// - `[]` → 0
-    /// - `[Cast, ..]` → 1
-    /// - `[Move, Cast, ..]` → 2 (bundle fires atomically this tick)
-    /// - `[Move, ..]` → 1
-    ///
-    /// Scoring uses this to gate factors that would otherwise reward alignment
-    /// in the *uncommitted tail* — steps that never execute because the next
-    /// AI tick re-plans from scratch against the post-commit world.
-    pub fn committed_step_count(&self) -> usize {
+    /// Decompose this plan into its committed prefix — the leading slice that
+    /// would fire if this plan were picked. See [`CommittedPrefix`].
+    pub fn committed_prefix(&self) -> CommittedPrefix<'_> {
         match self.steps.as_slice() {
-            [] => 0,
-            [PlanStep::Cast { .. }, ..] => 1,
-            [PlanStep::Move { .. }, PlanStep::Cast { .. }, ..] => 2,
-            [PlanStep::Move { .. }, ..] => 1,
+            [] => CommittedPrefix::EndTurn,
+            [PlanStep::Cast { ability, target, target_pos }, ..] => {
+                CommittedPrefix::Cast {
+                    ability,
+                    target: *target,
+                    target_pos: *target_pos,
+                }
+            }
+            [PlanStep::Move { path }, PlanStep::Cast { ability, target, target_pos }, ..] => {
+                CommittedPrefix::MoveThenCast {
+                    path,
+                    ability,
+                    target: *target,
+                    target_pos: *target_pos,
+                }
+            }
+            [PlanStep::Move { path }, ..] => CommittedPrefix::MoveOnly { path },
+        }
+    }
+
+    /// Number of leading steps that would be emitted as the `AiDecision` if
+    /// this plan were picked. Scoring uses this to gate factors to the
+    /// committed prefix — tail steps don't fire this tick.
+    pub fn committed_step_count(&self) -> usize {
+        self.committed_prefix().step_count()
+    }
+}
+
+#[cfg(test)]
+mod prefix_tests {
+    use super::*;
+    use crate::game::hex::hex_from_offset;
+
+    fn ent(id: u32) -> Entity {
+        Entity::from_raw_u32(id).expect("valid")
+    }
+
+    fn cast() -> PlanStep {
+        PlanStep::Cast {
+            ability: AbilityId::from("strike"),
+            target: ent(42),
+            target_pos: hex_from_offset(3, 0),
+        }
+    }
+    fn mov() -> PlanStep {
+        PlanStep::Move { path: vec![hex_from_offset(1, 0)] }
+    }
+    fn plan(steps: Vec<PlanStep>) -> TurnPlan {
+        TurnPlan { steps, ..Default::default() }
+    }
+
+    /// Classify a prefix by its discriminant — used only for assertion.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Kind { EndTurn, Cast, MoveThenCast, MoveOnly }
+    impl From<&CommittedPrefix<'_>> for Kind {
+        fn from(p: &CommittedPrefix<'_>) -> Kind {
+            match p {
+                CommittedPrefix::EndTurn => Kind::EndTurn,
+                CommittedPrefix::Cast { .. } => Kind::Cast,
+                CommittedPrefix::MoveThenCast { .. } => Kind::MoveThenCast,
+                CommittedPrefix::MoveOnly { .. } => Kind::MoveOnly,
+            }
+        }
+    }
+
+    #[test]
+    fn committed_prefix_matches_plan_shape() {
+        // (name, steps, expected variant, expected step count)
+        let cases: Vec<(&str, Vec<PlanStep>, Kind, usize)> = vec![
+            ("empty",              vec![],                          Kind::EndTurn,      0),
+            ("solo cast",          vec![cast()],                    Kind::Cast,         1),
+            ("solo move",          vec![mov()],                     Kind::MoveOnly,     1),
+            ("move+cast bundle",   vec![mov(), cast()],             Kind::MoveThenCast, 2),
+            ("move+move no bundle",vec![mov(), mov()],              Kind::MoveOnly,     1),
+            ("cast+..tail ignored",vec![cast(), mov(), cast()],     Kind::Cast,         1),
+        ];
+        for (name, steps, want_kind, want_count) in cases {
+            let p = plan(steps);
+            let prefix = p.committed_prefix();
+            assert_eq!(Kind::from(&prefix), want_kind, "{name}: variant mismatch");
+            assert_eq!(prefix.step_count(), want_count, "{name}: step count");
+            assert_eq!(p.committed_step_count(), want_count, "{name}: cached count");
         }
     }
 }
