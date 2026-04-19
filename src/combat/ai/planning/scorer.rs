@@ -56,24 +56,9 @@ use crate::core::DiceRng;
 use crate::game::components::Abilities;
 use bevy::prelude::Entity;
 
-/// Top-level entry. Produces one composite score per plan using the same
-/// normalization+weight+noise pipeline as `score_candidates`.
-pub fn score_plans(
-    plans: &[TurnPlan],
-    active: &UnitSnapshot,
-    intent: &TacticalIntent,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    reservations: &Reservations,
-    rng: &mut DiceRng,
-) -> Vec<f32> {
-    score_plans_with_raw(plans, active, intent, ctx, snap, maps, reservations, rng).0
-}
-
-/// Same computation as `score_plans`, but also returns the **pre-normalization**
-/// raw factor matrix so log writers / offline tools can recalibrate weights
-/// without rerunning sim.
+/// Top-level entry. Produces one composite score per plan plus the raw
+/// pre-normalization factor matrix (so log writers / offline tools can
+/// recalibrate weights without rerunning sim).
 pub fn score_plans_with_raw(
     plans: &[TurnPlan],
     active: &UnitSnapshot,
@@ -433,7 +418,6 @@ mod tests {
         let focus = unit(2, Team::Player, hex_from_offset(5, 0));
         let snap = BattleSnapshot {
             units: vec![actor.clone(), focus.clone()],
-            active_unit: actor.entity,
             round: 1,
         };
         let content =
@@ -523,7 +507,6 @@ mod tests {
         let other = unit(3, Team::Player, hex_from_offset(2, 0));
         let snap = BattleSnapshot {
             units: vec![actor.clone(), target.clone(), other.clone()],
-            active_unit: actor.entity,
             round: 1,
         };
         let content =

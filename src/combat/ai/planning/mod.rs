@@ -18,6 +18,6 @@ pub use picker::{
 };
 pub use reach::reach_from;
 pub use sanity::{apply_protect_self_mask, plan_is_defensive, sanity_adjust_plans};
-pub use scorer::{compute_plan_factors, score_plans, score_plans_with_raw};
+pub use scorer::{compute_plan_factors, score_plans_with_raw};
 pub use sim::SimState;
 pub use types::{CommittedPrefix, PlanStep, StepOutcome, TurnPlan};

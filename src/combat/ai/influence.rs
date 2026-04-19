@@ -124,6 +124,7 @@ fn all_cells() -> Vec<Hex> {
 
 pub fn build_influence_maps(
     snap: &BattleSnapshot,
+    active_entity: bevy::prelude::Entity,
     active_team: Team,
     cfg: &InfluenceConfig,
 ) -> InfluenceMaps {
@@ -132,7 +133,7 @@ pub fn build_influence_maps(
     let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active_team).collect();
     let allies: Vec<&UnitSnapshot> = snap
         .allies_of(active_team)
-        .filter(|u| u.entity != snap.active_unit)
+        .filter(|u| u.entity != active_entity)
         .collect();
 
     let ally_positions: HashSet<Hex> = snap.allies_of(active_team).map(|u| u.pos).collect();

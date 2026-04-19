@@ -4,7 +4,7 @@
 //! cornering yourself into a 1-neighbour dead-end. Mirrors
 //! `utility/sanity.rs` but operates on `TurnPlan` instead of `ActionCandidate`.
 //!
-//! Applied between `score_plans` and `pick_best_plan`: each plan's final score
+//! Applied between `score_plans_with_raw` and `pick_best_plan`: each plan's final score
 //! gets multiplied in place by a product of the penalty factors. Floor at
 //! `SURVIVAL_FLOOR` keeps even punished plans competitive when all options
 //! are bad; retreat lines still beat "rush at 5 HP".

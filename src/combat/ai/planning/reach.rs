@@ -83,8 +83,7 @@ mod tests {
     }
 
     fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        let active = units[0].entity;
-        BattleSnapshot { units, active_unit: active, round: 1 }
+        BattleSnapshot { units, round: 1 }
     }
 
     #[test]

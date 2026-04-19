@@ -159,7 +159,7 @@ fn main() {
             continue;
         };
 
-        let maps = build_influence_maps(&entry.snapshot, active.team, &inf_cfg);
+        let maps = build_influence_maps(&entry.snapshot, actor, active.team, &inf_cfg);
 
         let caster = CasterContext {
             str_mod: 0,

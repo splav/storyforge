@@ -93,7 +93,7 @@ impl DifficultyProfile {
     // ── Derived parameters ──────────────────────────────────────────────
     // All reads go through these methods so the mapping lives in one place.
 
-    /// Random noise added per-plan in `score_plans`. 0 = deterministic.
+    /// Random noise added per-plan in `score_plans_with_raw`. 0 = deterministic.
     pub fn score_noise(&self) -> f32 {
         lerp(0.6, 0.0, self.decision_quality)
     }

@@ -113,8 +113,8 @@ fn run_ai_turn(
 
     // Build snapshot and influence maps.
     let actor_team = c.faction.0;
-    let snap = build_snapshot(actor, combat_ctx.round, combatants, statuses, positions, roles, content);
-    let maps = build_influence_maps(&snap, actor_team, inf_cfg);
+    let snap = build_snapshot(combat_ctx.round, combatants, statuses, positions, roles, content);
+    let maps = build_influence_maps(&snap, actor, actor_team, inf_cfg);
 
     // `blocked_tiles` mirrors `HexPositions` minus the actor — the planner
     // treats these as occupied (corpses still block stop-tiles even though the

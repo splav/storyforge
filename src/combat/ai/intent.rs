@@ -629,7 +629,6 @@ mod tests {
         };
         let snap = BattleSnapshot {
             units: vec![active.clone(), enemy],
-            active_unit: active.entity,
             round: 1,
         };
         let content = ContentView::load_global_for_tests();

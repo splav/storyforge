@@ -28,12 +28,8 @@ pub fn target_priority(
         .max(1.0);
 
     let threat = target.threat / max_threat;
-    // Killability uses effective HP (hp + armor) — the real remaining barrier
-    // before this target dies. A well-armored tank at low HP is less killable
-    // than an unarmored mage at the same HP%.
+    let killability = target.killability();
     let eff_hp = target.eff_hp() as f32;
-    let eff_max = target.eff_max_hp() as f32;
-    let killability = 1.0 - eff_hp / eff_max;
 
     // Threat density: damage output per HP-to-kill. Captures "ROI per HP burned"
     // — a low-HP assassin is much more efficient to finish than a tank with
@@ -109,8 +105,7 @@ mod tests {
     }
 
     fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        let active = units[0].entity;
-        BattleSnapshot { units, active_unit: active, round: 1 }
+        BattleSnapshot { units, round: 1 }
     }
 
     #[test]

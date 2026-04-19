@@ -369,7 +369,7 @@ fn pick_targets(
             by_threat.truncate(TARGETS_BY_THREAT);
 
             let mut by_killability: Vec<&UnitSnapshot> = reachable;
-            by_killability.sort_by(|a, b| killability(b).total_cmp(&killability(a)));
+            by_killability.sort_by(|a, b| b.killability().total_cmp(&a.killability()));
             by_killability.truncate(TARGETS_BY_KILLABILITY);
 
             let mut seen: HashSet<Entity> = HashSet::new();
@@ -393,17 +393,6 @@ fn pick_targets(
             picks.into_iter().map(|(e, p, _)| (e, p)).collect()
         }
     }
-}
-
-/// Killability signal: `1 − eff_hp / eff_max_hp`. Matches
-/// `target_priority::killability` so ranking is semantically consistent with
-/// the focus factor.
-fn killability(u: &UnitSnapshot) -> f32 {
-    let eff_max = u.eff_max_hp() as f32;
-    if eff_max <= 0.0 {
-        return 0.0;
-    }
-    1.0 - (u.eff_hp() as f32 / eff_max)
 }
 
 /// Diverse move-tile picker. Returns up to
@@ -663,7 +652,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor, target],
-            active_unit: actor_id,
             round: 1,
         };
         let maps = empty_maps();
@@ -710,7 +698,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units,
-            active_unit: actor_id,
             round: 1,
         };
         let maps = empty_maps();
@@ -752,7 +739,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor, weak, other],
-            active_unit: actor_id,
             round: 1,
         };
         let maps = empty_maps();
@@ -799,7 +785,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor, target],
-            active_unit: actor_id,
             round: 1,
         };
         let maps = empty_maps();
@@ -1016,7 +1001,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor.clone(), taunter.clone(), other.clone()],
-            active_unit: actor.entity,
             round: 1,
         };
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1050,7 +1034,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor.clone(), taunter, ally.clone()],
-            active_unit: actor.entity,
             round: 1,
         };
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1077,7 +1060,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor.clone(), a.clone(), b.clone()],
-            active_unit: actor.entity,
             round: 1,
         };
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1108,7 +1090,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor.clone(), fine.clone(), hurt.clone()],
-            active_unit: actor.entity,
             round: 1,
         };
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1144,7 +1125,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor.clone(), stunned.clone(), awake.clone()],
-            active_unit: actor.entity,
             round: 1,
         };
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1179,7 +1159,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor.clone(), stunned.clone()],
-            active_unit: actor.entity,
             round: 1,
         };
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1210,7 +1189,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor.clone(), enemy.clone()],
-            active_unit: actor.entity,
             round: 1,
         };
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1240,7 +1218,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor.clone(), e1.clone(), e2.clone(), ally.clone()],
-            active_unit: actor.entity,
             round: 1,
         };
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1275,7 +1252,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor, taunter, adjacent_non_taunter],
-            active_unit: actor_id,
             round: 1,
         };
         let maps = empty_maps();
@@ -1316,7 +1292,6 @@ mod tests {
 
         let snap = BattleSnapshot {
             units: vec![actor.clone(), taunter.clone(), nearby.clone()],
-            active_unit: actor.entity,
             round: 1,
         };
         let sim = SimState::from_snapshot(&snap, actor.entity);

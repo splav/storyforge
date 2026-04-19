@@ -31,8 +31,6 @@ bitflags::bitflags! {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BattleSnapshot {
     pub units: Vec<UnitSnapshot>,
-    #[serde(with = "crate::combat::ai::serde_helpers::entity")]
-    pub active_unit: Entity,
     pub round: u32,
 }
 
@@ -140,6 +138,18 @@ impl UnitSnapshot {
         self.hp as f32 / self.max_hp.max(1) as f32
     }
 
+    /// Killability signal: `1 − eff_hp / eff_max_hp`. A 1.0 unit is dead,
+    /// 0.0 is at full effective HP. Used by `target_priority` (scoring the
+    /// focus factor) and by the planner's target enumeration (picking the
+    /// top-K most-finishable enemies for Cast candidates).
+    pub fn killability(&self) -> f32 {
+        let eff_max = self.eff_max_hp() as f32;
+        if eff_max <= 0.0 {
+            return 0.0;
+        }
+        1.0 - (self.eff_hp() as f32 / eff_max)
+    }
+
     /// Current amount in the spendable pool for `kind`. `Option` resources
     /// (mana/rage/energy) yield 0 when absent.
     pub fn resource_amount(&self, kind: ResourceKind) -> i32 {
@@ -184,7 +194,6 @@ pub(crate) fn pool_amount(
 // ── Builder ───────────────────────────────────────────────────────────────────
 
 pub fn build_snapshot(
-    active: Entity,
     round: u32,
     combatants: &Query<AiCombatantQ, With<Combatant>>,
     statuses_q: &Query<&StatusEffects>,
@@ -281,7 +290,6 @@ pub fn build_snapshot(
 
     BattleSnapshot {
         units,
-        active_unit: active,
         round,
     }
 }
@@ -289,10 +297,6 @@ pub fn build_snapshot(
 // ── Helpers on BattleSnapshot ─────────────────────────────────────────────────
 
 impl BattleSnapshot {
-    pub fn active(&self) -> Option<&UnitSnapshot> {
-        self.unit(self.active_unit)
-    }
-
     pub fn unit(&self, entity: Entity) -> Option<&UnitSnapshot> {
         self.units.iter().find(|u| u.entity == entity)
     }

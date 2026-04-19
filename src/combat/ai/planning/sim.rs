@@ -392,8 +392,8 @@ mod tests {
         }
     }
 
-    fn snap(units: Vec<UnitSnapshot>, active: Entity) -> BattleSnapshot {
-        BattleSnapshot { units, active_unit: active, round: 1 }
+    fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
+        BattleSnapshot { units, round: 1 }
     }
 
     fn ctx(str_mod: i32, int_mod: i32) -> CasterContext {
@@ -460,7 +460,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target], actor_id), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
         let step = PlanStep::Cast {
             ability: def.id.clone(),
             target: target_id,
@@ -496,7 +496,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target], actor_id), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
         let step = PlanStep::Cast {
             ability: def.id.clone(),
             target: target_id,
@@ -530,7 +530,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target], actor_id), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
         let step = PlanStep::Cast {
             ability: def.id.clone(),
             target: target_id,
@@ -561,7 +561,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, ally], actor_id), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, ally]), actor_id);
         let step = PlanStep::Cast {
             ability: def.id.clone(),
             target: ally_id,
@@ -599,7 +599,7 @@ mod tests {
         }];
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target], actor_id), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
         sim.apply_step(
             &PlanStep::Cast {
                 ability: def.id.clone(),
@@ -622,7 +622,7 @@ mod tests {
         let target = hex_from_offset(2, 0);
 
         let content = empty_content();
-        let mut sim = SimState::from_snapshot(&snap(vec![actor], actor_id), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id);
         let outcome = sim.apply_step(
             &PlanStep::Move { path: vec![hex_from_offset(1, 0), target] },
             &ctx(0, 0),
@@ -676,7 +676,7 @@ mod tests {
         }];
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target], actor_id), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
         let outcome = sim.apply_step(
             &PlanStep::Cast {
                 ability: def.id.clone(),
@@ -735,7 +735,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![healer, ally], healer_id), healer_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![healer, ally]), healer_id);
         let outcome = sim.apply_step(
             &PlanStep::Cast {
                 ability: def.id.clone(),
@@ -821,7 +821,7 @@ mod tests {
 
         // Step 1: buffer (active actor for this cast) puts stone_skin on target.
         let mut sim = SimState::from_snapshot(
-            &snap(vec![attacker, buffer, target], buffer_id),
+            &snap(vec![attacker, buffer, target]),
             buffer_id,
         );
         sim.apply_step(
@@ -885,7 +885,7 @@ mod tests {
         content.abilities.insert(def.id.clone(), def.clone());
 
         let mut sim = SimState::from_snapshot(
-            &snap(vec![actor, t1, t2], actor_id),
+            &snap(vec![actor, t1, t2]),
             actor_id,
         );
         let outcome = sim.apply_step(
@@ -919,7 +919,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor], actor_id), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id);
         let outcome = sim.apply_step(
             &PlanStep::Cast {
                 ability: def.id.clone(),

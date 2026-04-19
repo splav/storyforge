@@ -164,8 +164,7 @@ mod tests {
     }
 
     fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        let active = units[0].entity;
-        BattleSnapshot { units, active_unit: active, round: 1 }
+        BattleSnapshot { units, round: 1 }
     }
 
     /// Test helpers return (AbilityId, step-factory). Tests own the owned
@@ -285,7 +284,6 @@ mod tests {
 
         let s = BattleSnapshot {
             units: vec![active.clone(), e1.clone(), e2.clone(), e3.clone()],
-            active_unit: active.entity,
             round: 3,
         };
         let content = ContentView::load_global_for_tests();
@@ -321,14 +319,12 @@ mod tests {
 
         let s_r1 = BattleSnapshot {
             units: vec![active.clone(), enemy.clone()],
-            active_unit: active.entity,
             round: 1,
         };
         let score_r1 = compute_scarcity(&step, &active, 0.0, &ctx, &s_r1);
 
         let s_r3 = BattleSnapshot {
             units: vec![active.clone(), enemy.clone()],
-            active_unit: active.entity,
             round: 3,
         };
         let score_r3 = compute_scarcity(&step, &active, 0.0, &ctx, &s_r3);
