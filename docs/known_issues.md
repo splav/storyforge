@@ -42,9 +42,11 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 
 **Superseded (b517b05):** переход на discounted sum. Intent аккумулируется по всем шагам с `step_weight = base^k`. Deep approach plans получают частичный signal (0.72 на depth 3), direct Cast даёт 1.0 — gradient вместо binary. Патология 1.3 решается через самой decay'ой — plохой глубокий Cast весит меньше commit'нутого, position/risk выбирают между plans с одинаковым первым шагом.
 
-### 1.4. `BattleSnapshot.active_unit` — почти неиспользуемое поле
+### 1.4. `BattleSnapshot.active_unit` — почти неиспользуемое поле ✓ fixed (664eea8)
 
-Записывается в `build_snapshot`, читается только `active()` helper (`snapshot.rs:252-254`) и для `allies_of` фильтра «сам себя» в `influence.rs:135`. В остальном актор всегда передаётся параметром. Снести или зафиксировать semantics строго.
+Записывалось в `build_snapshot`, читалось только `active()` helper (который сам нигде не вызывался) и для `allies_of` фильтра «сам себя» в `influence.rs:135`.
+
+**Исправлено:** поле `active_unit` и метод `active()` удалены. `build_influence_maps` теперь принимает `active_entity: Entity` явным параметром. Тесты освободились от 18+ фиктивных `active_unit: ...` инициализаций.
 
 ### 1.5. `sanity_adjust_plans` смешивает penalties + bonus
 
@@ -117,12 +119,12 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 
 Везде самописное `snap.enemies_of(team).filter(|e| area.contains(&e.pos))`. Friendly-fire семантика реализована неполно (в scoring — только сам actor, в канонической — и allies).
 
-### 2.4. `killability` — две копии
+### 2.4. `killability` — две копии ✓ fixed (664eea8)
 
-- `target_priority.rs:36`: `1 - eff_hp/eff_max`
-- `generator.rs:421-427`: идентично, private fn
+- `target_priority.rs:36`: `1 - eff_hp/eff_max` inline
+- `generator.rs:421-427`: идентичная private fn
 
-Просится метод на `UnitSnapshot`.
+**Исправлено:** добавлен метод `UnitSnapshot::killability(&self) -> f32` с zero-eff-max guard. Оба call site'а переведены на метод, приватная fn удалена.
 
 ### 2.5. «Can afford» — три копии ✓ fixed (2ad7c97)
 
@@ -138,9 +140,11 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 
 В `build_snapshot` отдельно `compute_tags`, отдельно `status_bonuses` (`snapshot.rs:373-389`), плюс `refresh_status_aggregates` (`snapshot.rs:115-123`) в sim. Три прохода по `StatusEffects` на одном юните с пересекающимися полями.
 
-### 2.7. `score_plans` — мёртвая обёртка
+### 2.7. `score_plans` — мёртвая обёртка ✓ fixed (664eea8)
 
-`scorer.rs:48-59` — `score_plans(...) { score_plans_with_raw(...).0 }`. Единственный вызов `pick_action` идёт в `_with_raw`. Обёртка есть только в `pub use`.
+`scorer.rs:48-59` — `score_plans(...) { score_plans_with_raw(...).0 }`. Единственный вызов `pick_action` идёт в `_with_raw`. Обёртка была только в `pub use`.
+
+**Исправлено:** fn удалена, pub use обновлён, doc-refs в difficulty.rs и sanity.rs перенаправлены на `score_plans_with_raw`.
 
 ---
 
@@ -288,7 +292,10 @@ Outcomes уже лежат в `plan.outcomes`; это было O(plans × depth)
 | 2.2 `plan_has_self_aoe` своя геометрия AoE | drift-bug waiting | низкий | ✓ be9fe65 |
 | 2.3 AoE hits filtering × 4 | friendly-fire drift | средний | — |
 | 3.1 Bundling rules × 3 мест (усугубилось после 1.3) | drift bundling | низкий | ✓ 0bc399a |
+| 2.4 `killability` × 2 | trivial DRY | низкий | ✓ 664eea8 |
 | 2.5 «Can afford» × 3 | DRY | низкий | ✓ 2ad7c97 |
+| 2.7 `score_plans` dead wrapper | dead code | низкий | ✓ 664eea8 |
+| 1.4 `active_unit` почти dead field | trivial DRY | низкий | ✓ 664eea8 |
 | 3.6 `CritFail` + `mana_overload` + `primary=None` | type safety | средний | — |
 | 4.1 Debug vs log «factors» имеют разную семантику | аналитика вводит в заблуждение | низкий | — |
 | 5.7 Tank-floor в `infer_profile` всегда ≥ 0.3 | role mis-inference | средний | — |
