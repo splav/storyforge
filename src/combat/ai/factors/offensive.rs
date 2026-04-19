@@ -23,7 +23,7 @@ pub(super) fn compute_offensive(
     ctx: &UtilityContext,
     snap: &BattleSnapshot,
 ) -> OffensiveFactors {
-    let Some(def) = ctx.content.abilities.get(ability) else {
+    let Some(def) = ctx.world.content.abilities.get(ability) else {
         return OffensiveFactors::default();
     };
 
@@ -36,8 +36,8 @@ pub(super) fn compute_offensive(
         let mut heal = 0.0f32;
         let target_unit = snap.unit(target);
         if let Some(target_unit) = target_unit {
-            let raw = score_action(def, target_unit, ctx.caster, ctx.content);
-            let adjusted = crit_fail_adjusted(raw, def, &ctx.crit_fail_effect, ctx.crit_fail_chance);
+            let raw = score_action(def, target_unit, ctx.actor.caster, ctx.world.content);
+            let adjusted = crit_fail_adjusted(raw, def, &ctx.actor.crit_fail_effect, ctx.actor.crit_fail_chance);
             if def.target_type == TargetType::SingleAlly {
                 heal = adjusted;
             } else if def.target_type == TargetType::SingleEnemy {
@@ -89,29 +89,29 @@ fn compute_aoe_damage(
     let mut damage = 0.0f32;
     for enemy in snap.enemies_of(active.team) {
         if area.contains(&enemy.pos) {
-            damage += score_action(def, enemy, ctx.caster, ctx.content);
+            damage += score_action(def, enemy, ctx.actor.caster, ctx.world.content);
         }
     }
     if def.friendly_fire {
         for ally in snap.allies_of(active.team) {
             if area.contains(&ally.pos) {
-                let raw = score_action(def, ally, ctx.caster, ctx.content).abs();
+                let raw = score_action(def, ally, ctx.actor.caster, ctx.world.content).abs();
                 let hp_fraction = raw / ally.max_hp.max(1) as f32;
                 damage -= raw * (1.0 + hp_fraction);
             }
         }
         if area.contains(&active.pos) {
-            let raw = score_action(def, active, ctx.caster, ctx.content).abs();
+            let raw = score_action(def, active, ctx.actor.caster, ctx.world.content).abs();
             let hp_fraction = raw / active.max_hp.max(1) as f32;
             damage -= raw * (1.0 + hp_fraction);
         }
     }
-    crit_fail_adjusted(damage, def, &ctx.crit_fail_effect, ctx.crit_fail_chance)
+    crit_fail_adjusted(damage, def, &ctx.actor.crit_fail_effect, ctx.actor.crit_fail_chance)
 }
 
 /// Does `def`'s expected damage overkill `target`? Returns 1.0 or 0.0.
 fn single_target_kill(def: &AbilityDef, target: &UnitSnapshot, ctx: &UtilityContext) -> f32 {
-    let Some(calc) = def.effect.calc(ctx.caster) else { return 0.0 };
+    let Some(calc) = def.effect.calc(ctx.actor.caster) else { return 0.0 };
     let armor = if calc.pierces_armor { 0.0 } else { (target.armor + target.armor_bonus) as f32 };
     let net = calc.expected() - armor + target.damage_taken_bonus as f32;
     if net >= target.hp as f32 { 1.0 } else { 0.0 }
@@ -123,7 +123,7 @@ fn status_cc_value(def: &AbilityDef, threat: f32, ctx: &UtilityContext) -> f32 {
     def.statuses
         .iter()
         .map(|sa| {
-            let Some(sd) = ctx.content.statuses.get(&sa.status) else { return 0.0 };
+            let Some(sd) = ctx.world.content.statuses.get(&sa.status) else { return 0.0 };
             let d = sa.duration_rounds as f32;
             let mut val = 0.0f32;
             if sd.skips_turn {

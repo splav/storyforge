@@ -8,7 +8,7 @@ use crate::combat::ai::log::AiLogger;
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::build_snapshot;
-use crate::combat::ai::utility::{pick_action, AiDecision, UtilityContext};
+use crate::combat::ai::utility::{pick_action, ActorCtx, AiDecision, AiWorld, UtilityContext};
 use crate::content::abilities::CasterContext;
 use crate::content::races::CritFailEffect;
 use crate::content::settings::GameSettings;
@@ -67,21 +67,20 @@ pub fn enemy_ai_system(
         return;
     }
     run_ai_turn(
-        actor, Team::Player, &c, &env, &mut rng, &mut reservations,
+        actor, &c, &env, &mut rng, &mut reservations,
         &mut logger, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );
 }
 
-/// Shared AI logic for both enemy_ai and pact_ai. `opponent_team` is who to
-/// attack. Every tick re-plans from scratch — there is no cross-tick plan
-/// storage. Multi-step beam search still informs the choice of step[0], but
-/// the remainder of the plan is discarded after each commit so subsequent
-/// ticks see actual post-action state (accounts for crit-fail, misses, allies
-/// killing the target, player reactions, etc.).
+/// Shared AI logic for both enemy_ai and pact_ai. Every tick re-plans from
+/// scratch — there is no cross-tick plan storage. Multi-step beam search still
+/// informs the choice of step[0], but the remainder of the plan is discarded
+/// after each commit so subsequent ticks see actual post-action state
+/// (accounts for crit-fail, misses, allies killing the target, player
+/// reactions, etc.).
 fn run_ai_turn(
     actor: Entity,
-    opponent_team: Team,
     c: &AiCombatantQItem,
     env: &AiEnv,
     rng: &mut DiceRng,
@@ -135,14 +134,13 @@ fn run_ai_turn(
     let crit_fail_chance = 1.0 / settings.crit_fail_die as f32;
 
     let ctx = UtilityContext {
-        content,
-        difficulty,
-        caster: &caster,
-        abilities: c.abilities,
-        opponent_team,
-        crit_fail_effect,
-        crit_fail_chance,
-        blocked_tiles: &all_occupied,
+        world: AiWorld { content, difficulty },
+        actor: ActorCtx {
+            caster: &caster,
+            abilities: c.abilities,
+            crit_fail_effect,
+            crit_fail_chance,
+        },
     };
 
     // Build name map for debug / log.
@@ -178,7 +176,7 @@ fn run_ai_turn(
     // search still shapes the step[0] choice, but only step[0] executes; the
     // remainder is reconsidered on the next tick against actual world state.
     let (decision, debug_snapshot) = pick_action(
-        actor, actor_pos, &ctx, &snap, &maps, rng,
+        actor, actor_pos, &ctx, &all_occupied, &snap, &maps, rng,
         &mut memory, reservations, logger, debug, &debug_names,
     );
 
@@ -254,7 +252,7 @@ pub fn pact_ai_system(
         return;
     }
     run_ai_turn(
-        actor, Team::Enemy, &c, &env, &mut rng, &mut reservations,
+        actor, &c, &env, &mut rng, &mut reservations,
         &mut logger, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );

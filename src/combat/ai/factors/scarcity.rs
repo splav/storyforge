@@ -24,7 +24,7 @@ pub(super) fn compute_scarcity(
     let ScoredStep::Cast { ability, target_pos, target, caster_tile } = step else {
         return 0.0;
     };
-    let Some(def) = ctx.content.abilities.get(*ability) else {
+    let Some(def) = ctx.world.content.abilities.get(*ability) else {
         return 0.0;
     };
 
@@ -93,7 +93,7 @@ pub(super) fn compute_scarcity(
 
     // CC on high-threat unstunned target. Non-AoE only — AoE CC is already
     // folded into the cc factor per-enemy.
-    if applies_cc(def, ctx.content) {
+    if applies_cc(def, ctx.world.content) {
         if let Some(t) = target_unit {
             if !t.tags.contains(AiTags::IS_STUNNED) {
                 swing += 0.5 * (t.threat / 10.0).min(1.0);
@@ -118,8 +118,8 @@ pub(super) fn compute_scarcity(
 
 /// Returns true if the caster has at least one ability with no resource cost.
 fn has_free_attack(ctx: &UtilityContext) -> bool {
-    ctx.abilities.0.iter().any(|id| {
-        ctx.content
+    ctx.actor.abilities.0.iter().any(|id| {
+        ctx.world.content
             .abilities
             .get(id)
             .is_some_and(|d| d.costs.is_empty() && d.target_type == TargetType::SingleEnemy)
@@ -195,15 +195,15 @@ mod tests {
         difficulty: &'a DifficultyProfile,
         abilities: &'a Abilities,
     ) -> UtilityContext<'a> {
+        use crate::combat::ai::utility::{ActorCtx, AiWorld};
         UtilityContext {
-            content,
-            difficulty,
-            caster: &CasterContext { str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None },
-            abilities,
-            opponent_team: Team::Player,
-            crit_fail_effect: CritFailEffect::Miss,
-            crit_fail_chance: 0.0,
-            blocked_tiles: crate::combat::ai::utility::empty_blocked_tiles(),
+            world: AiWorld { content, difficulty },
+            actor: ActorCtx {
+                caster: &CasterContext { str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None },
+                abilities,
+                crit_fail_effect: CritFailEffect::Miss,
+                crit_fail_chance: 0.0,
+            },
         }
     }
 

@@ -25,12 +25,12 @@ use storyforge::combat::ai::planning::{
 use storyforge::combat::ai::reservations::Reservations;
 use storyforge::combat::ai::role::AxisProfile;
 use storyforge::combat::ai::snapshot::BattleSnapshot;
-use storyforge::combat::ai::utility::{empty_blocked_tiles, UtilityContext};
+use storyforge::combat::ai::utility::{ActorCtx, AiWorld, UtilityContext};
 use storyforge::content::abilities::CasterContext;
 use storyforge::content::content_view::ContentView;
 use storyforge::content::races::CritFailEffect;
 use storyforge::core::DiceRng;
-use storyforge::game::components::{Abilities, Team};
+use storyforge::game::components::Abilities;
 use storyforge::game::hex::Hex;
 
 /// Mirror of `log::AiLogEntry` with owned fields so we can deserialize.
@@ -161,10 +161,6 @@ fn main() {
 
         let maps = build_influence_maps(&entry.snapshot, active.team, &inf_cfg);
 
-        let opponent_team = match active.team {
-            Team::Enemy => Team::Player,
-            Team::Player => Team::Enemy,
-        };
         let caster = CasterContext {
             str_mod: 0,
             int_mod: 0,
@@ -173,14 +169,16 @@ fn main() {
         };
         let abilities = Abilities(active.abilities.clone());
         let ctx = UtilityContext {
-            content: &content,
-            difficulty: &difficulty,
-            caster: &caster,
-            abilities: &abilities,
-            opponent_team,
-            crit_fail_effect: CritFailEffect::Miss,
-            crit_fail_chance: 0.0,
-            blocked_tiles: empty_blocked_tiles(),
+            world: AiWorld {
+                content: &content,
+                difficulty: &difficulty,
+            },
+            actor: ActorCtx {
+                caster: &caster,
+                abilities: &abilities,
+                crit_fail_effect: CritFailEffect::Miss,
+                crit_fail_chance: 0.0,
+            },
         };
 
         // Reconstruct TurnPlan[] from log + raw factor matrix.

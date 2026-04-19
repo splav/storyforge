@@ -233,7 +233,7 @@ fn plan_has_self_aoe(active: &UnitSnapshot, plan: &TurnPlan, ctx: &UtilityContex
                 }
             }
             PlanStep::Cast { ability, target_pos, .. } => {
-                let Some(def) = ctx.content.abilities.get(ability) else { continue };
+                let Some(def) = ctx.world.content.abilities.get(ability) else { continue };
                 if !def.friendly_fire || def.aoe == AoEShape::None {
                     continue;
                 }
@@ -256,8 +256,8 @@ fn plan_has_self_aoe(active: &UnitSnapshot, plan: &TurnPlan, ctx: &UtilityContex
 fn plan_has_useful_cast(plan: &TurnPlan, ctx: &UtilityContext) -> bool {
     plan.steps.iter().any(|s| {
         if let PlanStep::Cast { ability, .. } = s {
-            ctx.content.abilities.get(ability).is_some_and(|def| {
-                def.effect.calc(ctx.caster).is_some() || !def.statuses.is_empty()
+            ctx.world.content.abilities.get(ability).is_some_and(|def| {
+                def.effect.calc(ctx.actor.caster).is_some() || !def.statuses.is_empty()
             })
         } else {
             false

@@ -42,14 +42,15 @@ const MOVE_TILES_PRIORITY_ADJACENT: usize = 1;
 pub fn generate_plans(
     actor: Entity,
     ctx: &UtilityContext,
+    blocked_tiles: &HashSet<Hex>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
 ) -> Vec<TurnPlan> {
     let Some(actor_u) = snap.unit(actor) else {
         return Vec::new();
     };
-    let max_depth = ctx.difficulty.plan_max_depth.max(1);
-    let beam = ctx.difficulty.plan_beam_width.max(1);
+    let max_depth = ctx.world.difficulty.plan_max_depth.max(1);
+    let beam = ctx.world.difficulty.plan_beam_width.max(1);
 
     let seed = TurnPlan {
         steps: Vec::new(),
@@ -74,14 +75,14 @@ pub fn generate_plans(
                 continue;
             }
 
-            let steps = enumerate_next_steps(&base_sim, ctx, maps);
+            let steps = enumerate_next_steps(&base_sim, ctx, blocked_tiles, maps);
             for step in steps {
                 // Apply this step on a cloned sim to measure outcome + state.
                 let mut ext_sim = SimState {
                     snapshot: base_sim.snapshot.clone(),
                     actor,
                 };
-                let outcome = ext_sim.apply_step(&step, ctx.caster, ctx.content);
+                let outcome = ext_sim.apply_step(&step, ctx.actor.caster, ctx.world.content);
 
                 let (final_pos, residual_ap, residual_mp) = match ext_sim.actor_unit() {
                     Some(u) => (u.pos, u.action_points, u.movement_points),
@@ -200,7 +201,7 @@ fn replay(
 ) -> SimState {
     let mut sim = SimState::from_snapshot(snap, actor);
     for step in steps {
-        sim.apply_step(step, ctx.caster, ctx.content);
+        sim.apply_step(step, ctx.actor.caster, ctx.world.content);
     }
     sim
 }
@@ -213,6 +214,7 @@ fn replay(
 fn enumerate_next_steps(
     sim: &SimState,
     ctx: &UtilityContext,
+    blocked_tiles: &HashSet<Hex>,
     maps: &InfluenceMaps,
 ) -> Vec<PlanStep> {
     let Some(actor) = sim.actor_unit() else {
@@ -221,8 +223,8 @@ fn enumerate_next_steps(
     let mut steps: Vec<PlanStep> = Vec::new();
 
     // Cast steps from the actor's current sim position.
-    for ability_id in &ctx.abilities.0 {
-        let Some(def) = ctx.content.abilities.get(ability_id) else { continue };
+    for ability_id in &ctx.actor.abilities.0 {
+        let Some(def) = ctx.world.content.abilities.get(ability_id) else { continue };
         if !can_afford(actor, def) {
             continue;
         }
@@ -241,7 +243,7 @@ fn enumerate_next_steps(
 
     // Move steps (if MP > 0). Skipped if actor is grounded.
     if actor.movement_points > 0 {
-        let reach = build_reach(sim, ctx);
+        let reach = build_reach(sim, blocked_tiles);
         let top_tiles = pick_top_move_tiles(&reach, sim, maps, actor.pos);
         for tile in top_tiles {
             if let Some(path) = reach.path_to(tile) {
@@ -326,7 +328,7 @@ fn is_valid_cast(
     }
 
     // Wasted single-target CC on already-stunned target.
-    if applies_cc(def, ctx.content) && def.aoe == AoEShape::None {
+    if applies_cc(def, ctx.world.content) && def.aoe == AoEShape::None {
         if let Some(t) = sim.snapshot.unit(target) {
             if t.tags.contains(AiTags::IS_STUNNED) {
                 return false;
@@ -429,13 +431,13 @@ fn killability(u: &UnitSnapshot) -> f32 {
 /// Hex BFS respecting sim-time positions (dead enemies freed) UNION the real
 /// world's blocked tiles (corpses stay as physical obstacles — matches what
 /// `movement.rs` enforces, so paths we plan won't collide on insert).
-fn build_reach(sim: &SimState, ctx: &UtilityContext) -> ReachableMap {
+fn build_reach(sim: &SimState, blocked_tiles: &HashSet<Hex>) -> ReachableMap {
     let Some(actor) = sim.actor_unit() else {
         return reachable_with_paths(Hex::ZERO, 0, |_| false, |_| false);
     };
 
     // Enemies within the sim may have been killed mid-plan; real world
-    // corpses are added via `ctx.blocked_tiles` so paths can't stop there.
+    // corpses are added via `blocked_tiles` so paths can't stop there.
     let enemy_positions: HashSet<Hex> = sim
         .snapshot
         .enemies_of(actor.team)
@@ -448,7 +450,7 @@ fn build_reach(sim: &SimState, ctx: &UtilityContext) -> ReachableMap {
         .filter(|u| u.entity != sim.actor)
         .map(|u| u.pos)
         .collect();
-    all_occupied.extend(ctx.blocked_tiles.iter().copied());
+    all_occupied.extend(blocked_tiles.iter().copied());
 
     reachable_with_paths(
         actor.pos,
@@ -678,15 +680,15 @@ mod tests {
         caster: &'a CasterContext,
         abilities: &'a Abilities,
     ) -> UtilityContext<'a> {
+        use crate::combat::ai::utility::{ActorCtx, AiWorld};
         UtilityContext {
-            content,
-            difficulty,
-            caster,
-            abilities,
-            opponent_team: Team::Player,
-            crit_fail_effect: CritFailEffect::Miss,
-            crit_fail_chance: 0.0,
-            blocked_tiles: crate::combat::ai::utility::empty_blocked_tiles(),
+            world: AiWorld { content, difficulty },
+            actor: ActorCtx {
+                caster,
+                abilities,
+                crit_fail_effect: CritFailEffect::Miss,
+                crit_fail_chance: 0.0,
+            },
         }
     }
 
@@ -720,7 +722,7 @@ mod tests {
         };
         let maps = empty_maps();
 
-        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+        let plans = generate_plans(actor_id, &ctx, crate::combat::ai::utility::empty_blocked_tiles(), &snap, &maps);
 
         // At least one empty plan (seed) + one single-cast plan.
         assert!(plans.iter().any(|p| p.steps.is_empty()), "seed plan must exist");
@@ -767,7 +769,7 @@ mod tests {
         };
         let maps = empty_maps();
 
-        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+        let plans = generate_plans(actor_id, &ctx, crate::combat::ai::utility::empty_blocked_tiles(), &snap, &maps);
 
         // Count plans by depth. Beam=2 ⇒ depth-1 frontier size ≤ 2, depth-2 ≤ 2.
         let at_depth_1 = plans.iter().filter(|p| p.steps.len() == 1).count();
@@ -809,7 +811,7 @@ mod tests {
         };
         let maps = empty_maps();
 
-        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+        let plans = generate_plans(actor_id, &ctx, crate::combat::ai::utility::empty_blocked_tiles(), &snap, &maps);
 
         // Find depth-2 plans that target the weak unit first. In step 2 they
         // must not cast at weak again (it's dead post step 1).
@@ -856,7 +858,7 @@ mod tests {
         };
         let maps = empty_maps();
 
-        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+        let plans = generate_plans(actor_id, &ctx, crate::combat::ai::utility::empty_blocked_tiles(), &snap, &maps);
 
         // With max_ap=1, no plan should have more than one Cast step.
         for p in &plans {
@@ -1330,7 +1332,7 @@ mod tests {
         };
         let maps = empty_maps();
 
-        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+        let plans = generate_plans(actor_id, &ctx, crate::combat::ai::utility::empty_blocked_tiles(), &snap, &maps);
 
         // No plan in the pool may contain a Cast at anyone other than the taunter.
         for p in &plans {

@@ -24,10 +24,10 @@ pub(super) fn apply_reservation_adjustments(
             if let Some(target_unit) = snap.unit(target_ent) {
                 let hp_left = target_unit.hp as f32 - reserved_dmg;
                 if hp_left <= 0.0 {
-                    off.damage *= ctx.difficulty.overkill_damage_multiplier();
+                    off.damage *= ctx.world.difficulty.overkill_damage_multiplier();
                     off.kill = 0.0;
                 } else {
-                    *focus *= 1.0 + ctx.difficulty.focus_fire_bonus();
+                    *focus *= 1.0 + ctx.world.difficulty.focus_fire_bonus();
                 }
             }
         }

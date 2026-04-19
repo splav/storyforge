@@ -30,10 +30,10 @@ use crate::combat::ai::snapshot::BattleSnapshot;
 use crate::content::abilities::CasterContext;
 use crate::content::races::CritFailEffect;
 use crate::core::{AbilityId, DiceRng};
-use crate::game::components::{Abilities, Team};
+use crate::game::components::Abilities;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -59,30 +59,51 @@ pub enum AiDecision {
 }
 
 // ── Context ─────────────────────────────────────────────────────────────────
+//
+// The AI chain takes three categories of data. They used to live side-by-side
+// as a flat `UtilityContext`; splitting by lifetime/scope makes every caller
+// honestly declare what it touches.
+//
+// - `AiWorld`   — static for the whole combat (content, difficulty).
+// - `ActorCtx`  — per-actor: who is casting + caster-specific scoring params.
+// - `blocked_tiles` — per-turn pathfinding plumbing. Used only at the BFS
+//   boundary (`generate_plans`, `fallback_move`); passed as a plain `&HashSet`
+//   next to those entry points, not buried in the ctx.
+//
+// `UtilityContext` stays as a thin composite so the deep scoring/generation
+// chain keeps a single parameter, but it no longer mixes lifetimes.
 
-pub struct UtilityContext<'a> {
+/// World-scope data. Stable for the entire combat.
+pub struct AiWorld<'a> {
     pub content: &'a ContentView,
     pub difficulty: &'a DifficultyProfile,
+}
+
+/// Per-actor data rebuilt each AI tick. Caster mods, ability list, crit-fail
+/// profile. `crit_fail_chance` is derived from global settings rather than
+/// the actor, but it pairs with `crit_fail_effect` everywhere it's read
+/// (always inside `crit_fail_adjusted`), so it lives here to keep the pair
+/// together.
+pub struct ActorCtx<'a> {
     pub caster: &'a CasterContext,
     pub abilities: &'a Abilities,
-    pub opponent_team: Team,
     pub crit_fail_effect: CritFailEffect,
     pub crit_fail_chance: f32,
-    /// Every tile currently occupied by any entity tracked in `HexPositions`
-    /// — **including dead units** (whose entries persist intentionally so
-    /// corpses still block movement). Pathfinding-level check; the snapshot
-    /// layer filters dead units out of `units` for scoring/targeting, and
-    /// this set patches the gap so the planner doesn't route through a tile
-    /// that's physically blocked.
-    pub blocked_tiles: &'a std::collections::HashSet<crate::game::hex::Hex>,
+}
+
+/// Composite threaded through scoring/generation/sanity. Splits into
+/// `world` (static) and `actor` (per-tick) so every call site declares which
+/// half it needs, while still passing one parameter.
+pub struct UtilityContext<'a> {
+    pub world: AiWorld<'a>,
+    pub actor: ActorCtx<'a>,
 }
 
 /// Shared empty set for tests and scopes where no tile is considered blocked.
 /// Safe to borrow at any lifetime thanks to the `'static` backing.
-pub fn empty_blocked_tiles() -> &'static std::collections::HashSet<crate::game::hex::Hex> {
-    use std::collections::HashSet;
+pub fn empty_blocked_tiles() -> &'static HashSet<Hex> {
     use std::sync::OnceLock;
-    static EMPTY: OnceLock<HashSet<crate::game::hex::Hex>> = OnceLock::new();
+    static EMPTY: OnceLock<HashSet<Hex>> = OnceLock::new();
     EMPTY.get_or_init(HashSet::new)
 }
 
@@ -94,6 +115,7 @@ pub fn pick_action(
     actor: Entity,
     actor_pos: Hex,
     ctx: &UtilityContext,
+    blocked_tiles: &HashSet<Hex>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     rng: &mut DiceRng,
@@ -111,20 +133,20 @@ pub fn pick_action(
     };
 
     // ── Select tactical intent ──────────────────────────────────────────
-    let choice = select_intent(active, snap, maps, memory, ctx.difficulty);
+    let choice = select_intent(active, snap, maps, memory, ctx.world.difficulty);
     update_memory(memory, &choice.intent);
     let mut intent = choice.intent;
     let mut intent_reason = choice.reason;
 
     // ── Generate plans (beam search over depths) ───────────────────────
-    let plans = generate_plans(actor, ctx, snap, maps);
+    let plans = generate_plans(actor, ctx, blocked_tiles, snap, maps);
 
     if plans.is_empty() {
-        let decision = fallback::fallback_move(active, ctx, snap, maps);
+        let decision = fallback::fallback_move(active, blocked_tiles, snap, maps);
         let ds = if debug {
             Some(build_fallback_debug(
                 active, actor_pos, &intent, &intent_reason, &decision,
-                "no plans generated", ctx, snap, maps, debug_names,
+                "no plans generated", snap, maps, debug_names,
             ))
         } else { None };
         return (decision, ds);
@@ -155,8 +177,8 @@ pub fn pick_action(
         if max_align < threshold {
             let hp_pct = active.hp_pct();
             let actor_danger = maps.danger.get(active.pos);
-            let midpanic_hp = ctx.difficulty.midpanic_hp_threshold();
-            let panic_danger = ctx.difficulty.awareness_danger_threshold();
+            let midpanic_hp = ctx.world.difficulty.midpanic_hp_threshold();
+            let panic_danger = ctx.world.difficulty.awareness_danger_threshold();
             let midpanic = hp_pct < midpanic_hp && actor_danger > panic_danger;
 
             let new_intent = if midpanic {
@@ -209,9 +231,9 @@ pub fn pick_action(
     // move), LastStand rescoring takes over so the actor at least lands a
     // final useful hit.
     if matches!(intent, TacticalIntent::ProtectSelf) {
-        let margin = ctx.difficulty.defensive_tile_margin();
+        let margin = ctx.world.difficulty.defensive_tile_margin();
         let any_defensive = apply_protect_self_mask(
-            &mut scored, &plans, active, ctx.content, maps, margin,
+            &mut scored, &plans, active, ctx.world.content, maps, margin,
         );
         if !any_defensive {
             let last_stand = TacticalIntent::LastStand;

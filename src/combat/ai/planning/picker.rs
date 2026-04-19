@@ -111,9 +111,9 @@ pub fn pick_best_plan(
     reservations: &Reservations,
     rng: &mut DiceRng,
 ) -> (usize, PickMechanics) {
-    let top_k_req = ctx.difficulty.top_k_choice();
-    let m = ctx.difficulty.mercy_margin();
-    let window = (ctx.difficulty.score_noise() * 2.0).max(0.05);
+    let top_k_req = ctx.world.difficulty.top_k_choice();
+    let m = ctx.world.difficulty.mercy_margin();
+    let window = (ctx.world.difficulty.score_noise() * 2.0).max(0.05);
 
     if scored.is_empty() {
         return (
@@ -225,8 +225,8 @@ pub fn record_committed_reservations(
                 }
             }
             PlanStep::Cast { ability, target, target_pos } => {
-                let Some(def) = ctx.content.abilities.get(ability) else { continue };
-                let is_cc = applies_cc(def, ctx.content);
+                let Some(def) = ctx.world.content.abilities.get(ability) else { continue };
+                let is_cc = applies_cc(def, ctx.world.content);
                 let hits: Vec<Entity> = if def.aoe == AoEShape::None {
                     vec![*target]
                 } else {
@@ -239,7 +239,7 @@ pub fn record_committed_reservations(
                 for ent in hits {
                     if let Some(target_unit) = snap.unit(ent) {
                         if def.target_type != TargetType::SingleAlly {
-                            let dmg = score_action(def, target_unit, ctx.caster, ctx.content);
+                            let dmg = score_action(def, target_unit, ctx.actor.caster, ctx.world.content);
                             if dmg > 0.0 {
                                 reservations.reserve_damage(ent, dmg);
                             }
@@ -350,15 +350,15 @@ mod tests {
         caster: &'a CasterContext,
         abilities: &'a Abilities,
     ) -> UtilityContext<'a> {
+        use crate::combat::ai::utility::{ActorCtx, AiWorld};
         UtilityContext {
-            content,
-            difficulty,
-            caster,
-            abilities,
-            opponent_team: Team::Player,
-            crit_fail_effect: CritFailEffect::Miss,
-            crit_fail_chance: 0.0,
-            blocked_tiles: crate::combat::ai::utility::empty_blocked_tiles(),
+            world: AiWorld { content, difficulty },
+            actor: ActorCtx {
+                caster,
+                abilities,
+                crit_fail_effect: CritFailEffect::Miss,
+                crit_fail_chance: 0.0,
+            },
         }
     }
 

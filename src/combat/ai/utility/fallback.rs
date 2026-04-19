@@ -2,7 +2,7 @@
 //! only when the actor is dead/missing from the snapshot). Close-in or
 //! retreat, depending on HP.
 
-use super::{AiDecision, UtilityContext};
+use super::AiDecision;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::game::hex::{can_stop_on, is_passable, Hex};
@@ -11,7 +11,7 @@ use std::collections::HashSet;
 
 pub(super) fn fallback_move(
     active: &UnitSnapshot,
-    ctx: &UtilityContext,
+    blocked_tiles: &HashSet<Hex>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
 ) -> AiDecision {
@@ -24,7 +24,7 @@ pub(super) fn fallback_move(
         return AiDecision::EndTurn;
     }
 
-    let reach = build_fallback_reach(active, ctx, snap);
+    let reach = build_fallback_reach(active, blocked_tiles, snap);
 
     // LOW_HP: retreat to the tile with lowest danger.
     if active.tags.contains(AiTags::LOW_HP) {
@@ -76,7 +76,7 @@ pub(super) fn fallback_move(
 /// the plumbing.
 fn build_fallback_reach(
     active: &UnitSnapshot,
-    ctx: &UtilityContext,
+    blocked_tiles: &HashSet<Hex>,
     snap: &BattleSnapshot,
 ) -> ReachableMap {
     let enemy_positions: HashSet<Hex> = snap
@@ -89,7 +89,7 @@ fn build_fallback_reach(
         .filter(|u| u.entity != active.entity)
         .map(|u| u.pos)
         .collect();
-    all_occupied.extend(ctx.blocked_tiles.iter().copied());
+    all_occupied.extend(blocked_tiles.iter().copied());
 
     reachable_with_paths(
         active.pos,

@@ -175,7 +175,7 @@ pub fn compute_factors(
         .and_then(|t| snap.unit(t))
         .map(|t| target_priority(active, t, snap))
         .unwrap_or(0.0);
-    let intent_val = intent_score(intent, step, active, snap, maps, ctx.content, ctx.difficulty);
+    let intent_val = intent_score(intent, step, active, snap, maps, ctx.world.content, ctx.world.difficulty);
 
     adjustments::apply_reservation_adjustments(step, &mut off, &mut focus, &mut position, snap, ctx, reservations);
 

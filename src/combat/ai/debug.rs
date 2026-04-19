@@ -555,7 +555,6 @@ pub fn build_fallback_debug(
     intent_reason: &str,
     decision: &AiDecision,
     reason: &str,
-    _ctx: &UtilityContext,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     names: &HashMap<Entity, String>,

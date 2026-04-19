@@ -103,9 +103,9 @@ pub fn score_plans_with_raw(
     }
 
     let mut weights = active.role.factor_weights();
-    weights[7] *= ctx.difficulty.intent_commitment;
-    weights[8] *= ctx.difficulty.resource_discipline;
-    let noise_amp = ctx.difficulty.score_noise();
+    weights[7] *= ctx.world.difficulty.intent_commitment;
+    weights[8] *= ctx.world.difficulty.resource_discipline;
+    let noise_amp = ctx.world.difficulty.score_noise();
 
     let scores: Vec<f32> = raw
         .iter()
@@ -155,7 +155,7 @@ fn plan_summon_bonus(
     let mut total = 0.0f32;
     for step in &plan.steps {
         let PlanStep::Cast { ability, .. } = step else { continue };
-        let Some(def) = ctx.content.abilities.get(ability) else { continue };
+        let Some(def) = ctx.world.content.abilities.get(ability) else { continue };
         let EffectDef::Summon { template, max_active } = &def.effect else { continue };
 
         let cap = max_active.unwrap_or(3).max(1) as f32;
@@ -164,8 +164,8 @@ fn plan_summon_bonus(
             continue;
         }
 
-        let Some(tpl) = ctx.content.unit_templates.get(template) else { continue };
-        let weapon = ctx.content.weapons.get(&tpl.equipment.main_hand);
+        let Some(tpl) = ctx.world.content.unit_templates.get(template) else { continue };
+        let weapon = ctx.world.content.weapons.get(&tpl.equipment.main_hand);
         let caster_ctx = CasterContext {
             str_mod: modifier(tpl.stats.strength),
             int_mod: modifier(tpl.stats.intelligence),
@@ -173,7 +173,7 @@ fn plan_summon_bonus(
             weapon_dice: weapon.map(|wd| wd.dice.clone()),
         };
         let abilities = Abilities(tpl.ability_ids.clone());
-        let dpr = estimate_st_damage(&caster_ctx, &abilities, ctx.content);
+        let dpr = estimate_st_damage(&caster_ctx, &abilities, ctx.world.content);
         total += dpr * decay;
         count += 1.0;
     }
@@ -209,7 +209,7 @@ pub fn compute_plan_factors(
     let mut intent_max = f32::NEG_INFINITY;
     let mut path_danger_max = maps.danger.get(active.pos);
 
-    let base_discount = ctx.difficulty.plan_step_discount;
+    let base_discount = ctx.world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;
     let mut goal_achieved = false;
 
@@ -240,8 +240,8 @@ pub fn compute_plan_factors(
             &sim_actor,
             &sim.snapshot,
             maps,
-            ctx.content,
-            ctx.difficulty,
+            ctx.world.content,
+            ctx.world.difficulty,
         );
         if iv > intent_max {
             intent_max = iv;
@@ -271,7 +271,7 @@ pub fn compute_plan_factors(
             }
         }
 
-        sim.apply_step(step, ctx.caster, ctx.content);
+        sim.apply_step(step, ctx.actor.caster, ctx.world.content);
 
         // Geometric per-step discount on the next step's contribution.
         step_weight *= base_discount;
