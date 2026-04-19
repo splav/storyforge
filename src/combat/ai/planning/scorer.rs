@@ -18,19 +18,22 @@
 //!   normal geometric `base^k` decay. No extra multiplier — post-goal
 //!   actions are scored on their own merit, neither penalised as
 //!   "bonuses" nor inflated as "peers".
-//! - `kill`: max across Cast steps **in the committed prefix** (binary "did
-//!   this tick's commit kill anyone?"), not discounted. Gated for the same
-//!   reason as `intent`: a tail Cast the plan never fires shouldn't claim
-//!   credit for a kill.
-//! - `focus`: max target_priority across Cast steps **in the committed
-//!   prefix**, not discounted. Same rationale.
-//! - `intent`: max intent_score across the **committed prefix**
-//!   (`steps[..committed_step_count]`), not across the whole plan. Deep
-//!   uncommitted steps don't execute this tick — aggregating their intent
-//!   would reward plans whose alignment sits in the discarded tail
-//!   (e.g. `[Move-random, Move-random, Cast@focus]` getting intent=1.0
-//!   while committing a useless first Move). Moves inside the committed
-//!   prefix still participate so Reposition intent lands on the move step.
+//! - `kill`: **discounted sum** of `raw_kill × step_weight` across Cast
+//!   steps. Accumulates count of planned kills (each `raw_kill` is
+//!   binary 0/1 from `single_target_kill`) with geometric decay — a
+//!   plan killing two enemies outscores one killing one.
+//! - `focus`: **discounted sum** of `target_priority × step_weight`
+//!   across Cast steps. Two casts on priority targets outscore one;
+//!   double-tapping the same target accumulates appropriately.
+//! - `intent`: **discounted sum** of `intent_score × step_weight`
+//!   across all steps (Cast and Move). Captures alignment across the
+//!   whole plan, including misalign penalties on tail steps that do
+//!   drag the signal down. Skipped once the intent's goal is achieved
+//!   (see post-goal above).
+//!
+//! All three factors now share the same aggregation shape as damage /
+//! cc / heal / scarcity: plan-wide cumulative with `base^k` decay per
+//! depth. Single rule across every Cast-accumulating factor.
 //! - `position`: `evaluate_position(final_pos)` — terminal.
 //! - `risk`: `1 − max_danger_along_path` — worst tile the actor traverses or
 //!   casts from.
@@ -215,19 +218,16 @@ pub fn compute_plan_factors(
 
     let mut damage_sum = 0.0f32;
     let mut heal_sum = 0.0f32;
-    let mut kill_max = 0.0f32;
+    let mut kill_sum = 0.0f32;
     let mut cc_sum = 0.0f32;
     let mut scarcity_sum = 0.0f32;
-    let mut focus_max = 0.0f32;
-    let mut intent_max = f32::NEG_INFINITY;
+    let mut focus_sum = 0.0f32;
+    let mut intent_sum = 0.0f32;
     let mut path_danger_max = maps.danger.get(active.pos);
 
     let base_discount = ctx.world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;
     let mut goal_achieved = false;
-    // Intent aggregation is bounded to the committed prefix: deep steps
-    // don't fire this tick and their intent signal is spurious (see module doc).
-    let committed = plan.committed_step_count();
 
     for (idx, step) in plan.steps.iter().enumerate() {
         // Pre-step snapshot: cached post-state of the previous step, or the
@@ -253,12 +253,11 @@ pub fn compute_plan_factors(
 
         let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
 
-        // Intent factor participates uniformly across Cast and Move steps —
-        // taken as the max, so it's not scaled by step_weight. Gated to the
-        // committed prefix (tail steps don't fire this tick) and skipped
-        // once the intent's goal is already achieved (further steps are
-        // orthogonal — neither aligned nor misaligned with a solved intent).
-        if idx < committed && !goal_achieved {
+        // Intent factor participates uniformly across Cast and Move steps,
+        // accumulated with geometric decay. Skipped once the intent's goal
+        // has been achieved earlier in the plan — further steps are
+        // orthogonal to a solved intent.
+        if !goal_achieved {
             let iv = intent_score(
                 intent,
                 &scored_step,
@@ -268,9 +267,7 @@ pub fn compute_plan_factors(
                 ctx.world.content,
                 ctx.world.difficulty,
             );
-            if iv > intent_max {
-                intent_max = iv;
-            }
+            intent_sum += iv * step_weight;
         }
 
         if let PlanStep::Cast { .. } = step {
@@ -283,24 +280,15 @@ pub fn compute_plan_factors(
                 maps,
                 reservations,
             );
-            // Discounted cumulative factors — tail Casts keep contributing,
-            // but the geometric discount reflects execution uncertainty.
+            // Every Cast-accumulating factor uses the same shape: discounted
+            // sum with base^k decay. Deep Casts keep contributing but weigh
+            // less, reflecting execution uncertainty over plan depth.
             damage_sum += raw[0] * step_weight;
             cc_sum += raw[2] * step_weight;
             heal_sum += raw[3] * step_weight;
             scarcity_sum += raw[8] * step_weight;
-            // Max outcome/priority signals — only from Casts that actually
-            // commit this tick (see module doc). Otherwise a plan like
-            // `[Move, Move, Cast-kill-X]` would claim kill=1 on a Cast
-            // that next tick's re-plan will never fire as step-0.
-            if idx < committed {
-                if raw[1] > kill_max {
-                    kill_max = raw[1];
-                }
-                if raw[6] > focus_max {
-                    focus_max = raw[6];
-                }
-            }
+            kill_sum += raw[1] * step_weight;
+            focus_sum += raw[6] * step_weight;
         }
 
         // Geometric per-step discount on the next step's contribution.
@@ -330,23 +318,21 @@ pub fn compute_plan_factors(
     // Focus floor for empty plans: use the best priority target on current
     // snapshot so "do nothing" doesn't misleadingly score with focus=0.
     if plan.steps.is_empty() {
-        focus_max = snap
+        focus_sum = snap
             .enemies_of(active.team)
             .map(|t| target_priority(active, t, snap))
             .fold(0.0f32, f32::max);
     }
 
-    let intent_val = if intent_max.is_finite() { intent_max } else { 0.0 };
-
     [
         damage_sum,
-        kill_max,
+        kill_sum,
         cc_sum,
         heal_sum,
         position,
         risk,
-        focus_max,
-        intent_val,
+        focus_sum,
+        intent_sum,
         scarcity_sum,
     ]
 }
@@ -433,35 +419,40 @@ mod tests {
         }
     }
 
-    /// Max-aggregated factors (intent, kill, focus) must reflect what
-    /// `commit_plan` actually fires this tick — not the uncommitted tail.
-    /// Plans like `[Move-random, Move-random, Cast@focus]` used to steal
-    /// intent=1 / focus=high from a Cast that will never fire as step-0.
+    /// Under discounted-sum aggregation, a single Cast@focus at depth k
+    /// contributes `intent_score × base^k` to intent_sum (and similarly
+    /// `target_priority × base^k` to focus_sum). Move steps under
+    /// FocusTarget intent score 0, so they don't accumulate intent.
+    ///
+    /// For a plan with exactly one Cast@focus, intent_sum equals the
+    /// step_weight at the Cast step: 1.0 direct, 0.85 bundled, 0.72
+    /// deep-3. This pins the aggregation shape.
     #[test]
-    fn max_factors_respect_committed_prefix() {
+    fn sum_factors_scale_by_step_weight() {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let focus = unit(2, Team::Player, hex_from_offset(5, 0));
-        let actor_id = actor.entity;
-        let focus_id = focus.entity;
-
         let snap = BattleSnapshot {
             units: vec![actor.clone(), focus.clone()],
-            active_unit: actor_id,
+            active_unit: actor.entity,
             round: 1,
         };
         let content =
             crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::normal();
+        difficulty.plan_step_discount = 0.85;
         let abilities = Abilities(vec!["melee_attack".into()]);
         let ctx = test_ctx(&content, &difficulty, &abilities);
         let maps = empty_maps();
         let reservations = Reservations::default();
-        let intent = TacticalIntent::FocusTarget { target: focus_id };
+        let intent = TacticalIntent::FocusTarget { target: focus.entity };
 
-        // Build a plan with the given leading steps; pads sim_snapshots with
-        // the caller's snap — scorer only reads them for pre-step `sim_actor`
-        // extraction, equal snapshots suffice for these tests.
-        let build_plan = |steps: Vec<PlanStep>| {
+        let cast_focus = || PlanStep::Cast {
+            ability: "melee_attack".into(),
+            target: focus.entity,
+            target_pos: focus.pos,
+        };
+        let mov = |q, r| PlanStep::Move { path: vec![hex_from_offset(q, r)] };
+        let build = |steps: Vec<PlanStep>| {
             let len = steps.len();
             TurnPlan {
                 steps,
@@ -473,49 +464,50 @@ mod tests {
                 sim_snapshots: vec![snap.clone(); len],
             }
         };
-        let cast_on_focus = || PlanStep::Cast {
-            ability: "melee_attack".into(),
-            target: focus_id,
-            target_pos: focus.pos,
-        };
-        let mov = |q, r| PlanStep::Move { path: vec![hex_from_offset(q, r)] };
 
-        // (plan description, plan, expected committed count, signal expected)
-        enum Signal { Zero, Positive }
-        let cases: Vec<(&str, TurnPlan, usize, Signal)> = vec![
-            (
-                "Move-Move-Cast@focus — tail Cast doesn't count",
-                build_plan(vec![mov(0, 1), mov(0, 2), cast_on_focus()]),
-                1,
-                Signal::Zero,
-            ),
-            (
-                "Move-Cast@focus bundle — Cast is in committed prefix",
-                build_plan(vec![mov(1, 0), cast_on_focus()]),
-                2,
-                Signal::Positive,
-            ),
+        // (description, plan, expected intent_sum). intent_score for
+        // FocusTarget-match Cast = 1.0; Move = 0.0. Single Cast plan's
+        // intent_sum equals step_weight at the Cast position.
+        let cases: Vec<(&str, TurnPlan, f32)> = vec![
+            ("direct cast — step 0, weight 1.0",
+                build(vec![cast_focus()]),
+                1.0),
+            ("bundle cast — step 1, weight 0.85",
+                build(vec![mov(1, 0), cast_focus()]),
+                0.85),
+            ("deep cast — step 2, weight 0.85²",
+                build(vec![mov(0, 1), mov(0, 2), cast_focus()]),
+                0.85 * 0.85),
         ];
-
-        for (name, plan, want_commit, want_signal) in cases {
-            assert_eq!(plan.committed_step_count(), want_commit, "{name}: commit count");
+        for (name, plan, expected_sum) in cases {
             let f = compute_plan_factors(
                 &plan, &actor, &intent, &ctx, &snap, &maps, &reservations,
             );
             // factors: [0 dmg, 1 kill, 2 cc, 3 heal, 4 pos, 5 risk,
             //           6 focus, 7 intent, 8 scarcity]
-            let (intent_val, focus_val) = (f[7], f[6]);
-            match want_signal {
-                Signal::Zero => {
-                    assert_eq!(intent_val, 0.0, "{name}: intent");
-                    assert_eq!(focus_val, 0.0, "{name}: focus");
-                }
-                Signal::Positive => {
-                    assert!(intent_val > 0.0, "{name}: intent = {intent_val}");
-                    assert!(focus_val > 0.0, "{name}: focus = {focus_val}");
-                }
-            }
+            let intent_val = f[7];
+            assert!(
+                (intent_val - expected_sum).abs() < 0.005,
+                "{name}: intent={intent_val}, expected≈{expected_sum}",
+            );
+            assert!(
+                f[6] > 0.0,
+                "{name}: focus_sum > 0 (Cast on priority target)",
+            );
         }
+
+        // Two-Cast plan accumulates: intent = 1.0 + 1.0×0.85 = 1.85.
+        // Demonstrates that sum genuinely stacks signals, which max
+        // used to collapse.
+        let plan_double = build(vec![cast_focus(), cast_focus()]);
+        let f = compute_plan_factors(
+            &plan_double, &actor, &intent, &ctx, &snap, &maps, &reservations,
+        );
+        assert!(
+            (f[7] - 1.85).abs() < 0.005,
+            "double Cast@focus: intent_sum expected ≈ 1.85, got {}",
+            f[7],
+        );
     }
 
     /// Post-goal must not penalise further useful actions. Two identical
@@ -579,12 +571,17 @@ mod tests {
         let f_miss =
             compute_plan_factors(&goal_missed, &actor, &intent, &ctx, &snap, &maps, &reservations);
 
-        // damage_sum (index 0) pre-fix: goal-achieved plan halved step-1
-        // contribution → strictly less than goal-missed. New semantics:
-        // step_weight geometric only, so both plans score identically on
-        // any Cast-accumulating factor.
+        // step_weight stays purely geometric — every Cast-accumulating
+        // factor should be equal between the two plans regardless of
+        // whether step 0's outcome killed the intent target. Intent
+        // itself does differ (post-goal skips it), not asserted here.
         for (i, name) in [
-            (0, "damage"), (2, "cc"), (3, "heal"), (8, "scarcity"),
+            (0, "damage"),
+            (1, "kill"),
+            (2, "cc"),
+            (3, "heal"),
+            (6, "focus"),
+            (8, "scarcity"),
         ] {
             assert_eq!(
                 f_goal[i], f_miss[i],

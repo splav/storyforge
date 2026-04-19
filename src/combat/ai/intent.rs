@@ -312,11 +312,19 @@ pub fn intent_viability_threshold(intent: &TacticalIntent) -> Option<f32> {
     match intent {
         // Need an actual improvement to call it repositioning.
         TacticalIntent::Reposition => Some(0.01),
-        // Must have a candidate that actually targets the focus enemy.
-        TacticalIntent::FocusTarget { .. } => Some(1.0),
-        // At least damage on the CC target (0.5) — full CC match is 1.0.
+        // Intent factor is a discounted sum (see scorer module doc).
+        // A plan with at least one Cast on the focus enemy accumulates
+        // intent_sum of ~0.72 (deep-3) up to 1.0 (direct cast). Any plan
+        // without a focus-targeting Cast sits at 0 or negative. Threshold
+        // 0.5 accepts the approach-and-strike trajectory while still
+        // trapping "no reachable focus target at all" cases.
+        TacticalIntent::FocusTarget { .. } => Some(0.5),
+        // CC match contributes 1.0 (direct) down to 0.72 (deep); damage
+        // on the CC target contributes 0.5 — threshold 0.5 accepts any
+        // committed CC attempt including bundled and damage-on-target.
         TacticalIntent::ApplyCC { .. } => Some(0.5),
-        // Heal on the right ally is 1.0; adjacent-tile fallback is 0.5.
+        // Heal on the right ally is 1.0 (direct), 0.85 bundled, 0.72
+        // deep. Threshold 0.5 accepts the approach-and-heal line.
         TacticalIntent::ProtectAlly { .. } => Some(0.5),
         // Any AoE hit fraction > 0 counts.
         TacticalIntent::SetupAOE => Some(0.01),
