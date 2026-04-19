@@ -10,11 +10,14 @@
 //!   plan and reality. The discount also prevents "cheap-filler" extensions
 //!   from winning the damage normalization race against genuinely strong
 //!   short plans.
-//! - **Post-goal aggressive discount**: once a step kills the current
-//!   `FocusTarget`/`ApplyCC` target, remaining steps are additionally scaled
-//!   by ×0.5. Post-kill heal/move actions still contribute (preserves info
-//!   that Plan B does more than Plan A), but they're properly treated as
-//!   bonuses rather than peers of the goal-achieving step.
+//! - **Post-goal behavior**: once a step kills the current
+//!   `FocusTarget`/`ApplyCC` target, the intent is satisfied. Subsequent
+//!   steps skip the **intent** aggregation — they aren't aligned or
+//!   misaligned, they're orthogonal to a now-solved goal. All other
+//!   factors (damage, heal, cc, kill, focus, scarcity) continue at their
+//!   normal geometric `base^k` decay. No extra multiplier — post-goal
+//!   actions are scored on their own merit, neither penalised as
+//!   "bonuses" nor inflated as "peers".
 //! - `kill`: max across Cast steps **in the committed prefix** (binary "did
 //!   this tick's commit kill anyone?"), not discounted. Gated for the same
 //!   reason as `intent`: a tail Cast the plan never fires shouldn't claim
@@ -187,12 +190,6 @@ fn plan_summon_bonus(
     total
 }
 
-/// Extra multiplicative discount on step_weight applied **after** a step that
-/// kills the current intent's target. Expresses the scoring intuition that
-/// post-goal actions are genuine bonuses but shouldn't be weighed as peers of
-/// the goal-achieving step.
-const POST_GOAL_DISCOUNT: f32 = 0.5;
-
 /// Compute the 9 raw utility factors for a single plan. Empty plan (seed)
 /// yields zeros for cumulative factors and baselines on position/risk at the
 /// actor's current tile. See module docs for per-factor aggregation rules.
@@ -258,8 +255,10 @@ pub fn compute_plan_factors(
 
         // Intent factor participates uniformly across Cast and Move steps —
         // taken as the max, so it's not scaled by step_weight. Gated to the
-        // committed prefix: tail steps don't fire this tick.
-        if idx < committed {
+        // committed prefix (tail steps don't fire this tick) and skipped
+        // once the intent's goal is already achieved (further steps are
+        // orthogonal — neither aligned nor misaligned with a solved intent).
+        if idx < committed && !goal_achieved {
             let iv = intent_score(
                 intent,
                 &scored_step,
@@ -307,10 +306,11 @@ pub fn compute_plan_factors(
         // Geometric per-step discount on the next step's contribution.
         step_weight *= base_discount;
 
-        // Post-goal aggressive discount fires at most once, when this step
-        // killed the current intent's declared target. The kill signal comes
-        // from the cached outcomes — AoE that incidentally kills the intent
-        // target triggers the bump just like a direct cast.
+        // Latch goal_achieved once a step's cached outcome kills the
+        // intent's declared target (FocusTarget / ApplyCC). Only affects
+        // intent aggregation (subsequent steps skip it); step_weight stays
+        // purely geometric, so other factors score post-goal actions on
+        // their own merit.
         if !goal_achieved {
             let killed = plan
                 .outcomes
@@ -318,7 +318,6 @@ pub fn compute_plan_factors(
                 .map(|o| o.killed.as_slice())
                 .unwrap_or(&[]);
             if killed_intent_target(killed, intent) {
-                step_weight *= POST_GOAL_DISCOUNT;
                 goal_achieved = true;
             }
         }
@@ -516,6 +515,81 @@ mod tests {
                     assert!(focus_val > 0.0, "{name}: focus = {focus_val}");
                 }
             }
+        }
+    }
+
+    /// Post-goal must not penalise further useful actions. Two identical
+    /// two-Cast plans scored the same — one has step-0's cached `killed`
+    /// listing the intent target (goal achieved), the other doesn't.
+    /// Their `damage_sum` must match: step_weight stays pure geometric,
+    /// without the old ×0.5 post-goal bump that used to halve subsequent
+    /// step contributions.
+    #[test]
+    fn post_goal_leaves_step_weight_purely_geometric() {
+        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
+        let target = unit(2, Team::Player, hex_from_offset(1, 0));
+        let other = unit(3, Team::Player, hex_from_offset(2, 0));
+        let snap = BattleSnapshot {
+            units: vec![actor.clone(), target.clone(), other.clone()],
+            active_unit: actor.entity,
+            round: 1,
+        };
+        let content =
+            crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::normal();
+        let abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = test_ctx(&content, &difficulty, &abilities);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: target.entity };
+
+        let steps = vec![
+            PlanStep::Cast {
+                ability: "melee_attack".into(),
+                target: target.entity,
+                target_pos: target.pos,
+            },
+            PlanStep::Cast {
+                ability: "melee_attack".into(),
+                target: other.entity,
+                target_pos: other.pos,
+            },
+        ];
+        let mk = |outcomes: Vec<StepOutcome>| TurnPlan {
+            steps: steps.clone(),
+            final_pos: actor.pos,
+            residual_ap: 0,
+            residual_mp: 3,
+            outcomes,
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(), snap.clone()],
+        };
+
+        let goal_achieved = mk(vec![
+            StepOutcome { killed: vec![target.entity], ..Default::default() },
+            StepOutcome::default(),
+        ]);
+        let goal_missed = mk(vec![
+            StepOutcome::default(),
+            StepOutcome::default(),
+        ]);
+
+        let f_goal =
+            compute_plan_factors(&goal_achieved, &actor, &intent, &ctx, &snap, &maps, &reservations);
+        let f_miss =
+            compute_plan_factors(&goal_missed, &actor, &intent, &ctx, &snap, &maps, &reservations);
+
+        // damage_sum (index 0) pre-fix: goal-achieved plan halved step-1
+        // contribution → strictly less than goal-missed. New semantics:
+        // step_weight geometric only, so both plans score identically on
+        // any Cast-accumulating factor.
+        for (i, name) in [
+            (0, "damage"), (2, "cc"), (3, "heal"), (8, "scarcity"),
+        ] {
+            assert_eq!(
+                f_goal[i], f_miss[i],
+                "{name}_sum must not depend on intent-kill status (step_weight stays geometric)",
+            );
         }
     }
 }
