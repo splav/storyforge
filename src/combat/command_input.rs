@@ -59,7 +59,7 @@ pub fn player_command_system(
     }
 
     // Auto-end turn if both resources are spent.
-    if !c.ap.action && !c.ap.can_move() {
+    if c.ap.action_points <= 0 && !c.ap.can_move() {
         end_turn.write(EndTurn { actor });
         selection.clear();
         return;
@@ -95,7 +95,7 @@ pub fn player_command_system(
                     selection.selected_target = None;
                 }
             }
-        } else if def.target_type == TargetType::Myself && c.ap.action {
+        } else if def.target_type == TargetType::Myself && c.ap.can_act_for(def.cost_ap) {
             let target_pos = positions.get(&actor).unwrap_or(hexx::Hex::ZERO);
             use_ability.write(UseAbility {
                 actor,

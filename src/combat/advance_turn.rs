@@ -188,7 +188,7 @@ pub fn advance_turn_system(
         next_phase.set(CombatPhase::StartRound);
     } else if let Some(next_actor) = queue.current() {
         if let Ok(mut ap) = action_points.get_mut(next_actor) {
-            ap.action = true;
+            ap.action_points = ap.max_ap;
             let base = speed_q.get(next_actor).map(|s| s.0).unwrap_or(0);
             let next_statuses = statuses.get(next_actor).ok().map(|(_, s)| s);
             ap.movement_points =

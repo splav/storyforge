@@ -72,7 +72,7 @@ impl DiceRng {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DiceExpr {
     pub count: u32,
     pub sides: u32,

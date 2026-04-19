@@ -70,7 +70,7 @@ pub fn resolve_action_system(
             continue;
         };
 
-        ap.action = false;
+        ap.action_points = (ap.action_points - def.cost_ap).max(0);
 
         let cost_str = {
             let mut parts = Vec::new();
@@ -268,7 +268,10 @@ pub fn resolve_action_system(
             }
         }
 
-        if !matches!(def.effect, EffectDef::GrantMovement { .. }) {
+        // End turn only when AP pool is exhausted. With max_ap=1 this always
+        // fires after a cast (old behaviour). With larger pools, remaining AP
+        // lets the actor take another action in this turn.
+        if !matches!(def.effect, EffectDef::GrantMovement { .. }) && ap.action_points <= 0 {
             end_turn.write(EndTurn { actor: ev.actor });
         }
     }

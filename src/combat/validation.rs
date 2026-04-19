@@ -51,7 +51,7 @@ fn check(
     let Ok(a) = actors.get(ev.actor) else {
         return (false, false);
     };
-    if !a.vital.is_alive() || !a.ap.action {
+    if !a.vital.is_alive() {
         return (false, false);
     }
     // Keyed (universal) abilities bypass class ability list check.
@@ -77,6 +77,11 @@ fn check(
     let Some(def) = content.abilities.get(&ev.ability) else {
         return (false, false);
     };
+
+    // AP affordability: pool must cover the ability's AP cost.
+    if !a.ap.can_act_for(def.cost_ap) {
+        return (false, false);
+    }
 
     // Check all resource costs.
     for cost in &def.costs {

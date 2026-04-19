@@ -85,7 +85,7 @@ fn no_action_point_use_ability_is_rejected() {
     app.world_mut()
         .get_mut::<ActionPoints>(actor)
         .unwrap()
-        .action = false;
+        .action_points = 0;
 
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
     write_message(

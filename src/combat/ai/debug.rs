@@ -74,7 +74,8 @@ pub struct ActorDebug {
     pub max_hp: i32,
     pub threat: f32,
     pub tags: AiTags,
-    pub action: bool,
+    pub action_points: i32,
+    pub max_ap: i32,
     pub movement_points: i32,
 }
 
@@ -217,8 +218,9 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
         snap.actor_name, a.role_label,
     );
     println!(
-        "  HP: {}/{} | threat: {:.1} | pos: {} | tags: {} | act={} mov={}",
-        a.hp, a.max_hp, a.threat, fmt_pos(a.pos), fmt_tags(a.tags), a.action, a.movement_points,
+        "  HP: {}/{} | threat: {:.1} | pos: {} | tags: {} | AP={}/{} mov={}",
+        a.hp, a.max_hp, a.threat, fmt_pos(a.pos), fmt_tags(a.tags),
+        a.action_points, a.max_ap, a.movement_points,
     );
 
     // Intent reasoning.
@@ -439,7 +441,8 @@ fn actor_debug(active: &UnitSnapshot) -> ActorDebug {
         max_hp: active.max_hp,
         threat: active.threat,
         tags: active.tags,
-        action: active.action,
+        action_points: active.action_points,
+        max_ap: active.max_ap,
         movement_points: active.movement_points,
     }
 }

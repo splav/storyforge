@@ -5,5 +5,8 @@ ai = "normal"
 crit_fail_die = 10
 
 [debug]
-# Включает сбор AI-отладки (лог + influence maps). Overlay по тильде (~).
+# Включает сбор AI-отладки (консольный лог + influence maps). Overlay по тильде (~).
 ai_debug = true
+# Включает структурный JSONL-лог решений AI в папку logs/.
+# Одна битва = один файл с именем YYYYMMDDThhmmss_<кампания>_<сценарий>_<энкаунтер>.jsonl.
+ai_log = true

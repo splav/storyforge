@@ -201,7 +201,7 @@ pub fn update_ability_panel(
         let available = if is_move {
             ap.can_move()
         } else {
-            ap.action && def.is_some_and(&can_afford)
+            def.is_some_and(|d| ap.can_act_for(d.cost_ap) && can_afford(d))
         };
 
         *vis = if ability_id.is_some() {
@@ -263,7 +263,7 @@ pub fn update_ability_panel(
         let available = if is_move {
             ap.can_move()
         } else {
-            ap.action && can_afford(def)
+            ap.can_act_for(def.cost_ap) && can_afford(def)
         };
         *color = TextColor(if selected {
             Color::srgb(1.0, 0.95, 0.5)
@@ -384,7 +384,7 @@ pub fn ability_slot_click_system(
             // a second click within the window confirms and fires.
             let is_double = last_click.slot == Some(slot.0)
                 && (now - last_click.at) <= DOUBLE_CLICK_WINDOW;
-            if is_double && ap.action {
+            if is_double && ap.can_act_for(def.cost_ap) {
                 let target_pos = positions.get(&active).unwrap_or(hexx::Hex::ZERO);
                 use_ability.write(UseAbility {
                     actor: active,

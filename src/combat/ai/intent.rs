@@ -23,17 +23,28 @@ const MAX_COMMITTED_TURNS: u8 = 3;
 
 // ── Intent enum ─────────────────────────────────────────────────────────────
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind")]
 pub enum TacticalIntent {
     /// Focus fire: kill or heavily damage a specific target.
-    FocusTarget { target: Entity },
+    FocusTarget {
+        #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+        target: Entity,
+    },
     /// Apply CC (stun) to a high-threat target.
-    ApplyCC { target: Entity },
+    ApplyCC {
+        #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+        target: Entity,
+    },
     /// Reposition to a better tile.
     Reposition,
     /// Self-preservation: avoid danger.
     ProtectSelf,
     /// Protect/heal a specific wounded ally.
-    ProtectAlly { ally: Entity },
+    ProtectAlly {
+        #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+        ally: Entity,
+    },
     /// Position to hit multiple enemies with AoE.
     SetupAOE,
     /// Survival is unlikely — maximize last useful action (kill > cc > damage).
@@ -41,7 +52,7 @@ pub enum TacticalIntent {
 }
 
 /// Intent kind without target data, for stickiness comparison.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
 pub enum IntentKind {
     FocusTarget,
     ApplyCC,
@@ -553,7 +564,8 @@ mod tests {
             armor: 0,
             armor_bonus: 0,
             damage_taken_bonus: 0,
-            action: true,
+            action_points: 1,
+            max_ap: 1,
             movement_points: 3,
             speed: 3,
             mana: None,
@@ -564,6 +576,8 @@ mod tests {
             tags: AiTags::MELEE_ONLY,
             max_attack_range: 1,
             summoner: None,
+            reactions_left: 0,
+            aoo_expected_damage: None,
         }
     }
 

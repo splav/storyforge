@@ -17,7 +17,7 @@ pub fn skip_dead_turn_system(
 }
 
 /// If the active combatant is stunned (has a status with skips_turn), skip their turn.
-/// Sets ap.action = false so that enemy_ai's UseAbility is rejected by validation.
+/// Drains AP and MP to 0 so that enemy_ai's UseAbility is rejected by validation.
 pub fn skip_stunned_turn_system(
     active_q: Query<Entity, With<ActiveCombatant>>,
     statuses: Query<&StatusEffects>,
@@ -33,7 +33,7 @@ pub fn skip_stunned_turn_system(
             .any(|s| content.statuses.get(&s.id).is_some_and(|def| def.skips_turn));
     if is_stunned {
         if let Ok(mut ap) = action_points.get_mut(actor) {
-            ap.action = false;
+            ap.action_points = 0;
             ap.movement_points = 0;
         }
         log.push(CombatEvent::TurnSkipped { actor });

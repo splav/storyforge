@@ -5,7 +5,7 @@ pub use ids::{AbilityId, ArmorId, StatusId, WeaponId};
 pub use rng::{DiceExpr, DiceRng};
 
 /// Вид ресурса, который может тратиться на способности.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ResourceKind {
     Hp,
     Mana,

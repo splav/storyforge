@@ -258,6 +258,22 @@ pub fn movement_system(
         }
 
         if final_pos != old_pos {
+            // Defensive: if something else (a corpse, a freshly-spawned unit)
+            // occupies the destination between AI planning and movement
+            // execution, `positions.insert` would trip a debug_assert. Log
+            // enough context to debug and abort the move rather than crash.
+            if let Some(occupant) = positions.entity_at(final_pos) {
+                if occupant != ev.actor {
+                    warn!(
+                        "movement: {:?} wanted to land on {:?} but it's held by {:?}; move aborted at {:?}",
+                        ev.actor, final_pos, occupant, old_pos,
+                    );
+                    // Still spend the already-walked MP so the actor doesn't
+                    // effectively get a free retry next tick.
+                    ap.movement_points = (ap.movement_points - walked.len() as i32).max(0);
+                    continue;
+                }
+            }
             positions.insert(ev.actor, final_pos);
         }
 

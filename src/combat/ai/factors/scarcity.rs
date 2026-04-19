@@ -151,7 +151,8 @@ mod tests {
             armor: 0,
             armor_bonus: 0,
             damage_taken_bonus: 0,
-            action: true,
+            action_points: 1,
+            max_ap: 1,
             movement_points: 3,
             speed: 3,
             mana: None,
@@ -162,6 +163,8 @@ mod tests {
             tags: AiTags::MELEE_ONLY,
             max_attack_range: 1,
             summoner: None,
+            reactions_left: 0,
+            aoo_expected_damage: None,
         }
     }
 
@@ -199,6 +202,7 @@ mod tests {
             opponent_team: Team::Player,
             crit_fail_effect: CritFailEffect::Miss,
             crit_fail_chance: 0.0,
+            blocked_tiles: crate::combat::ai::utility::empty_blocked_tiles(),
         }
     }
 

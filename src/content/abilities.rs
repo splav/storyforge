@@ -65,6 +65,8 @@ pub struct AbilityDef {
     pub range: AbilityRange,
     pub effect: EffectDef,
     pub costs: Vec<ResourceCost>,
+    /// Action-point cost. Default 1. Zero = reaction / free utility.
+    pub cost_ap: i32,
     pub aoe: AoEShape,
     /// If true, AoE damages allies too (e.g. fireball).
     pub friendly_fire: bool,
@@ -198,6 +200,7 @@ struct AbilityFile {
 }
 
 fn default_range() -> u32 { 1 }
+fn default_cost_ap() -> i32 { 1 }
 
 #[derive(Deserialize)]
 struct AbilityRecord {
@@ -216,6 +219,8 @@ struct AbilityRecord {
     distance: i32,
     #[serde(default)]
     costs: Vec<CostRecord>,
+    #[serde(default = "default_cost_ap")]
+    cost_ap: i32,
     #[serde(default)]
     aoe: String,
     #[serde(default)]
@@ -357,6 +362,7 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                 range: AbilityRange { min: r.min_range, max: r.range },
                 effect,
                 costs,
+                cost_ap: r.cost_ap,
                 aoe,
                 friendly_fire: r.friendly_fire,
                 statuses,

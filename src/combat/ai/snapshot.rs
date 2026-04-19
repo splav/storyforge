@@ -28,24 +28,31 @@ bitflags::bitflags! {
 
 // ── Snapshot types ────────────────────────────────────────────────────────────
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct BattleSnapshot {
     pub units: Vec<UnitSnapshot>,
+    #[serde(with = "crate::combat::ai::serde_helpers::entity")]
     pub active_unit: Entity,
     pub round: u32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct UnitSnapshot {
+    #[serde(with = "crate::combat::ai::serde_helpers::entity")]
     pub entity: Entity,
     pub team: Team,
     pub role: AxisProfile,
+    #[serde(with = "crate::combat::ai::serde_helpers::hex")]
     pub pos: Hex,
     pub hp: i32,
     pub max_hp: i32,
     pub armor: i32,
     pub armor_bonus: i32,
     pub damage_taken_bonus: i32,
-    pub action: bool,
+    /// Remaining AP for this turn.
+    pub action_points: i32,
+    /// Full AP pool (for partial-spend reasoning).
+    pub max_ap: i32,
     /// Movement budget remaining right now. Zero means the unit can't walk.
     pub movement_points: i32,
     /// Base speed + status speed_bonus. Used for pathfinding range estimates
@@ -56,13 +63,27 @@ pub struct UnitSnapshot {
     pub energy: Option<(i32, i32)>,
     pub abilities: Vec<AbilityId>,
     pub threat: f32,
+    #[serde(with = "crate::combat::ai::serde_helpers::ai_tags")]
     pub tags: AiTags,
     /// Max range of any offensive (SingleEnemy) ability. Used for reach checks
     /// in intent selection (e.g., "is this enemy killable this turn?").
     pub max_attack_range: u32,
     /// Entity of the summoner, if this unit was summoned.
+    #[serde(with = "crate::combat::ai::serde_helpers::entity_opt")]
     pub summoner: Option<Entity>,
+    /// Remaining opportunity reactions this round. Zero means no AoO this turn.
+    /// (Schema v2+: default `1` on v1 logs — every current unit has `max=1`.)
+    #[serde(default = "default_reactions_left")]
+    pub reactions_left: i32,
+    /// Pre-armor expected damage this unit would inflict via an AoO
+    /// (dice.expected + str_mod). `None` if the unit cannot make an opportunity
+    /// attack (no melee weapon_attack ability, or no equipped weapon).
+    /// Schema v2+: absent on v1 logs → `None`.
+    #[serde(default)]
+    pub aoo_expected_damage: Option<f32>,
 }
+
+fn default_reactions_left() -> i32 { 1 }
 
 impl UnitSnapshot {
     /// Effective HP: raw HP plus base and status armor — the real damage
@@ -121,6 +142,24 @@ pub fn build_snapshot(
                 .max()
                 .unwrap_or(0);
 
+            // AoO provoker data: has melee weapon_attack + equipped weapon.
+            // Mirrors `movement.rs` provoker selection.
+            let has_melee_weapon_attack = c.abilities.0.iter().any(|id| {
+                content.abilities.get(id).is_some_and(|def| {
+                    matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
+                })
+            });
+            let aoo_expected_damage =
+                if has_melee_weapon_attack {
+                    caster_ctx
+                        .weapon_dice
+                        .as_ref()
+                        .map(|d| d.expected() + caster_ctx.str_mod as f32)
+                } else {
+                    None
+                };
+            let reactions_left = c.reactions.map(|r| r.remaining as i32).unwrap_or(0);
+
             Some(UnitSnapshot {
                 entity: c.entity,
                 team: c.faction.0,
@@ -131,7 +170,8 @@ pub fn build_snapshot(
                 armor: c.vital.armor,
                 armor_bonus,
                 damage_taken_bonus,
-                action: c.ap.action,
+                action_points: c.ap.action_points,
+                max_ap: c.ap.max_ap,
                 movement_points: c.ap.movement_points,
                 speed: c.speed.0 + speed_bonus,
                 mana: c.mana.map(|m| (m.current, m.max)),
@@ -142,6 +182,8 @@ pub fn build_snapshot(
                 tags,
                 max_attack_range,
                 summoner: c.summoned_by.map(|s| s.0),
+                reactions_left,
+                aoo_expected_damage,
             })
         })
         .collect();

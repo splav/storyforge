@@ -1,6 +1,8 @@
-//! Final candidate selection: top-K sampling, mercy tie-breaker, reservations.
+//! Legacy single-candidate picker — replaced by `planning::picker` but kept as
+//! a safety net until Phase 4 cleanup. Its helpers are mirrored 1:1 on the
+//! plan side and will be deleted once the plan flow is proven in-game.
 
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, dead_code)]
 
 use super::{AiDecision, UtilityContext};
 use crate::combat::ai::candidates::{ActionCandidate, CandidateKind};

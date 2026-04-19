@@ -4,7 +4,7 @@ use crate::core::AbilityId;
 use bevy::prelude::*;
 
 /// Tactical AI role — drives weight profiles in influence maps and utility scoring.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AiRole {
     /// Melee fighter: holds zone, finishes targets.
     Bruiser,
@@ -34,7 +34,7 @@ pub enum AiRole {
 
 /// Axis weights for the composition. All non-negative; not normalised —
 /// normalisation happens inside `biased_normalized`.
-#[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AxisProfile {
     pub tank: f32,
     pub melee: f32,

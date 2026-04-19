@@ -1,6 +1,9 @@
 //! Post-score sanity penalties on top candidates + defensive classification.
+//!
+//! Legacy single-candidate path — plan flow embeds equivalent logic inside
+//! plan scoring / generation, so these helpers are currently dead code.
 
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, dead_code)]
 
 use super::UtilityContext;
 use crate::combat::ai::candidates::{ActionCandidate, CandidateKind};
@@ -190,7 +193,8 @@ mod tests {
             armor: 0,
             armor_bonus: 0,
             damage_taken_bonus: 0,
-            action: true,
+            action_points: 1,
+            max_ap: 1,
             movement_points: 3,
             speed: 3,
             mana: None,
@@ -201,6 +205,8 @@ mod tests {
             tags: AiTags::MELEE_ONLY,
             max_attack_range: 1,
             summoner: None,
+            reactions_left: 0,
+            aoo_expected_damage: None,
         }
     }
 
@@ -252,7 +258,7 @@ mod tests {
         let diff = DifficultyProfile::default();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
+        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0, blocked_tiles: crate::combat::ai::utility::empty_blocked_tiles() };
 
         let candidates = vec![
             candidate(dangerous, enemy.entity),
@@ -281,7 +287,7 @@ mod tests {
         let diff = DifficultyProfile::default();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
+        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0, blocked_tiles: crate::combat::ai::utility::empty_blocked_tiles() };
 
         let candidates = vec![
             candidate(tile, enemy.entity),
@@ -313,7 +319,7 @@ mod tests {
         let diff = DifficultyProfile::default();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
+        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0, blocked_tiles: crate::combat::ai::utility::empty_blocked_tiles() };
 
         let candidates = vec![
             candidate(behind_wall, enemy.entity),
@@ -342,7 +348,7 @@ mod tests {
         let diff = DifficultyProfile::default();
         let caster = CasterContext { str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
-        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0 };
+        let ctx = UtilityContext { content: &content, difficulty: &diff, caster: &caster, abilities: &abilities, opponent_team: Team::Player, crit_fail_effect: CritFailEffect::Miss, crit_fail_chance: 0.0, blocked_tiles: crate::combat::ai::utility::empty_blocked_tiles() };
 
         // thunderstrike AoE circle r=1 centered on caster's own tile → self-hit.
         let self_aoe = cast(tile, "thunderstrike", tile, enemy.entity);

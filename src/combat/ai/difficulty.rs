@@ -34,6 +34,17 @@ pub struct DifficultyProfile {
     /// harsh option (lower kill+cc) when scores are within this margin. No
     /// effect when one option is clearly best.
     pub mercy: f32,
+    /// Maximum length (number of steps) of a turn plan. Depth 1 = single
+    /// action (legacy behaviour); 2+ enables Cast→Move, Move→Cast→Move etc.
+    pub plan_max_depth: usize,
+    /// How many partial plans survive pruning at each depth level. Wider =
+    /// more lines explored, more CPU, fewer pruning-induced misses.
+    pub plan_beam_width: usize,
+    /// Per-step discount applied to cumulative factors (damage/heal/cc/scarcity)
+    /// when aggregating a multi-step plan. step[k] contributes `base^k`. Lower =
+    /// more pessimistic about deep plans (less trust that future steps execute
+    /// as planned); higher = AI commits harder to long combos.
+    pub plan_step_discount: f32,
 }
 
 impl DifficultyProfile {
@@ -47,6 +58,9 @@ impl DifficultyProfile {
             resource_discipline: 0.60,
             coordination: 0.40,
             mercy: 0.35,
+            plan_max_depth: 3,
+            plan_beam_width: 8,
+            plan_step_discount: 0.75,
         }
     }
 
@@ -60,6 +74,9 @@ impl DifficultyProfile {
             resource_discipline: 1.00,
             coordination: 0.90,
             mercy: 0.10,
+            plan_max_depth: 3,
+            plan_beam_width: 16,
+            plan_step_discount: 0.85,
         }
     }
 
@@ -73,6 +90,9 @@ impl DifficultyProfile {
             resource_discipline: 1.20,
             coordination: 1.30,
             mercy: 0.00,
+            plan_max_depth: 3,
+            plan_beam_width: 24,
+            plan_step_discount: 0.90,
         }
     }
 
@@ -140,6 +160,19 @@ impl DifficultyProfile {
     /// Score delta under which mercy's tie-breaker kicks in.
     pub fn mercy_margin(&self) -> f32 {
         self.mercy.clamp(0.0, 1.0)
+    }
+
+    /// Middle-tier HP threshold for the viability-guard ProtectSelf fallback.
+    /// Sits between the hard panic (`survival_hp_threshold`, typically 0.20)
+    /// and normal intent selection. When intent viability fails (no plan can
+    /// execute the chosen intent) AND the actor is below this threshold on a
+    /// dangerous tile, we switch intent to ProtectSelf rather than forcing a
+    /// fallback FocusTarget.
+    ///
+    /// Keyed off `awareness`: hard AI (aware = 1.0) pulls back earlier at 40%
+    /// HP; easy AI (awareness 0.55) waits until 44.5%.
+    pub fn midpanic_hp_threshold(&self) -> f32 {
+        0.4 + 0.1 * (1.0 - self.awareness).clamp(0.0, 1.0)
     }
 }
 

@@ -47,6 +47,8 @@ fn main() {
             ..Default::default()
         })
         .init_resource::<combat::ai::reservations::Reservations>()
+        .init_resource::<storyforge::game::components::ActivePlans>()
+        .init_resource::<combat::ai::log::AiLogger>()
         .init_resource::<combat::ai::influence::InfluenceConfig>()
         .insert_resource(settings)
         .init_resource::<ui::console_log::ConsoleCursor>()
@@ -117,10 +119,19 @@ fn main() {
             ui::story_ui::cleanup_story_screen,
         )
         // ── Combat enter / exit ──────────────────────────────────────────
-        .add_systems(OnEnter(AppState::Combat), scenario::combat_scene::spawn_combat_scene)
+        .add_systems(
+            OnEnter(AppState::Combat),
+            (
+                scenario::combat_scene::spawn_combat_scene,
+                combat::ai::log::open_ai_log_on_combat_enter,
+            ),
+        )
         .add_systems(
             OnExit(AppState::Combat),
-            scenario::combat_scene::despawn_combatants,
+            (
+                scenario::combat_scene::despawn_combatants,
+                combat::ai::log::close_ai_log_on_combat_exit,
+            ),
         )
         // ── Combat UI (runs every frame during combat) ───────────────────
         .add_systems(

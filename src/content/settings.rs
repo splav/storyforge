@@ -9,6 +9,11 @@ pub struct GameSettings {
     pub difficulty: DifficultyProfile,
     pub crit_fail_die: u32,
     pub ai_debug: bool,
+    /// Enables JSONL decision log written to `ai_log_path` on each AI pick.
+    pub ai_log: bool,
+    /// Relative path for the decision log. Defaults to
+    /// `logs/ai_decisions_<timestamp>.jsonl` when empty.
+    pub ai_log_path: String,
     pub current_slot: u8,
 }
 
@@ -20,6 +25,8 @@ impl Default for GameSettings {
             difficulty: preset.profile(),
             crit_fail_die: 20,
             ai_debug: false,
+            ai_log: false,
+            ai_log_path: String::new(),
             current_slot: 1,
         }
     }
@@ -74,6 +81,10 @@ fn default_current_slot() -> u8 {
 pub struct DebugSection {
     #[serde(default)]
     pub ai_debug: bool,
+    #[serde(default)]
+    pub ai_log: bool,
+    #[serde(default)]
+    pub ai_log_path: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -95,6 +106,8 @@ impl GameSettings {
             difficulty: preset.profile(),
             crit_fail_die: f.difficulty.crit_fail_die,
             ai_debug: f.debug.ai_debug,
+            ai_log: f.debug.ai_log,
+            ai_log_path: f.debug.ai_log_path,
             current_slot: clamp_slot(f.profile.current_slot),
         }
     }
@@ -105,7 +118,11 @@ impl GameSettings {
                 ai: self.difficulty_preset,
                 crit_fail_die: self.crit_fail_die,
             },
-            debug: DebugSection { ai_debug: self.ai_debug },
+            debug: DebugSection {
+                ai_debug: self.ai_debug,
+                ai_log: self.ai_log,
+                ai_log_path: self.ai_log_path.clone(),
+            },
             profile: ProfileSection { current_slot: self.current_slot },
         }
     }
