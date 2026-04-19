@@ -268,101 +268,11 @@ pub fn record_committed_reservations(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::role::{AiRole, AxisProfile};
-    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-    use crate::content::abilities::{
-        AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
-    };
-    use crate::content::content_view::ContentView;
-    use crate::content::races::CritFailEffect;
-    use crate::core::{AbilityId, DiceExpr};
-    use crate::game::components::{Abilities, Team};
+    use crate::core::AbilityId;
     use crate::game::hex::hex_from_offset;
-    use std::collections::HashMap;
 
     fn ent(id: u32) -> Entity {
         Entity::from_raw_u32(id).expect("valid")
-    }
-
-    fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
-        UnitSnapshot {
-            entity: ent(id),
-            team,
-            role: AxisProfile::from(AiRole::Bruiser),
-            pos,
-            hp: 20,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            action_points: 1,
-            max_ap: 1,
-            movement_points: 3,
-            speed: 3,
-            mana: None,
-            rage: None,
-            energy: None,
-            abilities: vec![],
-            threat: 5.0,
-            tags: AiTags::empty(),
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-        }
-    }
-
-    fn empty_content() -> ContentView {
-        ContentView {
-            abilities: HashMap::new(),
-            keyed_abilities: Vec::new(),
-            statuses: HashMap::new(),
-            weapons: HashMap::new(),
-            armor: HashMap::new(),
-            classes: HashMap::new(),
-            unit_templates: HashMap::new(),
-            races: HashMap::new(),
-            factions: HashMap::new(),
-            paths: HashMap::new(),
-        }
-    }
-
-    fn ability(id: &str, range: u32, cost_ap: i32) -> AbilityDef {
-        AbilityDef {
-            id: AbilityId::from(id),
-            name: id.to_string(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: range },
-            effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
-            costs: Vec::new(),
-            cost_ap,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            key: None,
-        }
-    }
-
-    fn make_ctx<'a>(
-        content: &'a ContentView,
-        difficulty: &'a DifficultyProfile,
-        caster: &'a CasterContext,
-        abilities: &'a Abilities,
-    ) -> UtilityContext<'a> {
-        use crate::combat::ai::utility::{ActorCtx, AiWorld};
-        UtilityContext {
-            world: AiWorld { content, difficulty },
-            actor: ActorCtx {
-                caster,
-                abilities,
-                crit_fail_effect: CritFailEffect::Miss,
-                crit_fail_chance: 0.0,
-            },
-        }
     }
 
     // ── commit_plan: (decision, consumed) shape for each plan arm ──────────

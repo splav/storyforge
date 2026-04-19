@@ -138,6 +138,14 @@ pub fn clear_campaign(paths: &AppPaths, slot: u8, campaign_id: &str) -> io::Resu
     }
 }
 
+fn now_unix() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,12 +185,4 @@ mod tests {
         assert!(parsed.last_campaign.is_none());
         assert!(parsed.campaigns.is_empty());
     }
-}
-
-fn now_unix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }

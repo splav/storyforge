@@ -144,6 +144,7 @@ pub struct StatusApply {
 /// to `ManaOverload` fires primary effects with the `mana_overload` flag
 /// set; any other crit variant skips primary effects and surfaces a
 /// `CritFail` side effect on `outcome.crit_fail`.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_ability_outcome<R: DiceSource>(
     actor: Entity,
     def: &AbilityDef,

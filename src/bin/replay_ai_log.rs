@@ -22,7 +22,6 @@ use storyforge::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::planning::{
     apply_protect_self_mask, sanity_adjust_plans, PlanStep, StepOutcome, TurnPlan,
 };
-use storyforge::combat::ai::reservations::Reservations;
 use storyforge::combat::ai::role::AxisProfile;
 use storyforge::combat::ai::snapshot::BattleSnapshot;
 use storyforge::combat::ai::utility::{ActorCtx, AiWorld, UtilityContext};
@@ -63,7 +62,10 @@ struct LogEntry {
 struct IntentBlock {
     intent: storyforge::combat::ai::intent::TacticalIntent,
     selection_kind: String,
-    reason_text: String,
+    // reason_text is present in the log schema but unused here; serde
+    // tolerates it via #[serde(default)] on a dropped field.
+    #[serde(default, rename = "reason_text")]
+    _reason_text: String,
 }
 
 #[derive(Deserialize)]
@@ -109,7 +111,6 @@ fn main() {
     let content = ContentView::load_global_for_tests();
     let inf_cfg = InfluenceConfig::default();
     let difficulty = DifficultyProfile::normal();
-    let reservations = Reservations::default();
     let mut rng = DiceRng::with_seed(0);
     let _ = &mut rng;
 
