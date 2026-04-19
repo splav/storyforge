@@ -28,7 +28,7 @@ bitflags::bitflags! {
 
 // ── Snapshot types ────────────────────────────────────────────────────────────
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BattleSnapshot {
     pub units: Vec<UnitSnapshot>,
     #[serde(with = "crate::combat::ai::serde_helpers::entity")]
@@ -36,7 +36,7 @@ pub struct BattleSnapshot {
     pub round: u32,
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct UnitSnapshot {
     #[serde(with = "crate::combat::ai::serde_helpers::entity")]
     pub entity: Entity,

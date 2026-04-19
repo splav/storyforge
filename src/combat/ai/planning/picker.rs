@@ -372,6 +372,7 @@ mod tests {
             residual_mp: 0,
             outcomes: Vec::new(),
             partial_score: 0.0,
+            sim_snapshots: Vec::new(),
         }
     }
 

@@ -192,6 +192,7 @@ fn main() {
                 residual_mp: p.residual_mp,
                 outcomes: p.outcomes.clone(),
                 partial_score: 0.0,
+                sim_snapshots: Vec::new(),
             })
             .collect();
         let raw: Vec<[f32; 9]> = entry.plans.iter().map(|p| p.raw_factors).collect();

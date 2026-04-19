@@ -59,6 +59,7 @@ pub fn generate_plans(
         residual_mp: actor_u.movement_points,
         outcomes: Vec::new(),
         partial_score: seed_partial_score(actor_u, maps),
+        sim_snapshots: Vec::new(),
     };
 
     let mut all_plans: Vec<TurnPlan> = vec![seed.clone()];
@@ -68,8 +69,15 @@ pub fn generate_plans(
         let mut next: Vec<TurnPlan> = Vec::new();
 
         for plan in &frontier {
-            // Replay plan on a fresh sim to get the state *before* extension.
-            let base_sim = replay(snap, actor, &plan.steps, ctx);
+            // Reuse the cached sim state from the last step of this plan
+            // instead of re-running `apply_step` from scratch. For the seed
+            // plan (no steps), start from the original snapshot.
+            let base_snapshot = plan
+                .sim_snapshots
+                .last()
+                .cloned()
+                .unwrap_or_else(|| snap.clone());
+            let base_sim = SimState { snapshot: base_snapshot, actor };
             let Some(sa) = base_sim.actor_unit() else { continue };
             if sa.action_points <= 0 && sa.movement_points <= 0 {
                 continue;
@@ -92,6 +100,9 @@ pub fn generate_plans(
                 let mut extended = plan.clone();
                 extended.steps.push(step);
                 extended.outcomes.push(outcome);
+                // Cache post-step snapshot so the scorer (and the next depth
+                // level here) can read it without re-simulating.
+                extended.sim_snapshots.push(ext_sim.snapshot);
                 extended.final_pos = final_pos;
                 extended.residual_ap = residual_ap;
                 extended.residual_mp = residual_mp;
@@ -190,20 +201,6 @@ fn total_mp_cost(plan: &TurnPlan) -> i32 {
             PlanStep::Cast { .. } => 0,
         })
         .sum()
-}
-
-/// Replay an ordered list of steps on a fresh sim. Convenience wrapper.
-fn replay(
-    snap: &BattleSnapshot,
-    actor: Entity,
-    steps: &[PlanStep],
-    ctx: &UtilityContext,
-) -> SimState {
-    let mut sim = SimState::from_snapshot(snap, actor);
-    for step in steps {
-        sim.apply_step(step, ctx.actor.caster, ctx.world.content);
-    }
-    sim
 }
 
 // ── Step enumeration ───────────────────────────────────────────────────────
@@ -897,6 +894,7 @@ mod tests {
             residual_mp: 0,
             outcomes: vec![],
             partial_score: 1.0,
+            sim_snapshots: Vec::new(),
         };
         let _ = cost_ap;
 
@@ -949,6 +947,7 @@ mod tests {
             residual_mp: 0,
             outcomes: vec![],
             partial_score: 1.0,
+            sim_snapshots: Vec::new(),
         };
         let plans = vec![
             mk(t1, hex_from_offset(3, 0)),

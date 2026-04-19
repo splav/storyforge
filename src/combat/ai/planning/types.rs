@@ -1,6 +1,7 @@
 //! Plan data model: steps, multi-step turns, and the cumulative outcome of
 //! applying a plan to a simulated battle state.
 
+use crate::combat::ai::snapshot::BattleSnapshot;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
@@ -45,6 +46,18 @@ pub struct TurnPlan {
     /// Cheap proxy score used for beam-search pruning only. The final score
     /// and factor decomposition are produced in Phase 3.
     pub partial_score: f32,
+    /// Sim snapshot cached after each applied step. `sim_snapshots[k]` is the
+    /// world state AFTER `steps[0..=k]` have been simulated. The "pre-step-k"
+    /// snapshot a scorer needs is `sim_snapshots[k-1]` for k>0, or the
+    /// original snapshot for k=0. Invariant: `sim_snapshots.len() == steps.len()`.
+    ///
+    /// Populated inside `generate_plans` (we already ran the sim there to
+    /// produce `outcomes`; caching the resulting state costs one `.clone()`
+    /// per step). Consumed by `compute_plan_factors` so it doesn't re-simulate
+    /// the whole plan a second time. Runtime-only; excluded from the AI log
+    /// because snapshots are derivable from `snapshot + steps`.
+    #[serde(skip)]
+    pub sim_snapshots: Vec<BattleSnapshot>,
 }
 
 /// Effects produced by a single simulated step. Used by scoring to accumulate

@@ -29,7 +29,6 @@
 use crate::combat::ai::factors::{self, ScoredStep, NUM_FACTORS, SIGNED_FACTOR};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{intent_score, TacticalIntent};
-use crate::combat::ai::planning::sim::SimState;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::reservations::Reservations;
@@ -198,7 +197,16 @@ pub fn compute_plan_factors(
     maps: &InfluenceMaps,
     reservations: &Reservations,
 ) -> [f32; NUM_FACTORS] {
-    let mut sim = SimState::from_snapshot(snap, active.entity);
+    // No sim is run here: the generator already produced the sim state after
+    // every step and cached it on the plan. For step k we read the
+    // **pre-step-k** snapshot from `plan.sim_snapshots[k-1]` (or the original
+    // `snap` for k=0). Invariant: `sim_snapshots.len() == steps.len()`, enforced
+    // at generation time.
+    debug_assert_eq!(
+        plan.sim_snapshots.len(),
+        plan.steps.len(),
+        "TurnPlan sim_snapshots must align with steps",
+    );
 
     let mut damage_sum = 0.0f32;
     let mut heal_sum = 0.0f32;
@@ -214,10 +222,15 @@ pub fn compute_plan_factors(
     let mut goal_achieved = false;
 
     for (idx, step) in plan.steps.iter().enumerate() {
-        // Sim state *before* applying this step.
-        let sim_actor = match sim.actor_unit() {
-            Some(u) => u.clone(),
-            None => break,
+        // Pre-step snapshot: cached post-state of the previous step, or the
+        // caller's original snapshot for the first step.
+        let pre_snap: &BattleSnapshot = if idx == 0 {
+            snap
+        } else {
+            &plan.sim_snapshots[idx - 1]
+        };
+        let Some(sim_actor) = pre_snap.unit(active.entity).cloned() else {
+            break;
         };
 
         if let PlanStep::Move { path } = step {
@@ -238,7 +251,7 @@ pub fn compute_plan_factors(
             intent,
             &scored_step,
             &sim_actor,
-            &sim.snapshot,
+            pre_snap,
             maps,
             ctx.world.content,
             ctx.world.difficulty,
@@ -253,7 +266,7 @@ pub fn compute_plan_factors(
                 &sim_actor,
                 intent,
                 ctx,
-                &sim.snapshot,
+                pre_snap,
                 maps,
                 reservations,
             );
@@ -271,15 +284,13 @@ pub fn compute_plan_factors(
             }
         }
 
-        sim.apply_step(step, ctx.actor.caster, ctx.world.content);
-
         // Geometric per-step discount on the next step's contribution.
         step_weight *= base_discount;
 
         // Post-goal aggressive discount fires at most once, when this step
         // killed the current intent's declared target. The kill signal comes
-        // from the sim — AoE that incidentally kills the intent target
-        // triggers the bump just like a direct cast.
+        // from the cached outcomes — AoE that incidentally kills the intent
+        // target triggers the bump just like a direct cast.
         if !goal_achieved {
             let killed = plan
                 .outcomes
