@@ -258,8 +258,8 @@ pub fn pick_action(
     // representing the committed first-tick action.
     let debug_snapshot = if debug {
         Some(build_debug_snapshot(
-            active, actor_pos, &intent, &intent_reason, &plans, &scored, &decision,
-            ctx, snap, maps, reservations, debug_names, Some(&pick_mech),
+            active, actor_pos, &intent, &intent_reason, &plans, &scored,
+            &raw_factors, &decision, snap, maps, debug_names, Some(&pick_mech),
         ))
     } else {
         None

@@ -2,13 +2,12 @@
 use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::position_eval::evaluate_position;
-use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
-use crate::combat::ai::factors::{compute_factors, ScoredStep};
+use crate::combat::ai::factors::{ScoredStep, NUM_FACTORS};
 use crate::combat::ai::planning::types::TurnPlan;
-use crate::combat::ai::utility::{AiDecision, PickMechanics, UtilityContext};
+use crate::combat::ai::utility::{AiDecision, PickMechanics};
 use crate::game::hex::{hex_to_offset, Hex};
 use crate::game::resources::{UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
@@ -388,8 +387,11 @@ fn gradient_color(t: f32) -> ColorMaterial {
 //    come from the function that made the decision (see `intent::select_intent`
 //    and the intent-fallback block in `utility::pick_action`). Builders only
 //    format the data that was captured at decision time.
-// 2. Re-computing deterministic outputs (like `compute_factors` per top-K
-//    candidate) is fine — same inputs, same outputs, no drift risk.
+// 2. Factors come from the scorer's `raw_factors` matrix — plan-aggregate,
+//    the exact values that fed ranking and JSONL logging. Never recompute
+//    per-committed-step here: that produces single-step numbers that diverge
+//    from what the log stores, and the debug output ends up labelled
+//    identically but carrying different semantics.
 
 fn format_intent(intent: &TacticalIntent, names: &HashMap<Entity, String>) -> String {
     match intent {
@@ -456,6 +458,7 @@ fn priority_target_debug(
 }
 
 /// Build the AiDebugSnapshot for a normal (non-fallback) pick_action path.
+#[allow(clippy::too_many_arguments)]
 pub fn build_debug_snapshot(
     active: &UnitSnapshot,
     actor_pos: Hex,
@@ -463,11 +466,10 @@ pub fn build_debug_snapshot(
     intent_reason: &str,
     plans: &[TurnPlan],
     scores: &[f32],
+    raw_factors: &[[f32; NUM_FACTORS]],
     decision: &AiDecision,
-    ctx: &UtilityContext,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
-    reservations: &Reservations,
     names: &HashMap<Entity, String>,
     pick_mech: Option<&PickMechanics>,
 ) -> AiDebugSnapshot {
@@ -486,9 +488,6 @@ pub fn build_debug_snapshot(
         .iter()
         .map(|&(i, total)| {
             let step = ScoredStep::from_plan_committed(&plans[i], actor_pos);
-            // compute_factors is deterministic — re-running for display gives
-            // exactly what scoring saw, no drift risk.
-            let raw = compute_factors(&step, active, intent, ctx, snap, maps, reservations);
             let (ability_label, target_name, is_move_only) = match &step {
                 ScoredStep::Cast { ability, target, .. } => {
                     (ability.0.clone(), target_label(*target, names), false)
@@ -501,7 +500,7 @@ pub fn build_debug_snapshot(
                 target_name,
                 tile: hex_to_offset(tile),
                 tile_influence: tile_influence_at(tile, &active.role, maps),
-                raw,
+                raw: raw_factors[i],
                 total,
                 is_move_only,
             }
