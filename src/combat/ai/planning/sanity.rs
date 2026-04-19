@@ -11,6 +11,7 @@
 
 #![allow(clippy::too_many_arguments)]
 
+use crate::combat::ai::factors::aoe_area;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
@@ -18,7 +19,7 @@ use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::UtilityContext;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ContentView;
-use crate::game::hex::{has_los, hex_circle, hex_line, in_bounds, Hex};
+use crate::game::hex::{has_los, in_bounds, Hex};
 use std::collections::HashSet;
 
 /// Minimum multiplier applied by survival quadratic. Keeps low-HP-in-danger
@@ -237,14 +238,10 @@ fn plan_has_self_aoe(active: &UnitSnapshot, plan: &TurnPlan, ctx: &UtilityContex
                 if !def.friendly_fire || def.aoe == AoEShape::None {
                     continue;
                 }
-                let area: HashSet<Hex> = match def.aoe {
-                    AoEShape::Circle { radius } => hex_circle(*target_pos, radius).into_iter().collect(),
-                    AoEShape::Line { length } => {
-                        hex_line(caster_pos, *target_pos, length).into_iter().collect()
-                    }
-                    AoEShape::None => HashSet::new(),
-                };
-                if area.contains(&caster_pos) {
+                // Route through the shared helper so a new `AoEShape`
+                // variant lands here automatically — the inline match we
+                // used to have silently missed anything beyond Circle/Line.
+                if aoe_area(def, *target_pos, caster_pos).contains(&caster_pos) {
                     return true;
                 }
             }
@@ -487,6 +484,117 @@ mod tests {
             dmg >= actor.hp as f32,
             "expected lethal damage ({dmg}) ≥ hp ({})",
             actor.hp,
+        );
+    }
+
+    // ── plan_has_self_aoe: routed through shared `aoe_area` ─────────────
+    //
+    // Smoke test: a friendly-fire Circle AoE centred on the caster's tile
+    // must be detected as self-AoE. The inline match that used to live here
+    // covered Circle/Line only; `aoe_area` (shared with every other AoE
+    // caller) automatically picks up new `AoEShape` variants, so adding
+    // e.g. Cone later will be covered without a code change here.
+
+    use crate::content::abilities::{
+        AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType,
+    };
+    use crate::content::content_view::ContentView;
+    use crate::core::{AbilityId, DiceExpr};
+
+    fn fireball_def(radius: u32) -> AbilityDef {
+        AbilityDef {
+            id: AbilityId::from("fireball"),
+            name: "fireball".into(),
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 5 },
+            effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 6, 0) },
+            costs: Vec::new(),
+            cost_ap: 1,
+            aoe: AoEShape::Circle { radius },
+            friendly_fire: true,
+            statuses: Vec::new(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            key: None,
+        }
+    }
+
+    fn empty_content() -> ContentView {
+        ContentView {
+            abilities: std::collections::HashMap::new(),
+            keyed_abilities: Vec::new(),
+            statuses: std::collections::HashMap::new(),
+            weapons: std::collections::HashMap::new(),
+            armor: std::collections::HashMap::new(),
+            classes: std::collections::HashMap::new(),
+            unit_templates: std::collections::HashMap::new(),
+            races: std::collections::HashMap::new(),
+            factions: std::collections::HashMap::new(),
+            paths: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn plan_has_self_aoe_detects_friendly_fire_circle_on_caster() {
+        let actor_pos = hex_from_offset(0, 0);
+        let actor = unit(1, Team::Enemy, actor_pos, 20);
+        let caster = crate::content::abilities::CasterContext {
+            str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None,
+        };
+        let abilities = crate::game::components::Abilities(Vec::new());
+        let mut content = empty_content();
+        let def = fireball_def(1);
+        content.abilities.insert(def.id.clone(), def);
+
+        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::normal();
+        let ctx = UtilityContext {
+            world: crate::combat::ai::utility::AiWorld {
+                content: &content, difficulty: &difficulty,
+            },
+            actor: crate::combat::ai::utility::ActorCtx {
+                caster: &caster,
+                abilities: &abilities,
+                crit_fail_effect: crate::content::races::CritFailEffect::Miss,
+                crit_fail_chance: 0.0,
+            },
+        };
+
+        // Fireball centred on the caster's own tile (target_pos = actor_pos).
+        let plan = TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: AbilityId::from("fireball"),
+                target: ent(99),
+                target_pos: actor_pos,
+            }],
+            final_pos: actor_pos,
+            residual_ap: 0,
+            residual_mp: 4,
+            outcomes: vec![Default::default()],
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+        assert!(
+            plan_has_self_aoe(&actor, &plan, &ctx),
+            "friendly-fire circle on caster tile must be flagged as self-AoE"
+        );
+
+        // Target far away (outside radius+caster_pos) — must NOT be flagged.
+        let plan_far = TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: AbilityId::from("fireball"),
+                target: ent(99),
+                target_pos: hex_from_offset(5, 5),
+            }],
+            final_pos: actor_pos,
+            residual_ap: 0,
+            residual_mp: 4,
+            outcomes: vec![Default::default()],
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+        assert!(
+            !plan_has_self_aoe(&actor, &plan_far, &ctx),
+            "AoE centred far from the caster must not be flagged"
         );
     }
 }
