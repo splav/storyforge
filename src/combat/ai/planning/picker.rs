@@ -97,54 +97,28 @@ fn mercy_cruelty(raw: &PlanFactors) -> f32 {
 /// Pick the winning plan. Mirrors `pick_best_candidate` — window-bounded top-K
 /// sampling with a mercy tie-breaker applied only inside the near-best window.
 ///
-/// Production hot-path: returns just the chosen plan index, no
-/// `PickMechanics` allocation. Use [`pick_best_plan_with_mechanics`] when
-/// debug overlay needs the per-pool breakdown.
+/// Always returns the `PickMechanics` breakdown (top_k, window, mercy
+/// bookkeeping, ranked pool). The pool is ≤ `top_k` elements (1-3 in practice),
+/// so the allocation is ~24 bytes on the stack / small-Vec region — too cheap
+/// to justify a dual streaming-vs-materialize path. Prod callers ignore the
+/// mechanics; debug overlay reads it.
 pub fn pick_best_plan(
     scored: &[f32],
     raw_factors: &[PlanFactors],
     ctx: &UtilityContext,
     rng: &mut DiceRng,
-) -> usize {
-    pick_inner(scored, raw_factors, ctx, rng, false).0
-}
-
-/// Same as [`pick_best_plan`] but additionally returns the `PickMechanics`
-/// breakdown (top_k, window, mercy bookkeeping, ranked pool). Allocates one
-/// `Vec<(usize, f32)>` for the pool — used only on debug-enabled ticks.
-pub fn pick_best_plan_with_mechanics(
-    scored: &[f32],
-    raw_factors: &[PlanFactors],
-    ctx: &UtilityContext,
-    rng: &mut DiceRng,
 ) -> (usize, PickMechanics) {
-    let (idx, mech) = pick_inner(scored, raw_factors, ctx, rng, true);
-    (idx, mech.expect("record=true always produces mechanics"))
-}
-
-/// Shared selection core. When `record == false`, `pool` is never
-/// materialized — that's the only allocation savings this split buys, but
-/// `pick_best_plan` runs every AI tick while debug runs once per F-toggle.
-fn pick_inner(
-    scored: &[f32],
-    raw_factors: &[PlanFactors],
-    ctx: &UtilityContext,
-    rng: &mut DiceRng,
-    record: bool,
-) -> (usize, Option<PickMechanics>) {
     let top_k_req = ctx.world.difficulty.top_k_choice();
     let m = ctx.world.difficulty.mercy_margin();
     let window = (ctx.world.difficulty.score_noise() * 2.0).max(0.05);
 
-    let make_mech = |top_k, mercy_applied, pool, chosen_pos| {
-        record.then_some(PickMechanics {
-            top_k,
-            window,
-            mercy_margin: m,
-            mercy_applied,
-            pool,
-            chosen_pos,
-        })
+    let make_mech = |top_k, mercy_applied, pool, chosen_pos| PickMechanics {
+        top_k,
+        window,
+        mercy_margin: m,
+        mercy_applied,
+        pool,
+        chosen_pos,
     };
 
     if scored.is_empty() {
@@ -177,29 +151,6 @@ fn pick_inner(
     let k = top_k_req.max(1).min(ranked.len());
     let best_after = ranked[0].1;
 
-    // Two paths: production picks via a streaming scan (no pool alloc); debug
-    // materializes the pool so the overlay can render it.
-    if !record {
-        // Reservoir-style choice: count survivors, roll, walk to the chosen one.
-        let pool_len = ranked
-            .iter()
-            .take(k)
-            .filter(|(_, s)| s.is_finite() && *s >= best_after - window)
-            .count();
-        if pool_len == 0 {
-            return (ranked[0].0, None);
-        }
-        let chosen_pos = (rng.roll_d(pool_len as u32) - 1) as usize;
-        let chosen_idx = ranked
-            .iter()
-            .take(k)
-            .filter(|(_, s)| s.is_finite() && *s >= best_after - window)
-            .nth(chosen_pos)
-            .expect("chosen_pos < pool_len by construction")
-            .0;
-        return (chosen_idx, None);
-    }
-
     let pool: Vec<(usize, f32)> = ranked
         .iter()
         .take(k)
@@ -214,7 +165,6 @@ fn pick_inner(
         );
     }
     // `roll_d(N)` returns `1..=N`; shift to a 0-based index.
-    // Precondition: `pool.len() >= 1` (the early-return above catches empty).
     let chosen_pos = (rng.roll_d(pool.len() as u32) - 1) as usize;
     let chosen_idx = pool[chosen_pos].0;
     (chosen_idx, make_mech(k, mercy_applied, pool, chosen_pos))

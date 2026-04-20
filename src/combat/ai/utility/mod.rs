@@ -23,8 +23,8 @@ use crate::combat::ai::intent::{
 use crate::combat::ai::log::{self, AiLogger, IntentBlock};
 use crate::combat::ai::planning::{
     apply_protect_self_mask, commit_plan, generate_plans, pick_best_plan,
-    pick_best_plan_with_mechanics, record_committed_reservations, rescore_with_intent,
-    sanity_adjust_plans, score_plans_with_raw,
+    record_committed_reservations, rescore_with_intent, sanity_adjust_plans,
+    score_plans_with_raw,
 };
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -301,15 +301,10 @@ pub fn pick_action(
     // Pick best plan via mercy + top-K window (same math as single-candidate
     // pick). `raw_factors` is threaded in so mercy_cruelty reads the
     // precomputed kill/cc columns instead of recomputing plan factors per
-    // window slot. Debug overlay needs the per-pool breakdown
-    // (`PickMechanics`); the production path skips that allocation.
-    let (best_idx, pick_mech) = if debug {
-        let (idx, mech) =
-            pick_best_plan_with_mechanics(&scored, &raw_factors, ctx, rng);
-        (idx, Some(mech))
-    } else {
-        (pick_best_plan(&scored, &raw_factors, ctx, rng), None)
-    };
+    // window slot. `PickMechanics` is ~24B of stack for ≤3 pool entries —
+    // cheap enough to always collect; debug overlay reads it, prod ignores.
+    let (best_idx, mech) = pick_best_plan(&scored, &raw_factors, ctx, rng);
+    let pick_mech = debug.then_some(mech);
 
     let best_plan = &plans[best_idx];
     let (decision, consumed) = commit_plan(best_plan, actor_pos);
