@@ -11,6 +11,7 @@ use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::{AiWorld, ScoringCtx};
 use crate::content::abilities::CasterContext;
 use crate::content::content_view::ContentView;
+use crate::content::races::CritFailEffect;
 use crate::core::AbilityId;
 use crate::game::components::Team;
 use crate::game::hex::Hex;
@@ -22,20 +23,13 @@ use std::collections::HashMap;
 /// Build an `AiWorld` with the conventional test defaults
 /// (`crit_fail_chance: 0.0`). Caller supplies content + difficulty.
 ///
-/// Caster / abilities / crit_fail_effect that used to live on `ActorCtx`
-/// are now on `UnitSnapshot` — set them via `UnitBuilder` if the test
-/// cares (defaults are zero / Miss).
+/// Per-actor data — caster / abilities / crit_fail_effect — lives on
+/// `UnitSnapshot`; configure via `UnitBuilder::caster_ctx` /
+/// `UnitBuilder::ability_names` / `UnitBuilder::crit_fail_effect`.
 pub(crate) fn make_test_ctx<'a>(
     content: &'a ContentView,
     difficulty: &'a DifficultyProfile,
-    _caster: &'a CasterContext,
-    _abilities: &'a crate::game::components::Abilities,
 ) -> AiWorld<'a> {
-    // `_caster` / `_abilities` retained as parameters so existing test call
-    // sites keep compiling; the values are ignored (they belong on the
-    // actor's snapshot row now). Test fixtures should migrate to setting
-    // these via `UnitBuilder::ability_names` / `UnitBuilder::caster_ctx`
-    // (added on demand) when they actually depend on per-actor stats.
     AiWorld { content, difficulty, crit_fail_chance: 0.0 }
 }
 
@@ -174,6 +168,17 @@ impl UnitBuilder {
     pub fn aoo(mut self, expected_damage: f32, reactions: i32) -> Self {
         self.inner.aoo_expected_damage = Some(expected_damage);
         self.inner.reactions_left = reactions;
+        self
+    }
+    /// Set the actor's casting profile (str_mod / int_mod / spell_power /
+    /// weapon_dice). Tests that depend on caster-driven scoring (damage
+    /// estimation, heal magnitude) configure it here; default is zeros.
+    pub fn caster_ctx(mut self, ctx: CasterContext) -> Self {
+        self.inner.caster_ctx = ctx;
+        self
+    }
+    pub fn crit_fail_effect(mut self, eff: CritFailEffect) -> Self {
+        self.inner.crit_fail_effect = eff;
         self
     }
     pub fn build(self) -> UnitSnapshot {

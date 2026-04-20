@@ -537,19 +537,11 @@ mod tests {
 
     use crate::combat::ai::test_helpers::empty_maps;
 
-    /// Default test caster (zero modifiers, no weapon).
-    const DEFAULT_CASTER: CasterContext = CasterContext {
-        str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None,
-    };
-
     fn test_ctx<'a>(
         content: &'a crate::content::content_view::ContentView,
         difficulty: &'a DifficultyProfile,
-        abilities: &'a Abilities,
     ) -> AiWorld<'a> {
-        crate::combat::ai::test_helpers::make_test_ctx(
-            content, difficulty, &DEFAULT_CASTER, abilities,
-        )
+        crate::combat::ai::test_helpers::make_test_ctx(content, difficulty)
     }
 
     /// Under discounted-sum aggregation, a single Cast@focus at depth k
@@ -569,8 +561,8 @@ mod tests {
             crate::content::content_view::ContentView::load_global_for_tests();
         let mut difficulty = DifficultyProfile::normal();
         difficulty.plan_step_discount = 0.85;
-        let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = test_ctx(&content, &difficulty, &abilities);
+        let _abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let intent = TacticalIntent::FocusTarget { target: focus.entity };
@@ -652,8 +644,8 @@ mod tests {
         let content =
             crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
-        let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = test_ctx(&content, &difficulty, &abilities);
+        let _abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let intent = TacticalIntent::FocusTarget { target: target.entity };
@@ -731,8 +723,8 @@ mod tests {
         // Deterministic per-plan noise: rescore and a fresh-score under the
         // same intent produce identical scores regardless of profile.
         let difficulty = DifficultyProfile::hard();
-        let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = test_ctx(&content, &difficulty, &abilities);
+        let _abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
 
@@ -783,8 +775,8 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
-        let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = test_ctx(&content, &difficulty, &abilities);
+        let _abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let intent = TacticalIntent::FocusTarget { target: enemy.entity };
@@ -854,8 +846,8 @@ mod tests {
             difficulty.score_noise() > 0.0,
             "precondition: noise is non-zero under `normal` profile",
         );
-        let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = test_ctx(&content, &difficulty, &abilities);
+        let _abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let intent = TacticalIntent::FocusTarget { target: t_a.entity };

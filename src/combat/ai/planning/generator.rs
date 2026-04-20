@@ -545,17 +545,16 @@ mod tests {
     use crate::game::hex::hex_from_offset;
 
     /// Generator-suite defaults: caller sets `hp` + `max_ap` (beam search
-    /// branching tests rely on these to tune pool shape).
+    /// branching tests rely on these to tune pool shape). Ability list is a
+    /// test-wide superset of every id referenced across tests in this
+    /// module, so each test actor "knows" whatever a specific test wires
+    /// through `ctx.actor.abilities` without per-test ability setup.
+    /// Tests that specifically exercise unknown-ability rejection use
+    /// `UnitBuilder::ability_names(&[])` directly.
     fn unit(id: u32, team: Team, pos: Hex, hp: i32, max_ap: i32) -> UnitSnapshot {
         UnitBuilder::new(id, team, pos)
             .hp(hp)
             .ap(max_ap)
-            // Actor-side abilities used to drift between `ctx.actor.abilities`
-            // (iteration list) and `UnitSnapshot.abilities` (ownership). The
-            // helper pre-fills a catch-all superset so `check_legality`'s
-            // `actor_knows_ability` lookup finds any id a test wires into
-            // `ctx.actor.abilities`. Production builds both from the same
-            // `Abilities` component, so they never diverge in practice.
             .ability_names(&[
                 "strike", "melee_attack", "heal", "stun_bolt", "aoe_stun",
                 "fireball", "mana_bolt", "melee",
@@ -599,14 +598,14 @@ mod tests {
 
         let mut difficulty = DifficultyProfile::normal();
         difficulty.plan_max_depth = 1;
-        let caster = CasterContext {
+        let _caster = CasterContext {
             str_mod: 4,
             int_mod: 0,
             spell_power: 0,
             weapon_dice: None,
         };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _abilities = Abilities(vec![def.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor, target], 1);
         let maps = empty_maps();
@@ -642,14 +641,14 @@ mod tests {
         let mut difficulty = DifficultyProfile::normal();
         difficulty.plan_max_depth = 2;
         difficulty.plan_beam_width = 2;
-        let caster = CasterContext {
+        let _caster = CasterContext {
             str_mod: 0,
             int_mod: 0,
             spell_power: 0,
             weapon_dice: None,
         };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _abilities = Abilities(vec![def.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(units, 1);
         let maps = empty_maps();
@@ -680,14 +679,14 @@ mod tests {
         let mut difficulty = DifficultyProfile::normal();
         difficulty.plan_max_depth = 2;
         difficulty.plan_beam_width = 8;
-        let caster = CasterContext {
+        let _caster = CasterContext {
             str_mod: 4,
             int_mod: 0,
             spell_power: 0,
             weapon_dice: None,
         };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _abilities = Abilities(vec![def.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor, weak, other], 1);
         let maps = empty_maps();
@@ -723,14 +722,14 @@ mod tests {
         let mut difficulty = DifficultyProfile::normal();
         difficulty.plan_max_depth = 3;
         difficulty.plan_beam_width = 8;
-        let caster = CasterContext {
+        let _caster = CasterContext {
             str_mod: 4,
             int_mod: 0,
             spell_power: 0,
             weapon_dice: None,
         };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _abilities = Abilities(vec![def.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor, target], 1);
         let maps = empty_maps();
@@ -940,9 +939,9 @@ mod tests {
         let mut content = empty_content();
         content.abilities.insert(heal.id.clone(), heal.clone());
         let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![heal.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let _abilities = Abilities(vec![heal.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), fine.clone(), hurt.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -972,9 +971,9 @@ mod tests {
         content.statuses.insert(StatusId::from("stun"), stun_status());
 
         let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let _abilities = Abilities(vec![def.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), stunned.clone(), awake.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1003,9 +1002,9 @@ mod tests {
         content.statuses.insert(StatusId::from("stun"), stun_status());
 
         let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let _abilities = Abilities(vec![def.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), stunned.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1030,9 +1029,9 @@ mod tests {
         let mut content = empty_content();
         content.abilities.insert(def.id.clone(), def.clone());
         let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 4, spell_power: 2, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _caster = CasterContext { str_mod: 0, int_mod: 4, spell_power: 2, weapon_dice: None };
+        let _abilities = Abilities(vec![def.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1056,9 +1055,9 @@ mod tests {
         let mut content = empty_content();
         content.abilities.insert(def.id.clone(), def.clone());
         let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 4, spell_power: 2, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _caster = CasterContext { str_mod: 0, int_mod: 4, spell_power: 2, weapon_dice: None };
+        let _abilities = Abilities(vec![def.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), e1.clone(), e2.clone(), ally.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1087,9 +1086,9 @@ mod tests {
 
         let mut difficulty = DifficultyProfile::normal();
         difficulty.plan_max_depth = 1;
-        let caster = CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _caster = CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let _abilities = Abilities(vec![def.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor, taunter, adjacent_non_taunter], 1);
         let maps = empty_maps();
@@ -1162,9 +1161,9 @@ mod tests {
 
         let mut difficulty = DifficultyProfile::normal();
         difficulty.plan_max_depth = 1;
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![mana_bolt.id.clone(), melee.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let _abilities = Abilities(vec![mana_bolt.id.clone(), melee.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor, enemy], 1);
         let maps = empty_maps();
@@ -1224,9 +1223,9 @@ mod tests {
         content.abilities.insert(def.id.clone(), def.clone());
         let mut difficulty = DifficultyProfile::normal();
         difficulty.plan_max_depth = 1;
-        let caster = CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let _caster = CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let _abilities = Abilities(vec![def.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(
             vec![actor, far1, far2, far3, close],

@@ -521,14 +521,14 @@ mod tests {
         use crate::content::abilities::CasterContext;
         let actor_pos = hex_from_offset(0, 0);
         let actor = unit(1, Team::Enemy, actor_pos, 20);
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = crate::game::components::Abilities(Vec::new());
+        let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let _abilities = crate::game::components::Abilities(Vec::new());
         let mut content = empty_content();
         let def = fireball_def(1);
         content.abilities.insert(def.id.clone(), def);
 
         let difficulty = crate::combat::ai::difficulty::DifficultyProfile::normal();
-        let utility = make_test_ctx(&content, &difficulty, &caster, &abilities);
+        let utility = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();

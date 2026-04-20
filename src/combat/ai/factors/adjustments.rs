@@ -92,26 +92,18 @@ mod tests {
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
-    use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
     use crate::core::AbilityId;
-    use crate::game::components::{Abilities, Team};
+    use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
-    /// Zero-stat caster — adjustments logic doesn't actually need non-trivial
-    /// caster params, but `UtilityContext` requires one.
-    const ZERO_CASTER: CasterContext = CasterContext {
-        str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None,
-    };
-
-    /// Boilerplate-collapsing fixture for the adjustments suite. Returns
-    /// (content, difficulty, abilities) — the common scaffolding every test
-    /// needs before constructing a `UtilityContext`.
-    fn fixture() -> (ContentView, DifficultyProfile, Abilities) {
+    /// Shared scaffolding for the adjustments suite. Adjustment logic is
+    /// actor-agnostic (reservation coordination only), so zero-caster
+    /// defaults on the placeholder actor are enough.
+    fn fixture() -> (ContentView, DifficultyProfile) {
         (
             ContentView::load_global_for_tests(),
             DifficultyProfile::normal(),
-            Abilities(Vec::new()),
         )
     }
 
@@ -127,8 +119,8 @@ mod tests {
     /// negative positions — a bad tile's reservation made it look better.
     #[test]
     fn reserved_tile_penalises_both_signs() {
-        let (content, diff, abs) = fixture();
-        let utility = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
+        let (content, diff) = fixture();
+        let utility = make_test_ctx(&content, &diff);
 
         let tile = hex_from_offset(3, 3);
         let step = ScoredStep::Move { caster_tile: tile };
@@ -160,8 +152,8 @@ mod tests {
     /// damage was high.
     #[test]
     fn overkill_scales_damage_and_kill_uniformly() {
-        let (content, diff, abs) = fixture();
-        let utility = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
+        let (content, diff) = fixture();
+        let utility = make_test_ctx(&content, &diff);
         let mult = diff.overkill_multiplier();
         assert!(mult > 0.0 && mult < 1.0, "precondition: non-trivial multiplier");
 
@@ -205,8 +197,8 @@ mod tests {
     /// of sign — only the reservation triggers the penalty.
     #[test]
     fn unreserved_tile_leaves_position_untouched() {
-        let (content, diff, abs) = fixture();
-        let utility = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
+        let (content, diff) = fixture();
+        let utility = make_test_ctx(&content, &diff);
 
         let step = ScoredStep::Move { caster_tile: hex_from_offset(0, 0) };
         let snap = BattleSnapshot::new(Vec::new(), 1);

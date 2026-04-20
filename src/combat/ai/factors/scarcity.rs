@@ -129,27 +129,19 @@ mod tests {
         empty_maps, make_scoring_ctx, make_test_ctx, unit, UnitBuilder,
     };
     use crate::combat::ai::utility::AiWorld;
-    use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
     use crate::core::AbilityId;
-    use crate::game::components::{Abilities, Team};
+    use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
     use bevy::prelude::*;
 
-    /// int_mod=3 to keep INT-mod-sensitive scoring nontrivial in this suite.
-    const SCARCITY_CASTER: CasterContext = CasterContext {
-        str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None,
-    };
-
-    /// Bundle the (content, difficulty, abilities) scaffolding every scarcity
-    /// test needs. Abilities superset covers the two ability ids touched
-    /// across the suite (`fireball`, `melee_attack`).
-    fn scarcity_fixture() -> (ContentView, DifficultyProfile, Abilities) {
-        (
-            ContentView::load_global_for_tests(),
-            DifficultyProfile::default(),
-            Abilities(vec!["fireball".into(), "melee_attack".into()]),
-        )
+    /// Shared scaffolding for the scarcity suite. All tests here are
+    /// direction-only (assert < 0 / > 0 / == 0), so caster-mod tuning
+    /// doesn't alter outcomes — `UnitBuilder` defaults suffice for the
+    /// actor. If a future test needs INT-mod-sensitive behaviour, set
+    /// `UnitBuilder::caster_ctx(...)` on the active unit explicitly.
+    fn scarcity_fixture() -> (ContentView, DifficultyProfile) {
+        (ContentView::load_global_for_tests(), DifficultyProfile::default())
     }
 
     fn cast_step<'a>(
@@ -183,8 +175,8 @@ mod tests {
         let active = unit(0, Team::Enemy, tile);
         let enemy = unit(1, Team::Player, hex_from_offset(3, 3));
         let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 1);
-        let (content, diff, abs) = scarcity_fixture();
-        let ctx = make_test_ctx(&content, &diff, &SCARCITY_CASTER, &abs);
+        let (content, diff) = scarcity_fixture();
+        let ctx = make_test_ctx(&content, &diff);
 
         let ab = AbilityId::from("melee_attack");
         let step = cast_step(tile, &ab, tile, enemy.entity);
@@ -201,8 +193,8 @@ mod tests {
             .build();
 
         let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 1);
-        let (content, diff, abs) = scarcity_fixture();
-        let ctx = make_test_ctx(&content, &diff, &SCARCITY_CASTER, &abs);
+        let (content, diff) = scarcity_fixture();
+        let ctx = make_test_ctx(&content, &diff);
 
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
@@ -224,8 +216,8 @@ mod tests {
             .build();
 
         let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 1);
-        let (content, diff, abs) = scarcity_fixture();
-        let ctx = make_test_ctx(&content, &diff, &SCARCITY_CASTER, &abs);
+        let (content, diff) = scarcity_fixture();
+        let ctx = make_test_ctx(&content, &diff);
 
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
@@ -252,8 +244,8 @@ mod tests {
             vec![active.clone(), e1.clone(), e2.clone(), e3.clone()],
             3,
         );
-        let (content, diff, abs) = scarcity_fixture();
-        let ctx = make_test_ctx(&content, &diff, &SCARCITY_CASTER, &abs);
+        let (content, diff) = scarcity_fixture();
+        let ctx = make_test_ctx(&content, &diff);
 
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, e1.pos, e1.entity);
@@ -270,8 +262,8 @@ mod tests {
         let tile = hex_from_offset(4, 3);
         let active = UnitBuilder::new(0, Team::Enemy, tile).mana(10, 10).build();
         let enemy = unit(1, Team::Player, hex_from_offset(3, 3));
-        let (content, diff, abs) = scarcity_fixture();
-        let ctx = make_test_ctx(&content, &diff, &SCARCITY_CASTER, &abs);
+        let (content, diff) = scarcity_fixture();
+        let ctx = make_test_ctx(&content, &diff);
 
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
