@@ -5,7 +5,7 @@
 use super::adjustments::crit_fail_adjusted;
 use super::aoe_hits::{aoe_hits, AoeHits};
 use super::OffensiveFactors;
-use crate::combat::ai::scoring::score_action;
+use crate::combat::ai::scoring::{score_action, status_applications};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::UtilityContext;
 use crate::combat::effects_math::aoe_cells;
@@ -129,20 +129,28 @@ fn single_target_kill(def: &AbilityDef, target: &UnitSnapshot, ctx: &UtilityCont
     if net >= target.hp as f32 { 1.0 } else { 0.0 }
 }
 
-/// Sum the CC value contribution of `def`'s statuses against a unit with the
-/// given `threat`. Used per-target for single-target and per-enemy for AoE.
+/// Sum the CC-denial value of `def`'s statuses against an enemy of `threat`
+/// damage output. Used per-target for single-target casts and per-enemy
+/// summed for AoE.
+///
+/// Differs from `scoring::status_score` deliberately: this is the CC-factor
+/// denial subset — counts only `skips_turn`, positive `damage_taken_bonus`,
+/// positive `armor_bonus` (the "bad-for-target" direction, because the
+/// factor is meaningful only on enemies). `status_score` uses `.abs()` so
+/// it can price ally buffs too.
 fn status_cc_value(def: &AbilityDef, threat: f32, ctx: &UtilityContext) -> f32 {
-    def.statuses
-        .iter()
-        .map(|sa| {
-            let Some(sd) = ctx.world.content.statuses.get(&sa.status) else { return 0.0 };
-            let d = sa.duration_rounds as f32;
+    status_applications(def, ctx.world.content)
+        .map(|(sd, d)| {
             let mut val = 0.0f32;
             if sd.skips_turn {
                 val += threat * d;
             }
-            if sd.damage_taken_bonus > 0 { val += sd.damage_taken_bonus as f32 * d; }
-            if sd.armor_bonus > 0 { val += sd.armor_bonus as f32 * d; }
+            if sd.damage_taken_bonus > 0 {
+                val += sd.damage_taken_bonus as f32 * d;
+            }
+            if sd.armor_bonus > 0 {
+                val += sd.armor_bonus as f32 * d;
+            }
             val
         })
         .sum()

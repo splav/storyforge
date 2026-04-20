@@ -264,28 +264,8 @@ pub fn compute_factors(ctx: &ScoringCtx, step: &ScoredStep) -> PlanFactors {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    // ── Normalization tests ───────────────────────────────────────────
-
-    #[test]
-    fn signed_normalization_preserves_negative_order() {
-        let values = [-3.0f32, -1.0, -0.5];
-        let max_abs = values.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
-        let normalized: Vec<f32> = values.iter().map(|v| v / max_abs).collect();
-        assert_eq!(normalized, vec![-1.0, -1.0 / 3.0, -0.5 / 3.0]);
-        assert!(normalized[0] < normalized[1]);
-        assert!(normalized[1] < normalized[2]);
-    }
-
-    #[test]
-    fn signed_normalization_flat_batch_gives_zero() {
-        let values = [0.0f32; 3];
-        let max_abs = values.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
-        for &v in &values {
-            let norm = if max_abs > f32::EPSILON { v / max_abs } else { 0.0 };
-            assert_eq!(norm, 0.0);
-            assert!(!norm.is_nan());
-        }
-    }
-}
+// Normalization tests used to live here but only exercised inlined copies
+// of the formula, not production code. The real batch-normalisation contract
+// is pinned by `planning::scorer::tests::sum_factors_scale_by_step_weight`
+// and `rescore_matches_full_score_under_same_intent`, which drive
+// `finalize_scores` end-to-end.

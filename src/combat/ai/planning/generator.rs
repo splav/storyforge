@@ -513,7 +513,6 @@ mod tests {
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
     };
-    use crate::content::content_view::ContentView;
     use crate::core::{AbilityId, DiceExpr};
     use crate::game::components::{Abilities, Team};
     use crate::game::hex::hex_from_offset;
@@ -884,14 +883,6 @@ mod tests {
         }
     }
 
-    fn ctx_with<'a>(
-        content: &'a ContentView,
-        difficulty: &'a DifficultyProfile,
-        caster: &'a CasterContext,
-        abilities: &'a Abilities,
-    ) -> UtilityContext<'a> {
-        make_ctx(content, difficulty, caster, abilities)
-    }
 
     // Rule 1: Taunt (FORCES_TARGETING)
 
@@ -908,7 +899,7 @@ mod tests {
         let difficulty = DifficultyProfile::normal();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
+        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), taunter.clone(), other.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -939,7 +930,7 @@ mod tests {
         let difficulty = DifficultyProfile::normal();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec![heal.id.clone()]);
-        let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
+        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
         let taunter_ent = Some(taunter.entity);
         let snap = BattleSnapshot::new(vec![actor.clone(), taunter, ally.clone()], 1);
@@ -963,7 +954,7 @@ mod tests {
         let difficulty = DifficultyProfile::normal();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
+        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), a.clone(), b.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -990,7 +981,7 @@ mod tests {
         let difficulty = DifficultyProfile::normal();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec![heal.id.clone()]);
-        let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
+        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), fine.clone(), hurt.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1022,7 +1013,7 @@ mod tests {
         let difficulty = DifficultyProfile::normal();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
+        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), stunned.clone(), awake.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1053,7 +1044,7 @@ mod tests {
         let difficulty = DifficultyProfile::normal();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
+        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), stunned.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1080,7 +1071,7 @@ mod tests {
         let difficulty = DifficultyProfile::normal();
         let caster = CasterContext { str_mod: 0, int_mod: 4, spell_power: 2, weapon_dice: None };
         let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
+        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1106,7 +1097,7 @@ mod tests {
         let difficulty = DifficultyProfile::normal();
         let caster = CasterContext { str_mod: 0, int_mod: 4, spell_power: 2, weapon_dice: None };
         let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
+        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), e1.clone(), e2.clone(), ally.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
@@ -1175,7 +1166,7 @@ mod tests {
         let difficulty = DifficultyProfile::normal();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
+        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), taunter.clone(), nearby.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
