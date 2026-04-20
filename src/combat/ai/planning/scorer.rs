@@ -38,8 +38,6 @@
 //! - `risk`: `1 − max_danger_along_path` — worst tile the actor traverses or
 //!   casts from.
 
-#![allow(clippy::too_many_arguments)]
-
 use crate::combat::ai::factors::{
     self, PlanFactors, ScoredStep, INTENT_IDX, NUM_FACTORS, SCARCITY_IDX, SIGNED_FACTOR,
 };
@@ -449,24 +447,12 @@ fn killed_intent_target(killed: &[Entity], intent: &TacticalIntent) -> bool {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::influence::InfluenceMaps;
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::reservations::Reservations;
     use crate::combat::ai::snapshot::AiTags;
+    use crate::combat::ai::test_helpers::make_scoring_ctx;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
-
-    /// Bundle the per-test (snap, active, maps, reservations, utility) refs
-    /// into a `ScoringCtx`. Mirrors what `pick_action` builds in production.
-    fn make_scoring_ctx<'a>(
-        utility: &'a UtilityContext<'a>,
-        snap: &'a BattleSnapshot,
-        maps: &'a InfluenceMaps,
-        reservations: &'a Reservations,
-        active: &'a UnitSnapshot,
-    ) -> ScoringCtx<'a, 'a> {
-        ScoringCtx { utility, snap, maps, reservations, active }
-    }
 
     /// Scorer-suite defaults: AP=2 (enough for a 1-AP cast), melee bruiser
     /// with one `melee_attack` ability. Mirrors the pre-builder factory.

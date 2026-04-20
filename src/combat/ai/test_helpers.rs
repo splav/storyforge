@@ -5,9 +5,10 @@
 
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
+use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::{AiRole, AxisProfile};
-use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
-use crate::combat::ai::utility::{ActorCtx, AiWorld, UtilityContext};
+use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::utility::{ActorCtx, AiWorld, ScoringCtx, UtilityContext};
 use crate::content::abilities::CasterContext;
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;
@@ -37,6 +38,20 @@ pub(crate) fn make_test_ctx<'a>(
             crit_fail_chance: 0.0,
         },
     }
+}
+
+/// Bundle the per-test (utility, snap, maps, reservations, active) refs into
+/// a `ScoringCtx`. Mirrors what `pick_action` builds in production. Callers
+/// own the `maps` / `reservations` so a single test can pre-seed specific
+/// tiles/reservations before handing them in.
+pub(crate) fn make_scoring_ctx<'a>(
+    utility: &'a UtilityContext<'a>,
+    snap: &'a BattleSnapshot,
+    maps: &'a InfluenceMaps,
+    reservations: &'a Reservations,
+    active: &'a UnitSnapshot,
+) -> ScoringCtx<'a, 'a> {
+    ScoringCtx { utility, maps, reservations, snap, active }
 }
 
 // ── Unit snapshot builder ──────────────────────────────────────────────────

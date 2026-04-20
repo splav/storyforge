@@ -1,30 +1,25 @@
 //! Resource-scarcity factor: justification for spending costly abilities.
 
-#![allow(clippy::too_many_arguments)]
-
 use super::aoe_hits::aoe_hits;
 use super::offensive::aoe_area;
 use super::ScoredStep;
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::UtilityContext;
+use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
+use crate::combat::ai::utility::{ScoringCtx, UtilityContext};
 use crate::content::abilities::{AoEShape, TargetType};
 
 /// Compute resource-scarcity factor: `swing_value - resource_ratio`.
 /// Free abilities return 0.0 (neutral). Expensive abilities on low-value
 /// situations get negative scores; expensive abilities in high-swing moments
 /// get positive scores.
-pub(super) fn compute_scarcity(
-    step: &ScoredStep,
-    active: &UnitSnapshot,
-    kill: f32,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-) -> f32 {
+pub(super) fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
     let ScoredStep::Cast { ability, target_pos, target, caster_tile } = step else {
         return 0.0;
     };
-    let Some(def) = ctx.world.content.abilities.get(*ability) else {
+    let utility = ctx.utility;
+    let snap = ctx.snap;
+    let active = ctx.active;
+    let Some(def) = utility.world.content.abilities.get(*ability) else {
         return 0.0;
     };
 
@@ -87,7 +82,7 @@ pub(super) fn compute_scarcity(
 
     // CC on high-threat unstunned target. Non-AoE only — AoE CC is already
     // folded into the cc factor per-enemy.
-    if applies_cc(def, ctx.world.content) {
+    if applies_cc(def, utility.world.content) {
         if let Some(t) = target_unit {
             if !t.tags.contains(AiTags::IS_STUNNED) {
                 swing += 0.5 * (t.threat / 10.0).min(1.0);
@@ -97,7 +92,7 @@ pub(super) fn compute_scarcity(
 
     // Overkill penalty: target nearly dead and caster has free attacks.
     if let Some(t) = target_unit {
-        if t.hp_pct() < 0.25 && has_free_attack(ctx) {
+        if t.hp_pct() < 0.25 && has_free_attack(utility) {
             swing -= 0.3;
         }
     }
@@ -124,9 +119,12 @@ fn has_free_attack(ctx: &UtilityContext) -> bool {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::reservations::Reservations;
     use crate::combat::ai::role::AiRole;
-    use crate::combat::ai::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{make_test_ctx, unit, UnitBuilder};
+    use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::test_helpers::{
+        empty_maps, make_scoring_ctx, make_test_ctx, unit, UnitBuilder,
+    };
     use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
     use crate::core::AbilityId;
@@ -159,6 +157,22 @@ mod tests {
         ScoredStep::Cast { ability, target, target_pos, caster_tile: tile }
     }
 
+    /// Score `compute_scarcity` against a freshly-built `ScoringCtx` bundle.
+    /// Inlines the `empty_maps` + `Reservations::default()` scaffolding that
+    /// every test in this suite needs after the bundle migration.
+    fn score<'a>(
+        step: &ScoredStep,
+        kill: f32,
+        ctx: &'a UtilityContext<'a>,
+        snap: &BattleSnapshot,
+        active: &UnitSnapshot,
+    ) -> f32 {
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let scoring = make_scoring_ctx(ctx, snap, &maps, &reservations, active);
+        compute_scarcity(step, kill, &scoring)
+    }
+
     #[test]
     fn scarcity_neutral_for_free_abilities() {
         let tile = hex_from_offset(4, 3);
@@ -170,7 +184,7 @@ mod tests {
 
         let ab = AbilityId::from("melee_attack");
         let step = cast_step(tile, &ab, tile, enemy.entity);
-        let score = compute_scarcity(&step, &active, 0.0, &ctx, &s);
+        let score = score(&step, 0.0, &ctx, &s, &active);
         assert_eq!(score, 0.0, "free ability should have zero scarcity");
     }
 
@@ -188,7 +202,7 @@ mod tests {
 
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
-        let score = compute_scarcity(&step, &active, 0.0, &ctx, &s);
+        let score = score(&step, 0.0, &ctx, &s, &active);
         assert!(
             score < 0.0,
             "expensive ability on dying target should get negative scarcity, got {:.2}",
@@ -211,7 +225,7 @@ mod tests {
 
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
-        let score = compute_scarcity(&step, &active, 1.0, &ctx, &s);
+        let score = score(&step, 1.0, &ctx, &s, &active);
         assert!(
             score > 0.0,
             "kill on support should yield positive scarcity, got {:.2}",
@@ -239,7 +253,7 @@ mod tests {
 
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, e1.pos, e1.entity);
-        let score = compute_scarcity(&step, &active, 0.0, &ctx, &s);
+        let score = score(&step, 0.0, &ctx, &s, &active);
         assert!(
             score > 0.0,
             "AoE on cluster should yield positive scarcity, got {:.2}",
@@ -259,7 +273,7 @@ mod tests {
         let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
         let pair = |round: u32| -> f32 {
             let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], round);
-            compute_scarcity(&step, &active, 0.0, &ctx, &s)
+            score(&step, 0.0, &ctx, &s, &active)
         };
         let (score_r1, score_r3) = (pair(1), pair(3));
         assert!(

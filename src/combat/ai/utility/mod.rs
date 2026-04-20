@@ -273,7 +273,7 @@ pub fn pick_action(
     // score can't catch (low-HP through AoO corridors, self-AoE, LOS
     // blindspots, retreat traps). Runs on all plans so low-ranked terrible
     // ones can't sneak up via noise.
-    sanity_adjust_plans(&mut scored, &plans, active, snap, maps, ctx);
+    sanity_adjust_plans(&mut scored, &plans, &scoring_ctx);
 
     // ProtectSelf mask: when intent is (or fell to) ProtectSelf, mask any
     // plan whose first step isn't defensive to -∞. This is where the intent

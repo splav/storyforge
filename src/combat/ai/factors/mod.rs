@@ -10,8 +10,6 @@
 //! - `scarcity`  — resource-vs-swing scoring for Cast candidates.
 //! - `adjustments` — reservation nerfs + crit-fail expected-value adjustment.
 
-#![allow(clippy::too_many_arguments)]
-
 mod adjustments;
 mod aoe_hits;
 mod offensive;
@@ -225,9 +223,7 @@ pub fn compute_factors(ctx: &ScoringCtx, step: &ScoredStep) -> PlanFactors {
 
     let mut off = match step {
         ScoredStep::Cast { ability, target_pos, target, caster_tile } => {
-            offensive::compute_offensive(
-                ability, *target_pos, *target, *caster_tile, active, ctx.utility, snap,
-            )
+            offensive::compute_offensive(ability, *target_pos, *target, *caster_tile, ctx)
         }
         ScoredStep::Move { .. } => OffensiveFactors::default(),
     };
@@ -241,13 +237,11 @@ pub fn compute_factors(ctx: &ScoringCtx, step: &ScoredStep) -> PlanFactors {
         .unwrap_or(0.0);
 
     adjustments::apply_reservation_adjustments(
-        step, &mut off, &mut focus, &mut position, snap, ctx.utility, ctx.reservations,
+        step, &mut off, &mut focus, &mut position, ctx,
     );
 
     let scarcity = match step {
-        ScoredStep::Cast { .. } => {
-            scarcity::compute_scarcity(step, active, off.kill, ctx.utility, snap)
-        }
+        ScoredStep::Cast { .. } => scarcity::compute_scarcity(step, off.kill, ctx),
         ScoredStep::Move { .. } => 0.0,
     };
 

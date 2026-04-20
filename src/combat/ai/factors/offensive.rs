@@ -1,13 +1,11 @@
 //! Offensive factors: damage / heal / kill / cc for single-target and AoE.
 
-#![allow(clippy::too_many_arguments)]
-
 use super::adjustments::crit_fail_adjusted;
 use super::aoe_hits::{aoe_hits, AoeHits};
 use super::OffensiveFactors;
 use crate::combat::ai::scoring::{score_action, status_applications};
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::UtilityContext;
+use crate::combat::ai::snapshot::UnitSnapshot;
+use crate::combat::ai::utility::{ScoringCtx, UtilityContext};
 use crate::combat::effects_math::aoe_cells;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 use crate::core::AbilityId;
@@ -20,11 +18,9 @@ pub(super) fn compute_offensive(
     target_pos: Hex,
     target: Entity,
     caster_tile: Hex,
-    active: &UnitSnapshot,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
+    ctx: &ScoringCtx,
 ) -> OffensiveFactors {
-    let Some(def) = ctx.world.content.abilities.get(ability) else {
+    let Some(def) = ctx.utility.world.content.abilities.get(ability) else {
         return OffensiveFactors::default();
     };
 
@@ -32,13 +28,19 @@ pub(super) fn compute_offensive(
         return OffensiveFactors::default();
     }
 
+    let utility = ctx.utility;
+    let snap = ctx.snap;
+    let active = ctx.active;
+
     let (damage, heal, kill, cc) = if def.aoe == AoEShape::None {
         let mut damage = 0.0f32;
         let mut heal = 0.0f32;
         let target_unit = snap.unit(target);
         if let Some(target_unit) = target_unit {
-            let raw = score_action(def, target_unit, ctx.actor.caster, ctx.world.content);
-            let adjusted = crit_fail_adjusted(raw, def, &ctx.actor.crit_fail_effect, ctx.actor.crit_fail_chance);
+            let raw = score_action(def, target_unit, utility.actor.caster, utility.world.content);
+            let adjusted = crit_fail_adjusted(
+                raw, def, &utility.actor.crit_fail_effect, utility.actor.crit_fail_chance,
+            );
             if def.target_type == TargetType::SingleAlly {
                 heal = adjusted;
             } else if def.target_type == TargetType::SingleEnemy {
@@ -46,16 +48,22 @@ pub(super) fn compute_offensive(
             }
         }
         let kill = match target_unit {
-            Some(t) if def.target_type == TargetType::SingleEnemy => single_target_kill(def, t, ctx),
+            Some(t) if def.target_type == TargetType::SingleEnemy => {
+                single_target_kill(def, t, utility)
+            }
             _ => 0.0,
         };
-        let cc = target_unit.map_or(0.0, |t| status_cc_value(def, t.threat, ctx));
+        let cc = target_unit.map_or(0.0, |t| status_cc_value(def, t.threat, utility));
         (damage, heal, kill, cc)
     } else {
         let area = aoe_area(def, target_pos, caster_tile);
         let hits = aoe_hits(&area, active, snap);
-        let damage = compute_aoe_damage(def, &hits, active, ctx);
-        let kill = if hits.enemies.iter().any(|e| single_target_kill(def, e, ctx) > 0.0) {
+        let damage = compute_aoe_damage(def, &hits, active, utility);
+        let kill = if hits
+            .enemies
+            .iter()
+            .any(|e| single_target_kill(def, e, utility) > 0.0)
+        {
             1.0
         } else {
             0.0
@@ -63,7 +71,7 @@ pub(super) fn compute_offensive(
         let cc: f32 = hits
             .enemies
             .iter()
-            .map(|e| status_cc_value(def, e.threat, ctx))
+            .map(|e| status_cc_value(def, e.threat, utility))
             .sum();
         (damage, 0.0, kill, cc)
     };

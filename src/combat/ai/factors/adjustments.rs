@@ -1,9 +1,7 @@
 //! Reservation-based coordination adjustments + crit-fail expected-value.
 
 use super::{OffensiveFactors, ScoredStep};
-use crate::combat::ai::reservations::Reservations;
-use crate::combat::ai::snapshot::BattleSnapshot;
-use crate::combat::ai::utility::UtilityContext;
+use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::AbilityDef;
 use crate::content::races::CritFailEffect;
 use crate::core::ResourceKind;
@@ -23,10 +21,11 @@ pub(super) fn apply_reservation_adjustments(
     off: &mut OffensiveFactors,
     focus: &mut f32,
     position: &mut f32,
-    snap: &BattleSnapshot,
-    ctx: &UtilityContext,
-    reservations: &Reservations,
+    ctx: &ScoringCtx,
 ) {
+    let reservations = ctx.reservations;
+    let snap = ctx.snap;
+    let difficulty = ctx.utility.world.difficulty;
     if let Some(target_ent) = step.target() {
         let reserved_dmg = reservations.reserved_damage(target_ent);
         if reserved_dmg > 0.0 {
@@ -38,11 +37,11 @@ pub(super) fn apply_reservation_adjustments(
                     // kill together — previously `kill = 0.0` was absolute
                     // while damage leaked `mult` through, leaving overkill
                     // plans attractive whenever raw damage was high.
-                    let mult = ctx.world.difficulty.overkill_multiplier();
+                    let mult = difficulty.overkill_multiplier();
                     off.damage *= mult;
                     off.kill *= mult;
                 } else {
-                    *focus *= 1.0 + ctx.world.difficulty.focus_fire_bonus();
+                    *focus *= 1.0 + difficulty.focus_fire_bonus();
                 }
             }
         }
@@ -89,7 +88,10 @@ mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::test_helpers::{make_test_ctx, UnitBuilder};
+    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::test_helpers::{
+        empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+    };
     use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
     use crate::core::AbilityId;
@@ -113,13 +115,20 @@ mod tests {
         )
     }
 
+    /// Placeholder active for tests where `apply_reservation_adjustments`
+    /// doesn't actually read the actor — the bundle requires one but the
+    /// coordination logic is actor-agnostic. Any minimal unit works.
+    fn placeholder_active() -> crate::combat::ai::snapshot::UnitSnapshot {
+        UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build()
+    }
+
     /// Regression: reserved-tile penalty must always push `position` down,
     /// regardless of sign. Old code did `*= 0.5`, which flipped the effect on
     /// negative positions — a bad tile's reservation made it look better.
     #[test]
     fn reserved_tile_penalises_both_signs() {
         let (content, diff, abs) = fixture();
-        let ctx = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
+        let utility = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
 
         let tile = hex_from_offset(3, 3);
         let step = ScoredStep::Move { caster_tile: tile };
@@ -127,6 +136,9 @@ mod tests {
 
         let mut reservations = Reservations::default();
         reservations.reserve_tile(tile);
+        let maps = empty_maps();
+        let active = placeholder_active();
+        let ctx = make_scoring_ctx(&utility, &snap, &maps, &reservations, &active);
 
         // Apply the penalty starting from `initial` and assert the side the
         // result falls on — both signs must push *away from zero*.
@@ -134,9 +146,7 @@ mod tests {
             let mut off = OffensiveFactors::default();
             let mut focus = 0.0;
             let mut position = initial;
-            apply_reservation_adjustments(
-                &step, &mut off, &mut focus, &mut position, &snap, &ctx, &reservations,
-            );
+            apply_reservation_adjustments(&step, &mut off, &mut focus, &mut position, &ctx);
             position
         };
 
@@ -151,7 +161,7 @@ mod tests {
     #[test]
     fn overkill_scales_damage_and_kill_uniformly() {
         let (content, diff, abs) = fixture();
-        let ctx = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
+        let utility = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
         let mult = diff.overkill_multiplier();
         assert!(mult > 0.0 && mult < 1.0, "precondition: non-trivial multiplier");
 
@@ -174,9 +184,10 @@ mod tests {
         let mut off = OffensiveFactors { damage: 8.0, heal: 0.0, kill: 1.0, cc: 0.0 };
         let mut focus = 0.7;
         let mut position = 0.0;
-        apply_reservation_adjustments(
-            &step, &mut off, &mut focus, &mut position, &snap, &ctx, &reservations,
-        );
+        let maps = empty_maps();
+        let active = placeholder_active();
+        let ctx = make_scoring_ctx(&utility, &snap, &maps, &reservations, &active);
+        apply_reservation_adjustments(&step, &mut off, &mut focus, &mut position, &ctx);
 
         assert!(
             (off.damage - 8.0 * mult).abs() < 1e-5,
@@ -195,18 +206,19 @@ mod tests {
     #[test]
     fn unreserved_tile_leaves_position_untouched() {
         let (content, diff, abs) = fixture();
-        let ctx = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
+        let utility = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
 
         let step = ScoredStep::Move { caster_tile: hex_from_offset(0, 0) };
         let snap = BattleSnapshot::new(Vec::new(), 1);
         let reservations = Reservations::default();
+        let maps = empty_maps();
+        let active = placeholder_active();
+        let ctx = make_scoring_ctx(&utility, &snap, &maps, &reservations, &active);
 
         let mut off = OffensiveFactors::default();
         let mut focus = 0.0;
         let mut position = -0.5f32;
-        apply_reservation_adjustments(
-            &step, &mut off, &mut focus, &mut position, &snap, &ctx, &reservations,
-        );
+        apply_reservation_adjustments(&step, &mut off, &mut focus, &mut position, &ctx);
         assert_eq!(position, -0.5);
     }
 }

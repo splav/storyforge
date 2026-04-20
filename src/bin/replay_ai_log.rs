@@ -24,7 +24,8 @@ use storyforge::combat::ai::planning::{
 };
 use storyforge::combat::ai::role::AxisProfile;
 use storyforge::combat::ai::snapshot::BattleSnapshot;
-use storyforge::combat::ai::utility::{ActorCtx, AiWorld, UtilityContext};
+use storyforge::combat::ai::reservations::Reservations;
+use storyforge::combat::ai::utility::{ActorCtx, AiWorld, ScoringCtx, UtilityContext};
 use storyforge::content::abilities::CasterContext;
 use storyforge::content::content_view::ContentView;
 use storyforge::content::races::CritFailEffect;
@@ -230,8 +231,18 @@ fn main() {
             .collect();
         let pre_scores = scores.clone();
 
-        // Apply current sanity_adjust.
-        sanity_adjust_plans(&mut scores, &plans, &active, &entry.snapshot, &maps, &ctx);
+        // Apply current sanity_adjust. Reservations are empty during replay —
+        // each entry is scored in isolation, without the round's coordination
+        // state from live play.
+        let reservations = Reservations::default();
+        let scoring_ctx = ScoringCtx {
+            utility: &ctx,
+            maps: &maps,
+            reservations: &reservations,
+            snap: &entry.snapshot,
+            active: &active,
+        };
+        sanity_adjust_plans(&mut scores, &plans, &scoring_ctx);
 
         // ProtectSelf mask — two paths:
         //   1. The logged intent is already ProtectSelf (fix A deployed at

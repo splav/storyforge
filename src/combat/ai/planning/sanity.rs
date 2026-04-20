@@ -9,15 +9,13 @@
 //! `SURVIVAL_FLOOR` keeps even punished plans competitive when all options
 //! are bad; retreat lines still beat "rush at 5 HP".
 
-#![allow(clippy::too_many_arguments)]
-
 use crate::combat::ai::factors::aoe_area;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::scorer::worst_path_danger;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
-use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::UtilityContext;
+use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
+use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::effects_math::final_damage_f32;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ContentView;
@@ -37,18 +35,14 @@ const AOO_PENALTY_K: f32 = 2.0;
 /// SURVIVAL_FLOOR: keep the plan comparable when every option bleeds.
 const AOO_RISK_FLOOR: f32 = 0.25;
 
-pub fn sanity_adjust_plans(
-    scores: &mut [f32],
-    plans: &[TurnPlan],
-    active: &UnitSnapshot,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    ctx: &UtilityContext,
-) {
+pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &ScoringCtx) {
     if scores.len() <= 1 {
         return;
     }
 
+    let active = ctx.active;
+    let snap = ctx.snap;
+    let maps = ctx.maps;
     let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
     let allies: Vec<&UnitSnapshot> = snap
         .allies_of(active.team)
@@ -125,7 +119,7 @@ pub fn sanity_adjust_plans(
 
         // 5. Self-AoE: any Cast step in the plan centers a friendly-fire AoE
         // on a tile that covers the caster's position at that moment.
-        if plan_has_self_aoe(active, plan, ctx) {
+        if plan_has_self_aoe(plan, ctx) {
             penalty *= 0.5;
         }
 
@@ -207,10 +201,11 @@ fn expected_aoo_damage(
     total
 }
 
-fn plan_has_self_aoe(active: &UnitSnapshot, plan: &TurnPlan, ctx: &UtilityContext) -> bool {
-    plan.walk_with_caster(active.pos).any(|(_, step, caster_pos)| {
+fn plan_has_self_aoe(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
+    let content = ctx.utility.world.content;
+    plan.walk_with_caster(ctx.active.pos).any(|(_, step, caster_pos)| {
         let PlanStep::Cast { ability, target_pos, .. } = step else { return false };
-        let Some(def) = ctx.world.content.abilities.get(ability) else { return false };
+        let Some(def) = content.abilities.get(ability) else { return false };
         if !def.friendly_fire || def.aoe == AoEShape::None {
             return false;
         }
@@ -221,11 +216,12 @@ fn plan_has_self_aoe(active: &UnitSnapshot, plan: &TurnPlan, ctx: &UtilityContex
     })
 }
 
-fn plan_has_useful_cast(plan: &TurnPlan, ctx: &UtilityContext) -> bool {
+fn plan_has_useful_cast(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
+    let utility = ctx.utility;
     plan.steps.iter().any(|s| {
         if let PlanStep::Cast { ability, .. } = s {
-            ctx.world.content.abilities.get(ability).is_some_and(|def| {
-                def.effect.calc(ctx.actor.caster).is_some() || !def.statuses.is_empty()
+            utility.world.content.abilities.get(ability).is_some_and(|def| {
+                def.effect.calc(utility.actor.caster).is_some() || !def.statuses.is_empty()
             })
         } else {
             false
@@ -508,7 +504,9 @@ mod tests {
 
     #[test]
     fn plan_has_self_aoe_detects_friendly_fire_circle_on_caster() {
-        use crate::combat::ai::test_helpers::make_test_ctx;
+        use crate::combat::ai::reservations::Reservations;
+        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
         use crate::content::abilities::CasterContext;
         let actor_pos = hex_from_offset(0, 0);
         let actor = unit(1, Team::Enemy, actor_pos, 20);
@@ -519,7 +517,11 @@ mod tests {
         content.abilities.insert(def.id.clone(), def);
 
         let difficulty = crate::combat::ai::difficulty::DifficultyProfile::normal();
-        let ctx = make_test_ctx(&content, &difficulty, &caster, &abilities);
+        let utility = make_test_ctx(&content, &difficulty, &caster, &abilities);
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&utility, &snap, &maps, &reservations, &actor);
 
         // Single-cast fireball centred on `target_pos`, fired from `actor_pos`.
         let cast_fireball_at = |target_pos: Hex| TurnPlan {
@@ -537,11 +539,11 @@ mod tests {
         };
 
         assert!(
-            plan_has_self_aoe(&actor, &cast_fireball_at(actor_pos), &ctx),
+            plan_has_self_aoe(&cast_fireball_at(actor_pos), &ctx),
             "friendly-fire circle on caster tile must be flagged as self-AoE",
         );
         assert!(
-            !plan_has_self_aoe(&actor, &cast_fireball_at(hex_from_offset(5, 5)), &ctx),
+            !plan_has_self_aoe(&cast_fireball_at(hex_from_offset(5, 5)), &ctx),
             "AoE centred far from the caster must not be flagged",
         );
     }
