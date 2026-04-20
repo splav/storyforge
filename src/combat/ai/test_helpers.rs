@@ -30,7 +30,7 @@ pub(crate) fn make_test_ctx<'a>(
     abilities: &'a Abilities,
 ) -> UtilityContext<'a> {
     UtilityContext {
-        world: AiWorld { content, difficulty },
+        world: AiWorld { content, difficulty, crit_fail_chance: 0.0 },
         actor: ActorCtx {
             caster,
             abilities,
@@ -97,6 +97,8 @@ impl UnitBuilder {
                 reactions_left: 0,
                 aoo_expected_damage: None,
                 statuses: Vec::new(),
+                caster_ctx: Default::default(),
+                crit_fail_effect: Default::default(),
             },
         }
     }

@@ -115,7 +115,9 @@ fn run_ai_turn(
     let snap = build_snapshot(combat_ctx.round, combatants, statuses, positions, roles, content);
     let maps = build_influence_maps(&snap, actor, actor_team, inf_cfg);
 
-    // Build utility context.
+    // Build utility context. `caster_ctx` / `crit_fail_effect` now live on
+    // each `UnitSnapshot`; ActorCtx still carries the borrow-backed copies
+    // until E.2 migrates readers over.
     let caster = build_caster_ctx(c, content);
     let crit_fail_effect = c.combat_path
         .and_then(|cp| content.paths.get(&cp.0))
@@ -123,7 +125,7 @@ fn run_ai_turn(
     let crit_fail_chance = 1.0 / settings.crit_fail_die as f32;
 
     let ctx = UtilityContext {
-        world: AiWorld { content, difficulty },
+        world: AiWorld { content, difficulty, crit_fail_chance },
         actor: ActorCtx {
             caster: &caster,
             abilities: c.abilities,

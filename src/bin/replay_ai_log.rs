@@ -174,6 +174,7 @@ fn main() {
             world: AiWorld {
                 content: &content,
                 difficulty: &difficulty,
+                crit_fail_chance: 0.0,
             },
             actor: ActorCtx {
                 caster: &caster,

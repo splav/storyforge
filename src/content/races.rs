@@ -12,7 +12,7 @@ pub struct FactionDef {
     pub name: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CritFailEffect {
     #[default]
     Miss,

@@ -89,9 +89,15 @@ pub enum MoveOrigin {
 // hp=0 units, there's no separate `blocked_tiles` channel to thread.
 
 /// World-scope data. Stable for the entire combat.
+///
+/// `crit_fail_chance` lives here — not on `ActorCtx` — because it's a
+/// combat-wide rule derived from `GameSettings.crit_fail_die` (one die per
+/// combat, player + AI pay the same odds). Sits alongside `content` and
+/// `difficulty` as "how this world works for every actor".
 pub struct AiWorld<'a> {
     pub content: &'a ContentView,
     pub difficulty: &'a DifficultyProfile,
+    pub crit_fail_chance: f32,
 }
 
 /// Per-actor data rebuilt each AI tick. Caster mods, ability list, crit-fail

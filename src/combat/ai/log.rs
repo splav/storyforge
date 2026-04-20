@@ -45,7 +45,7 @@ use crate::game::hex::Hex;
 ///   v1 logs are still readable via `#[serde(default)]` on the new fields
 ///   (defaults: `reactions_left=1` — matches the only content-wide `Reactions::max`;
 ///   `aoo_expected_damage=None` — no damage info available).
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can

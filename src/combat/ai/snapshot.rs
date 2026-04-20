@@ -2,6 +2,7 @@ use crate::content::content_view::ContentView;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::scoring::{applies_cc, estimate_st_damage};
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
+use crate::content::races::CritFailEffect;
 use crate::core::{AbilityId, ResourceKind, StatusId};
 use crate::game::components::{
     AiCombatantQ, Combatant, StatusEffects, Team,
@@ -97,6 +98,20 @@ pub struct UnitSnapshot {
     /// Schema v3+: absent on older logs → empty vec.
     #[serde(default)]
     pub statuses: Vec<ActiveStatusView>,
+    /// Caster parameters (str/int mod, spell power, weapon dice). Derived
+    /// from stats + equipment at snapshot time; kept here so every scoring
+    /// call site reads the actor's caster data from the same source as its
+    /// HP/AP/abilities (one entity ⇒ one row).
+    /// Schema v3+: absent on older logs → `CasterContext::default()`.
+    #[serde(default)]
+    pub caster_ctx: CasterContext,
+    /// Actor's crit-fail behaviour (from the combat path definition). Lives
+    /// on the snapshot so scoring doesn't need a separate per-actor context;
+    /// pairs naturally with `caster_ctx` — both are facts about "this
+    /// entity's combat shape" at snapshot time.
+    /// Schema v3+: absent on older logs → `CritFailEffect::Miss`.
+    #[serde(default)]
+    pub crit_fail_effect: CritFailEffect,
 }
 
 /// Snapshot-shaped mirror of `ActiveStatus` (components.rs). Drops `applier`
@@ -307,6 +322,14 @@ pub fn build_snapshot(
                 reactions_left,
                 aoo_expected_damage,
                 statuses,
+                // `caster_ctx` is already built above for threat/AoO; reuse it
+                // so readers get the same derivation without recomputing.
+                caster_ctx: caster_ctx.clone(),
+                crit_fail_effect: c
+                    .combat_path
+                    .and_then(|cp| content.paths.get(&cp.0))
+                    .map(|p| p.crit_fail_effect.clone())
+                    .unwrap_or_default(),
             })
         })
         .collect();
@@ -561,6 +584,8 @@ mod affordability_tests {
             reactions_left: 1,
             aoo_expected_damage: None,
             statuses: Vec::new(),
+            caster_ctx: Default::default(),
+            crit_fail_effect: Default::default(),
         }
     }
 

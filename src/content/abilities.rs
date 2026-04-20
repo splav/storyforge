@@ -115,6 +115,7 @@ pub enum EffectDef {
 // ── Unified effect computation ──────────────────────────────────────────────
 
 /// Context about the caster needed to compute effect values.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct CasterContext {
     pub str_mod: i32,
     pub int_mod: i32,
