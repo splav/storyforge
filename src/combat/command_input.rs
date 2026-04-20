@@ -143,8 +143,8 @@ pub fn player_command_system(
             .and_then(|id| content.abilities.get(id.0.as_str()))
             .map(|def| def.target_type);
 
-        if matches!(target_type, Some(TargetType::Myself)) {
-            // self-cast: Tab does nothing
+        if matches!(target_type, Some(TargetType::Myself | TargetType::Ground)) {
+            // self-cast / ground-targeted: Tab does nothing (no entity to cycle).
         } else {
             let is_single_ally = target_type == Some(TargetType::SingleAlly);
 

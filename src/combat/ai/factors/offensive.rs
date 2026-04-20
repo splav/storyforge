@@ -4,7 +4,7 @@ use super::adjustments::crit_fail_adjusted;
 use super::aoe_hits::{aoe_hits, AoeHits};
 use super::OffensiveFactors;
 use crate::combat::ai::scoring::{
-    horizon_window_sum, score_action, status_applications,
+    score_action, status_applications, stun_denial_value,
 };
 use crate::combat::ai::snapshot::UnitSnapshot;
 use crate::combat::ai::utility::ScoringCtx;
@@ -163,16 +163,15 @@ fn single_target_kill(def: &AbilityDef, target: &UnitSnapshot, caster: &CasterCo
 /// factor is meaningful only on enemies). `status_score` uses `.abs()` so
 /// it can price ally buffs too.
 ///
-/// Reads `target.damage_horizon` for `skips_turn` to value the stun by
-/// the duration-window sum (DPR-correct); falls back to `threat × d` when
-/// the horizon is empty (legacy logs / uninitialised fixtures).
+/// Stun denial (skips_turn) goes through the shared `stun_denial_value`
+/// helper — same formula the `scarcity` swing branch reads, so the two
+/// stay in lockstep. Vulnerability / armor-shred contributions fold in
+/// separately here because the scarcity branch doesn't consider them.
 fn status_cc_value(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> f32 {
-    status_applications(def, content)
+    let stun = stun_denial_value(def, target, content);
+    let other: f32 = status_applications(def, content)
         .map(|(sd, d)| {
             let mut val = 0.0f32;
-            if sd.skips_turn {
-                val += horizon_window_sum(target, d);
-            }
             if sd.damage_taken_bonus > 0 {
                 val += sd.damage_taken_bonus as f32 * d;
             }
@@ -181,5 +180,6 @@ fn status_cc_value(def: &AbilityDef, target: &UnitSnapshot, content: &ContentVie
             }
             val
         })
-        .sum()
+        .sum();
+    stun + other
 }

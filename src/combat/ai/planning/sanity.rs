@@ -182,7 +182,7 @@ fn expected_aoo_damage(
     let mitigation = (active.armor + active.armor_bonus) as f32;
     let vuln = active.damage_taken_bonus as f32;
     for e in enemies {
-        if e.reactions_left <= 0 || e.max_attack_range != 1 {
+        if e.reactions_left <= 0 {
             continue;
         }
         let Some(raw) = e.aoo_expected_damage else { continue };
@@ -375,6 +375,13 @@ mod tests {
             e.aoo_expected_damage = None;
             e
         }
+        fn hybrid_enemy() -> UnitSnapshot {
+            // Melee + ranged: max_attack_range>1 но melee-AoO есть.
+            // Regression pin for the dropped `max_attack_range != 1` guard.
+            let mut e = default_enemy();
+            e.max_attack_range = 3;
+            e
+        }
         fn no_react_enemy() -> UnitSnapshot {
             let mut e = default_enemy();
             e.reactions_left = 0;
@@ -413,6 +420,13 @@ mod tests {
                 enemies: vec![ranged_enemy()],
                 path: vec![hex_from_offset(-1, 0)],
                 expected: Aoo::Zero,
+            },
+            Row {
+                name: "hybrid melee+ranged provokes (regression: dropped max_range guard)",
+                actor_hp: 20, actor_armor: 0,
+                enemies: vec![hybrid_enemy()],
+                path: vec![hex_from_offset(-1, 0)],
+                expected: Aoo::Positive,
             },
             Row {
                 name: "enemy with 0 reactions does not provoke",

@@ -8,6 +8,11 @@ pub enum TargetType {
     SingleEnemy,
     SingleAlly,
     Myself,
+    /// Player picks a cell (no entity target). `target` in `UseAbility` is a
+    /// sentinel set to the actor; the effect is position-based via
+    /// `target_pos`. Pairs naturally with `aoe != None`; with `aoe = None`
+    /// it's still legal (reserved for future teleport / ground-spawn abilities).
+    Ground,
 }
 
 /// To whom a status is applied when the ability resolves.
@@ -280,6 +285,7 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                 "single_enemy" => TargetType::SingleEnemy,
                 "single_ally" => TargetType::SingleAlly,
                 "myself" => TargetType::Myself,
+                "ground" => TargetType::Ground,
                 other => panic!("{path}: unknown target_type '{other}'"),
             };
             let need_dice = |id: &str, count: Option<u32>, sides: Option<u32>| {

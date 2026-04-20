@@ -428,6 +428,7 @@ fn build_description(def: &AbilityDef, ctx: Option<&CasterContext>, content: &Co
         TargetType::SingleEnemy => "цель: враг",
         TargetType::SingleAlly => "цель: союзник",
         TargetType::Myself => "цель: себя",
+        TargetType::Ground => "цель: клетка",
     };
     out.push_str(target);
 

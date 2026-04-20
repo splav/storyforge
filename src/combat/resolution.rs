@@ -52,7 +52,10 @@ pub fn resolve_action_system(
         };
 
         let primary_target = match def.target_type {
-            TargetType::Myself => ev.actor,
+            // Ground: no entity target; sentinel = actor. For AoE the value
+            // is unused (enumeration is position-driven); for non-AoE Ground
+            // (future teleport/spawn) it would be a no-op on the actor.
+            TargetType::Myself | TargetType::Ground => ev.actor,
             TargetType::SingleEnemy | TargetType::SingleAlly => ev.target,
         };
 

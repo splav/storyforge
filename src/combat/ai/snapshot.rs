@@ -277,7 +277,13 @@ pub fn build_snapshot(
                 .0
                 .iter()
                 .filter_map(|id| content.abilities.get(id))
-                .filter(|def| matches!(def.target_type, TargetType::SingleEnemy))
+                // Ground-targeted abilities also project "attack reach":
+                // a mage with fireball (Ground, range 5) should be treated
+                // as having a 5-tile threat bubble, just like SingleEnemy.
+                .filter(|def| matches!(
+                    def.target_type,
+                    TargetType::SingleEnemy | TargetType::Ground
+                ))
                 .map(|def| def.range.max)
                 .max()
                 .unwrap_or(0);

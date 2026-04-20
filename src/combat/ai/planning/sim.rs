@@ -145,8 +145,8 @@ impl SimState {
         pay_costs(self.actor_unit_mut(), def);
 
         let primary = match def.target_type {
-            TargetType::Myself => self.actor,
-            _ => target,
+            TargetType::Myself | TargetType::Ground => self.actor,
+            TargetType::SingleEnemy | TargetType::SingleAlly => target,
         };
 
         // Shared outcome computation: same code path the live pipeline takes.

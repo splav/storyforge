@@ -452,3 +452,131 @@ ai_debug = true
 При `ai_debug = true` каждый AI-ход печатает: actor + intent + priority target + топ-5 планов + финальная decision. Formatter ходит по `&[TurnPlan]` напрямую через `ScoredStep::from_plan_committed(plan, actor_pos)` — никаких синтезированных адаптеров.
 
 JSONL-лог с raw-факторами и всем пулом планов — через `AiLogger` (см. `src/bin/replay_ai_log.rs`).
+
+---
+
+## Extension Checklist
+
+Куда смотреть при добавлении разных типов механик. Списки — стартовая точка, а не полная диагностика: Rust exhaustive-match ошибки при компиляции доведут до остальных принудительных точек.
+
+**Общий принцип**: правишь ядро → правишь shared resolution (если meaningfully меняет исход каста) → правишь AI (enumerator → filters → scoring → intent). Каждый слой проходит один и тот же каст с разных сторон; пропуск в одном слое — это либо невалидное действие, либо неучтённое в планировщике.
+
+### Новая способность (только TOML)
+
+Файлы: `assets/data/abilities.toml` + соответствующие `classes.toml` / `unit_templates.toml` / `encounters.toml` для владельцев.
+
+Код не трогаешь, **если** способность укладывается в существующие `TargetType`, `EffectDef`, `AoEShape`, `StatusOn`, `ResourceKind`. Если нет — см. соответствующий раздел ниже.
+
+### Новый `TargetType`
+
+Конкретный пример — `Ground` (см. git log вокруг fireball). Затрагивает:
+
+| Файл | Что |
+|---|---|
+| `src/content/abilities.rs` | Вариант enum + парсер строки из TOML |
+| `src/combat/actions/mod.rs` | match arm в `check_legality` (team/alive семантика) |
+| `src/combat/resolution.rs` | `primary_target` match arm |
+| `src/combat/ai/planning/sim.rs` | `primary` match arm |
+| `src/combat/ai/planning/generator.rs::rank_targets` | Как перебирать кандидатов (сущности / клетки) |
+| `src/combat/ai/scoring.rs` | Фильтры `estimate_st_damage`, `estimate_damage_horizon` — если offensive |
+| `src/combat/ai/snapshot.rs` | `max_attack_range` фильтр — если это "атака" |
+| `src/combat/ai/intent.rs` | LastStand +0.5 offensive, прочие intent score'ы если релевантно |
+| `src/ui/ability_panel.rs::build_description` | Русская подпись «цель: …» |
+| `src/ui/hex_grid/input.rs` | Логика клика (что происходит при выборе клетки / сущности) |
+| `src/combat/command_input.rs` | Tab-цикл (что перебирать), Enter-конфирм |
+| `docs/content-guide.md` | Строка в списке допустимых target_type |
+
+Тесты: позитивный + негативный кейсы в `combat::actions::tests` + генератор-тест в `combat::ai::planning::generator::tests`.
+
+### Новый `EffectDef`
+
+| Файл | Что |
+|---|---|
+| `src/content/abilities.rs` | Вариант enum + парсер + `EffectDef::calc` (если даёт число урона/хила) |
+| `src/combat/effects_outcome.rs` | `OutcomePrimary` ветка + dispatch в `compute_ability_outcome` |
+| `src/combat/resolution.rs` | Обработка нового `OutcomePrimary` (writer / side effects) |
+| `src/combat/ai/planning/sim.rs::apply_primary` | Как sim мутирует snapshot |
+| `src/combat/ai/scoring.rs::score_action` | HP-эквивалент |
+| `src/combat/ai/role.rs::ability_vote` | Голос за ось |
+| `src/combat/ai/factors/offensive.rs` | damage/heal/kill/cc выход если эффект туда попадает |
+
+### Новое поле `StatusDef`
+
+| Файл | Что |
+|---|---|
+| `src/content/statuses.rs` | Поле структуры + парсер |
+| `src/combat/statuses.rs` | Применение эффекта в реальной резолюции (tick / damage_modifier / etc.) |
+| `src/combat/ai/snapshot.rs::status_bonuses` | Агрегация в `UnitSnapshot` если это численный бонус |
+| `src/combat/ai/snapshot.rs::compute_tags` | Выставление `AiTag` если флаг — сигнал для интента |
+| `src/combat/ai/scoring.rs::status_cc_value` | Оценка ценности для планировщика |
+| `docs/content-guide.md` | Комментарий в примере `[[statuses]]` |
+
+### Новый `AiTag`
+
+| Файл | Что |
+|---|---|
+| `src/combat/ai/snapshot.rs` | `AiTags` bitflag |
+| `src/combat/ai/snapshot.rs::compute_tags` | Условие выставления |
+| `src/combat/ai/intent.rs::select_intent` | Используется в лестнице выбора интента |
+| Прочие consumer'ы тега (например, фактор scarcity читает `AiTags::IS_STUNNED`) |
+
+### Новый `TacticalIntent`
+
+| Файл | Что |
+|---|---|
+| `src/combat/ai/intent.rs` | Вариант enum |
+| `src/combat/ai/intent.rs::select_intent` | Скоринг условия выбора (таблица в разделе «TacticalIntent») |
+| `src/combat/ai/intent.rs::intent_score` | Alignment scoring на `ScoredStep` |
+| `src/combat/ai/intent.rs` viability thresholds | Порог в viability guard |
+| `src/combat/ai/intent.rs::AiMemory` | Stickiness continuation — `kind()` + сравнение last_intent (если применимо) |
+
+### Новая `AoEShape`
+
+| Файл | Что |
+|---|---|
+| `src/content/abilities.rs` | Вариант enum + парсер |
+| `src/combat/effects_math.rs::aoe_cells` | Перечисление клеток |
+| `src/ui/hex_grid/visuals.rs::update_hex_visuals` | Preview-рендер под ховером |
+| `src/combat/ai/factors/aoe_hits.rs` | Покрытие enemies/allies (если формула нестандартная) |
+| `src/ui/ability_panel.rs::build_description` | Строка-подпись формы |
+
+### Новый фактор scoring'а
+
+| Файл | Что |
+|---|---|
+| `src/combat/ai/factors/mod.rs` | Поле в `Factors` + `compute_factors` + нормализация (non-neg vs signed) |
+| `src/combat/ai/role.rs::AXIS_FACTOR_WEIGHTS` | Весовая колонка на 5 ролей |
+| `src/combat/ai/planning/scorer.rs` | Агрегация по шагам плана (sum / max / discounted) |
+| `src/combat/ai/difficulty.rs` | Ручка difficulty, если фактор должен зависеть от сложности |
+| Этот документ | Строка в таблице факторов |
+
+### Новая `SanityCheck`
+
+| Файл | Что |
+|---|---|
+| `src/combat/ai/planning/sanity.rs` | Функция-пенальти (multiplicative, floor'ится) |
+| Этот документ | Строка в таблице Plan Sanity Adjust |
+
+### Новый `DifficultyProfile` параметр
+
+| Файл | Что |
+|---|---|
+| `src/combat/ai/difficulty.rs` | Поле + трио значений easy/normal/hard + derived |
+| Потребитель(и) | Чтение поля при принятии решения |
+| Этот документ | Строка в таблице Difficulty |
+
+---
+
+### Трассировка: «почему AI не использует Х?»
+
+Если новая способность / механика в игре не задействуется AI, проверяй по порядку:
+
+1. **Знает ли актор способность?** — `snapshot.rs::build` фильтрует по `actor.abilities`.
+2. **Проходит ли legality?** — `check_legality` в `actions/mod.rs`. Запусти с прицельным `check_legality` в тесте или debug-логе.
+3. **Генерит ли кандидатов?** — `generator.rs::rank_targets` match по `TargetType`. Пустой вектор = никогда не увидит каст.
+4. **Проходит ли `ai_policy_ok`?** — эвристики overheal / wasted-CC / FF-ratio режут легальные, но невыгодные касты. Логируй возврат в тесте.
+5. **Выживает ли beam-pruning?** — если `partial_score` низкий из-за неучтённого фактора, план режется на глубине. Покрутить `plan_beam_width` на hard для диагностики.
+6. **Не роняется ли в sanity?** — `sanity_adjust_plans` умножает на малые факторы, но не зануляет; если итоговый score всё равно проигрывает — значит эвристики считают что-то другое лучше.
+7. **Подходит ли `intent`?** — intent_score может увести на -1.0, сделав план хуже любых альтернатив. Проверь `intent_score` для своей цепочки `(intent, step)`.
+
+Debug-оверлей + JSONL-лог (`AiLogger`) показывают топ-планы + raw-факторы — через них видно на каком слое запрос провалился.

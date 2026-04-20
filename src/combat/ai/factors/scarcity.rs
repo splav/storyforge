@@ -3,7 +3,7 @@
 use super::aoe_hits::aoe_hits;
 use super::offensive::aoe_area;
 use super::ScoredStep;
-use crate::combat::ai::scoring::{applies_cc, horizon_avg};
+use crate::combat::ai::scoring::stun_denial_value;
 use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
@@ -81,17 +81,20 @@ pub(super) fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -
         swing += 0.2 * (aoe_enemies.len() - 1) as f32;
     }
 
-    // CC on high-threat unstunned target. Non-AoE only — AoE CC is already
-    // folded into the cc factor per-enemy.
-    if applies_cc(def, world.content) {
-        if let Some(t) = target_unit {
-            if !t.tags.contains(AiTags::IS_STUNNED) {
-                // CC-on-high-threat bonus. Reads horizon average (per-round
-                // DPR) so burst casters don't inflate the signal via peak
-                // damage. `10.0` divisor is a tuned constant — treats ~10
-                // DPR as "fully scary"; sustained fighters land near 1.0,
-                // resource-starved mages land near 0.
-                swing += 0.5 * (horizon_avg(t) / 10.0).min(1.0);
+    // CC on unstunned target. Non-AoE only — AoE CC is already folded into
+    // the cc factor per-enemy. Reads `stun_denial_value` — the same helper
+    // `status_cc_value` uses for its skips_turn contribution, so the scarcity
+    // swing and cc factor value the stun on the same denominator and can
+    // never drift. The duplication across two factors is intentional: `cc`
+    // ranks plan utility, `scarcity` justifies the resource spend — two
+    // orthogonal axes with different role weights, parallel to how `kill` is
+    // mirrored below.
+    if let Some(t) = target_unit {
+        if !t.tags.contains(AiTags::IS_STUNNED) {
+            let stun_value = stun_denial_value(def, t, world.content);
+            if stun_value > 0.0 {
+                // `30.0` ≈ three strong rounds of DPR → full bonus saturation.
+                swing += 0.5 * (stun_value / 30.0).min(1.0);
             }
         }
     }

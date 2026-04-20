@@ -240,11 +240,17 @@ pub fn check_legality<S: ActionState>(
                 _ => return Err(IllegalReason::WrongTargetTeam),
             }
         }
+        TargetType::Ground => {
+            // Position-based: `target` is a sentinel (typically the actor);
+            // team / alive checks are meaningless here. Range/bounds above
+            // already validated `target_pos`.
+        }
     }
 
     // For non-AoE, the primary target must be alive. AoE can land on empty
-    // cells (target entity is a sentinel / irrelevant).
-    if !matches!(def.aoe, AoEShape::None) {
+    // cells (target entity is a sentinel / irrelevant). Ground also bypasses
+    // the alive check — there's no entity target to validate.
+    if !matches!(def.aoe, AoEShape::None) || matches!(def.target_type, TargetType::Ground) {
         return Ok(LegalAction { disadvantage });
     }
     match state.is_target_alive(action.target) {
@@ -551,6 +557,44 @@ mod tests {
                 (Err(want), Err(got)) => assert_eq!(want, got, "[{}]", row.name),
                 (want, got) => panic!("[{}] expected {:?}, got {:?}", row.name, want, got),
             }
+        }
+    }
+
+    /// Ground target_type bypasses team / alive checks: `target` is a
+    /// sentinel (actor entity), the cell is validated by range/bounds only.
+    /// Covers the bug where fireball-as-SingleEnemy rejected empty-cell
+    /// casts because the sentinel target shared the actor's team.
+    #[test]
+    fn ground_target_ignores_team_and_alive_checks() {
+        let actor = ent(1);
+        let actor_pos = hex_from_offset(0, 0);
+        let cell = hex_from_offset(2, 0);
+
+        let blast = ability(
+            "blast", TargetType::Ground, 1, (0, 5),
+            AoEShape::Circle { radius: 1 }, Vec::new(),
+        );
+        // Ground without AoE is legal too (reserved for teleport / spawn).
+        let spawn = ability(
+            "spawn", TargetType::Ground, 1, (0, 5),
+            AoEShape::None, Vec::new(),
+        );
+        let content = content_with(vec![blast.clone(), spawn.clone()]);
+
+        // Even with target_team == actor_team (sentinel = actor) and
+        // target_alive = None, Ground casts are legal.
+        let mut state = FakeState::new(content, actor, actor_pos);
+        state.abilities = vec![AbilityId::from("blast"), AbilityId::from("spawn")];
+        state.target_team = Some(state.actor_team);
+        state.target_alive = None;
+
+        for id in ["blast", "spawn"] {
+            let ab = AbilityId::from(id);
+            let action = ProposedAction {
+                actor, ability: &ab, target: actor, target_pos: cell,
+            };
+            check_legality(action, &state)
+                .unwrap_or_else(|e| panic!("{id}: expected legal, got {e:?}"));
         }
     }
 

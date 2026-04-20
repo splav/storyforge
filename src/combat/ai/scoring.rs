@@ -13,6 +13,19 @@ pub fn applies_cc(def: &AbilityDef, content: &ContentView) -> bool {
         .any(|sa| content.statuses.get(&sa.status).is_some_and(|sd| sd.skips_turn))
 }
 
+/// Sum of projected damage denied to `target` by `def`'s stun-class statuses.
+/// Reads `target.damage_horizon` via `horizon_window_sum`; the `cc` offensive
+/// factor and the `scarcity` swing-justification branch both read this so
+/// their stun formulas cannot drift apart. Non-stun effects (vulnerability,
+/// armor shred, DoT) are intentionally *not* included — each caller folds
+/// those in with its own weighting.
+pub fn stun_denial_value(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> f32 {
+    status_applications(def, content)
+        .filter(|(sd, _)| sd.skips_turn)
+        .map(|(_, d)| horizon_window_sum(target, d))
+        .sum()
+}
+
 /// Yield `(StatusDef, duration_rounds)` pairs for every status application
 /// attached to `def`, resolving the id against `content`. Silently skips
 /// applications whose id isn't in the content registry.
@@ -143,7 +156,11 @@ pub fn estimate_st_damage(ctx: &CasterContext, abilities: &Abilities, content: &
         .0
         .iter()
         .filter_map(|id| content.abilities.get(id))
-        .filter(|def| matches!(def.target_type, TargetType::SingleEnemy))
+        // SingleEnemy = direct attack; Ground = area-landed attack at a cell.
+        // Both produce per-cast damage; the `effect.calc` filter below
+        // drops non-damaging variants (teleport/spawn Ground spells), so
+        // the blanket include here is safe.
+        .filter(|def| matches!(def.target_type, TargetType::SingleEnemy | TargetType::Ground))
         .filter_map(|def| def.effect.calc(ctx))
         .map(|calc| calc.expected().max(0.0))
         .fold(0.0f32, f32::max)
@@ -198,7 +215,7 @@ pub fn estimate_damage_horizon(
         .filter_map(|id| content.abilities.get(id))
         .filter(|def| matches!(
             def.target_type,
-            TargetType::SingleEnemy
+            TargetType::SingleEnemy | TargetType::Ground
         ))
         .filter(|def| def.cost_ap > 0)
         .filter_map(|def| {

@@ -76,7 +76,7 @@ id            = "fireball"
 name          = "Огненный шар"
 magic_domains = ["aether", "form"]  # optional; see magic-schools.md
 magic_method  = "destruction"       # optional
-target_type   = "single_enemy"      # single_enemy | single_ally | myself
+target_type   = "single_enemy"      # single_enemy | single_ally | myself | ground
 effect        = "spell_damage"      # see table below
 dice_count    = 2
 dice_sides    = 3
@@ -121,7 +121,11 @@ Spawn rules:
 
 ### Target Types
 
-`single_enemy` | `single_ally` | `myself`
+`single_enemy` | `single_ally` | `myself` | `ground`
+
+- `single_enemy` / `single_ally`: player picks an entity on the matching team. Required alive.
+- `myself`: self-cast; no target selection.
+- `ground`: player picks a **cell** (position-based). No entity target — `target` is a sentinel, the effect uses `target_pos`. Typically paired with `aoe = "circle" | "line"`; `aoe = "none"` is legal but only meaningful for position-only effects (teleport, summon-at-cell).
 
 ## Statuses (`statuses.toml`)
 

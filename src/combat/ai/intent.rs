@@ -651,7 +651,10 @@ pub fn intent_score(
             let Some(def) = content.abilities.get(ability) else { return 0.0 };
             let mut score = 0.0f32;
 
-            if matches!(def.target_type, TargetType::SingleEnemy) {
+            // "Direct offensive action" bonus in LastStand: covers both
+            // entity-targeted (SingleEnemy) and cell-targeted (Ground)
+            // attacks. AoE footprint gets an additional +0.3 below.
+            if matches!(def.target_type, TargetType::SingleEnemy | TargetType::Ground) {
                 score += 0.5;
             }
             if let Some(target_unit) = snap.unit(target) {

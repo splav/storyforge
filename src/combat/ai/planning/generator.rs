@@ -432,6 +432,49 @@ fn rank_targets(
             picks.truncate(TARGETS_BY_THREAT + TARGETS_BY_KILLABILITY);
             picks.into_iter().map(|(e, p, _)| (e, p)).collect()
         }
+        // Ground: no entity target. Enumerate candidate landing *cells*.
+        // Simplest working heuristic: enemy-centered — one candidate cell
+        // per reachable enemy, ranked by the same threat ∪ killability
+        // union as SingleEnemy. Matches how pre-conversion thunderstrike
+        // was ranked (targetted an enemy, AoE fell on their tile); after
+        // thunderstrike → Ground the AI keeps the same tactical shape
+        // without needing a globally optimal cluster-picker.
+        //
+        // A richer scorer (centroid of enemy clusters, cover avoidance,
+        // friendly-fire minimisation) is a future refinement. The scoring
+        // pipeline downstream already penalises bad AoE footprints via
+        // `ai_policy_ok` (friendly-fire ratio) and `offensive` factors,
+        // so a suboptimal landing cell still loses to a better one in the
+        // beam-search ranking — we don't need to bake that into enumeration.
+        TargetType::Ground => {
+            let pool: Vec<&UnitSnapshot> = sim
+                .snapshot
+                .enemies_of(actor.team)
+                .filter(|u| is_legal(actor.entity, u.pos))
+                .collect();
+
+            let mut by_threat: Vec<&UnitSnapshot> = pool.clone();
+            by_threat.sort_by(|a, b| b.threat.total_cmp(&a.threat));
+            by_threat.truncate(TARGETS_BY_THREAT);
+
+            let mut by_killability: Vec<&UnitSnapshot> = pool;
+            by_killability.sort_by(|a, b| b.killability().total_cmp(&a.killability()));
+            by_killability.truncate(TARGETS_BY_KILLABILITY);
+
+            // Dedupe by *cell* (not entity) — two enemies can occupy the
+            // same landing rank after sorting, but hex positions are unique
+            // by construction, so this is effectively a HashSet<Hex>.
+            let mut seen: HashSet<Hex> = HashSet::new();
+            let mut out: Vec<(Entity, Hex)> = Vec::new();
+            for u in by_threat.into_iter().chain(by_killability) {
+                if seen.insert(u.pos) {
+                    // Ground sentinel: target entity = actor. `target_pos`
+                    // is where the AoE lands.
+                    out.push((actor.entity, u.pos));
+                }
+            }
+            out
+        }
     }
 }
 
@@ -1215,6 +1258,73 @@ mod tests {
             })
         });
         assert!(has_melee, "non-mana fallback cast must still be available");
+    }
+
+    /// Ground-targeted abilities: generator must enumerate candidate
+    /// landing cells (one per in-range enemy), emitting
+    /// `(actor_entity, enemy.pos)` pairs — target entity is the actor
+    /// sentinel, target_pos is where the AoE lands. Regression guard for
+    /// the phase-1 empty-candidates stub: without this, AI can never cast
+    /// fireball / thunderstrike post-Ground-conversion.
+    #[test]
+    fn ground_generator_emits_enemy_centered_cells() {
+        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
+        let actor_id = actor.entity;
+        let enemy_a = unit(2, Team::Player, hex_from_offset(3, 0), 20, 1);
+        let enemy_b = unit(3, Team::Player, hex_from_offset(0, 3), 20, 1);
+        let enemy_a_pos = enemy_a.pos;
+        let enemy_b_pos = enemy_b.pos;
+
+        let fireball = AbilityDef {
+            id: AbilityId::from("fireball"),
+            name: "fireball".into(),
+            target_type: TargetType::Ground,
+            range: AbilityRange { min: 0, max: 5 },
+            effect: EffectDef::SpellDamage { dice: DiceExpr::new(2, 3, 0) },
+            costs: Vec::new(),
+            cost_ap: 1,
+            aoe: AoEShape::Circle { radius: 1 },
+            friendly_fire: true,
+            statuses: Vec::new(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            key: None,
+        };
+
+        let mut content = empty_content();
+        content.abilities.insert(fireball.id.clone(), fireball.clone());
+        let mut difficulty = DifficultyProfile::normal();
+        difficulty.plan_max_depth = 1;
+        let ctx = make_ctx(&content, &difficulty);
+        let snap = BattleSnapshot::new(vec![actor, enemy_a, enemy_b], 1);
+        let maps = empty_maps();
+
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+
+        let fireball_id = fireball.id.clone();
+        let landed_cells: HashSet<Hex> = plans
+            .iter()
+            .flat_map(|p| p.steps.iter())
+            .filter_map(|s| match s {
+                PlanStep::Cast { ability, target, target_pos }
+                    if *ability == fireball_id =>
+                {
+                    // Sentinel check: Ground uses actor as target entity.
+                    assert_eq!(*target, actor_id, "Ground Cast target must be actor sentinel");
+                    Some(*target_pos)
+                }
+                _ => None,
+            })
+            .collect();
+
+        assert!(
+            landed_cells.contains(&enemy_a_pos),
+            "enemy A's cell must be a landing candidate (landed: {landed_cells:?})",
+        );
+        assert!(
+            landed_cells.contains(&enemy_b_pos),
+            "enemy B's cell must be a landing candidate (landed: {landed_cells:?})",
+        );
     }
 
     /// Regression for arch-debt-A: when the top-K-by-rank enemies are all
