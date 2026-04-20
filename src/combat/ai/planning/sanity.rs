@@ -208,29 +208,17 @@ fn expected_aoo_damage(
 }
 
 fn plan_has_self_aoe(active: &UnitSnapshot, plan: &TurnPlan, ctx: &UtilityContext) -> bool {
-    let mut caster_pos = active.pos;
-    for step in &plan.steps {
-        match step {
-            PlanStep::Move { path } => {
-                if let Some(&dest) = path.last() {
-                    caster_pos = dest;
-                }
-            }
-            PlanStep::Cast { ability, target_pos, .. } => {
-                let Some(def) = ctx.world.content.abilities.get(ability) else { continue };
-                if !def.friendly_fire || def.aoe == AoEShape::None {
-                    continue;
-                }
-                // Route through the shared helper so a new `AoEShape`
-                // variant lands here automatically — the inline match we
-                // used to have silently missed anything beyond Circle/Line.
-                if aoe_area(def, *target_pos, caster_pos).contains(&caster_pos) {
-                    return true;
-                }
-            }
+    plan.walk_with_caster(active.pos).any(|(_, step, caster_pos)| {
+        let PlanStep::Cast { ability, target_pos, .. } = step else { return false };
+        let Some(def) = ctx.world.content.abilities.get(ability) else { return false };
+        if !def.friendly_fire || def.aoe == AoEShape::None {
+            return false;
         }
-    }
-    false
+        // Route through the shared helper so a new `AoEShape` variant lands
+        // here automatically — the inline match we used to have silently
+        // missed anything beyond Circle/Line.
+        aoe_area(def, *target_pos, caster_pos).contains(&caster_pos)
+    })
 }
 
 fn plan_has_useful_cast(plan: &TurnPlan, ctx: &UtilityContext) -> bool {

@@ -166,6 +166,32 @@ impl TurnPlan {
     pub fn committed_step_count(&self) -> usize {
         self.committed_prefix().step_count()
     }
+
+    /// Iterate steps with the caster tile **as it stands when the step
+    /// fires** — i.e. the destination of the previous Move (or `start`
+    /// for the very first step). Single source of truth for the
+    /// "walk-the-plan-and-track-caster" pattern that used to be inlined in
+    /// `sanity::plan_has_self_aoe`, `picker::record_committed_reservations`,
+    /// and `generator::logical_key`.
+    ///
+    /// For Cast steps this is where the spell originates; for Move steps it
+    /// is the actor's tile *before* the move (the path's destination
+    /// becomes the caster tile of the next iteration).
+    pub fn walk_with_caster<'a>(
+        &'a self,
+        start: Hex,
+    ) -> impl Iterator<Item = (usize, &'a PlanStep, Hex)> + 'a {
+        let mut caster = start;
+        self.steps.iter().enumerate().map(move |(idx, step)| {
+            let here = caster;
+            if let PlanStep::Move { path } = step {
+                if let Some(&dest) = path.last() {
+                    caster = dest;
+                }
+            }
+            (idx, step, here)
+        })
+    }
 }
 
 #[cfg(test)]

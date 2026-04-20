@@ -21,13 +21,10 @@ pub use adjustments::crit_fail_adjusted;
 pub use aoe_hits::{aoe_hits, AoeHits};
 pub use offensive::aoe_area;
 
-use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
-use crate::combat::ai::reservations::Reservations;
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
-use crate::combat::ai::utility::UtilityContext;
+use crate::combat::ai::utility::ScoringCtx;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
@@ -158,6 +155,51 @@ pub const SIGNED_FACTOR: [bool; NUM_FACTORS] = [
     false, false, false, false, true, false, false, true, true,
 ];
 
+/// Per-plan utility factors as a named struct. Replaces ad-hoc
+/// `[f32; NUM_FACTORS]` indexing throughout the scoring pipeline so callers
+/// read `f.intent` instead of `f[INTENT_IDX]`. Layout matches the
+/// `as_array()` order — the one place that **declares** the layout.
+///
+/// Numeric work (batch normalization in `finalize_scores`) still goes
+/// through `[f32; NUM_FACTORS]` views via `as_array()` / `from_array()`, so
+/// SIMD/loop-based math stays cheap. Log + debug writers convert to the
+/// stable `[f32; 9]` wire format at the boundary.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PlanFactors {
+    pub damage: f32,
+    pub kill: f32,
+    pub cc: f32,
+    pub heal: f32,
+    pub position: f32,
+    pub risk: f32,
+    pub focus: f32,
+    pub intent: f32,
+    pub scarcity: f32,
+}
+
+impl PlanFactors {
+    pub fn as_array(&self) -> [f32; NUM_FACTORS] {
+        [
+            self.damage, self.kill, self.cc, self.heal, self.position,
+            self.risk, self.focus, self.intent, self.scarcity,
+        ]
+    }
+
+    pub fn from_array(a: [f32; NUM_FACTORS]) -> Self {
+        Self {
+            damage: a[DAMAGE_IDX],
+            kill: a[KILL_IDX],
+            cc: a[CC_IDX],
+            heal: a[HEAL_IDX],
+            position: a[POSITION_IDX],
+            risk: a[RISK_IDX],
+            focus: a[FOCUS_IDX],
+            intent: a[INTENT_IDX],
+            scarcity: a[SCARCITY_IDX],
+        }
+    }
+}
+
 /// Per-step offensive factors (populated only for Cast).
 #[derive(Default)]
 pub(super) struct OffensiveFactors {
@@ -175,19 +217,17 @@ pub(super) struct OffensiveFactors {
 /// without redoing damage/heal/kill/cc/position/risk/focus/scarcity math.
 ///
 /// Axes: [damage, kill, cc, heal, position, risk, focus, 0.0, scarcity].
-pub fn compute_factors(
-    step: &ScoredStep,
-    active: &UnitSnapshot,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    reservations: &Reservations,
-) -> [f32; NUM_FACTORS] {
+pub fn compute_factors(ctx: &ScoringCtx, step: &ScoredStep) -> PlanFactors {
     let tile = step.caster_tile();
+    let active = ctx.active;
+    let snap = ctx.snap;
+    let maps = ctx.maps;
 
     let mut off = match step {
         ScoredStep::Cast { ability, target_pos, target, caster_tile } => {
-            offensive::compute_offensive(ability, *target_pos, *target, *caster_tile, active, ctx, snap)
+            offensive::compute_offensive(
+                ability, *target_pos, *target, *caster_tile, active, ctx.utility, snap,
+            )
         }
         ScoredStep::Move { .. } => OffensiveFactors::default(),
     };
@@ -200,14 +240,28 @@ pub fn compute_factors(
         .map(|t| target_priority(active, t, snap))
         .unwrap_or(0.0);
 
-    adjustments::apply_reservation_adjustments(step, &mut off, &mut focus, &mut position, snap, ctx, reservations);
+    adjustments::apply_reservation_adjustments(
+        step, &mut off, &mut focus, &mut position, snap, ctx.utility, ctx.reservations,
+    );
 
     let scarcity = match step {
-        ScoredStep::Cast { .. } => scarcity::compute_scarcity(step, active, off.kill, ctx, snap),
+        ScoredStep::Cast { .. } => {
+            scarcity::compute_scarcity(step, active, off.kill, ctx.utility, snap)
+        }
         ScoredStep::Move { .. } => 0.0,
     };
 
-    [off.damage, off.kill, off.cc, off.heal, position, risk, focus, 0.0, scarcity]
+    PlanFactors {
+        damage: off.damage,
+        kill: off.kill,
+        cc: off.cc,
+        heal: off.heal,
+        position,
+        risk,
+        focus,
+        intent: 0.0, // intent — filled in by `compute_plan_intent_sum` when needed
+        scarcity,
+    }
 }
 
 #[cfg(test)]

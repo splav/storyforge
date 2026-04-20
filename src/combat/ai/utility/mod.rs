@@ -27,7 +27,7 @@ use crate::combat::ai::planning::{
     sanity_adjust_plans, score_plans_with_raw,
 };
 use crate::combat::ai::reservations::Reservations;
-use crate::combat::ai::snapshot::BattleSnapshot;
+use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::content::abilities::CasterContext;
 use crate::content::races::CritFailEffect;
 use crate::core::{AbilityId, DiceRng};
@@ -113,6 +113,40 @@ pub struct UtilityContext<'a> {
     pub actor: ActorCtx<'a>,
 }
 
+/// Bundle of every read-only context the scoring layer touches. Replaces
+/// the 5-7 parameter signatures (active, ctx, snap, maps, reservations) that
+/// used to thread through every factor / plan / picker function.
+///
+/// Two lifetime parameters because perspective `(active, snap)` can be swapped
+/// mid-plan when scoring against a sim'd state — `with_perspective` returns
+/// a fresh `ScoringCtx` reusing the world refs but with a shorter `'p`.
+pub struct ScoringCtx<'w, 'p> {
+    pub utility: &'w UtilityContext<'w>,
+    pub maps: &'w InfluenceMaps,
+    pub reservations: &'w Reservations,
+    pub snap: &'p BattleSnapshot,
+    pub active: &'p UnitSnapshot,
+}
+
+impl<'w, 'p> ScoringCtx<'w, 'p> {
+    /// Borrow the world refs + override perspective. Used when scoring a
+    /// plan step against the cached pre-step sim snapshot (perspective shifts
+    /// to the simulated actor at that moment).
+    pub fn with_perspective<'q>(
+        &self,
+        active: &'q UnitSnapshot,
+        snap: &'q BattleSnapshot,
+    ) -> ScoringCtx<'w, 'q> {
+        ScoringCtx {
+            utility: self.utility,
+            maps: self.maps,
+            reservations: self.reservations,
+            snap,
+            active,
+        }
+    }
+}
+
 // ── Main entry point ────────────────────────────────────────────────────────
 
 /// Top-level decision function. Replaces evaluate_targets + plan_movement.
@@ -158,12 +192,23 @@ pub fn pick_action(
         return (decision, ds);
     }
 
+    // Bundle the read-only scoring inputs once. Threaded as `&ScoringCtx`
+    // through scorer + factors + sanity instead of the old 5-7 individual
+    // refs per call.
+    let scoring_ctx = ScoringCtx {
+        utility: ctx,
+        maps,
+        reservations,
+        snap,
+        active,
+    };
+
     // ── Score plans under the chosen intent ────────────────────────────
     // Keep the raw-factor matrix for logging even after rescoring under a
     // fallback intent below; it's cheap to recompute and represents what the
     // winning decision was actually scored against.
     let (mut scored, mut raw_factors) =
-        score_plans_with_raw(&plans, active, &intent, ctx, snap, maps, reservations, rng);
+        score_plans_with_raw(&plans, &intent, &scoring_ctx, rng);
 
     // ── Intent viability guard ─────────────────────────────────────────
     // If no plan achieves the intent's signal, fall back. Two tiers:
@@ -177,10 +222,9 @@ pub fn pick_action(
         // Per-plan intent_sum produced by `compute_plan_intent_sum`; the max
         // over plans answers "can any candidate plan realistically execute
         // the chosen intent?"
-        use crate::combat::ai::factors::INTENT_IDX;
         let max_align = raw_factors
             .iter()
-            .map(|f| f[INTENT_IDX])
+            .map(|f| f.intent)
             .fold(f32::NEG_INFINITY, f32::max);
         if max_align < threshold {
             let hp_pct = active.hp_pct();
@@ -218,7 +262,7 @@ pub fn pick_action(
                     // Reuse the non-intent factor columns; only the intent
                     // column (factor[7]) depends on the chosen intent.
                     scored = rescore_with_intent(
-                        &plans, &mut raw_factors, &intent, active, ctx, snap, maps, rng,
+                        &plans, &mut raw_factors, &intent, &scoring_ctx, rng,
                     );
                 }
             }
@@ -248,7 +292,7 @@ pub fn pick_action(
             // Same reuse as the viability fallback: intent-independent
             // factors stay; only factor[7] refreshes under LastStand.
             scored = rescore_with_intent(
-                &plans, &mut raw_factors, &last_stand, active, ctx, snap, maps, rng,
+                &plans, &mut raw_factors, &last_stand, &scoring_ctx, rng,
             );
             intent_reason = format!("{intent_reason} → LastStand (no defensive plan)");
         }
@@ -307,7 +351,7 @@ pub fn pick_action(
                     &plans[idx],
                     rank + 1,
                     idx == best_idx,
-                    raw_factors[idx],
+                    raw_factors[idx].as_array(),
                     score,
                 )
             })

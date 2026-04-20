@@ -41,18 +41,16 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::combat::ai::factors::{
-    self, ScoredStep, CC_IDX, DAMAGE_IDX, FOCUS_IDX, HEAL_IDX, INTENT_IDX, KILL_IDX, NUM_FACTORS,
-    SCARCITY_IDX, SIGNED_FACTOR,
+    self, PlanFactors, ScoredStep, INTENT_IDX, NUM_FACTORS, SCARCITY_IDX, SIGNED_FACTOR,
 };
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{intent_score, TacticalIntent};
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
-use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::scoring::estimate_st_damage;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
-use crate::combat::ai::utility::UtilityContext;
+use crate::combat::ai::utility::{ScoringCtx, UtilityContext};
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::core::modifier;
 use crate::core::DiceRng;
@@ -85,23 +83,19 @@ pub fn worst_path_danger(plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
 /// recalibrate weights without rerunning sim).
 pub fn score_plans_with_raw(
     plans: &[TurnPlan],
-    active: &UnitSnapshot,
     intent: &TacticalIntent,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    reservations: &Reservations,
+    ctx: &ScoringCtx,
     rng: &mut DiceRng,
-) -> (Vec<f32>, Vec<[f32; NUM_FACTORS]>) {
+) -> (Vec<f32>, Vec<PlanFactors>) {
     if plans.is_empty() {
         return (Vec::new(), Vec::new());
     }
 
-    let raw: Vec<[f32; NUM_FACTORS]> = plans
+    let raw: Vec<PlanFactors> = plans
         .iter()
-        .map(|p| compute_plan_factors(p, active, intent, ctx, snap, maps, reservations))
+        .map(|p| compute_plan_factors(p, intent, ctx))
         .collect();
-    let scores = finalize_scores(plans, &raw, active, ctx, snap, rng);
+    let scores = finalize_scores(plans, &raw, ctx, rng);
     (scores, raw)
 }
 
@@ -114,35 +108,41 @@ pub fn score_plans_with_raw(
 /// to swap the intent that influences one factor.
 pub fn rescore_with_intent(
     plans: &[TurnPlan],
-    raw: &mut [[f32; NUM_FACTORS]],
+    raw: &mut [PlanFactors],
     intent: &TacticalIntent,
-    active: &UnitSnapshot,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
+    ctx: &ScoringCtx,
     rng: &mut DiceRng,
 ) -> Vec<f32> {
     for (p, f) in plans.iter().zip(raw.iter_mut()) {
-        f[INTENT_IDX] = compute_plan_intent_sum(p, intent, active, ctx, snap, maps);
+        f.intent = compute_plan_intent_sum(p, intent, ctx);
     }
-    finalize_scores(plans, raw, active, ctx, snap, rng)
+    finalize_scores(plans, raw, ctx, rng)
 }
 
 /// Batch-normalise raw factors, apply role weights + difficulty multipliers,
 /// add summon bonus and score noise. Pure output — does not mutate `raw`.
 fn finalize_scores(
     plans: &[TurnPlan],
-    raw: &[[f32; NUM_FACTORS]],
-    active: &UnitSnapshot,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
+    raw: &[PlanFactors],
+    ctx: &ScoringCtx,
     rng: &mut DiceRng,
 ) -> Vec<f32> {
-    // Per-factor min/max for batch-relative normalization.
+    let active = ctx.active;
+    let snap = ctx.snap;
+    let utility = ctx.utility;
+    // Per-template summon DPR cache, computed once over the unique templates
+    // referenced by Summon casts in this batch. Pre-cache: each Summon-step
+    // per plan rebuilt CasterContext + walked the template's full ability set
+    // (estimate_st_damage is O(K)). With M plans × S summons × K abilities
+    // this scales as O(M·S·K); the cache replaces it with O(unique_templates·K)
+    // upfront + O(1) lookup inside `plan_summon_bonus`.
+    let summon_dpr = build_summon_dpr_cache(plans, utility);
+    // Per-factor min/max for batch-relative normalization. Convert each
+    // PlanFactors row to its array view once for the inner loop.
     let mut maxes = [0.0f32; NUM_FACTORS];
     let mut mins = [0.0f32; NUM_FACTORS];
     for factors in raw {
-        for (i, &v) in factors.iter().enumerate() {
+        for (i, v) in factors.as_array().into_iter().enumerate() {
             if v > maxes[i] {
                 maxes[i] = v;
             }
@@ -161,17 +161,18 @@ fn finalize_scores(
     }
 
     let mut weights = active.role.factor_weights();
-    weights[INTENT_IDX] *= ctx.world.difficulty.intent_commitment;
-    weights[SCARCITY_IDX] *= ctx.world.difficulty.resource_discipline;
-    let noise_amp = ctx.world.difficulty.score_noise();
+    weights[INTENT_IDX] *= utility.world.difficulty.intent_commitment;
+    weights[SCARCITY_IDX] *= utility.world.difficulty.resource_discipline;
+    let noise_amp = utility.world.difficulty.score_noise();
 
     raw.iter()
         .zip(plans.iter())
         .map(|(factors, plan)| {
+            let arr = factors.as_array();
             let mut score = 0.0f32;
             for i in 0..NUM_FACTORS {
                 let normalized = if denom[i] > f32::EPSILON {
-                    factors[i] / denom[i]
+                    arr[i] / denom[i]
                 } else {
                     0.0
                 };
@@ -181,7 +182,7 @@ fn finalize_scores(
             // see the strategic value of creating an ally, and for hybrid
             // roles the damage-axis weight is too low to lift a raw summon
             // score on its own.
-            score += plan_summon_bonus(plan, active, ctx, snap);
+            score += plan_summon_bonus(plan, active, utility, snap, &summon_dpr);
             if noise_amp > 0.0 {
                 let noise = (rng.roll_d(1000) as f32 / 500.0 - 1.0) * noise_amp;
                 score += noise;
@@ -195,12 +196,14 @@ fn finalize_scores(
 /// Each summon contributes `summon_dpr × decay`, where `decay = 1 − count/cap`
 /// is recomputed against a **running** summon count so a multi-summon plan
 /// doesn't get linear credit as the roster fills. Zero for plans without any
-/// summon casts.
+/// summon casts. `summon_dpr` is the precomputed per-template DPR table built
+/// once by `build_summon_dpr_cache`.
 fn plan_summon_bonus(
     plan: &TurnPlan,
     active: &UnitSnapshot,
     ctx: &UtilityContext,
     snap: &BattleSnapshot,
+    summon_dpr: &std::collections::HashMap<String, f32>,
 ) -> f32 {
     let mut count = snap
         .units
@@ -220,20 +223,48 @@ fn plan_summon_bonus(
             continue;
         }
 
-        let Some(tpl) = ctx.world.content.unit_templates.get(template) else { continue };
-        let weapon = ctx.world.content.weapons.get(&tpl.equipment.main_hand);
-        let caster_ctx = CasterContext {
-            str_mod: modifier(tpl.stats.strength),
-            int_mod: modifier(tpl.stats.intelligence),
-            spell_power: weapon.map_or(0, |wd| wd.spell_power),
-            weapon_dice: weapon.map(|wd| wd.dice.clone()),
-        };
-        let abilities = Abilities(tpl.ability_ids.clone());
-        let dpr = estimate_st_damage(&caster_ctx, &abilities, ctx.world.content);
+        let dpr = summon_dpr.get(template).copied().unwrap_or(0.0);
         total += dpr * decay;
         count += 1.0;
     }
     total
+}
+
+/// Walk the plan pool, gather unique `Summon` template ids, and price each
+/// once via `estimate_st_damage`. Replaces a per-plan rebuild of
+/// `CasterContext` + `Abilities` clone that previously fired inside the
+/// per-plan scoring loop. Returns an empty map when no plan summons.
+fn build_summon_dpr_cache(
+    plans: &[TurnPlan],
+    ctx: &UtilityContext,
+) -> std::collections::HashMap<String, f32> {
+    use std::collections::HashMap;
+    let mut cache: HashMap<String, f32> = HashMap::new();
+    for plan in plans {
+        for step in &plan.steps {
+            let PlanStep::Cast { ability, .. } = step else { continue };
+            let Some(def) = ctx.world.content.abilities.get(ability) else { continue };
+            let EffectDef::Summon { template, .. } = &def.effect else { continue };
+            if cache.contains_key(template) {
+                continue;
+            }
+            let Some(tpl) = ctx.world.content.unit_templates.get(template) else {
+                cache.insert(template.clone(), 0.0);
+                continue;
+            };
+            let weapon = ctx.world.content.weapons.get(&tpl.equipment.main_hand);
+            let caster_ctx = CasterContext {
+                str_mod: modifier(tpl.stats.strength),
+                int_mod: modifier(tpl.stats.intelligence),
+                spell_power: weapon.map_or(0, |wd| wd.spell_power),
+                weapon_dice: weapon.map(|wd| wd.dice.clone()),
+            };
+            let abilities = Abilities(tpl.ability_ids.clone());
+            let dpr = estimate_st_damage(&caster_ctx, &abilities, ctx.world.content);
+            cache.insert(template.clone(), dpr);
+        }
+    }
+    cache
 }
 
 /// Compute the 9 raw utility factors for a single plan. Thin combinator over
@@ -244,15 +275,11 @@ fn plan_summon_bonus(
 /// tile. See module docs for per-factor aggregation rules.
 pub fn compute_plan_factors(
     plan: &TurnPlan,
-    active: &UnitSnapshot,
     intent: &TacticalIntent,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    reservations: &Reservations,
-) -> [f32; NUM_FACTORS] {
-    let mut out = compute_plan_factors_sans_intent(plan, active, ctx, snap, maps, reservations);
-    out[INTENT_IDX] = compute_plan_intent_sum(plan, intent, active, ctx, snap, maps);
+    ctx: &ScoringCtx,
+) -> PlanFactors {
+    let mut out = compute_plan_factors_sans_intent(plan, ctx);
+    out.intent = compute_plan_intent_sum(plan, intent, ctx);
     out
 }
 
@@ -261,12 +288,11 @@ pub fn compute_plan_factors(
 /// reuses it across viability / LastStand intent swaps.
 pub fn compute_plan_factors_sans_intent(
     plan: &TurnPlan,
-    active: &UnitSnapshot,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    reservations: &Reservations,
-) -> [f32; NUM_FACTORS] {
+    ctx: &ScoringCtx,
+) -> PlanFactors {
+    let active = ctx.active;
+    let snap = ctx.snap;
+    let maps = ctx.maps;
     // No sim is run here: the generator already produced the sim state after
     // every step and cached it on the plan. `pre_step_snapshot` handles both
     // the `idx == 0` baseline and the deserialized-plan case (empty
@@ -292,7 +318,7 @@ pub fn compute_plan_factors_sans_intent(
     let path_danger_max =
         worst_path_danger(plan, maps).max(maps.danger.get(active.pos));
 
-    let base_discount = ctx.world.difficulty.plan_step_discount;
+    let base_discount = ctx.utility.world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;
 
     for (idx, step) in plan.steps.iter().enumerate() {
@@ -304,23 +330,18 @@ pub fn compute_plan_factors_sans_intent(
         let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
 
         if let PlanStep::Cast { .. } = step {
-            let raw = factors::compute_factors(
-                &scored_step,
-                &sim_actor,
-                ctx,
-                pre_snap,
-                maps,
-                reservations,
-            );
+            // Mid-plan: shift perspective to the simulated actor + pre-step snap.
+            let step_ctx = ctx.with_perspective(&sim_actor, pre_snap);
+            let raw = factors::compute_factors(&step_ctx, &scored_step);
             // Every Cast-accumulating factor uses the same shape: discounted
             // sum with base^k decay. Deep Casts keep contributing but weigh
             // less, reflecting execution uncertainty over plan depth.
-            damage_sum += raw[DAMAGE_IDX] * step_weight;
-            kill_sum += raw[KILL_IDX] * step_weight;
-            cc_sum += raw[CC_IDX] * step_weight;
-            heal_sum += raw[HEAL_IDX] * step_weight;
-            focus_sum += raw[FOCUS_IDX] * step_weight;
-            scarcity_sum += raw[SCARCITY_IDX] * step_weight;
+            damage_sum += raw.damage * step_weight;
+            kill_sum += raw.kill * step_weight;
+            cc_sum += raw.cc * step_weight;
+            heal_sum += raw.heal * step_weight;
+            focus_sum += raw.focus * step_weight;
+            scarcity_sum += raw.scarcity * step_weight;
         }
 
         step_weight *= base_discount;
@@ -339,17 +360,17 @@ pub fn compute_plan_factors_sans_intent(
             .fold(0.0f32, f32::max);
     }
 
-    [
-        damage_sum,
-        kill_sum,
-        cc_sum,
-        heal_sum,
+    PlanFactors {
+        damage: damage_sum,
+        kill: kill_sum,
+        cc: cc_sum,
+        heal: heal_sum,
         position,
         risk,
-        focus_sum,
-        0.0, // intent — filled in by `compute_plan_intent_sum` when needed
-        scarcity_sum,
-    ]
+        focus: focus_sum,
+        intent: 0.0, // filled in by `compute_plan_intent_sum` when needed
+        scarcity: scarcity_sum,
+    }
 }
 
 /// Intent-column aggregation. Walks the plan's cached sim snapshots, scoring
@@ -359,17 +380,18 @@ pub fn compute_plan_factors_sans_intent(
 pub fn compute_plan_intent_sum(
     plan: &TurnPlan,
     intent: &TacticalIntent,
-    active: &UnitSnapshot,
-    ctx: &UtilityContext,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
+    ctx: &ScoringCtx,
 ) -> f32 {
     debug_assert!(
         plan.sim_snapshots.is_empty() || plan.sim_snapshots.len() == plan.steps.len(),
         "TurnPlan sim_snapshots must align with steps, or be empty (deserialized)",
     );
 
-    let base_discount = ctx.world.difficulty.plan_step_discount;
+    let active = ctx.active;
+    let snap = ctx.snap;
+    let maps = ctx.maps;
+    let utility = ctx.utility;
+    let base_discount = utility.world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;
     let mut intent_sum = 0.0f32;
     let mut goal_achieved = false;
@@ -388,8 +410,8 @@ pub fn compute_plan_intent_sum(
                 &sim_actor,
                 pre_snap,
                 maps,
-                ctx.world.content,
-                ctx.world.difficulty,
+                utility.world.content,
+                utility.world.difficulty,
             );
             intent_sum += iv * step_weight;
         }
@@ -429,11 +451,24 @@ mod tests {
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
+    use crate::combat::ai::reservations::Reservations;
     use crate::combat::ai::role::{AiRole, AxisProfile};
     use crate::combat::ai::snapshot::AiTags;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
     use bevy::prelude::Entity;
+
+    /// Bundle the per-test (snap, active, maps, reservations, utility) refs
+    /// into a `ScoringCtx`. Mirrors what `pick_action` builds in production.
+    fn make_scoring_ctx<'a>(
+        utility: &'a UtilityContext<'a>,
+        snap: &'a BattleSnapshot,
+        maps: &'a InfluenceMaps,
+        reservations: &'a Reservations,
+        active: &'a UnitSnapshot,
+    ) -> ScoringCtx<'a, 'a> {
+        ScoringCtx { utility, snap, maps, reservations, active }
+    }
 
     fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
         UnitSnapshot {
@@ -547,19 +582,16 @@ mod tests {
                 build(vec![mov(0, 1), mov(0, 2), cast_focus()]),
                 0.85 * 0.85),
         ];
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
         for (name, plan, expected_sum) in cases {
-            let f = compute_plan_factors(
-                &plan, &actor, &intent, &ctx, &snap, &maps, &reservations,
-            );
-            // factors: [0 dmg, 1 kill, 2 cc, 3 heal, 4 pos, 5 risk,
-            //           6 focus, 7 intent, 8 scarcity]
-            let intent_val = f[INTENT_IDX];
+            let f = compute_plan_factors(&plan, &intent, &scoring_ctx);
+            let intent_val = f.intent;
             assert!(
                 (intent_val - expected_sum).abs() < 0.005,
                 "{name}: intent={intent_val}, expected≈{expected_sum}",
             );
             assert!(
-                f[FOCUS_IDX] > 0.0,
+                f.focus > 0.0,
                 "{name}: focus_sum > 0 (Cast on priority target)",
             );
         }
@@ -568,13 +600,11 @@ mod tests {
         // Demonstrates that sum genuinely stacks signals, which max
         // used to collapse.
         let plan_double = build(vec![cast_focus(), cast_focus()]);
-        let f = compute_plan_factors(
-            &plan_double, &actor, &intent, &ctx, &snap, &maps, &reservations,
-        );
+        let f = compute_plan_factors(&plan_double, &intent, &scoring_ctx);
         assert!(
-            (f[INTENT_IDX] - 1.85).abs() < 0.005,
+            (f.intent - 1.85).abs() < 0.005,
             "double Cast@focus: intent_sum expected ≈ 1.85, got {}",
-            f[INTENT_IDX],
+            f.intent,
         );
     }
 
@@ -633,25 +663,24 @@ mod tests {
             StepOutcome::default(),
         ]);
 
-        let f_goal =
-            compute_plan_factors(&goal_achieved, &actor, &intent, &ctx, &snap, &maps, &reservations);
-        let f_miss =
-            compute_plan_factors(&goal_missed, &actor, &intent, &ctx, &snap, &maps, &reservations);
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+        let f_goal = compute_plan_factors(&goal_achieved, &intent, &scoring_ctx);
+        let f_miss = compute_plan_factors(&goal_missed, &intent, &scoring_ctx);
 
         // step_weight stays purely geometric — every Cast-accumulating
         // factor should be equal between the two plans regardless of
         // whether step 0's outcome killed the intent target. Intent
         // itself does differ (post-goal skips it), not asserted here.
-        for (i, name) in [
-            (DAMAGE_IDX, "damage"),
-            (KILL_IDX, "kill"),
-            (CC_IDX, "cc"),
-            (HEAL_IDX, "heal"),
-            (FOCUS_IDX, "focus"),
-            (SCARCITY_IDX, "scarcity"),
+        for (got, want, name) in [
+            (f_goal.damage, f_miss.damage, "damage"),
+            (f_goal.kill, f_miss.kill, "kill"),
+            (f_goal.cc, f_miss.cc, "cc"),
+            (f_goal.heal, f_miss.heal, "heal"),
+            (f_goal.focus, f_miss.focus, "focus"),
+            (f_goal.scarcity, f_miss.scarcity, "scarcity"),
         ] {
             assert_eq!(
-                f_goal[i], f_miss[i],
+                got, want,
                 "{name}_sum must not depend on intent-kill status (step_weight stays geometric)",
             );
         }
@@ -701,17 +730,18 @@ mod tests {
         let intent_a = TacticalIntent::FocusTarget { target: focus_a.entity };
         let intent_b = TacticalIntent::FocusTarget { target: focus_b.entity };
 
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
         let mut rng_rescore = DiceRng::with_seed(1234);
         let (_, mut raw) = score_plans_with_raw(
-            &plans, &actor, &intent_a, &ctx, &snap, &maps, &reservations, &mut rng_rescore,
+            &plans, &intent_a, &scoring_ctx, &mut rng_rescore,
         );
         let rescored = rescore_with_intent(
-            &plans, &mut raw, &intent_b, &actor, &ctx, &snap, &maps, &mut rng_rescore,
+            &plans, &mut raw, &intent_b, &scoring_ctx, &mut rng_rescore,
         );
 
         let mut rng_full = DiceRng::with_seed(1234);
         let (full, _) = score_plans_with_raw(
-            &plans, &actor, &intent_b, &ctx, &snap, &maps, &reservations, &mut rng_full,
+            &plans, &intent_b, &scoring_ctx, &mut rng_full,
         );
 
         assert_eq!(
@@ -768,19 +798,16 @@ mod tests {
         // assert specific factor values — the fallback means multi-step
         // factors are computed against the initial snapshot, which is
         // intentionally stale. The guarantee is "safe, not accurate".
-        let factors = compute_plan_factors_sans_intent(
-            &deserialized_plan, &actor, &ctx, &snap, &maps, &reservations,
-        );
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+        let factors = compute_plan_factors_sans_intent(&deserialized_plan, &scoring_ctx);
         let _ = factors;
-        let intent_sum = compute_plan_intent_sum(
-            &deserialized_plan, &intent, &actor, &ctx, &snap, &maps,
-        );
+        let intent_sum = compute_plan_intent_sum(&deserialized_plan, &intent, &scoring_ctx);
         let _ = intent_sum;
 
         let mut rng = DiceRng::with_seed(1);
         let plans = vec![deserialized_plan];
         let (scores, raw) = score_plans_with_raw(
-            &plans, &actor, &intent, &ctx, &snap, &maps, &reservations, &mut rng,
+            &plans, &intent, &scoring_ctx, &mut rng,
         );
         assert_eq!(scores.len(), 1);
         assert_eq!(raw.len(), 1);

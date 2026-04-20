@@ -174,20 +174,16 @@ enum StepKey {
 }
 
 fn logical_key(plan: &TurnPlan, actor_start: Hex) -> Vec<StepKey> {
-    let mut pos = actor_start;
-    plan.steps
-        .iter()
-        .map(|s| match s {
-            PlanStep::Move { path } => {
-                let dest = path.last().copied().unwrap_or(pos);
-                pos = dest;
-                StepKey::Move { dest }
-            }
+    plan.walk_with_caster(actor_start)
+        .map(|(_, step, caster_pos)| match step {
+            PlanStep::Move { path } => StepKey::Move {
+                dest: path.last().copied().unwrap_or(caster_pos),
+            },
             PlanStep::Cast { ability, target, target_pos } => StepKey::Cast {
                 ability: ability.clone(),
                 target: *target,
                 target_pos: *target_pos,
-                caster_pos: pos,
+                caster_pos,
             },
         })
         .collect()

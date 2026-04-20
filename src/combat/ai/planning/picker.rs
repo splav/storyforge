@@ -15,7 +15,7 @@ pub struct PickMechanics {
     pub chosen_pos: usize,
 }
 
-use crate::combat::ai::factors::{aoe_area, aoe_hits, CC_IDX, KILL_IDX, NUM_FACTORS};
+use crate::combat::ai::factors::{aoe_area, aoe_hits, PlanFactors};
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::scoring::{applies_cc, score_action};
@@ -90,8 +90,8 @@ pub fn commit_plan(plan: &TurnPlan, actor_pos: Hex) -> (AiDecision, usize) {
 /// for `plan` — previously we re-ran `compute_plan_factors` per plan in the
 /// mercy window, which was a full plan-walk + per-step factor recomputation
 /// just to grab two numbers we already had.
-fn mercy_cruelty(raw: &[f32; NUM_FACTORS]) -> f32 {
-    raw[KILL_IDX] + (raw[CC_IDX] * 0.1).min(0.5)
+fn mercy_cruelty(raw: &PlanFactors) -> f32 {
+    raw.kill + (raw.cc * 0.1).min(0.5)
 }
 
 /// Pick the winning plan. Mirrors `pick_best_candidate` — window-bounded top-K
@@ -102,7 +102,7 @@ fn mercy_cruelty(raw: &[f32; NUM_FACTORS]) -> f32 {
 /// debug overlay needs the per-pool breakdown.
 pub fn pick_best_plan(
     scored: &[f32],
-    raw_factors: &[[f32; NUM_FACTORS]],
+    raw_factors: &[PlanFactors],
     ctx: &UtilityContext,
     rng: &mut DiceRng,
 ) -> usize {
@@ -114,7 +114,7 @@ pub fn pick_best_plan(
 /// `Vec<(usize, f32)>` for the pool — used only on debug-enabled ticks.
 pub fn pick_best_plan_with_mechanics(
     scored: &[f32],
-    raw_factors: &[[f32; NUM_FACTORS]],
+    raw_factors: &[PlanFactors],
     ctx: &UtilityContext,
     rng: &mut DiceRng,
 ) -> (usize, PickMechanics) {
@@ -127,7 +127,7 @@ pub fn pick_best_plan_with_mechanics(
 /// `pick_best_plan` runs every AI tick while debug runs once per F-toggle.
 fn pick_inner(
     scored: &[f32],
-    raw_factors: &[[f32; NUM_FACTORS]],
+    raw_factors: &[PlanFactors],
     ctx: &UtilityContext,
     rng: &mut DiceRng,
     record: bool,
@@ -240,39 +240,39 @@ pub fn record_committed_reservations(
     reservations: &mut Reservations,
     actor_pos: Hex,
 ) {
-    let mut caster_tile = actor_pos;
-    for step in plan.steps.iter().take(consumed) {
-        match step {
-            PlanStep::Move { path } => {
-                if let Some(&dest) = path.last() {
-                    caster_tile = dest;
-                }
+    let mut resting_tile = actor_pos;
+    for (_, step, caster_tile) in plan.walk_with_caster(actor_pos).take(consumed) {
+        // After a Move, `walk_with_caster` advances to the destination on
+        // the *next* yield — track the post-step caster ourselves so the
+        // final reservation uses the resting tile after the committed prefix.
+        if let PlanStep::Move { path } = step {
+            if let Some(&dest) = path.last() {
+                resting_tile = dest;
             }
-            PlanStep::Cast { ability, target, target_pos } => {
-                let Some(def) = ctx.world.content.abilities.get(ability) else { continue };
-                let is_cc = applies_cc(def, ctx.world.content);
-                let hits: Vec<Entity> = if def.aoe == AoEShape::None {
-                    vec![*target]
-                } else {
-                    let area = aoe_area(def, *target_pos, caster_tile);
-                    aoe_hits(&area, active, snap)
-                        .enemies
-                        .iter()
-                        .map(|e| e.entity)
-                        .collect()
-                };
-                for ent in hits {
-                    if let Some(target_unit) = snap.unit(ent) {
-                        if def.target_type != TargetType::SingleAlly {
-                            let dmg = score_action(def, target_unit, ctx.actor.caster, ctx.world.content);
-                            if dmg > 0.0 {
-                                reservations.reserve_damage(ent, dmg);
-                            }
-                        }
-                        if is_cc {
-                            reservations.reserve_cc(ent);
-                        }
+        }
+        let PlanStep::Cast { ability, target, target_pos } = step else { continue };
+        let Some(def) = ctx.world.content.abilities.get(ability) else { continue };
+        let is_cc = applies_cc(def, ctx.world.content);
+        let hits: Vec<Entity> = if def.aoe == AoEShape::None {
+            vec![*target]
+        } else {
+            let area = aoe_area(def, *target_pos, caster_tile);
+            aoe_hits(&area, active, snap)
+                .enemies
+                .iter()
+                .map(|e| e.entity)
+                .collect()
+        };
+        for ent in hits {
+            if let Some(target_unit) = snap.unit(ent) {
+                if def.target_type != TargetType::SingleAlly {
+                    let dmg = score_action(def, target_unit, ctx.actor.caster, ctx.world.content);
+                    if dmg > 0.0 {
+                        reservations.reserve_damage(ent, dmg);
                     }
+                }
+                if is_cc {
+                    reservations.reserve_cc(ent);
                 }
             }
         }
@@ -280,8 +280,8 @@ pub fn record_committed_reservations(
 
     // Reserve the tile we'll actually stop on this tick (end of the committed
     // prefix), not the plan's eventual `final_pos` — same no-ghost principle.
-    if caster_tile != actor_pos {
-        reservations.reserve_tile(caster_tile);
+    if resting_tile != actor_pos {
+        reservations.reserve_tile(resting_tile);
     }
 }
 

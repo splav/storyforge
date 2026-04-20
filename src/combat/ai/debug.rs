@@ -5,7 +5,7 @@ use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
-use crate::combat::ai::factors::{ScoredStep, NUM_FACTORS};
+use crate::combat::ai::factors::{PlanFactors, ScoredStep};
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::utility::{AiDecision, PickMechanics};
 use crate::game::hex::{hex_to_offset, Hex};
@@ -466,7 +466,7 @@ pub fn build_debug_snapshot(
     intent_reason: &str,
     plans: &[TurnPlan],
     scores: &[f32],
-    raw_factors: &[[f32; NUM_FACTORS]],
+    raw_factors: &[PlanFactors],
     decision: &AiDecision,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
@@ -500,7 +500,7 @@ pub fn build_debug_snapshot(
                 target_name,
                 tile: hex_to_offset(tile),
                 tile_influence: tile_influence_at(tile, &active.role, maps),
-                raw: raw_factors[i],
+                raw: raw_factors[i].as_array(),
                 total,
                 is_move_only,
             }
