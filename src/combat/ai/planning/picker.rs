@@ -216,7 +216,7 @@ pub fn record_committed_reservations(
         for ent in hits {
             if let Some(target_unit) = snap.unit(ent) {
                 if def.target_type != TargetType::SingleAlly {
-                    let dmg = score_action(def, target_unit, ctx.actor.caster, ctx.world.content);
+                    let dmg = score_action(def, target_unit, &active.caster_ctx, ctx.world.content);
                     if dmg > 0.0 {
                         reservations.reserve_damage(ent, dmg);
                     }

@@ -227,11 +227,12 @@ fn plan_has_self_aoe(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
 }
 
 fn plan_has_useful_cast(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
-    let utility = ctx.utility;
+    let content = ctx.utility.world.content;
+    let caster = &ctx.active.caster_ctx;
     plan.steps.iter().any(|s| {
         if let PlanStep::Cast { ability, .. } = s {
-            utility.world.content.abilities.get(ability).is_some_and(|def| {
-                def.effect.calc(utility.actor.caster).is_some() || !def.statuses.is_empty()
+            content.abilities.get(ability).is_some_and(|def| {
+                def.effect.calc(caster).is_some() || !def.statuses.is_empty()
             })
         } else {
             false

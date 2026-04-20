@@ -5,9 +5,10 @@ use super::aoe_hits::{aoe_hits, AoeHits};
 use super::OffensiveFactors;
 use crate::combat::ai::scoring::{score_action, status_applications};
 use crate::combat::ai::snapshot::UnitSnapshot;
-use crate::combat::ai::utility::{ScoringCtx, UtilityContext};
+use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::effects_math::aoe_cells;
-use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
+use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
+use crate::content::content_view::ContentView;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
@@ -20,7 +21,8 @@ pub(super) fn compute_offensive(
     caster_tile: Hex,
     ctx: &ScoringCtx,
 ) -> OffensiveFactors {
-    let Some(def) = ctx.utility.world.content.abilities.get(ability) else {
+    let content = ctx.utility.world.content;
+    let Some(def) = content.abilities.get(ability) else {
         return OffensiveFactors::default();
     };
 
@@ -28,19 +30,21 @@ pub(super) fn compute_offensive(
         return OffensiveFactors::default();
     }
 
-    let utility = ctx.utility;
     let snap = ctx.snap;
     let active = ctx.active;
+    // Per-actor casting facts now live on the snapshot row; read them once
+    // so downstream helpers stay ignorant of `ScoringCtx`.
+    let caster = &active.caster_ctx;
+    let crit_fail_effect = &active.crit_fail_effect;
+    let crit_fail_chance = ctx.utility.world.crit_fail_chance;
 
     let (damage, heal, kill, cc) = if def.aoe == AoEShape::None {
         let mut damage = 0.0f32;
         let mut heal = 0.0f32;
         let target_unit = snap.unit(target);
         if let Some(target_unit) = target_unit {
-            let raw = score_action(def, target_unit, utility.actor.caster, utility.world.content);
-            let adjusted = crit_fail_adjusted(
-                raw, def, &utility.actor.crit_fail_effect, utility.actor.crit_fail_chance,
-            );
+            let raw = score_action(def, target_unit, caster, content);
+            let adjusted = crit_fail_adjusted(raw, def, crit_fail_effect, crit_fail_chance);
             if def.target_type == TargetType::SingleAlly {
                 heal = adjusted;
             } else if def.target_type == TargetType::SingleEnemy {
@@ -49,20 +53,22 @@ pub(super) fn compute_offensive(
         }
         let kill = match target_unit {
             Some(t) if def.target_type == TargetType::SingleEnemy => {
-                single_target_kill(def, t, utility)
+                single_target_kill(def, t, caster)
             }
             _ => 0.0,
         };
-        let cc = target_unit.map_or(0.0, |t| status_cc_value(def, t.threat, utility));
+        let cc = target_unit.map_or(0.0, |t| status_cc_value(def, t.threat, content));
         (damage, heal, kill, cc)
     } else {
         let area = aoe_area(def, target_pos, caster_tile);
         let hits = aoe_hits(&area, active, snap);
-        let damage = compute_aoe_damage(def, &hits, active, utility);
+        let damage = compute_aoe_damage(
+            def, &hits, active, caster, content, crit_fail_effect, crit_fail_chance,
+        );
         let kill = if hits
             .enemies
             .iter()
-            .any(|e| single_target_kill(def, e, utility) > 0.0)
+            .any(|e| single_target_kill(def, e, caster) > 0.0)
         {
             1.0
         } else {
@@ -71,7 +77,7 @@ pub(super) fn compute_offensive(
         let cc: f32 = hits
             .enemies
             .iter()
-            .map(|e| status_cc_value(def, e.threat, utility))
+            .map(|e| status_cc_value(def, e.threat, content))
             .sum();
         (damage, 0.0, kill, cc)
     };
@@ -88,8 +94,13 @@ pub fn aoe_area(def: &AbilityDef, target_pos: Hex, caster_tile: Hex) -> HashSet<
 
 /// `raw × (1 + raw/max_hp)` — punishes plans that chunk a non-enemy's HP%
 /// harder, so a fireball on a full-HP ally is worse than on a nicked one.
-fn friendly_fire_penalty(def: &AbilityDef, u: &UnitSnapshot, ctx: &UtilityContext) -> f32 {
-    let raw = score_action(def, u, ctx.actor.caster, ctx.world.content).abs();
+fn friendly_fire_penalty(
+    def: &AbilityDef,
+    u: &UnitSnapshot,
+    caster: &CasterContext,
+    content: &ContentView,
+) -> f32 {
+    let raw = score_action(def, u, caster, content).abs();
     raw * (1.0 + raw / u.max_hp.max(1) as f32)
 }
 
@@ -100,38 +111,37 @@ fn friendly_fire_penalty(def: &AbilityDef, u: &UnitSnapshot, ctx: &UtilityContex
 /// they stand in their own blast. Before this consolidation, iterating
 /// `allies_of(team)` (which includes self) plus an explicit self-branch
 /// subtracted self-damage twice.
+#[allow(clippy::too_many_arguments)]
 fn compute_aoe_damage(
     def: &AbilityDef,
     hits: &AoeHits,
     active: &UnitSnapshot,
-    ctx: &UtilityContext,
+    caster: &CasterContext,
+    content: &ContentView,
+    crit_fail_effect: &crate::content::races::CritFailEffect,
+    crit_fail_chance: f32,
 ) -> f32 {
     let enemy_damage: f32 = hits
         .enemies
         .iter()
-        .map(|e| score_action(def, e, ctx.actor.caster, ctx.world.content))
+        .map(|e| score_action(def, e, caster, content))
         .sum();
     let splash: f32 = if def.friendly_fire {
         hits.allies
             .iter()
             .copied()
             .chain(hits.self_hit.then_some(active))
-            .map(|u| friendly_fire_penalty(def, u, ctx))
+            .map(|u| friendly_fire_penalty(def, u, caster, content))
             .sum()
     } else {
         0.0
     };
-    crit_fail_adjusted(
-        enemy_damage - splash,
-        def,
-        &ctx.actor.crit_fail_effect,
-        ctx.actor.crit_fail_chance,
-    )
+    crit_fail_adjusted(enemy_damage - splash, def, crit_fail_effect, crit_fail_chance)
 }
 
 /// Does `def`'s expected damage overkill `target`? Returns 1.0 or 0.0.
-fn single_target_kill(def: &AbilityDef, target: &UnitSnapshot, ctx: &UtilityContext) -> f32 {
-    let Some(calc) = def.effect.calc(ctx.actor.caster) else { return 0.0 };
+fn single_target_kill(def: &AbilityDef, target: &UnitSnapshot, caster: &CasterContext) -> f32 {
+    let Some(calc) = def.effect.calc(caster) else { return 0.0 };
     let armor = if calc.pierces_armor { 0.0 } else { (target.armor + target.armor_bonus) as f32 };
     let net = calc.expected() - armor + target.damage_taken_bonus as f32;
     if net >= target.hp as f32 { 1.0 } else { 0.0 }
@@ -146,8 +156,8 @@ fn single_target_kill(def: &AbilityDef, target: &UnitSnapshot, ctx: &UtilityCont
 /// positive `armor_bonus` (the "bad-for-target" direction, because the
 /// factor is meaningful only on enemies). `status_score` uses `.abs()` so
 /// it can price ally buffs too.
-fn status_cc_value(def: &AbilityDef, threat: f32, ctx: &UtilityContext) -> f32 {
-    status_applications(def, ctx.world.content)
+fn status_cc_value(def: &AbilityDef, threat: f32, content: &ContentView) -> f32 {
+    status_applications(def, content)
         .map(|(sd, d)| {
             let mut val = 0.0f32;
             if sd.skips_turn {

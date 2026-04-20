@@ -5,8 +5,9 @@ use super::offensive::aoe_area;
 use super::ScoredStep;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
-use crate::combat::ai::utility::{ScoringCtx, UtilityContext};
+use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
+use crate::content::content_view::ContentView;
 
 /// Compute resource-scarcity factor: `swing_value - resource_ratio`.
 /// Free abilities return 0.0 (neutral). Expensive abilities on low-value
@@ -92,7 +93,7 @@ pub(super) fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -
 
     // Overkill penalty: target nearly dead and caster has free attacks.
     if let Some(t) = target_unit {
-        if t.hp_pct() < 0.25 && has_free_attack(utility) {
+        if t.hp_pct() < 0.25 && has_free_attack(active, utility.world.content) {
             swing -= 0.3;
         }
     }
@@ -106,9 +107,11 @@ pub(super) fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -
 }
 
 /// Returns true if the caster has at least one ability with no resource cost.
-fn has_free_attack(ctx: &UtilityContext) -> bool {
-    ctx.actor.abilities.0.iter().any(|id| {
-        ctx.world.content
+/// Reads abilities from the actor's own snapshot — same source
+/// `SnapshotActionState::actor_knows_ability` uses, so no dual-list drift.
+fn has_free_attack(active: &UnitSnapshot, content: &ContentView) -> bool {
+    active.abilities.iter().any(|id| {
+        content
             .abilities
             .get(id)
             .is_some_and(|d| d.costs.is_empty() && d.target_type == TargetType::SingleEnemy)
@@ -125,6 +128,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, unit, UnitBuilder,
     };
+    use crate::combat::ai::utility::UtilityContext;
     use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
     use crate::core::AbilityId;

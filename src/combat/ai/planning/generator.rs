@@ -33,15 +33,6 @@ use std::collections::{HashMap, HashSet};
 // status quo — but worth a fixup: either fold a cheap legality pre-filter
 // into the ranker or expand top-K until K legal survivors.
 
-// TODO(arch-debt, B): the actor's ability list lives in two places —
-// `ctx.actor.abilities` (borrow from the Bevy `Abilities` component, used
-// to iterate castable abilities in `enumerate_next_steps`) and
-// `UnitSnapshot.abilities` (owned, used by `SnapshotActionState::
-// actor_knows_ability`). In production both are built from the same
-// component so they stay synced; in tests they can silently drift. Fix:
-// drop `ctx.actor.abilities` and read from the snapshot. Blocked by
-// `UtilityContext.actor.abilities` being a borrow — collapsing it means
-// reshaping `ActorCtx`.
 
 // Per-step target + move-tile budgets. Composition matters more than the
 // gross count: target enumeration combines a threat-ranked list (focus the
@@ -101,6 +92,10 @@ pub fn generate_plans(
             if sa.action_points <= 0 && sa.movement_points <= 0 {
                 continue;
             }
+            // Grab the actor's caster snapshot once — str/int/spell-power come
+            // from stats + equipment, which sim doesn't mutate, so this is
+            // stable for the whole plan extension loop.
+            let caster_ctx = sa.caster_ctx.clone();
 
             let steps = enumerate_next_steps(&base_sim, ctx, maps);
             for step in steps {
@@ -109,7 +104,7 @@ pub fn generate_plans(
                     snapshot: base_sim.snapshot.clone(),
                     actor,
                 };
-                let outcome = ext_sim.apply_step(&step, ctx.actor.caster, ctx.world.content);
+                let outcome = ext_sim.apply_step(&step, &caster_ctx, ctx.world.content);
 
                 let (final_pos, residual_ap, residual_mp) = match ext_sim.actor_unit() {
                     Some(u) => (u.pos, u.action_points, u.movement_points),
@@ -249,8 +244,10 @@ fn enumerate_next_steps(
     };
     let actor_entity = actor.entity;
 
-    // Cast steps from the actor's current sim position.
-    for ability_id in &ctx.actor.abilities.0 {
+    // Cast steps from the actor's current sim position. Read abilities
+    // from the snapshot — same source `check_legality::actor_knows_ability`
+    // will consult, so no dual-list drift.
+    for ability_id in &actor.abilities {
         let Some(def) = ctx.world.content.abilities.get(ability_id) else { continue };
         let targets = rank_targets(def, actor, sim);
         for (target, target_pos) in targets {
