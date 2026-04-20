@@ -25,15 +25,6 @@ use crate::game::pathfinding::ReachableMap;
 use bevy::prelude::Entity;
 use std::collections::{HashMap, HashSet};
 
-// TODO(arch-debt, A): `rank_targets` picks top-K before `check_legality`
-// filters illegal ones. If every top-K target happens to be out of range /
-// blocked by taunt / otherwise illegal, this ability yields 0 candidates
-// even when a legal (but lower-ranked) target exists. The old code had the
-// same failure mode (pick_targets top-K → is_valid_cast filter), so this is
-// status quo — but worth a fixup: either fold a cheap legality pre-filter
-// into the ranker or expand top-K until K legal survivors.
-
-
 // Per-step target + move-tile budgets. Composition matters more than the
 // gross count: target enumeration combines a threat-ranked list (focus the
 // scariest enemies) with a killability-ranked list (finish wounded ones). Move
@@ -242,24 +233,16 @@ fn enumerate_next_steps(
         content: ctx.content,
         snap: &sim.snapshot,
     };
-    let actor_entity = actor.entity;
 
     // Cast steps from the actor's current sim position. Read abilities
     // from the snapshot — same source `check_legality::actor_knows_ability`
-    // will consult, so no dual-list drift.
+    // will consult, so no dual-list drift. `rank_targets` already filters
+    // candidates through `check_legality`, so this loop only needs the
+    // AI-policy gate on top.
     for ability_id in &actor.abilities {
         let Some(def) = ctx.content.abilities.get(ability_id) else { continue };
-        let targets = rank_targets(def, actor, sim);
+        let targets = rank_targets(def, actor, sim, &state);
         for (target, target_pos) in targets {
-            let proposal = ProposedAction {
-                actor: actor_entity,
-                ability: ability_id,
-                target,
-                target_pos,
-            };
-            if check_legality(proposal, &state).is_err() {
-                continue;
-            }
             if !ai_policy_ok(def, actor, target, target_pos, sim, ctx) {
                 continue;
             }
@@ -343,17 +326,22 @@ fn ai_policy_ok(
     true
 }
 
-/// Rank candidate (entity, target_pos) pairs by AI heuristic. Pure ranking —
-/// no legality filtering (range, AP, team all handled by `check_legality`
-/// downstream). In-range pre-filter deliberately removed so the ranker
-/// doesn't shadow legality logic; the consequence lives in the TODO at the
-/// top of this file.
+/// Rank candidate (entity, target_pos) pairs by AI heuristic, **filtered to
+/// legal candidates first**. Closes the old top-K-then-filter trap where
+/// every top-ranked target could be illegal (out-of-range / taunt-blocked /
+/// dead) and the ability silently produced 0 candidates even with a legal
+/// lower-ranked option in the pool.
+///
+/// Order is: scan candidates → keep legal → rank → top-K. Legality is
+/// queried via the same `check_legality` / `SnapshotActionState` pair
+/// `enumerate_next_steps` would have called downstream, so the upstream
+/// check is now redundant and the caller drops it.
 ///
 /// - `SingleEnemy`: union of top-N by threat and top-M by killability,
 ///   deduped. Two signals catch qualitatively different targets — high-
 ///   threat scaries you want to interrupt, and nearly-dead you want to
-///   finish. Taking the union avoids missing "obvious kill opportunity"
-///   when threat ranking alone would push it off the list.
+///   finish. Union avoids missing "obvious kill opportunity" when threat
+///   alone would push it off the list.
 /// - `SingleAlly`: allies ranked by missing HP desc (most wounded first).
 ///   No separate "threat" dimension for allies.
 /// - `Myself`: one pair — the actor itself.
@@ -361,12 +349,36 @@ fn rank_targets(
     def: &AbilityDef,
     actor: &UnitSnapshot,
     sim: &SimState,
+    state: &SnapshotActionState,
 ) -> Vec<(Entity, Hex)> {
+    let ability_id = &def.id;
+    let actor_entity = actor.entity;
+    let is_legal = |target: Entity, target_pos: Hex| -> bool {
+        let proposal = ProposedAction {
+            actor: actor_entity,
+            ability: ability_id,
+            target,
+            target_pos,
+        };
+        check_legality(proposal, state).is_ok()
+    };
+
     match def.target_type {
-        TargetType::Myself => vec![(actor.entity, actor.pos)],
+        TargetType::Myself => {
+            if is_legal(actor.entity, actor.pos) {
+                vec![(actor.entity, actor.pos)]
+            } else {
+                Vec::new()
+            }
+        }
         TargetType::SingleEnemy => {
-            let pool: Vec<&UnitSnapshot> =
-                sim.snapshot.enemies_of(actor.team).collect();
+            // Filter to legal opponents first, then rank — top-K is now
+            // K legal targets by design.
+            let pool: Vec<&UnitSnapshot> = sim
+                .snapshot
+                .enemies_of(actor.team)
+                .filter(|u| is_legal(u.entity, u.pos))
+                .collect();
 
             let mut by_threat: Vec<&UnitSnapshot> = pool.clone();
             by_threat.sort_by(|a, b| b.threat.total_cmp(&a.threat));
@@ -389,6 +401,7 @@ fn rank_targets(
             let mut picks: Vec<(Entity, Hex, f32)> = sim
                 .snapshot
                 .allies_of(actor.team)
+                .filter(|u| is_legal(u.entity, u.pos))
                 .map(|u| (u.entity, u.pos, (u.max_hp - u.hp).max(0) as f32))
                 .collect();
             picks.sort_by(|a, b| b.2.total_cmp(&a.2));
@@ -1179,6 +1192,61 @@ mod tests {
             })
         });
         assert!(has_melee, "non-mana fallback cast must still be available");
+    }
+
+    /// Regression for arch-debt-A: when the top-K-by-rank enemies are all
+    /// illegal (out-of-range / taunt-blocked), the planner must still
+    /// surface a legal lower-ranked target. Pre-fix, `rank_targets` picked
+    /// top-K first then `check_legality` dropped them all → 0 candidates
+    /// even though a legal target existed in the pool.
+    ///
+    /// Setup: 3 high-threat enemies (top-K candidates) all out of strike
+    /// range, plus 1 low-threat enemy in range. Expectation: planner
+    /// generates a Cast at the in-range enemy.
+    #[test]
+    fn rank_targets_picks_legal_when_top_k_by_rank_all_illegal() {
+        // Strike range = 1, melee. High-threat enemies parked out of reach.
+        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
+        let actor_id = actor.entity;
+        let mut far1 = unit(2, Team::Player, hex_from_offset(8, 0), 20, 1);
+        far1.threat = 100.0;
+        let mut far2 = unit(3, Team::Player, hex_from_offset(7, 1), 20, 1);
+        far2.threat = 90.0;
+        let mut far3 = unit(4, Team::Player, hex_from_offset(8, 2), 20, 1);
+        far3.threat = 80.0;
+        // The only legal target — adjacent, low threat.
+        let mut close = unit(5, Team::Player, hex_from_offset(1, 0), 20, 1);
+        close.threat = 1.0;
+        let close_id = close.entity;
+
+        let def = strike_def("strike", 1, 1);
+        let mut content = empty_content();
+        content.abilities.insert(def.id.clone(), def.clone());
+        let mut difficulty = DifficultyProfile::normal();
+        difficulty.plan_max_depth = 1;
+        let caster = CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let abilities = Abilities(vec![def.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+
+        let snap = BattleSnapshot::new(
+            vec![actor, far1, far2, far3, close],
+            1,
+        );
+        let maps = empty_maps();
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+
+        // The legal close enemy must surface as a Cast in some plan.
+        let strike_id = def.id.clone();
+        let has_close_cast = plans.iter().any(|p| {
+            p.steps.iter().any(|s| {
+                matches!(s, PlanStep::Cast { ability, target, .. }
+                         if *ability == strike_id && *target == close_id)
+            })
+        });
+        assert!(
+            has_close_cast,
+            "rank_targets must dig past illegal top-K to find the legal close target",
+        );
     }
 
 }
