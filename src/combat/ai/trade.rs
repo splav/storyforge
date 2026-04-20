@@ -15,9 +15,12 @@
 //!    round" (damage inflicted / prevented / denied), so contributions
 //!    can be added and the final value multiplied by expected lifetime
 //!    gives an HP-scale scalar.
-//! 3. **Floor at [`UNIT_VALUE_FLOOR`].** Dead / mute / inert units still
-//!    return a strictly positive value so the Phase 3 normaliser
-//!    `tanh(delta / unit_value(self))` never divides by zero.
+//! 3. **No internal floor on [`unit_value`].** A valueless unit returns
+//!    `0.0`; summing over many trash kills therefore doesn't silently
+//!    inflate the delta. The Phase 3 normaliser guards
+//!    `tanh(delta / unit_value(self))` with its own
+//!    [`UNIT_VALUE_FLOOR`] only at the call site where the denominator
+//!    could otherwise be zero.
 //!
 //! # Known limitations (MVP2, tracked for Phase 2c)
 //!
@@ -31,8 +34,10 @@
 //!   stun" proxy — coarse but actor-agnostic. A dynamic per-snapshot
 //!   average would couple `unit_value` to battle state.
 
+use crate::combat::ai::planning::sanity::expected_aoo_damage;
+use crate::combat::ai::planning::TurnPlan;
 use crate::combat::ai::scoring::horizon_avg;
-use crate::combat::ai::snapshot::UnitSnapshot;
+use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::content::abilities::{StatusOn, TargetType};
 use crate::content::content_view::ContentView;
 
@@ -41,29 +46,34 @@ use crate::content::content_view::ContentView;
 /// an actor-agnostic `incoming_dpr(u)` proxy is vetted against replay.
 const FIXED_LIFETIME_ROUNDS: f32 = 2.0;
 
-/// Lower bound on `unit_value`. Keeps the Phase 3 normaliser
-/// `tanh(delta / max(unit_value(self), ε))` well-defined when the actor
-/// has no contribution channels (dead / empty kit).
-const UNIT_VALUE_FLOOR: f32 = 1.0;
+/// Lower bound applied **at the denominator call-site** for the Phase 3
+/// normaliser `tanh(delta / max(unit_value(self), ε))`. Not applied
+/// inside `unit_value` itself — that would silently inflate `trade_delta`
+/// when a plan mass-kills trash.
+pub const UNIT_VALUE_FLOOR: f32 = 1.0;
 
 /// HP-equivalent actor-agnostic value of `u`. See module docs for the
 /// contract; the formula is
 ///
 /// ```text
-/// unit_value(u) = lifetime_rounds(u) × (offense + heal + cc),  floored.
+/// unit_value(u) = lifetime_rounds(u) × (offense + heal + cc).
 /// ```
+///
+/// Returns `0.0` for dead / inert units — **no floor**. The floor
+/// [`UNIT_VALUE_FLOOR`] is applied at the Phase 3 denominator call-site,
+/// not here, so summing values over mass-killed trash stays honest.
 ///
 /// Consumers (Phase 2): plan-level `trade_delta` sums `unit_value` over
 /// killed enemies / lost allies and subtracts `unit_value(self)` when
 /// the plan is self-lethal.
 pub fn unit_value(u: &UnitSnapshot, content: &ContentView) -> f32 {
     if !u.is_alive() {
-        return UNIT_VALUE_FLOOR;
+        return 0.0;
     }
     let life = lifetime_rounds(u);
     let contrib =
         offense_projection(u) + heal_projection(u, content) + cc_projection(u, content);
-    (life * contrib).max(UNIT_VALUE_FLOOR)
+    (life * contrib).max(0.0)
 }
 
 /// Expected acting rounds remaining. See [`FIXED_LIFETIME_ROUNDS`].
@@ -78,16 +88,18 @@ fn offense_projection(u: &UnitSnapshot) -> f32 {
     horizon_avg(u).max(0.0)
 }
 
-/// HP/round healing output. Best per-AP heal scaled to `max_ap`.
+/// HP/round healing output. **Best single legal heal**, no `× max_ap`
+/// scaling.
 ///
 /// Scans `u.abilities` for `SingleAlly + Heal`, evaluates each against
-/// `u.caster_ctx` (spell power / int mod), picks the ability with the
-/// highest `expected / cost_ap`, then multiplies by `max_ap` so a
-/// 2-AP actor with a 1-AP heal can fire twice. Returns `0.0` when the
+/// `u.caster_ctx` (spell power / int mod), picks the maximum `expected`.
+/// Multi-cast-per-round scaling is intentionally omitted — resource
+/// costs, overheal, and realistic cadence are all easier to under-count
+/// than to model honestly; over-counting made heavy casters dominate
+/// trades beyond their actual in-game leverage. Returns `0.0` when the
 /// unit has no heal kit.
 fn heal_projection(u: &UnitSnapshot, content: &ContentView) -> f32 {
-    let best_per_ap: f32 = u
-        .abilities
+    u.abilities
         .iter()
         .filter_map(|id| content.abilities.get(id))
         .filter(|def| matches!(def.target_type, TargetType::SingleAlly))
@@ -96,33 +108,35 @@ fn heal_projection(u: &UnitSnapshot, content: &ContentView) -> f32 {
             if !calc.is_heal {
                 return None;
             }
-            let cost_ap = def.cost_ap.max(1) as f32;
-            Some(calc.expected().max(0.0) / cost_ap)
+            Some(calc.expected().max(0.0))
         })
-        .fold(0.0f32, f32::max);
-    best_per_ap * u.max_ap.max(0) as f32
+        .fold(0.0f32, f32::max)
 }
 
-/// HP/round CC-denial output. Best per-AP CC ability scaled to `max_ap`.
+/// HP/round CC-denial output. **Best single legal CC**, no `× max_ap`
+/// scaling.
 ///
 /// For each ability applying at least one `skips_turn` status on the
-/// target, the denial value is `Σ duration_rounds × peer_dpr` over the
-/// ability's target-side statuses. `peer_dpr = u.threat` is the
-/// actor-agnostic proxy for "how hard is the average enemy hit the stun
-/// prevents". Non-CC abilities and `MySelf`-only status applications
-/// don't contribute.
+/// target, the denial value is `Σ duration_rounds × peer_dpr` over its
+/// target-side statuses — the HP the stun would deny if it landed on a
+/// peer. `peer_dpr = u.threat` is the actor-agnostic proxy for "how hard
+/// is the average enemy hit the stun prevents"; `MySelf`-only
+/// applications are self-buffs, not denial.
+///
+/// Multi-cast-per-round scaling is intentionally omitted: the same
+/// skips-turn status on the same target doesn't stack, and modelling
+/// "how many unstunned targets are there this round" would require a
+/// snapshot (breaking actor-agnostic).
 fn cc_projection(u: &UnitSnapshot, content: &ContentView) -> f32 {
     let peer_dpr = u.threat.max(0.0);
     if peer_dpr <= 0.0 {
         return 0.0;
     }
-    let best_per_ap: f32 = u
-        .abilities
+    u.abilities
         .iter()
         .filter_map(|id| content.abilities.get(id))
-        .filter_map(|def| {
-            let denial: f32 = def
-                .statuses
+        .map(|def| {
+            def.statuses
                 .iter()
                 .filter(|sa| matches!(sa.on, StatusOn::Target))
                 .filter_map(|sa| {
@@ -132,15 +146,144 @@ fn cc_projection(u: &UnitSnapshot, content: &ContentView) -> f32 {
                     }
                     Some(sa.duration_rounds as f32 * peer_dpr)
                 })
-                .sum();
-            if denial <= 0.0 {
-                return None;
-            }
-            let cost_ap = def.cost_ap.max(1) as f32;
-            Some(denial / cost_ap)
+                .sum::<f32>()
         })
-        .fold(0.0f32, f32::max);
-    best_per_ap * u.max_ap.max(0) as f32
+        .fold(0.0f32, f32::max)
+}
+
+// ── Plan-level trade delta ───────────────────────────────────────────────
+
+/// Decomposition of a plan's trade-economy outcome. Every field is in the
+/// HP-equivalent scale produced by [`unit_value`], so they sum / subtract
+/// directly.
+///
+/// `delta = killed_value − lost_value − self_lost` is the headline
+/// scalar consumed by Phase 3; the other fields are carried separately
+/// so the log writer can explain *why* a plan scored what it did
+/// without re-running the computation.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TradeBreakdown {
+    /// Sum of pre-death `unit_value` for enemies the plan kills.
+    pub killed_value: f32,
+    /// Sum of pre-death `unit_value` for allies the plan kills
+    /// (friendly fire). Excludes the actor — their self-loss lands in
+    /// [`Self::self_lost`] to avoid double counting.
+    pub lost_value: f32,
+    /// `unit_value(active)` when the plan is self-lethal AND the actor
+    /// is not already in a step's killed list. Zero otherwise.
+    pub self_lost: f32,
+    /// True if the plan either moves the actor through a lethal AoO
+    /// or self-AoEs the actor into a killed-list entry.
+    pub self_lethal: bool,
+    /// `killed_value − lost_value − self_lost`. The signed headline
+    /// number scored by Phase 3.
+    pub delta: f32,
+}
+
+/// Compute the trade-economy breakdown for a plan.
+///
+/// **Commit-prefix only.** Only steps that would actually fire this tick
+/// count towards the breakdown — kills on steps 2+ of a multi-step plan
+/// are lookahead that the next `pick_action` tick will re-plan from
+/// scratch. Crediting them here would give full, undiscounted credit for
+/// hypothetical futures, breaking the architectural invariant that
+/// everything past the commit prefix is discounted lookahead. The prefix
+/// boundary comes from `plan.committed_step_count()` — the same source
+/// of truth `commit_plan` / `ScoredStep::from_plan_committed` already
+/// consume.
+///
+/// Enemy kills accumulate into `killed_value`; ally kills (including
+/// the actor via self-AoE) accumulate into `lost_value`. Victims are
+/// looked up in the *pre-step* snapshot via `plan.pre_step_snapshot`,
+/// so a unit that sim records as killed still carries its alive
+/// `unit_value` from before the blow.
+///
+/// Self-lethal via movement AoO is evaluated by
+/// [`expected_aoo_damage`][expected_aoo_damage] — the same EV estimate
+/// the adaptation layer uses. Within the commit prefix the risky move
+/// is always step 0 (valid prefixes are `[]`, `[Cast]`, `[Move]`,
+/// `[Move, Cast]`), so comparing `aoo_dmg >= active.hp` against the
+/// plan-start HP is exact — no self-heal could run before the move.
+/// Counted into `self_lost` only when the actor isn't already in the
+/// killed list; otherwise the sim path already charged the loss via
+/// `lost_value`.
+pub fn trade_delta(
+    plan: &TurnPlan,
+    active: &UnitSnapshot,
+    initial_snap: &BattleSnapshot,
+    content: &ContentView,
+) -> TradeBreakdown {
+    let prefix_len = plan.committed_step_count();
+    let mut killed_value = 0.0f32;
+    let mut lost_value = 0.0f32;
+    let mut self_in_killed = false;
+
+    // Only the committed prefix contributes — tail steps are lookahead.
+    // `plan.outcomes.len()` may be shorter than `steps.len()` for
+    // deserialized plans (outcomes serialize, sim_snapshots don't), so
+    // clamp at both ends.
+    let scan_len = prefix_len.min(plan.outcomes.len());
+    for (k, outcome) in plan.outcomes.iter().take(scan_len).enumerate() {
+        if outcome.killed.is_empty() {
+            continue;
+        }
+        let pre = plan.pre_step_snapshot(k, initial_snap);
+        for &e in &outcome.killed {
+            let Some(victim) = pre.unit(e) else { continue };
+            let v = unit_value(victim, content);
+            if victim.entity == active.entity {
+                self_in_killed = true;
+                lost_value += v;
+            } else if victim.team == active.team {
+                lost_value += v;
+            } else {
+                killed_value += v;
+            }
+        }
+    }
+
+    // Self-lethal via AoO on movement. `expected_aoo_damage` walks the
+    // whole plan's path, but in a valid commit prefix the only Move that
+    // fires this tick is step 0 (bundled prefix is `[Move]` or
+    // `[Move, Cast]`). For full-plan prefixes (no Move in prefix) this
+    // returns 0 because there's no path-transition to scan. Safe.
+    let enemies: Vec<&UnitSnapshot> = initial_snap.enemies_of(active.team).collect();
+    let aoo_dmg = if prefix_is_move_shaped(plan, prefix_len) {
+        expected_aoo_damage(active, plan, &enemies)
+    } else {
+        0.0
+    };
+    let self_lethal_aoo = aoo_dmg >= active.hp as f32 && active.hp > 0;
+
+    let self_lost = if self_in_killed {
+        0.0
+    } else if self_lethal_aoo {
+        unit_value(active, content)
+    } else {
+        0.0
+    };
+
+    let self_lethal = self_in_killed || self_lethal_aoo;
+    let delta = killed_value - lost_value - self_lost;
+
+    TradeBreakdown {
+        killed_value,
+        lost_value,
+        self_lost,
+        self_lethal,
+        delta,
+    }
+}
+
+/// Does the committed prefix contain a Move step? Cheap predicate over
+/// the first `prefix_len` steps; used to gate the AoO scan so a
+/// commit-prefix of `[Cast]` doesn't borrow AoO risk from a lookahead
+/// move in step 2.
+fn prefix_is_move_shaped(plan: &TurnPlan, prefix_len: usize) -> bool {
+    plan.steps
+        .iter()
+        .take(prefix_len)
+        .any(|s| matches!(s, crate::combat::ai::planning::PlanStep::Move { .. }))
 }
 
 #[cfg(test)]
@@ -236,27 +379,27 @@ mod tests {
 
     // ── unit_value ──────────────────────────────────────────────────────────
 
-    /// Dead unit must still return the floor — Phase 3 normaliser depends on
-    /// the guarantee `unit_value ≥ ε > 0` to avoid division-by-zero when the
-    /// actor's own value is queried mid-plan.
+    /// Dead unit returns zero — the Phase 3 normaliser applies its own
+    /// floor at the denominator. Summing zero-valued trash kills must
+    /// therefore not silently inflate `trade_delta`.
     #[test]
-    fn dead_unit_returns_floor() {
+    fn dead_unit_returns_zero() {
         let u = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .hp(0)
             .build();
         let c = content();
-        assert_eq!(unit_value(&u, &c), UNIT_VALUE_FLOOR);
+        assert_eq!(unit_value(&u, &c), 0.0);
     }
 
-    /// Unit with no kit still ≥ floor — inert but alive, we don't want it
-    /// zero-priced either (a NPC guard soaking damage still costs *something*).
+    /// Alive unit with no kit and zero threat → zero value. Rationale same
+    /// as dead-unit: no hidden floor that mass-kill accounting can exploit.
     #[test]
-    fn empty_kit_returns_floor() {
+    fn empty_kit_zero_threat_returns_zero() {
         let u = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .threat(0.0)
             .build();
         let c = content();
-        assert_eq!(unit_value(&u, &c), UNIT_VALUE_FLOOR);
+        assert_eq!(unit_value(&u, &c), 0.0);
     }
 
     /// A healer with meaningful heal output should out-price a comparable
@@ -387,7 +530,312 @@ mod tests {
             .abilities(vec![ab.id.clone()])
             .build();
 
-        // threat=0 ⇒ offense also 0 ⇒ pure-CC unit falls to floor.
-        assert_eq!(unit_value(&u, &c), UNIT_VALUE_FLOOR);
+        // threat=0 ⇒ offense also 0 ⇒ pure-CC unit values at zero.
+        assert_eq!(unit_value(&u, &c), 0.0);
+    }
+
+    // ── trade_delta ─────────────────────────────────────────────────────────
+    //
+    // Plans are constructed with `sim_snapshots` left empty — `pre_step_snapshot`
+    // falls back to `initial_snap` across all steps, which is the same safe
+    // fallback deserialized plans use. Direct, no sim wiring needed.
+
+    use crate::combat::ai::planning::{PlanStep, StepOutcome, TurnPlan};
+    use crate::combat::ai::snapshot::BattleSnapshot;
+    use bevy::prelude::Entity;
+
+    fn ent(id: u32) -> Entity {
+        Entity::from_raw_u32(id).expect("valid")
+    }
+
+    /// Plan with a single `Move` step and a prescribed `killed` outcome.
+    /// AoO-relevant: the Move step is what `expected_aoo_damage` scans.
+    fn move_plan_killing(
+        path: Vec<crate::game::hex::Hex>,
+        killed: Vec<Entity>,
+    ) -> TurnPlan {
+        TurnPlan {
+            steps: vec![PlanStep::Move { path: path.clone() }],
+            final_pos: *path.last().unwrap(),
+            residual_ap: 1,
+            residual_mp: 0,
+            outcomes: vec![StepOutcome {
+                killed,
+                ..Default::default()
+            }],
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        }
+    }
+
+    /// Stationary cast plan — a commit-prefix-valid `[Cast]` with a
+    /// fabricated outcome vector. The Cast step is a no-op marker; what
+    /// we're pinning is trade_delta's victim classification, not the
+    /// cast resolution.
+    fn static_kill_plan(pos: crate::game::hex::Hex, killed: Vec<Entity>) -> TurnPlan {
+        TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: AbilityId::from("_fixture"),
+                target: ent(0xDEAD),
+                target_pos: pos,
+            }],
+            final_pos: pos,
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: vec![StepOutcome {
+                killed,
+                ..Default::default()
+            }],
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        }
+    }
+
+    /// Killing an enemy yields a positive delta equal to their `unit_value`.
+    /// No allies in the plan → `lost_value = 0`; no movement → `self_lost = 0`.
+    #[test]
+    fn enemy_kill_credits_killed_value() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .threat(5.0)
+            .build();
+        let victim = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .ai_role(AiRole::Support)
+            .threat(4.0)
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), victim.clone()], 1);
+        let plan = static_kill_plan(actor.pos, vec![victim.entity]);
+        let c = content();
+
+        let br = trade_delta(&plan, &actor, &snap, &c);
+        let expected = unit_value(&victim, &c);
+
+        assert_eq!(br.killed_value, expected);
+        assert_eq!(br.lost_value, 0.0);
+        assert_eq!(br.self_lost, 0.0);
+        assert!(!br.self_lethal);
+        assert_eq!(br.delta, expected);
+    }
+
+    /// AoE that kills a weak enemy AND a valuable ally should produce a
+    /// negative delta dominated by the ally loss. Pins the friendly-fire
+    /// accounting path (ally → `lost_value`, not `killed_value`).
+    #[test]
+    fn aoe_killing_ally_and_rat_nets_negative() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .threat(5.0)
+            .build();
+        let rat = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0))
+            .threat(1.0)
+            .build();
+        let ally_controller = UnitBuilder::new(3, Team::Enemy, hex_from_offset(1, 0))
+            .ai_role(AiRole::Mage)
+            .threat(8.0)
+            .build();
+        let snap = BattleSnapshot::new(
+            vec![actor.clone(), rat.clone(), ally_controller.clone()],
+            1,
+        );
+        let plan = static_kill_plan(actor.pos, vec![rat.entity, ally_controller.entity]);
+        let c = content();
+
+        let br = trade_delta(&plan, &actor, &snap, &c);
+        assert!(br.killed_value > 0.0);
+        assert!(br.lost_value > br.killed_value, "ally value must dominate");
+        assert!(br.delta < 0.0);
+    }
+
+    /// Self-lethal move with no kill → `delta = −unit_value(self)`.
+    /// Pins the `expected_aoo_damage ≥ hp` path and the guard that
+    /// `lost_value` stays zero when the actor isn't in a killed list.
+    #[test]
+    fn self_lethal_move_no_kill_equals_minus_self() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(3)
+            .threat(5.0)
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .aoo(5.0, 1)
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let plan = move_plan_killing(vec![hex_from_offset(-1, 0)], Vec::new());
+        let c = content();
+
+        let br = trade_delta(&plan, &actor, &snap, &c);
+        assert!(br.self_lethal);
+        assert_eq!(br.killed_value, 0.0);
+        assert_eq!(br.lost_value, 0.0);
+        assert_eq!(br.self_lost, unit_value(&actor, &c));
+        assert_eq!(br.delta, -unit_value(&actor, &c));
+    }
+
+    /// Self-AoE putting the actor in the killed list must charge the
+    /// loss exactly once — via `lost_value`, not `self_lost`. Pins the
+    /// `self_in_killed` guard that prevents double counting when an
+    /// already-dead actor would also be AoO-lethal.
+    #[test]
+    fn self_in_killed_list_suppresses_self_lost_path() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(3)
+            .threat(5.0)
+            .build();
+        // Adjacent enemy with a lethal AoO — would normally trigger the
+        // AoO-lethal path AS WELL AS the sim-kill path, double-charging.
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .aoo(5.0, 1)
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        // Plan moves away (triggers AoO by the provoker above) AND the sim
+        // outcome declares the actor dead. Under double-counting we'd lose
+        // 2×unit_value(actor); the guard caps it at 1×.
+        let plan = move_plan_killing(
+            vec![hex_from_offset(-1, 0)],
+            vec![actor.entity],
+        );
+        let c = content();
+
+        let br = trade_delta(&plan, &actor, &snap, &c);
+        assert!(br.self_lethal);
+        assert_eq!(br.self_lost, 0.0, "must not double-charge");
+        assert_eq!(br.lost_value, unit_value(&actor, &c));
+        assert_eq!(br.delta, -unit_value(&actor, &c));
+    }
+
+    /// Empty plan (no steps, no outcomes) is neutral: zero deltas, not
+    /// self-lethal. The baseline case every other branch contrasts against.
+    #[test]
+    fn empty_plan_is_neutral() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .threat(5.0)
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let plan = TurnPlan {
+            steps: Vec::new(),
+            final_pos: actor.pos,
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: Vec::new(),
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+        let c = content();
+
+        let br = trade_delta(&plan, &actor, &snap, &c);
+        assert_eq!(br, TradeBreakdown::default());
+    }
+
+    /// Unknown victim entity (not in the snapshot) must be silently
+    /// skipped — a robustness guard for deserialized plans or mid-sim
+    /// state drift. Pins the `pre.unit(e)` `Some`-only accumulation.
+    #[test]
+    fn unknown_victim_is_skipped() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .threat(5.0)
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let plan = static_kill_plan(actor.pos, vec![ent(99)]);
+        let c = content();
+
+        let br = trade_delta(&plan, &actor, &snap, &c);
+        assert_eq!(br, TradeBreakdown::default());
+    }
+
+    /// Multi-step plan whose commit prefix is `[Cast]` — step 1's Cast
+    /// fires, step 2's kill is lookahead that the next tick will replan.
+    /// Pins the architectural invariant that trade_delta is
+    /// commit-prefix-only: un-discounted credit for step-2 kills would
+    /// double-count what should live under the existing step-discount
+    /// regime.
+    #[test]
+    fn tail_step_kill_is_not_credited() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .threat(5.0)
+            .build();
+        let tail_victim = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0))
+            .ai_role(AiRole::Support)
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), tail_victim.clone()], 1);
+
+        // Prefix `[Cast]`; step-2 Cast has the kill. Step-2 is lookahead
+        // and must not contribute to trade_delta under any prefix.
+        let plan = TurnPlan {
+            steps: vec![
+                PlanStep::Cast {
+                    ability: AbilityId::from("_first"),
+                    target: ent(0xAAAA),
+                    target_pos: hex_from_offset(1, 0),
+                },
+                PlanStep::Cast {
+                    ability: AbilityId::from("_tail"),
+                    target: tail_victim.entity,
+                    target_pos: tail_victim.pos,
+                },
+            ],
+            final_pos: actor.pos,
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: vec![
+                StepOutcome::default(),
+                StepOutcome {
+                    killed: vec![tail_victim.entity],
+                    ..Default::default()
+                },
+            ],
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+        let c = content();
+
+        let br = trade_delta(&plan, &actor, &snap, &c);
+        assert_eq!(br.killed_value, 0.0, "step-2 kill must not be credited");
+        assert_eq!(br, TradeBreakdown::default());
+    }
+
+    /// Bundled `[Move, Cast]` prefix: BOTH steps count toward
+    /// trade_delta because both fire this tick. Pins the upper bound of
+    /// the commit-prefix scan.
+    #[test]
+    fn move_then_cast_prefix_counts_both_steps() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .threat(5.0)
+            .build();
+        let victim = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0))
+            .ai_role(AiRole::Support)
+            .threat(4.0)
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), victim.clone()], 1);
+
+        let plan = TurnPlan {
+            steps: vec![
+                PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
+                PlanStep::Cast {
+                    ability: AbilityId::from("_cast"),
+                    target: victim.entity,
+                    target_pos: victim.pos,
+                },
+            ],
+            final_pos: hex_from_offset(1, 0),
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: vec![
+                StepOutcome::default(),
+                StepOutcome {
+                    killed: vec![victim.entity],
+                    ..Default::default()
+                },
+            ],
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+        let c = content();
+
+        let br = trade_delta(&plan, &actor, &snap, &c);
+        assert_eq!(br.killed_value, unit_value(&victim, &c));
+        assert!(!br.self_lethal);
+    }
+
+    // Keep `ent` live even if test churn drops it from the test list.
+    #[test]
+    fn _ent_helper_available() {
+        let _ = ent(42);
     }
 }
