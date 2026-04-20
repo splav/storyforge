@@ -92,6 +92,7 @@ impl UnitBuilder {
                 statuses: Vec::new(),
                 caster_ctx: Default::default(),
                 crit_fail_effect: Default::default(),
+                damage_horizon: Vec::new(),
             },
         }
     }

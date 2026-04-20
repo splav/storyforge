@@ -140,7 +140,8 @@ fn main() {
         // continues, just blind to those signals:
         // - v1 → v2: `reactions_left` (1) + `aoo_expected_damage` (None)
         // - v2 → v3: `caster_ctx` (zeros) + `crit_fail_effect` (Miss)
-        if entry.schema_version < 1 || entry.schema_version > 3 {
+        // - v3 → v4: `damage_horizon` (empty) — CC/heal fall back to threat
+        if entry.schema_version < 1 || entry.schema_version > 4 {
             eprintln!("unsupported schema_version {}, skipping", entry.schema_version);
             continue;
         }

@@ -42,6 +42,11 @@ pub struct DifficultyProfile {
     /// more pessimistic about deep plans (less trust that future steps execute
     /// as planned); higher = AI commits harder to long combos.
     pub plan_step_discount: f32,
+    /// How many future rounds `UnitSnapshot::damage_horizon` projects. Used as
+    /// the window for CC / heal / stun scoring — longer horizon means CC
+    /// penalties and heal value factor in more of the enemy's sustained
+    /// output. Typical values 3–7; default 5 matches an average combat arc.
+    pub damage_horizon_rounds: u32,
 }
 
 impl DifficultyProfile {
@@ -57,6 +62,7 @@ impl DifficultyProfile {
             plan_max_depth: 3,
             plan_beam_width: 8,
             plan_step_discount: 0.75,
+            damage_horizon_rounds: 5,
         }
     }
 
@@ -71,6 +77,7 @@ impl DifficultyProfile {
             mercy: 0.10,
             plan_max_depth: 3,
             plan_beam_width: 16,
+            damage_horizon_rounds: 5,
             plan_step_discount: 0.85,
         }
     }
@@ -85,6 +92,7 @@ impl DifficultyProfile {
             coordination: 1.30,
             mercy: 0.00,
             plan_max_depth: 3,
+            damage_horizon_rounds: 5,
             plan_beam_width: 24,
             plan_step_discount: 0.90,
         }

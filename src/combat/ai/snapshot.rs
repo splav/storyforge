@@ -1,6 +1,7 @@
 use crate::content::content_view::ContentView;
 use crate::combat::ai::role::AxisProfile;
-use crate::combat::ai::scoring::{applies_cc, estimate_st_damage};
+use crate::combat::ai::difficulty::DifficultyProfile;
+use crate::combat::ai::scoring::{applies_cc, estimate_damage_horizon, estimate_st_damage};
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
 use crate::content::races::CritFailEffect;
 use crate::core::{AbilityId, ResourceKind, StatusId};
@@ -112,6 +113,19 @@ pub struct UnitSnapshot {
     /// Schema v3+: absent on older logs → `CritFailEffect::Miss`.
     #[serde(default)]
     pub crit_fail_effect: CritFailEffect,
+    /// Projected damage per future round under AP + resource budgets, as
+    /// produced by `estimate_damage_horizon`. `damage_horizon[i]` is the
+    /// expected single-target damage this unit deals `i+1` rounds from
+    /// now. Length matches `DifficultyProfile.damage_horizon_rounds`
+    /// (typically 5). Sum over a relevant duration window captures "how
+    /// much damage this unit is projected to deliver while a stun / heal
+    /// window is in effect" — DPR-correct where plain `threat` over-counts
+    /// resource-limited burst casters.
+    ///
+    /// Schema v4+: absent on older logs → empty vec; CC/heal scoring
+    /// reading horizon falls back to `threat`-only behaviour when empty.
+    #[serde(default)]
+    pub damage_horizon: Vec<f32>,
 }
 
 /// Snapshot-shaped mirror of `ActiveStatus` (components.rs). Drops `applier`
@@ -235,7 +249,9 @@ pub fn build_snapshot(
     positions: &HexPositions,
     roles: &Query<&AxisProfile>,
     content: &ContentView,
+    difficulty: &DifficultyProfile,
 ) -> BattleSnapshot {
+    let horizon_rounds = difficulty.damage_horizon_rounds;
     // Dead combatants stay in the snapshot (hp=0 marker). Downstream
     // accessors like `enemies_of` / `allies_of` filter them out; death-
     // aware code (resurrection, on-kill triggers, replay) reads them via
@@ -330,6 +346,17 @@ pub fn build_snapshot(
                     .and_then(|cp| content.paths.get(&cp.0))
                     .map(|p| p.crit_fail_effect.clone())
                     .unwrap_or_default(),
+                damage_horizon: estimate_damage_horizon(
+                    &caster_ctx,
+                    c.abilities,
+                    content,
+                    c.ap.max_ap,
+                    c.mana.map(|m| (m.current, m.max)),
+                    c.rage.map(|r| (r.current, r.max)),
+                    c.energy.map(|e| (e.current, e.max)),
+                    c.vital.hp,
+                    horizon_rounds,
+                ),
             })
         })
         .collect();
@@ -586,6 +613,7 @@ mod affordability_tests {
             statuses: Vec::new(),
             caster_ctx: Default::default(),
             crit_fail_effect: Default::default(),
+            damage_horizon: Vec::new(),
         }
     }
 

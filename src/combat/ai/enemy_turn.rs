@@ -110,7 +110,9 @@ fn run_ai_turn(
 
     // Build snapshot and influence maps.
     let actor_team = c.faction.0;
-    let snap = build_snapshot(combat_ctx.round, combatants, statuses, positions, roles, content);
+    let snap = build_snapshot(
+        combat_ctx.round, combatants, statuses, positions, roles, content, difficulty,
+    );
     let maps = build_influence_maps(&snap, actor, actor_team, inf_cfg);
 
     // World-scope context. Per-actor caster/crit-fail-effect/abilities now
