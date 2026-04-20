@@ -535,10 +535,7 @@ mod tests {
     fn sum_factors_scale_by_step_weight() {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let focus = unit(2, Team::Player, hex_from_offset(5, 0));
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), focus.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor.clone(), focus.clone()], 1);
         let content =
             crate::content::content_view::ContentView::load_global_for_tests();
         let mut difficulty = DifficultyProfile::normal();
@@ -619,10 +616,10 @@ mod tests {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let target = unit(2, Team::Player, hex_from_offset(1, 0));
         let other = unit(3, Team::Player, hex_from_offset(2, 0));
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), target.clone(), other.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(
+            vec![actor.clone(), target.clone(), other.clone()],
+            1,
+        );
         let content =
             crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
@@ -698,10 +695,10 @@ mod tests {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let focus_a = unit(2, Team::Player, hex_from_offset(3, 0));
         let focus_b = unit(3, Team::Player, hex_from_offset(2, 0));
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), focus_a.clone(), focus_b.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(
+            vec![actor.clone(), focus_a.clone(), focus_b.clone()],
+            1,
+        );
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         // decision_quality=1.0 → score_noise=0; rescore vs. fresh-score then
         // produce bitwise-equal numbers, letting us use `assert_eq!` on f32
@@ -763,10 +760,7 @@ mod tests {
 
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let enemy = unit(2, Team::Player, hex_from_offset(1, 0));
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), enemy.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let abilities = Abilities(vec!["melee_attack".into()]);

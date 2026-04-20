@@ -108,7 +108,7 @@ mod tests {
 
         let tile = hex_from_offset(3, 3);
         let step = ScoredStep::Move { caster_tile: tile };
-        let snap = BattleSnapshot { units: Vec::new(), round: 1 };
+        let snap = BattleSnapshot::new(Vec::new(), 1);
 
         let mut reservations = Reservations::default();
         reservations.reserve_tile(tile);
@@ -176,7 +176,7 @@ mod tests {
             aoo_expected_damage: None,
             statuses: Vec::new(),
         };
-        let snap = BattleSnapshot { units: vec![target.clone()], round: 1 };
+        let snap = BattleSnapshot::new(vec![target.clone()], 1);
         let mut reservations = Reservations::default();
         // Reserve 10 HP of incoming damage against a 5-HP target — lethal.
         reservations.reserve_damage(target_ent, 10.0);
@@ -221,7 +221,7 @@ mod tests {
         let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
         let step = ScoredStep::Move { caster_tile: hex_from_offset(0, 0) };
-        let snap = BattleSnapshot { units: Vec::new(), round: 1 };
+        let snap = BattleSnapshot::new(Vec::new(), 1);
         let reservations = Reservations::default();
 
         let mut off = OffensiveFactors::default();

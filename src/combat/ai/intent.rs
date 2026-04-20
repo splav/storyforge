@@ -627,10 +627,7 @@ mod tests {
             team: Team::Player,
             ..dummy_unit(hex_from_offset(0, 0))
         };
-        let snap = BattleSnapshot {
-            units: vec![active.clone(), enemy],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![active.clone(), enemy], 1);
         let content = ContentView::load_global_for_tests();
         let intent = TacticalIntent::Reposition;
         let difficulty = DifficultyProfile::default();

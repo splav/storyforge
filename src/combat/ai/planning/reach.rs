@@ -83,7 +83,7 @@ mod tests {
     }
 
     fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot { units, round: 1 }
+        BattleSnapshot::new(units, 1)
     }
 
     #[test]

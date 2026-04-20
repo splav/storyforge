@@ -622,10 +622,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor, target],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor, target], 1);
         let maps = empty_maps();
 
         let blocked = HashSet::<Hex>::new();
@@ -669,10 +666,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units,
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(units, 1);
         let maps = empty_maps();
 
         let blocked = HashSet::<Hex>::new();
@@ -711,10 +705,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor, weak, other],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor, weak, other], 1);
         let maps = empty_maps();
 
         let blocked = HashSet::<Hex>::new();
@@ -758,10 +749,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor, target],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor, target], 1);
         let maps = empty_maps();
 
         let blocked = HashSet::<Hex>::new();
@@ -975,10 +963,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), taunter.clone(), other.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor.clone(), taunter.clone(), other.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         let taunter_ent = Some(taunter.entity);
@@ -1010,10 +995,7 @@ mod tests {
         let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
 
         let taunter_ent = Some(taunter.entity);
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), taunter, ally.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor.clone(), taunter, ally.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
@@ -1036,10 +1018,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), a.clone(), b.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor.clone(), a.clone(), b.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(is_valid_cast(&def, &actor, a.entity, a.pos, &sim, &ctx, None));
@@ -1066,10 +1045,7 @@ mod tests {
         let abilities = Abilities(vec![heal.id.clone()]);
         let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), fine.clone(), hurt.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor.clone(), fine.clone(), hurt.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
@@ -1101,10 +1077,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), stunned.clone(), awake.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor.clone(), stunned.clone(), awake.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
@@ -1135,10 +1108,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), stunned.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor.clone(), stunned.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
@@ -1165,10 +1135,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), enemy.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
@@ -1194,10 +1161,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), e1.clone(), e2.clone(), ally.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor.clone(), e1.clone(), e2.clone(), ally.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
@@ -1228,10 +1192,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor, taunter, adjacent_non_taunter],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor, taunter, adjacent_non_taunter], 1);
         let maps = empty_maps();
 
         let blocked = HashSet::<Hex>::new();
@@ -1269,10 +1230,7 @@ mod tests {
         let abilities = Abilities(vec![def.id.clone()]);
         let ctx = ctx_with(&content, &difficulty, &caster, &abilities);
 
-        let snap = BattleSnapshot {
-            units: vec![actor.clone(), taunter.clone(), nearby.clone()],
-            round: 1,
-        };
+        let snap = BattleSnapshot::new(vec![actor.clone(), taunter.clone(), nearby.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         // The observed-incident shape: taunter out of melee reach, enemy on

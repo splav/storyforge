@@ -163,7 +163,7 @@ mod tests {
     }
 
     fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot { units, round: 1 }
+        BattleSnapshot::new(units, 1)
     }
 
     /// Test helpers return (AbilityId, step-factory). Tests own the owned
@@ -279,10 +279,10 @@ mod tests {
         let e2 = unit(2, Team::Player, neighbors[0]);
         let e3 = unit(3, Team::Player, neighbors[1]);
 
-        let s = BattleSnapshot {
-            units: vec![active.clone(), e1.clone(), e2.clone(), e3.clone()],
-            round: 3,
-        };
+        let s = BattleSnapshot::new(
+            vec![active.clone(), e1.clone(), e2.clone(), e3.clone()],
+            3,
+        );
         let content = ContentView::load_global_for_tests();
         let diff = DifficultyProfile::default();
         let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
@@ -314,16 +314,10 @@ mod tests {
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
 
-        let s_r1 = BattleSnapshot {
-            units: vec![active.clone(), enemy.clone()],
-            round: 1,
-        };
+        let s_r1 = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 1);
         let score_r1 = compute_scarcity(&step, &active, 0.0, &ctx, &s_r1);
 
-        let s_r3 = BattleSnapshot {
-            units: vec![active.clone(), enemy.clone()],
-            round: 3,
-        };
+        let s_r3 = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 3);
         let score_r3 = compute_scarcity(&step, &active, 0.0, &ctx, &s_r3);
 
         assert!(

@@ -154,11 +154,14 @@ impl SimState {
         self.apply_primary(&ability_outcome, content, &mut outcome);
         apply_statuses(self, &ability_outcome, content, &mut outcome);
 
-        // Prune killed units so the next step sees them absent.
+        // Prune killed units so the next step sees them absent. Indices
+        // shift, so drop the entity cache — `unit()` lazy-rebuilds on next
+        // access.
         if !outcome.killed.is_empty() {
             let dead: std::collections::HashSet<Entity> =
                 outcome.killed.iter().copied().collect();
             self.snapshot.units.retain(|u| !dead.contains(&u.entity));
+            self.snapshot.invalidate_index();
         }
 
         outcome
@@ -393,7 +396,7 @@ mod tests {
     }
 
     fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot { units, round: 1 }
+        BattleSnapshot::new(units, 1)
     }
 
     fn ctx(str_mod: i32, int_mod: i32) -> CasterContext {

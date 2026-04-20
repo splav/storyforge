@@ -9,6 +9,8 @@ use crate::game::components::{
 use crate::game::hex::Hex;
 use crate::game::resources::HexPositions;
 use bevy::prelude::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 // ── Tags ──────────────────────────────────────────────────────────────────────
 
@@ -28,10 +30,19 @@ bitflags::bitflags! {
 
 // ── Snapshot types ────────────────────────────────────────────────────────────
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct BattleSnapshot {
     pub units: Vec<UnitSnapshot>,
     pub round: u32,
+    /// O(1) entity → units[index] cache. Private so the invariant "in sync
+    /// with `units`" can't be silently broken via struct-literal
+    /// construction; callers go through [`BattleSnapshot::new`] or the
+    /// serde path (which gives a `None` cache, lazy-built on first
+    /// `unit()` call). Sim calls [`BattleSnapshot::invalidate_index`] after
+    /// `units.retain` / other shape-changing mutations so the next read
+    /// rebuilds. Read through `unit()` — never poke this field directly.
+    #[serde(skip)]
+    by_entity: RefCell<Option<HashMap<Entity, usize>>>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -288,19 +299,60 @@ pub fn build_snapshot(
         })
         .collect();
 
-    BattleSnapshot {
-        units,
-        round,
-    }
+    BattleSnapshot::new(units, round)
 }
 
 // ── Helpers on BattleSnapshot ─────────────────────────────────────────────────
 
 impl BattleSnapshot {
-    pub fn unit(&self, entity: Entity) -> Option<&UnitSnapshot> {
-        self.units.iter().find(|u| u.entity == entity)
+    /// Construct a snapshot with its entity index eagerly built. The index
+    /// backs `unit()` — O(1) instead of the linear scan the old literal
+    /// construction produced. Use this everywhere (prod + tests);
+    /// `#[derive(Default)]` / serde-deserialized snapshots get an empty
+    /// cache that lazy-builds on first `unit()` call.
+    pub fn new(units: Vec<UnitSnapshot>, round: u32) -> Self {
+        let map = units
+            .iter()
+            .enumerate()
+            .map(|(i, u)| (u.entity, i))
+            .collect();
+        Self {
+            units,
+            round,
+            by_entity: RefCell::new(Some(map)),
+        }
     }
 
+    /// Discard the entity index. Call after any mutation of `units` that
+    /// changes length or order (e.g. sim's `retain` for killed units). The
+    /// next `unit()` call rebuilds lazily.
+    pub fn invalidate_index(&mut self) {
+        *self.by_entity.borrow_mut() = None;
+    }
+
+    /// O(1) lookup by entity. Transparently lazy-builds the index when
+    /// missing (fresh deserialized snapshot or post-`invalidate_index`).
+    pub fn unit(&self, entity: Entity) -> Option<&UnitSnapshot> {
+        // Scope the RefCell borrow so the resulting `&UnitSnapshot` doesn't
+        // alias it.
+        let idx = {
+            let mut slot = self.by_entity.borrow_mut();
+            if slot.is_none() {
+                *slot = Some(
+                    self.units
+                        .iter()
+                        .enumerate()
+                        .map(|(i, u)| (u.entity, i))
+                        .collect(),
+                );
+            }
+            slot.as_ref().expect("just filled").get(&entity).copied()?
+        };
+        self.units.get(idx)
+    }
+
+    /// Position lookup stays linear — there's no per-tile index, and
+    /// callers use it sparingly (mostly in sim's `compute_affected_targets`).
     pub fn unit_at(&self, pos: Hex) -> Option<&UnitSnapshot> {
         self.units.iter().find(|u| u.pos == pos)
     }
