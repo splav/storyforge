@@ -81,16 +81,22 @@ impl PlanRanking {
         let panic_danger = ctx.world.difficulty.awareness_danger_threshold();
         let midpanic = hp_pct < midpanic_hp && actor_danger > panic_danger;
 
-        let new_intent = if midpanic {
-            self.intent_reason = IntentReason::MidpanicFallback {
-                hp_pct,
-                midpanic_hp,
-                danger: actor_danger,
-                panic_danger,
-                max_align,
-                threshold,
-            };
-            Some(TacticalIntent::ProtectSelf)
+        // Compute (candidate intent, candidate reason) without mutating self.
+        // The mutation commits only after the kind/target guard passes below —
+        // otherwise reason could drift away from intent when the guard blocks
+        // the swap (e.g., fallback returns the same FocusTarget target).
+        let candidate: Option<(TacticalIntent, IntentReason)> = if midpanic {
+            Some((
+                TacticalIntent::ProtectSelf,
+                IntentReason::MidpanicFallback {
+                    hp_pct,
+                    midpanic_hp,
+                    danger: actor_danger,
+                    panic_danger,
+                    max_align,
+                    threshold,
+                },
+            ))
         } else {
             let exclude = match &self.intent {
                 TacticalIntent::FocusTarget { target } => Some(*target),
@@ -98,18 +104,23 @@ impl PlanRanking {
             };
             let from_kind = self.intent.kind();
             default_focus_target(ctx.active, ctx.snap, plans, actor_pos, exclude).map(|t| {
-                self.intent_reason = IntentReason::ViabilityFallback {
-                    from: from_kind,
-                    max_align,
-                    threshold,
-                };
-                TacticalIntent::FocusTarget { target: t }
+                (
+                    TacticalIntent::FocusTarget { target: t },
+                    IntentReason::ViabilityFallback {
+                        from: from_kind,
+                        max_align,
+                        threshold,
+                    },
+                )
             })
         };
 
-        if let Some(new) = new_intent {
-            if self.intent.kind() != new.kind() || self.intent.target() != new.target() {
-                self.intent = new;
+        if let Some((new_intent, new_reason)) = candidate {
+            if self.intent.kind() != new_intent.kind()
+                || self.intent.target() != new_intent.target()
+            {
+                self.intent = new_intent;
+                self.intent_reason = new_reason;
                 self.scored = rescore_with_intent(
                     plans, &mut self.raw_factors, &self.intent, ctx,
                 );
