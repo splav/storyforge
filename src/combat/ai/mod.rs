@@ -14,6 +14,7 @@ pub mod role;
 pub mod scoring;
 pub mod snapshot;
 pub mod target_priority;
+pub mod trade;
 pub mod utility;
 
 #[cfg(test)]
