@@ -10,15 +10,19 @@
 //! Scope is deliberately narrow:
 //!
 //! - **In**: ability existence, actor alive+has-ability, AP/resource
-//!   affordability, range/in-bounds, target alive for non-AoE, status
-//!   flags (`blocks_mana_abilities`, `causes_disadvantage`).
+//!   affordability, range/in-bounds, target-team match
+//!   (`SingleEnemy`/`SingleAlly`/`Myself`), taunt (`forces_targeting`
+//!   status), target alive for non-AoE, status flags
+//!   (`blocks_mana_abilities`, `causes_disadvantage`).
 //! - **Out**: "whose turn is it" (caller's responsibility — game state,
-//!   not action legality), AI-policy constraints like taunt or overheal
-//!   (those live in the AI layer as additional filters on top).
+//!   not action legality), AI-only heuristics like overheal skip /
+//!   wasted-CC / AoE friendly-fire ratio (those live in AI as policy
+//!   filters on top).
 
-use crate::content::abilities::AoEShape;
+use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ContentView;
 use crate::core::{AbilityId, ResourceKind};
+use crate::game::components::Team;
 use crate::game::hex::{in_bounds, Hex};
 use bevy::prelude::Entity;
 
@@ -49,6 +53,19 @@ pub trait ActionState {
     /// `Some(false)` — known, dead.
     /// `Some(true)` — alive.
     fn is_target_alive(&self, target: Entity) -> Option<bool>;
+
+    /// Target's team, or `None` if the entity is unknown. Backs the
+    /// `SingleEnemy`/`SingleAlly` target-type rules — SingleEnemy can only
+    /// legally target an opposing-team entity, SingleAlly an own-team one.
+    fn target_team(&self, target: Entity) -> Option<Team>;
+
+    /// The enemy (opposing-team) unit whose `forces_targeting` status
+    /// currently binds `actor_team`'s SingleEnemy casts. `None` when no
+    /// taunter is active. The rule: any live enemy with the
+    /// `forces_targeting` status flag makes itself the only valid
+    /// SingleEnemy target for all opposing-team actors. `SingleAlly` /
+    /// `Myself` are unaffected.
+    fn taunter_for(&self, actor_team: Team) -> Option<Entity>;
 }
 
 /// Owned snapshot of an actor's cross-cutting legality inputs. `Copy`-like
@@ -58,6 +75,7 @@ pub trait ActionState {
 #[derive(Clone, Copy, Debug)]
 pub struct ActorView {
     pub pos: Hex,
+    pub team: Team,
     pub hp: i32,
     pub ap: i32,
     pub mana: Option<i32>,
@@ -114,7 +132,17 @@ pub enum IllegalReason {
     BlockedByStatus,
     OutOfRange,
     TargetOutOfBounds,
+    /// `target_type == Myself` but `target != actor`.
     SelfOnlyTargetMismatch,
+    /// `SingleEnemy` cast at an own-team unit, or `SingleAlly` cast at an
+    /// opposing-team one. Covers the "heal on enemy" / "attack on ally"
+    /// mistake that used to be silently prevented by the AI's
+    /// `pick_targets` team split — now enforced uniformly for both sides.
+    WrongTargetTeam,
+    /// SingleEnemy cast while a `forces_targeting` enemy is alive and the
+    /// target is someone else. Content-level game rule; applies equally
+    /// to player and AI.
+    TauntForcesTarget,
     TargetUnknown,
     TargetDead,
 }
@@ -164,11 +192,11 @@ pub fn check_legality<S: ActionState>(
 
     let mut disadvantage = actor.causes_disadvantage;
 
-    if def.range.max == 0 {
-        if action.actor != action.target {
-            return Err(IllegalReason::SelfOnlyTargetMismatch);
-        }
-    } else {
+    // Range / in-bounds. `range.max == 0` means the ability fires in place —
+    // target_pos is irrelevant (the target-type dispatch below pins it to
+    // the actor itself via the `Myself` / bounds check), so skip
+    // in_bounds/dist for this case.
+    if def.range.max > 0 {
         if !in_bounds(action.target_pos) {
             return Err(IllegalReason::TargetOutOfBounds);
         }
@@ -178,6 +206,39 @@ pub fn check_legality<S: ActionState>(
         }
         if dist < def.range.min {
             disadvantage = true;
+        }
+    }
+
+    // Target-type semantics. One place enforces the enemy/ally/self split
+    // for both backends — previously `pick_targets` (AI) handled it
+    // implicitly via `enemies_of`/`allies_of`, while `validation.rs` skipped
+    // it entirely.
+    match def.target_type {
+        TargetType::Myself => {
+            if action.actor != action.target {
+                return Err(IllegalReason::SelfOnlyTargetMismatch);
+            }
+        }
+        TargetType::SingleEnemy => {
+            match state.target_team(action.target) {
+                Some(t) if t != actor.team => {}
+                None => return Err(IllegalReason::TargetUnknown),
+                _ => return Err(IllegalReason::WrongTargetTeam),
+            }
+            // Taunt: any live enemy with `forces_targeting` binds every
+            // SingleEnemy cast to itself. Game rule; both sides respect it.
+            if let Some(taunter) = state.taunter_for(actor.team) {
+                if action.target != taunter {
+                    return Err(IllegalReason::TauntForcesTarget);
+                }
+            }
+        }
+        TargetType::SingleAlly => {
+            match state.target_team(action.target) {
+                Some(t) if t == actor.team => {}
+                None => return Err(IllegalReason::TargetUnknown),
+                _ => return Err(IllegalReason::WrongTargetTeam),
+            }
         }
     }
 
@@ -199,7 +260,7 @@ pub fn check_legality<S: ActionState>(
 mod tests {
     use super::*;
     use crate::content::abilities::{
-        AbilityDef, AbilityRange, EffectDef, ResourceCost, TargetType,
+        AbilityDef, AbilityRange, EffectDef, ResourceCost,
     };
     use crate::game::hex::hex_from_offset;
     use std::collections::HashMap;
@@ -230,6 +291,7 @@ mod tests {
 
     fn ability(
         id: &str,
+        target_type: TargetType,
         cost_ap: i32,
         range: (u32, u32),
         aoe: AoEShape,
@@ -238,7 +300,7 @@ mod tests {
         AbilityDef {
             id: AbilityId::from(id),
             name: id.into(),
-            target_type: TargetType::SingleEnemy,
+            target_type,
             range: AbilityRange { min: range.0, max: range.1 },
             effect: EffectDef::WeaponAttack,
             costs,
@@ -258,6 +320,7 @@ mod tests {
         content: ContentView,
         actor: Entity,
         actor_pos: Hex,
+        actor_team: Team,
         hp: i32,
         ap: i32,
         mana: Option<i32>,
@@ -265,7 +328,9 @@ mod tests {
         causes_disadvantage: bool,
         blocks_mana_abilities: bool,
         is_alive: bool,
+        target_team: Option<Team>,
         target_alive: Option<bool>,
+        taunter: Option<Entity>,
     }
 
     impl FakeState {
@@ -274,6 +339,7 @@ mod tests {
                 content,
                 actor,
                 actor_pos,
+                actor_team: Team::Enemy,
                 hp: 10,
                 ap: 2,
                 mana: None,
@@ -281,7 +347,11 @@ mod tests {
                 causes_disadvantage: false,
                 blocks_mana_abilities: false,
                 is_alive: true,
+                // Default target is on the opposite team → SingleEnemy happy
+                // path works out of the box; tests that care flip it.
+                target_team: Some(Team::Player),
                 target_alive: Some(true),
+                taunter: None,
             }
         }
     }
@@ -296,6 +366,7 @@ mod tests {
             }
             Some(ActorView {
                 pos: self.actor_pos,
+                team: self.actor_team,
                 hp: self.hp,
                 ap: self.ap,
                 mana: self.mana,
@@ -312,6 +383,12 @@ mod tests {
         fn is_target_alive(&self, _target: Entity) -> Option<bool> {
             self.target_alive
         }
+        fn target_team(&self, _target: Entity) -> Option<Team> {
+            self.target_team
+        }
+        fn taunter_for(&self, _actor_team: Team) -> Option<Entity> {
+            self.taunter
+        }
     }
 
     #[test]
@@ -324,10 +401,11 @@ mod tests {
         // and our ability's max range is 2.
         let too_far = hex_from_offset(5, 0);
 
-        let strike = ability("strike", 1, (0, 2), AoEShape::None, Vec::new());
-        let melee_only = ability("melee_only", 1, (0, 0), AoEShape::None, Vec::new());
+        let strike = ability("strike", TargetType::SingleEnemy, 1, (0, 2), AoEShape::None, Vec::new());
+        let self_buff = ability("self_buff", TargetType::Myself, 1, (0, 0), AoEShape::None, Vec::new());
+        let heal = ability("heal", TargetType::SingleAlly, 1, (0, 2), AoEShape::None, Vec::new());
         let mana_bolt = ability(
-            "mana_bolt", 1, (0, 3), AoEShape::None,
+            "mana_bolt", TargetType::SingleEnemy, 1, (0, 3), AoEShape::None,
             vec![ResourceCost { resource: ResourceKind::Mana, amount: 5 }],
         );
 
@@ -397,10 +475,37 @@ mod tests {
                 expected: Err(IllegalReason::OutOfRange),
             },
             Row {
-                name: "self-only ability at non-self target",
-                abilities: &["melee_only"], mutate: noop,
-                ability_id: "melee_only", target_pos: in_range, target,
+                name: "Myself ability at non-self target",
+                abilities: &["self_buff"], mutate: noop,
+                ability_id: "self_buff", target_pos: in_range, target,
                 expected: Err(IllegalReason::SelfOnlyTargetMismatch),
+            },
+            Row {
+                name: "SingleEnemy cast on own-team target",
+                abilities: &["strike"],
+                mutate: |s| s.target_team = Some(Team::Enemy),
+                ability_id: "strike", target_pos: in_range, target,
+                expected: Err(IllegalReason::WrongTargetTeam),
+            },
+            Row {
+                name: "SingleAlly cast on opposing-team target",
+                abilities: &["heal"], mutate: noop,  // default target_team = Player
+                ability_id: "heal", target_pos: in_range, target,
+                expected: Err(IllegalReason::WrongTargetTeam),
+            },
+            Row {
+                name: "taunt forces SingleEnemy to the taunter",
+                abilities: &["strike"],
+                mutate: |s| s.taunter = Some(ent(99)),  // != target
+                ability_id: "strike", target_pos: in_range, target,
+                expected: Err(IllegalReason::TauntForcesTarget),
+            },
+            Row {
+                name: "taunt allows SingleEnemy at the taunter itself",
+                abilities: &["strike"],
+                mutate: |s| s.taunter = Some(ent(2)),  // == default target id
+                ability_id: "strike", target_pos: in_range, target,
+                expected: Ok(false),
             },
             Row {
                 name: "dead target on single-target",
@@ -410,7 +515,10 @@ mod tests {
             },
             Row {
                 name: "unknown target",
-                abilities: &["strike"], mutate: |s| s.target_alive = None,
+                abilities: &["strike"],
+                // target_team None + target_alive None — SingleEnemy's team
+                // check surfaces as TargetUnknown before the alive check.
+                mutate: |s| { s.target_team = None; s.target_alive = None; },
                 ability_id: "strike", target_pos: in_range, target,
                 expected: Err(IllegalReason::TargetUnknown),
             },
@@ -424,7 +532,7 @@ mod tests {
 
         for row in rows {
             let content = content_with(vec![
-                strike.clone(), melee_only.clone(), mana_bolt.clone(),
+                strike.clone(), self_buff.clone(), heal.clone(), mana_bolt.clone(),
             ]);
             let mut state = FakeState::new(content, actor, actor_pos);
             state.abilities = row.abilities.iter().map(|s| AbilityId::from(*s)).collect();
@@ -455,7 +563,7 @@ mod tests {
         let actor_pos = hex_from_offset(0, 0);
         let too_close = hex_from_offset(1, 0);
 
-        let longbow = ability("longbow", 1, (3, 6), AoEShape::None, Vec::new());
+        let longbow = ability("longbow", TargetType::SingleEnemy, 1, (3, 6), AoEShape::None, Vec::new());
         let content = content_with(vec![longbow.clone()]);
         let mut state = FakeState::new(content, actor, actor_pos);
         state.abilities = vec![AbilityId::from("longbow")];

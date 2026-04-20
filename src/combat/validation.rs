@@ -10,7 +10,9 @@ use crate::combat::actions::{
     check_legality, ActionState, ActorView, IllegalReason, ProposedAction,
 };
 use crate::content::content_view::{ActiveContent, ContentView};
-use crate::game::components::{ActiveCombatant, ValidationActorQ, ValidationTargetQ};
+use crate::game::components::{
+    ActiveCombatant, Team, ValidationActorQ, ValidationTargetQ,
+};
 use crate::game::messages::{EndTurn, UseAbility, ValidatedAction};
 use crate::game::resources::HexPositions;
 use bevy::prelude::*;
@@ -107,6 +109,7 @@ impl ActionState for BevyActions<'_, '_, '_> {
         };
         Some(ActorView {
             pos,
+            team: a.faction.0,
             hp: a.vital.hp,
             ap: a.ap.action_points,
             mana: a.mana.map(|m| m.current),
@@ -127,6 +130,31 @@ impl ActionState for BevyActions<'_, '_, '_> {
 
     fn is_target_alive(&self, target: Entity) -> Option<bool> {
         self.targets.get(target).ok().map(|t| t.vital.is_alive())
+    }
+
+    fn target_team(&self, target: Entity) -> Option<Team> {
+        self.targets.get(target).ok().map(|t| t.faction.0)
+    }
+
+    fn taunter_for(&self, actor_team: Team) -> Option<Entity> {
+        // Scan every combatant's StatusEffects for `forces_targeting`. Live
+        // opposing-team holder binds the cast. O(N) per check; N is the
+        // combatant count, tiny in practice.
+        self.targets
+            .iter()
+            .find(|t| {
+                t.vital.is_alive()
+                    && t.faction.0 != actor_team
+                    && t.statuses.is_some_and(|se| {
+                        se.0.iter().any(|s| {
+                            self.content
+                                .statuses
+                                .get(&s.id)
+                                .is_some_and(|d| d.forces_targeting)
+                        })
+                    })
+            })
+            .map(|t| t.entity)
     }
 }
 

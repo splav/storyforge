@@ -355,3 +355,92 @@ fn untouched_actor_has_no_disadvantage() {
         "baseline ability at default range must not be disadvantaged"
     );
 }
+
+/// Team-safety regression: player cannot target their own unit with a
+/// `SingleEnemy` ability. Before arch D this was silently allowed by
+/// `validation.rs` (only `pick_targets` on the AI side enforced it).
+#[test]
+fn single_enemy_ability_at_ally_is_rejected() {
+    let mut app = validation_app();
+    let actor = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+    let ally = app
+        .world_mut()
+        .spawn((Name::new("HeroFriend"), test_hero(base_stats())))
+        .id();
+
+    app.world_mut().entity_mut(actor).insert(ActiveCombatant);
+    let mut positions = app.world_mut().resource_mut::<HexPositions>();
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(ally, hex_from_offset(1, 0));
+    write_message(
+        &mut app,
+        UseAbility {
+            actor,
+            ability: MELEE_ATTACK.into(),  // SingleEnemy target_type
+            target: ally,
+            target_pos: hex_from_offset(1, 0),
+        },
+    );
+    app.update();
+
+    assert_eq!(
+        message_count::<ValidatedAction>(&app), 0,
+        "SingleEnemy cast on ally must be rejected by team-safety",
+    );
+}
+
+/// Taunt regression: `forces_targeting` enemy is now enforced for the
+/// player too (previously AI-only). SingleEnemy cast aimed at anyone
+/// other than the taunter → reject.
+#[test]
+fn taunter_blocks_single_enemy_at_non_taunter() {
+    let mut app = validation_app();
+    insert_taunt_status(&mut app);
+
+    let actor = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+    let taunter = app
+        .world_mut()
+        .spawn((Name::new("Provoker"), test_enemy(base_stats())))
+        .id();
+    app.world_mut()
+        .entity_mut(taunter)
+        .insert(StatusEffects(vec![ActiveStatus {
+            id: "taunt".into(),
+            rounds_remaining: 3,
+            applier: actor,
+            dot_per_tick: 0,
+        }]));
+    let other = app
+        .world_mut()
+        .spawn((Name::new("Goblin"), test_enemy(base_stats())))
+        .id();
+
+    app.world_mut().entity_mut(actor).insert(ActiveCombatant);
+    let mut positions = app.world_mut().resource_mut::<HexPositions>();
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(taunter, hex_from_offset(1, 0));
+    positions.insert(other, hex_from_offset(0, 1));
+    // Player tries to attack the non-taunter goblin while the provoker is
+    // alive and taunting → reject.
+    write_message(
+        &mut app,
+        UseAbility {
+            actor,
+            ability: MELEE_ATTACK.into(),
+            target: other,
+            target_pos: hex_from_offset(0, 1),
+        },
+    );
+    app.update();
+
+    assert_eq!(
+        message_count::<ValidatedAction>(&app), 0,
+        "taunter forces SingleEnemy to itself — non-taunter target must be rejected",
+    );
+}

@@ -283,6 +283,26 @@ pub fn pipeline_app() -> App {
     app
 }
 
+pub fn insert_taunt_status(app: &mut App) {
+    app.world_mut().resource_mut::<ActiveContent>().0.statuses.insert(
+        "taunt".into(),
+        StatusDef {
+            id: "taunt".into(),
+            name: "Taunt".into(),
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            skips_turn: false,
+            forces_targeting: true,
+            dot_dice: None,
+            blocks_mana_abilities: false,
+            speed_bonus: 0,
+            hp_percent_dot: 0,
+            ai_controlled: false,
+            causes_disadvantage: false,
+        },
+    );
+}
+
 pub fn insert_stun_status(app: &mut App) {
     app.world_mut().resource_mut::<ActiveContent>().0.statuses.insert(
         "stun".into(),

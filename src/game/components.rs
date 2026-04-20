@@ -321,6 +321,7 @@ pub struct PlayerCombatantQ {
 #[derive(QueryData)]
 pub struct ValidationActorQ {
     pub vital: &'static Vital,
+    pub faction: &'static Faction,
     pub ap: &'static ActionPoints,
     pub abilities: &'static Abilities,
     pub rage: Option<&'static Rage>,
@@ -329,13 +330,21 @@ pub struct ValidationActorQ {
     pub statuses: Option<&'static StatusEffects>,
 }
 
-/// Validation: target alive-ness wrapper. Named-type query data so borrowing
-/// `&Query<..>` stays variance-friendly (unlike the bare `&Vital` form, which
-/// makes the `D` parameter invariant over its internal lifetime and breaks
-/// thin adapter structs that hold `&Query`).
+/// Validation: combatant-level data for target inspection **and** taunter
+/// scan. Named-type query data so borrowing `&Query<..>` stays variance-
+/// friendly (unlike the bare `&Vital` form, which makes the `D` parameter
+/// invariant over its internal lifetime and breaks thin adapter structs
+/// that hold `&Query`).
+///
+/// Includes `faction` + `statuses` so the adapter can answer "is this an
+/// opposing-team taunter?" without an extra query — both team-safety and
+/// taunt-enforcement resolve against the same fetch.
 #[derive(QueryData)]
 pub struct ValidationTargetQ {
+    pub entity: Entity,
     pub vital: &'static Vital,
+    pub faction: &'static Faction,
+    pub statuses: Option<&'static StatusEffects>,
 }
 
 #[cfg(test)]

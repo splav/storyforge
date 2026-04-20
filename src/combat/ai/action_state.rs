@@ -10,9 +10,10 @@
 //! prerequisite that proves the trait works on both world models.
 
 use crate::combat::actions::{ActionState, ActorView};
-use crate::combat::ai::snapshot::BattleSnapshot;
+use crate::combat::ai::snapshot::{AiTags, BattleSnapshot};
 use crate::content::content_view::ContentView;
 use crate::core::AbilityId;
+use crate::game::components::Team;
 use bevy::prelude::Entity;
 
 /// `ActionState` impl over a `BattleSnapshot`. Holds references only;
@@ -44,6 +45,7 @@ impl ActionState for SnapshotActionState<'_> {
         );
         Some(ActorView {
             pos: u.pos,
+            team: u.team,
             hp: u.hp,
             ap: u.action_points,
             mana: u.mana.map(|(cur, _)| cur),
@@ -66,6 +68,19 @@ impl ActionState for SnapshotActionState<'_> {
         // (Bevy + Snapshot) now agree on the `TargetUnknown` vs
         // `TargetDead` distinction: absent ⇒ unknown, present+dead ⇒ dead.
         self.snap.unit(target).map(|u| u.is_alive())
+    }
+
+    fn target_team(&self, target: Entity) -> Option<Team> {
+        self.snap.unit(target).map(|u| u.team)
+    }
+
+    fn taunter_for(&self, actor_team: Team) -> Option<Entity> {
+        // Any live enemy with FORCES_TARGETING binds opposing-team casts.
+        // `enemies_of` already filters live.
+        self.snap
+            .enemies_of(actor_team)
+            .find(|u| u.tags.contains(AiTags::FORCES_TARGETING))
+            .map(|u| u.entity)
     }
 }
 
