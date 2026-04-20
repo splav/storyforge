@@ -208,7 +208,7 @@ pub fn pick_action(
     // fallback intent below; it's cheap to recompute and represents what the
     // winning decision was actually scored against.
     let (mut scored, mut raw_factors) =
-        score_plans_with_raw(&plans, &intent, &scoring_ctx, rng);
+        score_plans_with_raw(&plans, &intent, &scoring_ctx);
 
     // ── Intent viability guard ─────────────────────────────────────────
     // If no plan achieves the intent's signal, fall back. Two tiers:
@@ -262,7 +262,7 @@ pub fn pick_action(
                     // Reuse the non-intent factor columns; only the intent
                     // column (factor[7]) depends on the chosen intent.
                     scored = rescore_with_intent(
-                        &plans, &mut raw_factors, &intent, &scoring_ctx, rng,
+                        &plans, &mut raw_factors, &intent, &scoring_ctx,
                     );
                 }
             }
@@ -292,7 +292,7 @@ pub fn pick_action(
             // Same reuse as the viability fallback: intent-independent
             // factors stay; only factor[7] refreshes under LastStand.
             scored = rescore_with_intent(
-                &plans, &mut raw_factors, &last_stand, &scoring_ctx, rng,
+                &plans, &mut raw_factors, &last_stand, &scoring_ctx,
             );
             intent_reason = format!("{intent_reason} → LastStand (no defensive plan)");
         }

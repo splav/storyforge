@@ -5,6 +5,7 @@ use crate::combat::ai::snapshot::BattleSnapshot;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
+use std::hash::{Hash, Hasher};
 
 /// One atomic action inside a turn plan.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -191,6 +192,33 @@ impl TurnPlan {
             }
             (idx, step, here)
         })
+    }
+
+    /// Feed `hasher` with the plan's canonical logical-key bits — the same
+    /// identity used by `generator::dedup_by_logical_key` (Move reduces to its
+    /// destination; Cast keys on ability/target/target_pos plus the caster
+    /// tile at the moment of firing). Zero-alloc: walks in place rather than
+    /// building a `Vec<StepKey>`. Used by `finalize_scores` to derive a
+    /// plan-order-independent noise seed.
+    pub fn hash_canonical<H: Hasher>(&self, start: Hex, hasher: &mut H) {
+        // Discriminants keep `[Move(A), Cast(B)]` distinct from any hypothetical
+        // future prefix with the same payload on different arms.
+        self.steps.len().hash(hasher);
+        for (_, step, caster_pos) in self.walk_with_caster(start) {
+            match step {
+                PlanStep::Move { path } => {
+                    0u8.hash(hasher);
+                    path.last().copied().unwrap_or(caster_pos).hash(hasher);
+                }
+                PlanStep::Cast { ability, target, target_pos } => {
+                    1u8.hash(hasher);
+                    ability.hash(hasher);
+                    target.hash(hasher);
+                    target_pos.hash(hasher);
+                    caster_pos.hash(hasher);
+                }
+            }
+        }
     }
 }
 

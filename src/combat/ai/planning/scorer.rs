@@ -51,9 +51,10 @@ use crate::combat::ai::target_priority::target_priority;
 use crate::combat::ai::utility::{ScoringCtx, UtilityContext};
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::core::modifier;
-use crate::core::DiceRng;
 use crate::game::components::Abilities;
+use crate::game::hex::Hex;
 use bevy::prelude::Entity;
+use std::hash::{Hash, Hasher};
 
 /// Worst danger value across the plan's path tiles + its final tile.
 /// Excludes the actor's starting tile — callers that care about it (the
@@ -83,7 +84,6 @@ pub fn score_plans_with_raw(
     plans: &[TurnPlan],
     intent: &TacticalIntent,
     ctx: &ScoringCtx,
-    rng: &mut DiceRng,
 ) -> (Vec<f32>, Vec<PlanFactors>) {
     if plans.is_empty() {
         return (Vec::new(), Vec::new());
@@ -93,7 +93,7 @@ pub fn score_plans_with_raw(
         .iter()
         .map(|p| compute_plan_factors(p, intent, ctx))
         .collect();
-    let scores = finalize_scores(plans, &raw, ctx, rng);
+    let scores = finalize_scores(plans, &raw, ctx);
     (scores, raw)
 }
 
@@ -109,21 +109,32 @@ pub fn rescore_with_intent(
     raw: &mut [PlanFactors],
     intent: &TacticalIntent,
     ctx: &ScoringCtx,
-    rng: &mut DiceRng,
 ) -> Vec<f32> {
     for (p, f) in plans.iter().zip(raw.iter_mut()) {
         f.intent = compute_plan_intent_sum(p, intent, ctx);
     }
-    finalize_scores(plans, raw, ctx, rng)
+    finalize_scores(plans, raw, ctx)
 }
 
 /// Batch-normalise raw factors, apply role weights + difficulty multipliers,
 /// add summon bonus and score noise. Pure output — does not mutate `raw`.
+///
+/// Noise is **deterministic per plan**, not RNG-driven:
+/// `hash((round, actor_entity, plan.canonical_key)) → noise ∈ [-1, 1]`.
+/// This makes the pipeline reproducible across plan-pool permutations (e.g.
+/// `dedup_by_logical_key`'s HashMap iteration order, or any future reorder
+/// in generator). The old `rng.roll_d(1000)` scheme bound the Nth plan to
+/// the Nth roll, so a reshuffle leaked a different noise vector even under
+/// the same seed.
+///
+/// Amplitude is scaled by the pre-noise score spread (`max − min`), so on a
+/// flat batch noise barely moves the ranking, while on a high-variance batch
+/// it stays proportional. The old absolute-amplitude scheme made noise "loud"
+/// when scores clustered and "quiet" when they spread.
 fn finalize_scores(
     plans: &[TurnPlan],
     raw: &[PlanFactors],
     ctx: &ScoringCtx,
-    rng: &mut DiceRng,
 ) -> Vec<f32> {
     let active = ctx.active;
     let snap = ctx.snap;
@@ -163,7 +174,9 @@ fn finalize_scores(
     weights[SCARCITY_IDX] *= utility.world.difficulty.resource_discipline;
     let noise_amp = utility.world.difficulty.score_noise();
 
-    raw.iter()
+    // Pass 1: compute noise-free scores.
+    let mut scores: Vec<f32> = raw
+        .iter()
         .zip(plans.iter())
         .map(|(factors, plan)| {
             let arr = factors.as_array();
@@ -181,13 +194,71 @@ fn finalize_scores(
             // roles the damage-axis weight is too low to lift a raw summon
             // score on its own.
             score += plan_summon_bonus(plan, active, utility, snap, &summon_dpr);
-            if noise_amp > 0.0 {
-                let noise = (rng.roll_d(1000) as f32 / 500.0 - 1.0) * noise_amp;
-                score += noise;
-            }
             score
         })
-        .collect()
+        .collect();
+
+    // Pass 2: add deterministic, batch-scaled noise.
+    if noise_amp > 0.0 && !scores.is_empty() {
+        let (s_min, s_max) = scores
+            .iter()
+            .copied()
+            .filter(|s| s.is_finite())
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), s| {
+                (lo.min(s), hi.max(s))
+            });
+        // Amplitude floor: if every score is ±inf or spread is 0, fall back to
+        // a small constant scale so noise still breaks exact ties. 0.05 matches
+        // the `window` floor used downstream in `pick_best_plan`.
+        let spread = if s_min.is_finite() && s_max.is_finite() {
+            (s_max - s_min).max(0.05)
+        } else {
+            0.05
+        };
+        let effective_amp = noise_amp * spread;
+        for (plan, score) in plans.iter().zip(scores.iter_mut()) {
+            if !score.is_finite() {
+                continue;
+            }
+            *score += plan_noise(plan, snap.round, active.entity, effective_amp);
+        }
+    }
+
+    scores
+}
+
+/// Deterministic per-plan noise ∈ [−amp, +amp). Seed = hash((round, actor,
+/// plan canonical key)) — order-invariant across any permutation of the plan
+/// pool. `fxhash`-style finalizer maps the 64-bit hash into a uniform float;
+/// the high bits are used because `DefaultHasher`'s low bits aren't stellar.
+fn plan_noise(plan: &TurnPlan, round: u32, actor: Entity, amp: f32) -> f32 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    round.hash(&mut h);
+    actor.hash(&mut h);
+    // `hash_canonical` needs a `start` tile; the actor's current position is
+    // the same reference point `generator::dedup_by_logical_key` uses when
+    // computing `logical_key`, so the seed is stable across the scoring /
+    // dedup boundary.
+    plan.hash_canonical(plan_start_tile(plan), &mut h);
+    let bits = h.finish();
+    // Take the top 24 bits → f32 mantissa precision, uniform in [0, 1).
+    let u = ((bits >> 40) as u32) as f32 / (1u32 << 24) as f32;
+    (u * 2.0 - 1.0) * amp
+}
+
+/// `walk_with_caster` needs the actor's starting tile. At scoring time we
+/// don't keep the original start around per plan, but the generator always
+/// emits plans with `sim_snapshots[0]` being the post-step-0 state and the
+/// actor hasn't moved before step 0. For scoring-noise purposes any stable
+/// choice works — we just need the same tile every time we rescore the same
+/// plan. `plan.final_pos` is wrong (post-plan), so use the first Move step's
+/// origin if any, else `final_pos`. Cheap, stable, and agrees with itself
+/// across rescores.
+fn plan_start_tile(plan: &TurnPlan) -> Hex {
+    // The canonical-key hasher is self-consistent under any fixed start tile:
+    // two identical plans always hash the same way, different plans hash
+    // differently. We just need *a* stable tile. `final_pos` is the cheapest.
+    plan.final_pos
 }
 
 /// Additive post-normalisation bonus for every `Summon` cast in the plan.
@@ -648,7 +719,6 @@ mod tests {
     #[test]
     fn rescore_matches_full_score_under_same_intent() {
         use crate::combat::ai::planning::types::{PlanStep, StepOutcome};
-        use crate::core::DiceRng;
 
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let focus_a = unit(2, Team::Player, hex_from_offset(3, 0));
@@ -658,9 +728,8 @@ mod tests {
             1,
         );
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        // decision_quality=1.0 → score_noise=0; rescore vs. fresh-score then
-        // produce bitwise-equal numbers, letting us use `assert_eq!` on f32
-        // without the usual tolerance dance.
+        // Deterministic per-plan noise: rescore and a fresh-score under the
+        // same intent produce identical scores regardless of profile.
         let difficulty = DifficultyProfile::hard();
         let abilities = Abilities(vec!["melee_attack".into()]);
         let ctx = test_ctx(&content, &difficulty, &abilities);
@@ -686,19 +755,13 @@ mod tests {
         let intent_b = TacticalIntent::FocusTarget { target: focus_b.entity };
 
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
-        let mut rng_rescore = DiceRng::with_seed(1234);
-        let (_, mut raw) = score_plans_with_raw(
-            &plans, &intent_a, &scoring_ctx, &mut rng_rescore,
-        );
-        let rescored = rescore_with_intent(
-            &plans, &mut raw, &intent_b, &scoring_ctx, &mut rng_rescore,
-        );
+        let (_, mut raw) = score_plans_with_raw(&plans, &intent_a, &scoring_ctx);
+        let rescored = rescore_with_intent(&plans, &mut raw, &intent_b, &scoring_ctx);
+        let (full, _) = score_plans_with_raw(&plans, &intent_b, &scoring_ctx);
 
-        let mut rng_full = DiceRng::with_seed(1234);
-        let (full, _) = score_plans_with_raw(
-            &plans, &intent_b, &scoring_ctx, &mut rng_full,
-        );
-
+        // Noise is now deterministic per plan (not rng-driven), so rescore
+        // and a fresh score under the same intent produce bitwise-equal
+        // scores regardless of the `hard()` profile's zero-noise path.
         assert_eq!(
             rescored, full,
             "rescore under intent B must equal a fresh score under intent B",
@@ -714,7 +777,6 @@ mod tests {
     #[test]
     fn scorer_tolerates_empty_sim_snapshots_from_deserialized_plan() {
         use crate::combat::ai::planning::types::{PlanStep, StepOutcome};
-        use crate::core::DiceRng;
 
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let enemy = unit(2, Team::Player, hex_from_offset(1, 0));
@@ -756,16 +818,80 @@ mod tests {
         let intent_sum = compute_plan_intent_sum(&deserialized_plan, &intent, &scoring_ctx);
         let _ = intent_sum;
 
-        let mut rng = DiceRng::with_seed(1);
         let plans = vec![deserialized_plan];
-        let (scores, raw) = score_plans_with_raw(
-            &plans, &intent, &scoring_ctx, &mut rng,
-        );
+        let (scores, raw) = score_plans_with_raw(&plans, &intent, &scoring_ctx);
         assert_eq!(scores.len(), 1);
         assert_eq!(raw.len(), 1);
         assert!(
             scores[0].is_finite(),
             "empty-sim_snapshots plan must still produce a finite score",
+        );
+    }
+
+    /// Noise is seeded from `(round, actor, plan canonical key)`, so a given
+    /// plan's score must stay the same regardless of where it sits in the
+    /// plan pool. Pre-fix (rng.roll_d), the Nth plan drew the Nth roll, which
+    /// meant reordering the pool (e.g. by `HashMap` iteration in
+    /// `dedup_by_logical_key`) leaked a different noise vector under the same
+    /// RNG seed. Pin the new invariant: scoring `[A, B]` vs `[B, A]` produces
+    /// the same per-plan score.
+    #[test]
+    fn noise_is_plan_order_invariant() {
+        use crate::combat::ai::planning::types::{PlanStep, StepOutcome};
+
+        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
+        let t_a = unit(2, Team::Player, hex_from_offset(3, 0));
+        let t_b = unit(3, Team::Player, hex_from_offset(2, 0));
+        let snap = BattleSnapshot::new(
+            vec![actor.clone(), t_a.clone(), t_b.clone()],
+            1,
+        );
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        // Non-zero noise amplitude — `normal()` has score_noise > 0, so this
+        // pins that the invariant holds even when noise actually contributes.
+        let difficulty = DifficultyProfile::normal();
+        assert!(
+            difficulty.score_noise() > 0.0,
+            "precondition: noise is non-zero under `normal` profile",
+        );
+        let abilities = Abilities(vec!["melee_attack".into()]);
+        let ctx = test_ctx(&content, &difficulty, &abilities);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: t_a.entity };
+
+        let mk_plan = |target: &UnitSnapshot| TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: "melee_attack".into(),
+                target: target.entity,
+                target_pos: target.pos,
+            }],
+            final_pos: actor.pos,
+            residual_ap: 1,
+            residual_mp: 3,
+            outcomes: vec![StepOutcome::default()],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone()],
+        };
+        let plan_a = mk_plan(&t_a);
+        let plan_b = mk_plan(&t_b);
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+
+        let (scores_ab, _) = score_plans_with_raw(
+            &[plan_a.clone(), plan_b.clone()], &intent, &scoring_ctx,
+        );
+        let (scores_ba, _) = score_plans_with_raw(
+            &[plan_b.clone(), plan_a.clone()], &intent, &scoring_ctx,
+        );
+
+        // scores_ab[0] is for plan_a; scores_ba[1] is also for plan_a.
+        assert_eq!(
+            scores_ab[0], scores_ba[1],
+            "plan_a score must be position-independent",
+        );
+        assert_eq!(
+            scores_ab[1], scores_ba[0],
+            "plan_b score must be position-independent",
         );
     }
 }
