@@ -354,45 +354,22 @@ fn apply_statuses(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::role::{AiRole, AxisProfile};
+    use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,
     };
     use crate::core::{AbilityId, DiceExpr, StatusId};
     use crate::game::hex::hex_from_offset;
-    use std::collections::HashMap;
 
-    fn ent(id: u32) -> Entity {
-        Entity::from_raw_u32(id).expect("valid entity id")
-    }
-
+    /// Sim-suite defaults: mana 5/10 (enough for simple casts), armor as
+    /// override. `hp` also explicit because armor+hp tests are the whole
+    /// point of this module.
     fn unit(id: u32, team: Team, pos: Hex, hp: i32, armor: i32) -> UnitSnapshot {
-        UnitSnapshot {
-            entity: ent(id),
-            team,
-            role: AxisProfile::from(AiRole::Bruiser),
-            pos,
-            hp,
-            max_hp: 20,
-            armor,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            action_points: 1,
-            max_ap: 1,
-            movement_points: 3,
-            speed: 3,
-            mana: Some((5, 10)),
-            rage: None,
-            energy: None,
-            abilities: vec![],
-            threat: 5.0,
-            tags: AiTags::empty(),
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-        }
+        UnitBuilder::new(id, team, pos)
+            .hp(hp)
+            .armor(armor)
+            .mana(5, 10)
+            .build()
     }
 
     fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
@@ -401,21 +378,6 @@ mod tests {
 
     fn ctx(str_mod: i32, int_mod: i32) -> CasterContext {
         CasterContext { str_mod, int_mod, spell_power: 0, weapon_dice: None }
-    }
-
-    fn empty_content() -> ContentView {
-        ContentView {
-            abilities: HashMap::new(),
-            keyed_abilities: Vec::new(),
-            statuses: HashMap::new(),
-            weapons: HashMap::new(),
-            armor: HashMap::new(),
-            classes: HashMap::new(),
-            unit_templates: HashMap::new(),
-            races: HashMap::new(),
-            factions: HashMap::new(),
-            paths: HashMap::new(),
-        }
     }
 
     fn ability(

@@ -71,53 +71,22 @@ pub fn target_priority(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::role::{AiRole, AxisProfile};
+    use crate::combat::ai::role::AiRole;
     use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::test_helpers::{unit, UnitBuilder};
+    use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-
-    fn unit(id: u32, team: crate::game::components::Team, pos: crate::game::hex::Hex) -> UnitSnapshot {
-        UnitSnapshot {
-            entity: bevy::prelude::Entity::from_raw_u32(id).expect("valid"),
-            team,
-            role: AxisProfile::from(AiRole::Bruiser),
-            pos,
-            hp: 20,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            action_points: 1,
-            max_ap: 1,
-            movement_points: 3,
-            speed: 3,
-            mana: None,
-            rage: None,
-            energy: None,
-            abilities: vec![],
-            threat: 5.0,
-            tags: AiTags::empty(),
-            max_attack_range: 0,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-        }
-    }
-
-    fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot::new(units, 1)
-    }
 
     #[test]
     fn wounded_target_scores_higher() {
-        use crate::game::components::Team;
         let active = unit(0, Team::Player, hex_from_offset(0, 0));
         let healthy = unit(1, Team::Enemy, hex_from_offset(2, 2));
-        let mut wounded = unit(2, Team::Enemy, hex_from_offset(2, 2));
-        wounded.hp = 5;
-        wounded.tags = AiTags::LOW_HP;
+        let wounded = UnitBuilder::new(2, Team::Enemy, hex_from_offset(2, 2))
+            .hp(5)
+            .tags(AiTags::LOW_HP)
+            .build();
 
-        let s = snap(vec![active.clone(), healthy.clone(), wounded.clone()]);
+        let s = BattleSnapshot::new(vec![active.clone(), healthy.clone(), wounded.clone()], 1);
         let ph = target_priority(&active, &healthy, &s);
         let pw = target_priority(&active, &wounded, &s);
         assert!(pw > ph, "wounded target should have higher priority");
@@ -125,14 +94,13 @@ mod tests {
 
     #[test]
     fn support_target_scores_higher_than_bruiser() {
-        use crate::game::components::Team;
         let active = unit(0, Team::Player, hex_from_offset(0, 0));
-
-        let mut support = unit(1, Team::Enemy, hex_from_offset(3, 3));
-        support.role = AxisProfile::from(AiRole::Support);
+        let support = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .ai_role(AiRole::Support)
+            .build();
         let bruiser = unit(2, Team::Enemy, hex_from_offset(3, 3));
 
-        let s = snap(vec![active.clone(), support.clone(), bruiser.clone()]);
+        let s = BattleSnapshot::new(vec![active.clone(), support.clone(), bruiser.clone()], 1);
         let ps = target_priority(&active, &support, &s);
         let pb = target_priority(&active, &bruiser, &s);
         assert!(ps > pb, "support should be higher priority than bruiser");

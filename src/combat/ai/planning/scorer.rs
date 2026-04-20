@@ -449,14 +449,12 @@ fn killed_intent_target(killed: &[Entity], intent: &TacticalIntent) -> bool {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
+    use crate::combat::ai::influence::InfluenceMaps;
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::role::{AiRole, AxisProfile};
     use crate::combat::ai::snapshot::AiTags;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
-    use bevy::prelude::Entity;
 
     /// Bundle the per-test (snap, active, maps, reservations, utility) refs
     /// into a `ScoringCtx`. Mirrors what `pick_action` builds in production.
@@ -470,43 +468,17 @@ mod tests {
         ScoringCtx { utility, snap, maps, reservations, active }
     }
 
+    /// Scorer-suite defaults: AP=2 (enough for a 1-AP cast), melee bruiser
+    /// with one `melee_attack` ability. Mirrors the pre-builder factory.
     fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
-        UnitSnapshot {
-            entity: Entity::from_raw_u32(id).expect("valid"),
-            team,
-            role: AxisProfile::from(AiRole::Bruiser),
-            pos,
-            hp: 20,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            action_points: 2,
-            max_ap: 2,
-            movement_points: 3,
-            speed: 3,
-            mana: None,
-            rage: None,
-            energy: None,
-            abilities: vec!["melee_attack".into()],
-            threat: 5.0,
-            tags: AiTags::MELEE_ONLY,
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-        }
+        crate::combat::ai::test_helpers::UnitBuilder::new(id, team, pos)
+            .ap(2)
+            .tags(AiTags::MELEE_ONLY)
+            .ability_names(&["melee_attack"])
+            .build()
     }
 
-    fn empty_maps() -> InfluenceMaps {
-        InfluenceMaps {
-            danger: InfluenceMap::new(),
-            ally_support: InfluenceMap::new(),
-            opportunity: InfluenceMap::new(),
-            escape: InfluenceMap::new(),
-        }
-    }
+    use crate::combat::ai::test_helpers::empty_maps;
 
     /// Default test caster (zero modifiers, no weapon).
     const DEFAULT_CASTER: CasterContext = CasterContext {

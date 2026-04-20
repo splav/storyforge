@@ -543,56 +543,28 @@ pub fn intent_score(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
-    use crate::combat::ai::role::{AiRole, AxisProfile};
+    use crate::combat::ai::influence::InfluenceMaps;
     use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
     use crate::core::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
-    
 
-    /// Build maps where only danger is set on specific tiles.
-    /// Bruiser danger weight is -1.2, so eval = -1.2 * danger.
+    /// Danger-only maps for intent-scoring tests; other three maps stay
+    /// empty. Reposition scoring keys off `evaluate_position`, which reads
+    /// danger with the Bruiser weight of -1.2 (so eval = -1.2 × danger).
     fn maps_with_dangers(tiles: &[(Hex, f32)]) -> InfluenceMaps {
-        let mut danger = InfluenceMap::new();
+        let mut m = empty_maps();
         for &(hex, val) in tiles {
-            danger.add(hex, val);
+            m.danger.add(hex, val);
         }
-        InfluenceMaps {
-            danger,
-            ally_support: InfluenceMap::new(),
-            opportunity: InfluenceMap::new(),
-            escape: InfluenceMap::new(),
-        }
+        m
     }
 
     fn dummy_unit(pos: Hex) -> UnitSnapshot {
-        UnitSnapshot {
-            entity: Entity::from_raw_u32(0).expect("valid"),
-            team: Team::Enemy,
-            role: AxisProfile::from(AiRole::Bruiser),
-            pos,
-            hp: 20,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            action_points: 1,
-            max_ap: 1,
-            movement_points: 3,
-            speed: 3,
-            mana: None,
-            rage: None,
-            energy: None,
-            abilities: vec![],
-            threat: 5.0,
-            tags: AiTags::MELEE_ONLY,
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-        }
+        UnitBuilder::new(0, Team::Enemy, pos)
+            .tags(AiTags::MELEE_ONLY)
+            .build()
     }
 
     /// Caller owns the `AbilityId` so the `ScoredStep` ref stays valid for

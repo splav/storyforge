@@ -308,43 +308,19 @@ pub fn apply_protect_self_mask(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::role::{AiRole, AxisProfile};
-    use crate::combat::ai::snapshot::AiTags;
+    use crate::combat::ai::test_helpers::{ent, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use bevy::prelude::Entity;
 
-    fn ent(id: u32) -> Entity {
-        Entity::from_raw_u32(id).expect("valid")
-    }
-
+    /// Sanity-suite defaults: max_hp=30, speed=4, aoo=(5.0, 1 reaction).
+    /// Mirrors the pre-builder `fn unit(id, team, pos, hp)` factory.
     fn unit(id: u32, team: Team, pos: Hex, hp: i32) -> UnitSnapshot {
-        UnitSnapshot {
-            entity: ent(id),
-            team,
-            role: AxisProfile::from(AiRole::Bruiser),
-            pos,
-            hp,
-            max_hp: 30,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            action_points: 1,
-            max_ap: 1,
-            movement_points: 4,
-            speed: 4,
-            mana: None,
-            rage: None,
-            energy: None,
-            abilities: vec![],
-            threat: 5.0,
-            tags: AiTags::empty(),
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 1,
-            aoo_expected_damage: Some(5.0),
-            statuses: Vec::new(),
-        }
+        UnitBuilder::new(id, team, pos)
+            .hp(hp)
+            .max_hp(30)
+            .speed(4)
+            .aoo(5.0, 1)
+            .build()
     }
 
     fn move_plan(path: Vec<Hex>) -> TurnPlan {
@@ -466,10 +442,10 @@ mod tests {
     // caller) automatically picks up new `AoEShape` variants, so adding
     // e.g. Cone later will be covered without a code change here.
 
+    use crate::combat::ai::test_helpers::empty_content;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType,
     };
-    use crate::content::content_view::ContentView;
     use crate::core::{AbilityId, DiceExpr};
 
     fn fireball_def(radius: u32) -> AbilityDef {
@@ -490,52 +466,27 @@ mod tests {
         }
     }
 
-    fn empty_content() -> ContentView {
-        ContentView {
-            abilities: std::collections::HashMap::new(),
-            keyed_abilities: Vec::new(),
-            statuses: std::collections::HashMap::new(),
-            weapons: std::collections::HashMap::new(),
-            armor: std::collections::HashMap::new(),
-            classes: std::collections::HashMap::new(),
-            unit_templates: std::collections::HashMap::new(),
-            races: std::collections::HashMap::new(),
-            factions: std::collections::HashMap::new(),
-            paths: std::collections::HashMap::new(),
-        }
-    }
-
     #[test]
     fn plan_has_self_aoe_detects_friendly_fire_circle_on_caster() {
+        use crate::combat::ai::test_helpers::make_test_ctx;
+        use crate::content::abilities::CasterContext;
         let actor_pos = hex_from_offset(0, 0);
         let actor = unit(1, Team::Enemy, actor_pos, 20);
-        let caster = crate::content::abilities::CasterContext {
-            str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None,
-        };
+        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let abilities = crate::game::components::Abilities(Vec::new());
         let mut content = empty_content();
         let def = fireball_def(1);
         content.abilities.insert(def.id.clone(), def);
 
         let difficulty = crate::combat::ai::difficulty::DifficultyProfile::normal();
-        let ctx = UtilityContext {
-            world: crate::combat::ai::utility::AiWorld {
-                content: &content, difficulty: &difficulty,
-            },
-            actor: crate::combat::ai::utility::ActorCtx {
-                caster: &caster,
-                abilities: &abilities,
-                crit_fail_effect: crate::content::races::CritFailEffect::Miss,
-                crit_fail_chance: 0.0,
-            },
-        };
+        let ctx = make_test_ctx(&content, &difficulty, &caster, &abilities);
 
-        // Fireball centred on the caster's own tile (target_pos = actor_pos).
-        let plan = TurnPlan {
+        // Single-cast fireball centred on `target_pos`, fired from `actor_pos`.
+        let cast_fireball_at = |target_pos: Hex| TurnPlan {
             steps: vec![PlanStep::Cast {
                 ability: AbilityId::from("fireball"),
                 target: ent(99),
-                target_pos: actor_pos,
+                target_pos,
             }],
             final_pos: actor_pos,
             residual_ap: 0,
@@ -544,28 +495,14 @@ mod tests {
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
         };
+
         assert!(
-            plan_has_self_aoe(&actor, &plan, &ctx),
-            "friendly-fire circle on caster tile must be flagged as self-AoE"
+            plan_has_self_aoe(&actor, &cast_fireball_at(actor_pos), &ctx),
+            "friendly-fire circle on caster tile must be flagged as self-AoE",
         );
-
-        // Target far away (outside radius+caster_pos) — must NOT be flagged.
-        let plan_far = TurnPlan {
-            steps: vec![PlanStep::Cast {
-                ability: AbilityId::from("fireball"),
-                target: ent(99),
-                target_pos: hex_from_offset(5, 5),
-            }],
-            final_pos: actor_pos,
-            residual_ap: 0,
-            residual_mp: 4,
-            outcomes: vec![Default::default()],
-            partial_score: 0.0,
-            sim_snapshots: Vec::new(),
-        };
         assert!(
-            !plan_has_self_aoe(&actor, &plan_far, &ctx),
-            "AoE centred far from the caster must not be flagged"
+            !plan_has_self_aoe(&actor, &cast_fireball_at(hex_from_offset(5, 5)), &ctx),
+            "AoE centred far from the caster must not be flagged",
         );
     }
 }

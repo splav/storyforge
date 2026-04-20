@@ -508,9 +508,8 @@ fn partial_score(plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
-    use crate::combat::ai::role::{AiRole, AxisProfile};
-    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::test_helpers::{empty_content, empty_maps, ent, UnitBuilder};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
     };
@@ -518,63 +517,11 @@ mod tests {
     use crate::core::{AbilityId, DiceExpr};
     use crate::game::components::{Abilities, Team};
     use crate::game::hex::hex_from_offset;
-    use std::collections::HashMap;
 
-    fn ent(id: u32) -> Entity {
-        Entity::from_raw_u32(id).expect("valid")
-    }
-
+    /// Generator-suite defaults: caller sets `hp` + `max_ap` (beam search
+    /// branching tests rely on these to tune pool shape).
     fn unit(id: u32, team: Team, pos: Hex, hp: i32, max_ap: i32) -> UnitSnapshot {
-        UnitSnapshot {
-            entity: ent(id),
-            team,
-            role: AxisProfile::from(AiRole::Bruiser),
-            pos,
-            hp,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            action_points: max_ap,
-            max_ap,
-            movement_points: 3,
-            speed: 3,
-            mana: None,
-            rage: None,
-            energy: None,
-            abilities: vec![],
-            threat: 5.0,
-            tags: AiTags::empty(),
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-        }
-    }
-
-    fn empty_maps() -> InfluenceMaps {
-        InfluenceMaps {
-            danger: InfluenceMap::new(),
-            ally_support: InfluenceMap::new(),
-            opportunity: InfluenceMap::new(),
-            escape: InfluenceMap::new(),
-        }
-    }
-
-    fn empty_content() -> ContentView {
-        ContentView {
-            abilities: HashMap::new(),
-            keyed_abilities: Vec::new(),
-            statuses: HashMap::new(),
-            weapons: HashMap::new(),
-            armor: HashMap::new(),
-            classes: HashMap::new(),
-            unit_templates: HashMap::new(),
-            races: HashMap::new(),
-            factions: HashMap::new(),
-            paths: HashMap::new(),
-        }
+        UnitBuilder::new(id, team, pos).hp(hp).ap(max_ap).build()
     }
 
     fn strike_def(id: &str, range: u32, cost_ap: i32) -> AbilityDef {

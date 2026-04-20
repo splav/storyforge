@@ -124,8 +124,9 @@ fn has_free_attack(ctx: &UtilityContext) -> bool {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::role::{AiRole, AxisProfile};
-    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::role::AiRole;
+    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::test_helpers::{make_test_ctx, unit, UnitBuilder};
     use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
     use crate::core::AbilityId;
@@ -133,68 +134,29 @@ mod tests {
     use crate::game::hex::{hex_from_offset, Hex};
     use bevy::prelude::*;
 
-    fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
-        UnitSnapshot {
-            entity: Entity::from_raw_u32(id).expect("valid entity id"),
-            team,
-            role: AxisProfile::from(AiRole::Bruiser),
-            pos,
-            hp: 20,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            action_points: 1,
-            max_ap: 1,
-            movement_points: 3,
-            speed: 3,
-            mana: None,
-            rage: None,
-            energy: None,
-            abilities: vec!["melee_attack".into()],
-            threat: 5.0,
-            tags: AiTags::MELEE_ONLY,
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-        }
+    /// int_mod=3 to keep INT-mod-sensitive scoring nontrivial in this suite.
+    const SCARCITY_CASTER: CasterContext = CasterContext {
+        str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None,
+    };
+
+    /// Bundle the (content, difficulty, abilities) scaffolding every scarcity
+    /// test needs. Abilities superset covers the two ability ids touched
+    /// across the suite (`fireball`, `melee_attack`).
+    fn scarcity_fixture() -> (ContentView, DifficultyProfile, Abilities) {
+        (
+            ContentView::load_global_for_tests(),
+            DifficultyProfile::default(),
+            Abilities(vec!["fireball".into(), "melee_attack".into()]),
+        )
     }
 
-    fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot::new(units, 1)
-    }
-
-    /// Test helpers return (AbilityId, step-factory). Tests own the owned
-    /// `AbilityId` so the ref in `ScoredStep::Cast` stays valid.
     fn cast_step<'a>(
         tile: Hex,
         ability: &'a AbilityId,
         target_pos: Hex,
         target: Entity,
     ) -> ScoredStep<'a> {
-        ScoredStep::Cast {
-            ability,
-            target,
-            target_pos,
-            caster_tile: tile,
-        }
-    }
-
-    /// int_mod=3 to keep INT-mod-sensitive scoring nontrivial in this suite.
-    const SCARCITY_CASTER: CasterContext = CasterContext {
-        str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None,
-    };
-
-    fn scarcity_ctx<'a>(
-        content: &'a ContentView,
-        difficulty: &'a DifficultyProfile,
-        abilities: &'a Abilities,
-    ) -> UtilityContext<'a> {
-        crate::combat::ai::test_helpers::make_test_ctx(
-            content, difficulty, &SCARCITY_CASTER, abilities,
-        )
+        ScoredStep::Cast { ability, target, target_pos, caster_tile: tile }
     }
 
     #[test]
@@ -202,11 +164,9 @@ mod tests {
         let tile = hex_from_offset(4, 3);
         let active = unit(0, Team::Enemy, tile);
         let enemy = unit(1, Team::Player, hex_from_offset(3, 3));
-        let s = snap(vec![active.clone(), enemy.clone()]);
-        let content = ContentView::load_global_for_tests();
-        let diff = DifficultyProfile::default();
-        let abilities = Abilities(vec!["melee_attack".into()]);
-        let ctx = scarcity_ctx(&content, &diff, &abilities);
+        let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 1);
+        let (content, diff, abs) = scarcity_fixture();
+        let ctx = make_test_ctx(&content, &diff, &SCARCITY_CASTER, &abs);
 
         let ab = AbilityId::from("melee_attack");
         let step = cast_step(tile, &ab, tile, enemy.entity);
@@ -217,18 +177,14 @@ mod tests {
     #[test]
     fn scarcity_penalizes_expensive_on_dying_target() {
         let tile = hex_from_offset(4, 3);
-        let mut active = unit(0, Team::Enemy, tile);
-        active.mana = Some((10, 10));
+        let active = UnitBuilder::new(0, Team::Enemy, tile).mana(10, 10).build();
+        let enemy = UnitBuilder::new(1, Team::Player, hex_from_offset(3, 3))
+            .hp(1)
+            .build();
 
-        let mut enemy = unit(1, Team::Player, hex_from_offset(3, 3));
-        enemy.hp = 1;
-        enemy.max_hp = 20;
-
-        let s = snap(vec![active.clone(), enemy.clone()]);
-        let content = ContentView::load_global_for_tests();
-        let diff = DifficultyProfile::default();
-        let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
-        let ctx = scarcity_ctx(&content, &diff, &abilities);
+        let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 1);
+        let (content, diff, abs) = scarcity_fixture();
+        let ctx = make_test_ctx(&content, &diff, &SCARCITY_CASTER, &abs);
 
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
@@ -243,19 +199,15 @@ mod tests {
     #[test]
     fn scarcity_rewards_kill_on_support() {
         let tile = hex_from_offset(4, 3);
-        let mut active = unit(0, Team::Enemy, tile);
-        active.mana = Some((10, 10));
+        let active = UnitBuilder::new(0, Team::Enemy, tile).mana(10, 10).build();
+        let enemy = UnitBuilder::new(1, Team::Player, hex_from_offset(3, 3))
+            .ai_role(AiRole::Support)
+            .hp(5)
+            .build();
 
-        let mut enemy = unit(1, Team::Player, hex_from_offset(3, 3));
-        enemy.role = AxisProfile::from(AiRole::Support);
-        enemy.hp = 5;
-        enemy.max_hp = 20;
-
-        let s = snap(vec![active.clone(), enemy.clone()]);
-        let content = ContentView::load_global_for_tests();
-        let diff = DifficultyProfile::default();
-        let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
-        let ctx = scarcity_ctx(&content, &diff, &abilities);
+        let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 1);
+        let (content, diff, abs) = scarcity_fixture();
+        let ctx = make_test_ctx(&content, &diff, &SCARCITY_CASTER, &abs);
 
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
@@ -270,8 +222,7 @@ mod tests {
     #[test]
     fn scarcity_rewards_aoe_on_cluster() {
         let tile = hex_from_offset(4, 3);
-        let mut active = unit(0, Team::Enemy, tile);
-        active.mana = Some((20, 20));
+        let active = UnitBuilder::new(0, Team::Enemy, tile).mana(20, 20).build();
 
         let center = hex_from_offset(2, 3);
         let neighbors: Vec<Hex> = center.all_neighbors().to_vec();
@@ -283,10 +234,8 @@ mod tests {
             vec![active.clone(), e1.clone(), e2.clone(), e3.clone()],
             3,
         );
-        let content = ContentView::load_global_for_tests();
-        let diff = DifficultyProfile::default();
-        let abilities = Abilities(vec!["fireball".into(), "melee_attack".into()]);
-        let ctx = scarcity_ctx(&content, &diff, &abilities);
+        let (content, diff, abs) = scarcity_fixture();
+        let ctx = make_test_ctx(&content, &diff, &SCARCITY_CASTER, &abs);
 
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, e1.pos, e1.entity);
@@ -301,25 +250,18 @@ mod tests {
     #[test]
     fn scarcity_penalizes_early_round_spend() {
         let tile = hex_from_offset(4, 3);
-        let mut active = unit(0, Team::Enemy, tile);
-        active.mana = Some((10, 10));
-
+        let active = UnitBuilder::new(0, Team::Enemy, tile).mana(10, 10).build();
         let enemy = unit(1, Team::Player, hex_from_offset(3, 3));
-
-        let content = ContentView::load_global_for_tests();
-        let diff = DifficultyProfile::default();
-        let abilities = Abilities(vec!["fireball".into()]);
-        let ctx = scarcity_ctx(&content, &diff, &abilities);
+        let (content, diff, abs) = scarcity_fixture();
+        let ctx = make_test_ctx(&content, &diff, &SCARCITY_CASTER, &abs);
 
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
-
-        let s_r1 = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 1);
-        let score_r1 = compute_scarcity(&step, &active, 0.0, &ctx, &s_r1);
-
-        let s_r3 = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 3);
-        let score_r3 = compute_scarcity(&step, &active, 0.0, &ctx, &s_r3);
-
+        let pair = |round: u32| -> f32 {
+            let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], round);
+            compute_scarcity(&step, &active, 0.0, &ctx, &s)
+        };
+        let (score_r1, score_r3) = (pair(1), pair(3));
         assert!(
             score_r1 < score_r3,
             "round 1 ({:.2}) should have lower scarcity than round 3 ({:.2})",

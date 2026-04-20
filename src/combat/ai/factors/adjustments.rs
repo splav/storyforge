@@ -89,22 +89,37 @@ mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::test_helpers::make_test_ctx as make_ctx;
+    use crate::combat::ai::test_helpers::{make_test_ctx, UnitBuilder};
     use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
-    use crate::game::components::Abilities;
+    use crate::core::AbilityId;
+    use crate::game::components::{Abilities, Team};
     use crate::game::hex::hex_from_offset;
+
+    /// Zero-stat caster — adjustments logic doesn't actually need non-trivial
+    /// caster params, but `UtilityContext` requires one.
+    const ZERO_CASTER: CasterContext = CasterContext {
+        str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None,
+    };
+
+    /// Boilerplate-collapsing fixture for the adjustments suite. Returns
+    /// (content, difficulty, abilities) — the common scaffolding every test
+    /// needs before constructing a `UtilityContext`.
+    fn fixture() -> (ContentView, DifficultyProfile, Abilities) {
+        (
+            ContentView::load_global_for_tests(),
+            DifficultyProfile::normal(),
+            Abilities(Vec::new()),
+        )
+    }
 
     /// Regression: reserved-tile penalty must always push `position` down,
     /// regardless of sign. Old code did `*= 0.5`, which flipped the effect on
     /// negative positions — a bad tile's reservation made it look better.
     #[test]
     fn reserved_tile_penalises_both_signs() {
-        let content = ContentView::load_global_for_tests();
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(Vec::new());
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let (content, diff, abs) = fixture();
+        let ctx = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
 
         let tile = hex_from_offset(3, 3);
         let step = ScoredStep::Move { caster_tile: tile };
@@ -113,20 +128,20 @@ mod tests {
         let mut reservations = Reservations::default();
         reservations.reserve_tile(tile);
 
-        // Positive position: penalty must lower it.
-        let mut off = OffensiveFactors::default();
-        let mut focus = 0.0;
-        let mut position = 1.0f32;
-        apply_reservation_adjustments(&step, &mut off, &mut focus, &mut position, &snap, &ctx, &reservations);
-        assert!(position < 1.0, "positive position must be reduced, got {position}");
+        // Apply the penalty starting from `initial` and assert the side the
+        // result falls on — both signs must push *away from zero*.
+        let apply = |initial: f32| -> f32 {
+            let mut off = OffensiveFactors::default();
+            let mut focus = 0.0;
+            let mut position = initial;
+            apply_reservation_adjustments(
+                &step, &mut off, &mut focus, &mut position, &snap, &ctx, &reservations,
+            );
+            position
+        };
 
-        // Negative position: penalty must make it MORE negative, not less.
-        let mut position = -0.5f32;
-        apply_reservation_adjustments(&step, &mut off, &mut focus, &mut position, &snap, &ctx, &reservations);
-        assert!(
-            position < -0.5,
-            "negative position must be pushed further from zero, got {position}",
-        );
+        assert!(apply(1.0) < 1.0, "positive position must be reduced");
+        assert!(apply(-0.5) < -0.5, "negative position must be pushed further from zero");
     }
 
     /// Overkill penalty must scale `damage` AND `kill` together. Previously
@@ -135,47 +150,15 @@ mod tests {
     /// damage was high.
     #[test]
     fn overkill_scales_damage_and_kill_uniformly() {
-        use crate::combat::ai::role::{AiRole, AxisProfile};
-        use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
-        use crate::game::components::Team;
-        use bevy::prelude::Entity;
-        use crate::core::AbilityId;
-
-        let content = ContentView::load_global_for_tests();
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(Vec::new());
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
-        let mult = difficulty.overkill_multiplier();
+        let (content, diff, abs) = fixture();
+        let ctx = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
+        let mult = diff.overkill_multiplier();
         assert!(mult > 0.0 && mult < 1.0, "precondition: non-trivial multiplier");
 
-        let target_ent = Entity::from_raw_u32(99).expect("valid");
-        let target = UnitSnapshot {
-            entity: target_ent,
-            team: Team::Player,
-            role: AxisProfile::from(AiRole::Bruiser),
-            pos: hex_from_offset(1, 0),
-            hp: 5,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            action_points: 1,
-            max_ap: 1,
-            movement_points: 0,
-            speed: 0,
-            mana: None,
-            rage: None,
-            energy: None,
-            abilities: Vec::new(),
-            threat: 5.0,
-            tags: AiTags::empty(),
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-        };
+        let target = UnitBuilder::new(99, Team::Player, hex_from_offset(1, 0))
+            .hp(5)
+            .build();
+        let target_ent = target.entity;
         let snap = BattleSnapshot::new(vec![target.clone()], 1);
         let mut reservations = Reservations::default();
         // Reserve 10 HP of incoming damage against a 5-HP target — lethal.
@@ -188,37 +171,31 @@ mod tests {
             target_pos: target.pos,
             caster_tile: hex_from_offset(0, 0),
         };
-        let mut off = OffensiveFactors {
-            damage: 8.0,
-            heal: 0.0,
-            kill: 1.0,
-            cc: 0.0,
-        };
+        let mut off = OffensiveFactors { damage: 8.0, heal: 0.0, kill: 1.0, cc: 0.0 };
         let mut focus = 0.7;
         let mut position = 0.0;
-        apply_reservation_adjustments(&step, &mut off, &mut focus, &mut position, &snap, &ctx, &reservations);
+        apply_reservation_adjustments(
+            &step, &mut off, &mut focus, &mut position, &snap, &ctx, &reservations,
+        );
 
         assert!(
             (off.damage - 8.0 * mult).abs() < 1e-5,
-            "damage must be scaled by overkill multiplier, got {}",
-            off.damage,
+            "damage must be scaled by overkill multiplier, got {}", off.damage,
         );
         assert!(
             (off.kill - mult).abs() < 1e-5,
-            "kill must be scaled by the SAME multiplier (not zeroed), got {}",
-            off.kill,
+            "kill must be scaled by the SAME multiplier (not zeroed), got {}", off.kill,
         );
+        // Sanity: the target is still reachable by entity after mutation.
+        assert!(snap.unit(target_ent).is_some());
     }
 
     /// Without a reservation on the tile, position is untouched regardless
     /// of sign — only the reservation triggers the penalty.
     #[test]
     fn unreserved_tile_leaves_position_untouched() {
-        let content = ContentView::load_global_for_tests();
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(Vec::new());
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        let (content, diff, abs) = fixture();
+        let ctx = make_test_ctx(&content, &diff, &ZERO_CASTER, &abs);
 
         let step = ScoredStep::Move { caster_tile: hex_from_offset(0, 0) };
         let snap = BattleSnapshot::new(Vec::new(), 1);
@@ -227,7 +204,9 @@ mod tests {
         let mut off = OffensiveFactors::default();
         let mut focus = 0.0;
         let mut position = -0.5f32;
-        apply_reservation_adjustments(&step, &mut off, &mut focus, &mut position, &snap, &ctx, &reservations);
+        apply_reservation_adjustments(
+            &step, &mut off, &mut focus, &mut position, &snap, &ctx, &reservations,
+        );
         assert_eq!(position, -0.5);
     }
 }

@@ -63,40 +63,9 @@ pub fn aoe_hits<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::role::{AiRole, AxisProfile};
-    use crate::combat::ai::snapshot::AiTags;
+    use crate::combat::ai::test_helpers::unit;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use bevy::prelude::Entity;
-
-    fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
-        UnitSnapshot {
-            entity: Entity::from_raw_u32(id).expect("valid"),
-            team,
-            role: AxisProfile::from(AiRole::Bruiser),
-            pos,
-            hp: 20,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            action_points: 1,
-            max_ap: 1,
-            movement_points: 3,
-            speed: 3,
-            mana: None,
-            rage: None,
-            energy: None,
-            abilities: Vec::new(),
-            threat: 5.0,
-            tags: AiTags::empty(),
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-        }
-    }
 
     #[test]
     fn enemies_allies_and_self_are_separated() {

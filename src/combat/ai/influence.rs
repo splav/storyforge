@@ -304,35 +304,18 @@ mod tests {
         (0..GRID_ROWS).map(|r| row_cols(r) as usize).sum()
     }
 
+    use crate::combat::ai::test_helpers::UnitBuilder;
+
+    /// Local shorthand preserving this module's historical defaults
+    /// (speed=2, MELEE_ONLY). Influence-map tests are sensitive to reach
+    /// radius, so keep these explicit instead of relying on the generic
+    /// `unit()` defaults.
     fn unit(entity_id: u32, team: Team, pos: Hex) -> UnitSnapshot {
-        use crate::combat::ai::role::{AiRole, AxisProfile};
-        UnitSnapshot {
-            entity: bevy::prelude::Entity::from_raw_u32(entity_id)
-                .expect("valid entity id"),
-            team,
-            role: AxisProfile::from(AiRole::Bruiser),
-            pos,
-            hp: 20,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            action_points: 1,
-            max_ap: 1,
-            movement_points: 3,
-            speed: 2,
-            mana: None,
-            rage: None,
-            energy: None,
-            abilities: vec!["melee_attack".into()],
-            threat: 5.0,
-            tags: AiTags::MELEE_ONLY,
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses: Vec::new(),
-        }
+        UnitBuilder::new(entity_id, team, pos)
+            .speed(2)
+            .tags(AiTags::MELEE_ONLY)
+            .ability_names(&["melee_attack"])
+            .build()
     }
 
     #[test]
@@ -393,12 +376,15 @@ mod tests {
     fn ally_support_healer_bonus() {
         // With two allies, the healer's higher weight makes nearby cells
         // score higher than when both allies are plain fighters.
-        let mut healer = unit(0, Team::Enemy, hex_from_offset(4, 3));
-        healer.tags = AiTags::CAN_HEAL;
-        let mut fighter1 = unit(1, Team::Enemy, hex_from_offset(6, 3));
-        fighter1.tags = AiTags::empty();
-        let mut fighter2 = unit(2, Team::Enemy, hex_from_offset(4, 3));
-        fighter2.tags = AiTags::empty();
+        let healer = UnitBuilder::new(0, Team::Enemy, hex_from_offset(4, 3))
+            .tags(AiTags::CAN_HEAL)
+            .build();
+        let fighter1 = UnitBuilder::new(1, Team::Enemy, hex_from_offset(6, 3))
+            .tags(AiTags::empty())
+            .build();
+        let fighter2 = UnitBuilder::new(2, Team::Enemy, hex_from_offset(4, 3))
+            .tags(AiTags::empty())
+            .build();
 
         let cells = all_cells();
         let with_healer = build_ally_support(&cells, &[&healer, &fighter1], &InfluenceConfig::default());
@@ -435,41 +421,32 @@ mod tests {
         }
     }
 
+    /// All three non-derived maps must stay in [0, 1] after rank-normalization.
+    /// Table-driven across danger / ally_support / opportunity to share the
+    /// (cells + InfluenceConfig) scaffolding.
     #[test]
-    fn danger_bounded_zero_one() {
-        let e1 = unit(0, Team::Enemy, hex_from_offset(2, 2));
+    fn built_maps_stay_within_zero_one() {
+        let cells = all_cells();
+        let cfg = InfluenceConfig::default();
+        let e1 = UnitBuilder::new(0, Team::Enemy, hex_from_offset(2, 2)).hp(5).build();
         let e2 = unit(1, Team::Enemy, hex_from_offset(6, 4));
-        let cells = all_cells();
+        let a1 = unit(10, Team::Enemy, hex_from_offset(3, 3));
+        let a2 = UnitBuilder::new(11, Team::Enemy, hex_from_offset(5, 3))
+            .tags(AiTags::CAN_HEAL)
+            .build();
 
-        let map = build_danger(&cells, &[&e1, &e2], &HashSet::new(), &HashSet::new());
-        for (_, &v) in map.iter() {
-            assert!((0.0..=1.0).contains(&v), "danger out of [0,1]: {v}");
-        }
-    }
-
-    #[test]
-    fn ally_support_bounded_zero_one() {
-        let a1 = unit(0, Team::Enemy, hex_from_offset(3, 3));
-        let mut a2 = unit(1, Team::Enemy, hex_from_offset(5, 3));
-        a2.tags = AiTags::CAN_HEAL;
-        let cells = all_cells();
-
-        let map = build_ally_support(&cells, &[&a1, &a2], &InfluenceConfig::default());
-        for (_, &v) in map.iter() {
-            assert!((0.0..=1.0).contains(&v), "ally_support out of [0,1]: {v}");
-        }
-    }
-
-    #[test]
-    fn opportunity_bounded_zero_one() {
-        let mut e1 = unit(0, Team::Enemy, hex_from_offset(2, 2));
-        e1.hp = 5;
-        let e2 = unit(1, Team::Enemy, hex_from_offset(6, 4));
-        let cells = all_cells();
-
-        let map = build_opportunity(&cells, &[&e1, &e2], &InfluenceConfig::default());
-        for (_, &v) in map.iter() {
-            assert!((0.0..=1.0).contains(&v), "opportunity out of [0,1]: {v}");
+        let maps: [(&str, InfluenceMap); 3] = [
+            (
+                "danger",
+                build_danger(&cells, &[&e1, &e2], &HashSet::new(), &HashSet::new()),
+            ),
+            ("ally_support", build_ally_support(&cells, &[&a1, &a2], &cfg)),
+            ("opportunity", build_opportunity(&cells, &[&e1, &e2], &cfg)),
+        ];
+        for (name, map) in &maps {
+            for (_, &v) in map.iter() {
+                assert!((0.0..=1.0).contains(&v), "{name} out of [0,1]: {v}");
+            }
         }
     }
 
@@ -477,13 +454,18 @@ mod tests {
     fn opportunity_not_dominated_by_threat() {
         // A low-HP target with moderate threat should score higher in opportunity
         // than a full-HP target with high threat, at the same distance.
-        let mut wounded = unit(0, Team::Enemy, hex_from_offset(4, 3));
-        wounded.hp = 2;
-        wounded.threat = 5.0;
-
-        let mut healthy = unit(1, Team::Enemy, hex_from_offset(4, 5));
-        healthy.hp = 20;
-        healthy.threat = 10.0;
+        let wounded = UnitBuilder::new(0, Team::Enemy, hex_from_offset(4, 3))
+            .hp(2)
+            .threat(5.0)
+            .speed(2)
+            .tags(AiTags::MELEE_ONLY)
+            .build();
+        let healthy = UnitBuilder::new(1, Team::Enemy, hex_from_offset(4, 5))
+            .hp(20)
+            .threat(10.0)
+            .speed(2)
+            .tags(AiTags::MELEE_ONLY)
+            .build();
 
         let cells = all_cells();
         let map = build_opportunity(&cells, &[&wounded, &healthy], &InfluenceConfig::default());
