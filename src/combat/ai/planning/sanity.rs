@@ -212,7 +212,7 @@ fn expected_aoo_damage(
 }
 
 fn plan_has_self_aoe(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
-    let content = ctx.utility.world.content;
+    let content = ctx.world.content;
     plan.walk_with_caster(ctx.active.pos).any(|(_, step, caster_pos)| {
         let PlanStep::Cast { ability, target_pos, .. } = step else { return false };
         let Some(def) = content.abilities.get(ability) else { return false };
@@ -227,7 +227,7 @@ fn plan_has_self_aoe(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
 }
 
 fn plan_has_useful_cast(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
-    let content = ctx.utility.world.content;
+    let content = ctx.world.content;
     let caster = &ctx.active.caster_ctx;
     plan.steps.iter().any(|s| {
         if let PlanStep::Cast { ability, .. } = s {

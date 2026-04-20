@@ -17,10 +17,10 @@ pub(super) fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -
     let ScoredStep::Cast { ability, target_pos, target, caster_tile } = step else {
         return 0.0;
     };
-    let utility = ctx.utility;
+    let world = ctx.world;
     let snap = ctx.snap;
     let active = ctx.active;
-    let Some(def) = utility.world.content.abilities.get(*ability) else {
+    let Some(def) = world.content.abilities.get(*ability) else {
         return 0.0;
     };
 
@@ -83,7 +83,7 @@ pub(super) fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -
 
     // CC on high-threat unstunned target. Non-AoE only — AoE CC is already
     // folded into the cc factor per-enemy.
-    if applies_cc(def, utility.world.content) {
+    if applies_cc(def, world.content) {
         if let Some(t) = target_unit {
             if !t.tags.contains(AiTags::IS_STUNNED) {
                 swing += 0.5 * (t.threat / 10.0).min(1.0);
@@ -93,7 +93,7 @@ pub(super) fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -
 
     // Overkill penalty: target nearly dead and caster has free attacks.
     if let Some(t) = target_unit {
-        if t.hp_pct() < 0.25 && has_free_attack(active, utility.world.content) {
+        if t.hp_pct() < 0.25 && has_free_attack(active, world.content) {
             swing -= 0.3;
         }
     }
@@ -128,7 +128,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, unit, UnitBuilder,
     };
-    use crate::combat::ai::utility::UtilityContext;
+    use crate::combat::ai::utility::AiWorld;
     use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
     use crate::core::AbilityId;
@@ -167,7 +167,7 @@ mod tests {
     fn score<'a>(
         step: &ScoredStep,
         kill: f32,
-        ctx: &'a UtilityContext<'a>,
+        ctx: &'a AiWorld<'a>,
         snap: &BattleSnapshot,
         active: &UnitSnapshot,
     ) -> f32 {

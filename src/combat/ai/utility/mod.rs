@@ -28,10 +28,7 @@ use crate::combat::ai::planning::{
 };
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::content::abilities::CasterContext;
-use crate::content::races::CritFailEffect;
 use crate::core::{AbilityId, DiceRng};
-use crate::game::components::Abilities;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -74,50 +71,28 @@ pub enum MoveOrigin {
 
 // ── Context ─────────────────────────────────────────────────────────────────
 //
-// The AI chain takes three categories of data. They used to live side-by-side
-// as a flat `UtilityContext`; splitting by lifetime/scope makes every caller
-// honestly declare what it touches.
+// The AI chain reads two categories of data. After arch E (per-actor data
+// migrated onto `UnitSnapshot`), only the world-scope half remains as a
+// shared context — every per-actor fact is on the actor's snapshot row.
 //
-// - `AiWorld`   — static for the whole combat (content, difficulty).
-// - `ActorCtx`  — per-actor: who is casting + caster-specific scoring params.
+// - `AiWorld` — content + difficulty + combat-wide rules (crit_fail_chance).
+//   Stable for the entire combat.
+// - per-actor data lives on `UnitSnapshot` directly (caster_ctx,
+//   crit_fail_effect, abilities). The scoring layer reads it through
+//   `ScoringCtx.active`.
 //
-// `UtilityContext` stays as a thin composite so the deep scoring/generation
-// chain keeps a single parameter, but it no longer mixes lifetimes.
-//
-// Pathfinding stop-blockers (enemies, allies, corpses) are derived from
-// `BattleSnapshot` directly — since corpses now live in the snapshot as
-// hp=0 units, there's no separate `blocked_tiles` channel to thread.
+// Pathfinding stop-blockers come from `BattleSnapshot` directly — corpses
+// are hp=0 units, no separate `blocked_tiles` channel.
 
 /// World-scope data. Stable for the entire combat.
 ///
-/// `crit_fail_chance` lives here — not on `ActorCtx` — because it's a
-/// combat-wide rule derived from `GameSettings.crit_fail_die` (one die per
-/// combat, player + AI pay the same odds). Sits alongside `content` and
-/// `difficulty` as "how this world works for every actor".
+/// `crit_fail_chance` is a combat-wide rule (one die per combat, player +
+/// AI pay the same odds) — sits alongside `content` and `difficulty` as
+/// "how this world works for every actor".
 pub struct AiWorld<'a> {
     pub content: &'a ContentView,
     pub difficulty: &'a DifficultyProfile,
     pub crit_fail_chance: f32,
-}
-
-/// Per-actor data rebuilt each AI tick. Caster mods, ability list, crit-fail
-/// profile. `crit_fail_chance` is derived from global settings rather than
-/// the actor, but it pairs with `crit_fail_effect` everywhere it's read
-/// (always inside `crit_fail_adjusted`), so it lives here to keep the pair
-/// together.
-pub struct ActorCtx<'a> {
-    pub caster: &'a CasterContext,
-    pub abilities: &'a Abilities,
-    pub crit_fail_effect: CritFailEffect,
-    pub crit_fail_chance: f32,
-}
-
-/// Composite threaded through scoring/generation/sanity. Splits into
-/// `world` (static) and `actor` (per-tick) so every call site declares which
-/// half it needs, while still passing one parameter.
-pub struct UtilityContext<'a> {
-    pub world: AiWorld<'a>,
-    pub actor: ActorCtx<'a>,
 }
 
 /// Bundle of every read-only context the scoring layer touches. Replaces
@@ -128,7 +103,7 @@ pub struct UtilityContext<'a> {
 /// mid-plan when scoring against a sim'd state — `with_perspective` returns
 /// a fresh `ScoringCtx` reusing the world refs but with a shorter `'p`.
 pub struct ScoringCtx<'w, 'p> {
-    pub utility: &'w UtilityContext<'w>,
+    pub world: &'w AiWorld<'w>,
     pub maps: &'w InfluenceMaps,
     pub reservations: &'w Reservations,
     pub snap: &'p BattleSnapshot,
@@ -145,7 +120,7 @@ impl<'w, 'p> ScoringCtx<'w, 'p> {
         snap: &'q BattleSnapshot,
     ) -> ScoringCtx<'w, 'q> {
         ScoringCtx {
-            utility: self.utility,
+            world: self.world,
             maps: self.maps,
             reservations: self.reservations,
             snap,
@@ -161,7 +136,7 @@ impl<'w, 'p> ScoringCtx<'w, 'p> {
 pub fn pick_action(
     actor: Entity,
     actor_pos: Hex,
-    ctx: &UtilityContext,
+    world: &AiWorld,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     rng: &mut DiceRng,
@@ -179,13 +154,13 @@ pub fn pick_action(
     };
 
     // ── Select tactical intent ──────────────────────────────────────────
-    let choice = select_intent(active, snap, maps, memory, ctx.world.difficulty);
+    let choice = select_intent(active, snap, maps, memory, world.difficulty);
     update_memory(memory, &choice.intent);
     let mut intent = choice.intent;
     let mut intent_reason = choice.reason;
 
     // ── Generate plans (beam search over depths) ───────────────────────
-    let plans = generate_plans(actor, ctx, snap, maps);
+    let plans = generate_plans(actor, world, snap, maps);
 
     if plans.is_empty() {
         let decision = fallback::fallback_move(active, snap, maps);
@@ -202,7 +177,7 @@ pub fn pick_action(
     // through scorer + factors + sanity instead of the old 5-7 individual
     // refs per call.
     let scoring_ctx = ScoringCtx {
-        utility: ctx,
+        world,
         maps,
         reservations,
         snap,
@@ -235,8 +210,8 @@ pub fn pick_action(
         if max_align < threshold {
             let hp_pct = active.hp_pct();
             let actor_danger = maps.danger.get(active.pos);
-            let midpanic_hp = ctx.world.difficulty.midpanic_hp_threshold();
-            let panic_danger = ctx.world.difficulty.awareness_danger_threshold();
+            let midpanic_hp = world.difficulty.midpanic_hp_threshold();
+            let panic_danger = world.difficulty.awareness_danger_threshold();
             let midpanic = hp_pct < midpanic_hp && actor_danger > panic_danger;
 
             let new_intent = if midpanic {
@@ -289,9 +264,9 @@ pub fn pick_action(
     // move), LastStand rescoring takes over so the actor at least lands a
     // final useful hit.
     if matches!(intent, TacticalIntent::ProtectSelf) {
-        let margin = ctx.world.difficulty.defensive_tile_margin();
+        let margin = world.difficulty.defensive_tile_margin();
         let any_defensive = apply_protect_self_mask(
-            &mut scored, &plans, active, ctx.world.content, maps, margin,
+            &mut scored, &plans, active, world.content, maps, margin,
         );
         if !any_defensive {
             let last_stand = TacticalIntent::LastStand;
@@ -309,7 +284,7 @@ pub fn pick_action(
     // precomputed kill/cc columns instead of recomputing plan factors per
     // window slot. `PickMechanics` is ~24B of stack for ≤3 pool entries —
     // cheap enough to always collect; debug overlay reads it, prod ignores.
-    let (best_idx, mech) = pick_best_plan(&scored, &raw_factors, ctx, rng);
+    let (best_idx, mech) = pick_best_plan(&scored, &raw_factors, world, rng);
     let pick_mech = debug.then_some(mech);
 
     let best_plan = &plans[best_idx];
@@ -330,7 +305,7 @@ pub fn pick_action(
     // subsequent tick re-plans from scratch, so reserving the full plan
     // would leave ghost reservations on actions that never happen.
     record_committed_reservations(
-        best_plan, consumed, active, ctx, snap, reservations, actor_pos,
+        best_plan, consumed, active, world, snap, reservations, actor_pos,
     );
 
     // ── AI log: write structured entry for offline analysis ────────────

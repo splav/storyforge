@@ -20,7 +20,7 @@ use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::scoring::{applies_cc, score_action};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::{AiDecision, MoveOrigin, UtilityContext};
+use crate::combat::ai::utility::{AiDecision, AiWorld, MoveOrigin};
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::core::DiceRng;
 use crate::game::hex::Hex;
@@ -105,12 +105,12 @@ fn mercy_cruelty(raw: &PlanFactors) -> f32 {
 pub fn pick_best_plan(
     scored: &[f32],
     raw_factors: &[PlanFactors],
-    ctx: &UtilityContext,
+    ctx: &AiWorld,
     rng: &mut DiceRng,
 ) -> (usize, PickMechanics) {
-    let top_k_req = ctx.world.difficulty.top_k_choice();
-    let m = ctx.world.difficulty.mercy_margin();
-    let window = (ctx.world.difficulty.score_noise() * 2.0).max(0.05);
+    let top_k_req = ctx.difficulty.top_k_choice();
+    let m = ctx.difficulty.mercy_margin();
+    let window = (ctx.difficulty.score_noise() * 2.0).max(0.05);
 
     let make_mech = |top_k, mercy_applied, pool, chosen_pos| PickMechanics {
         top_k,
@@ -185,7 +185,7 @@ pub fn record_committed_reservations(
     plan: &TurnPlan,
     consumed: usize,
     active: &UnitSnapshot,
-    ctx: &UtilityContext,
+    ctx: &AiWorld,
     snap: &BattleSnapshot,
     reservations: &mut Reservations,
     actor_pos: Hex,
@@ -201,8 +201,8 @@ pub fn record_committed_reservations(
             }
         }
         let PlanStep::Cast { ability, target, target_pos } = step else { continue };
-        let Some(def) = ctx.world.content.abilities.get(ability) else { continue };
-        let is_cc = applies_cc(def, ctx.world.content);
+        let Some(def) = ctx.content.abilities.get(ability) else { continue };
+        let is_cc = applies_cc(def, ctx.content);
         let hits: Vec<Entity> = if def.aoe == AoEShape::None {
             vec![*target]
         } else {
@@ -216,7 +216,7 @@ pub fn record_committed_reservations(
         for ent in hits {
             if let Some(target_unit) = snap.unit(ent) {
                 if def.target_type != TargetType::SingleAlly {
-                    let dmg = score_action(def, target_unit, &active.caster_ctx, ctx.world.content);
+                    let dmg = score_action(def, target_unit, &active.caster_ctx, ctx.content);
                     if dmg > 0.0 {
                         reservations.reserve_damage(ent, dmg);
                     }

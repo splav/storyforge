@@ -8,9 +8,7 @@ use crate::combat::ai::log::AiLogger;
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::build_snapshot;
-use crate::combat::ai::utility::{pick_action, ActorCtx, AiDecision, AiWorld, UtilityContext};
-use crate::content::abilities::CasterContext;
-use crate::content::races::CritFailEffect;
+use crate::combat::ai::utility::{pick_action, AiDecision, AiWorld};
 use crate::content::settings::GameSettings;
 use crate::core::DiceRng;
 use crate::game::components::{
@@ -115,24 +113,11 @@ fn run_ai_turn(
     let snap = build_snapshot(combat_ctx.round, combatants, statuses, positions, roles, content);
     let maps = build_influence_maps(&snap, actor, actor_team, inf_cfg);
 
-    // Build utility context. `caster_ctx` / `crit_fail_effect` now live on
-    // each `UnitSnapshot`; ActorCtx still carries the borrow-backed copies
-    // until E.2 migrates readers over.
-    let caster = build_caster_ctx(c, content);
-    let crit_fail_effect = c.combat_path
-        .and_then(|cp| content.paths.get(&cp.0))
-        .map_or(CritFailEffect::Miss, |p| p.crit_fail_effect.clone());
+    // World-scope context. Per-actor caster/crit-fail-effect/abilities now
+    // live on each `UnitSnapshot` row (built by `build_snapshot` above), so
+    // there's no parallel `ActorCtx` to thread.
     let crit_fail_chance = 1.0 / settings.crit_fail_die as f32;
-
-    let ctx = UtilityContext {
-        world: AiWorld { content, difficulty, crit_fail_chance },
-        actor: ActorCtx {
-            caster: &caster,
-            abilities: c.abilities,
-            crit_fail_effect,
-            crit_fail_chance,
-        },
-    };
+    let world = AiWorld { content, difficulty, crit_fail_chance };
 
     // Build name map for debug / log.
     let debug = settings.ai_debug;
@@ -172,7 +157,7 @@ fn run_ai_turn(
     // search still shapes the step[0] choice, but only step[0] executes; the
     // remainder is reconsidered on the next tick against actual world state.
     let (decision, debug_snapshot) = pick_action(
-        actor, actor_pos, &ctx, &snap, &maps, rng,
+        actor, actor_pos, &world, &snap, &maps, rng,
         memory_ref, reservations, logger, debug, &debug_names,
     );
 
@@ -203,12 +188,6 @@ fn run_ai_turn(
             msgs.end_turn.write(EndTurn { actor });
         }
     }
-}
-
-// ── Context builders ──────────────────────────────────────────────────────
-
-fn build_caster_ctx(c: &AiCombatantQItem, content: &ContentView) -> CasterContext {
-    CasterContext::new(c.stats, Some(c.equipment), &content.weapons)
 }
 
 // ── Pact AI: AI controls hero under pact_control status ───────────────────

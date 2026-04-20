@@ -48,7 +48,7 @@ use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::estimate_st_damage;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
-use crate::combat::ai::utility::{ScoringCtx, UtilityContext};
+use crate::combat::ai::utility::{AiWorld, ScoringCtx};
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::core::modifier;
 use crate::game::components::Abilities;
@@ -138,14 +138,14 @@ fn finalize_scores(
 ) -> Vec<f32> {
     let active = ctx.active;
     let snap = ctx.snap;
-    let utility = ctx.utility;
+    let world = ctx.world;
     // Per-template summon DPR cache, computed once over the unique templates
     // referenced by Summon casts in this batch. Pre-cache: each Summon-step
     // per plan rebuilt CasterContext + walked the template's full ability set
     // (estimate_st_damage is O(K)). With M plans × S summons × K abilities
     // this scales as O(M·S·K); the cache replaces it with O(unique_templates·K)
     // upfront + O(1) lookup inside `plan_summon_bonus`.
-    let summon_dpr = build_summon_dpr_cache(plans, utility);
+    let summon_dpr = build_summon_dpr_cache(plans, world);
     // Per-factor min/max for batch-relative normalization. Convert each
     // PlanFactors row to its array view once for the inner loop.
     let mut maxes = [0.0f32; NUM_FACTORS];
@@ -170,9 +170,9 @@ fn finalize_scores(
     }
 
     let mut weights = active.role.factor_weights();
-    weights[INTENT_IDX] *= utility.world.difficulty.intent_commitment;
-    weights[SCARCITY_IDX] *= utility.world.difficulty.resource_discipline;
-    let noise_amp = utility.world.difficulty.score_noise();
+    weights[INTENT_IDX] *= world.difficulty.intent_commitment;
+    weights[SCARCITY_IDX] *= world.difficulty.resource_discipline;
+    let noise_amp = world.difficulty.score_noise();
 
     // Pass 1: compute noise-free scores.
     let mut scores: Vec<f32> = raw
@@ -193,7 +193,7 @@ fn finalize_scores(
             // see the strategic value of creating an ally, and for hybrid
             // roles the damage-axis weight is too low to lift a raw summon
             // score on its own.
-            score += plan_summon_bonus(plan, active, utility, snap, &summon_dpr);
+            score += plan_summon_bonus(plan, active, world, snap, &summon_dpr);
             score
         })
         .collect();
@@ -270,7 +270,7 @@ fn plan_start_tile(plan: &TurnPlan) -> Hex {
 fn plan_summon_bonus(
     plan: &TurnPlan,
     active: &UnitSnapshot,
-    ctx: &UtilityContext,
+    ctx: &AiWorld,
     snap: &BattleSnapshot,
     summon_dpr: &std::collections::HashMap<String, f32>,
 ) -> f32 {
@@ -283,7 +283,7 @@ fn plan_summon_bonus(
     let mut total = 0.0f32;
     for step in &plan.steps {
         let PlanStep::Cast { ability, .. } = step else { continue };
-        let Some(def) = ctx.world.content.abilities.get(ability) else { continue };
+        let Some(def) = ctx.content.abilities.get(ability) else { continue };
         let EffectDef::Summon { template, max_active } = &def.effect else { continue };
 
         let cap = max_active.unwrap_or(3).max(1) as f32;
@@ -305,23 +305,23 @@ fn plan_summon_bonus(
 /// per-plan scoring loop. Returns an empty map when no plan summons.
 fn build_summon_dpr_cache(
     plans: &[TurnPlan],
-    ctx: &UtilityContext,
+    ctx: &AiWorld,
 ) -> std::collections::HashMap<String, f32> {
     use std::collections::HashMap;
     let mut cache: HashMap<String, f32> = HashMap::new();
     for plan in plans {
         for step in &plan.steps {
             let PlanStep::Cast { ability, .. } = step else { continue };
-            let Some(def) = ctx.world.content.abilities.get(ability) else { continue };
+            let Some(def) = ctx.content.abilities.get(ability) else { continue };
             let EffectDef::Summon { template, .. } = &def.effect else { continue };
             if cache.contains_key(template) {
                 continue;
             }
-            let Some(tpl) = ctx.world.content.unit_templates.get(template) else {
+            let Some(tpl) = ctx.content.unit_templates.get(template) else {
                 cache.insert(template.clone(), 0.0);
                 continue;
             };
-            let weapon = ctx.world.content.weapons.get(&tpl.equipment.main_hand);
+            let weapon = ctx.content.weapons.get(&tpl.equipment.main_hand);
             let caster_ctx = CasterContext {
                 str_mod: modifier(tpl.stats.strength),
                 int_mod: modifier(tpl.stats.intelligence),
@@ -329,7 +329,7 @@ fn build_summon_dpr_cache(
                 weapon_dice: weapon.map(|wd| wd.dice.clone()),
             };
             let abilities = Abilities(tpl.ability_ids.clone());
-            let dpr = estimate_st_damage(&caster_ctx, &abilities, ctx.world.content);
+            let dpr = estimate_st_damage(&caster_ctx, &abilities, ctx.content);
             cache.insert(template.clone(), dpr);
         }
     }
@@ -387,7 +387,7 @@ pub fn compute_plan_factors_sans_intent(
     let path_danger_max =
         worst_path_danger(plan, maps).max(maps.danger.get(active.pos));
 
-    let base_discount = ctx.utility.world.difficulty.plan_step_discount;
+    let base_discount = ctx.world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;
 
     for (idx, step) in plan.steps.iter().enumerate() {
@@ -459,8 +459,8 @@ pub fn compute_plan_intent_sum(
     let active = ctx.active;
     let snap = ctx.snap;
     let maps = ctx.maps;
-    let utility = ctx.utility;
-    let base_discount = utility.world.difficulty.plan_step_discount;
+    let world = ctx.world;
+    let base_discount = world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;
     let mut intent_sum = 0.0f32;
     let mut goal_achieved = false;
@@ -479,8 +479,8 @@ pub fn compute_plan_intent_sum(
                 &sim_actor,
                 pre_snap,
                 maps,
-                utility.world.content,
-                utility.world.difficulty,
+                world.content,
+                world.difficulty,
             );
             intent_sum += iv * step_weight;
         }
@@ -546,7 +546,7 @@ mod tests {
         content: &'a crate::content::content_view::ContentView,
         difficulty: &'a DifficultyProfile,
         abilities: &'a Abilities,
-    ) -> UtilityContext<'a> {
+    ) -> AiWorld<'a> {
         crate::combat::ai::test_helpers::make_test_ctx(
             content, difficulty, &DEFAULT_CASTER, abilities,
         )

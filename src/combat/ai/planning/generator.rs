@@ -17,7 +17,7 @@ use crate::combat::ai::planning::sim::SimState;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::UtilityContext;
+use crate::combat::ai::utility::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, TargetType};
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
@@ -52,15 +52,15 @@ const MOVE_TILES_PRIORITY_ADJACENT: usize = 1;
 /// frontier. Phase 3 scores this pool uniformly.
 pub fn generate_plans(
     actor: Entity,
-    ctx: &UtilityContext,
+    ctx: &AiWorld,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
 ) -> Vec<TurnPlan> {
     let Some(actor_u) = snap.unit(actor) else {
         return Vec::new();
     };
-    let max_depth = ctx.world.difficulty.plan_max_depth.max(1);
-    let beam = ctx.world.difficulty.plan_beam_width.max(1);
+    let max_depth = ctx.difficulty.plan_max_depth.max(1);
+    let beam = ctx.difficulty.plan_beam_width.max(1);
 
     let seed = TurnPlan {
         steps: Vec::new(),
@@ -104,7 +104,7 @@ pub fn generate_plans(
                     snapshot: base_sim.snapshot.clone(),
                     actor,
                 };
-                let outcome = ext_sim.apply_step(&step, &caster_ctx, ctx.world.content);
+                let outcome = ext_sim.apply_step(&step, &caster_ctx, ctx.content);
 
                 let (final_pos, residual_ap, residual_mp) = match ext_sim.actor_unit() {
                     Some(u) => (u.pos, u.action_points, u.movement_points),
@@ -229,7 +229,7 @@ fn total_mp_cost(plan: &TurnPlan) -> i32 {
 ///    Player is free to do any of these; AI doesn't plan through them.
 fn enumerate_next_steps(
     sim: &SimState,
-    ctx: &UtilityContext,
+    ctx: &AiWorld,
     maps: &InfluenceMaps,
 ) -> Vec<PlanStep> {
     let Some(actor) = sim.actor_unit() else {
@@ -239,7 +239,7 @@ fn enumerate_next_steps(
 
     // Single ActionState adapter reused for every candidate this tick.
     let state = SnapshotActionState {
-        content: ctx.world.content,
+        content: ctx.content,
         snap: &sim.snapshot,
     };
     let actor_entity = actor.entity;
@@ -248,7 +248,7 @@ fn enumerate_next_steps(
     // from the snapshot — same source `check_legality::actor_knows_ability`
     // will consult, so no dual-list drift.
     for ability_id in &actor.abilities {
-        let Some(def) = ctx.world.content.abilities.get(ability_id) else { continue };
+        let Some(def) = ctx.content.abilities.get(ability_id) else { continue };
         let targets = rank_targets(def, actor, sim);
         for (target, target_pos) in targets {
             let proposal = ProposedAction {
@@ -309,7 +309,7 @@ fn ai_policy_ok(
     target: Entity,
     target_pos: Hex,
     sim: &SimState,
-    ctx: &UtilityContext,
+    ctx: &AiWorld,
 ) -> bool {
     // Overheal: SingleAlly on target above 90% HP.
     if matches!(def.target_type, TargetType::SingleAlly) {
@@ -321,7 +321,7 @@ fn ai_policy_ok(
     }
 
     // Wasted single-target CC on already-stunned target.
-    if applies_cc(def, ctx.world.content) && def.aoe == AoEShape::None {
+    if applies_cc(def, ctx.content) && def.aoe == AoEShape::None {
         if let Some(t) = sim.snapshot.unit(target) {
             if t.tags.contains(AiTags::IS_STUNNED) {
                 return false;

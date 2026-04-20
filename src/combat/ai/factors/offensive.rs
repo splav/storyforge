@@ -21,7 +21,7 @@ pub(super) fn compute_offensive(
     caster_tile: Hex,
     ctx: &ScoringCtx,
 ) -> OffensiveFactors {
-    let content = ctx.utility.world.content;
+    let content = ctx.world.content;
     let Some(def) = content.abilities.get(ability) else {
         return OffensiveFactors::default();
     };
@@ -36,7 +36,7 @@ pub(super) fn compute_offensive(
     // so downstream helpers stay ignorant of `ScoringCtx`.
     let caster = &active.caster_ctx;
     let crit_fail_effect = &active.crit_fail_effect;
-    let crit_fail_chance = ctx.utility.world.crit_fail_chance;
+    let crit_fail_chance = ctx.world.crit_fail_chance;
 
     let (damage, heal, kill, cc) = if def.aoe == AoEShape::None {
         let mut damage = 0.0f32;

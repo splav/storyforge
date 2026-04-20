@@ -25,7 +25,7 @@ pub(super) fn apply_reservation_adjustments(
 ) {
     let reservations = ctx.reservations;
     let snap = ctx.snap;
-    let difficulty = ctx.utility.world.difficulty;
+    let difficulty = ctx.world.difficulty;
     if let Some(target_ent) = step.target() {
         let reserved_dmg = reservations.reserved_damage(target_ent);
         if reserved_dmg > 0.0 {

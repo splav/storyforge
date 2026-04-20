@@ -8,50 +8,49 @@ use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::{AiRole, AxisProfile};
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::{ActorCtx, AiWorld, ScoringCtx, UtilityContext};
+use crate::combat::ai::utility::{AiWorld, ScoringCtx};
 use crate::content::abilities::CasterContext;
 use crate::content::content_view::ContentView;
-use crate::content::races::CritFailEffect;
 use crate::core::AbilityId;
-use crate::game::components::{Abilities, Team};
+use crate::game::components::Team;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 use std::collections::HashMap;
 
 // ── Utility context ────────────────────────────────────────────────────────
 
-/// Build a `UtilityContext` with the conventional test defaults
-/// (`crit_fail_effect: Miss`, `crit_fail_chance: 0.0`). Caller supplies the
-/// caster so per-suite str/int/spell-power tweaks stay explicit.
+/// Build an `AiWorld` with the conventional test defaults
+/// (`crit_fail_chance: 0.0`). Caller supplies content + difficulty.
+///
+/// Caster / abilities / crit_fail_effect that used to live on `ActorCtx`
+/// are now on `UnitSnapshot` — set them via `UnitBuilder` if the test
+/// cares (defaults are zero / Miss).
 pub(crate) fn make_test_ctx<'a>(
     content: &'a ContentView,
     difficulty: &'a DifficultyProfile,
-    caster: &'a CasterContext,
-    abilities: &'a Abilities,
-) -> UtilityContext<'a> {
-    UtilityContext {
-        world: AiWorld { content, difficulty, crit_fail_chance: 0.0 },
-        actor: ActorCtx {
-            caster,
-            abilities,
-            crit_fail_effect: CritFailEffect::Miss,
-            crit_fail_chance: 0.0,
-        },
-    }
+    _caster: &'a CasterContext,
+    _abilities: &'a crate::game::components::Abilities,
+) -> AiWorld<'a> {
+    // `_caster` / `_abilities` retained as parameters so existing test call
+    // sites keep compiling; the values are ignored (they belong on the
+    // actor's snapshot row now). Test fixtures should migrate to setting
+    // these via `UnitBuilder::ability_names` / `UnitBuilder::caster_ctx`
+    // (added on demand) when they actually depend on per-actor stats.
+    AiWorld { content, difficulty, crit_fail_chance: 0.0 }
 }
 
-/// Bundle the per-test (utility, snap, maps, reservations, active) refs into
+/// Bundle the per-test (world, snap, maps, reservations, active) refs into
 /// a `ScoringCtx`. Mirrors what `pick_action` builds in production. Callers
 /// own the `maps` / `reservations` so a single test can pre-seed specific
 /// tiles/reservations before handing them in.
 pub(crate) fn make_scoring_ctx<'a>(
-    utility: &'a UtilityContext<'a>,
+    world: &'a AiWorld<'a>,
     snap: &'a BattleSnapshot,
     maps: &'a InfluenceMaps,
     reservations: &'a Reservations,
     active: &'a UnitSnapshot,
 ) -> ScoringCtx<'a, 'a> {
-    ScoringCtx { utility, maps, reservations, snap, active }
+    ScoringCtx { world, maps, reservations, snap, active }
 }
 
 // ── Unit snapshot builder ──────────────────────────────────────────────────

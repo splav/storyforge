@@ -25,12 +25,9 @@ use storyforge::combat::ai::planning::{
 use storyforge::combat::ai::role::AxisProfile;
 use storyforge::combat::ai::snapshot::BattleSnapshot;
 use storyforge::combat::ai::reservations::Reservations;
-use storyforge::combat::ai::utility::{ActorCtx, AiWorld, ScoringCtx, UtilityContext};
-use storyforge::content::abilities::CasterContext;
+use storyforge::combat::ai::utility::{AiWorld, ScoringCtx};
 use storyforge::content::content_view::ContentView;
-use storyforge::content::races::CritFailEffect;
 use storyforge::core::DiceRng;
-use storyforge::game::components::Abilities;
 use storyforge::game::hex::Hex;
 
 /// Mirror of `log::AiLogEntry` with owned fields so we can deserialize.
@@ -163,25 +160,10 @@ fn main() {
 
         let maps = build_influence_maps(&entry.snapshot, actor, active.team, &inf_cfg);
 
-        let caster = CasterContext {
-            str_mod: 0,
-            int_mod: 0,
-            spell_power: 0,
-            weapon_dice: None,
-        };
-        let abilities = Abilities(active.abilities.clone());
-        let ctx = UtilityContext {
-            world: AiWorld {
-                content: &content,
-                difficulty: &difficulty,
-                crit_fail_chance: 0.0,
-            },
-            actor: ActorCtx {
-                caster: &caster,
-                abilities: &abilities,
-                crit_fail_effect: CritFailEffect::Miss,
-                crit_fail_chance: 0.0,
-            },
+        let world = AiWorld {
+            content: &content,
+            difficulty: &difficulty,
+            crit_fail_chance: 0.0,
         };
 
         // Reconstruct TurnPlan[] from log + raw factor matrix.
@@ -237,7 +219,7 @@ fn main() {
         // state from live play.
         let reservations = Reservations::default();
         let scoring_ctx = ScoringCtx {
-            utility: &ctx,
+            world: &world,
             maps: &maps,
             reservations: &reservations,
             snap: &entry.snapshot,
