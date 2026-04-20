@@ -2,6 +2,8 @@
 //!
 //! Layout:
 //! - `fallback` — moves used when no plan candidates survive beam search.
+//! - `ranking`  — `PlanRanking` state + phase methods (viability, sanity,
+//!   protect-self, pick) that `pick_action` walks in sequence.
 //!
 //! Plan generation, scoring, sanity adjustment and final pick live in
 //! `combat::ai::planning`. This module wires them together.
@@ -9,6 +11,7 @@
 #![allow(clippy::too_many_arguments)]
 
 mod fallback;
+mod ranking;
 
 pub use crate::combat::ai::planning::PickMechanics;
 
@@ -17,15 +20,12 @@ use crate::combat::ai::debug::{build_debug_snapshot, build_fallback_debug, AiDeb
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{
-    default_focus_target, intent_viability_threshold, select_intent, update_memory,
-    AiMemory, IntentReason, TacticalIntent,
+    select_intent, update_memory, AiMemory, IntentReason, TacticalIntent,
 };
 use crate::combat::ai::log::{self, AiLogger, IntentBlock};
 use crate::combat::ai::factors::PlanFactors;
 use crate::combat::ai::planning::{
-    apply_protect_self_mask, commit_plan, generate_plans, pick_best_plan,
-    record_committed_reservations, rescore_with_intent, sanity_adjust_plans,
-    score_plans_with_raw, TurnPlan,
+    commit_plan, generate_plans, record_committed_reservations, TurnPlan,
 };
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -33,6 +33,8 @@ use crate::core::{AbilityId, DiceRng};
 use crate::game::hex::Hex;
 use bevy::prelude::*;
 use std::collections::HashMap;
+
+use ranking::PlanRanking;
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -157,8 +159,6 @@ pub fn pick_action(
     // ── Select tactical intent ──────────────────────────────────────────
     let choice = select_intent(active, snap, maps, memory, world.difficulty);
     update_memory(memory, &choice.intent);
-    let mut intent = choice.intent;
-    let mut intent_reason = choice.reason;
 
     // ── Generate plans (beam search over depths) ───────────────────────
     let plans = generate_plans(actor, world, snap, maps);
@@ -167,7 +167,7 @@ pub fn pick_action(
         let decision = fallback::fallback_move(active, snap, maps);
         let ds = if debug {
             Some(build_fallback_debug(
-                active, actor_pos, &intent, &intent_reason, &decision,
+                active, actor_pos, &choice.intent, &choice.reason, &decision,
                 "no plans generated", snap, maps, debug_names,
             ))
         } else { None };
@@ -185,112 +185,19 @@ pub fn pick_action(
         active,
     };
 
-    // ── Score plans under the chosen intent ────────────────────────────
-    // Keep the raw-factor matrix for logging even after rescoring under a
-    // fallback intent below; it's cheap to recompute and represents what the
-    // winning decision was actually scored against.
-    let (mut scored, mut raw_factors) =
-        score_plans_with_raw(&plans, &intent, &scoring_ctx);
-
-    // ── Intent viability guard ─────────────────────────────────────────
-    // If no plan achieves the intent's signal, fall back. Two tiers:
-    //   - midpanic: HP below midpanic_hp_threshold AND standing in danger →
-    //     `ProtectSelf`. The actor can't execute the original intent *and*
-    //     is too exposed to blindly push toward a fallback focus target.
-    //   - default: reachable `FocusTarget` over a live enemy, same as before.
-    // Plan generation is intent-agnostic, so rescoring against the same pool
-    // is enough.
-    if let Some(threshold) = intent_viability_threshold(&intent) {
-        // Per-plan intent_sum produced by `compute_plan_intent_sum`; the max
-        // over plans answers "can any candidate plan realistically execute
-        // the chosen intent?"
-        let max_align = raw_factors
-            .iter()
-            .map(|f| f.intent)
-            .fold(f32::NEG_INFINITY, f32::max);
-        if max_align < threshold {
-            let hp_pct = active.hp_pct();
-            let actor_danger = maps.danger.get(active.pos);
-            let midpanic_hp = world.difficulty.midpanic_hp_threshold();
-            let panic_danger = world.difficulty.awareness_danger_threshold();
-            let midpanic = hp_pct < midpanic_hp && actor_danger > panic_danger;
-
-            let new_intent = if midpanic {
-                intent_reason = IntentReason::MidpanicFallback {
-                    hp_pct,
-                    midpanic_hp,
-                    danger: actor_danger,
-                    panic_danger,
-                    max_align,
-                    threshold,
-                };
-                Some(TacticalIntent::ProtectSelf)
-            } else {
-                let exclude = match &intent {
-                    TacticalIntent::FocusTarget { target } => Some(*target),
-                    _ => None,
-                };
-                let from_kind = intent.kind();
-                default_focus_target(active, snap, &plans, actor_pos, exclude).map(|t| {
-                    intent_reason = IntentReason::ViabilityFallback {
-                        from: from_kind,
-                        max_align,
-                        threshold,
-                    };
-                    TacticalIntent::FocusTarget { target: t }
-                })
-            };
-
-            if let Some(new) = new_intent {
-                if intent.kind() != new.kind() || intent.target() != new.target() {
-                    intent = new;
-                    // Reuse the non-intent factor columns; only the intent
-                    // column (factor[7]) depends on the chosen intent.
-                    scored = rescore_with_intent(
-                        &plans, &mut raw_factors, &intent, &scoring_ctx,
-                    );
-                }
-            }
-        }
+    // ── Phase pipeline ─────────────────────────────────────────────────
+    // `PlanRanking` owns (intent, reason, scored, raw_factors) and each
+    // phase method mutates them coherently. The pick_action body reads as
+    // a linear sequence of phases — behavior-sensitive logic lives in the
+    // methods and is unit-tested there.
+    let mut ranking = PlanRanking::initial(&plans, choice.intent, choice.reason, &scoring_ctx);
+    ranking.apply_viability(&plans, actor_pos, &scoring_ctx);
+    ranking.apply_sanity(&plans, &scoring_ctx);
+    if matches!(ranking.intent, TacticalIntent::ProtectSelf) {
+        ranking.apply_protect_self(&plans, &scoring_ctx);
     }
 
-    // Sanity adjust: multiplicative penalties for situations the 9-factor
-    // score can't catch (low-HP through AoO corridors, self-AoE, LOS
-    // blindspots, retreat traps). Runs on all plans so low-ranked terrible
-    // ones can't sneak up via noise.
-    sanity_adjust_plans(&mut scored, &plans, &scoring_ctx);
-
-    // ProtectSelf mask: when intent is (or fell to) ProtectSelf, mask any
-    // plan whose first step isn't defensive to -∞. This is where the intent
-    // gets real teeth — without it, "I want to protect myself" is just a
-    // +1.0 intent factor on a few candidates, easily out-scored by high-
-    // damage offensive plans. If no plan is defensive (surrounded, no safe
-    // move), LastStand rescoring takes over so the actor at least lands a
-    // final useful hit.
-    if matches!(intent, TacticalIntent::ProtectSelf) {
-        let margin = world.difficulty.defensive_tile_margin();
-        let any_defensive = apply_protect_self_mask(
-            &mut scored, &plans, active, world.content, maps, margin,
-        );
-        if !any_defensive {
-            let last_stand = TacticalIntent::LastStand;
-            // Same reuse as the viability fallback: intent-independent
-            // factors stay; only factor[7] refreshes under LastStand.
-            scored = rescore_with_intent(
-                &plans, &mut raw_factors, &last_stand, &scoring_ctx,
-            );
-            intent_reason = IntentReason::LastStandAfter {
-                prior: Box::new(intent_reason),
-            };
-        }
-    }
-
-    // Pick best plan via mercy + top-K window (same math as single-candidate
-    // pick). `raw_factors` is threaded in so mercy_cruelty reads the
-    // precomputed kill/cc columns instead of recomputing plan factors per
-    // window slot. `PickMechanics` is ~24B of stack for ≤3 pool entries —
-    // cheap enough to always collect; debug overlay reads it, prod ignores.
-    let (best_idx, mech) = pick_best_plan(&scored, &raw_factors, world, rng);
+    let (best_idx, mech) = ranking.pick(world, rng);
     let pick_mech = debug.then_some(mech);
 
     let best_plan = &plans[best_idx];
@@ -300,8 +207,9 @@ pub fn pick_action(
     // representing the committed first-tick action.
     let debug_snapshot = if debug {
         Some(build_debug_snapshot(
-            active, actor_pos, &intent, &intent_reason, &plans, &scored,
-            &raw_factors, &decision, snap, maps, debug_names, pick_mech.as_ref(),
+            active, actor_pos, &ranking.intent, &ranking.intent_reason, &plans,
+            &ranking.scored, &ranking.raw_factors, &decision, snap, maps,
+            debug_names, pick_mech.as_ref(),
         ))
     } else {
         None
@@ -317,9 +225,9 @@ pub fn pick_action(
     if log_on {
         let decision_time_ms = t0.map_or(0, |t| t.elapsed().as_millis() as u64);
         write_decision_log(
-            logger, decision_time_ms, actor, active, snap, &intent,
-            &intent_reason, &plans, &scored, &raw_factors, best_idx,
-            &decision, debug_names,
+            logger, decision_time_ms, actor, active, snap, &ranking.intent,
+            &ranking.intent_reason, &plans, &ranking.scored, &ranking.raw_factors,
+            best_idx, &decision, debug_names,
         );
     }
 
