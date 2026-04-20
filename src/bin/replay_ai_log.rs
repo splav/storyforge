@@ -141,7 +141,9 @@ fn main() {
         // - v1 → v2: `reactions_left` (1) + `aoo_expected_damage` (None)
         // - v2 → v3: `caster_ctx` (zeros) + `crit_fail_effect` (Miss)
         // - v3 → v4: `damage_horizon` (empty) — CC/heal fall back to threat
-        if entry.schema_version < 1 || entry.schema_version > 4 {
+        // - v4 → v5: `intent.reason` — structured reason payload; replay does
+        //   not read it (classification still uses `selection_kind`).
+        if entry.schema_version < 1 || entry.schema_version > 5 {
             eprintln!("unsupported schema_version {}, skipping", entry.schema_version);
             continue;
         }

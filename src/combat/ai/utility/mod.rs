@@ -18,13 +18,14 @@ use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{
     default_focus_target, intent_viability_threshold, select_intent, update_memory,
-    AiMemory, TacticalIntent,
+    AiMemory, IntentReason, TacticalIntent,
 };
 use crate::combat::ai::log::{self, AiLogger, IntentBlock};
+use crate::combat::ai::factors::PlanFactors;
 use crate::combat::ai::planning::{
     apply_protect_self_mask, commit_plan, generate_plans, pick_best_plan,
     record_committed_reservations, rescore_with_intent, sanity_adjust_plans,
-    score_plans_with_raw,
+    score_plans_with_raw, TurnPlan,
 };
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -215,24 +216,27 @@ pub fn pick_action(
             let midpanic = hp_pct < midpanic_hp && actor_danger > panic_danger;
 
             let new_intent = if midpanic {
-                intent_reason = format!(
-                    "midpanic_fallback: hp%={:.0}%<{:.0}% AND danger={:.2}>{:.2} (max_align={:.2}<{:.2})",
-                    hp_pct * 100.0, midpanic_hp * 100.0,
-                    actor_danger, panic_danger,
-                    max_align, threshold,
-                );
+                intent_reason = IntentReason::MidpanicFallback {
+                    hp_pct,
+                    midpanic_hp,
+                    danger: actor_danger,
+                    panic_danger,
+                    max_align,
+                    threshold,
+                };
                 Some(TacticalIntent::ProtectSelf)
             } else {
                 let exclude = match &intent {
                     TacticalIntent::FocusTarget { target } => Some(*target),
                     _ => None,
                 };
+                let from_kind = intent.kind();
                 default_focus_target(active, snap, &plans, actor_pos, exclude).map(|t| {
-                    let original_label = format!("{:?}", intent.kind());
-                    intent_reason = format!(
-                        "fallback from {}: max_align={:.2}<threshold={:.2}",
-                        original_label, max_align, threshold,
-                    );
+                    intent_reason = IntentReason::ViabilityFallback {
+                        from: from_kind,
+                        max_align,
+                        threshold,
+                    };
                     TacticalIntent::FocusTarget { target: t }
                 })
             };
@@ -275,7 +279,9 @@ pub fn pick_action(
             scored = rescore_with_intent(
                 &plans, &mut raw_factors, &last_stand, &scoring_ctx,
             );
-            intent_reason = format!("{intent_reason} → LastStand (no defensive plan)");
+            intent_reason = IntentReason::LastStandAfter {
+                prior: Box::new(intent_reason),
+            };
         }
     }
 
@@ -308,48 +314,74 @@ pub fn pick_action(
         best_plan, consumed, active, world, snap, reservations, actor_pos,
     );
 
-    // ── AI log: write structured entry for offline analysis ────────────
     if log_on {
         let decision_time_ms = t0.map_or(0, |t| t.elapsed().as_millis() as u64);
-        let plan_id = logger.next_plan_id();
-
-        // Rank plans by final score, keep top-10 for size budget.
-        let mut indexed: Vec<(usize, f32)> =
-            scored.iter().copied().enumerate().collect();
-        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        let shown = indexed.len().min(10);
-        let plan_entries: Vec<_> = indexed
-            .iter()
-            .take(shown)
-            .enumerate()
-            .map(|(rank, &(idx, score))| {
-                log::plan_to_log_entry(
-                    &plans[idx],
-                    rank + 1,
-                    idx == best_idx,
-                    raw_factors[idx].as_array(),
-                    score,
-                )
-            })
-            .collect();
-
-        let actor_name = debug_names
-            .get(&actor)
-            .map(|s| s.as_str())
-            .unwrap_or("<unknown>");
-        let intent_block = IntentBlock {
-            intent: &intent,
-            selection_kind: log::classify_selection(&intent_reason),
-            reason_text: &intent_reason,
-        };
-        let entry = log::build_entry(
-            plan_id, decision_time_ms, active, actor_name, snap, intent_block,
-            plans.len(), shown, plan_entries, &decision,
+        write_decision_log(
+            logger, decision_time_ms, actor, active, snap, &intent,
+            &intent_reason, &plans, &scored, &raw_factors, best_idx,
+            &decision, debug_names,
         );
-        if let Err(e) = logger.write_entry(&entry) {
-            warn!("AI log write failed: {}", e);
-        }
     }
 
     (decision, debug_snapshot)
+}
+
+/// Write one JSONL entry for the decision that `pick_action` just produced.
+/// Kept out of `pick_action` so the hot path stays focused on decisioning;
+/// the top-K sort and string formatting only run when logging is enabled.
+fn write_decision_log(
+    logger: &mut AiLogger,
+    decision_time_ms: u64,
+    actor: Entity,
+    active: &UnitSnapshot,
+    snap: &BattleSnapshot,
+    intent: &TacticalIntent,
+    intent_reason: &IntentReason,
+    plans: &[TurnPlan],
+    scored: &[f32],
+    raw_factors: &[PlanFactors],
+    best_idx: usize,
+    decision: &AiDecision,
+    debug_names: &HashMap<Entity, String>,
+) {
+    let plan_id = logger.next_plan_id();
+
+    // Rank plans by final score, keep top-10 for size budget.
+    let mut indexed: Vec<(usize, f32)> =
+        scored.iter().copied().enumerate().collect();
+    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let shown = indexed.len().min(10);
+    let plan_entries: Vec<_> = indexed
+        .iter()
+        .take(shown)
+        .enumerate()
+        .map(|(rank, &(idx, score))| {
+            log::plan_to_log_entry(
+                &plans[idx],
+                rank + 1,
+                idx == best_idx,
+                raw_factors[idx].as_array(),
+                score,
+            )
+        })
+        .collect();
+
+    let actor_name = debug_names
+        .get(&actor)
+        .map(|s| s.as_str())
+        .unwrap_or("<unknown>");
+    let reason_text = intent_reason.to_string();
+    let intent_block = IntentBlock {
+        intent,
+        selection_kind: intent_reason.code(),
+        reason_text: &reason_text,
+        reason: intent_reason,
+    };
+    let entry = log::build_entry(
+        plan_id, decision_time_ms, active, actor_name, snap, intent_block,
+        plans.len(), shown, plan_entries, decision,
+    );
+    if let Err(e) = logger.write_entry(&entry) {
+        warn!("AI log write failed: {}", e);
+    }
 }

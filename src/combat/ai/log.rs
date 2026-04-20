@@ -34,7 +34,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::prelude::*;
 use serde::Serialize;
 
-use crate::combat::ai::intent::TacticalIntent;
+use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::planning::{PlanStep, StepOutcome, TurnPlan};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::AiDecision;
@@ -45,7 +45,11 @@ use crate::game::hex::Hex;
 ///   v1 logs are still readable via `#[serde(default)]` on the new fields
 ///   (defaults: `reactions_left=1` — matches the only content-wide `Reactions::max`;
 ///   `aoo_expected_damage=None` — no damage info available).
-pub const SCHEMA_VERSION: u32 = 4;
+/// - v4 → v5: added `intent.reason` — structured `IntentReason` enum dump
+///   alongside `selection_kind` + `reason_text`. Lets analyzers read numeric
+///   fields (hp_pct, danger, eff_hp, …) directly instead of re-parsing
+///   `reason_text`. v4 logs stay readable — the field is optional on read.
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -126,6 +130,10 @@ pub struct IntentBlock<'a> {
     pub intent: &'a TacticalIntent,
     pub selection_kind: &'static str,
     pub reason_text: &'a str,
+    /// Structured reason payload. `kind` field matches `selection_kind`; the
+    /// remaining fields carry the numeric context (hp_pct, danger, eff_hp, …)
+    /// that was previously only available as formatted text in `reason_text`.
+    pub reason: &'a IntentReason,
 }
 
 #[derive(Serialize)]
@@ -255,44 +263,6 @@ pub fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-/// Map an intent selection `reason` freetext prefix to a stable queryable
-/// code. Prefixes are coupled to the literal strings produced inside
-/// `select_intent` and the viability-guard in `utility::mod::pick_action`;
-/// a prefix drift there requires updating this table.
-///
-/// Returns `"unclassified"` as a forward-compat fallback — analyzers can flag
-/// these and prompt a classifier update.
-pub fn classify_selection(reason: &str) -> &'static str {
-    if reason.starts_with("panic:") {
-        "panic_override"
-    } else if reason.starts_with("hp%=") {
-        // "hp%=X%<40% × danger=..." — non-panic urgency ProtectSelf branch.
-        "urgency"
-    } else if reason.starts_with("ally hp%=") {
-        "protect_ally"
-    } else if reason.starts_with("forced by taunt") {
-        "taunt_forced"
-    } else if reason.starts_with("CC the taunter") {
-        "taunt_cc"
-    } else if reason.starts_with("killable:") {
-        "killable"
-    } else if reason.starts_with("highest priority=") {
-        "best_priority"
-    } else if reason.starts_with("CC high-threat") || reason.starts_with("stun ") {
-        "apply_cc"
-    } else if reason.starts_with("AoE cluster") || reason.starts_with("cluster") {
-        "setup_aoe"
-    } else if reason.starts_with("reposition") || reason.starts_with("pos_eval") {
-        "reposition"
-    } else if reason.starts_with("fallback from") {
-        "viability_fallback"
-    } else if reason.starts_with("no rule matched") {
-        "no_rule_default"
-    } else {
-        "unclassified"
-    }
-}
-
 /// Build a `PlanLogEntry` from a plan + its raw factors and final score.
 /// `chosen_idx` is compared against the plan's own index to set `chosen`.
 pub fn plan_to_log_entry<'a>(
@@ -401,24 +371,6 @@ pub fn build_entry<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn classify_known_prefixes() {
-        assert_eq!(classify_selection("panic: hp%=15%<20% AND danger=0.8>0.6"), "panic_override");
-        assert_eq!(classify_selection("hp%=30%<40% × danger=0.50"), "urgency");
-        assert_eq!(classify_selection("ally hp%=40%<50% (healer support=0.10)"), "protect_ally");
-        assert_eq!(classify_selection("forced by taunt (FORCES_TARGETING)"), "taunt_forced");
-        assert_eq!(classify_selection("CC the taunter (threat=7.0)"), "taunt_cc");
-        assert_eq!(classify_selection("killable: threat=4.9>=eff_hp=4, reach_budget=3"), "killable");
-        assert_eq!(classify_selection("highest priority=0.62"), "best_priority");
-        assert_eq!(classify_selection("fallback from ApplyCC: max_align=0.20<threshold=0.50"), "viability_fallback");
-        assert_eq!(classify_selection("no rule matched — default reposition"), "no_rule_default");
-    }
-
-    #[test]
-    fn classify_unknown_prefix_returns_unclassified() {
-        assert_eq!(classify_selection("some new rule fired"), "unclassified");
-    }
 
     #[test]
     fn decision_block_round_trips_via_json() {

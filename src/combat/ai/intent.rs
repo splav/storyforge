@@ -11,6 +11,7 @@ use crate::combat::ai::planning::types::TurnPlan;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::game::hex::Hex;
 use bevy::prelude::*;
+use std::fmt;
 
 /// Penalty values for soft intent misalignment.
 const MISALIGN_PENALTY: f32 = -0.5;
@@ -96,16 +97,129 @@ pub struct AiMemory {
     pub turns_committed: u8,
 }
 
+// ── Intent selection reason ────────────────────────────────────────────────
+
+/// Structured explanation for why a given intent was picked.
+///
+/// Emitted at the decision site — producer fills the variant's fields directly
+/// so the log/overlay never re-parse a freetext string. Each variant maps to a
+/// stable `code()` for the JSONL analyzer and a `Display` impl for human text.
+///
+/// Add a new rule by adding a variant here and emitting it at the rule site.
+/// Classification (`selection_kind` in the log) is compiler-checked via
+/// `code()` — there is no string-prefix table to keep in sync.
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum IntentReason {
+    PanicOverride { hp_pct: f32, hp_threshold: f32, danger: f32, danger_threshold: f32 },
+    Urgency { hp_pct: f32, danger: f32 },
+    ProtectAlly { ally_hp_pct: f32, threshold: f32, heal_identity: f32 },
+    TauntForced,
+    TauntCc { dpr: f32 },
+    Killable { threat: f32, eff_hp: i32, reach_budget: u32 },
+    BestPriority { priority: f32 },
+    ApplyCc { dpr: f32 },
+    SetupAoe { clustered_pairs: usize },
+    Reposition { pos_eval: f32, threshold: f32 },
+    NoRuleDefault,
+    MidpanicFallback {
+        hp_pct: f32,
+        midpanic_hp: f32,
+        danger: f32,
+        panic_danger: f32,
+        max_align: f32,
+        threshold: f32,
+    },
+    ViabilityFallback {
+        from: IntentKind,
+        max_align: f32,
+        threshold: f32,
+    },
+    /// ProtectSelf mask found no defensive plan and rescored under LastStand.
+    /// Boxed so the enum stays small; `prior` is always a non-LastStand
+    /// reason (see `pick_action`).
+    LastStandAfter { prior: Box<IntentReason> },
+}
+
+impl IntentReason {
+    /// Stable snake_case code for analyzers. The JSONL log stores this as
+    /// `selection_kind`. Must stay backward-compatible — rename requires
+    /// bumping `log::SCHEMA_VERSION`.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::PanicOverride { .. } => "panic_override",
+            Self::Urgency { .. } => "urgency",
+            Self::ProtectAlly { .. } => "protect_ally",
+            Self::TauntForced => "taunt_forced",
+            Self::TauntCc { .. } => "taunt_cc",
+            Self::Killable { .. } => "killable",
+            Self::BestPriority { .. } => "best_priority",
+            Self::ApplyCc { .. } => "apply_cc",
+            Self::SetupAoe { .. } => "setup_aoe",
+            Self::Reposition { .. } => "reposition",
+            Self::NoRuleDefault => "no_rule_default",
+            Self::MidpanicFallback { .. } => "midpanic_fallback",
+            Self::ViabilityFallback { .. } => "viability_fallback",
+            Self::LastStandAfter { .. } => "last_stand_after",
+        }
+    }
+}
+
+impl fmt::Display for IntentReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PanicOverride { hp_pct, hp_threshold, danger, danger_threshold } => write!(
+                f, "panic: hp%={:.0}%<{:.0}% AND danger={:.2}>{:.2}",
+                hp_pct * 100.0, hp_threshold * 100.0, danger, danger_threshold,
+            ),
+            Self::Urgency { hp_pct, danger } => write!(
+                f, "hp%={:.0}%<40% × danger={:.2}", hp_pct * 100.0, danger,
+            ),
+            Self::ProtectAlly { ally_hp_pct, threshold, heal_identity } => write!(
+                f, "ally hp%={:.0}%<{:.0}% (healer support={:.2})",
+                ally_hp_pct * 100.0, threshold * 100.0, heal_identity,
+            ),
+            Self::TauntForced => write!(f, "forced by taunt (FORCES_TARGETING)"),
+            Self::TauntCc { dpr } => write!(f, "CC the taunter (dpr={:.1})", dpr),
+            Self::Killable { threat, eff_hp, reach_budget } => write!(
+                f, "killable: threat={:.1}>=eff_hp={}, reach_budget={}",
+                threat, eff_hp, reach_budget,
+            ),
+            Self::BestPriority { priority } => write!(f, "highest priority={:.2}", priority),
+            Self::ApplyCc { dpr } => write!(f, "unstunned enemy dpr={:.1}", dpr),
+            Self::SetupAoe { clustered_pairs } => write!(
+                f, "{} clustered enemy pair(s) within dist≤2", clustered_pairs,
+            ),
+            Self::Reposition { pos_eval, threshold } => write!(
+                f, "pos_eval={:.2} < awareness_threshold={:.2}", pos_eval, threshold,
+            ),
+            Self::NoRuleDefault => write!(f, "no rule matched — default reposition"),
+            Self::MidpanicFallback {
+                hp_pct, midpanic_hp, danger, panic_danger, max_align, threshold,
+            } => write!(
+                f,
+                "midpanic_fallback: hp%={:.0}%<{:.0}% AND danger={:.2}>{:.2} (max_align={:.2}<{:.2})",
+                hp_pct * 100.0, midpanic_hp * 100.0, danger, panic_danger, max_align, threshold,
+            ),
+            Self::ViabilityFallback { from, max_align, threshold } => write!(
+                f, "fallback from {:?}: max_align={:.2}<threshold={:.2}",
+                from, max_align, threshold,
+            ),
+            Self::LastStandAfter { prior } => write!(
+                f, "{} → LastStand (no defensive plan)", prior,
+            ),
+        }
+    }
+}
+
 // ── Intent selection (scored + hysteresis) ──────────────────────────────────
 
 /// Result of intent selection. `reason` captures the actual numbers that made
-/// this rule fire (thresholds from difficulty, current hp/danger values, etc.)
-/// — built inline at decision time so a future threshold tweak in `difficulty.rs`
-/// can't desync from the logged explanation. Don't reconstruct the reason
-/// elsewhere; add new rules with their reason in the same place the rule fires.
+/// this rule fire — built inline at decision time so a future threshold tweak
+/// in `difficulty.rs` can't desync from the logged explanation.
 pub struct IntentChoice {
     pub intent: TacticalIntent,
-    pub reason: String,
+    pub reason: IntentReason,
 }
 
 /// Analyze the battlefield, score all valid intents, and pick the best.
@@ -120,7 +234,7 @@ pub fn select_intent(
     let mut best_score = f32::NEG_INFINITY;
     let mut best: Option<IntentChoice> = None;
 
-    let mut consider = |intent: TacticalIntent, score: f32, reason: String| {
+    let mut consider = |intent: TacticalIntent, score: f32, reason: IntentReason| {
         let mut s = score;
         // Stickiness: bonus for continuing the same intent.
         if memory.turns_committed < MAX_COMMITTED_TURNS
@@ -150,10 +264,12 @@ pub fn select_intent(
     if hp_pct < hp_panic && danger > danger_panic {
         return IntentChoice {
             intent: TacticalIntent::ProtectSelf,
-            reason: format!(
-                "panic: hp%={:.0}%<{:.0}% AND danger={:.2}>{:.2}",
-                hp_pct * 100.0, hp_panic * 100.0, danger, danger_panic,
-            ),
+            reason: IntentReason::PanicOverride {
+                hp_pct,
+                hp_threshold: hp_panic,
+                danger,
+                danger_threshold: danger_panic,
+            },
         };
     }
 
@@ -164,7 +280,7 @@ pub fn select_intent(
         consider(
             TacticalIntent::ProtectSelf,
             urgency,
-            format!("hp%={:.0}%<40% × danger={:.2}", hp_pct * 100.0, danger),
+            IntentReason::Urgency { hp_pct, danger },
         );
     }
 
@@ -187,10 +303,11 @@ pub fn select_intent(
             consider(
                 TacticalIntent::ProtectAlly { ally: ally.entity },
                 urgency,
-                format!(
-                    "ally hp%={:.0}%<{:.0}% (healer support={:.2})",
-                    ally_pct * 100.0, threshold * 100.0, heal_identity,
-                ),
+                IntentReason::ProtectAlly {
+                    ally_hp_pct: ally_pct,
+                    threshold,
+                    heal_identity,
+                },
             );
         }
     }
@@ -208,7 +325,7 @@ pub fn select_intent(
         consider(
             TacticalIntent::FocusTarget { target: t.entity },
             1.2,
-            "forced by taunt (FORCES_TARGETING)".to_string(),
+            IntentReason::TauntForced,
         );
         if active.tags.contains(AiTags::CAN_CC) && !t.tags.contains(AiTags::IS_STUNNED) {
             // Intent score uses horizon-average (DPR) rather than peak
@@ -219,7 +336,7 @@ pub fn select_intent(
             consider(
                 TacticalIntent::ApplyCC { target: t.entity },
                 0.8 + dpr * 0.1,
-                format!("CC the taunter (dpr={:.1})", dpr),
+                IntentReason::TauntCc { dpr },
             );
         }
     } else {
@@ -237,17 +354,18 @@ pub fn select_intent(
             consider(
                 TacticalIntent::FocusTarget { target: target.entity },
                 kill_score,
-                format!(
-                    "killable: threat={:.1}>=eff_hp={}, reach_budget={}",
-                    active.threat, target.eff_hp(), reach_budget,
-                ),
+                IntentReason::Killable {
+                    threat: active.threat,
+                    eff_hp: target.eff_hp(),
+                    reach_budget,
+                },
             );
         } else if let Some(target) = highest_priority_enemy(active, snap) {
             let prio = target_priority(active, target, snap);
             consider(
                 TacticalIntent::FocusTarget { target: target.entity },
                 0.5 + prio * 0.3,
-                format!("highest priority={:.2}", prio),
+                IntentReason::BestPriority { priority: prio },
             );
         }
 
@@ -271,7 +389,7 @@ pub fn select_intent(
                 consider(
                     TacticalIntent::ApplyCC { target: target.entity },
                     cc_score,
-                    format!("unstunned enemy dpr={:.1}", dpr),
+                    IntentReason::ApplyCc { dpr },
                 );
             }
         }
@@ -290,7 +408,7 @@ pub fn select_intent(
             consider(
                 TacticalIntent::SetupAOE,
                 aoe_score,
-                format!("{} clustered enemy pair(s) within dist≤2", cluster_count),
+                IntentReason::SetupAoe { clustered_pairs: cluster_count },
             );
         }
     }
@@ -304,13 +422,13 @@ pub fn select_intent(
         consider(
             TacticalIntent::Reposition,
             repo_score,
-            format!("pos_eval={:.2} < awareness_threshold={:.2}", pos_eval, repo_threshold),
+            IntentReason::Reposition { pos_eval, threshold: repo_threshold },
         );
     }
 
     best.unwrap_or(IntentChoice {
         intent: TacticalIntent::Reposition,
-        reason: "no rule matched — default reposition".to_string(),
+        reason: IntentReason::NoRuleDefault,
     })
 }
 

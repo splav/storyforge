@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
-use crate::combat::ai::intent::TacticalIntent;
+use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
@@ -463,7 +463,7 @@ pub fn build_debug_snapshot(
     active: &UnitSnapshot,
     actor_pos: Hex,
     intent: &TacticalIntent,
-    intent_reason: &str,
+    intent_reason: &IntentReason,
     plans: &[TurnPlan],
     scores: &[f32],
     raw_factors: &[PlanFactors],
@@ -551,7 +551,7 @@ pub fn build_fallback_debug(
     active: &UnitSnapshot,
     actor_pos: Hex,
     intent: &TacticalIntent,
-    intent_reason: &str,
+    intent_reason: &IntentReason,
     decision: &AiDecision,
     reason: &str,
     snap: &BattleSnapshot,
