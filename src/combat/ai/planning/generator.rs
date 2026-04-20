@@ -884,83 +884,125 @@ mod tests {
     }
 
 
-    // Rule 1: Taunt (FORCES_TARGETING)
+    // Rule 1: Taunt (FORCES_TARGETING).
+    //
+    // All four unit-level `is_valid_cast` scenarios — taunter-as-target
+    // allowed, non-taunter rejected, heal-on-ally unrestricted, unreachable
+    // taunter still forces rejection — share identical setup differing
+    // only in (def, target, taunter_ent, expected). Table-driven.
 
     #[test]
-    fn taunt_rejects_single_enemy_on_non_taunter() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
-        let mut taunter = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
-        taunter.tags |= Tags::FORCES_TARGETING;
-        let other = unit(3, Team::Player, hex_from_offset(0, 1), 20, 1);
+    fn taunt_is_valid_cast_matrix() {
+        enum Ab { Strike, StrikeMelee, Heal }
 
-        let def = strike_def("strike", 5, 1);
-        let mut content = empty_content();
-        content.abilities.insert(def.id.clone(), def.clone());
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+        struct Row {
+            name: &'static str,
+            ab: Ab,
+            /// Picks the target unit from the fixture roster.
+            target: fn(&Fixture) -> &UnitSnapshot,
+            /// When true the taunter's entity is passed as `taunter_ent`;
+            /// when false `None` (no-taunter branch).
+            taunter_active: bool,
+            expect_valid: bool,
+        }
 
-        let snap = BattleSnapshot::new(vec![actor.clone(), taunter.clone(), other.clone()], 1);
-        let sim = SimState::from_snapshot(&snap, actor.entity);
+        struct Fixture {
+            actor: UnitSnapshot,
+            taunter: UnitSnapshot,
+            other_enemy: UnitSnapshot,
+            /// Far-away taunter — tests the "unreachable taunter still
+            /// blocks non-taunter casts" edge.
+            taunter_far: UnitSnapshot,
+            ally: UnitSnapshot,
+        }
 
-        let taunter_ent = Some(taunter.entity);
-        assert!(
-            is_valid_cast(&def, &actor, taunter.entity, taunter.pos, &sim, &ctx, taunter_ent),
-            "cast on taunter should be allowed",
-        );
-        assert!(
-            !is_valid_cast(&def, &actor, other.entity, other.pos, &sim, &ctx, taunter_ent),
-            "cast on non-taunter must be rejected under taunt",
-        );
-    }
+        fn mk_fixture() -> Fixture {
+            let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
+            let mut taunter = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
+            taunter.tags |= Tags::FORCES_TARGETING;
+            let other_enemy = unit(3, Team::Player, hex_from_offset(0, 1), 20, 1);
+            let mut taunter_far = unit(4, Team::Player, hex_from_offset(10, 0), 20, 1);
+            taunter_far.tags |= Tags::FORCES_TARGETING;
+            let mut ally = unit(5, Team::Enemy, hex_from_offset(0, 2), 10, 1);
+            ally.max_hp = 20;
+            ally.hp = 10; // hp_pct < 0.9 so overheal doesn't mask heal-under-taunt
+            Fixture { actor, taunter, other_enemy, taunter_far, ally }
+        }
 
-    #[test]
-    fn taunt_does_not_restrict_single_ally_or_myself() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 10, 1);
-        let mut taunter = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
-        taunter.tags |= Tags::FORCES_TARGETING;
-        let mut ally = unit(3, Team::Enemy, hex_from_offset(0, 1), 10, 1);
-        ally.max_hp = 20; // ensure hp_pct() < 0.9 so overheal doesn't mask the test
-        ally.hp = 10;
-
+        let strike = strike_def("strike", 5, 1);
+        let strike_melee = strike_def("melee_attack", 1, 1);
         let heal = heal_def("heal", 3);
+
+        let rows: Vec<Row> = vec![
+            Row {
+                name: "ranged strike on the taunter is allowed",
+                ab: Ab::Strike, target: |f| &f.taunter,
+                taunter_active: true, expect_valid: true,
+            },
+            Row {
+                name: "ranged strike on non-taunter is rejected under taunt",
+                ab: Ab::Strike, target: |f| &f.other_enemy,
+                taunter_active: true, expect_valid: false,
+            },
+            Row {
+                name: "heal on wounded ally stays valid under taunt",
+                ab: Ab::Heal, target: |f| &f.ally,
+                taunter_active: true, expect_valid: true,
+            },
+            Row {
+                name: "no taunter → strike any enemy",
+                ab: Ab::Strike, target: |f| &f.other_enemy,
+                taunter_active: false, expect_valid: true,
+            },
+            Row {
+                name: "melee-only actor cannot attack adjacent non-taunter when taunter unreachable",
+                ab: Ab::StrikeMelee, target: |f| &f.other_enemy,
+                taunter_active: true, expect_valid: false,
+            },
+        ];
+
         let mut content = empty_content();
-        content.abilities.insert(heal.id.clone(), heal.clone());
+        for def in [&strike, &strike_melee, &heal] {
+            content.abilities.insert(def.id.clone(), def.clone());
+        }
         let difficulty = DifficultyProfile::normal();
         let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![heal.id.clone()]);
+        let abilities = Abilities(vec![strike.id.clone(), strike_melee.id.clone(), heal.id.clone()]);
         let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
 
-        let taunter_ent = Some(taunter.entity);
-        let snap = BattleSnapshot::new(vec![actor.clone(), taunter, ally.clone()], 1);
-        let sim = SimState::from_snapshot(&snap, actor.entity);
-
-        assert!(
-            is_valid_cast(&heal, &actor, ally.entity, ally.pos, &sim, &ctx, taunter_ent),
-            "heal on wounded ally must remain valid under taunt",
-        );
-    }
-
-    #[test]
-    fn no_taunter_no_restriction() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
-        let a = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
-        let b = unit(3, Team::Player, hex_from_offset(0, 1), 20, 1);
-
-        let def = strike_def("strike", 5, 1);
-        let mut content = empty_content();
-        content.abilities.insert(def.id.clone(), def.clone());
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
-
-        let snap = BattleSnapshot::new(vec![actor.clone(), a.clone(), b.clone()], 1);
-        let sim = SimState::from_snapshot(&snap, actor.entity);
-
-        assert!(is_valid_cast(&def, &actor, a.entity, a.pos, &sim, &ctx, None));
-        assert!(is_valid_cast(&def, &actor, b.entity, b.pos, &sim, &ctx, None));
+        for row in &rows {
+            let fx = mk_fixture();
+            // The last row uses `taunter_far` as the authoritative taunter
+            // — pick it up via the `StrikeMelee` branch.
+            let taunter_src = if matches!(row.ab, Ab::StrikeMelee) {
+                &fx.taunter_far
+            } else {
+                &fx.taunter
+            };
+            let snap = BattleSnapshot::new(
+                vec![
+                    fx.actor.clone(),
+                    taunter_src.clone(),
+                    fx.other_enemy.clone(),
+                    fx.ally.clone(),
+                ],
+                1,
+            );
+            let sim = SimState::from_snapshot(&snap, fx.actor.entity);
+            let def: &AbilityDef = match row.ab {
+                Ab::Strike => &strike,
+                Ab::StrikeMelee => &strike_melee,
+                Ab::Heal => &heal,
+            };
+            let target = (row.target)(&fx);
+            let taunter_ent = row.taunter_active.then_some(taunter_src.entity);
+            let valid = is_valid_cast(def, &fx.actor, target.entity, target.pos, &sim, &ctx, taunter_ent);
+            assert_eq!(
+                valid, row.expect_valid,
+                "[{}] expected is_valid_cast={}, got {}",
+                row.name, row.expect_valid, valid,
+            );
+        }
     }
 
     // Rule 2: Overheal
@@ -1150,34 +1192,4 @@ mod tests {
         }
     }
 
-    // Edge case: taunted melee-only actor with out-of-reach taunter.
-
-    #[test]
-    fn taunted_actor_cannot_attack_non_taunter_even_if_taunter_unreachable() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
-        // Taunter is 10 hexes away — melee (range=1) cannot reach.
-        let mut taunter = unit(2, Team::Player, hex_from_offset(10, 0), 20, 1);
-        taunter.tags |= Tags::FORCES_TARGETING;
-        let nearby = unit(3, Team::Player, hex_from_offset(1, 0), 20, 1);
-
-        let def = strike_def("melee_attack", 1, 1);
-        let mut content = empty_content();
-        content.abilities.insert(def.id.clone(), def.clone());
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
-
-        let snap = BattleSnapshot::new(vec![actor.clone(), taunter.clone(), nearby.clone()], 1);
-        let sim = SimState::from_snapshot(&snap, actor.entity);
-
-        // The observed-incident shape: taunter out of melee reach, enemy on
-        // the path. Filter must still reject the adjacent non-taunter. Actor
-        // either stays in place or walks toward the taunter (handled by the
-        // Move pipeline, not by this filter).
-        assert!(
-            !is_valid_cast(&def, &actor, nearby.entity, nearby.pos, &sim, &ctx, Some(taunter.entity)),
-            "taunted melee-only actor must not attack adjacent non-taunter",
-        );
-    }
 }
