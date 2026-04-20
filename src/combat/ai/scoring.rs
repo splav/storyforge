@@ -37,11 +37,17 @@ pub fn status_applications<'a, 'c: 'a>(
 
 /// Score a single (ability, target) pair in HP-equivalent units.
 /// Higher = more desirable. Returns 0.0 for options that should be skipped.
+///
+/// `danger_at_target` is the influence-map danger at the target's tile —
+/// the projected incoming damage on the target over the next tick.
+/// Only read by the heal branch (urgency weighting). Callers that don't
+/// have a danger map handy pass `0.0`.
 pub fn score_action(
     def: &AbilityDef,
     target: &UnitSnapshot,
     ctx: &CasterContext,
     content: &ContentView,
+    danger_at_target: f32,
 ) -> f32 {
     let Some(calc) = def.effect.calc(ctx) else {
         return if matches!(def.effect, EffectDef::GrantMovement { .. }) {
@@ -59,12 +65,24 @@ pub fn score_action(
             return 0.0;
         }
         let effective = expected.min(missing);
-        // Heal value = fraction of ally restored × their damage output.
-        // Dimensionally ≈ "enemy HP/turn this heal keeps alive", so it competes
-        // on the same scale as `damage`. A fresh ally has small delta_pct so
-        // tops-off auto-score low; urgent heals auto-score high via bigger delta.
+        // Heal value: "fraction of ally restored" × "ally's projected
+        // damage output over the horizon" × urgency.
+        //
+        // - `delta_pct` captures heal magnitude relative to the ally's
+        //   total HP — big heal on an almost-full ally is still a small
+        //   delta_pct and scores low.
+        // - `horizon_sum` is what the ally is projected to deal over the
+        //   next N rounds if kept alive — swapped in for the old `threat`
+        //   (peak) read, which over-weighted burst casters.
+        // - `urgency` weights emergency saves: low HP OR incoming damage
+        //   that would chew through remaining HP both push urgency up.
+        //   Capped at 2.0 so a single factor can at most double value.
         let delta_pct = effective / target.max_hp.max(1) as f32;
-        delta_pct * target.threat
+        let horizon_sum: f32 = target.damage_horizon.iter().sum::<f32>().max(target.threat);
+        let hp_missing = 1.0 - target.hp_pct();
+        let incoming = (danger_at_target / target.hp.max(1) as f32).min(1.0);
+        let urgency = 1.0 + hp_missing.max(incoming).min(1.0);
+        delta_pct * horizon_sum * urgency
     } else {
         let mitigation = if calc.pierces_armor {
             0.0
@@ -82,6 +100,39 @@ pub fn score_action(
     };
 
     dmg_score + status_score(def, target, content)
+}
+
+/// Sum of projected damage over the first `duration` rounds of the
+/// target's damage horizon. Rounds-up fractional durations (a
+/// stun-for-2.5-rounds touches 3 rounds). Falls back to `target.threat
+/// × duration` when the horizon is empty (legacy logs, uninitialised
+/// fixtures) so CC / stun / blocks-mana formulas stay continuous with
+/// the pre-#6 behaviour.
+///
+/// Caller semantics: "how much of the target's projected damage would
+/// be denied if we removed their actions for `duration` rounds". Used
+/// by `status_score` skips_turn / blocks_mana branches and the
+/// CC-factor valuation in `factors::offensive`.
+pub fn horizon_window_sum(target: &UnitSnapshot, duration: f32) -> f32 {
+    if target.damage_horizon.is_empty() {
+        return target.threat * duration.max(0.0);
+    }
+    let n = (duration.ceil() as usize).min(target.damage_horizon.len());
+    target.damage_horizon.iter().take(n).sum()
+}
+
+/// Average projected damage per round across the full horizon.
+/// Falls back to `target.threat` when the horizon is empty.
+///
+/// Used where the call site needs a single per-round scalar (scarcity
+/// bonus, intent CC weight) and wants the DPR-equivalent rather than a
+/// duration-specific sum.
+pub fn horizon_avg(target: &UnitSnapshot) -> f32 {
+    if target.damage_horizon.is_empty() {
+        return target.threat;
+    }
+    let n = target.damage_horizon.len() as f32;
+    target.damage_horizon.iter().sum::<f32>() / n.max(1.0)
 }
 
 /// Best single-target expected damage from one ability (before armor).
@@ -240,9 +291,11 @@ fn status_score(
     status_applications(def, content)
         .map(|(sd, d)| {
             let mut total = 0.0f32;
-            // Stun: deny target's damage output for d rounds.
+            // Stun: deny target's projected damage over `d` rounds.
+            // `horizon_window_sum` reads damage_horizon (DPR-correct);
+            // falls back to `threat × d` on empty horizon (old logs).
             if sd.skips_turn {
-                total += target.threat * d;
+                total += horizon_window_sum(target, d);
             }
             // Vulnerability: extra damage taken per hit for d rounds.
             if sd.damage_taken_bonus != 0 {
@@ -262,9 +315,9 @@ fn status_score(
                 total += tick_dmg * d;
             }
             // Silence (blocks mana abilities): partial stun — target can
-            // still basic-attack, so worth ~half a skips_turn.
+            // still basic-attack, so worth ~half the projected denial.
             if sd.blocks_mana_abilities {
-                total += target.threat * 0.5 * d;
+                total += 0.5 * horizon_window_sum(target, d);
             }
             // Speed penalty: reduces tactical options.
             if sd.speed_bonus < 0 {
@@ -432,6 +485,74 @@ mod tests {
         for v in h {
             assert_eq!(v, 0.0);
         }
+    }
+
+    /// Stun-value scoring now reads `damage_horizon` (DPR-correct) instead
+    /// of `threat` (peak) — a burst mage who's already spent their pool
+    /// should score lower to CC than a sustained fighter with the same
+    /// `threat`. Pins the key user-visible effect of #6-B.
+    #[test]
+    fn stun_value_devalues_resource_starved_target() {
+        use crate::combat::ai::role::{AiRole, AxisProfile};
+        use crate::combat::ai::snapshot::AiTags;
+        use crate::game::components::Team;
+        use crate::game::hex::hex_from_offset;
+
+        fn make_target(
+            id: u32, threat: f32, horizon: Vec<f32>,
+        ) -> UnitSnapshot {
+            UnitSnapshot {
+                entity: bevy::prelude::Entity::from_raw_u32(id).unwrap(),
+                team: Team::Player,
+                role: AxisProfile::from(AiRole::Bruiser),
+                pos: hex_from_offset(0, 0),
+                hp: 20,
+                max_hp: 20,
+                armor: 0,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                action_points: 1,
+                max_ap: 1,
+                movement_points: 3,
+                speed: 3,
+                mana: None,
+                rage: None,
+                energy: None,
+                abilities: Vec::new(),
+                threat,
+                tags: AiTags::empty(),
+                max_attack_range: 1,
+                summoner: None,
+                reactions_left: 0,
+                aoo_expected_damage: None,
+                statuses: Vec::new(),
+                caster_ctx: Default::default(),
+                crit_fail_effect: Default::default(),
+                damage_horizon: horizon,
+            }
+        }
+
+        // Both targets have the SAME peak (`threat = 10`). The sustained
+        // fighter keeps hitting every round; the burst mage fired twice
+        // and ran out of mana.
+        let sustained = make_target(1, 10.0, vec![10.0, 10.0, 10.0, 10.0, 10.0]);
+        let burst = make_target(2, 10.0, vec![10.0, 10.0, 0.0, 0.0, 0.0]);
+
+        // horizon_window_sum over a 3-round stun:
+        let sustained_stun = horizon_window_sum(&sustained, 3.0);
+        let burst_stun = horizon_window_sum(&burst, 3.0);
+        assert!(
+            burst_stun < sustained_stun,
+            "burst mage stun value {burst_stun} must be < sustained {sustained_stun}",
+        );
+        assert!(
+            (sustained_stun - 30.0).abs() < 0.01,
+            "sustained: 3 rounds × 10 = 30, got {sustained_stun}",
+        );
+        assert!(
+            (burst_stun - 20.0).abs() < 0.01,
+            "burst: rounds 0+1 fire, round 2 empty = 20, got {burst_stun}",
+        );
     }
 
     /// Regen must unlock an extra cast when the pool would otherwise bottom

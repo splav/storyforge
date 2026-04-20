@@ -211,10 +211,15 @@ pub fn select_intent(
             "forced by taunt (FORCES_TARGETING)".to_string(),
         );
         if active.tags.contains(AiTags::CAN_CC) && !t.tags.contains(AiTags::IS_STUNNED) {
+            // Intent score uses horizon-average (DPR) rather than peak
+            // `threat` so CC-ing a burst mage with empty mana doesn't
+            // over-commit the planner; a sustained fighter still scores
+            // high. Constants unchanged.
+            let dpr = crate::combat::ai::scoring::horizon_avg(t);
             consider(
                 TacticalIntent::ApplyCC { target: t.entity },
-                0.8 + t.threat * 0.1,
-                format!("CC the taunter (threat={:.1})", t.threat),
+                0.8 + dpr * 0.1,
+                format!("CC the taunter (dpr={:.1})", dpr),
             );
         }
     } else {
@@ -246,18 +251,27 @@ pub fn select_intent(
             );
         }
 
-        // ApplyCC: high-threat unstunned enemy.
+        // ApplyCC: high-sustained-damage unstunned enemy.
         if active.tags.contains(AiTags::CAN_CC) {
+            // Rank by DPR (horizon-average) so the CC intent targets who
+            // actually contributes the most over the combat window —
+            // burst casters with empty pools drop relative to sustained
+            // fighters, matching the stun-value scoring downstream.
             let cc_target = snap
                 .enemies_of(active.team)
                 .filter(|e| !e.tags.contains(AiTags::IS_STUNNED))
-                .max_by(|a, b| a.threat.partial_cmp(&b.threat).unwrap_or(std::cmp::Ordering::Equal));
+                .max_by(|a, b| {
+                    let da = crate::combat::ai::scoring::horizon_avg(a);
+                    let db = crate::combat::ai::scoring::horizon_avg(b);
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                });
             if let Some(target) = cc_target {
-                let cc_score = 0.8 + target.threat * 0.1;
+                let dpr = crate::combat::ai::scoring::horizon_avg(target);
+                let cc_score = 0.8 + dpr * 0.1;
                 consider(
                     TacticalIntent::ApplyCC { target: target.entity },
                     cc_score,
-                    format!("unstunned enemy threat={:.1}", target.threat),
+                    format!("unstunned enemy dpr={:.1}", dpr),
                 );
             }
         }

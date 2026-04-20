@@ -3,7 +3,7 @@
 use super::aoe_hits::aoe_hits;
 use super::offensive::aoe_area;
 use super::ScoredStep;
-use crate::combat::ai::scoring::applies_cc;
+use crate::combat::ai::scoring::{applies_cc, horizon_avg};
 use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
@@ -86,7 +86,12 @@ pub(super) fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -
     if applies_cc(def, world.content) {
         if let Some(t) = target_unit {
             if !t.tags.contains(AiTags::IS_STUNNED) {
-                swing += 0.5 * (t.threat / 10.0).min(1.0);
+                // CC-on-high-threat bonus. Reads horizon average (per-round
+                // DPR) so burst casters don't inflate the signal via peak
+                // damage. `10.0` divisor is a tuned constant — treats ~10
+                // DPR as "fully scary"; sustained fighters land near 1.0,
+                // resource-starved mages land near 0.
+                swing += 0.5 * (horizon_avg(t) / 10.0).min(1.0);
             }
         }
     }

@@ -3,7 +3,9 @@
 use super::adjustments::crit_fail_adjusted;
 use super::aoe_hits::{aoe_hits, AoeHits};
 use super::OffensiveFactors;
-use crate::combat::ai::scoring::{score_action, status_applications};
+use crate::combat::ai::scoring::{
+    horizon_window_sum, score_action, status_applications,
+};
 use crate::combat::ai::snapshot::UnitSnapshot;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::effects_math::aoe_cells;
@@ -37,13 +39,16 @@ pub(super) fn compute_offensive(
     let caster = &active.caster_ctx;
     let crit_fail_effect = &active.crit_fail_effect;
     let crit_fail_chance = ctx.world.crit_fail_chance;
+    // Danger at the target tile — feeds heal-urgency weighting inside
+    // `score_action`. Damage paths ignore it.
+    let danger_at_target = ctx.maps.danger.get(target_pos);
 
     let (damage, heal, kill, cc) = if def.aoe == AoEShape::None {
         let mut damage = 0.0f32;
         let mut heal = 0.0f32;
         let target_unit = snap.unit(target);
         if let Some(target_unit) = target_unit {
-            let raw = score_action(def, target_unit, caster, content);
+            let raw = score_action(def, target_unit, caster, content, danger_at_target);
             let adjusted = crit_fail_adjusted(raw, def, crit_fail_effect, crit_fail_chance);
             if def.target_type == TargetType::SingleAlly {
                 heal = adjusted;
@@ -57,7 +62,7 @@ pub(super) fn compute_offensive(
             }
             _ => 0.0,
         };
-        let cc = target_unit.map_or(0.0, |t| status_cc_value(def, t.threat, content));
+        let cc = target_unit.map_or(0.0, |t| status_cc_value(def, t, content));
         (damage, heal, kill, cc)
     } else {
         let area = aoe_area(def, target_pos, caster_tile);
@@ -77,7 +82,7 @@ pub(super) fn compute_offensive(
         let cc: f32 = hits
             .enemies
             .iter()
-            .map(|e| status_cc_value(def, e.threat, content))
+            .map(|e| status_cc_value(def, e, content))
             .sum();
         (damage, 0.0, kill, cc)
     };
@@ -100,7 +105,8 @@ fn friendly_fire_penalty(
     caster: &CasterContext,
     content: &ContentView,
 ) -> f32 {
-    let raw = score_action(def, u, caster, content).abs();
+    // Friendly-fire splash is a damage estimate; heal-urgency is irrelevant.
+    let raw = score_action(def, u, caster, content, 0.0).abs();
     raw * (1.0 + raw / u.max_hp.max(1) as f32)
 }
 
@@ -121,10 +127,11 @@ fn compute_aoe_damage(
     crit_fail_effect: &crate::content::races::CritFailEffect,
     crit_fail_chance: f32,
 ) -> f32 {
+    // AoE damage path never triggers heal urgency (not SingleAlly).
     let enemy_damage: f32 = hits
         .enemies
         .iter()
-        .map(|e| score_action(def, e, caster, content))
+        .map(|e| score_action(def, e, caster, content, 0.0))
         .sum();
     let splash: f32 = if def.friendly_fire {
         hits.allies
@@ -147,21 +154,24 @@ fn single_target_kill(def: &AbilityDef, target: &UnitSnapshot, caster: &CasterCo
     if net >= target.hp as f32 { 1.0 } else { 0.0 }
 }
 
-/// Sum the CC-denial value of `def`'s statuses against an enemy of `threat`
-/// damage output. Used per-target for single-target casts and per-enemy
-/// summed for AoE.
+/// Sum the CC-denial value of `def`'s statuses against `target`. Used
+/// per-target for single-target casts and per-enemy summed for AoE.
 ///
 /// Differs from `scoring::status_score` deliberately: this is the CC-factor
 /// denial subset — counts only `skips_turn`, positive `damage_taken_bonus`,
 /// positive `armor_bonus` (the "bad-for-target" direction, because the
 /// factor is meaningful only on enemies). `status_score` uses `.abs()` so
 /// it can price ally buffs too.
-fn status_cc_value(def: &AbilityDef, threat: f32, content: &ContentView) -> f32 {
+///
+/// Reads `target.damage_horizon` for `skips_turn` to value the stun by
+/// the duration-window sum (DPR-correct); falls back to `threat × d` when
+/// the horizon is empty (legacy logs / uninitialised fixtures).
+fn status_cc_value(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> f32 {
     status_applications(def, content)
         .map(|(sd, d)| {
             let mut val = 0.0f32;
             if sd.skips_turn {
-                val += threat * d;
+                val += horizon_window_sum(target, d);
             }
             if sd.damage_taken_bonus > 0 {
                 val += sd.damage_taken_bonus as f32 * d;
