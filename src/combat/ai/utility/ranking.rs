@@ -15,8 +15,8 @@ use crate::combat::ai::intent::{
     default_focus_target, intent_viability_threshold, IntentReason, TacticalIntent,
 };
 use crate::combat::ai::planning::{
-    apply_protect_self_mask, pick_best_plan, rescore_with_intent, sanity_adjust_plans,
-    score_plans_with_raw, PickMechanics, TurnPlan,
+    apply_adaptation, apply_protect_self_mask, pick_best_plan, rescore_with_intent,
+    sanity_adjust_plans, score_plans_with_raw, Adaptation, PickMechanics, TurnPlan,
 };
 use crate::core::DiceRng;
 use crate::game::hex::Hex;
@@ -34,6 +34,10 @@ pub struct PlanRanking {
     pub intent_reason: IntentReason,
     pub scored: Vec<f32>,
     pub raw_factors: Vec<PlanFactors>,
+    /// Per-plan evaluation-regime decisions, populated by
+    /// `apply_adaptation`. Empty until that phase runs; see
+    /// `planning::adaptation` for semantics.
+    pub adaptation: Adaptation,
 }
 
 impl PlanRanking {
@@ -45,7 +49,8 @@ impl PlanRanking {
         ctx: &ScoringCtx,
     ) -> Self {
         let (scored, raw_factors) = score_plans_with_raw(plans, &intent, ctx);
-        Self { intent, intent_reason, scored, raw_factors }
+        let adaptation = Adaptation::empty(plans.len());
+        Self { intent, intent_reason, scored, raw_factors, adaptation }
     }
 
     /// Intent viability guard. If no plan achieves the current intent's
@@ -136,15 +141,29 @@ impl PlanRanking {
         sanity_adjust_plans(&mut self.scored, plans, ctx);
     }
 
-    /// ProtectSelf mask. Mask any plan whose first step isn't defensive to
-    /// -∞ — this is where the intent gets real teeth. Without it,
-    /// "I want to protect myself" is just a +1.0 intent factor on a few
-    /// candidates, easily out-scored by high-damage offensive plans.
+    /// Run the ADAPTATION pass — value-function overrides based on facts
+    /// discovered after measurement+correction. See `planning::adaptation`
+    /// for invariants. Stores the resulting per-plan mode map on `self`
+    /// so the downstream contract mask and the picker can consult it.
+    pub fn apply_adaptation(&mut self, plans: &[TurnPlan], ctx: &ScoringCtx) {
+        self.adaptation = apply_adaptation(
+            plans, &mut self.raw_factors, &mut self.scored, &self.intent, ctx,
+        );
+    }
+
+    /// ProtectSelf contract enforcement. Mask every plan whose first step
+    /// isn't defensive to -∞ — without this, "I want to protect myself" is
+    /// just a +1.0 intent factor on a few candidates, easily out-scored by
+    /// high-damage offensive plans.
     ///
-    /// If no plan is defensive (surrounded, no safe move), rescore under
-    /// `LastStand` so the actor at least lands a final useful hit; the
-    /// reason is wrapped in `LastStandAfter { prior }` to preserve the
-    /// explanation that led to ProtectSelf in the first place.
+    /// The "no defensive plan at all" case is handled **earlier** in
+    /// `apply_adaptation` (as `ProtectSelfNoDefensive` → all plans switch
+    /// to LastStand mode). By the time this function runs, that case has
+    /// already made every plan non-Default, so the mask's per-plan filter
+    /// (`mode == Default`) skips everything and the mask is a no-op. That
+    /// is the intended split: contract cannot be satisfied → adaptation
+    /// picks a different value function; contract can be satisfied →
+    /// mask enforces it.
     ///
     /// Caller guards with `matches!(self.intent, ProtectSelf)`; calling
     /// this unconditionally is a no-op on non-ProtectSelf intents only
@@ -152,21 +171,15 @@ impl PlanRanking {
     /// bearing.
     pub fn apply_protect_self(&mut self, plans: &[TurnPlan], ctx: &ScoringCtx) {
         let margin = ctx.world.difficulty.defensive_tile_margin();
-        let any_defensive = apply_protect_self_mask(
-            &mut self.scored, plans, ctx.active, ctx.world.content, ctx.maps, margin,
+        apply_protect_self_mask(
+            &mut self.scored,
+            plans,
+            &self.adaptation.modes,
+            ctx.active,
+            ctx.world.content,
+            ctx.maps,
+            margin,
         );
-        if !any_defensive {
-            // `intent` stays ProtectSelf — LastStand is only the rescore
-            // lens so factor[7] reflects "last useful action" weighting;
-            // debug/log still show the original ProtectSelf label with a
-            // LastStandAfter wrapper in the reason chain.
-            let last_stand = TacticalIntent::LastStand;
-            self.scored = rescore_with_intent(
-                plans, &mut self.raw_factors, &last_stand, ctx,
-            );
-            let prior = std::mem::replace(&mut self.intent_reason, IntentReason::NoRuleDefault);
-            self.intent_reason = IntentReason::LastStandAfter { prior: Box::new(prior) };
-        }
     }
 
     /// Final pick: mercy + top-K window. Returns the index into `plans` of
@@ -186,7 +199,6 @@ mod tests {
     use crate::combat::ai::reservations::Reservations;
     use crate::combat::ai::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_test_ctx, UnitBuilder};
-    use crate::core::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -213,6 +225,7 @@ mod tests {
             intent_reason: reason,
             scored: vec![0.5],
             raw_factors: vec![factors],
+            adaptation: Adaptation::empty(1),
         };
         (vec![plan], ranking)
     }
@@ -376,6 +389,10 @@ mod tests {
             intent_reason: IntentReason::Urgency { hp_pct: 0.3, danger: 0.8 },
             scored: vec![0.5, 0.7],
             raw_factors: vec![PlanFactors::default(), PlanFactors::default()],
+            // No adaptation in this scenario — both plans stay Default,
+            // so the contract mask operates as normal (any_defensive=true
+            // → only non-defensive plans masked).
+            adaptation: Adaptation::empty(2),
         };
         let active = UnitBuilder::new(1, Team::Enemy, pos).hp(5).max_hp(20).build();
         let snap = BattleSnapshot::new(vec![active.clone()], 1);
@@ -398,58 +415,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn apply_protect_self_no_defensive_wraps_reason_in_last_stand() {
-        // All plans non-defensive (cast at enemy ability that isn't
-        // ally-targeted). Mask stores no `any_defensive=true` hit → rescore
-        // under LastStand + wrap reason as LastStandAfter.
-        let pos = hex_from_offset(0, 0);
-        let enemy_pos = hex_from_offset(1, 0);
-        let aggressive = TurnPlan {
-            steps: vec![PlanStep::Cast {
-                ability: AbilityId::from("strike"),
-                target: crate::combat::ai::test_helpers::ent(2),
-                target_pos: enemy_pos,
-            }],
-            final_pos: pos,
-            residual_ap: 0,
-            residual_mp: 0,
-            outcomes: Vec::new(),
-            partial_score: 0.0,
-            sim_snapshots: Vec::new(),
-        };
-        let plans = vec![aggressive];
-        let prior_reason = IntentReason::Urgency { hp_pct: 0.2, danger: 0.9 };
-        let mut ranking = PlanRanking {
-            intent: TacticalIntent::ProtectSelf,
-            intent_reason: prior_reason.clone(),
-            scored: vec![0.7],
-            raw_factors: vec![PlanFactors::default()],
-        };
-        let active = UnitBuilder::new(1, Team::Enemy, pos).hp(3).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![active.clone()], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        // `apply_protect_self_mask` looks up the ability to decide defensive;
-        // missing ability def returns `false` (non-defensive), which is what
-        // this test wants — cheaper than configuring a real ability.
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
-
-        ranking.apply_protect_self(&plans, &ctx);
-
-        // Intent stays ProtectSelf — LastStand is only a rescore lens.
-        assert!(matches!(ranking.intent, TacticalIntent::ProtectSelf));
-        match ranking.intent_reason {
-            IntentReason::LastStandAfter { prior } => {
-                assert!(
-                    matches!(*prior, IntentReason::Urgency { .. }),
-                    "expected prior=Urgency, got {:?}", prior,
-                );
-            }
-            ref other => panic!("expected LastStandAfter, got {:?}", other),
-        }
-    }
+    // The "no defensive → LastStand rescue" logic moved from
+    // `apply_protect_self` into `apply_adaptation`
+    // (`AdaptationReason::ProtectSelfNoDefensive`). Coverage now lives in
+    // `planning::adaptation::tests` — see Phase 9.
 }

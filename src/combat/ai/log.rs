@@ -35,7 +35,7 @@ use bevy::prelude::*;
 use serde::Serialize;
 
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-use crate::combat::ai::planning::{PlanStep, StepOutcome, TurnPlan};
+use crate::combat::ai::planning::{AdaptationReason, EvaluationMode, PlanStep, StepOutcome, TurnPlan};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::AiDecision;
 use crate::game::hex::Hex;
@@ -49,7 +49,13 @@ use crate::game::hex::Hex;
 ///   alongside `selection_kind` + `reason_text`. Lets analyzers read numeric
 ///   fields (hp_pct, danger, eff_hp, …) directly instead of re-parsing
 ///   `reason_text`. v4 logs stay readable — the field is optional on read.
-pub const SCHEMA_VERSION: u32 = 5;
+/// - v5 → v6: per-plan ADAPTATION dump — `evaluation_mode`,
+///   `adaptation_reason`, `base_score` added to `PlanLogEntry`. `score`
+///   stays the final (post-adaptation) number so v1-v5 consumers still
+///   read a comparable value. Older logs without the new fields deser
+///   via `#[serde(default)]` — `evaluation_mode=Default`,
+///   `adaptation_reason=None`, `base_score=score`.
+pub const SCHEMA_VERSION: u32 = 6;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -148,11 +154,29 @@ pub struct PlanLogEntry<'a> {
     /// Raw factors before batch normalization: [damage, kill, cc, heal,
     /// position, risk, focus, intent, scarcity]. Offline tools can recalibrate
     /// weights by re-normalizing + re-scoring without rerunning sim.
+    /// When `evaluation_mode = LastStand`, the `intent` column (index 7)
+    /// reflects the `LastStand` rescore — raw factors are still
+    /// deserializable, just with a different intent-regime interpretation.
     pub raw_factors: [f32; 9],
-    /// Final composite score after normalization, role weights, difficulty
-    /// multipliers and noise. Not reproducible offline (noise uses RNG); use
-    /// `raw_factors` for deterministic replay.
+    /// Score after ADAPTATION (and noise). Kept under the historical name
+    /// `score` so v1-v5 readers stay meaningful on v6 files. For adapted
+    /// plans this is the LastStand-weighted number; for non-adapted plans
+    /// it equals `base_score`.
     pub score: f32,
+    /// Score **before** ADAPTATION (immediately after sanity, before the
+    /// adaptation rescore). Equals `score` when `evaluation_mode =
+    /// Default`. Useful for diagnosing "did adaptation matter here?"
+    /// without rerunning the pipeline.
+    pub base_score: f32,
+    /// Which evaluation regime scored this plan's intent-column. See
+    /// `planning::adaptation::EvaluationMode`.
+    pub evaluation_mode: &'a EvaluationMode,
+    /// Fact that triggered the mode switch for this plan, or `None` when
+    /// `evaluation_mode == Default`. Parallel to `IntentReason::Adapted`,
+    /// but per-plan rather than per-decision (the decision-wide reason is
+    /// in `intent.reason`; this field exposes it for every plan in the
+    /// pool, not just the chosen one).
+    pub adaptation_reason: Option<&'a AdaptationReason>,
 }
 
 #[derive(Serialize)]
@@ -263,14 +287,18 @@ pub fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-/// Build a `PlanLogEntry` from a plan + its raw factors and final score.
-/// `chosen_idx` is compared against the plan's own index to set `chosen`.
+/// Build a `PlanLogEntry` from a plan + its raw factors, per-adaptation
+/// score pair, and evaluation-mode metadata. `chosen` reflects whether
+/// this plan was the one `pick_action` committed.
 pub fn plan_to_log_entry<'a>(
     plan: &'a TurnPlan,
     rank: usize,
     chosen: bool,
     raw_factors: [f32; 9],
+    base_score: f32,
     score: f32,
+    evaluation_mode: &'a EvaluationMode,
+    adaptation_reason: Option<&'a AdaptationReason>,
 ) -> PlanLogEntry<'a> {
     PlanLogEntry {
         rank,
@@ -282,6 +310,9 @@ pub fn plan_to_log_entry<'a>(
         residual_mp: plan.residual_mp,
         raw_factors,
         score,
+        base_score,
+        evaluation_mode,
+        adaptation_reason,
     }
 }
 

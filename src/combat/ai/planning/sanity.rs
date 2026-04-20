@@ -11,6 +11,7 @@
 
 use crate::combat::ai::factors::aoe_area;
 use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::planning::adaptation::EvaluationMode;
 use crate::combat::ai::planning::scorer::worst_path_danger;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
@@ -133,17 +134,18 @@ pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &Scoring
             penalty *= 0.5;
         }
 
-        // 6. AoO exposure: every Move step transition `was_adj && !still_adj`
+        // 6. AoO bleed: every Move step transition `was_adj && !still_adj`
         // against a melee enemy with reactions provokes an opportunity attack.
-        // Sum expected damage per enemy (one AoO per enemy per turn); if the
-        // sum is lethal against current HP, mask the plan to −∞. Non-lethal
-        // case: multiplicative quadratic penalty with a floor — gradient so a
-        // high-reward plan (finish a target) can still accept the risk.
+        // Sum expected damage per enemy (one AoO per enemy per turn) and
+        // apply a multiplicative quadratic penalty with a floor so high-
+        // reward plans can still accept the risk.
+        //
+        // Invariant: **sanity never hard-masks.** The "expected-lethal"
+        // case (aoo_dmg ≥ hp) lives in `adaptation::apply_adaptation` —
+        // there a plan whose AoO bleed crosses the HP threshold gets its
+        // evaluation regime switched to `LastStand` rather than masked
+        // out. See `planning/adaptation.rs` for the rationale.
         let aoo_dmg = expected_aoo_damage(active, plan, &enemies);
-        if aoo_dmg >= active.hp as f32 && active.hp > 0 {
-            *score = f32::NEG_INFINITY;
-            continue;
-        }
         if aoo_dmg > 0.0 {
             let ratio = (aoo_dmg / active.hp.max(1) as f32).min(1.0);
             let factor = (1.0 - AOO_PENALTY_K * ratio * ratio).max(AOO_RISK_FLOOR);
@@ -173,7 +175,11 @@ pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &Scoring
 /// transition (one AoO per enemy per round) and accrue its expected damage
 /// against the actor's armor + vulnerability. Returns 0.0 if no provokers
 /// are triggered — fast path for typical non-adjacent moves.
-fn expected_aoo_damage(
+/// Visible to the adaptation layer — the `ExpectedSelfLethal` trigger
+/// compares this against `active.hp`. Kept in sanity.rs because the
+/// non-lethal multiplicative penalty (inside `sanity_adjust_plans`) uses
+/// the same number.
+pub(crate) fn expected_aoo_damage(
     active: &UnitSnapshot,
     plan: &TurnPlan,
     enemies: &[&UnitSnapshot],
@@ -288,19 +294,38 @@ pub fn plan_is_defensive(
     }
 }
 
-/// Mask non-defensive plans to `-∞` under `ProtectSelf` intent. Returns true
-/// if at least one defensive plan survived — the caller can detect the
-/// "no safe option" case and rescore under `LastStand` instead.
+/// Mask non-defensive plans to `-∞` under `ProtectSelf` intent — contract
+/// enforcement. A plan opt-out from the ProtectSelf contract is expressed
+/// via `EvaluationMode != Default` (set upstream in `apply_adaptation`
+/// when the contract is globally unsatisfiable → `ProtectSelfNoDefensive`
+/// switches every plan's mode to `LastStand`). Plans in non-Default mode
+/// are left alone by this mask.
+///
+/// Returns true if at least one plan was observed to be defensive. The
+/// "no defensive plan at all" case is now handled by ADAPTATION one step
+/// upstream — by the time this function runs, that case has already
+/// switched all plans to `LastStand` mode, so every plan will skip the
+/// mask. The return value is retained for callers that want to observe
+/// contract satisfiability, but no longer triggers a LastStand rescore
+/// inside this function.
 pub fn apply_protect_self_mask(
     scores: &mut [f32],
     plans: &[TurnPlan],
+    modes: &[EvaluationMode],
     active: &UnitSnapshot,
     content: &ContentView,
     maps: &InfluenceMaps,
     defensive_margin: f32,
 ) -> bool {
+    debug_assert_eq!(plans.len(), modes.len());
     let mut any_defensive = false;
     for (i, p) in plans.iter().enumerate() {
+        // Plans that adaptation moved to a non-Default mode have opted
+        // out of the ProtectSelf contract; the mask does not apply to
+        // them.
+        if !matches!(modes.get(i), Some(EvaluationMode::Default)) {
+            continue;
+        }
         if plan_is_defensive(p, active, content, maps, defensive_margin) {
             any_defensive = true;
         } else if i < scores.len() {
@@ -464,8 +489,13 @@ mod tests {
                 expected: Aoo::Near(0.99, 1.01),
             },
             Row {
-                // Precondition for `sanity_adjust_plans` lethal mask.
-                name: "lethal AoO reaches actor HP threshold",
+                // Precondition `expected_aoo_damage ≥ actor_hp` — the
+                // input signal ADAPTATION uses to trigger
+                // `ExpectedSelfLethal`. Sanity no longer reads this for
+                // a hard mask (it stays in soft-bleed territory only),
+                // but the helper itself must still report correctly so
+                // adaptation can act on it.
+                name: "expected-lethal AoO reaches actor HP threshold",
                 actor_hp: 3, actor_armor: 0,
                 enemies: vec![default_enemy()],
                 path: vec![hex_from_offset(-1, 0)],

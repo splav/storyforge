@@ -34,6 +34,25 @@ plans with **raw** + normalised factors, and the committed decision.
   `Reactions::max`), `aoo_expected_damage` to `None`. On v1 logs the AoO
   penalty sees transitions but cannot estimate damage magnitude — ranking
   deltas reflect topology only.
+- **v3** — `UnitSnapshot` gains `caster_ctx` (str/int/spell_power mods) and
+  `crit_fail_effect`. Older logs default to zeros and `Miss`.
+- **v4** — `UnitSnapshot` gains `damage_horizon: DamageHorizon` (per-unit
+  incoming-damage projection). On older logs CC/heal plans fall back to raw
+  threat scaling — expect inflated scores for those rows.
+- **v5** — `IntentBlock` gains structured `reason` payload (duplicates
+  `selection_kind` with typed fields: `killable`/`viability_fallback`/
+  `panic_override`/…). The replay only reads `selection_kind` today; the
+  structured field exists for downstream tools.
+- **v6** — per-plan ADAPTATION dump. Each `PlanLogEntry` gains
+  `evaluation_mode` (`default`/`last_stand`), `adaptation_reason`
+  (`expected_self_lethal { aoo_dmg, actor_hp }` |
+  `protect_self_no_defensive` | null), and `base_score` (pre-adaptation
+  score). The `score` field stays as the *final* (post-adaptation) value,
+  so older v1-v5 tools that only read `score` still see a meaningful
+  number. Verbose mode tags adapted plans with
+  `[adapted: last_stand ← <reason>]`.
+
+The replay accepts schema 1–6; newer writes are rejected with a warning.
 
 ## Running
 
@@ -94,8 +113,19 @@ Ending summary line: `N entries, K ranking changes after sanity`.
 - Per-plan lines show the plan's first-step chain and its raw factor vector
   `[damage, kill, cc, heal, position, risk, focus, intent, scarcity]`.
 
-A score of `-inf` means the plan was masked out — currently only the
-ProtectSelf-mask does this, and only when intent is ProtectSelf.
+A score of `-inf` in the **post** column means the plan was masked out by
+the current sanity pipeline — either the ProtectSelf mask (when intent is
+ProtectSelf), or `sanity_adjust_plans`' lethal-AoO filter (when leaving a
+tile would take an AoO that kills the actor outright).
+
+A plan with `score: null` in the raw log file was **pruned by the game
+before scoring** (beam-search cut it, usually because the partial factors
+were too far below the cutoff). The replay still imports such plans — it
+recomputes their `pre` score from the logged `raw_factors` and treats their
+logged score as NEG_INFINITY for comparison purposes. Expect to see plans
+where `pre` is high but the game never scored them in live play — that is
+often the signal that the intent phase diagnosed a target the plan
+generator failed to surface, or that AoO/sanity would have killed it.
 
 ### Full ranking (`--verbose`)
 
@@ -135,8 +165,14 @@ final destination hex, and the step chain. Sorted by **post** score.
   `InfluenceConfig` at runtime (e.g. tuning λ values), the replay's maps
   will differ from the game's. Log the config snapshot too if this becomes
   relevant.
-- **Schema strictness.** Entries with `schema_version != 1` are skipped with
-  a warning. Bump + migration required when adding/removing fields.
+- **Schema strictness.** Entries outside the supported range (currently
+  v1–v5) are skipped with a warning. Bump + migration required when adding
+  or removing fields.
+- **Beam-pruned plans.** The log records **only the top-N plans kept by the
+  beam**, so plans dropped earlier are invisible. If the intent phase
+  diagnoses a `killable` target but the log never shows a plan reaching it,
+  check the beam cut-off in `planning::generator` — the replay cannot
+  resurrect plans that were never emitted.
 - **Deserialization.** The replay requires `Deserialize` on snapshot and
   plan types. Adding new fields to those structs needs both `Serialize`
   (written by the game) and `Deserialize` (read by the tool).

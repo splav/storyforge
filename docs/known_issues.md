@@ -9,6 +9,17 @@
 
 ## 1. Архитектурные проблемы
 
+### 1.0. Measurement не симметричен по цене собственной смерти (MVP2)
+
+Существующие факторы `kill` / `focus` / `damage` хорошо отличают «кого выгодно убить» (target_priority содержит threat, killability, role_value). Но у модели **нет симметричной половины** — «чего стоит потерять актора». `kill=1.0` одинаков для убийства важной цели и для добивания рандомного юнита, независимо от того, выживет актор после хода или нет.
+
+Последствие: AI может выбрать неравный размен «6 HP minion ↔ 3 HP tank side-unit», даже если цель не оправдывает потерю.
+
+MVP1 (adaptation layer) убрал `-∞` hard-mask и возвращает self-lethal планы в pool, но **сама экономика размена** не улучшается — это задача MVP2:
+- Новый factor `expected_self_loss = (expected_hp_lost / max_hp) × own_threat`, signed, агрегация max по шагам плана.
+- Отдельная ось, **не часть `risk`** — `risk` про качество маршрута/позиции, а `self_loss` про цену потери актора как фигуры.
+- Колонка в `AXIS_FACTOR_WEIGHTS` + normalisation как signed factor.
+
 ### 1.1. `sanity_adjust_plans` смешивает penalties + bonus
 
 `sanity.rs:147–156`, пункт 7 — мультипликативный **+10 % bonus** за «safer tile + useful cast». Остальные 6 проверок — штрафы. Если sanity — это «проверка на глупости», то bonus — логически принадлежит scoring-этажу, а не sanity-этажу. Границы размыты, и следующий «ещё один бонус» легко добавится сбоку, раздув sanity в ad-hoc mini-scorer.
@@ -96,6 +107,7 @@ plans.iter().filter_map(|p| ScoredStep::from_plan_committed(p, actor_pos).target
 
 | Находка | Влияние | Риск фикса |
 |---|---|---|
+| 1.0 Measurement без `expected_self_loss` (MVP2) | trade economics | средний |
 | 3.6 `plan_summon_bonus` post-norm hack | расширяемость | средний |
 | 5.8 Tank-floor ≥ 0.3 в `infer_profile` | role mis-inference | низкий |
 | 2.2 Status passes × 3 | perf + DRY | низкий |

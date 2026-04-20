@@ -43,6 +43,7 @@ use crate::combat::ai::factors::{
 };
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{intent_score, TacticalIntent};
+use crate::combat::ai::planning::adaptation::EvaluationMode;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::estimate_st_damage;
@@ -101,9 +102,8 @@ pub fn score_plans_with_raw(
 /// intent-independent factor computation. The caller hands in the raw matrix
 /// produced by an earlier `score_plans_with_raw`; we only overwrite the
 /// intent column (`factor[7]`) per plan and re-finalize. Used by the utility
-/// pipeline's viability-fallback and LastStand branches, which previously
-/// triggered a full re-score (simulation replay + factor recalculation) just
-/// to swap the intent that influences one factor.
+/// pipeline's viability-fallback branch — every plan rescored under the
+/// same intent.
 pub fn rescore_with_intent(
     plans: &[TurnPlan],
     raw: &mut [PlanFactors],
@@ -112,6 +112,36 @@ pub fn rescore_with_intent(
 ) -> Vec<f32> {
     for (p, f) in plans.iter().zip(raw.iter_mut()) {
         f.intent = compute_plan_intent_sum(p, intent, ctx);
+    }
+    finalize_scores(plans, raw, ctx)
+}
+
+/// Recompute scores with **per-plan** evaluation modes. Each plan's
+/// intent-column is computed under `modes[i].effective_intent(global)` —
+/// plans with `mode=Default` use `global`, plans with `mode=LastStand`
+/// always score under `TacticalIntent::LastStand` regardless of `global`.
+///
+/// Used by the ADAPTATION layer, which flags per-plan overrides
+/// (`ExpectedSelfLethal`) without altering other plans' evaluation. Global
+/// normalisation in `finalize_scores` runs once across the mixed
+/// intent-column values, so adapted and non-adapted plans remain
+/// comparable in a single batch-normalised space.
+///
+/// Preconditions:
+/// - `modes.len() == plans.len() == raw.len()`. Asserted in debug;
+///   production fails soft by iterating the shorter of the two.
+pub fn rescore_with_per_plan_modes(
+    plans: &[TurnPlan],
+    raw: &mut [PlanFactors],
+    modes: &[EvaluationMode],
+    global: &TacticalIntent,
+    ctx: &ScoringCtx,
+) -> Vec<f32> {
+    debug_assert_eq!(plans.len(), raw.len());
+    debug_assert_eq!(plans.len(), modes.len());
+    for ((p, f), mode) in plans.iter().zip(raw.iter_mut()).zip(modes.iter()) {
+        let effective = mode.effective_intent(*global);
+        f.intent = compute_plan_intent_sum(p, &effective, ctx);
     }
     finalize_scores(plans, raw, ctx)
 }

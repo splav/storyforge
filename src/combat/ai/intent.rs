@@ -26,7 +26,7 @@ const MAX_COMMITTED_TURNS: u8 = 3;
 
 // ── Intent enum ─────────────────────────────────────────────────────────────
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind")]
 pub enum TacticalIntent {
     /// Focus fire: kill or heavily damage a specific target.
@@ -135,10 +135,14 @@ pub enum IntentReason {
         max_align: f32,
         threshold: f32,
     },
-    /// ProtectSelf mask found no defensive plan and rescored under LastStand.
-    /// Boxed so the enum stays small; `prior` is always a non-LastStand
-    /// reason (see `pick_action`).
-    LastStandAfter { prior: Box<IntentReason> },
+    /// ADAPTATION switched the chosen plan's evaluation regime. `prior`
+    /// is the reason that originally selected the global intent; `reason`
+    /// is the fact that triggered the adaptation (per-plan ExpectedSelfLethal
+    /// or global ProtectSelfNoDefensive). Boxed so the enum stays small.
+    Adapted {
+        prior: Box<IntentReason>,
+        reason: crate::combat::ai::planning::AdaptationReason,
+    },
 }
 
 impl IntentReason {
@@ -160,7 +164,7 @@ impl IntentReason {
             Self::NoRuleDefault => "no_rule_default",
             Self::MidpanicFallback { .. } => "midpanic_fallback",
             Self::ViabilityFallback { .. } => "viability_fallback",
-            Self::LastStandAfter { .. } => "last_stand_after",
+            Self::Adapted { reason, .. } => reason.code(),
         }
     }
 }
@@ -205,9 +209,19 @@ impl fmt::Display for IntentReason {
                 f, "fallback from {:?}: max_align={:.2}<threshold={:.2}",
                 from, max_align, threshold,
             ),
-            Self::LastStandAfter { prior } => write!(
-                f, "{} → LastStand (no defensive plan)", prior,
-            ),
+            Self::Adapted { prior, reason } => {
+                use crate::combat::ai::planning::AdaptationReason;
+                match reason {
+                    AdaptationReason::ExpectedSelfLethal { aoo_dmg, actor_hp } => write!(
+                        f,
+                        "{} → LastStand (EV-lethal: aoo={:.1} ≥ hp={})",
+                        prior, aoo_dmg, actor_hp,
+                    ),
+                    AdaptationReason::ProtectSelfNoDefensive => write!(
+                        f, "{} → LastStand (no defensive plan)", prior,
+                    ),
+                }
+            }
         }
     }
 }

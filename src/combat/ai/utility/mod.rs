@@ -193,11 +193,30 @@ pub fn pick_action(
     let mut ranking = PlanRanking::initial(&plans, choice.intent, choice.reason, &scoring_ctx);
     ranking.apply_viability(&plans, actor_pos, &scoring_ctx);
     ranking.apply_sanity(&plans, &scoring_ctx);
+    // Snapshot post-sanity scores as the "base" — the value each plan had
+    // immediately before adaptation rescored any of them. The log stores
+    // both numbers per plan (v6 schema) so offline diagnostics can tell
+    // "did adaptation move this rank?" without rerunning the pipeline.
+    let base_scored = ranking.scored.clone();
+    ranking.apply_adaptation(&plans, &scoring_ctx);
     if matches!(ranking.intent, TacticalIntent::ProtectSelf) {
         ranking.apply_protect_self(&plans, &scoring_ctx);
     }
 
     let (best_idx, mech) = ranking.pick(world, rng);
+
+    // If adaptation switched the chosen plan's evaluation regime, wrap
+    // the intent reason so logs/debug see the full chain
+    // (prior_intent_reason → adapted_via X). The global intent itself is
+    // left intact — the plan that won may not be the actor's "tactical
+    // wish", and conflating the two confuses debug output.
+    if let Some(adapt_reason) = ranking.adaptation.reasons.get(best_idx).and_then(|r| r.clone()) {
+        let prior = std::mem::replace(&mut ranking.intent_reason, IntentReason::NoRuleDefault);
+        ranking.intent_reason = IntentReason::Adapted {
+            prior: Box::new(prior),
+            reason: adapt_reason,
+        };
+    }
     let pick_mech = debug.then_some(mech);
 
     let best_plan = &plans[best_idx];
@@ -226,8 +245,9 @@ pub fn pick_action(
         let decision_time_ms = t0.map_or(0, |t| t.elapsed().as_millis() as u64);
         write_decision_log(
             logger, decision_time_ms, actor, active, snap, &ranking.intent,
-            &ranking.intent_reason, &plans, &ranking.scored, &ranking.raw_factors,
-            best_idx, &decision, debug_names,
+            &ranking.intent_reason, &plans, &base_scored, &ranking.scored,
+            &ranking.raw_factors, &ranking.adaptation, best_idx, &decision,
+            debug_names,
         );
     }
 
@@ -246,15 +266,17 @@ fn write_decision_log(
     intent: &TacticalIntent,
     intent_reason: &IntentReason,
     plans: &[TurnPlan],
+    base_scored: &[f32],
     scored: &[f32],
     raw_factors: &[PlanFactors],
+    adaptation: &crate::combat::ai::planning::Adaptation,
     best_idx: usize,
     decision: &AiDecision,
     debug_names: &HashMap<Entity, String>,
 ) {
     let plan_id = logger.next_plan_id();
 
-    // Rank plans by final score, keep top-10 for size budget.
+    // Rank plans by final (adapted) score, keep top-10 for size budget.
     let mut indexed: Vec<(usize, f32)> =
         scored.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -269,7 +291,10 @@ fn write_decision_log(
                 rank + 1,
                 idx == best_idx,
                 raw_factors[idx].as_array(),
+                base_scored[idx],
                 score,
+                &adaptation.modes[idx],
+                adaptation.reasons[idx].as_ref(),
             )
         })
         .collect();

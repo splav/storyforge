@@ -76,7 +76,70 @@ struct PlanLog {
     residual_ap: i32,
     residual_mp: i32,
     raw_factors: [f32; 9],
-    score: f32,
+    /// `None` when the game pruned the plan before scoring (e.g. beam-search
+    /// early rejection). Such plans still appear in the log so we can see
+    /// what was considered, but they have no numeric score to compare
+    /// against. Replay treats them as NEG_INFINITY — identical to a plan
+    /// masked by sanity — so `argmax` naturally ignores them.
+    score: Option<f32>,
+    /// v6+: pre-adaptation score. Older logs default to `None` (no
+    /// adaptation concept existed). Reserved for future `--show-adapt`
+    /// diff mode; currently the replayer recomputes its own base via
+    /// `raw_factors` so the logged number isn't used in rendering, but
+    /// it's kept on `PlanLog` so offline analyzers can round-trip it.
+    #[serde(default)]
+    #[allow(dead_code)]
+    base_score: Option<f32>,
+    /// v6+: which evaluation regime scored this plan. Older logs default
+    /// to `Default`.
+    #[serde(default)]
+    evaluation_mode: LoggedEvaluationMode,
+    /// v6+: fact that triggered a mode switch; `None` when
+    /// `evaluation_mode = Default`.
+    #[serde(default)]
+    adaptation_reason: Option<LoggedAdaptationReason>,
+}
+
+/// Mirrors `planning::adaptation::EvaluationMode` for deserialization.
+/// Keep in sync with the enum's serde rename when variants change.
+#[derive(Deserialize, Default, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum LoggedEvaluationMode {
+    #[default]
+    Default,
+    LastStand,
+}
+
+impl LoggedEvaluationMode {
+    fn is_adapted(self) -> bool {
+        !matches!(self, LoggedEvaluationMode::Default)
+    }
+}
+
+/// Mirrors `planning::adaptation::AdaptationReason` for deserialization.
+/// We don't need the numeric payloads during replay — just the kind —
+/// so the variants are kept unit and tagged like the game enum.
+#[derive(Deserialize, Clone, Copy, Debug)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum LoggedAdaptationReason {
+    ExpectedSelfLethal {
+        #[serde(default)]
+        #[allow(dead_code)]
+        aoo_dmg: f32,
+        #[serde(default)]
+        #[allow(dead_code)]
+        actor_hp: i32,
+    },
+    ProtectSelfNoDefensive,
+}
+
+impl LoggedAdaptationReason {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::ExpectedSelfLethal { .. } => "expected_self_lethal",
+            Self::ProtectSelfNoDefensive => "protect_self_no_defensive",
+        }
+    }
 }
 
 const SIGNED_FACTOR: [bool; 9] = [
@@ -143,7 +206,10 @@ fn main() {
         // - v3 → v4: `damage_horizon` (empty) — CC/heal fall back to threat
         // - v4 → v5: `intent.reason` — structured reason payload; replay does
         //   not read it (classification still uses `selection_kind`).
-        if entry.schema_version < 1 || entry.schema_version > 5 {
+        // - v5 → v6: per-plan ADAPTATION dump. Replay surfaces it in verbose
+        //   output; older logs default to `evaluation_mode=default` and
+        //   `adaptation_reason=None` so the renderer stays silent.
+        if entry.schema_version < 1 || entry.schema_version > 6 {
             eprintln!("unsupported schema_version {}, skipping", entry.schema_version);
             continue;
         }
@@ -239,6 +305,14 @@ fn main() {
         //      factors stay as-logged (they were computed under the old
         //      intent), so this under-counts ProtectSelf's intent-factor
         //      boost on defensive plans. Enough for directional verification.
+        // MVP1: replay does not reconstruct ADAPTATION yet (Phase 7 extends
+        // schema to v6 and pipes adaptation.modes through). For now pass a
+        // default-mode vector so every plan participates in the contract
+        // mask as before — preserves replay semantics on v1-v5 logs.
+        let modes = vec![
+            storyforge::combat::ai::planning::EvaluationMode::Default;
+            plans.len()
+        ];
         let mut applied_mask = false;
         let mut simulated_switch = false;
         if matches!(
@@ -246,7 +320,7 @@ fn main() {
             storyforge::combat::ai::intent::TacticalIntent::ProtectSelf
         ) {
             let margin = difficulty.defensive_tile_margin();
-            apply_protect_self_mask(&mut scores, &plans, &active, &content, &maps, margin);
+            apply_protect_self_mask(&mut scores, &plans, &modes, &active, &content, &maps, margin);
             applied_mask = true;
         } else if simulate_ab && entry.intent.selection_kind == "viability_fallback" {
             let hp_pct = active.hp_pct();
@@ -255,7 +329,7 @@ fn main() {
             let panic_danger = difficulty.awareness_danger_threshold();
             if hp_pct < midpanic_hp && actor_danger > panic_danger {
                 let margin = difficulty.defensive_tile_margin();
-                apply_protect_self_mask(&mut scores, &plans, &active, &content, &maps, margin);
+                apply_protect_self_mask(&mut scores, &plans, &modes, &active, &content, &maps, margin);
                 applied_mask = true;
                 simulated_switch = true;
             }
@@ -305,8 +379,18 @@ fn main() {
                 .collect();
             indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             for (i, pre, post) in indexed {
+                // Surface per-plan ADAPTATION metadata (v6+). Older logs
+                // default to Default/None → tag stays empty.
+                let adapt_tag = if entry.plans[i].evaluation_mode.is_adapted() {
+                    match &entry.plans[i].adaptation_reason {
+                        Some(r) => format!("  [adapted: last_stand ← {}]", r.code()),
+                        None => "  [adapted: last_stand]".to_string(),
+                    }
+                } else {
+                    String::new()
+                };
                 println!(
-                    "      #{}{}  pre={:+.2}  post={:+.2}  Δ={:+.2}  final=({},{})  {}",
+                    "      #{}{}  pre={:+.2}  post={:+.2}  Δ={:+.2}  final=({},{})  {}{}",
                     entry.plans[i].rank,
                     if entry.plans[i].chosen { "★" } else { " " },
                     pre,
@@ -315,6 +399,7 @@ fn main() {
                     entry.plans[i].final_pos[0],
                     entry.plans[i].final_pos[1],
                     plan_shape(&entry.plans[i]),
+                    adapt_tag,
                 );
             }
         }
@@ -374,6 +459,7 @@ fn print_plan(label: &str, p: &PlanLog, pre: f32, post: f32) {
         p.raw_factors,
     );
     let _ = p.score; // logged score includes noise; we show recomputed.
+                     // `None` = plan was pruned pre-scoring in the live run.
 }
 
 /// Silences dead_code lints on `AxisProfile::factor_weights` when only
