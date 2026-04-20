@@ -9,8 +9,8 @@ use crate::game::components::{
     ActionPoints, ActiveCombatant, Dead, Energy, Faction, HexCombatantQ, Mana, Rage,
     Team, UnitToken, Vital,
 };
-use crate::game::hex::{can_stop_on, hex_circle, hex_line, is_passable, Hex, LAYOUT};
-use crate::game::pathfinding::reachable_cells;
+use crate::game::hex::{hex_circle, hex_line, Hex, LAYOUT};
+use crate::game::pathfinding::{reach_from, MovementEnv};
 use crate::game::resources::{
     HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags,
 };
@@ -233,8 +233,7 @@ pub fn update_hex_visuals(
                 if let (Some(actor_pos), Ok(ap)) =
                     (positions.get(&actor), ap_q.get(actor))
                 {
-                    let max_steps = ap.movement_points;
-                    let enemy_pos: HashSet<Hex> = positions
+                    let enemy_positions: HashSet<Hex> = positions
                         .iter()
                         .filter(|(&e, _)| {
                             e != actor
@@ -244,18 +243,13 @@ pub fn update_hex_visuals(
                         })
                         .map(|(_, &p)| p)
                         .collect();
-                    let all_occupied: HashSet<Hex> = positions
+                    let stop_blockers: HashSet<Hex> = positions
                         .iter()
                         .filter(|(&e, _)| e != actor)
                         .map(|(_, &p)| p)
                         .collect();
-
-                    reachable_cells(
-                        actor_pos,
-                        max_steps,
-                        |h| is_passable(h, &enemy_pos),
-                        |h| can_stop_on(h, &all_occupied, None),
-                    )
+                    let env = MovementEnv { enemy_positions, stop_blockers };
+                    reach_from(actor_pos, ap.movement_points, &env).destinations
                 } else {
                     HashSet::new()
                 }

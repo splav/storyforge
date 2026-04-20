@@ -1,24 +1,24 @@
-//! Shared BFS reach helper for the AI planner.
+//! Snapshot→`MovementEnv` adapter for the AI planner.
 //!
 //! Both the beam-search generator (which walks a `SimState`) and the fallback
-//! move handler (which starts from the original snapshot) used to ship their
-//! own copies of the same pathfinding setup: pull enemy positions for
-//! `is_passable`, pull all non-self occupied tiles + corpses for
-//! `can_stop_on`, and hand them to `reachable_with_paths`. One place, not two.
+//! move handler start from a `BattleSnapshot`; they share this adapter so the
+//! "which tiles block pass-through / stopping" translation lives once.
+//!
+//! The BFS itself lives in `game/pathfinding::reach_from`; this file just
+//! builds the env and delegates. Kept here (rather than in pathfinding) so
+//! the shared layer stays ignorant of `BattleSnapshot` / `UnitSnapshot`.
 
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::game::hex::{can_stop_on, is_passable, Hex};
-use crate::game::pathfinding::{reachable_with_paths, ReachableMap};
+use crate::game::hex::Hex;
+use crate::game::pathfinding::{reach_from as reach_from_env, MovementEnv, ReachableMap};
 use std::collections::HashSet;
 
 /// BFS from `actor.pos` with the planner's passability / stop rules:
 ///
-/// - `is_passable` rejects enemy-occupied tiles (walk-through blocked).
-/// - `can_stop_on` rejects any non-actor occupied tile, plus `blocked_tiles`
-///   (which carries real-world corpses the snapshot already pruned).
-///
-/// The actor itself is never added to the occupied set — standing on one's
-/// own tile is legal, and a zero-MP reach should still include it.
+/// - Enemy tiles block **pass-through** (walked through but not landable).
+/// - Every non-actor tile (enemy, ally, corpse via `blocked_tiles`) blocks
+///   **stopping**. The actor's own tile stays legal so a zero-MP reach still
+///   includes it.
 pub fn reach_from(
     snap: &BattleSnapshot,
     actor: &UnitSnapshot,
@@ -28,20 +28,16 @@ pub fn reach_from(
         .enemies_of(actor.team)
         .map(|u| u.pos)
         .collect();
-    let mut all_occupied: HashSet<Hex> = snap
+    let mut stop_blockers: HashSet<Hex> = snap
         .units
         .iter()
         .filter(|u| u.entity != actor.entity)
         .map(|u| u.pos)
         .collect();
-    all_occupied.extend(blocked_tiles.iter().copied());
+    stop_blockers.extend(blocked_tiles.iter().copied());
 
-    reachable_with_paths(
-        actor.pos,
-        actor.movement_points,
-        move |h| is_passable(h, &enemy_positions),
-        move |h| can_stop_on(h, &all_occupied, None),
-    )
+    let env = MovementEnv { enemy_positions, stop_blockers };
+    reach_from_env(actor.pos, actor.movement_points, &env)
 }
 
 #[cfg(test)]
