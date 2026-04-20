@@ -81,12 +81,17 @@ impl SimState {
             .find(|u| u.entity == entity && u.is_alive())
     }
 
-    /// Apply one plan step to the simulated state, returning per-step effects.
+    /// Apply one plan step to the simulated state, returning per-step
+    /// effects. `disadvantage` propagates into `compute_ability_outcome`
+    /// and through to `ExpectedValue::roll_dice`, which discounts the
+    /// dice roll using `DiceExpr::expected_disadvantage` (per-die
+    /// formula).
     pub fn apply_step(
         &mut self,
         step: &PlanStep,
         caster_ctx: &CasterContext,
         content: &ContentView,
+        disadvantage: bool,
     ) -> StepOutcome {
         match step {
             PlanStep::Move { path } => self.apply_move(path),
@@ -98,7 +103,7 @@ impl SimState {
                 let Some(def) = content.abilities.get(ability) else {
                     return StepOutcome::default();
                 };
-                self.apply_cast(def, *target, *target_pos, caster_ctx, content)
+                self.apply_cast(def, *target, *target_pos, caster_ctx, content, disadvantage)
             }
         }
     }
@@ -124,6 +129,7 @@ impl SimState {
         target_pos: Hex,
         caster_ctx: &CasterContext,
         content: &ContentView,
+        disadvantage: bool,
     ) -> StepOutcome {
         let mut outcome = StepOutcome::default();
 
@@ -155,7 +161,7 @@ impl SimState {
         let mut dice = ExpectedValue;
         let ability_outcome = compute_ability_outcome(
             self.actor, def, affected, caster_ctx,
-            /* disadvantage */ false,
+            disadvantage,
             /* crit_failed */ false,
             &CritFailEffect::Miss,
             &mut dice,
@@ -438,7 +444,7 @@ mod tests {
             target: target_id,
             target_pos: hex_from_offset(1, 0),
         };
-        let outcome = sim.apply_step(&step, &ctx(4, 0), &content);
+        let outcome = sim.apply_step(&step, &ctx(4, 0), &content, false);
 
         let t = sim.snapshot.unit(target_id).unwrap();
         assert_eq!(t.hp, 14, "20 - 6 dealt = 14, got hp={}", t.hp);
@@ -474,7 +480,7 @@ mod tests {
             target: target_id,
             target_pos: hex_from_offset(1, 0),
         };
-        let outcome = sim.apply_step(&step, &ctx(0, 0), &content);
+        let outcome = sim.apply_step(&step, &ctx(0, 0), &content, false);
 
         let t = sim.snapshot.unit(target_id).unwrap();
         assert_eq!(t.hp, 19, "expected 1-damage floor to land, got hp={}", t.hp);
@@ -508,7 +514,7 @@ mod tests {
             target: target_id,
             target_pos: hex_from_offset(1, 0),
         };
-        let outcome = sim.apply_step(&step, &ctx(4, 0), &content);
+        let outcome = sim.apply_step(&step, &ctx(4, 0), &content, false);
 
         assert_eq!(outcome.killed, vec![target_id]);
         // Corpse stays in the snapshot with hp=0 (lift-prune: snapshot is the
@@ -549,7 +555,7 @@ mod tests {
             target: ally_id,
             target_pos: hex_from_offset(1, 0),
         };
-        let outcome = sim.apply_step(&step, &ctx(0, 2), &content);
+        let outcome = sim.apply_step(&step, &ctx(0, 2), &content, false);
 
         let a = sim.snapshot.unit(ally_id).unwrap();
         assert_eq!(a.hp, 20, "heal must clamp to max_hp");
@@ -590,6 +596,7 @@ mod tests {
             },
             &ctx(0, 2),
             &content,
+            false,
         );
 
         let a = sim.snapshot.unit(actor_id).unwrap();
@@ -609,6 +616,7 @@ mod tests {
             &PlanStep::Move { path: vec![hex_from_offset(1, 0), target] },
             &ctx(0, 0),
             &content,
+            false,
         );
 
         assert!(outcome.moved);
@@ -667,6 +675,7 @@ mod tests {
             },
             &ctx(0, 0),
             &content,
+            false,
         );
 
         assert_eq!(outcome.stunned, vec![target_id]);
@@ -726,6 +735,7 @@ mod tests {
             },
             &ctx(0, 2),
             &content,
+            false,
         );
 
         let t = sim.snapshot.unit(ally_id).unwrap();
@@ -814,6 +824,7 @@ mod tests {
             },
             &ctx(0, 0),
             &content,
+            false,
         );
 
         let t_mid = sim.snapshot.unit(target_id).unwrap();
@@ -833,6 +844,7 @@ mod tests {
             },
             &ctx(4, 0),
             &content,
+            false,
         );
 
         let t_after = sim.snapshot.unit(target_id).unwrap();
@@ -878,6 +890,7 @@ mod tests {
             },
             &ctx(0, 0),
             &content,
+            false,
         );
 
         assert_eq!(outcome.hits, 2, "radius-1 centered at (3,0) covers both (3,0) and (4,0)");
@@ -910,6 +923,7 @@ mod tests {
             },
             &ctx(0, 0),
             &content,
+            false,
         );
 
         let a = sim.snapshot.unit(actor_id).unwrap();

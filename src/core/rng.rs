@@ -88,6 +88,31 @@ impl DiceExpr {
     pub fn expected(&self) -> f32 {
         self.count as f32 * (self.sides as f32 + 1.0) / 2.0 + self.bonus as f32
     }
+
+    /// Expected value under disadvantage, **per-die** semantics: each die
+    /// is rolled twice, the lower of the two values kept, then summed.
+    /// Closed form: `N · (S+1)(2S+1) / (6S) + bonus`.
+    ///
+    /// **Caveat — divergence with the live resolver.** Right now
+    /// `roll_dice_disadvantage` (live path) computes per-sum disadvantage:
+    /// the entire `NdS` is rolled twice and the lower **total** kept. For
+    /// `N > 1` per-sum is mathematically a softer discount than per-die
+    /// (e.g. 2d6: per-sum E≈5.63, per-die E=5.06). Until the live mechanic
+    /// is reconciled, AI scoring under-estimates damage on disadvantage
+    /// casts of multi-die abilities by ~10%. Single-die abilities
+    /// (the common case) match exactly. Tracked as a follow-up; for
+    /// scoring purposes the directional signal — "disadvantage hurts" —
+    /// is right either way.
+    pub fn expected_disadvantage(&self) -> f32 {
+        let n = self.count as f32;
+        let k = self.sides as f32;
+        if n <= 0.0 || k <= 0.0 {
+            return self.bonus as f32;
+        }
+        // E[min of 2 rolls of 1dK] = (K+1)(2K+1) / (6K)
+        let single_die_min = (k + 1.0) * (2.0 * k + 1.0) / (6.0 * k);
+        n * single_die_min + self.bonus as f32
+    }
 }
 
 #[cfg(test)]
@@ -120,5 +145,22 @@ mod tests {
             let r = rng.roll(&expr);
             assert!((5..=20).contains(&r), "3d6+2 rolled {r}");
         }
+    }
+
+    /// Pin per-die semantics — for 2d6 per-die gives ≈5.06 while per-sum
+    /// (`min` of two 2d6 totals) gives ≈5.63. Regressing to per-sum would
+    /// silently shift AI damage estimates; this asserts we stay per-die.
+    /// Single-die formula is a tautology (1d6 = 91/36 by both sides of the
+    /// equation) — not worth asserting separately.
+    #[test]
+    fn expected_disadvantage_is_per_die_not_per_sum() {
+        let two_d6 = DiceExpr::new(2, 6, 4);
+        // per-die: 2 × 91/36 + 4 ≈ 9.056. per-sum would be ≈9.63.
+        let got = two_d6.expected_disadvantage();
+        assert!(
+            (got - (91.0 / 18.0 + 4.0)).abs() < 0.01,
+            "per-die 2d6+4 ≈ 9.056, got {got}",
+        );
+        assert!(got < two_d6.expected(), "disadv must be strictly less than normal");
     }
 }

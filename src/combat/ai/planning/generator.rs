@@ -88,6 +88,16 @@ pub fn generate_plans(
             // stable for the whole plan extension loop.
             let caster_ctx = sa.caster_ctx.clone();
 
+            // Reuse the same `state` adapter the inner enumerator builds —
+            // it captures `&base_sim.snapshot`, exactly the world this step
+            // fires against. Re-querying check_legality here pulls the
+            // disadvantage flag (disoriented status, short-range penalty)
+            // for the cast about to apply.
+            let pre_step_state = SnapshotActionState {
+                content: ctx.content,
+                snap: &base_sim.snapshot,
+            };
+
             let steps = enumerate_next_steps(&base_sim, ctx, maps);
             for step in steps {
                 // Apply this step on a cloned sim to measure outcome + state.
@@ -95,7 +105,21 @@ pub fn generate_plans(
                     snapshot: base_sim.snapshot.clone(),
                     actor,
                 };
-                let outcome = ext_sim.apply_step(&step, &caster_ctx, ctx.content);
+                let disadvantage = match &step {
+                    PlanStep::Cast { ability, target, target_pos } => {
+                        let proposal = ProposedAction {
+                            actor,
+                            ability,
+                            target: *target,
+                            target_pos: *target_pos,
+                        };
+                        check_legality(proposal, &pre_step_state)
+                            .map(|legal| legal.disadvantage)
+                            .unwrap_or(false)
+                    }
+                    PlanStep::Move { .. } => false,
+                };
+                let outcome = ext_sim.apply_step(&step, &caster_ctx, ctx.content, disadvantage);
 
                 let (final_pos, residual_ap, residual_mp) = match ext_sim.actor_unit() {
                     Some(u) => (u.pos, u.action_points, u.movement_points),
@@ -1246,6 +1270,98 @@ mod tests {
             has_close_cast,
             "rank_targets must dig past illegal top-K to find the legal close target",
         );
+    }
+
+    /// Disadvantage (from `causes_disadvantage` status) must discount the
+    /// damage estimate on every Cast step in generated plans. Baseline
+    /// (no status) vs dis-status run of the same setup: dis damage should
+    /// be strictly less. Closes arch-audit divergence A2 — AI was
+    /// over-estimating disoriented unit's damage.
+    #[test]
+    fn disadvantage_status_discounts_plan_damage_estimate() {
+        use crate::combat::ai::snapshot::ActiveStatusView;
+        use crate::content::statuses::StatusDef;
+        use crate::core::StatusId;
+
+        let base_actor = || unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
+        let target = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
+        let actor_id = base_actor().entity;
+
+        let def = AbilityDef {
+            id: AbilityId::from("strike"),
+            name: "strike".into(),
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 1 },
+            effect: EffectDef::Damage { dice: DiceExpr::new(2, 6, 0) },
+            costs: Vec::new(),
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: Vec::new(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            key: None,
+        };
+
+        let mut content = empty_content();
+        content.abilities.insert(def.id.clone(), def.clone());
+        content.statuses.insert(
+            StatusId::from("disoriented"),
+            StatusDef {
+                id: StatusId::from("disoriented"),
+                name: "disoriented".into(),
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                skips_turn: false,
+                forces_targeting: false,
+                dot_dice: None,
+                blocks_mana_abilities: false,
+                speed_bonus: 0,
+                hp_percent_dot: 0,
+                ai_controlled: false,
+                causes_disadvantage: true,
+            },
+        );
+
+        let mut difficulty = DifficultyProfile::normal();
+        difficulty.plan_max_depth = 1;
+        let ctx = make_ctx(&content, &difficulty);
+        let maps = empty_maps();
+
+        // Baseline: no status.
+        let snap_base = BattleSnapshot::new(vec![base_actor(), target.clone()], 1);
+        let plans_base = generate_plans(actor_id, &ctx, &snap_base, &maps);
+        let dmg_base: f32 = cast_damage_sum(&plans_base);
+
+        // Under disadvantage status.
+        let mut dis_actor = base_actor();
+        dis_actor.statuses.push(ActiveStatusView {
+            id: StatusId::from("disoriented"),
+            rounds_remaining: 3,
+            dot_per_tick: 0,
+        });
+        let snap_dis = BattleSnapshot::new(vec![dis_actor, target], 1);
+        let plans_dis = generate_plans(actor_id, &ctx, &snap_dis, &maps);
+        let dmg_dis: f32 = cast_damage_sum(&plans_dis);
+
+        assert!(
+            dmg_base > 0.0 && dmg_dis > 0.0,
+            "both runs must generate at least one Cast plan (base={dmg_base}, dis={dmg_dis})",
+        );
+        assert!(
+            dmg_dis < dmg_base,
+            "disadvantage must discount damage: base={dmg_base}, dis={dmg_dis}",
+        );
+    }
+
+    /// Helper: total cast damage across every Cast step in every plan.
+    fn cast_damage_sum(plans: &[TurnPlan]) -> f32 {
+        plans
+            .iter()
+            .flat_map(|p| p.outcomes.iter().zip(p.steps.iter()))
+            .filter(|(_, s)| matches!(s, PlanStep::Cast { .. }))
+            .map(|(o, _)| o.damage)
+            .sum()
     }
 
 }

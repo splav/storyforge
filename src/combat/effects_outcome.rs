@@ -46,14 +46,19 @@ impl DiceSource for RngDice<'_> {
 }
 
 /// Deterministic expected-value source for the planner. Returns
-/// `expr.expected().round() as i32`, empty breakdown. Disadvantage is ignored
-/// at this layer — sim treats it as the same EV (exact disadvantage EV needs
-/// pairwise min integration, overkill for planning).
+/// `expr.expected().round() as i32`, empty breakdown. Disadvantage swaps
+/// in `expected_disadvantage()` (per-die closed form — see
+/// `DiceExpr::expected_disadvantage` for the live-divergence note).
 pub struct ExpectedValue;
 
 impl DiceSource for ExpectedValue {
-    fn roll_dice(&mut self, expr: &DiceExpr, _disadvantage: bool) -> (i32, String) {
-        (expr.expected().round() as i32, String::new())
+    fn roll_dice(&mut self, expr: &DiceExpr, disadvantage: bool) -> (i32, String) {
+        let total = if disadvantage {
+            expr.expected_disadvantage().round() as i32
+        } else {
+            expr.expected().round() as i32
+        };
+        (total, String::new())
     }
 }
 
