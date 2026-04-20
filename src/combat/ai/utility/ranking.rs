@@ -176,3 +176,280 @@ impl PlanRanking {
         pick_best_plan(&self.scored, &self.raw_factors, world, rng)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::intent::IntentKind;
+    use crate::combat::ai::planning::PlanStep;
+    use crate::combat::ai::reservations::Reservations;
+    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_test_ctx, UnitBuilder};
+    use crate::core::AbilityId;
+    use crate::game::components::Team;
+    use crate::game::hex::hex_from_offset;
+
+    /// Single-plan ranking at the given intent-factor value. Plans contain no
+    /// steps, so any `rescore_with_intent` triggered by a fallback walks zero
+    /// cast-steps → intent_sum stays 0, scores finalize to a stable batch.
+    fn single_plan_ranking(
+        intent: TacticalIntent,
+        reason: IntentReason,
+        intent_factor: f32,
+    ) -> (Vec<TurnPlan>, PlanRanking) {
+        let plan = TurnPlan {
+            steps: Vec::new(),
+            final_pos: hex_from_offset(0, 0),
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: Vec::new(),
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+        let factors = PlanFactors { intent: intent_factor, ..PlanFactors::default() };
+        let ranking = PlanRanking {
+            intent,
+            intent_reason: reason,
+            scored: vec![0.5],
+            raw_factors: vec![factors],
+        };
+        (vec![plan], ranking)
+    }
+
+    fn move_plan(path: Vec<Hex>) -> TurnPlan {
+        TurnPlan {
+            steps: vec![PlanStep::Move { path }],
+            final_pos: hex_from_offset(0, 0),
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: Vec::new(),
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        }
+    }
+
+    // ── apply_viability ────────────────────────────────────────────────────
+
+    #[test]
+    fn apply_viability_above_threshold_is_noop() {
+        // Reposition threshold is 0.01. intent_factor=0.5 ≫ threshold → no
+        // fallback path is taken; ranking stays untouched.
+        let (plans, mut ranking) = single_plan_ranking(
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            0.5,
+        );
+        let active = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let snap = BattleSnapshot::new(vec![active.clone()], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
+
+        ranking.apply_viability(&plans, active.pos, &ctx);
+
+        assert!(matches!(ranking.intent, TacticalIntent::Reposition));
+        assert!(matches!(ranking.intent_reason, IntentReason::NoRuleDefault));
+    }
+
+    #[test]
+    fn apply_viability_midpanic_swaps_to_protect_self() {
+        // Low HP + high danger on the actor's tile. Intent factor 0.0 <
+        // Reposition threshold 0.01 → fallback path enters midpanic branch.
+        let (plans, mut ranking) = single_plan_ranking(
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            0.0,
+        );
+        let pos = hex_from_offset(0, 0);
+        let active = UnitBuilder::new(1, Team::Enemy, pos)
+            .hp(3)
+            .max_hp(20)
+            .build();
+        let snap = BattleSnapshot::new(vec![active.clone()], 1);
+        let mut maps = empty_maps();
+        maps.danger.add(pos, 1.0);
+        let reservations = Reservations::default();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
+
+        ranking.apply_viability(&plans, active.pos, &ctx);
+
+        assert!(matches!(ranking.intent, TacticalIntent::ProtectSelf));
+        assert!(
+            matches!(ranking.intent_reason, IntentReason::MidpanicFallback { .. }),
+            "expected MidpanicFallback, got {:?}", ranking.intent_reason,
+        );
+    }
+
+    #[test]
+    fn apply_viability_default_focus_switches_to_enemy() {
+        // Healthy actor in safe tile; Reposition intent has zero alignment.
+        // `default_focus_target` falls through to "any enemy by priority" and
+        // returns the single live enemy.
+        let (plans, mut ranking) = single_plan_ranking(
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            0.0,
+        );
+        let active = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(20).max_hp(20)
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0))
+            .hp(20).max_hp(20)
+            .threat(3.0)
+            .build();
+        let enemy_id = enemy.entity;
+        let snap = BattleSnapshot::new(vec![active.clone(), enemy], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
+
+        ranking.apply_viability(&plans, active.pos, &ctx);
+
+        match ranking.intent {
+            TacticalIntent::FocusTarget { target } => assert_eq!(target, enemy_id),
+            other => panic!("expected FocusTarget, got {:?}", other.kind()),
+        }
+        match ranking.intent_reason {
+            IntentReason::ViabilityFallback { from, .. } => assert_eq!(from, IntentKind::Reposition),
+            ref other => panic!("expected ViabilityFallback, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_viability_no_enemies_keeps_intent() {
+        // Low intent alignment but no live enemy for the fallback to pick —
+        // ranking must stay put (no FocusTarget on a nonexistent target).
+        let (plans, mut ranking) = single_plan_ranking(
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            0.0,
+        );
+        let active = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(20).max_hp(20)
+            .build();
+        let snap = BattleSnapshot::new(vec![active.clone()], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
+
+        ranking.apply_viability(&plans, active.pos, &ctx);
+
+        assert!(matches!(ranking.intent, TacticalIntent::Reposition));
+        assert!(matches!(ranking.intent_reason, IntentReason::NoRuleDefault));
+    }
+
+    // ── apply_protect_self ─────────────────────────────────────────────────
+
+    #[test]
+    fn apply_protect_self_masks_non_defensive_and_preserves_reason() {
+        // Two plans: empty-steps (defensive by convention) + move into
+        // dangerous tile (non-defensive). Mask sends the second to -inf;
+        // `any_defensive=true` so no LastStand rescore, reason untouched.
+        let pos = hex_from_offset(0, 0);
+        let bad = hex_from_offset(3, 0);
+        let defensive = TurnPlan {
+            steps: Vec::new(),
+            final_pos: pos,
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: Vec::new(),
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+        let aggressive = move_plan(vec![bad]);
+        let plans = vec![defensive, aggressive];
+        let mut ranking = PlanRanking {
+            intent: TacticalIntent::ProtectSelf,
+            intent_reason: IntentReason::Urgency { hp_pct: 0.3, danger: 0.8 },
+            scored: vec![0.5, 0.7],
+            raw_factors: vec![PlanFactors::default(), PlanFactors::default()],
+        };
+        let active = UnitBuilder::new(1, Team::Enemy, pos).hp(5).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![active.clone()], 1);
+        let mut maps = empty_maps();
+        maps.danger.add(bad, 2.0);
+        let reservations = Reservations::default();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
+
+        ranking.apply_protect_self(&plans, &ctx);
+
+        assert_eq!(ranking.scored[0], 0.5, "defensive plan score preserved");
+        assert!(ranking.scored[1].is_infinite() && ranking.scored[1] < 0.0, "non-defensive masked to -inf");
+        assert!(matches!(ranking.intent, TacticalIntent::ProtectSelf));
+        assert!(
+            matches!(ranking.intent_reason, IntentReason::Urgency { .. }),
+            "reason untouched when defensive option exists",
+        );
+    }
+
+    #[test]
+    fn apply_protect_self_no_defensive_wraps_reason_in_last_stand() {
+        // All plans non-defensive (cast at enemy ability that isn't
+        // ally-targeted). Mask stores no `any_defensive=true` hit → rescore
+        // under LastStand + wrap reason as LastStandAfter.
+        let pos = hex_from_offset(0, 0);
+        let enemy_pos = hex_from_offset(1, 0);
+        let aggressive = TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: AbilityId::from("strike"),
+                target: crate::combat::ai::test_helpers::ent(2),
+                target_pos: enemy_pos,
+            }],
+            final_pos: pos,
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: Vec::new(),
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+        let plans = vec![aggressive];
+        let prior_reason = IntentReason::Urgency { hp_pct: 0.2, danger: 0.9 };
+        let mut ranking = PlanRanking {
+            intent: TacticalIntent::ProtectSelf,
+            intent_reason: prior_reason.clone(),
+            scored: vec![0.7],
+            raw_factors: vec![PlanFactors::default()],
+        };
+        let active = UnitBuilder::new(1, Team::Enemy, pos).hp(3).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![active.clone()], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        // `apply_protect_self_mask` looks up the ability to decide defensive;
+        // missing ability def returns `false` (non-defensive), which is what
+        // this test wants — cheaper than configuring a real ability.
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
+
+        ranking.apply_protect_self(&plans, &ctx);
+
+        // Intent stays ProtectSelf — LastStand is only a rescore lens.
+        assert!(matches!(ranking.intent, TacticalIntent::ProtectSelf));
+        match ranking.intent_reason {
+            IntentReason::LastStandAfter { prior } => {
+                assert!(
+                    matches!(*prior, IntentReason::Urgency { .. }),
+                    "expected prior=Urgency, got {:?}", prior,
+                );
+            }
+            ref other => panic!("expected LastStandAfter, got {:?}", other),
+        }
+    }
+}
