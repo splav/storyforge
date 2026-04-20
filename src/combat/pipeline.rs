@@ -11,7 +11,8 @@ use crate::ui;
 
 use super::{
     advance_turn, apply_effects, auras, command_input, enemy_popup, movement, phases, resolution,
-    skip_dead, spawn, start_combat_system, turn_order, turn_start, validation, CombatStep,
+    skip_dead, spawn, start_combat_system, status_tick, turn_order, turn_start, validation,
+    CombatStep,
 };
 
 pub struct CombatPipelinePlugin;
@@ -47,6 +48,7 @@ impl Plugin for CombatPipelinePlugin {
             Update,
             (
                 turn_start::turn_start_system,
+                status_tick::tick_status_effects_system,
                 skip_dead::skip_dead_turn_system,
                 skip_dead::skip_stunned_turn_system,
                 auras::apply_auras_system,

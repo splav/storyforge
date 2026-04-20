@@ -7,7 +7,7 @@ use storyforge::app_state::CombatPhase;
 use storyforge::game::bundles::enemy_bundle;
 use storyforge::core::DiceRng;
 use storyforge::content::encounters::{PhaseDef, PhaseTrigger};
-use storyforge::game::components::{ActiveCombatant, CombatStats, Dead, EnemyPhases, Energy, Mana, Rage, Vital};
+use storyforge::game::components::{ActiveCombatant, ActiveStatus, CombatStats, Dead, EnemyPhases, Energy, Mana, Rage, StatusEffects, Vital};
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::messages::{ApplyDamage, ApplyHeal, EndTurn, ValidatedAction};
 use storyforge::game::resources::{HexPositions, TurnQueue};
@@ -513,6 +513,83 @@ fn lethal_damage_triggers_phase_revive_and_renames() {
     assert_eq!(app.world().get::<Name>(boss).unwrap().as_str(), "Эхо");
     let phases = app.world().get::<EnemyPhases>(boss).unwrap();
     assert!(phases.pending.is_empty(), "phase consumed after firing");
+}
+
+#[test]
+fn dot_tick_lethal_damage_still_triggers_phase_revive() {
+    // Regression: босса с KillTarget-фазой добивало DoT-тиком, и бой
+    // схлопывался в Victory до фазового перехода. После фикса DoT-тик
+    // переехал в `tick_status_effects_system` на `TurnStart` повесившего —
+    // падение HP случается в начале того же кадра, в `Execute` того же
+    // кадра `phase_transition_system` успевает оживить босса до
+    // victory-check в `advance_turn_system` (Finalize).
+    let mut app = effects_app();
+    insert_poison_status(&mut app);
+
+    let hero = app
+        .world_mut()
+        .spawn((Name::new("Hero"), test_hero(base_stats())))
+        .id();
+
+    let boss_stats = CombatStats { max_hp: 10, ..base_stats() };
+    let phased_stats = CombatStats { max_hp: 20, ..base_stats() };
+    let boss = app
+        .world_mut()
+        .spawn((
+            Name::new("Босс"),
+            test_enemy(boss_stats),
+            EnemyPhases {
+                pending: vec![PhaseDef {
+                    trigger: PhaseTrigger::HpBelowPct(1),
+                    name: Some("Эхо".into()),
+                    stats: Some(phased_stats),
+                    ability_ids: None,
+                    ai_role: None,
+                    heal_to_full: true,
+                    flavor: None,
+                }],
+            },
+        ))
+        .id();
+
+    // Сильный яд от героя — добьёт босса одним тиком.
+    app.world_mut()
+        .get_mut::<StatusEffects>(boss)
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: "poisoned".into(),
+            rounds_remaining: 2,
+            applier: hero,
+            dot_per_tick: 50,
+        });
+
+    {
+        let mut q = app.world_mut().resource_mut::<TurnQueue>();
+        q.order = vec![hero, boss];
+        q.index = 0;
+    }
+    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+
+    // Первый update: новый ActiveCombatant=hero → `tick_status_effects`
+    // в TurnStart добивает босса ядом, `phase_transition_system` в Execute
+    // того же кадра оживляет по HpBelowPct, `advance_turn_system` в Finalize
+    // видит уже живого босса → Victory не срабатывает.
+    write_message(&mut app, EndTurn { actor: hero });
+    app.update();
+
+    assert_ne!(
+        *app.world().resource::<State<CombatPhase>>().get(),
+        CombatPhase::Victory,
+        "combat must not end — phase should revive DoT-killed boss",
+    );
+    let vital = app.world().get::<Vital>(boss).unwrap();
+    assert_eq!(vital.hp, 20, "phase heals to new max_hp after DoT kill");
+    assert_eq!(vital.max_hp, 20);
+    assert!(app.world().get::<Dead>(boss).is_none(), "Dead cleared on phase entry");
+    assert_eq!(app.world().get::<Name>(boss).unwrap().as_str(), "Эхо");
+    let phases = app.world().get::<EnemyPhases>(boss).unwrap();
+    assert!(phases.pending.is_empty(), "phase consumed");
 }
 
 #[test]

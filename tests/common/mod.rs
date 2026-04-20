@@ -14,6 +14,7 @@ use storyforge::combat::{
     phases::phase_transition_system,
     resolution::resolve_action_system,
     skip_dead::skip_stunned_turn_system,
+    status_tick::tick_status_effects_system,
     validation::validate_action_system,
 };
 use storyforge::content::content_view::ActiveContent;
@@ -129,7 +130,12 @@ pub fn effects_app() -> App {
         .add_message::<SpawnUnit>()
         .add_systems(
             Update,
-            (apply_effects_system, phase_transition_system, advance_turn_system)
+            (
+                tick_status_effects_system,
+                apply_effects_system,
+                phase_transition_system,
+                advance_turn_system,
+            )
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand)),
         );
@@ -198,6 +204,7 @@ pub fn stun_app() -> App {
         .add_systems(
             Update,
             (
+                tick_status_effects_system,
                 skip_stunned_turn_system,
                 enemy_ai_system,
                 apply_effects_system,

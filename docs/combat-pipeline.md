@@ -7,7 +7,7 @@ Systems in `CombatPhase::AwaitCommand`, grouped by `CombatStep` sets, gated by `
 Регистрация — в `combat::pipeline::CombatPipelinePlugin` (`src/combat/pipeline.rs`): plugin инкапсулирует `configure_sets` и `add_systems` для StartRound и всех четырёх `CombatStep`. `main.rs` подключает его одной строкой `.add_plugins(CombatPipelinePlugin)`.
 
 ```
-TurnStart: turn_start → skip_dead → skip_stunned → apply_auras
+TurnStart: turn_start → tick_status_effects → skip_dead → skip_stunned → apply_auras
 Command:   pact_ai → player_command ∥ enemy_ai
 Execute:   movement → validate → resolve → apply_effects → apply_spawn → phase_transition
 Finalize:  queue_enemy_popup ∥ advance_turn
@@ -38,13 +38,27 @@ Finalize:  queue_enemy_popup ∥ advance_turn
                     apply_effects_system
                     (armor, rage +1, death check)
                               │
+                    phase_transition_system
+                    (HpBelowPct → revive / retrain; ловит как урон
+                    из apply_effects, так и DoT-смерть от тика
+                    предыдущего TurnStart)
+                              │
                     queue_enemy_popup
                     (if enemy used ability → PendingAnim::Popup)
                               │
                          EndTurn { actor }
                               │
                     advance_turn_system
-                    (tick statuses, victory/defeat, next actor, reset AP)
+                    (apply new statuses, victory/defeat, next actor, reset AP)
+
+--- следующий кадр (новый активный) ---
+
+                    tick_status_effects_system (TurnStart)
+                    (однократно при смене ActiveCombatant:
+                    тикает все статусы, где applier == active;
+                    DoT-урон → Dead; ход наложения не тикается,
+                    так как свежий статус попадает в effects только
+                    в advance_turn того же кадра — позже, чем тик)
 ```
 
 ## System Details
@@ -126,18 +140,26 @@ Processes `SpawnUnit` messages emitted by `resolve_action_system` for `EffectDef
 
 On success: spawns the combatant entity with full bundle + `SummonedBy(caster)`, inserts into `HexPositions`, spawns a `UnitToken` (the normal `assign_hex_positions` path only runs at StartRound and is intentionally skipped here). New unit joins the turn queue at the next StartRound with `Initiative(0)`.
 
+### tick_status_effects_system
+Runs in `TurnStart` **after** `turn_start_system` and **before** `skip_dead_turn_system` / `apply_auras_system`. Срабатывает один раз при смене `ActiveCombatant` (`Local<Option<Entity>>`-паттерн): тикает все статусы, где `applier == active`. DoT/percent-DoT наносят урон напрямую (лог `PoisonTick`), на HP≤0 ставит `Dead`, истёкшие удаляет с логом `StatusExpired`.
+
+Почему тик на **TurnStart повесившего**, а не на его же EndTurn:
+
+* Падение HP от DoT оказывается в самом начале кадра — `phase_transition_system` в `Execute` того же кадра успевает оживить фазированного босса до `check_combat_end` в `advance_turn_system` (`Finalize`). Без этого порядка умерший от яда босс-мишень схлопывал бой в `Victory` до фазового перехода.
+* Семантика «длительность в ходах повесившего» сохраняется: новые статусы попадают в `StatusEffects` только в `advance_turn_system` (Finalize), то есть **позже** тика этого же кадра. Первый тик свежеприменённого статуса происходит на **следующем** TurnStart повесившего, а не в ходе наложения.
+* Ставится **до** `apply_auras`, чтобы стек-листы свежих аура-статусов (`rounds=1`, applier=source) не тикались в тот же кадр, в котором были выставлены.
+
 ### phase_transition_system
 Runs in `Execute` **after** `apply_effects_system` and **before** `advance_turn_system`. For each enemy with pending `EnemyPhases`: if the first phase's trigger fires (`HpBelowPct`), the phase is applied in-place (new `CombatStats`, `Abilities`, `AxisProfile`, optional heal-to-full, name rename, `Dead` removal). Emits `CombatEvent::PhaseEntered { prev_name, next_name, flavor }` which `queue_enemy_popup` turns into a popup. The `VictoryTarget` marker is NOT removed on transition — a `kill_target` boss must be defeated through all phases.
 
 ### advance_turn_system
-Checks victory via `CombatObjective`: `AllEnemiesDead` (no living enemy) or `KillTarget` (no living entity with `VictoryTarget`). Players alive check is shared.
+1. Apply pending new statuses (from ApplyStatus messages); skip Dead targets
+2. Check victory via `CombatObjective`: `AllEnemiesDead` (no living enemy) or `KillTarget` (no living entity with `VictoryTarget`); defeat when no players alive → `CombatPhase::Victory/Defeat`
+3. Advance queue index, skipping Dead entities; orphaned statuses applied by Dead units still tick during the scan so they expire on schedule
+4. Recheck victory (orphan ticks may have killed the last remaining unit)
+5. Insert `ActiveCombatant` on next actor, reset `ap.action = true`, `ap.movement = true`; wrapped queue → `CombatPhase::StartRound`
 
-### advance_turn_system
-1. Tick existing statuses: decrement `rounds_remaining` for statuses applied by the current actor
-2. Apply pending new statuses (from ApplyStatus messages)
-3. Check victory (all enemies dead) → `CombatPhase::Victory` / defeat (all players dead) → `CombatPhase::Defeat`
-4. Advance queue index; if wrapped → StartRound
-5. Insert `ActiveCombatant` on next actor, reset `ap.action = true`, `ap.movement = true`
+DoT-тик активного бойца живёт в `tick_status_effects_system` (TurnStart); `advance_turn` его не применяет, а только тикает осиротевшие статусы от мёртвых в queue-скане (шаг 3).
 
 ## Animation & Pipeline Blocking
 

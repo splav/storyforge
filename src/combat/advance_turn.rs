@@ -13,8 +13,12 @@ use crate::game::resources::{CombatObjective, TurnQueue};
 use bevy::prelude::*;
 
 /// Consumes EndTurn and ApplyStatus messages.
-/// Ticks existing statuses FIRST, then applies new ones (no +1 hack needed).
-/// Checks win/lose, advances the turn queue.
+/// Applies new statuses, checks win/lose, advances the turn queue.
+///
+/// DoT ticks for statuses applied by a combatant fire at that combatant's
+/// next `TurnStart` (see `status_tick::tick_status_effects_system`), not here.
+/// Это даёт `phase_transition_system` в `Execute` того же кадра возможность
+/// оживить фазированного босса до victory-check ниже.
 pub fn advance_turn_system(
     mut commands: Commands,
     mut end_turn_events: MessageReader<EndTurn>,
@@ -46,50 +50,7 @@ pub fn advance_turn_system(
 
     log.push(CombatEvent::TurnEnded { actor });
 
-    // 1. Tick EXISTING statuses applied by this actor (before new ones are added).
-    let tick_results = tick_status_durations(actor, &mut statuses, &content);
-    // Apply DoT damage and log expired statuses.
-    {
-        let mut vitals = queries.p0();
-        for result in &tick_results {
-            match result {
-                TickResult::DotDamage { target, damage, status } => {
-                    if let Ok(mut v) = vitals.get_mut(*target) {
-                        v.apply_damage(*damage);
-                        log.push(CombatEvent::PoisonTick {
-                            target: *target,
-                            status: status.clone(),
-                            damage: *damage,
-                        });
-                        if !v.is_alive() {
-                            commands.entity(*target).insert(Dead);
-                            log.push(CombatEvent::UnitDied { entity: *target });
-                        }
-                    }
-                }
-                TickResult::PercentDot { target, percent, status } => {
-                    if let Ok(mut v) = vitals.get_mut(*target) {
-                        let damage = percent_dot_damage(v.max_hp, *percent);
-                        v.apply_damage(damage);
-                        log.push(CombatEvent::PoisonTick {
-                            target: *target,
-                            status: status.clone(),
-                            damage,
-                        });
-                        if !v.is_alive() {
-                            commands.entity(*target).insert(Dead);
-                            log.push(CombatEvent::UnitDied { entity: *target });
-                        }
-                    }
-                }
-                TickResult::Expired { target, status } => {
-                    log.push(CombatEvent::StatusExpired { target: *target, status: status.clone() });
-                }
-            }
-        }
-    }
-
-    // 2. Apply NEW statuses (skip dead targets).
+    // 1. Apply NEW statuses (skip dead targets).
     for (source, target, status, duration) in &status_apps {
         if dead_q.get(*target).is_ok() {
             continue;
@@ -109,13 +70,13 @@ pub fn advance_turn_system(
         }
     }
 
-    // 3. Win/lose check.
+    // 2. Win/lose check.
     if let Some(outcome) = check_combat_end(&queries.p1(), &objective.0) {
         end_combat(outcome, &mut log, &mut next_phase);
         return;
     }
 
-    // 4. Advance to next living combatant.
+    // 3. Advance to next living combatant.
     // Dead entities are skipped, but we still tick their orphaned statuses
     // so that effects they applied continue to expire on schedule.
     let start_idx = queue.index;
@@ -174,14 +135,14 @@ pub fn advance_turn_system(
         }
     }
 
-    // 5. Recheck win/lose — DoT during the advance loop may have killed
+    // 4. Recheck win/lose — DoT during the advance loop may have killed
     //    the last remaining player or enemy.
     if let Some(outcome) = check_combat_end(&queries.p1(), &objective.0) {
         end_combat(outcome, &mut log, &mut next_phase);
         return;
     }
 
-    // 6. Hand off to the next actor or start a new round.
+    // 5. Hand off to the next actor or start a new round.
     for e in &active_q { commands.entity(e).remove::<ActiveCombatant>(); }
 
     if queue.index == 0 {
@@ -265,7 +226,7 @@ pub(crate) enum TickResult {
 }
 
 /// Bevy wrapper: iterates all entities and delegates per-entity tick logic.
-fn tick_status_durations(
+pub(crate) fn tick_status_durations(
     actor: Entity,
     statuses: &mut Query<(Entity, &mut StatusEffects)>,
     content: &ContentView,

@@ -14,6 +14,7 @@ pub mod pipeline;
 pub mod resolution;
 pub mod spawn;
 pub mod skip_dead;
+pub mod status_tick;
 pub mod turn_order;
 pub mod turn_start;
 pub mod validation;
