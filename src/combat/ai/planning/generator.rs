@@ -9,6 +9,8 @@
 //! No persistent state: every tick starts fresh. Revalidation of a committed
 //! plan lives in Phase 4.
 
+use crate::combat::actions::{check_legality, ProposedAction};
+use crate::combat::ai::action_state::SnapshotActionState;
 use crate::combat::ai::factors::{aoe_area, aoe_hits};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::sim::SimState;
@@ -22,6 +24,24 @@ use crate::game::hex::Hex;
 use crate::game::pathfinding::ReachableMap;
 use bevy::prelude::Entity;
 use std::collections::{HashMap, HashSet};
+
+// TODO(arch-debt, A): `rank_targets` picks top-K before `check_legality`
+// filters illegal ones. If every top-K target happens to be out of range /
+// blocked by taunt / otherwise illegal, this ability yields 0 candidates
+// even when a legal (but lower-ranked) target exists. The old code had the
+// same failure mode (pick_targets top-K → is_valid_cast filter), so this is
+// status quo — but worth a fixup: either fold a cheap legality pre-filter
+// into the ranker or expand top-K until K legal survivors.
+
+// TODO(arch-debt, B): the actor's ability list lives in two places —
+// `ctx.actor.abilities` (borrow from the Bevy `Abilities` component, used
+// to iterate castable abilities in `enumerate_next_steps`) and
+// `UnitSnapshot.abilities` (owned, used by `SnapshotActionState::
+// actor_knows_ability`). In production both are built from the same
+// component so they stay synced; in tests they can silently drift. Fix:
+// drop `ctx.actor.abilities` and read from the snapshot. Blocked by
+// `UtilityContext.actor.abilities` being a borrow — collapsing it means
+// reshaping `ActorCtx`.
 
 // Per-step target + move-tile budgets. Composition matters more than the
 // gross count: target enumeration combines a threat-ranked list (focus the
@@ -203,6 +223,15 @@ fn total_mp_cost(plan: &TurnPlan) -> i32 {
 /// All legal next steps from the current sim state: castable abilities (each
 /// with a top-K target set) + top-M move tiles. Bounded by MAX_* constants so
 /// branching stays low even with many abilities.
+///
+/// Two layers of filtering:
+/// 1. **Game-rule legality** — `check_legality` (shared with player-side
+///    validation) handles AP/resources/range/team/taunt/blocks-mana-status
+///    uniformly. Anything it rejects is simply not a legal action; we never
+///    waste a beam slot on it.
+/// 2. **AI policy** — `ai_policy_ok` is the heuristic layer that rejects
+///    legal-but-suboptimal casts (overheal, wasted CC, bad AoE FF ratio).
+///    Player is free to do any of these; AI doesn't plan through them.
 fn enumerate_next_steps(
     sim: &SimState,
     ctx: &UtilityContext,
@@ -213,24 +242,28 @@ fn enumerate_next_steps(
     };
     let mut steps: Vec<PlanStep> = Vec::new();
 
-    // Hoisted once out of the ability × target loop: which enemy (if any) is
-    // taunting us? `is_valid_cast` used to re-scan all enemies per candidate,
-    // making taunt-filtering quadratic over (abilities × targets).
-    let taunter = sim
-        .snapshot
-        .enemies_of(actor.team)
-        .find(|e| e.tags.contains(AiTags::FORCES_TARGETING))
-        .map(|e| e.entity);
+    // Single ActionState adapter reused for every candidate this tick.
+    let state = SnapshotActionState {
+        content: ctx.world.content,
+        snap: &sim.snapshot,
+    };
+    let actor_entity = actor.entity;
 
     // Cast steps from the actor's current sim position.
     for ability_id in &ctx.actor.abilities.0 {
         let Some(def) = ctx.world.content.abilities.get(ability_id) else { continue };
-        if !actor.can_afford(def) {
-            continue;
-        }
-        let targets = pick_targets(def, actor, sim);
+        let targets = rank_targets(def, actor, sim);
         for (target, target_pos) in targets {
-            if !is_valid_cast(def, actor, target, target_pos, sim, ctx, taunter) {
+            let proposal = ProposedAction {
+                actor: actor_entity,
+                ability: ability_id,
+                target,
+                target_pos,
+            };
+            if check_legality(proposal, &state).is_err() {
+                continue;
+            }
+            if !ai_policy_ok(def, actor, target, target_pos, sim, ctx) {
                 continue;
             }
             steps.push(PlanStep::Cast {
@@ -257,41 +290,30 @@ fn enumerate_next_steps(
     steps
 }
 
-/// Hard constraints on a candidate Cast step. Rejected casts are never emitted
-/// into the plan pool — they can't be scored into visibility. Mirrors the
-/// legacy `filter_candidates` rules, ported here because the plan pipeline
-/// replaced the candidate pipeline and never wired the filter in.
+/// AI-policy filter for a legal Cast candidate. **Not game rules** — a human
+/// player can legally do any of these; they're rejected purely because AI
+/// plans through them waste AP / splash allies / redundantly stun.
 ///
-/// Rules:
-/// - **Taunt (FORCES_TARGETING)**: any enemy with the tag forces SingleEnemy
-///   casts to target a taunter; SingleAlly/Myself are unrestricted.
-/// - **Overheal**: reject SingleAlly at >90% HP (no healing to be done).
-/// - **Wasted CC**: reject single-target CC on an already-stunned target. AoE
-///   CC keeps its candidate — dropping the whole AoE because one enemy in the
-///   blast zone is stunned is wrong.
-/// - **AoE friendly-fire**: reject friendly-fire AoE when allies_hit > 0 and
-///   enemies_hit < allies_hit * 2.
+/// Runs *after* `check_legality` accepted the candidate (so actor/target
+/// existence, team, range, AP, resources, taunt are already guaranteed).
 ///
-/// Team safety (SingleAlly on enemy, SingleEnemy on ally) is already ensured
-/// by `pick_targets` drawing from `allies_of` / `enemies_of`.
-fn is_valid_cast(
+/// Heuristics:
+/// - **Overheal**: SingleAlly on target above 90% HP — almost no healing
+///   to be done.
+/// - **Wasted CC**: single-target CC on an already-stunned target. AoE CC
+///   keeps its candidate — dropping the whole AoE because one enemy in
+///   the blast zone is stunned is wrong.
+/// - **AoE friendly-fire ratio**: reject friendly-fire AoE when
+///   `allies_hit > 0 && enemies_hit < allies_hit * 2` (splash damages
+///   more friends than enemies justify).
+fn ai_policy_ok(
     def: &AbilityDef,
     actor: &UnitSnapshot,
     target: Entity,
     target_pos: Hex,
     sim: &SimState,
     ctx: &UtilityContext,
-    taunter: Option<Entity>,
 ) -> bool {
-    // Taunt: restrict SingleEnemy to the taunter when one is active.
-    if matches!(def.target_type, TargetType::SingleEnemy) {
-        if let Some(t) = taunter {
-            if target != t {
-                return false;
-            }
-        }
-    }
-
     // Overheal: SingleAlly on target above 90% HP.
     if matches!(def.target_type, TargetType::SingleAlly) {
         if let Some(t) = sim.snapshot.unit(target) {
@@ -324,38 +346,36 @@ fn is_valid_cast(
     true
 }
 
-/// Pick candidate (entity, target_pos) pairs.
+/// Rank candidate (entity, target_pos) pairs by AI heuristic. Pure ranking —
+/// no legality filtering (range, AP, team all handled by `check_legality`
+/// downstream). In-range pre-filter deliberately removed so the ranker
+/// doesn't shadow legality logic; the consequence lives in the TODO at the
+/// top of this file.
 ///
-/// - `SingleEnemy`: union of top-N by threat and top-M by killability, deduped.
-///   The two signals catch qualitatively different targets — high-threat
-///   scaries you want to interrupt, and nearly-dead you want to finish. Taking
-///   the union avoids missing "obvious kill opportunity" when threat ranking
-///   alone would push it off the list.
-/// - `SingleAlly`: allies within range ranked by missing HP desc (most wounded
-///   first). No separate "threat" dimension for allies.
+/// - `SingleEnemy`: union of top-N by threat and top-M by killability,
+///   deduped. Two signals catch qualitatively different targets — high-
+///   threat scaries you want to interrupt, and nearly-dead you want to
+///   finish. Taking the union avoids missing "obvious kill opportunity"
+///   when threat ranking alone would push it off the list.
+/// - `SingleAlly`: allies ranked by missing HP desc (most wounded first).
+///   No separate "threat" dimension for allies.
 /// - `Myself`: one pair — the actor itself.
-fn pick_targets(
+fn rank_targets(
     def: &AbilityDef,
     actor: &UnitSnapshot,
     sim: &SimState,
 ) -> Vec<(Entity, Hex)> {
-    let max_range = def.range.max;
-    let in_range = |pos: Hex| max_range == 0 || actor.pos.unsigned_distance_to(pos) <= max_range;
-
     match def.target_type {
         TargetType::Myself => vec![(actor.entity, actor.pos)],
         TargetType::SingleEnemy => {
-            let reachable: Vec<&UnitSnapshot> = sim
-                .snapshot
-                .enemies_of(actor.team)
-                .filter(|u| in_range(u.pos))
-                .collect();
+            let pool: Vec<&UnitSnapshot> =
+                sim.snapshot.enemies_of(actor.team).collect();
 
-            let mut by_threat: Vec<&UnitSnapshot> = reachable.clone();
+            let mut by_threat: Vec<&UnitSnapshot> = pool.clone();
             by_threat.sort_by(|a, b| b.threat.total_cmp(&a.threat));
             by_threat.truncate(TARGETS_BY_THREAT);
 
-            let mut by_killability: Vec<&UnitSnapshot> = reachable;
+            let mut by_killability: Vec<&UnitSnapshot> = pool;
             by_killability.sort_by(|a, b| b.killability().total_cmp(&a.killability()));
             by_killability.truncate(TARGETS_BY_KILLABILITY);
 
@@ -372,7 +392,6 @@ fn pick_targets(
             let mut picks: Vec<(Entity, Hex, f32)> = sim
                 .snapshot
                 .allies_of(actor.team)
-                .filter(|u| in_range(u.pos))
                 .map(|u| (u.entity, u.pos, (u.max_hp - u.hp).max(0) as f32))
                 .collect();
             picks.sort_by(|a, b| b.2.total_cmp(&a.2));
@@ -518,7 +537,20 @@ mod tests {
     /// Generator-suite defaults: caller sets `hp` + `max_ap` (beam search
     /// branching tests rely on these to tune pool shape).
     fn unit(id: u32, team: Team, pos: Hex, hp: i32, max_ap: i32) -> UnitSnapshot {
-        UnitBuilder::new(id, team, pos).hp(hp).ap(max_ap).build()
+        UnitBuilder::new(id, team, pos)
+            .hp(hp)
+            .ap(max_ap)
+            // Actor-side abilities used to drift between `ctx.actor.abilities`
+            // (iteration list) and `UnitSnapshot.abilities` (ownership). The
+            // helper pre-fills a catch-all superset so `check_legality`'s
+            // `actor_knows_ability` lookup finds any id a test wires into
+            // `ctx.actor.abilities`. Production builds both from the same
+            // `Abilities` component, so they never diverge in practice.
+            .ability_names(&[
+                "strike", "melee_attack", "heal", "stun_bolt", "aoe_stun",
+                "fireball", "mana_bolt", "melee",
+            ])
+            .build()
     }
 
     fn strike_def(id: &str, range: u32, cost_ap: i32) -> AbilityDef {
@@ -795,7 +827,11 @@ mod tests {
         assert_eq!(deduped.len(), 2, "distinct targets must not collapse");
     }
 
-    // ── is_valid_cast: constraint migration from filter_candidates ─────────
+    // ── ai_policy_ok: AI heuristic layer (overheal, wasted CC, AoE FF ratio) ───
+    //
+    // Game-rule cases (taunt, team-safety, blocks_mana_abilities, range)
+    // are covered at the `check_legality` layer (actions/mod.rs + arch
+    // D.a) and end-to-end via `generate_plans_*` tests below.
 
     use crate::combat::ai::snapshot::AiTags as Tags;
     use crate::content::abilities::{StatusApplication, StatusOn};
@@ -878,128 +914,7 @@ mod tests {
     }
 
 
-    // Rule 1: Taunt (FORCES_TARGETING).
-    //
-    // All four unit-level `is_valid_cast` scenarios — taunter-as-target
-    // allowed, non-taunter rejected, heal-on-ally unrestricted, unreachable
-    // taunter still forces rejection — share identical setup differing
-    // only in (def, target, taunter_ent, expected). Table-driven.
-
-    #[test]
-    fn taunt_is_valid_cast_matrix() {
-        enum Ab { Strike, StrikeMelee, Heal }
-
-        struct Row {
-            name: &'static str,
-            ab: Ab,
-            /// Picks the target unit from the fixture roster.
-            target: fn(&Fixture) -> &UnitSnapshot,
-            /// When true the taunter's entity is passed as `taunter_ent`;
-            /// when false `None` (no-taunter branch).
-            taunter_active: bool,
-            expect_valid: bool,
-        }
-
-        struct Fixture {
-            actor: UnitSnapshot,
-            taunter: UnitSnapshot,
-            other_enemy: UnitSnapshot,
-            /// Far-away taunter — tests the "unreachable taunter still
-            /// blocks non-taunter casts" edge.
-            taunter_far: UnitSnapshot,
-            ally: UnitSnapshot,
-        }
-
-        fn mk_fixture() -> Fixture {
-            let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
-            let mut taunter = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
-            taunter.tags |= Tags::FORCES_TARGETING;
-            let other_enemy = unit(3, Team::Player, hex_from_offset(0, 1), 20, 1);
-            let mut taunter_far = unit(4, Team::Player, hex_from_offset(10, 0), 20, 1);
-            taunter_far.tags |= Tags::FORCES_TARGETING;
-            let mut ally = unit(5, Team::Enemy, hex_from_offset(0, 2), 10, 1);
-            ally.max_hp = 20;
-            ally.hp = 10; // hp_pct < 0.9 so overheal doesn't mask heal-under-taunt
-            Fixture { actor, taunter, other_enemy, taunter_far, ally }
-        }
-
-        let strike = strike_def("strike", 5, 1);
-        let strike_melee = strike_def("melee_attack", 1, 1);
-        let heal = heal_def("heal", 3);
-
-        let rows: Vec<Row> = vec![
-            Row {
-                name: "ranged strike on the taunter is allowed",
-                ab: Ab::Strike, target: |f| &f.taunter,
-                taunter_active: true, expect_valid: true,
-            },
-            Row {
-                name: "ranged strike on non-taunter is rejected under taunt",
-                ab: Ab::Strike, target: |f| &f.other_enemy,
-                taunter_active: true, expect_valid: false,
-            },
-            Row {
-                name: "heal on wounded ally stays valid under taunt",
-                ab: Ab::Heal, target: |f| &f.ally,
-                taunter_active: true, expect_valid: true,
-            },
-            Row {
-                name: "no taunter → strike any enemy",
-                ab: Ab::Strike, target: |f| &f.other_enemy,
-                taunter_active: false, expect_valid: true,
-            },
-            Row {
-                name: "melee-only actor cannot attack adjacent non-taunter when taunter unreachable",
-                ab: Ab::StrikeMelee, target: |f| &f.other_enemy,
-                taunter_active: true, expect_valid: false,
-            },
-        ];
-
-        let mut content = empty_content();
-        for def in [&strike, &strike_melee, &heal] {
-            content.abilities.insert(def.id.clone(), def.clone());
-        }
-        let difficulty = DifficultyProfile::normal();
-        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let abilities = Abilities(vec![strike.id.clone(), strike_melee.id.clone(), heal.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
-
-        for row in &rows {
-            let fx = mk_fixture();
-            // The last row uses `taunter_far` as the authoritative taunter
-            // — pick it up via the `StrikeMelee` branch.
-            let taunter_src = if matches!(row.ab, Ab::StrikeMelee) {
-                &fx.taunter_far
-            } else {
-                &fx.taunter
-            };
-            let snap = BattleSnapshot::new(
-                vec![
-                    fx.actor.clone(),
-                    taunter_src.clone(),
-                    fx.other_enemy.clone(),
-                    fx.ally.clone(),
-                ],
-                1,
-            );
-            let sim = SimState::from_snapshot(&snap, fx.actor.entity);
-            let def: &AbilityDef = match row.ab {
-                Ab::Strike => &strike,
-                Ab::StrikeMelee => &strike_melee,
-                Ab::Heal => &heal,
-            };
-            let target = (row.target)(&fx);
-            let taunter_ent = row.taunter_active.then_some(taunter_src.entity);
-            let valid = is_valid_cast(def, &fx.actor, target.entity, target.pos, &sim, &ctx, taunter_ent);
-            assert_eq!(
-                valid, row.expect_valid,
-                "[{}] expected is_valid_cast={}, got {}",
-                row.name, row.expect_valid, valid,
-            );
-        }
-    }
-
-    // Rule 2: Overheal
+    // Rule 1: Overheal
 
     #[test]
     fn overheal_rejects_target_above_90_percent() {
@@ -1023,11 +938,11 @@ mod tests {
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
-            !is_valid_cast(&heal, &actor, fine.entity, fine.pos, &sim, &ctx, None),
+            !ai_policy_ok(&heal, &actor, fine.entity, fine.pos, &sim, &ctx),
             "heal on near-full ally must be rejected",
         );
         assert!(
-            is_valid_cast(&heal, &actor, hurt.entity, hurt.pos, &sim, &ctx, None),
+            ai_policy_ok(&heal, &actor, hurt.entity, hurt.pos, &sim, &ctx),
             "heal on wounded ally must be allowed",
         );
     }
@@ -1055,11 +970,11 @@ mod tests {
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
-            !is_valid_cast(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx, None),
+            !ai_policy_ok(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx),
             "single-target CC on already-stunned target must be rejected",
         );
         assert!(
-            is_valid_cast(&def, &actor, awake.entity, awake.pos, &sim, &ctx, None),
+            ai_policy_ok(&def, &actor, awake.entity, awake.pos, &sim, &ctx),
             "CC on un-stunned target must be allowed",
         );
     }
@@ -1086,7 +1001,7 @@ mod tests {
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
-            is_valid_cast(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx, None),
+            ai_policy_ok(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx),
             "AoE CC must not be rejected just because the primary target is stunned",
         );
     }
@@ -1113,7 +1028,7 @@ mod tests {
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
-            !is_valid_cast(&def, &actor, enemy.entity, enemy.pos, &sim, &ctx, None),
+            !ai_policy_ok(&def, &actor, enemy.entity, enemy.pos, &sim, &ctx),
             "friendly-fire AoE that hits self without 2x enemy value must be rejected",
         );
     }
@@ -1139,13 +1054,13 @@ mod tests {
         let sim = SimState::from_snapshot(&snap, actor.entity);
 
         assert!(
-            is_valid_cast(&def, &actor, e1.entity, e1.pos, &sim, &ctx, None),
+            ai_policy_ok(&def, &actor, e1.entity, e1.pos, &sim, &ctx),
             "AoE must be accepted when enemies_hit >= 2*allies_hit",
         );
     }
 
-    // End-to-end: confirm `generate_plans` wires the filter, not just that
-    // `is_valid_cast` works in isolation.
+    // End-to-end: confirm `generate_plans` wires the legality + policy
+    // filters, not just that they work in isolation.
 
     #[test]
     fn generate_plans_excludes_taunt_violating_casts() {
@@ -1183,6 +1098,90 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Regression: AI must respect `blocks_mana_abilities` at planning time.
+    /// Pre-arch-D the planner only checked `can_afford` (AP + resource amount),
+    /// missing the status flag — so a unit under `broken_faith` would plan
+    /// mana-cost casts, lose the round to validation's reject, and `EndTurn`.
+    /// Now `check_legality` gates every Cast candidate and filters them out.
+    #[test]
+    fn generate_plans_excludes_mana_casts_under_blocks_mana_status() {
+        use crate::combat::ai::snapshot::ActiveStatusView;
+        use crate::core::ResourceKind;
+
+        // Actor has broken_faith + enough mana + both a mana spell and a
+        // no-cost melee fallback.
+        let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 2);
+        actor.mana = Some((10, 10));
+        actor.statuses.push(ActiveStatusView {
+            id: StatusId::from("broken_faith"),
+            rounds_remaining: 3,
+            dot_per_tick: 0,
+        });
+        let enemy = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
+        let actor_id = actor.entity;
+
+        let mut mana_bolt = strike_def("mana_bolt", 5, 1);
+        mana_bolt.costs = vec![crate::content::abilities::ResourceCost {
+            resource: ResourceKind::Mana,
+            amount: 5,
+        }];
+        let melee = strike_def("melee", 1, 1);
+
+        let mut content = empty_content();
+        content.abilities.insert(mana_bolt.id.clone(), mana_bolt.clone());
+        content.abilities.insert(melee.id.clone(), melee.clone());
+        content.statuses.insert(
+            StatusId::from("broken_faith"),
+            StatusDef {
+                id: StatusId::from("broken_faith"),
+                name: "broken_faith".into(),
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                skips_turn: false,
+                forces_targeting: false,
+                dot_dice: None,
+                blocks_mana_abilities: true,
+                speed_bonus: 0,
+                hp_percent_dot: 0,
+                ai_controlled: false,
+                causes_disadvantage: false,
+            },
+        );
+
+        let mut difficulty = DifficultyProfile::normal();
+        difficulty.plan_max_depth = 1;
+        let caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
+        let abilities = Abilities(vec![mana_bolt.id.clone(), melee.id.clone()]);
+        let ctx = make_ctx(&content, &difficulty, &caster, &abilities);
+
+        let snap = BattleSnapshot::new(vec![actor, enemy], 1);
+        let maps = empty_maps();
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+
+        // No plan may use the mana spell.
+        let mana_id = mana_bolt.id.clone();
+        for p in &plans {
+            for step in &p.steps {
+                if let PlanStep::Cast { ability, .. } = step {
+                    assert_ne!(
+                        *ability, mana_id,
+                        "broken_faith must filter mana casts out of the plan pool",
+                    );
+                }
+            }
+        }
+
+        // Sanity: plans with the melee fallback are still there — AI
+        // doesn't starve.
+        let melee_id = melee.id.clone();
+        let has_melee = plans.iter().any(|p| {
+            p.steps.iter().any(|s| {
+                matches!(s, PlanStep::Cast { ability, .. } if *ability == melee_id)
+            })
+        });
+        assert!(has_melee, "non-mana fallback cast must still be available");
     }
 
 }
