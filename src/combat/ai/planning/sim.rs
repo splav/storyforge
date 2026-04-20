@@ -57,17 +57,28 @@ impl SimState {
         }
     }
 
+    /// Live actor snapshot — `None` if the actor died mid-plan. Snapshot
+    /// now keeps corpses in `units` (for death-triggered effects, replay),
+    /// so the "is_alive" filter lives here rather than implicitly in a
+    /// retain'd vec. Planning callers that terminate on actor death see
+    /// `None` as before.
     pub fn actor_unit(&self) -> Option<&UnitSnapshot> {
-        self.snapshot.unit(self.actor)
+        self.snapshot.unit(self.actor).filter(|u| u.is_alive())
     }
 
     fn actor_unit_mut(&mut self) -> Option<&mut UnitSnapshot> {
         let actor = self.actor;
-        self.snapshot.units.iter_mut().find(|u| u.entity == actor)
+        self.snapshot
+            .units
+            .iter_mut()
+            .find(|u| u.entity == actor && u.is_alive())
     }
 
     fn unit_mut(&mut self, entity: Entity) -> Option<&mut UnitSnapshot> {
-        self.snapshot.units.iter_mut().find(|u| u.entity == entity)
+        self.snapshot
+            .units
+            .iter_mut()
+            .find(|u| u.entity == entity && u.is_alive())
     }
 
     /// Apply one plan step to the simulated state, returning per-step effects.
@@ -154,15 +165,11 @@ impl SimState {
         self.apply_primary(&ability_outcome, content, &mut outcome);
         apply_statuses(self, &ability_outcome, content, &mut outcome);
 
-        // Prune killed units so the next step sees them absent. Indices
-        // shift, so drop the entity cache — `unit()` lazy-rebuilds on next
-        // access.
-        if !outcome.killed.is_empty() {
-            let dead: std::collections::HashSet<Entity> =
-                outcome.killed.iter().copied().collect();
-            self.snapshot.units.retain(|u| !dead.contains(&u.entity));
-            self.snapshot.invalidate_index();
-        }
+        // Killed units stay in `snapshot.units` with `hp = 0`; downstream
+        // accessors (`enemies_of`, `actor_unit`, `unit_mut`) filter them
+        // by `is_alive`, so subsequent sim steps see them as gone — same
+        // behaviour as the old `retain`, without deleting the row or
+        // invalidating the entity→index cache.
 
         outcome
     }
@@ -504,7 +511,17 @@ mod tests {
         let outcome = sim.apply_step(&step, &ctx(4, 0), &content);
 
         assert_eq!(outcome.killed, vec![target_id]);
-        assert!(sim.snapshot.unit(target_id).is_none(), "killed unit should be pruned");
+        // Corpse stays in the snapshot with hp=0 (lift-prune: snapshot is the
+        // single source of truth, including dead units). Downstream
+        // `enemies_of` / `actor_unit` filter by `is_alive`, so plan-walking
+        // code still sees the target as "gone" without a retain'd vec.
+        let corpse = sim.snapshot.unit(target_id).expect("corpse retained in snapshot");
+        assert_eq!(corpse.hp, 0);
+        assert!(!corpse.is_alive());
+        assert_eq!(
+            sim.snapshot.enemies_of(Team::Enemy).count(), 0,
+            "default enemies_of hides the corpse",
+        );
     }
 
     // ── heal ───────────────────────────────────────────────────────────────

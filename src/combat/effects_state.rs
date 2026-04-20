@@ -19,9 +19,11 @@ use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 
 /// A unit reference as seen by the targeting layer. `alive` is carried
-/// explicitly because the Bevy backend needs it (dead `Combatant`s keep their
-/// `HexPositions` entry so corpses block tiles), while the snapshot backend
-/// can always return `true` (snapshot pre-prunes).
+/// explicitly because both backends keep dead entities in their world
+/// models — Bevy keeps `Combatant` + `HexPositions` for corpses, and the
+/// AI snapshot now retains hp=0 entries so resurrection / death triggers /
+/// replay fidelity all work. AoE enumeration must filter by `alive`
+/// explicitly rather than assuming "present ⇒ alive".
 #[derive(Clone, Copy, Debug)]
 pub struct TargetRef {
     pub entity: Entity,

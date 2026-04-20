@@ -42,7 +42,6 @@ const MOVE_TILES_PRIORITY_ADJACENT: usize = 1;
 pub fn generate_plans(
     actor: Entity,
     ctx: &UtilityContext,
-    blocked_tiles: &HashSet<Hex>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
 ) -> Vec<TurnPlan> {
@@ -83,7 +82,7 @@ pub fn generate_plans(
                 continue;
             }
 
-            let steps = enumerate_next_steps(&base_sim, ctx, blocked_tiles, maps);
+            let steps = enumerate_next_steps(&base_sim, ctx, maps);
             for step in steps {
                 // Apply this step on a cloned sim to measure outcome + state.
                 let mut ext_sim = SimState {
@@ -207,7 +206,6 @@ fn total_mp_cost(plan: &TurnPlan) -> i32 {
 fn enumerate_next_steps(
     sim: &SimState,
     ctx: &UtilityContext,
-    blocked_tiles: &HashSet<Hex>,
     maps: &InfluenceMaps,
 ) -> Vec<PlanStep> {
     let Some(actor) = sim.actor_unit() else {
@@ -245,7 +243,7 @@ fn enumerate_next_steps(
 
     // Move steps (if MP > 0). Skipped if actor is grounded.
     if actor.movement_points > 0 {
-        let reach = super::reach_from(&sim.snapshot, actor, blocked_tiles);
+        let reach = super::reach_from(&sim.snapshot, actor);
         let top_tiles = pick_top_move_tiles(&reach, sim, maps, actor.pos);
         for tile in top_tiles {
             if let Some(path) = reach.path_to(tile) {
@@ -571,8 +569,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor, target], 1);
         let maps = empty_maps();
 
-        let blocked = HashSet::<Hex>::new();
-        let plans = generate_plans(actor_id, &ctx, &blocked, &snap, &maps);
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
         // At least one empty plan (seed) + one single-cast plan.
         assert!(plans.iter().any(|p| p.steps.is_empty()), "seed plan must exist");
@@ -615,8 +612,7 @@ mod tests {
         let snap = BattleSnapshot::new(units, 1);
         let maps = empty_maps();
 
-        let blocked = HashSet::<Hex>::new();
-        let plans = generate_plans(actor_id, &ctx, &blocked, &snap, &maps);
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
         // Count plans by depth. Beam=2 ⇒ depth-1 frontier size ≤ 2, depth-2 ≤ 2.
         let at_depth_1 = plans.iter().filter(|p| p.steps.len() == 1).count();
@@ -654,8 +650,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor, weak, other], 1);
         let maps = empty_maps();
 
-        let blocked = HashSet::<Hex>::new();
-        let plans = generate_plans(actor_id, &ctx, &blocked, &snap, &maps);
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
         // Find depth-2 plans that target the weak unit first. In step 2 they
         // must not cast at weak again (it's dead post step 1).
@@ -698,8 +693,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor, target], 1);
         let maps = empty_maps();
 
-        let blocked = HashSet::<Hex>::new();
-        let plans = generate_plans(actor_id, &ctx, &blocked, &snap, &maps);
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
         // With max_ap=1, no plan should have more than one Cast step.
         for p in &plans {
@@ -1175,8 +1169,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor, taunter, adjacent_non_taunter], 1);
         let maps = empty_maps();
 
-        let blocked = HashSet::<Hex>::new();
-        let plans = generate_plans(actor_id, &ctx, &blocked, &snap, &maps);
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
         // No plan in the pool may contain a Cast at anyone other than the taunter.
         for p in &plans {

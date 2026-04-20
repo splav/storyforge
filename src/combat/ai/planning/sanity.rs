@@ -48,7 +48,17 @@ pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &Scoring
         .allies_of(active.team)
         .filter(|u| u.entity != active.entity)
         .collect();
-    let occupied: HashSet<Hex> = snap.units.iter().map(|u| u.pos).collect();
+    // LoS blockers are LIVE units only. Corpses in the snapshot (dead but
+    // still present for replay / death-trigger reasons) do not block sight —
+    // line-of-sight is a tactical signal about who-can-see-what, not a
+    // tile-occupancy question. Explicit `.is_alive()` keeps the behaviour
+    // pinned now that `snap.units` includes dead entries.
+    let occupied: HashSet<Hex> = snap
+        .units
+        .iter()
+        .filter(|u| u.is_alive())
+        .map(|u| u.pos)
+        .collect();
     let ally_positions: HashSet<Hex> = allies.iter().map(|a| a.pos).collect();
     let current_pos_eval = evaluate_position(active.pos, &active.role, maps);
     let current_danger = maps.danger.get(active.pos);

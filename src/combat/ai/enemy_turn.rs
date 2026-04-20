@@ -16,12 +16,11 @@ use crate::core::DiceRng;
 use crate::game::components::{
     ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, StatusEffects, Team,
 };
-use crate::game::hex::Hex;
 use crate::game::messages::{EndTurn, MoveUnit, UseAbility};
 use crate::game::resources::{CombatContext, HexPositions};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 // ── Bundled message writers (keeps system params under Bevy's 16-param limit) ──
 
@@ -116,16 +115,6 @@ fn run_ai_turn(
     let snap = build_snapshot(combat_ctx.round, combatants, statuses, positions, roles, content);
     let maps = build_influence_maps(&snap, actor, actor_team, inf_cfg);
 
-    // `blocked_tiles` mirrors `HexPositions` minus the actor — the planner
-    // treats these as occupied (corpses still block stop-tiles even though the
-    // snapshot filters dead units out for scoring). Plan-level BFS happens
-    // inside `planning::generator` per sim state; no outer reach build.
-    let all_occupied: HashSet<Hex> = positions
-        .iter()
-        .filter(|(&e, _)| e != actor)
-        .map(|(_, &p)| p)
-        .collect();
-
     // Build utility context.
     let caster = build_caster_ctx(c, content);
     let crit_fail_effect = c.combat_path
@@ -181,7 +170,7 @@ fn run_ai_turn(
     // search still shapes the step[0] choice, but only step[0] executes; the
     // remainder is reconsidered on the next tick against actual world state.
     let (decision, debug_snapshot) = pick_action(
-        actor, actor_pos, &ctx, &all_occupied, &snap, &maps, rng,
+        actor, actor_pos, &ctx, &snap, &maps, rng,
         memory_ref, reservations, logger, debug, &debug_names,
     );
 

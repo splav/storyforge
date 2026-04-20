@@ -34,7 +34,7 @@ use crate::core::{AbilityId, DiceRng};
 use crate::game::components::Abilities;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -80,12 +80,13 @@ pub enum MoveOrigin {
 //
 // - `AiWorld`   — static for the whole combat (content, difficulty).
 // - `ActorCtx`  — per-actor: who is casting + caster-specific scoring params.
-// - `blocked_tiles` — per-turn pathfinding plumbing. Used only at the BFS
-//   boundary (`generate_plans`, `fallback_move`); passed as a plain `&HashSet`
-//   next to those entry points, not buried in the ctx.
 //
 // `UtilityContext` stays as a thin composite so the deep scoring/generation
 // chain keeps a single parameter, but it no longer mixes lifetimes.
+//
+// Pathfinding stop-blockers (enemies, allies, corpses) are derived from
+// `BattleSnapshot` directly — since corpses now live in the snapshot as
+// hp=0 units, there's no separate `blocked_tiles` channel to thread.
 
 /// World-scope data. Stable for the entire combat.
 pub struct AiWorld<'a> {
@@ -155,7 +156,6 @@ pub fn pick_action(
     actor: Entity,
     actor_pos: Hex,
     ctx: &UtilityContext,
-    blocked_tiles: &HashSet<Hex>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     rng: &mut DiceRng,
@@ -179,10 +179,10 @@ pub fn pick_action(
     let mut intent_reason = choice.reason;
 
     // ── Generate plans (beam search over depths) ───────────────────────
-    let plans = generate_plans(actor, ctx, blocked_tiles, snap, maps);
+    let plans = generate_plans(actor, ctx, snap, maps);
 
     if plans.is_empty() {
-        let decision = fallback::fallback_move(active, blocked_tiles, snap, maps);
+        let decision = fallback::fallback_move(active, snap, maps);
         let ds = if debug {
             Some(build_fallback_debug(
                 active, actor_pos, &intent, &intent_reason, &decision,

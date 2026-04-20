@@ -62,11 +62,10 @@ impl ActionState for SnapshotActionState<'_> {
     }
 
     fn is_target_alive(&self, target: Entity) -> Option<bool> {
-        // BattleSnapshot pre-prunes dead units on construction, so a present
-        // entity is always alive. Returning `None` for missing entities
-        // matches the Bevy backend's semantics and distinguishes
-        // `TargetUnknown` from `TargetDead` at the legality layer.
-        self.snap.unit(target).map(|_| true)
+        // Corpses live in the snapshot with `hp = 0`, so the two backends
+        // (Bevy + Snapshot) now agree on the `TargetUnknown` vs
+        // `TargetDead` distinction: absent ⇒ unknown, present+dead ⇒ dead.
+        self.snap.unit(target).map(|u| u.is_alive())
     }
 }
 
@@ -309,13 +308,10 @@ mod tests {
         assert!(outcome.disadvantage, "disoriented must carry disadvantage");
     }
 
-    /// Dead units get pruned from the snapshot at construction, so the dead
-    /// case surfaces as `TargetUnknown` rather than `TargetDead` (no entry
-    /// to report as dead). Bevy backend preserves the distinction because
-    /// corpses keep their Vital component; the two backends diverge here
-    /// by design, not by drift.
+    /// Target entity absent from the snapshot — unknown to the planner.
+    /// Reported as `TargetUnknown` (distinct from `TargetDead`).
     #[test]
-    fn missing_target_rejects_as_unknown_not_dead() {
+    fn missing_target_rejects_as_unknown() {
         let actor_pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .ap(2)
@@ -324,7 +320,6 @@ mod tests {
         let mut content = empty_content();
         let def = attack_ability();
         content.abilities.insert(def.id.clone(), def);
-        // Note: no target entity in the snapshot.
         let snap = snapshot_with(vec![actor.clone()]);
         let state = SnapshotActionState { content: &content, snap: &snap };
 
@@ -338,6 +333,37 @@ mod tests {
         assert_eq!(
             check_legality(proposal, &state),
             Err(IllegalReason::TargetUnknown),
+        );
+    }
+
+    /// Dead target (corpse with hp=0, still present in the snapshot) →
+    /// `TargetDead`. Backends now agree on the unknown-vs-dead distinction.
+    #[test]
+    fn dead_target_rejects_as_dead() {
+        let actor_pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ap(2)
+            .ability_names(&["strike"])
+            .build();
+        let corpse = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .hp(0)
+            .build();
+        let mut content = empty_content();
+        let def = attack_ability();
+        content.abilities.insert(def.id.clone(), def);
+        let snap = snapshot_with(vec![actor.clone(), corpse.clone()]);
+        let state = SnapshotActionState { content: &content, snap: &snap };
+
+        let ab = AbilityId::from("strike");
+        let proposal = ProposedAction {
+            actor: actor.entity,
+            ability: &ab,
+            target: corpse.entity,
+            target_pos: corpse.pos,
+        };
+        assert_eq!(
+            check_legality(proposal, &state),
+            Err(IllegalReason::TargetDead),
         );
     }
 

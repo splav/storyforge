@@ -132,6 +132,15 @@ pub fn refresh_status_aggregates(unit: &mut UnitSnapshot, content: &ContentView)
 }
 
 impl UnitSnapshot {
+    /// `hp > 0`. Snapshot keeps dead units (for death-triggered effects,
+    /// resurrection, and honest replay logs); accessors like `enemies_of`
+    /// filter them out by default. Use this directly when a call site needs
+    /// both "alive?" and "pos occupied?" (the classic case — movement
+    /// stop-blockers — counts corpses even though they're not enemies).
+    pub fn is_alive(&self) -> bool {
+        self.hp > 0
+    }
+
     /// Effective HP: raw HP plus base and status armor — the real damage
     /// budget needed to drop this unit.
     pub fn eff_hp(&self) -> i32 {
@@ -212,9 +221,12 @@ pub fn build_snapshot(
     roles: &Query<&AxisProfile>,
     content: &ContentView,
 ) -> BattleSnapshot {
+    // Dead combatants stay in the snapshot (hp=0 marker). Downstream
+    // accessors like `enemies_of` / `allies_of` filter them out; death-
+    // aware code (resurrection, on-kill triggers, replay) reads them via
+    // `all_enemies_of` / `dead_units`.
     let units = combatants
         .iter()
-        .filter(|c| c.vital.is_alive())
         .filter_map(|c| {
             let pos = positions.get(&c.entity)?;
             let role = roles.get(c.entity).copied().unwrap_or_default();
@@ -357,16 +369,52 @@ impl BattleSnapshot {
         self.units.iter().find(|u| u.pos == pos)
     }
 
+    /// Live enemies of `team`. Dead units on the opposing team stay in
+    /// `units` (kept for resurrection / death triggers / replay fidelity)
+    /// but are filtered here because every tactical caller wants the
+    /// "who can I actually fight" view. For the raw list including
+    /// corpses, use `all_enemies_of`.
     pub fn enemies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
-        let opponent = match team {
-            Team::Player => Team::Enemy,
-            Team::Enemy => Team::Player,
-        };
+        let opponent = opponent_team(team);
+        self.units
+            .iter()
+            .filter(move |u| u.team == opponent && u.is_alive())
+    }
+
+    /// Live allies of `team` (mirrors `enemies_of` contract).
+    pub fn allies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
+        self.units
+            .iter()
+            .filter(move |u| u.team == team && u.is_alive())
+    }
+
+    /// Enemies of `team` **including corpses**. Used by death-aware code
+    /// (resurrection targeting, on-kill effect resolution, replay) that
+    /// needs to see the entity even after it died.
+    pub fn all_enemies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
+        let opponent = opponent_team(team);
         self.units.iter().filter(move |u| u.team == opponent)
     }
 
-    pub fn allies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
-        self.units.iter().filter(move |u| u.team == team)
+    /// Dead opposing-team units only. Empty on live-only snapshots; the
+    /// resurrection/death-trigger call sites poll this.
+    pub fn dead_enemies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
+        let opponent = opponent_team(team);
+        self.units
+            .iter()
+            .filter(move |u| u.team == opponent && !u.is_alive())
+    }
+
+    /// Every dead unit in the snapshot regardless of team.
+    pub fn dead_units(&self) -> impl Iterator<Item = &UnitSnapshot> {
+        self.units.iter().filter(|u| !u.is_alive())
+    }
+}
+
+fn opponent_team(team: Team) -> Team {
+    match team {
+        Team::Player => Team::Enemy,
+        Team::Enemy => Team::Player,
     }
 }
 
@@ -575,5 +623,35 @@ mod affordability_tests {
         // Any positive cost on an absent pool fails.
         let d = def(1, vec![cost(ResourceKind::Mana, 1)]);
         assert!(!u.can_afford(&d));
+    }
+
+    /// Dead units stay in `units` (hp=0 marker); the default-facing
+    /// `enemies_of` / `allies_of` accessors hide them, while the explicit
+    /// `all_enemies_of` / `dead_units` surface them for resurrection / on-kill /
+    /// replay call sites. Pins the new contract.
+    #[test]
+    fn dead_units_stay_in_snapshot_and_are_filtered_by_default() {
+        let alive = base_unit();
+        let mut corpse = base_unit();
+        corpse.entity = Entity::from_raw_u32(2).expect("valid");
+        corpse.team = Team::Player;
+        corpse.hp = 0;
+        let snap = BattleSnapshot::new(vec![alive.clone(), corpse.clone()], 1);
+
+        assert!(snap.unit(corpse.entity).is_some(), "corpse must stay in units");
+        assert_eq!(
+            snap.unit(corpse.entity).map(|u| u.is_alive()),
+            Some(false),
+            "corpse must report is_alive = false",
+        );
+
+        // Default accessors hide the dead.
+        assert_eq!(snap.enemies_of(Team::Enemy).count(), 0, "default enemies_of hides dead");
+        assert_eq!(snap.allies_of(Team::Enemy).count(), 1, "alive ally still visible");
+
+        // Explicit "all" + "dead" variants surface them.
+        assert_eq!(snap.all_enemies_of(Team::Enemy).count(), 1);
+        assert_eq!(snap.dead_enemies_of(Team::Enemy).count(), 1);
+        assert_eq!(snap.dead_units().count(), 1);
     }
 }

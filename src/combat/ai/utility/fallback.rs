@@ -7,11 +7,9 @@ use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::reach_from;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::game::hex::Hex;
-use std::collections::HashSet;
 
 pub(super) fn fallback_move(
     active: &UnitSnapshot,
-    blocked_tiles: &HashSet<Hex>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
 ) -> AiDecision {
@@ -24,7 +22,7 @@ pub(super) fn fallback_move(
         return AiDecision::EndTurn;
     }
 
-    let reach = reach_from(snap, active, blocked_tiles);
+    let reach = reach_from(snap, active);
 
     // LOW_HP: retreat to the tile with lowest danger.
     if active.tags.contains(AiTags::LOW_HP) {
