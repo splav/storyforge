@@ -1,143 +1,137 @@
-#![allow(clippy::too_many_arguments)]
+//! Bevy-side action-legality gate. Wires `combat::actions::check_legality`
+//! against live ECS queries; rejected actions still end the turn to keep
+//! the pipeline forward-moving.
+//!
+//! All substantive rules live in `combat::actions`; this file is a thin
+//! adapter that translates between Bevy components and the `ActionState`
+//! trait. See `combat/actions/mod.rs` for the rule list.
+
+use crate::combat::actions::{
+    check_legality, ActionState, ActorView, IllegalReason, ProposedAction,
+};
 use crate::content::content_view::{ActiveContent, ContentView};
-use crate::content::abilities::AoEShape;
-use crate::core::ResourceKind;
-use crate::game::components::{ActiveCombatant, ValidationActorQ, Vital};
-use crate::game::hex::in_bounds;
+use crate::game::components::{ActiveCombatant, ValidationActorQ, ValidationTargetQ};
 use crate::game::messages::{EndTurn, UseAbility, ValidatedAction};
 use crate::game::resources::HexPositions;
 use bevy::prelude::*;
 
+#[allow(clippy::too_many_arguments)]
 pub fn validate_action_system(
     active_q: Query<Entity, With<ActiveCombatant>>,
     content: Res<ActiveContent>,
     positions: Res<HexPositions>,
     mut events: MessageReader<UseAbility>,
     actors: Query<ValidationActorQ>,
-    targets: Query<&Vital>,
+    targets: Query<ValidationTargetQ>,
     mut validated: MessageWriter<ValidatedAction>,
     mut end_turn: MessageWriter<EndTurn>,
 ) {
     let active = active_q.single().ok();
     for ev in events.read() {
-        let (valid, disadvantage) = check(ev, active, &content, &positions, &actors, &targets);
-        if !valid {
-            // Rejected action still ends the turn to prevent infinite loops.
-            end_turn.write(EndTurn { actor: ev.actor });
+        // Turn-ownership is outside the legality layer's scope — gate it
+        // here. A stray `UseAbility` from a non-current actor is silently
+        // dropped (no EndTurn to avoid ending the real current actor's turn).
+        if active != Some(ev.actor) {
             continue;
         }
-        validated.write(ValidatedAction {
+
+        let state = BevyActions {
+            content: &content,
+            positions: &positions,
+            actors: &actors,
+            targets: &targets,
+        };
+        let proposal = ProposedAction {
             actor: ev.actor,
-            ability: ev.ability.clone(),
+            ability: &ev.ability,
             target: ev.target,
             target_pos: ev.target_pos,
-            disadvantage,
-        });
-    }
-}
-
-fn check(
-    ev: &UseAbility,
-    active: Option<Entity>,
-    content: &ContentView,
-    positions: &HexPositions,
-    actors: &Query<ValidationActorQ>,
-    targets: &Query<&Vital>,
-) -> (bool, bool) {
-    if active != Some(ev.actor) {
-        return (false, false);
-    }
-
-    let Ok(a) = actors.get(ev.actor) else {
-        return (false, false);
-    };
-    if !a.vital.is_alive() {
-        return (false, false);
-    }
-    // Keyed (universal) abilities bypass class ability list check.
-    let is_keyed = content.abilities.get(&ev.ability).is_some_and(|d| d.key.is_some());
-    if !is_keyed && !a.abilities.0.contains(&ev.ability) {
-        return (false, false);
-    }
-
-    let mut disadvantage = false;
-
-    // Statuses that cause disadvantage on all rolls (e.g. "disoriented").
-    // Short-range penalty below is a separate source that can set this flag too.
-    if let Some(se) = a.statuses {
-        if se
-            .0
-            .iter()
-            .any(|s| content.statuses.get(&s.id).is_some_and(|d| d.causes_disadvantage))
-        {
-            disadvantage = true;
-        }
-    }
-
-    let Some(def) = content.abilities.get(&ev.ability) else {
-        return (false, false);
-    };
-
-    // AP affordability: pool must cover the ability's AP cost.
-    if !a.ap.can_act_for(def.cost_ap) {
-        return (false, false);
-    }
-
-    // Check all resource costs.
-    for cost in &def.costs {
-        let available = match cost.resource {
-            ResourceKind::Hp => a.vital.hp,
-            ResourceKind::Mana => a.mana.map_or(0, |m| m.current),
-            ResourceKind::Rage => a.rage.map_or(0, |r| r.current),
-            ResourceKind::Energy => a.energy.map_or(0, |e| e.current),
         };
-        if available < cost.amount {
-            return (false, false);
-        }
-    }
-
-    // Check blocks_mana_abilities status (faith crit fail).
-    let has_mana_cost = def.costs.iter().any(|c| c.resource == ResourceKind::Mana);
-    if has_mana_cost {
-        if let Some(se) = a.statuses {
-            let blocked = se.0.iter().any(|s| {
-                content.statuses.get(&s.id).is_some_and(|d| d.blocks_mana_abilities)
-            });
-            if blocked {
-                return (false, false);
+        match check_legality(proposal, &state) {
+            Ok(outcome) => {
+                validated.write(ValidatedAction {
+                    actor: ev.actor,
+                    ability: ev.ability.clone(),
+                    target: ev.target,
+                    target_pos: ev.target_pos,
+                    disadvantage: outcome.disadvantage,
+                });
+            }
+            Err(_reason) => {
+                // Rejected action still ends the turn to prevent infinite
+                // loops from a stuck command source. (Could in principle
+                // fork by reason — e.g. keep turn on UnknownAbility which
+                // smells like a content bug — but current callers only
+                // emit well-formed events; fail-forward is fine.)
+                end_turn.write(EndTurn { actor: ev.actor });
             }
         }
     }
-
-    let is_aoe = def.aoe != AoEShape::None;
-
-    if def.range.max == 0 {
-        if ev.actor != ev.target {
-            return (false, false);
-        }
-    } else if let Some(actor_pos) = positions.get(&ev.actor) {
-        if !in_bounds(ev.target_pos) {
-            return (false, false);
-        }
-        let dist = actor_pos.unsigned_distance_to(ev.target_pos);
-        if dist > def.range.max {
-            return (false, false);
-        }
-        if dist < def.range.min {
-            disadvantage = true;
-        }
-    }
-
-    // For non-AoE, the primary target must be alive.
-    if !is_aoe {
-        let Ok(target_vital) = targets.get(ev.target) else {
-            return (false, false);
-        };
-        if !target_vital.is_alive() {
-            return (false, false);
-        }
-    }
-    // For AoE, clicking an empty cell is valid — no entity check needed.
-
-    (true, disadvantage)
 }
+
+// ── Bevy adapter ───────────────────────────────────────────────────────────
+
+/// `ActionState` impl over live ECS queries. Holds references with a single
+/// named lifetime `'a` — every borrow taken from the system's parameters
+/// lives at least as long as the adapter, which is built and consumed
+/// inside one `validate_action_system` iteration.
+///
+/// No borrows leak out through the trait: `actor_view` returns an owned
+/// `ActorView` copy, `actor_knows_ability` answers a direct bool. That
+/// sidesteps Bevy's `Query` fetch-item lifetime (which ends when `.get()`
+/// returns) — we never try to hand a `&'static` slice out.
+struct BevyActions<'w, 's, 'a> {
+    content: &'a ContentView,
+    positions: &'a HexPositions,
+    actors: &'a Query<'w, 's, ValidationActorQ>,
+    targets: &'a Query<'w, 's, ValidationTargetQ>,
+}
+
+impl ActionState for BevyActions<'_, '_, '_> {
+    fn content(&self) -> &ContentView {
+        self.content
+    }
+
+    fn actor_view(&self, actor: Entity) -> Option<ActorView> {
+        let pos = self.positions.get(&actor)?;
+        let a = self.actors.get(actor).ok()?;
+        let (causes_disadvantage, blocks_mana_abilities) = match a.statuses {
+            Some(se) => se.0.iter().fold((false, false), |(d, m), s| {
+                let def = self.content.statuses.get(&s.id);
+                (
+                    d || def.is_some_and(|x| x.causes_disadvantage),
+                    m || def.is_some_and(|x| x.blocks_mana_abilities),
+                )
+            }),
+            None => (false, false),
+        };
+        Some(ActorView {
+            pos,
+            hp: a.vital.hp,
+            ap: a.ap.action_points,
+            mana: a.mana.map(|m| m.current),
+            rage: a.rage.map(|r| r.current),
+            energy: a.energy.map(|e| e.current),
+            causes_disadvantage,
+            blocks_mana_abilities,
+            is_alive: a.vital.is_alive(),
+        })
+    }
+
+    fn actor_knows_ability(&self, actor: Entity, ability: &crate::core::AbilityId) -> bool {
+        self.actors
+            .get(actor)
+            .map(|a| a.abilities.0.contains(ability))
+            .unwrap_or(false)
+    }
+
+    fn is_target_alive(&self, target: Entity) -> Option<bool> {
+        self.targets.get(target).ok().map(|t| t.vital.is_alive())
+    }
+}
+
+// UI tooltips will eventually surface IllegalReason. For now validation only
+// needs the reject-or-accept bit; the import is kept so the module re-exports
+// the enum for downstream wiring without a second `pub use`.
+#[allow(dead_code)]
+const _: fn(IllegalReason) = |_| {};

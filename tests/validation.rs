@@ -24,6 +24,10 @@ fn valid_use_ability_emits_validated_action() {
         .spawn((Name::new("Goblin"), test_enemy(base_stats())))
         .id();
 
+    let mut positions = app.world_mut().resource_mut::<HexPositions>();
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(target, hex_from_offset(1, 0));
+
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
     write_message(
         &mut app,
@@ -31,7 +35,7 @@ fn valid_use_ability_emits_validated_action() {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
-            target_pos: hex_from_offset(0, 0),
+            target_pos: hex_from_offset(1, 0),
         },
     );
     app.update();
@@ -292,6 +296,9 @@ fn disoriented_actor_gets_disadvantage_on_ability() {
             dot_per_tick: 0,
         }]));
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
+    let mut positions = app.world_mut().resource_mut::<HexPositions>();
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(target, hex_from_offset(1, 0));
 
     write_message(
         &mut app,
@@ -299,7 +306,7 @@ fn disoriented_actor_gets_disadvantage_on_ability() {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
-            target_pos: hex_from_offset(0, 0),
+            target_pos: hex_from_offset(1, 0),
         },
     );
     app.update();
@@ -326,13 +333,16 @@ fn untouched_actor_has_no_disadvantage() {
         .id();
 
     app.world_mut().entity_mut(actor).insert(ActiveCombatant);
+    let mut positions = app.world_mut().resource_mut::<HexPositions>();
+    positions.insert(actor, hex_from_offset(0, 0));
+    positions.insert(target, hex_from_offset(1, 0));
     write_message(
         &mut app,
         UseAbility {
             actor,
             ability: MELEE_ATTACK.into(),
             target,
-            target_pos: hex_from_offset(0, 0),
+            target_pos: hex_from_offset(1, 0),
         },
     );
     app.update();

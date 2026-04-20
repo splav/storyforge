@@ -329,6 +329,15 @@ pub struct ValidationActorQ {
     pub statuses: Option<&'static StatusEffects>,
 }
 
+/// Validation: target alive-ness wrapper. Named-type query data so borrowing
+/// `&Query<..>` stays variance-friendly (unlike the bare `&Vital` form, which
+/// makes the `D` parameter invariant over its internal lifetime and breaks
+/// thin adapter structs that hold `&Query`).
+#[derive(QueryData)]
+pub struct ValidationTargetQ {
+    pub vital: &'static Vital,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
