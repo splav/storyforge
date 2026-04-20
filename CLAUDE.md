@@ -16,49 +16,24 @@ Before implementing:
 - If a simpler approach exists, say so. Push back when warranted.
 - If something is unclear, stop. Name what's confusing. Ask.
 
-### 2. Simplicity First
+### 2. Думать о общем, а не целом
 
-**Minimum code that solves the problem. Nothing speculative.**
+- Изучать варианты
+- Подмечать противоречия и странные решения
+- При возникновении сомнений или выбора всегда спрашивать, а не молча предполагать и делать
+- предлагай рефторинги если видишь хороший варианта (даже если сложный)
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
+### 3. Тесты
+- тесты должны покрывать освновную логику и сложные краевые случаи, а не тестировать что 2=2
+- тесты должны быть читаемыми
+- тесты должны быть компактными
+- тесты не должны дублировать друг друга
 
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+### 4. Документация
+- всегда поддерживай актуальной, обновляй после изменений соответствующие разделы
+- документация должны быть логически структурированной, иерархичной, логически связной
+- разбивай файлы на части, если они становятся слишком большими или слишком про разное
 
-### 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-### 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 

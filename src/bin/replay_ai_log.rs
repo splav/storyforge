@@ -135,11 +135,12 @@ fn main() {
                 continue;
             }
         };
-        // v1 logs lack `reactions_left` / `aoo_expected_damage` on UnitSnapshot
-        // — `#[serde(default)]` fills them (1 and None respectively). AoO
-        // penalty on v1 logs will be blind to damage magnitude but still sees
-        // the adjacency transitions. v2 carries full data.
-        if entry.schema_version < 1 || entry.schema_version > 2 {
+        // Older logs lack newer per-snapshot fields; `#[serde(default)]` on
+        // each addition fills them with neutral defaults so replay
+        // continues, just blind to those signals:
+        // - v1 → v2: `reactions_left` (1) + `aoo_expected_damage` (None)
+        // - v2 → v3: `caster_ctx` (zeros) + `crit_fail_effect` (Miss)
+        if entry.schema_version < 1 || entry.schema_version > 3 {
             eprintln!("unsupported schema_version {}, skipping", entry.schema_version);
             continue;
         }
