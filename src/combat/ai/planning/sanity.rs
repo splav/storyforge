@@ -337,101 +337,141 @@ mod tests {
 
     // Even-r geometry reminder (verified empirically):
     //   Neighbors of (0,0): (1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1).
-    //   Neighbors of (1,0) include (0,0),(2,0),(1,1),(1,-1).
-    //   (-1,0) is adjacent to (0,0) but NOT to (1,0) — used to "leave adjacency".
-    //   (1,1) is adjacent to BOTH (0,0) and (1,0) — used for "stay adjacent".
+    //   (-1,0) is adjacent to (0,0) but NOT to (1,0) — "leaves adjacency".
+    //   (1,1) is adjacent to BOTH (0,0) and (1,0) — "stays adjacent".
 
-    #[test]
-    fn aoo_triggered_on_leaving_adjacency() {
-        // Actor (0,0) adjacent to enemy (1,0). Move to (-1,0): dist 1→2 → AoO.
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20);
-        let enemy = unit(2, Team::Player, hex_from_offset(1, 0), 20);
-        let plan = move_plan(vec![hex_from_offset(-1, 0)]);
-        let dmg = expected_aoo_damage(&actor, &plan, &[&enemy]);
-        assert!(dmg > 0.0, "leaving adjacency should provoke");
+    /// Shape of the expected `expected_aoo_damage` result for a row.
+    #[derive(Clone, Copy, Debug)]
+    enum Aoo {
+        /// Exactly zero — no provoker fired.
+        Zero,
+        /// Strictly positive — at least one provoker fired.
+        Positive,
+        /// Within an inclusive `[lo, hi]` band around a known EV.
+        Near(f32, f32),
+        /// Lethal — result must be ≥ the actor's own HP (pins the
+        /// sanity-adjust mask precondition).
+        AtLeastActorHp,
     }
 
+    /// Table-driven AoO cases. Each row pins a distinct invariant; the
+    /// `name` column is formatted into every failure message so a broken
+    /// row stays as diagnostic as an individually-named test.
     #[test]
-    fn aoo_not_triggered_when_staying_adjacent() {
-        // Actor (0,0), enemy (1,0). (1,1) is adjacent to both → no transition.
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20);
-        let enemy = unit(2, Team::Player, hex_from_offset(1, 0), 20);
-        let plan = move_plan(vec![hex_from_offset(1, 1)]);
-        let dmg = expected_aoo_damage(&actor, &plan, &[&enemy]);
-        assert_eq!(dmg, 0.0, "stepping while remaining adjacent must not provoke");
-    }
+    fn expected_aoo_damage_matrix() {
+        fn default_enemy() -> UnitSnapshot {
+            unit(2, Team::Player, hex_from_offset(1, 0), 20)
+        }
+        fn ranged_enemy() -> UnitSnapshot {
+            let mut e = default_enemy();
+            e.max_attack_range = 5;
+            e.aoo_expected_damage = None;
+            e
+        }
+        fn no_react_enemy() -> UnitSnapshot {
+            let mut e = default_enemy();
+            e.reactions_left = 0;
+            e
+        }
+        fn second_enemy() -> UnitSnapshot {
+            unit(3, Team::Player, hex_from_offset(0, 1), 20)
+        }
 
-    #[test]
-    fn ranged_enemy_does_not_provoke() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20);
-        let mut enemy = unit(2, Team::Player, hex_from_offset(1, 0), 20);
-        enemy.max_attack_range = 5;
-        enemy.aoo_expected_damage = None;
-        let plan = move_plan(vec![hex_from_offset(-1, 0)]);
-        let dmg = expected_aoo_damage(&actor, &plan, &[&enemy]);
-        assert_eq!(dmg, 0.0, "ranged enemy must not trigger AoO");
-    }
+        struct Row {
+            name: &'static str,
+            actor_hp: i32,
+            actor_armor: i32,
+            enemies: Vec<UnitSnapshot>,
+            path: Vec<Hex>,
+            expected: Aoo,
+        }
+        let rows: Vec<Row> = vec![
+            Row {
+                name: "leaves adjacency provokes",
+                actor_hp: 20, actor_armor: 0,
+                enemies: vec![default_enemy()],
+                path: vec![hex_from_offset(-1, 0)],
+                expected: Aoo::Positive,
+            },
+            Row {
+                name: "stays adjacent does not provoke",
+                actor_hp: 20, actor_armor: 0,
+                enemies: vec![default_enemy()],
+                path: vec![hex_from_offset(1, 1)],
+                expected: Aoo::Zero,
+            },
+            Row {
+                name: "ranged enemy does not provoke",
+                actor_hp: 20, actor_armor: 0,
+                enemies: vec![ranged_enemy()],
+                path: vec![hex_from_offset(-1, 0)],
+                expected: Aoo::Zero,
+            },
+            Row {
+                name: "enemy with 0 reactions does not provoke",
+                actor_hp: 20, actor_armor: 0,
+                enemies: vec![no_react_enemy()],
+                path: vec![hex_from_offset(-1, 0)],
+                expected: Aoo::Zero,
+            },
+            Row {
+                // Between two melees; (0,-1) leaves adjacency with both → 5 × 2.
+                name: "multi-enemy damage sums",
+                actor_hp: 30, actor_armor: 0,
+                enemies: vec![default_enemy(), second_enemy()],
+                path: vec![hex_from_offset(0, -1)],
+                expected: Aoo::Near(9.5, 10.5),
+            },
+            Row {
+                // Leaves → re-enters → leaves: one reaction per enemy, not three.
+                name: "one AoO per enemy even with multiple transitions",
+                actor_hp: 30, actor_armor: 0,
+                enemies: vec![default_enemy()],
+                path: vec![
+                    hex_from_offset(-1, 0),
+                    hex_from_offset(0, 0),
+                    hex_from_offset(-1, 0),
+                ],
+                expected: Aoo::Near(4.5, 5.5),
+            },
+            Row {
+                // Armor 10 vs raw 5.0 — final_damage floors at 1.
+                name: "armor clamps expected damage at the 1-HP floor",
+                actor_hp: 20, actor_armor: 10,
+                enemies: vec![default_enemy()],
+                path: vec![hex_from_offset(-1, 0)],
+                expected: Aoo::Near(0.99, 1.01),
+            },
+            Row {
+                // Precondition for `sanity_adjust_plans` lethal mask.
+                name: "lethal AoO reaches actor HP threshold",
+                actor_hp: 3, actor_armor: 0,
+                enemies: vec![default_enemy()],
+                path: vec![hex_from_offset(-1, 0)],
+                expected: Aoo::AtLeastActorHp,
+            },
+        ];
 
-    #[test]
-    fn no_reactions_left_does_not_provoke() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20);
-        let mut enemy = unit(2, Team::Player, hex_from_offset(1, 0), 20);
-        enemy.reactions_left = 0;
-        let plan = move_plan(vec![hex_from_offset(-1, 0)]);
-        let dmg = expected_aoo_damage(&actor, &plan, &[&enemy]);
-        assert_eq!(dmg, 0.0, "enemy with 0 reactions must not trigger");
-    }
-
-    #[test]
-    fn multi_enemy_damage_sums() {
-        // Actor (0,0) between two melees at (1,0) and (0,1). Move to (0,-1):
-        // dist to (1,0) = 2, dist to (0,1) = 2 — leaves adjacency with both.
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 30);
-        let e1 = unit(2, Team::Player, hex_from_offset(1, 0), 20);
-        let e2 = unit(3, Team::Player, hex_from_offset(0, 1), 20);
-        let plan = move_plan(vec![hex_from_offset(0, -1)]);
-        let dmg = expected_aoo_damage(&actor, &plan, &[&e1, &e2]);
-        // Both provokers deal 5.0 each (no armor) → 10.0 total.
-        assert!((9.5..=10.5).contains(&dmg), "expected ~10 total damage, got {dmg}");
-    }
-
-    #[test]
-    fn one_aoo_per_enemy_even_with_multiple_transitions() {
-        // Path: (0,0)→(-1,0)[leaves]→(0,0)[re-enters]→(-1,0)[leaves again].
-        // Enemy only has one reaction per round — count the first trigger.
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 30);
-        let enemy = unit(2, Team::Player, hex_from_offset(1, 0), 20);
-        let plan = move_plan(vec![
-            hex_from_offset(-1, 0),
-            hex_from_offset(0, 0),
-            hex_from_offset(-1, 0),
-        ]);
-        let dmg = expected_aoo_damage(&actor, &plan, &[&enemy]);
-        assert!((4.5..=5.5).contains(&dmg), "expected single AoO (~5), got {dmg}");
-    }
-
-    #[test]
-    fn armor_reduces_expected_damage_with_floor_of_one() {
-        let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20);
-        actor.armor = 10; // much higher than 5.0 raw → floor at 1.0.
-        let enemy = unit(2, Team::Player, hex_from_offset(1, 0), 20);
-        let plan = move_plan(vec![hex_from_offset(-1, 0)]);
-        let dmg = expected_aoo_damage(&actor, &plan, &[&enemy]);
-        assert!((0.99..=1.01).contains(&dmg), "expected floored to 1.0, got {dmg}");
-    }
-
-    #[test]
-    fn lethal_aoo_damage_reaches_hp_threshold() {
-        // Precondition for sanity_adjust_plans' lethal masking: dmg ≥ hp.
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 3);
-        let enemy = unit(2, Team::Player, hex_from_offset(1, 0), 20);
-        let plan = move_plan(vec![hex_from_offset(-1, 0)]);
-        let dmg = expected_aoo_damage(&actor, &plan, &[&enemy]);
-        assert!(
-            dmg >= actor.hp as f32,
-            "expected lethal damage ({dmg}) ≥ hp ({})",
-            actor.hp,
-        );
+        for row in &rows {
+            let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0), row.actor_hp);
+            actor.armor = row.actor_armor;
+            let enemy_refs: Vec<&UnitSnapshot> = row.enemies.iter().collect();
+            let plan = move_plan(row.path.clone());
+            let dmg = expected_aoo_damage(&actor, &plan, &enemy_refs);
+            let name = row.name;
+            match row.expected {
+                Aoo::Zero => assert_eq!(dmg, 0.0, "[{name}] expected 0, got {dmg}"),
+                Aoo::Positive => assert!(dmg > 0.0, "[{name}] expected > 0, got {dmg}"),
+                Aoo::Near(lo, hi) => assert!(
+                    (lo..=hi).contains(&dmg),
+                    "[{name}] expected in [{lo}, {hi}], got {dmg}",
+                ),
+                Aoo::AtLeastActorHp => assert!(
+                    dmg >= row.actor_hp as f32,
+                    "[{name}] expected ≥ hp({}), got {dmg}", row.actor_hp,
+                ),
+            }
+        }
     }
 
     // ── plan_has_self_aoe: routed through shared `aoe_area` ─────────────
