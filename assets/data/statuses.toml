@@ -2,6 +2,7 @@
 id          = "defending"
 name        = "Защита"
 armor_bonus = 4
+buff_class  = "armor_buff"
 
 [[statuses]]
 id               = "taunted"

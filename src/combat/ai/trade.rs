@@ -313,7 +313,7 @@ pub fn trade_score(br: &TradeBreakdown, actor_value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::role::AiRole;
+    use crate::combat::ai::role::AxisProfile;
     use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, StatusApplication,
@@ -398,6 +398,7 @@ mod tests {
             hp_percent_dot: 0,
             ai_controlled: false,
             causes_disadvantage: false,
+            buff_class: None,
         }
     }
 
@@ -436,13 +437,13 @@ mod tests {
         c.abilities.insert(heal.id.clone(), heal.clone());
 
         let bruiser = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
-            .ai_role(AiRole::Bruiser)
+            .role(AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() })
             .threat(5.0)
             .ap(2)
             .build();
 
         let healer = UnitBuilder::new(2, Team::Enemy, hex_from_offset(0, 0))
-            .ai_role(AiRole::Support)
+            .role(AxisProfile { support: 1.0, ..Default::default() })
             .threat(5.0)
             .ap(2)
             .abilities(vec![heal.id.clone()])
@@ -623,7 +624,7 @@ mod tests {
             .threat(5.0)
             .build();
         let victim = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-            .ai_role(AiRole::Support)
+            .role(AxisProfile { support: 1.0, ..Default::default() })
             .threat(4.0)
             .build();
         let snap = BattleSnapshot::new(vec![actor.clone(), victim.clone()], 1);
@@ -652,7 +653,7 @@ mod tests {
             .threat(1.0)
             .build();
         let ally_controller = UnitBuilder::new(3, Team::Enemy, hex_from_offset(1, 0))
-            .ai_role(AiRole::Mage)
+            .role(AxisProfile { ranged: 0.7, control: 0.3, ..Default::default() })
             .threat(8.0)
             .build();
         let snap = BattleSnapshot::new(
@@ -775,7 +776,7 @@ mod tests {
             .threat(5.0)
             .build();
         let tail_victim = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0))
-            .ai_role(AiRole::Support)
+            .role(AxisProfile { support: 1.0, ..Default::default() })
             .build();
         let snap = BattleSnapshot::new(vec![actor.clone(), tail_victim.clone()], 1);
 
@@ -823,7 +824,7 @@ mod tests {
             .threat(5.0)
             .build();
         let victim = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0))
-            .ai_role(AiRole::Support)
+            .role(AxisProfile { support: 1.0, ..Default::default() })
             .threat(4.0)
             .build();
         let snap = BattleSnapshot::new(vec![actor.clone(), victim.clone()], 1);

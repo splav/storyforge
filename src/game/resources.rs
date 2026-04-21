@@ -202,12 +202,6 @@ fn validate_content(scen_id: &str, c: &ContentView) {
         for aid in &t.ability_ids {
             assert!(c.abilities.contains_key(aid), "{label}: unknown ability '{aid}'");
         }
-        if let Some(ref role) = t.ai_role {
-            assert!(
-                crate::combat::ai::role::parse_role(role).is_some(),
-                "{label}: unknown ai_role '{role}'",
-            );
-        }
     }
 }
 
@@ -249,13 +243,6 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
                     for aid in ability_ids {
                         assert!(c.abilities.contains_key(aid), "{label} enemy '{}' phase {i}: unknown ability '{aid}'", enemy.name);
                     }
-                }
-                if let Some(role) = &ph.ai_role {
-                    assert!(
-                        crate::combat::ai::role::parse_role(role).is_some(),
-                        "{label} enemy '{}' phase {i}: unknown ai_role '{role}'",
-                        enemy.name,
-                    );
                 }
             }
             if let Some(aura) = &enemy.aura {

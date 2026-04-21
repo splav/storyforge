@@ -586,7 +586,6 @@ fn status_bonuses(
 #[cfg(test)]
 mod affordability_tests {
     use super::*;
-    use crate::combat::ai::role::AiRole;
     use crate::content::abilities::{AbilityRange, AoEShape, EffectDef, ResourceCost};
     use crate::core::DiceExpr;
     use crate::game::hex::hex_from_offset;
@@ -595,7 +594,7 @@ mod affordability_tests {
         UnitSnapshot {
             entity: Entity::from_raw_u32(1).expect("valid"),
             team: Team::Enemy,
-            role: AxisProfile::from(AiRole::Bruiser),
+            role: AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() },
             pos: hex_from_offset(0, 0),
             hp: 20,
             max_hp: 20,

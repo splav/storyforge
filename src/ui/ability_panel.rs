@@ -3,7 +3,7 @@
 //! shows the full details of the currently selected ability.
 
 use crate::content::content_view::{ActiveContent, ContentView};
-use super::{AbilityDescPanel, AbilityDescText, AbilitySlot, AbilitySlotLabel};
+use super::{AbilityDescPanel, AbilityDescText, AbilitySlot, AbilitySlotLabel, EndTurnButton};
 use crate::content::abilities::{
     AbilityDef, AoEShape, CasterContext, EffectDef, StatusOn, TargetType,
 };
@@ -13,7 +13,7 @@ use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, Energy, Equipment,
     Faction, Mana, Rage, Team, Vital,
 };
-use crate::game::messages::UseAbility;
+use crate::game::messages::{EndTurn, UseAbility};
 use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
@@ -88,6 +88,31 @@ pub fn spawn_ability_panel(root: &mut ChildSpawnerCommands, font: &Handle<Font>)
                             ));
                         });
                 }
+            });
+
+        // End-turn button (between slots and description) — matches slot styling.
+        panel
+            .spawn((
+                EndTurnButton,
+                Button,
+                Node {
+                    border: UiRect::all(Val::Px(1.0)),
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
+                    width: Val::Percent(100.0),
+                    height: Val::Px(SLOT_HEIGHT),
+                    align_items: AlignItems::Center,
+                    overflow: Overflow::clip(),
+                    ..default()
+                },
+                BorderColor::all(CLR_SLOT_BORDER),
+                BackgroundColor(CLR_SLOT_BG),
+            ))
+            .with_children(|btn| {
+                btn.spawn((
+                    Text::new("[E] Конец хода"),
+                    text_font(12.0),
+                    TextColor(Color::WHITE),
+                ));
             });
 
         // Description panel (below slots)
@@ -410,6 +435,27 @@ pub fn ability_slot_click_system(
             last_click.slot = None;
         }
     }
+}
+
+// ── End-turn button click ────────────────────────────────────────────────────
+
+pub fn end_turn_button_system(
+    active_q: Query<Entity, With<ActiveCombatant>>,
+    combatants: Query<&Faction, (With<Combatant>, Without<Dead>)>,
+    buttons: Query<&Interaction, (Changed<Interaction>, With<EndTurnButton>)>,
+    mut sel: ResMut<SelectionState>,
+    mut end_turn: MessageWriter<EndTurn>,
+) {
+    if !buttons.iter().any(|i| *i == Interaction::Pressed) {
+        return;
+    }
+    let Ok(actor) = active_q.single() else { return };
+    let Ok(faction) = combatants.get(actor) else { return };
+    if faction.0 != Team::Player {
+        return;
+    }
+    end_turn.write(EndTurn { actor });
+    sel.clear();
 }
 
 // ── Description formatting ───────────────────────────────────────────────────

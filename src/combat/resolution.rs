@@ -252,10 +252,12 @@ pub fn resolve_action_system(
             }
         }
 
-        // End turn only when AP pool is exhausted. With max_ap=1 this always
-        // fires after a cast (old behaviour). With larger pools, remaining AP
-        // lets the actor take another action in this turn.
-        if !matches!(def.effect, EffectDef::GrantMovement { .. }) && ap.action_points <= 0 {
+        // End turn only when both AP and MP pools are exhausted. Remaining MP
+        // after a cast lets the actor spend leftover movement before ending.
+        if !matches!(def.effect, EffectDef::GrantMovement { .. })
+            && ap.action_points <= 0
+            && ap.movement_points <= 0
+        {
             end_turn.write(EndTurn { actor: ev.actor });
         }
     }

@@ -14,7 +14,6 @@ stats     = { max_hp = 5, strength = 4, dexterity = 5, constitution = -4, intell
 equipment = { main_hand = "dagger", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
 
 ability_ids = ["melee_attack"]
-ai_role     = "bruiser"
 
 # ── Шаблон Эха Гостя — подменяет Мерона при смерти (phase 2 в крипте) ───────
 # Сильнее базового настоятеля, магический, игнорирует броню "шёпотом".
@@ -30,4 +29,3 @@ equipment = { main_hand = "staff", chest = "mage_robe", legs = "cloth_pants", fe
 resources = { mana = 10 }
 
 ability_ids = ["melee_attack", "whisper_from_beyond", "thunderstrike"]
-ai_role     = "mage"

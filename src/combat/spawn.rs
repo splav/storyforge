@@ -7,12 +7,12 @@
 //! next round and joins the queue with `Initiative(0)` (acts last).
 
 use crate::combat::ai::intent::AiMemory;
-use crate::combat::ai::role::{self as ai_role, AxisProfile};
+use crate::combat::ai::role::infer_profile;
 use crate::content::content_view::ActiveContent;
 use crate::game::bundles::enemy_bundle;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::components::{
-    CombatPath, Energy, Equipment, Faction, Mana, Rage, SummonedBy, Team, UnitToken,
+    CombatPath, Dead, Energy, Equipment, Faction, Mana, Rage, SummonedBy, Team, UnitToken,
 };
 use crate::game::hex::{hex_circle, LAYOUT};
 use crate::game::messages::SpawnUnit;
@@ -35,7 +35,7 @@ pub fn apply_spawn_system(
     token_mesh: Res<TokenMesh>,
     grid_offset: Res<HexGridOffset>,
     factions: Query<&Faction>,
-    summoned_by: Query<&SummonedBy>,
+    summoned_by: Query<&SummonedBy, Without<Dead>>,
 ) {
     let msgs: Vec<SpawnUnit> = events.read().cloned().collect();
 
@@ -48,7 +48,8 @@ pub fn apply_spawn_system(
             continue;
         };
 
-        // max_active cap: count live summons from this summoner.
+        // max_active cap: count LIVE summons from this summoner — dead ones
+        // keep their `SummonedBy` component (no despawn), so filter by !Dead.
         if let Some(cap) = msg.max_active {
             let active = summoned_by
                 .iter()
@@ -103,14 +104,7 @@ pub fn apply_spawn_system(
         };
         // Summoner's team determines the spawn's team. Fallback: Enemy (matches most use cases).
         let team = factions.get(msg.summoner).map_or(Team::Enemy, |f| f.0);
-        let role: AxisProfile = template
-            .ai_role
-            .as_deref()
-            .and_then(ai_role::parse_role)
-            .map(Into::into)
-            .unwrap_or_else(|| {
-                ai_role::infer_profile(&template.ability_ids, effective.max_hp, armor, &content)
-            });
+        let role = infer_profile(&template.ability_ids, effective.max_hp, armor, &content);
 
         let mut entity_commands = commands.spawn((
             Name::new(display_name.clone()),

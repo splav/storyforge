@@ -169,16 +169,11 @@ impl PlanRanking {
     /// this unconditionally is a no-op on non-ProtectSelf intents only
     /// incidentally (the mask would strip nothing), so the guard is load-
     /// bearing.
-    pub fn apply_protect_self(&mut self, plans: &[TurnPlan], ctx: &ScoringCtx) {
-        let margin = ctx.world.difficulty.defensive_tile_margin();
+    pub fn apply_protect_self(&mut self) {
         apply_protect_self_mask(
             &mut self.scored,
-            plans,
+            &self.raw_factors,
             &self.adaptation.modes,
-            ctx.active,
-            ctx.world.content,
-            ctx.maps,
-            margin,
         );
     }
 
@@ -368,43 +363,20 @@ mod tests {
 
     #[test]
     fn apply_protect_self_masks_non_defensive_and_preserves_reason() {
-        // Two plans: empty-steps (defensive by convention) + move into
-        // dangerous tile (non-defensive). Mask sends the second to -inf;
-        // `any_defensive=true` so no LastStand rescore, reason untouched.
-        let pos = hex_from_offset(0, 0);
-        let bad = hex_from_offset(3, 0);
-        let defensive = TurnPlan {
-            steps: Vec::new(),
-            final_pos: pos,
-            residual_ap: 0,
-            residual_mp: 0,
-            outcomes: Vec::new(),
-            partial_score: 0.0,
-            sim_snapshots: Vec::new(),
-        };
-        let aggressive = move_plan(vec![bad]);
-        let plans = vec![defensive, aggressive];
+        // Two plans: defensive (self_survival ≥ ε) + non-defensive (self_survival = 0).
+        // Mask sends the second to -inf; reason stays untouched.
         let mut ranking = PlanRanking {
             intent: TacticalIntent::ProtectSelf,
             intent_reason: IntentReason::Urgency { hp_pct: 0.3, danger: 0.8 },
             scored: vec![0.5, 0.7],
-            raw_factors: vec![PlanFactors::default(), PlanFactors::default()],
-            // No adaptation in this scenario — both plans stay Default,
-            // so the contract mask operates as normal (any_defensive=true
-            // → only non-defensive plans masked).
+            raw_factors: vec![
+                PlanFactors { self_survival: 0.2, ..Default::default() }, // defensive
+                PlanFactors::default(), // non-defensive
+            ],
             adaptation: Adaptation::empty(2),
         };
-        let active = UnitBuilder::new(1, Team::Enemy, pos).hp(5).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![active.clone()], 1);
-        let mut maps = empty_maps();
-        maps.danger.add(bad, 2.0);
-        let reservations = Reservations::default();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
 
-        ranking.apply_protect_self(&plans, &ctx);
+        ranking.apply_protect_self();
 
         assert_eq!(ranking.scored[0], 0.5, "defensive plan score preserved");
         assert!(ranking.scored[1].is_infinite() && ranking.scored[1] < 0.0, "non-defensive masked to -inf");

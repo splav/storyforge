@@ -91,7 +91,7 @@ pub fn commit_plan(plan: &TurnPlan, actor_pos: Hex) -> (AiDecision, usize) {
 /// mercy window, which was a full plan-walk + per-step factor recomputation
 /// just to grab two numbers we already had.
 fn mercy_cruelty(raw: &PlanFactors) -> f32 {
-    raw.kill + (raw.cc * 0.1).min(0.5)
+    raw.kill_now + raw.kill_promised * 0.5 + (raw.cc * 0.1).min(0.5)
 }
 
 /// Pick the winning plan. Mirrors `pick_best_candidate` — window-bounded top-K

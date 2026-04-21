@@ -90,14 +90,15 @@ Mouse input (via `hex_click_target`):
 - **Double-click empty hex**: move there (without entering move_mode)
 
 ### enemy_ai_system
-Only for `Team::Enemy`. Smart ability selection:
-1. Scores each affordable ability × target pair
-2. Heal allies below 60% HP → high priority
-3. SpellDamage > Damage > WeaponAttack
-4. Status with `skips_turn` → very high priority
-5. If target in range → use ability
-6. If not in range → pathfind, move, then use if reachable
-7. If can't reach → approach closest, end turn
+Only for `Team::Enemy`. Runs `run_ai_turn` (shared with `pact_ai_system`). Each tick:
+1. Builds fresh `BattleSnapshot` + influence maps.
+2. Always calls `pick_action` (beam search over intent → plan pool → scoring → pick).
+3. **Plan freeze** (`ai_freeze_plan_after_move = true`, default): if the previous tick was a `MoveOnly` decision, the stored plan is validated against current world state. If valid, continues with `step[step_index]` from the stored plan instead of following the fresh plan. This suppresses the "move forward → replan backward" oscillation caused by non-monotonic scoring under partial plan execution.
+4. Invalidation (forces fresh replan): actor HP dropped (AoO), actor rage changed, actor statuses changed, target dead/moved/HP-dropped, actor not at expected position.
+5. After any Move decision, stores the full plan in `AiMemory.last_plan` for next-tick continuation.
+6. No EndTurn after Move — the next tick continues or ends the turn naturally.
+
+`pick_action` always runs regardless of freeze to produce the shadow plan for divergence logging. When logging is enabled, a `plan_divergence` JSONL entry records stored vs fresh: intent/ability/target diffs and score delta.
 
 Respects `forces_targeting` (taunt).
 
@@ -125,7 +126,7 @@ Per effect type:
 - **None**: statuses only
 - **GrantMovement**: resets `ap.movement = true`, inserts `BonusMovement(distance)`, does NOT send EndTurn
 
-Subtracts rage/mana costs. Applies status effects. Sends EndTurn (except GrantMovement).
+Subtracts rage/mana costs. Applies status effects. Sends EndTurn only when both AP and MP pools are exhausted — leftover movement after a cast lets the actor spend remaining MP (player can move or press E; AI re-plans next tick).
 
 ### apply_effects_system
 - **Damage**: `max(1, raw - armor - armor_bonus + damage_taken_bonus)`. Piercing ignores armor/armor_bonus. Grants +1 rage to both source and target.
@@ -153,7 +154,7 @@ Runs in `TurnStart` **after** `turn_start_system` and **before** `skip_dead_turn
 Runs in `Execute` **after** `apply_effects_system` and **before** `advance_turn_system`. For each enemy with pending `EnemyPhases`: if the first phase's trigger fires (`HpBelowPct`), the phase is applied in-place (new `CombatStats`, `Abilities`, `AxisProfile`, optional heal-to-full, name rename, `Dead` removal). Emits `CombatEvent::PhaseEntered { prev_name, next_name, flavor }` which `queue_enemy_popup` turns into a popup. The `VictoryTarget` marker is NOT removed on transition — a `kill_target` boss must be defeated through all phases.
 
 ### advance_turn_system
-1. Apply pending new statuses (from ApplyStatus messages); skip Dead targets
+1. Apply pending new statuses (from ApplyStatus messages); skip Dead targets. Runs every frame so statuses resolved mid-turn (player casts, then moves) take effect immediately, not only at EndTurn.
 2. Check victory via `CombatObjective`: `AllEnemiesDead` (no living enemy) or `KillTarget` (no living entity with `VictoryTarget`); defeat when no players alive → `CombatPhase::Victory/Defeat`
 3. Advance queue index, skipping Dead entities; orphaned statuses applied by Dead units still tick during the scan so they expire on schedule
 4. Recheck victory (orphan ticks may have killed the last remaining unit)

@@ -16,8 +16,20 @@ pub fn evaluate_position(tile: Hex, profile: &AxisProfile, maps: &InfluenceMaps)
 mod tests {
     use super::*;
     use crate::combat::ai::influence::InfluenceMap;
-    use crate::combat::ai::role::AiRole;
     use crate::game::hex::hex_from_offset;
+
+    /// Five reference profiles spanning the axes — used to pin role-agnostic
+    /// invariants (zero-map tiles, escape isolation). Pure axes on 4 of them
+    /// and a tank/melee hybrid to represent frontline behaviour.
+    fn sample_profiles() -> [AxisProfile; 5] {
+        [
+            AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() }, // bruiser
+            AxisProfile { ranged: 1.0, ..Default::default() },           // archer
+            AxisProfile { ranged: 0.7, control: 0.3, ..Default::default() }, // mage
+            AxisProfile { support: 1.0, ..Default::default() },          // support
+            AxisProfile { melee: 0.8, tank: 0.2, ..Default::default() }, // assassin
+        ]
+    }
 
     fn maps_with_danger(hex: Hex, danger: f32) -> InfluenceMaps {
         let mut d = InfluenceMap::new();
@@ -34,8 +46,8 @@ mod tests {
     fn support_avoids_danger_more_than_bruiser() {
         let h = hex_from_offset(3, 3);
         let maps = maps_with_danger(h, 0.7);
-        let support: AxisProfile = AiRole::Support.into();
-        let bruiser: AxisProfile = AiRole::Bruiser.into();
+        let support = AxisProfile { support: 1.0, ..Default::default() };
+        let bruiser = AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() };
         let support_score = evaluate_position(h, &support, &maps);
         let bruiser_score = evaluate_position(h, &bruiser, &maps);
         assert!(
@@ -53,8 +65,7 @@ mod tests {
             opportunity: InfluenceMap::new(),
             escape: InfluenceMap::new(),
         };
-        for role in [AiRole::Bruiser, AiRole::Archer, AiRole::Mage, AiRole::Support, AiRole::Assassin] {
-            let profile: AxisProfile = role.into();
+        for profile in sample_profiles() {
             assert_eq!(evaluate_position(h, &profile, &maps), 0.0);
         }
     }
@@ -68,13 +79,12 @@ mod tests {
         let mut maps2 = maps1.clone();
         maps2.escape.add(h, 0.9);
 
-        for role in [AiRole::Bruiser, AiRole::Archer, AiRole::Mage, AiRole::Support, AiRole::Assassin] {
-            let profile: AxisProfile = role.into();
+        for profile in sample_profiles() {
             assert_eq!(
                 evaluate_position(h, &profile, &maps1),
                 evaluate_position(h, &profile, &maps2),
                 "escape should not affect position_eval for {:?}",
-                role,
+                profile,
             );
         }
     }

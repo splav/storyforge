@@ -272,8 +272,6 @@ pub fn apply_adaptation(
 
     let active = ctx.active;
     let content = ctx.world.content;
-    let maps = ctx.maps;
-    let margin = ctx.world.difficulty.defensive_tile_margin();
 
     // ── Global rules under ProtectSelf ────────────────────────────────────
     // Two ways the contract can be unsatisfiable, each with its own
@@ -285,9 +283,9 @@ pub fn apply_adaptation(
     // Applied first because global — any per-plan ExpectedSelfLethal
     // rule would be shadowed by a global switch anyway.
     if matches!(intent, TacticalIntent::ProtectSelf) {
-        let any_defensive = plans
+        let any_defensive = raw
             .iter()
-            .any(|p| plan_is_defensive(p, active, content, maps, margin));
+            .any(|f| plan_is_defensive(f.self_survival));
         if !any_defensive {
             for i in 0..plans.len() {
                 adaptation.modes[i] = EvaluationMode::LastStand;
@@ -484,7 +482,12 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        let mut raw = vec![PlanFactors::default(), PlanFactors::default()];
+        // raw[0] is the empty defensive plan — self_survival ≥ ε so spatial
+        // check passes (any_defensive=true) and ExpectedSelfLethal is gated off.
+        let mut raw = vec![
+            PlanFactors { self_survival: 0.2, ..Default::default() },
+            PlanFactors::default(),
+        ];
         let mut scored = vec![0.5, 0.5];
         let adaptation = apply_adaptation(
             &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
@@ -584,6 +587,7 @@ mod tests {
             hp_percent_dot,
             ai_controlled: false,
             causes_disadvantage: false,
+            buff_class: None,
         }
     }
 
@@ -648,7 +652,9 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor_with_dot);
 
-        let mut raw = vec![PlanFactors::default()];
+        // self_survival ≥ ε so spatial check (any_defensive) passes and the
+        // doom/rescue branch is reached. The skip plan has no rescue → Futile.
+        let mut raw = vec![PlanFactors { self_survival: 0.2, ..Default::default() }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
             &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
@@ -696,7 +702,9 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor_doomed);
 
-        let mut raw = vec![PlanFactors::default()];
+        // self_survival ≥ ε so spatial check passes; rescue plan heals above
+        // pending DoT → any_rescue=true → contract holds.
+        let mut raw = vec![PlanFactors { self_survival: 0.2, ..Default::default() }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
             &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
@@ -738,7 +746,9 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor_doomed);
 
-        let mut raw = vec![PlanFactors::default()];
+        // self_survival ≥ ε so spatial check passes; cleanse drops pending
+        // DoT to 0 → any_rescue=true → contract holds.
+        let mut raw = vec![PlanFactors { self_survival: 0.2, ..Default::default() }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
             &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,

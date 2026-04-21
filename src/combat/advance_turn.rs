@@ -13,20 +13,19 @@ use crate::game::resources::{CombatObjective, TurnQueue};
 use bevy::prelude::*;
 
 /// Consumes EndTurn and ApplyStatus messages.
-/// Applies new statuses, checks win/lose, advances the turn queue.
+/// Applies new statuses and advances the turn queue. Victory/defeat detection
+/// lives in `check_victory_system`, which is event-driven on `Added<Dead>` and
+/// runs after this system.
 ///
 /// DoT ticks for statuses applied by a combatant fire at that combatant's
 /// next `TurnStart` (see `status_tick::tick_status_effects_system`), not here.
 /// Это даёт `phase_transition_system` в `Execute` того же кадра возможность
-/// оживить фазированного босса до victory-check ниже.
+/// оживить фазированного босса до victory-check.
 pub fn advance_turn_system(
     mut commands: Commands,
     mut end_turn_events: MessageReader<EndTurn>,
     mut status_events: MessageReader<ApplyStatus>,
-    mut queries: ParamSet<(
-        Query<&mut Vital>,
-        Query<(&Vital, &Faction, Option<&VictoryTarget>), With<Combatant>>,
-    )>,
+    mut vitals: Query<&mut Vital>,
     mut action_points: Query<&mut ActionPoints>,
     speed_q: Query<&Speed>,
     mut statuses: Query<(Entity, &mut StatusEffects)>,
@@ -36,21 +35,15 @@ pub fn advance_turn_system(
     mut log: ResMut<CombatLog>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
     content: Res<ActiveContent>,
-    objective: Res<CombatObjective>,
     mut rng: ResMut<DiceRng>,
 ) {
-    // Consume all EndTurn messages (prevents leaking to next frame).
-    // At most one actor ends their turn per frame, so take the first.
-    let all_actors: Vec<Entity> = end_turn_events.read().map(|e| e.actor).collect();
-    let Some(&actor) = all_actors.first() else { return };
+    // 1. Apply NEW statuses (skip dead targets). Runs every frame so that
+    // statuses emitted mid-turn (player casts, then spends leftover MP)
+    // take effect immediately instead of waiting for EndTurn.
     let status_apps: Vec<(Entity, Entity, crate::core::StatusId, u32)> = status_events
         .read()
         .map(|e| (e.source, e.target, e.status.clone(), e.duration_rounds))
         .collect();
-
-    log.push(CombatEvent::TurnEnded { actor });
-
-    // 1. Apply NEW statuses (skip dead targets).
     for (source, target, status, duration) in &status_apps {
         if dead_q.get(*target).is_ok() {
             continue;
@@ -70,28 +63,29 @@ pub fn advance_turn_system(
         }
     }
 
-    // 2. Win/lose check.
-    if let Some(outcome) = check_combat_end(&queries.p1(), &objective.0) {
-        end_combat(outcome, &mut log, &mut next_phase);
-        return;
-    }
+    // Consume all EndTurn messages (prevents leaking to next frame).
+    // At most one actor ends their turn per frame, so take the first.
+    let all_actors: Vec<Entity> = end_turn_events.read().map(|e| e.actor).collect();
+    let Some(&actor) = all_actors.first() else { return };
 
-    // 3. Advance to next living combatant.
+    log.push(CombatEvent::TurnEnded { actor });
+
+    // 2. Advance to next living combatant.
     // Dead entities are skipped, but we still tick their orphaned statuses
-    // so that effects they applied continue to expire on schedule.
+    // so that effects they applied continue to expire on schedule. Any deaths
+    // here insert `Dead`; `check_victory_system` picks them up downstream.
     let start_idx = queue.index;
     queue.advance();
     loop {
         let current = queue.current();
         let alive = current
-            .and_then(|e| queries.p0().get(e).ok().map(|v| v.is_alive()))
+            .and_then(|e| vitals.get(e).ok().map(|v| v.is_alive()))
             .unwrap_or(false);
         if alive {
             break;
         }
         if let Some(dead_entity) = current {
             let tick_results = tick_status_durations(dead_entity, &mut statuses, &content);
-            let mut vitals = queries.p0();
             for result in &tick_results {
                 match result {
                     TickResult::DotDamage { target, damage, status } => {
@@ -135,14 +129,7 @@ pub fn advance_turn_system(
         }
     }
 
-    // 4. Recheck win/lose — DoT during the advance loop may have killed
-    //    the last remaining player or enemy.
-    if let Some(outcome) = check_combat_end(&queries.p1(), &objective.0) {
-        end_combat(outcome, &mut log, &mut next_phase);
-        return;
-    }
-
-    // 5. Hand off to the next actor or start a new round.
+    // 3. Hand off to the next actor or start a new round.
     for e in &active_q { commands.entity(e).remove::<ActiveCombatant>(); }
 
     if queue.index == 0 {
@@ -157,6 +144,25 @@ pub fn advance_turn_system(
         }
         commands.entity(next_actor).insert(ActiveCombatant);
         log.push(CombatEvent::TurnStarted { actor: next_actor });
+    }
+}
+
+/// Event-driven victory/defeat detection. Runs after any system that may
+/// insert `Dead`: checks the objective whenever at least one entity became
+/// dead since the last run. Entities revived by `phase_transition_system`
+/// (which removes `Dead`) no longer match `Added<Dead>` → no false positive.
+pub fn check_victory_system(
+    added_dead: Query<(), Added<Dead>>,
+    combatants: Query<(&Vital, &Faction, Option<&VictoryTarget>), With<Combatant>>,
+    objective: Res<CombatObjective>,
+    mut log: ResMut<CombatLog>,
+    mut next_phase: ResMut<NextState<CombatPhase>>,
+) {
+    if added_dead.is_empty() {
+        return;
+    }
+    if let Some(outcome) = check_combat_end(&combatants, &objective.0) {
+        end_combat(outcome, &mut log, &mut next_phase);
     }
 }
 

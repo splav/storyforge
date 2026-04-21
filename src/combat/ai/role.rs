@@ -3,21 +3,6 @@ use crate::content::content_view::ContentView;
 use crate::core::AbilityId;
 use bevy::prelude::*;
 
-/// Tactical AI role — drives weight profiles in influence maps and utility scoring.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum AiRole {
-    /// Melee fighter: holds zone, finishes targets.
-    Bruiser,
-    /// Ranged physical: seeks distance and LOS.
-    Archer,
-    /// Ranged magic: AoE, control, spell damage.
-    Mage,
-    /// Healer / buffer / debuffer: protects allies.
-    Support,
-    /// Fast striker: focuses vulnerable or dangerous targets.
-    Assassin,
-}
-
 // ── AxisProfile: vector-role across 5 archetypal axes ──────────────────────
 //
 // Instead of classifying a unit as one of 5 enum roles, we score it across
@@ -48,16 +33,22 @@ pub struct AxisProfile {
 /// readable while pure roles converge to enum-like behaviour.
 pub const COMPOSITION_EXPONENT: f32 = 1.5;
 
-/// Per-axis weights for the 9 utility factors.
-/// Columns: [damage, kill, cc, heal, position, risk, focus, intent, scarcity].
+/// Per-axis weights for the 10 utility factors.
+/// Columns: [damage, kill_now, kill_promised, cc, heal, intent, scarcity, tempo_gain, saturation, self_survival].
+/// kill_promised = kill_now × 0.5 for all roles except Control (0.8 — DoT is
+/// strategically valuable for controllers).
+/// saturation = 1.0 for all roles (signed axis, sign drives the direction).
+/// self_survival: Support 1.2 (healer cares most), Tank 1.0, others 0.8.
+/// Phase 6 removed position, risk, focus columns — their signals are now
+/// covered by tempo_gain and self_survival.
 #[rustfmt::skip]
-const AXIS_FACTOR_WEIGHTS: [[f32; 9]; 5] = [
-    //            dmg   kill  cc    heal  pos   risk  focus intent scarc
-    /* Tank    */ [0.4,  0.6,  0.5,  0.2,  1.2,  0.4,  0.6,  1.0,  0.4],
-    /* Melee   */ [1.3,  1.6,  0.2,  0.0,  0.9,  0.4,  0.9,  1.0,  0.3],
-    /* Ranged  */ [1.3,  1.3,  0.3,  0.0,  1.1,  0.7,  0.7,  1.0,  0.5],
-    /* Control */ [0.4,  0.5,  1.6,  0.0,  0.9,  0.7,  0.8,  1.0,  1.2],
-    /* Support */ [0.2,  0.3,  0.6,  2.0,  1.0,  1.0,  0.5,  1.0,  0.8],
+const AXIS_FACTOR_WEIGHTS: [[f32; 10]; 5] = [
+    //            dmg   kn    kp    cc    heal  intent scarc tempo  sat   surv
+    /* Tank    */ [0.4,  0.6,  0.3,  0.5,  0.2,  1.0,  0.4,  0.8,  1.0,  1.0],
+    /* Melee   */ [1.3,  1.6,  0.8,  0.2,  0.0,  1.0,  0.3,  1.0,  1.0,  0.8],
+    /* Ranged  */ [1.3,  1.3,  0.65, 0.3,  0.0,  1.0,  0.5,  1.2,  1.0,  0.8],
+    /* Control */ [0.4,  0.5,  0.4,  1.6,  0.0,  1.0,  1.2,  1.0,  1.0,  0.8],
+    /* Support */ [0.2,  0.3,  0.15, 0.6,  2.0,  1.0,  0.8,  0.8,  1.0,  1.2],
 ];
 
 /// Per-axis weights for the 3 influence maps (danger, ally_support, opportunity).
@@ -96,12 +87,12 @@ impl AxisProfile {
         biased.map(|v| v / total)
     }
 
-    /// Composed 9-factor weights for utility scoring.
-    pub fn factor_weights(&self) -> [f32; 9] {
+    /// Composed 10-factor weights for utility scoring.
+    pub fn factor_weights(&self) -> [f32; 10] {
         let mix = self.biased_normalized();
-        let mut out = [0.0f32; 9];
+        let mut out = [0.0f32; 10];
         for axis in 0..5 {
-            for f in 0..9 {
+            for f in 0..10 {
                 out[f] += mix[axis] * AXIS_FACTOR_WEIGHTS[axis][f];
             }
         }
@@ -139,20 +130,6 @@ impl AxisProfile {
             format!("{} + {}({:.2})", primary, AXIS_NAMES[si], sv)
         } else {
             primary
-        }
-    }
-}
-
-impl From<AiRole> for AxisProfile {
-    /// Legacy conversion for code still producing `AiRole` (TOML overrides, tests).
-    /// Values are approximate — pure enum roles become near-pure profiles.
-    fn from(r: AiRole) -> Self {
-        match r {
-            AiRole::Bruiser  => AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() },
-            AiRole::Archer   => AxisProfile { ranged: 1.0, ..Default::default() },
-            AiRole::Mage     => AxisProfile { ranged: 0.7, control: 0.3, ..Default::default() },
-            AiRole::Support  => AxisProfile { support: 1.0, ..Default::default() },
-            AiRole::Assassin => AxisProfile { melee: 0.8, tank: 0.2, ..Default::default() },
         }
     }
 }
@@ -266,21 +243,10 @@ fn has_damage(def: &crate::content::abilities::AbilityDef) -> bool {
     )
 }
 
-/// Parse an optional TOML string into an AiRole.
-pub fn parse_role(s: &str) -> Option<AiRole> {
-    match s {
-        "bruiser" => Some(AiRole::Bruiser),
-        "archer" => Some(AiRole::Archer),
-        "mage" => Some(AiRole::Mage),
-        "support" => Some(AiRole::Support),
-        "assassin" => Some(AiRole::Assassin),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::factors::{DAMAGE_IDX, HEAL_IDX};
     use crate::core::AbilityId;
 
     fn db() -> ContentView {
@@ -289,17 +255,6 @@ mod tests {
 
     fn ids(names: &[&str]) -> Vec<AbilityId> {
         names.iter().map(|s| AbilityId::from(*s)).collect()
-    }
-
-    #[test]
-    fn parse_role_valid() {
-        assert_eq!(parse_role("mage"), Some(AiRole::Mage));
-        assert_eq!(parse_role("bruiser"), Some(AiRole::Bruiser));
-    }
-
-    #[test]
-    fn parse_role_invalid() {
-        assert_eq!(parse_role("unknown"), None);
     }
 
     // ── AxisProfile tests ───────────────────────────────────────────────
@@ -333,12 +288,12 @@ mod tests {
 
     #[test]
     fn factor_weights_mix_correctly() {
-        // 50/50 Tank + Melee: heal should be near zero (both axes have heal≈0.1 average).
+        // 50/50 Tank + Melee: heal (index 4) should be near zero (both axes have heal≈0.1 average).
         let p = AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() };
         let w = p.factor_weights();
-        assert!(w[3] < 0.15, "heal weight should be small for tank/melee hybrid, got {}", w[3]);
+        assert!(w[HEAL_IDX] < 0.15, "heal weight should be small for tank/melee hybrid, got {}", w[HEAL_IDX]);
         // Damage should be meaningful (melee contributes 1.3).
-        assert!(w[0] > 0.6, "damage weight should be substantial, got {}", w[0]);
+        assert!(w[DAMAGE_IDX] > 0.6, "damage weight should be substantial, got {}", w[DAMAGE_IDX]);
     }
 
     #[test]
@@ -346,7 +301,7 @@ mod tests {
         // After bias, pure support normalizes to 1.0; heal = 1.0 × 2.0 = 2.0.
         let p = AxisProfile { support: 1.0, ..Default::default() };
         let w = p.factor_weights();
-        assert!((w[3] - 2.0).abs() < 0.01, "pure support heal weight = 2.0, got {}", w[3]);
+        assert!((w[HEAL_IDX] - 2.0).abs() < 0.01, "pure support heal weight = 2.0, got {}", w[HEAL_IDX]);
     }
 
     #[test]
@@ -373,21 +328,6 @@ mod tests {
         let label = p.dominant_label();
         assert!(label.contains("Ranged"), "got {}", label);
         assert!(label.contains("Support"), "should show secondary support: {}", label);
-    }
-
-    #[test]
-    fn legacy_conversion_from_enum() {
-        let p: AxisProfile = AiRole::Support.into();
-        assert_eq!(p.support, 1.0);
-        assert_eq!(p.tank, 0.0);
-
-        let p: AxisProfile = AiRole::Bruiser.into();
-        assert_eq!(p.tank, 0.5);
-        assert_eq!(p.melee, 0.5);
-
-        let p: AxisProfile = AiRole::Assassin.into();
-        assert_eq!(p.melee, 0.8);
-        assert_eq!(p.tank, 0.2);
     }
 
     // ── infer_profile on real units ─────────────────────────────────────

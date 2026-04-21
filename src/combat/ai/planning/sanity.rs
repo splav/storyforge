@@ -9,8 +9,7 @@
 //! `SURVIVAL_FLOOR` keeps even punished plans competitive when all options
 //! are bad; retreat lines still beat "rush at 5 HP".
 
-use crate::combat::ai::factors::aoe_area;
-use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::factors::{aoe_area, PlanFactors};
 use crate::combat::ai::planning::adaptation::EvaluationMode;
 use crate::combat::ai::planning::scorer::worst_path_danger;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
@@ -18,8 +17,7 @@ use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::effects_math::final_damage_f32;
-use crate::content::abilities::{AoEShape, TargetType};
-use crate::content::content_view::ContentView;
+use crate::content::abilities::AoEShape;
 use crate::game::hex::{has_los, in_bounds, Hex};
 use std::collections::HashSet;
 
@@ -248,50 +246,17 @@ fn plan_has_useful_cast(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
 
 // ── ProtectSelf mask ───────────────────────────────────────────────────────
 
-/// A plan is **defensive** iff its *first* step is defensive. Rationale: the
-/// first step is what gets committed this tick; subsequent steps are
-/// opportunistic and will be re-validated next tick from the resulting state.
-/// Judging the whole plan by its first step matches "what actually executes
-/// now" and doesn't reward filler-offensive suffixes hiding behind a safe
-/// opener.
-///
-/// Step-level defense:
-/// - **Move**: destination strictly safer than current tile by
-///   `defensive_margin`.
-/// - **Cast** on self/ally: always defensive (heals, buffs, self-regen).
-/// - **Cast** on enemy: only defensive if the cast fires from a tile safer
-///   than the actor's current position — i.e. the plan repositioned before
-///   casting.
-///
-/// Empty plans (seed "skip turn") are defensive by default: doing nothing
-/// preserves state; if current tile is dangerous, retreat plans will beat it
-/// on position/risk factors anyway.
-pub fn plan_is_defensive(
-    plan: &TurnPlan,
-    actor: &UnitSnapshot,
-    content: &ContentView,
-    maps: &InfluenceMaps,
-    defensive_margin: f32,
-) -> bool {
-    let Some(first) = plan.steps.first() else { return true };
-    let current_danger = maps.danger.get(actor.pos);
-    match first {
-        PlanStep::Move { path } => {
-            let Some(&dest) = path.last() else { return true };
-            maps.danger.get(dest) + defensive_margin < current_danger
-        }
-        PlanStep::Cast { ability, .. } => {
-            let Some(def) = content.abilities.get(ability) else { return false };
-            // Any ally/self cast = defensive. First-step Cast has caster_pos
-            // == actor.pos (no preceding move), so the "cast from safer
-            // tile" branch doesn't apply here by definition; it's covered by
-            // plans that lead with a Move instead.
-            matches!(
-                def.target_type,
-                TargetType::SingleAlly | TargetType::Myself,
-            )
-        }
-    }
+/// Minimum `self_survival` value for a plan to be considered defensive under
+/// `ProtectSelf` intent. ≈ 15% of max_hp worth of net survival improvement
+/// (self-heal, armor-buff, or exit-danger contribution).
+pub const SELF_SURVIVAL_EPSILON: f32 = 0.15;
+
+/// A plan is **defensive** iff its `self_survival` factor is at or above
+/// `SELF_SURVIVAL_EPSILON`. The `self_survival` axis captures cumulative
+/// defensive value across the plan (self-heal, armor-buff, and danger-exit),
+/// making the threshold independent of step-level tile/target-type heuristics.
+pub fn plan_is_defensive(self_survival: f32) -> bool {
+    self_survival >= SELF_SURVIVAL_EPSILON
 }
 
 /// Mask non-defensive plans to `-∞` under `ProtectSelf` intent — contract
@@ -310,23 +275,19 @@ pub fn plan_is_defensive(
 /// inside this function.
 pub fn apply_protect_self_mask(
     scores: &mut [f32],
-    plans: &[TurnPlan],
+    raw: &[PlanFactors],
     modes: &[EvaluationMode],
-    active: &UnitSnapshot,
-    content: &ContentView,
-    maps: &InfluenceMaps,
-    defensive_margin: f32,
 ) -> bool {
-    debug_assert_eq!(plans.len(), modes.len());
+    debug_assert_eq!(raw.len(), modes.len());
     let mut any_defensive = false;
-    for (i, p) in plans.iter().enumerate() {
+    for (i, f) in raw.iter().enumerate() {
         // Plans that adaptation moved to a non-Default mode have opted
         // out of the ProtectSelf contract; the mask does not apply to
         // them.
         if !matches!(modes.get(i), Some(EvaluationMode::Default)) {
             continue;
         }
-        if plan_is_defensive(p, active, content, maps, defensive_margin) {
+        if plan_is_defensive(f.self_survival) {
             any_defensive = true;
         } else if i < scores.len() {
             scores[i] = f32::NEG_INFINITY;

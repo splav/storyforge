@@ -147,6 +147,7 @@ fn main() {
                 ui::ability_panel::update_ability_panel,
                 ui::ability_panel::update_ability_description,
                 ui::ability_panel::ability_slot_click_system,
+                ui::ability_panel::end_turn_button_system,
             )
                 .after(ui::hex_grid::ui_dirty_bridge)
                 .run_if(in_state(AppState::Combat)),

@@ -650,6 +650,7 @@ mod tests {
             hp_percent_dot: 0,
             ai_controlled: false,
             causes_disadvantage: false,
+            buff_class: None,
         };
         content.statuses.insert(StatusId::from("stunned"), stun_def);
 
@@ -715,6 +716,7 @@ mod tests {
                 hp_percent_dot: 0,
                 ai_controlled: false,
                 causes_disadvantage: false,
+                buff_class: None,
             },
         );
         // Heal: 1d4 (EV 2.5 → 3) + int_mod(2) = 5 raw.
@@ -784,6 +786,7 @@ mod tests {
                 hp_percent_dot: 0,
                 ai_controlled: false,
                 causes_disadvantage: false,
+                buff_class: None,
             },
         );
 

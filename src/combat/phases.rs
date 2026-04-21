@@ -1,4 +1,4 @@
-use crate::combat::ai::role::{self as ai_role, AxisProfile};
+use crate::combat::ai::role::{infer_profile, AxisProfile};
 use crate::content::content_view::ActiveContent;
 use crate::content::encounters::PhaseTrigger;
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -67,13 +67,9 @@ pub fn phase_transition_system(
             abilities.0 = new_abilities.clone();
         }
         if let Some(mut role) = role_opt {
-            if let Some(ref role_name) = phase.ai_role {
-                if let Some(parsed) = ai_role::parse_role(role_name) {
-                    *role = parsed.into();
-                }
-            } else if phase.stats.is_some() || phase.ability_ids.is_some() {
-                // Re-infer when inputs changed and no explicit role was given.
-                *role = ai_role::infer_profile(&abilities.0, vital.max_hp, vital.armor, &content);
+            if phase.stats.is_some() || phase.ability_ids.is_some() {
+                // Re-infer when inputs changed.
+                *role = infer_profile(&abilities.0, vital.max_hp, vital.armor, &content);
             }
         }
 

@@ -20,8 +20,8 @@ race    = "human"
 faction = "askeria"
 path    = "will"
 class   = "mage"
-hex_col = 1
-hex_row = 4
+hex_col = 0
+hex_row = 3
 
 # ── Сцена 0: Пролог ─────────────────────────────────────────────────────────
 
@@ -81,7 +81,7 @@ name    = "Kael"
 race    = "human"
 class   = "ranger"
 hex_col = 0
-hex_row = 3
+hex_row = 1
 
 # ── Сцена 5: Бой в искажённой чаще ──────────────────────────────────────────
 

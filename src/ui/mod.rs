@@ -49,6 +49,10 @@ pub struct AbilitySlot(pub usize);
 #[derive(Component)]
 pub struct AbilitySlotLabel(pub usize);
 
+/// Marker on the "End Turn" button below the ability slots.
+#[derive(Component)]
+pub struct EndTurnButton;
+
 /// Marker on the panel below the ability slots that shows the full description
 /// of the currently selected ability.
 #[derive(Component)]

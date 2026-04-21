@@ -510,7 +510,7 @@ mod tests {
     /// `threat`. Pins the key user-visible effect of #6-B.
     #[test]
     fn stun_value_devalues_resource_starved_target() {
-        use crate::combat::ai::role::{AiRole, AxisProfile};
+        use crate::combat::ai::role::AxisProfile;
         use crate::combat::ai::snapshot::AiTags;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
@@ -521,7 +521,7 @@ mod tests {
             UnitSnapshot {
                 entity: bevy::prelude::Entity::from_raw_u32(id).unwrap(),
                 team: Team::Player,
-                role: AxisProfile::from(AiRole::Bruiser),
+                role: AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() },
                 pos: hex_from_offset(0, 0),
                 hp: 20,
                 max_hp: 20,

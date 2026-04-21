@@ -87,7 +87,9 @@ impl Plugin for CombatPipelinePlugin {
             (
                 enemy_popup::queue_enemy_popup,
                 advance_turn::advance_turn_system,
+                advance_turn::check_victory_system,
             )
+                .chain()
                 .in_set(CombatStep::Finalize),
         );
     }

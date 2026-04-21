@@ -131,7 +131,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::role::AiRole;
+    use crate::combat::ai::role::AxisProfile;
     use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, unit, UnitBuilder,
@@ -219,7 +219,7 @@ mod tests {
         let tile = hex_from_offset(4, 3);
         let active = UnitBuilder::new(0, Team::Enemy, tile).mana(10, 10).build();
         let enemy = UnitBuilder::new(1, Team::Player, hex_from_offset(3, 3))
-            .ai_role(AiRole::Support)
+            .role(AxisProfile { support: 1.0, ..Default::default() })
             .hp(5)
             .build();
 

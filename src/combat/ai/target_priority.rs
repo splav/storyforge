@@ -71,7 +71,7 @@ pub fn target_priority(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::role::AiRole;
+    use crate::combat::ai::role::AxisProfile;
     use crate::combat::ai::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{unit, UnitBuilder};
     use crate::game::components::Team;
@@ -96,7 +96,7 @@ mod tests {
     fn support_target_scores_higher_than_bruiser() {
         let active = unit(0, Team::Player, hex_from_offset(0, 0));
         let support = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
-            .ai_role(AiRole::Support)
+            .role(AxisProfile { support: 1.0, ..Default::default() })
             .build();
         let bruiser = unit(2, Team::Enemy, hex_from_offset(3, 3));
 

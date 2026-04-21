@@ -18,7 +18,7 @@ use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::AiWorld;
-use crate::content::abilities::{AbilityDef, AoEShape, TargetType};
+use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use crate::game::pathfinding::ReachableMap;
@@ -100,6 +100,38 @@ pub fn generate_plans(
 
             let steps = enumerate_next_steps(&base_sim, ctx, maps);
             for step in steps {
+                // Prune Summon casts that would be blocked by `max_active`.
+                // `sim.apply_step` doesn't materialise summoned units (see
+                // sim.rs Summon branch), so cap pressure from *earlier*
+                // Cast-Summon steps in this plan isn't visible in
+                // `base_sim.snapshot` — count them from `plan.steps` and add
+                // to the live count from the snapshot.
+                if let PlanStep::Cast { ability, .. } = &step {
+                    if let Some(def) = ctx.content.abilities.get(ability) {
+                        if let EffectDef::Summon { max_active, .. } = &def.effect {
+                            let cap = max_active.unwrap_or(u32::MAX);
+                            let live = base_sim
+                                .snapshot
+                                .units
+                                .iter()
+                                .filter(|u| u.summoner == Some(actor) && u.is_alive())
+                                .count() as u32;
+                            let pending = plan
+                                .steps
+                                .iter()
+                                .filter(|s| matches!(s,
+                                    PlanStep::Cast { ability: a, .. }
+                                        if ctx.content.abilities.get(a)
+                                            .is_some_and(|d| matches!(d.effect,
+                                                EffectDef::Summon { .. }))
+                                ))
+                                .count() as u32;
+                            if live + pending >= cap {
+                                continue;
+                            }
+                        }
+                    }
+                }
                 // Apply this step on a cloned sim to measure outcome + state.
                 let mut ext_sim = SimState {
                     snapshot: base_sim.snapshot.clone(),
@@ -986,6 +1018,7 @@ mod tests {
             hp_percent_dot: 0,
             ai_controlled: false,
             causes_disadvantage: false,
+            buff_class: None,
         }
     }
 
@@ -1223,6 +1256,7 @@ mod tests {
                 hp_percent_dot: 0,
                 ai_controlled: false,
                 causes_disadvantage: false,
+                buff_class: None,
             },
         );
 
@@ -1430,6 +1464,7 @@ mod tests {
                 hp_percent_dot: 0,
                 ai_controlled: false,
                 causes_disadvantage: true,
+                buff_class: None,
             },
         );
 
@@ -1462,6 +1497,167 @@ mod tests {
             dmg_dis < dmg_base,
             "disadvantage must discount damage: base={dmg_base}, dis={dmg_dis}",
         );
+    }
+
+    /// Summon cap must prune Cast candidates when live summons already fill
+    /// the slot. Regression guard for the bug where `SummonedBy` survived
+    /// death → AI planned a cast that would be blocked by spawn at runtime,
+    /// wasting AP.
+    #[test]
+    fn generate_plans_excludes_summon_when_cap_reached() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(20).ap(2).ability_names(&["summon_spirit"]).build();
+        let enemy = unit(2, Team::Player, hex_from_offset(5, 0), 20, 1);
+        let s1 = UnitBuilder::new(3, Team::Enemy, hex_from_offset(1, 0))
+            .hp(10).summoner(actor.entity).ability_names(&[]).build();
+        let s2 = UnitBuilder::new(4, Team::Enemy, hex_from_offset(0, 1))
+            .hp(10).summoner(actor.entity).ability_names(&[]).build();
+        let actor_id = actor.entity;
+
+        let summon_def = AbilityDef {
+            id: AbilityId::from("summon_spirit"),
+            name: "summon_spirit".into(),
+            target_type: TargetType::Myself,
+            range: AbilityRange { min: 0, max: 0 },
+            effect: EffectDef::Summon {
+                template: "spirit".into(),
+                max_active: Some(2),
+            },
+            costs: Vec::new(),
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: Vec::new(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            key: None,
+        };
+
+        let mut content = empty_content();
+        content.abilities.insert(summon_def.id.clone(), summon_def.clone());
+        let mut difficulty = DifficultyProfile::normal();
+        difficulty.plan_max_depth = 2;
+        let ctx = make_ctx(&content, &difficulty);
+
+        let snap = BattleSnapshot::new(vec![actor, enemy, s1, s2], 1);
+        let maps = empty_maps();
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+
+        for p in &plans {
+            for step in &p.steps {
+                if let PlanStep::Cast { ability, .. } = step {
+                    assert_ne!(
+                        *ability, summon_def.id,
+                        "cap-reached summon must be pruned from plan pool",
+                    );
+                }
+            }
+        }
+    }
+
+    /// Dead summons must NOT occupy a cap slot: with cap=2, one live + one
+    /// dead summon leaves room for one more. Mirrors the spawn-side fix.
+    #[test]
+    fn generate_plans_allows_summon_when_only_dead_summons_fill_slots() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(20).ap(2).ability_names(&["summon_spirit"]).build();
+        let enemy = unit(2, Team::Player, hex_from_offset(5, 0), 20, 1);
+        let alive = UnitBuilder::new(3, Team::Enemy, hex_from_offset(1, 0))
+            .hp(10).summoner(actor.entity).ability_names(&[]).build();
+        // hp=0 ⇒ !is_alive(), should be excluded from the cap count.
+        let dead = UnitBuilder::new(4, Team::Enemy, hex_from_offset(0, 1))
+            .hp(0).summoner(actor.entity).ability_names(&[]).build();
+        let actor_id = actor.entity;
+
+        let summon_def = AbilityDef {
+            id: AbilityId::from("summon_spirit"),
+            name: "summon_spirit".into(),
+            target_type: TargetType::Myself,
+            range: AbilityRange { min: 0, max: 0 },
+            effect: EffectDef::Summon {
+                template: "spirit".into(),
+                max_active: Some(2),
+            },
+            costs: Vec::new(),
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: Vec::new(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            key: None,
+        };
+
+        let mut content = empty_content();
+        content.abilities.insert(summon_def.id.clone(), summon_def.clone());
+        let mut difficulty = DifficultyProfile::normal();
+        difficulty.plan_max_depth = 1;
+        let ctx = make_ctx(&content, &difficulty);
+
+        let snap = BattleSnapshot::new(vec![actor, enemy, alive, dead], 1);
+        let maps = empty_maps();
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+
+        let has_summon = plans.iter().any(|p| {
+            p.steps.iter().any(|s| matches!(
+                s, PlanStep::Cast { ability, .. } if *ability == summon_def.id
+            ))
+        });
+        assert!(
+            has_summon,
+            "dead summons must not occupy cap slots — summon must still be planned",
+        );
+    }
+
+    /// Multi-step plans must also respect cap: with cap=1 and 0 live summons,
+    /// at most ONE summon cast per plan — sim.apply_step doesn't materialise
+    /// the summon, so the second step must be pruned by the plan-level count.
+    #[test]
+    fn generate_plans_caps_multiple_summons_within_single_plan() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(20).ap(3).ability_names(&["summon_spirit"]).build();
+        let enemy = unit(2, Team::Player, hex_from_offset(5, 0), 20, 1);
+        let actor_id = actor.entity;
+
+        let summon_def = AbilityDef {
+            id: AbilityId::from("summon_spirit"),
+            name: "summon_spirit".into(),
+            target_type: TargetType::Myself,
+            range: AbilityRange { min: 0, max: 0 },
+            effect: EffectDef::Summon {
+                template: "spirit".into(),
+                max_active: Some(1),
+            },
+            costs: Vec::new(),
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: Vec::new(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            key: None,
+        };
+
+        let mut content = empty_content();
+        content.abilities.insert(summon_def.id.clone(), summon_def.clone());
+        let mut difficulty = DifficultyProfile::normal();
+        difficulty.plan_max_depth = 3;
+        let ctx = make_ctx(&content, &difficulty);
+
+        let snap = BattleSnapshot::new(vec![actor, enemy], 1);
+        let maps = empty_maps();
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+
+        for p in &plans {
+            let summons = p.steps.iter().filter(|s| matches!(
+                s, PlanStep::Cast { ability, .. } if *ability == summon_def.id
+            )).count();
+            assert!(
+                summons <= 1,
+                "plan stacked {summons} summon casts with cap=1: {:?}",
+                p.steps,
+            );
+        }
     }
 
     /// Helper: total cast damage across every Cast step in every plan.

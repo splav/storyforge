@@ -7,7 +7,7 @@ use common::*;
 use storyforge::core::DiceRng;
 use storyforge::game::bundles::hero_bundle;
 use storyforge::game::components::{ActiveCombatant, CombatStats, Mana, Vital};
-use storyforge::game::messages::{UseAbility, ValidatedAction};
+use storyforge::game::messages::{EndTurn, UseAbility, ValidatedAction};
 use storyforge::game::resources::{HexPositions, TurnQueue};
 
 // ── Full pipeline: UseAbility → target takes damage ──────────────────────────
@@ -52,6 +52,10 @@ fn full_pipeline_melee_attack_damages_target() {
     // Damage: 6 (dice) + 2 (STR mod for str=5) = 8. Enemy armor = 0. HP: 10 - 8 = 2.
     let hp = app.world().get::<Vital>(enemy).unwrap().hp;
     assert_eq!(hp, 2, "full pipeline: melee should deal dice+STR to target");
+
+    // Hero still has MP after the cast — explicit EndTurn advances the queue.
+    write_message(&mut app, EndTurn { actor: hero });
+    app.update();
     assert!(app.world().get::<ActiveCombatant>(enemy).is_some());
 }
 

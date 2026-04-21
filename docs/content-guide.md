@@ -211,8 +211,9 @@ equipment = { main_hand = "staff", chest = "chainmail", legs = "plate_greaves", 
 resources = { mana = 8 }         # optional; defaults to {mana=0, rage=0, energy=0}
 
 ability_ids = ["melee_attack", "thunderstrike", "heal"]
-ai_role     = "mage"             # optional; bruiser | archer | mage | support | assassin
 ```
+
+AI-роль не задаётся в контенте — `AxisProfile` (tank/melee/ranged/control/support) выводится из набора способностей, HP и брони через `infer_profile` при спауне юнита.
 
 ## Encounters (`encounters.toml` inside a scenario folder)
 
@@ -238,7 +239,7 @@ hex_row     = 2
 
 ### Enemy via template
 
-When `template` is set, scalar fields (`name`, `race`, `speed`, `ability_ids`, `ai_role`, `faction`, `path`) can be overridden individually; blocks (`stats`, `equipment`, `resources`) are **all-or-nothing** — include the whole block to override, omit to inherit. `hex_col` / `hex_row` are always required.
+When `template` is set, scalar fields (`name`, `race`, `speed`, `ability_ids`, `faction`, `path`) can be overridden individually; blocks (`stats`, `equipment`, `resources`) are **all-or-nothing** — include the whole block to override, omit to inherit. `hex_col` / `hex_row` are always required.
 
 ```toml
 [[encounters.enemies]]
@@ -255,13 +256,13 @@ Boss transforms when a trigger fires. At most one phase per frame; pending phase
 ```toml
 [[encounters.enemies.phases]]
 hp_below_pct = 1                 # fires once at HP ≤ 1% of max
-template     = "stormborn_echo"  # inherit stats/abilities/ai_role from template
+template     = "stormborn_echo"  # inherit stats/abilities from template
 heal_to_full = true              # refill HP after transform, removes Dead
-# name, stats, ability_ids, ai_role — individual overrides on top of template
+# name, stats, ability_ids — individual overrides on top of template
 flavor       = "Старшина падает — но буря в его крови не даёт ему умереть..."
 ```
 
-Без template поля `name`/`stats`/`ability_ids`/`ai_role` задаются напрямую (всё необязательное — что не указано, остаётся от текущего состояния босса).
+Без template поля `name`/`stats`/`ability_ids` задаются напрямую (всё необязательное — что не указано, остаётся от текущего состояния босса).
 
 `flavor` — сюжетная строка. Показывается в попапе перехода и в combat log.
 

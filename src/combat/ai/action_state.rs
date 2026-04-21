@@ -229,6 +229,7 @@ mod tests {
                 skips_turn: false,
                 causes_disadvantage: false,
                 blocks_mana_abilities: true,
+                buff_class: None,
             },
         );
         let snap = snapshot_with(vec![actor.clone(), target.clone()]);
@@ -307,6 +308,7 @@ mod tests {
                 skips_turn: false,
                 causes_disadvantage: true,
                 blocks_mana_abilities: false,
+                buff_class: None,
             },
         );
         let snap = snapshot_with(vec![actor.clone(), target.clone()]);

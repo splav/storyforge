@@ -1,20 +1,21 @@
 use crate::content::content_view::ContentView;
 use crate::combat::ai::difficulty::DifficultyProfile;
-use crate::combat::ai::factors::{aoe_area, aoe_hits};
+use crate::combat::ai::factors::{aoe_area, aoe_hits, compute_factors, PlanFactors};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::snapshot::{ActiveStatusView, AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::factors::ScoredStep;
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
+use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
 use std::fmt;
 
-/// Penalty values for soft intent misalignment.
-const MISALIGN_PENALTY: f32 = -0.5;
+/// Penalty for wrong-ally heal in ProtectAlly.
 const MILD_PENALTY: f32 = -0.3;
 
 /// Bonus multiplier for continuing the same intent (stickiness).
@@ -88,6 +89,119 @@ impl TacticalIntent {
     }
 }
 
+// ── Plan freeze: stored plan + invalidation snapshot ──────────────────────
+
+/// World state captured when a MoveOnly plan step is committed. Compared with
+/// current state on the next tick to detect events (AoO, status changes, target
+/// death/movement) that would make the stored plan stale.
+#[derive(Debug, Clone)]
+pub struct PlanSnapshot {
+    pub actor_hp: i32,
+    /// Current rage value (+1 from AoO — reliable AoO signal without needing
+    /// separate event tracking).
+    pub actor_rage: i32,
+    /// Stable hash over active status ids + remaining durations. Changes when
+    /// a status is applied, removed, or ticked down (debuffs, auras, etc.).
+    pub actor_status_hash: u64,
+    /// Where the actor should be on the next tick (destination of the Move).
+    pub expected_actor_pos: Hex,
+    /// Intent target at plan time, if any (FocusTarget / ApplyCC / ProtectAlly).
+    pub target: Option<Entity>,
+    pub target_hp: i32,
+    pub target_pos: Hex,
+}
+
+impl PlanSnapshot {
+    pub fn capture(
+        actor: &UnitSnapshot,
+        target: Option<&UnitSnapshot>,
+        expected_actor_pos: Hex,
+    ) -> Self {
+        Self {
+            actor_hp: actor.hp,
+            actor_rage: actor.rage.map(|(r, _)| r).unwrap_or(0),
+            actor_status_hash: status_hash(&actor.statuses),
+            expected_actor_pos,
+            target: target.map(|t| t.entity),
+            target_hp: target.map(|t| t.hp).unwrap_or(0),
+            target_pos: target.map(|t| t.pos).unwrap_or_default(),
+        }
+    }
+
+    /// Returns `None` when the snapshot still matches current world state, or
+    /// `Some(reason_code)` identifying the first detected change.
+    pub fn mismatch(
+        &self,
+        actor: &UnitSnapshot,
+        target: Option<&UnitSnapshot>,
+    ) -> Option<&'static str> {
+        if actor.pos != self.expected_actor_pos {
+            return Some("actor_pos_mismatch");
+        }
+        if actor.hp < self.actor_hp {
+            return Some("actor_hp_drop");
+        }
+        if actor.rage.map(|(r, _)| r).unwrap_or(0) != self.actor_rage {
+            return Some("actor_rage_changed");
+        }
+        if status_hash(&actor.statuses) != self.actor_status_hash {
+            return Some("actor_status_changed");
+        }
+        if let Some(expected) = self.target {
+            match target {
+                None => return Some("target_gone"),
+                Some(t) => {
+                    if t.entity != expected {
+                        return Some("target_entity_changed");
+                    }
+                    if t.hp < self.target_hp {
+                        return Some("target_hp_drop");
+                    }
+                    if t.pos != self.target_pos {
+                        return Some("target_moved");
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+fn status_hash(statuses: &[ActiveStatusView]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    use std::collections::hash_map::DefaultHasher;
+    let mut h = DefaultHasher::new();
+    // Sort by id for a deterministic hash regardless of application order.
+    let mut pairs: Vec<_> = statuses.iter().map(|s| (&s.id, s.rounds_remaining)).collect();
+    pairs.sort_by_key(|(id, _)| id.0.as_str());
+    for (id, rounds) in pairs {
+        id.hash(&mut h);
+        rounds.hash(&mut h);
+    }
+    h.finish()
+}
+
+/// Trimmed plan persisted across ticks during a MoveOnly commitment. Holds the
+/// steps and enough context to (a) continue the plan without replanning and (b)
+/// compare against the shadow fresh plan for divergence diagnostics.
+///
+/// `sim_snapshots` are intentionally excluded — they're heavy and only needed
+/// during the scoring pass that already completed.
+#[derive(Debug, Clone)]
+pub struct StoredPlan {
+    pub steps: Vec<PlanStep>,
+    /// Index of the next step to execute (1 after the first Move committed).
+    pub step_index: usize,
+    pub snapshot: PlanSnapshot,
+    pub intent: IntentKind,
+    /// Ability from step[step_index] if it's a Cast, for divergence reporting.
+    pub cast_ability: Option<AbilityId>,
+    /// Target from step[step_index] if it's a Cast.
+    pub cast_target: Option<Entity>,
+    /// Final score of the plan at construction time (pre-continuation).
+    pub score: f32,
+}
+
 // ── Persistent AI memory ───────────────────────────────────────────────────
 
 #[derive(Component, Default)]
@@ -95,6 +209,9 @@ pub struct AiMemory {
     pub last_intent: Option<IntentKind>,
     pub last_target: Option<Entity>,
     pub turns_committed: u8,
+    /// Stored plan from the previous MoveOnly tick, if any. Cleared when a
+    /// non-Move decision fires (Cast, EndTurn) or when the snapshot is stale.
+    pub last_plan: Option<StoredPlan>,
 }
 
 // ── Intent selection reason ────────────────────────────────────────────────
@@ -464,15 +581,15 @@ pub fn intent_viability_threshold(intent: &TacticalIntent) -> Option<f32> {
         // Need an actual improvement to call it repositioning.
         TacticalIntent::Reposition => Some(0.01),
         // Intent factor is a discounted sum (see scorer module doc).
-        // A plan with at least one Cast on the focus enemy accumulates
-        // intent_sum of ~0.72 (deep-3) up to 1.0 (direct cast). Any plan
-        // without a focus-targeting Cast sits at 0 or negative. Threshold
-        // 0.5 accepts the approach-and-strike trajectory while still
-        // trapping "no reachable focus target at all" cases.
+        // A plan with at least one Cast on the focus enemy produces a
+        // positive dot-product of damage/kill factors. A Move that enters
+        // the engagement reach scores 0.8. Threshold 0.5 accepts the
+        // approach-and-strike trajectory while still trapping "no reachable
+        // focus target at all" cases.
         TacticalIntent::FocusTarget { .. } => Some(0.5),
-        // CC match contributes 1.0 (direct) down to 0.72 (deep); damage
-        // on the CC target contributes 0.5 — threshold 0.5 accepts any
-        // committed CC attempt including bundled and damage-on-target.
+        // CC-on-target scores via cc×1.5 dot product; damage-on-target via
+        // damage×0.3. A Move entering CC reach scores 0.8. Threshold 0.5
+        // accepts committed CC attempt including approach-and-cc lines.
         TacticalIntent::ApplyCC { .. } => Some(0.5),
         // Heal on the right ally is 1.0 (direct), 0.85 bundled, 0.72
         // deep. Threshold 0.5 accepts the approach-and-heal line.
@@ -609,19 +726,118 @@ pub fn cc_reach(active: &UnitSnapshot, content: &ContentView) -> u32 {
         .unwrap_or(active.max_attack_range)
 }
 
+// ── IntentWeights ────────────────────────────────────────────────────────────
+
+/// Per-intent dot-product weight vector over `PlanFactors`.
+///
+/// Only the fields explicitly set matter; all others default to 0.0. Builder
+/// methods mirror the `PlanFactors` field names so the weight declaration reads
+/// as a direct mapping: `IntentWeights::default().kill_now(2.0).damage(1.0)`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct IntentWeights {
+    pub damage: f32,
+    pub kill_now: f32,
+    pub kill_promised: f32,
+    pub cc: f32,
+}
+
+impl IntentWeights {
+    pub fn damage(mut self, w: f32) -> Self { self.damage = w; self }
+    pub fn kill_now(mut self, w: f32) -> Self { self.kill_now = w; self }
+    pub fn kill_promised(mut self, w: f32) -> Self { self.kill_promised = w; self }
+    pub fn cc(mut self, w: f32) -> Self { self.cc = w; self }
+
+    /// Dot product of weights against a `PlanFactors` (only the covered fields).
+    pub fn dot(&self, f: &PlanFactors) -> f32 {
+        self.damage * f.damage
+            + self.kill_now * f.kill_now
+            + self.kill_promised * f.kill_promised
+            + self.cc * f.cc
+    }
+}
+
+// ── Per-target offensive filtering ──────────────────────────────────────────
+
+/// Filter the offensive axes of `factors` to only credit actions that
+/// directly advance a targeted intent on `focus_entity`.
+///
+/// Rules (by step type):
+/// - `Cast` directly targeting `focus_entity`: full credit (factors unchanged).
+/// - `Cast` of an AoE that covers `focus_entity`'s tile: offensive axes
+///   (damage, kill_now, kill_promised, cc) scaled by 0.6.
+/// - `Cast` not involving `focus_entity`: offensive axes zeroed.
+/// - `Move`: offensive axes zeroed — geometry hook handles Move alignment.
+fn filter_offensive_for_target(
+    mut factors: PlanFactors,
+    focus_entity: Entity,
+    step: &ScoredStep,
+    snap: &BattleSnapshot,
+    content: &ContentView,
+) -> PlanFactors {
+    match step {
+        ScoredStep::Move { .. } => {
+            // Move steps: no offensive credit; geometry hook drives scoring.
+            factors.damage = 0.0;
+            factors.kill_now = 0.0;
+            factors.kill_promised = 0.0;
+            factors.cc = 0.0;
+            factors
+        }
+        ScoredStep::Cast { ability, target, target_pos, caster_tile } => {
+            if *target == focus_entity {
+                // Direct hit on the focus entity: full credit.
+                return factors;
+            }
+            // Check if an AoE covers the focus entity's tile.
+            if let Some(def) = content.abilities.get(*ability) {
+                if def.aoe != AoEShape::None {
+                    if let Some(focus_unit) = snap.unit(focus_entity) {
+                        let area = aoe_area(def, *target_pos, *caster_tile);
+                        if area.contains(&focus_unit.pos) {
+                            // AoE that includes the focus tile: partial credit.
+                            factors.damage *= 0.6;
+                            factors.kill_now *= 0.6;
+                            factors.kill_promised *= 0.6;
+                            factors.cc *= 0.6;
+                            return factors;
+                        }
+                    }
+                }
+            }
+            // No involvement of the focus entity: zero out offensive axes.
+            factors.damage = 0.0;
+            factors.kill_now = 0.0;
+            factors.kill_promised = 0.0;
+            factors.cc = 0.0;
+            factors
+        }
+    }
+}
+
 // ── Intent → utility score (factor[7]) ──────────────────────────────────────
 
 /// Compute how well a scored step aligns with the current intent.
 /// Positive = aligned, zero = neutral, negative = misaligned (soft penalty).
+///
+/// Uses a dot-product of per-step impact factors against intent-specific weight
+/// vectors (via `IntentWeights`) for `FocusTarget` and `ApplyCC`. This makes
+/// alignment proportional to actual impact magnitude — a hit doing 10 damage
+/// outscores a hit doing 1 damage, fixing S5 (low-value armor hits getting full
+/// intent credit under the old hardcoded 1.0 return).
+///
+/// `ProtectSelf`, `ProtectAlly`, `SetupAOE`, `LastStand` preserve their
+/// existing formulas (ported to the new signature).
 pub fn intent_score(
     intent: &TacticalIntent,
     step: &ScoredStep,
-    active: &UnitSnapshot,
-    snap: &BattleSnapshot,
-    maps: &InfluenceMaps,
-    content: &ContentView,
-    difficulty: &DifficultyProfile,
+    step_ctx: &ScoringCtx,
 ) -> f32 {
+    let active = step_ctx.active;
+    let snap = step_ctx.snap;
+    let maps = step_ctx.maps;
+    let content = step_ctx.world.content;
+    let difficulty = step_ctx.world.difficulty;
+
     // Move steps: scored only on position-related intent axes.
     let cast = match step {
         ScoredStep::Cast { ability, target_pos, target, .. } => {
@@ -631,61 +847,48 @@ pub fn intent_score(
     };
 
     match intent {
-        TacticalIntent::FocusTarget { target: focus } => match cast {
-            Some((ability, _, target)) => {
-                if target == *focus {
-                    return 1.0;
-                }
-                let Some(def) = content.abilities.get(ability) else {
-                    return MISALIGN_PENALTY;
-                };
-                // AoE that covers the focus target: partial alignment — the
-                // area catches the focus even without naming it.
-                if def.aoe != AoEShape::None {
-                    if let Some(focus_unit) = snap.unit(*focus) {
-                        if let ScoredStep::Cast { target_pos, caster_tile, .. } = step {
-                            let area = aoe_area(def, *target_pos, *caster_tile);
-                            if area.contains(&focus_unit.pos) {
-                                return 0.6;
-                            }
-                        }
+        TacticalIntent::FocusTarget { target: focus } => {
+            if cast.is_none() {
+                // Pure move: pursuit geometry hook.
+                return match snap.unit(*focus) {
+                    Some(t) => {
+                        let reach = (active.speed.max(0) as u32)
+                            .saturating_add(active.max_attack_range);
+                        pursuit_move_score(active.pos, step.caster_tile(), t.pos, reach)
                     }
-                    return MISALIGN_PENALTY;
-                }
-                if def.target_type == TargetType::SingleAlly { 0.3 } else { MISALIGN_PENALTY }
-            }
-            // Pure move during FocusTarget: reward progress toward contact.
-            // Reach = speed + max_attack_range → "can I engage next turn?".
-            None => match snap.unit(*focus) {
-                Some(t) => {
-                    let reach = (active.speed.max(0) as u32)
-                        .saturating_add(active.max_attack_range);
-                    pursuit_move_score(active.pos, step.caster_tile(), t.pos, reach)
-                }
-                None => 0.0,
-            },
-        },
-        TacticalIntent::ApplyCC { target: cc_target } => match cast {
-            Some((ability, _, target)) => {
-                let Some(def) = content.abilities.get(ability) else {
-                    return 0.0;
+                    None => 0.0,
                 };
-                let is_cc = applies_cc(def, content);
-                if is_cc && target == *cc_target { 1.0 }
-                else if is_cc { MISALIGN_PENALTY }
-                else if target == *cc_target { 0.5 }
-                else { 0.0 }
             }
-            // Pure move during ApplyCC: reach uses CC-capable range.
-            None => match snap.unit(*cc_target) {
-                Some(t) => {
-                    let reach = (active.speed.max(0) as u32)
-                        .saturating_add(cc_reach(active, content));
-                    pursuit_move_score(active.pos, step.caster_tile(), t.pos, reach)
-                }
-                None => 0.0,
-            },
-        },
+            // Cast: compute per-step factors, filter to focus target, dot with weights.
+            let raw = compute_factors(step_ctx, step);
+            let filtered = filter_offensive_for_target(raw, *focus, step, snap, content);
+            let weights = IntentWeights::default()
+                .kill_now(2.0)
+                .kill_promised(0.3)
+                .damage(1.0)
+                .cc(0.5);
+            weights.dot(&filtered)
+        }
+        TacticalIntent::ApplyCC { target: cc_target } => {
+            if cast.is_none() {
+                // Pure move during ApplyCC: reach uses CC-capable range.
+                return match snap.unit(*cc_target) {
+                    Some(t) => {
+                        let reach = (active.speed.max(0) as u32)
+                            .saturating_add(cc_reach(active, content));
+                        pursuit_move_score(active.pos, step.caster_tile(), t.pos, reach)
+                    }
+                    None => 0.0,
+                };
+            }
+            // Cast: compute per-step factors, filter to CC target, dot with weights.
+            let raw = compute_factors(step_ctx, step);
+            let filtered = filter_offensive_for_target(raw, *cc_target, step, snap, content);
+            let weights = IntentWeights::default()
+                .cc(1.5)
+                .damage(0.3);
+            weights.dot(&filtered)
+        }
         TacticalIntent::Reposition => {
             // Tiered: strong improvement rewarded, any improvement neutral,
             // no improvement penalized — mildly if casting, hard if just moving.
@@ -788,9 +991,13 @@ pub fn intent_score(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::influence::InfluenceMaps;
+    use crate::combat::ai::reservations::Reservations;
     use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
+    use crate::combat::ai::test_helpers::{
+        empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+    };
     use crate::core::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
@@ -849,25 +1056,15 @@ mod tests {
         let intent = TacticalIntent::Reposition;
         let difficulty = DifficultyProfile::default();
 
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
         let ab = AbilityId::from("melee_attack");
-        let score_worse = intent_score(
-            &intent,
-            &dummy_step(worse, &ab),
-            &active,
-            &snap,
-            &maps,
-            &content,
-            &difficulty,
-        );
-        let score_better = intent_score(
-            &intent,
-            &dummy_step(better, &ab),
-            &active,
-            &snap,
-            &maps,
-            &content,
-            &difficulty,
-        );
+
+        let ctx_worse = make_scoring_ctx(&world, &snap, &maps, &reservations, &active);
+        let score_worse = intent_score(&intent, &dummy_step(worse, &ab), &ctx_worse);
+
+        let ctx_better = make_scoring_ctx(&world, &snap, &maps, &reservations, &active);
+        let score_better = intent_score(&intent, &dummy_step(better, &ab), &ctx_better);
 
         assert!(
             score_worse < 0.0,
@@ -977,6 +1174,7 @@ mod tests {
                 hp_percent_dot: 0,
                 ai_controlled: false,
                 causes_disadvantage: false,
+                buff_class: None,
             },
         );
         let stun_shot = AbilityDef {
@@ -1051,14 +1249,239 @@ mod tests {
         let difficulty = DifficultyProfile::default();
         let intent = TacticalIntent::FocusTarget { target: target.entity };
 
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
         // Move to (4,0) — dist=1 to target, reach=3+1=4, 1<=4 → 0.8.
         let move_into_reach = ScoredStep::Move { caster_tile: hex_from_offset(4, 0) };
-        let score = intent_score(
-            &intent, &move_into_reach, &actor, &snap, &maps, &content, &difficulty,
-        );
+        let score = intent_score(&intent, &move_into_reach, &ctx);
         assert!(
             score >= 0.5,
             "enter-reach Move must pass viability (0.5), got {score}",
         );
+    }
+
+    // ── intent_score: FocusTarget proportional scoring ──────────────────
+
+    /// FocusTarget intent score must be proportional to actual damage dealt:
+    /// hitting the focus target for 10 damage must outscore hitting it for 1.
+    /// This pins the S5 fix — armor hits that do minimal damage no longer
+    /// receive the same credit as impactful blows.
+    #[test]
+    fn focus_target_scores_proportional_to_damage() {
+        use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
+        use crate::core::DiceExpr;
+
+        let target_pos = hex_from_offset(1, 0);
+        let target = UnitBuilder::new(2, Team::Player, target_pos).hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let maps = empty_maps();
+        let difficulty = DifficultyProfile::default();
+
+        // Two abilities: one deals 10 damage, the other 1 damage.
+        let mut content = crate::combat::ai::test_helpers::empty_content();
+        let strong = AbilityDef {
+            id: AbilityId::from("strong_hit"),
+            name: "strong_hit".into(),
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 1 },
+            effect: EffectDef::Damage { dice: DiceExpr::new(1, 10, 0) },
+            costs: Vec::new(),
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: Vec::new(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            key: None,
+        };
+        let weak = AbilityDef {
+            id: AbilityId::from("weak_hit"),
+            name: "weak_hit".into(),
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 1 },
+            effect: EffectDef::Damage { dice: DiceExpr::new(1, 1, 0) },
+            costs: Vec::new(),
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: Vec::new(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            key: None,
+        };
+        content.abilities.insert(strong.id.clone(), strong.clone());
+        content.abilities.insert(weak.id.clone(), weak.clone());
+
+        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let strong_id = AbilityId::from("strong_hit");
+        let weak_id = AbilityId::from("weak_hit");
+        let step_strong = ScoredStep::Cast {
+            ability: &strong_id,
+            target: target.entity,
+            target_pos,
+            caster_tile: actor.pos,
+        };
+        let step_weak = ScoredStep::Cast {
+            ability: &weak_id,
+            target: target.entity,
+            target_pos,
+            caster_tile: actor.pos,
+        };
+
+        let score_strong = intent_score(&intent, &step_strong, &ctx);
+        let score_weak = intent_score(&intent, &step_weak, &ctx);
+
+        assert!(
+            score_strong > score_weak,
+            "high-damage hit ({score_strong}) must outscore low-damage hit ({score_weak})",
+        );
+        assert!(score_strong > 0.0, "strong hit must score positively: {score_strong}");
+        assert!(score_weak >= 0.0, "weak hit must not score negatively: {score_weak}");
+    }
+
+    /// Hitting a non-focus target with a single-target attack should yield
+    /// near-zero intent score for FocusTarget intent (no offensive credit for
+    /// the focus entity).
+    #[test]
+    fn focus_target_wrong_target_scores_near_zero() {
+        use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
+        use crate::core::DiceExpr;
+
+        let focus_pos = hex_from_offset(1, 0);
+        let other_pos = hex_from_offset(2, 0);
+        let focus = UnitBuilder::new(2, Team::Player, focus_pos).hp(20).build();
+        let other = UnitBuilder::new(3, Team::Player, other_pos).hp(20).build();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), focus.clone(), other.clone()], 1);
+        let maps = empty_maps();
+        let difficulty = DifficultyProfile::default();
+
+        let mut content = crate::combat::ai::test_helpers::empty_content();
+        let hit = AbilityDef {
+            id: AbilityId::from("melee_hit"),
+            name: "melee_hit".into(),
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 1 },
+            effect: EffectDef::Damage { dice: DiceExpr::new(2, 6, 0) },
+            costs: Vec::new(),
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: Vec::new(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            key: None,
+        };
+        content.abilities.insert(hit.id.clone(), hit);
+
+        let intent = TacticalIntent::FocusTarget { target: focus.entity };
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let ability_id = AbilityId::from("melee_hit");
+        // Cast targeting `other` (not the focus entity).
+        let step_wrong = ScoredStep::Cast {
+            ability: &ability_id,
+            target: other.entity,
+            target_pos: other_pos,
+            caster_tile: actor.pos,
+        };
+
+        let score = intent_score(&intent, &step_wrong, &ctx);
+        assert!(
+            score <= 0.0,
+            "hitting non-focus target must yield ≤ 0 intent score, got {score}",
+        );
+    }
+
+    // ── PlanSnapshot: invalidation detection ────────────────────────────
+
+    use crate::combat::ai::snapshot::ActiveStatusView;
+    use crate::core::StatusId;
+
+    fn make_status(id: &str, rounds: u32) -> ActiveStatusView {
+        ActiveStatusView { id: StatusId::from(id), rounds_remaining: rounds, dot_per_tick: 0 }
+    }
+
+    #[test]
+    fn snapshot_matches_unchanged_state() {
+        let expected_pos = hex_from_offset(3, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, expected_pos).hp(10).build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(5, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+
+        let stored = PlanSnapshot::capture(&actor, Some(&target), expected_pos);
+        assert_eq!(stored.mismatch(&actor, Some(&target)), None);
+    }
+
+    #[test]
+    fn snapshot_detects_actor_hp_drop() {
+        let pos = hex_from_offset(0, 0);
+        let actor_before = UnitBuilder::new(1, Team::Enemy, pos).hp(10).build();
+        let actor_after = UnitBuilder::new(1, Team::Enemy, pos).hp(8).build(); // AoO hit
+        let snap = BattleSnapshot::new(vec![actor_before.clone()], 1);
+
+        let stored = PlanSnapshot::capture(&actor_before, None, pos);
+        assert_eq!(stored.mismatch(&actor_after, None), Some("actor_hp_drop"));
+    }
+
+    #[test]
+    fn snapshot_detects_actor_status_change() {
+        let pos = hex_from_offset(0, 0);
+        let mut actor_clean = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let mut actor_debuffed = actor_clean.clone();
+        actor_debuffed.statuses.push(make_status("burn", 2));
+
+        let stored = PlanSnapshot::capture(&actor_clean, None, pos);
+        assert_eq!(stored.mismatch(&actor_debuffed, None), Some("actor_status_changed"));
+
+        // Inverse: had status, now expired.
+        actor_clean.statuses.push(make_status("burn", 2));
+        let stored2 = PlanSnapshot::capture(&actor_clean, None, pos);
+        let mut actor_cured = actor_clean.clone();
+        actor_cured.statuses.clear();
+        assert_eq!(stored2.mismatch(&actor_cured, None), Some("actor_status_changed"));
+    }
+
+    #[test]
+    fn snapshot_detects_target_death() {
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0)).build();
+
+        let stored = PlanSnapshot::capture(&actor, Some(&target), pos);
+        // Target gone from snapshot (ally killed it between ticks).
+        assert_eq!(stored.mismatch(&actor, None), Some("target_gone"));
+    }
+
+    #[test]
+    fn snapshot_detects_target_hp_drop() {
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let target_before = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0)).hp(10).build();
+        let target_after = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0)).hp(4).build();
+
+        let stored = PlanSnapshot::capture(&actor, Some(&target_before), pos);
+        assert_eq!(stored.mismatch(&actor, Some(&target_after)), Some("target_hp_drop"));
+    }
+
+    #[test]
+    fn snapshot_detects_actor_pos_mismatch() {
+        let expected = hex_from_offset(3, 0);
+        let actual = hex_from_offset(2, 0); // AoO truncated the path
+        let actor_at_expected = UnitBuilder::new(1, Team::Enemy, expected).build();
+        let actor_at_actual = UnitBuilder::new(1, Team::Enemy, actual).build();
+
+        let stored = PlanSnapshot::capture(&actor_at_expected, None, expected);
+        // Actor captured at expected pos, but now at actual (path truncated).
+        assert_eq!(stored.mismatch(&actor_at_actual, None), Some("actor_pos_mismatch"));
     }
 }

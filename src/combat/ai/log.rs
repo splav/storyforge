@@ -34,10 +34,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::prelude::*;
 use serde::Serialize;
 
-use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+use crate::combat::ai::intent::{IntentKind, IntentReason, StoredPlan, TacticalIntent};
 use crate::combat::ai::planning::{AdaptationReason, EvaluationMode, PlanStep, StepOutcome, TurnPlan};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::AiDecision;
+use crate::combat::ai::utility::{AiDecision, ChosenInfo};
+use crate::core::AbilityId;
 use crate::game::hex::Hex;
 
 /// Log schema version.
@@ -65,7 +66,25 @@ use crate::game::hex::Hex;
 ///   actor_hp }` variant. Older logs don't contain this kind, so they
 ///   stay readable; analyzers must grow a case for the new `kind` code
 ///   `"protect_self_futile"` to decode v8 entries that carry it.
-pub const SCHEMA_VERSION: u32 = 8;
+/// - v8 → v9: new `event_type = "plan_divergence"` entries emitted when
+///   the freeze-after-move logic has both a stored plan and a fresh plan
+///   to compare. Separate JSON object alongside the regular `pick_action`
+///   entries. Old analyzers see unknown event_type and can skip gracefully.
+/// - v9 → v10: `raw_factors` expands from 9 to 10 elements — the new
+///   `tempo_gain` axis (index 9) is appended. Old logs deserialized via
+///   `Vec<f32>` in the replay tool; the 10th element defaults to 0.0.
+/// - v10 → v11: `kill` axis (index 1) is split into `kill_now` (index 1) and
+///   `kill_promised` (index 2); all subsequent indices shift by +1.
+///   `raw_factors` expands to 11 elements. Old logs treat `kill` as `kill_now`.
+/// - v11 → v12: new `saturation` axis (index 11) — buff-redundancy penalty.
+///   `raw_factors` expands to 12 elements. Old logs missing the field default to 0.0.
+/// - v12 → v13: new `self_survival` axis (index 12) — plan-level defensive value.
+///   `raw_factors` expands to 13 elements. Old logs default to 0.0.
+/// - v13 → v14: Phase 6 cleanup. Removed `position` (5), `risk` (6), `focus` (7)
+///   axes. `raw_factors` shrinks to 10 elements. Indices 5–9 now map to
+///   intent/scarcity/tempo_gain/saturation/self_survival. **Not backward-
+///   compatible** — old v1–v13 logs cannot be replayed with v14 raw_factors.
+pub const SCHEMA_VERSION: u32 = 14;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -161,13 +180,12 @@ pub struct PlanLogEntry<'a> {
     pub final_pos: [i32; 2],
     pub residual_ap: i32,
     pub residual_mp: i32,
-    /// Raw factors before batch normalization: [damage, kill, cc, heal,
-    /// position, risk, focus, intent, scarcity]. Offline tools can recalibrate
-    /// weights by re-normalizing + re-scoring without rerunning sim.
-    /// When `evaluation_mode = LastStand`, the `intent` column (index 7)
-    /// reflects the `LastStand` rescore — raw factors are still
-    /// deserializable, just with a different intent-regime interpretation.
-    pub raw_factors: [f32; 9],
+    /// Raw factors before batch normalization: [damage, kill_now, kill_promised,
+    /// cc, heal, intent, scarcity, tempo_gain, saturation, self_survival].
+    /// Offline tools can recalibrate weights by re-normalizing + re-scoring
+    /// without rerunning sim. When `evaluation_mode = LastStand`, the `intent`
+    /// column (index 5) reflects the `LastStand` rescore.
+    pub raw_factors: [f32; 10],
     /// Score after ADAPTATION (and noise). Kept under the historical name
     /// `score` so v1-v5 readers stay meaningful on v6 files. For adapted
     /// plans this is the LastStand-weighted number; for non-adapted plans
@@ -336,7 +354,7 @@ pub fn plan_to_log_entry<'a>(
     plan: &'a TurnPlan,
     rank: usize,
     chosen: bool,
-    raw_factors: [f32; 9],
+    raw_factors: [f32; 10],
     base_score: f32,
     score: f32,
     evaluation_mode: &'a EvaluationMode,
@@ -438,6 +456,103 @@ pub fn build_entry<'a>(
         intent,
         plans: plan_entries,
         committed_decision: DecisionBlock::from(decision),
+    }
+}
+
+// ── Plan divergence log ────────────────────────────────────────────────────
+
+/// Snapshot of one side (stored or fresh) in a divergence comparison.
+#[derive(Serialize)]
+pub struct DivergenceSide {
+    pub intent: IntentKind,
+    pub ability: Option<String>,
+    pub target_id: Option<u64>,
+    pub score: f32,
+}
+
+/// Logged when the freeze-after-move logic has both a stored plan (from the
+/// previous MoveOnly tick) and a fresh plan to compare. Written as a separate
+/// JSON object alongside regular `pick_action` entries; `event_type` lets
+/// analyzers filter without checking every line.
+#[derive(Serialize)]
+pub struct PlanDivergenceEntry {
+    pub event_type: &'static str,
+    pub schema_version: u32,
+    pub timestamp_ms: u128,
+    pub actor_id: u64,
+    pub stored: DivergenceSide,
+    pub fresh: DivergenceSide,
+    /// Whether the stored plan's continuation was used (`true`) or the fresh
+    /// plan was used instead (`false`).
+    pub used_continuation: bool,
+    /// Reason the stored plan was not used, if applicable.
+    pub replan_reason: Option<&'static str>,
+    pub intent_changed: bool,
+    pub ability_changed: bool,
+    pub target_changed: bool,
+    pub score_delta: f32,
+}
+
+impl AiLogger {
+    /// Emit a `plan_divergence` entry. Called from `run_ai_turn` when the
+    /// freeze logic had both a stored plan and a fresh plan to compare.
+    pub fn write_plan_divergence(
+        &mut self,
+        actor: bevy::prelude::Entity,
+        stored: &StoredPlan,
+        fresh: &ChosenInfo,
+        used_continuation: bool,
+        replan_reason: Option<&'static str>,
+    ) {
+        if !self.is_enabled() {
+            return;
+        }
+        // Extract committed action from the fresh plan.
+        let fresh_ability: Option<&AbilityId>;
+        let fresh_target: Option<bevy::prelude::Entity>;
+        match fresh.plan.committed_prefix() {
+            crate::combat::ai::planning::CommittedPrefix::Cast { ability, target, .. }
+            | crate::combat::ai::planning::CommittedPrefix::MoveThenCast { ability, target, .. } => {
+                fresh_ability = Some(ability);
+                fresh_target = Some(target);
+            }
+            _ => {
+                fresh_ability = None;
+                fresh_target = None;
+            }
+        }
+
+        let fresh_intent = fresh.intent.kind();
+        let score_delta = fresh.score - stored.score;
+
+        let entry = PlanDivergenceEntry {
+            event_type: "plan_divergence",
+            schema_version: SCHEMA_VERSION,
+            timestamp_ms: now_ms(),
+            actor_id: actor.to_bits(),
+            stored: DivergenceSide {
+                intent: stored.intent,
+                ability: stored.cast_ability.as_ref().map(|a| a.0.clone()),
+                target_id: stored.cast_target.map(|e| e.to_bits()),
+                score: stored.score,
+            },
+            fresh: DivergenceSide {
+                intent: fresh_intent,
+                ability: fresh_ability.map(|a| a.0.clone()),
+                target_id: fresh_target.map(|e| e.to_bits()),
+                score: fresh.score,
+            },
+            used_continuation,
+            replan_reason,
+            intent_changed: stored.intent != fresh_intent,
+            ability_changed: stored.cast_ability.as_ref().map(|a| a.0.as_str())
+                != fresh_ability.map(|a| a.0.as_str()),
+            target_changed: stored.cast_target != fresh_target,
+            score_delta,
+        };
+        if let Err(e) = self.write_entry(&entry) {
+            warn!("AI divergence log write failed: {}", e);
+        }
     }
 }
 

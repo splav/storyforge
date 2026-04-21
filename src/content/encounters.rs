@@ -59,8 +59,6 @@ pub struct EnemyDef {
     pub rage_max: i32,
     pub mana_max: i32,
     pub energy_max: i32,
-    /// Explicit AI role override (if None, inferred from abilities/speed).
-    pub ai_role: Option<String>,
     /// Starting hex cell.
     pub hex_pos: hexx::Hex,
     /// Phase transitions in declaration order; each fires at most once.
@@ -95,7 +93,6 @@ pub struct PhaseDef {
     pub name: Option<String>,
     pub stats: Option<CombatStats>,
     pub ability_ids: Option<Vec<AbilityId>>,
-    pub ai_role: Option<String>,
     pub heal_to_full: bool,
     /// Narrative blurb shown in the transition popup/log. What the player sees
     /// when this phase kicks in — one or two short sentences.
@@ -154,8 +151,6 @@ struct EnemyRecord {
     #[serde(default)]
     path: Option<String>,
     #[serde(default)]
-    ai_role: Option<String>,
-    #[serde(default)]
     speed: Option<i32>,
     #[serde(default)]
     stats: Option<StatsRecord>,
@@ -196,8 +191,6 @@ struct PhaseRecord {
     stats: Option<StatsRecord>,
     #[serde(default)]
     ability_ids: Option<Vec<String>>,
-    #[serde(default)]
-    ai_role: Option<String>,
     #[serde(default)]
     heal_to_full: bool,
     #[serde(default)]
@@ -248,9 +241,7 @@ fn resolve_phase(
         .map(|id| lookup_template(path, templates, enc_id, id));
 
     // Phases fill in only fields explicitly provided OR inherited from template.
-    // Leaf-level overrides: name, ai_role.
     let name = p.name.or_else(|| base.map(|t| t.name.clone()));
-    let ai_role = p.ai_role.or_else(|| base.and_then(|t| t.ai_role.clone()));
 
     // Block-level overrides: stats (whole block), ability_ids (whole list).
     let stats: Option<CombatStats> = p
@@ -267,7 +258,6 @@ fn resolve_phase(
         name,
         stats,
         ability_ids,
-        ai_role,
         heal_to_full: p.heal_to_full,
         flavor: p.flavor,
     }
@@ -301,7 +291,6 @@ fn resolve_enemy(
     // Faction/path: explicit override OR template; no way to unset from template (acceptable).
     let faction = rec.faction.or_else(|| base.and_then(|t| t.faction.clone()));
     let combat_path = rec.path.or_else(|| base.and_then(|t| t.path.clone()));
-    let ai_role = rec.ai_role.or_else(|| base.and_then(|t| t.ai_role.clone()));
 
     // Block overrides — whole block replaced if present, otherwise taken from template, else panic.
     let stats: CombatStats = rec
@@ -354,7 +343,6 @@ fn resolve_enemy(
         rage_max: resources.rage_max,
         mana_max: resources.mana_max,
         energy_max: resources.energy_max,
-        ai_role,
         hex_pos: crate::game::hex::hex_from_offset(rec.hex_col, rec.hex_row),
         phases: rec
             .phases

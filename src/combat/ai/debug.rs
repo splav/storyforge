@@ -53,14 +53,27 @@ pub struct TileInfluence {
     pub position_eval: f32,
 }
 
+/// Semantic classification of a Move-only candidate's direction of travel.
+/// `Wait` is the empty/seed plan (tile == actor_pos); `Approach`/`Retreat` are
+/// determined by hex-distance to the focus target before vs. after the move.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MoveKind {
+    Wait,
+    Approach,
+    Retreat,
+    Move,
+}
+
 pub struct CandidateDebug {
     pub ability: String,
     pub target_name: String,
     pub tile: [i32; 2],
     pub tile_influence: TileInfluence,
-    pub raw: [f32; 9],
+    pub raw: [f32; 10],
     pub total: f32,
     pub is_move_only: bool,
+    pub move_kind: MoveKind,
+    pub is_seed: bool,
 }
 
 /// Actor state at decision time.
@@ -99,6 +112,11 @@ pub struct AiDebugSnapshot {
     pub pick: Option<PickDebug>,
     pub decision: DecisionDebug,
     pub candidate_count: usize,
+    /// 1-based index within the current actor's turn. Value 1 = first AI
+    /// tick for this actor this turn; 2+ = re-plans after executed Move
+    /// steps. Populated by the caller (`run_ai_turn`) just before the
+    /// snapshot is stored in `AiDebugState`.
+    pub plan_index: u32,
 }
 
 /// One candidate that survived the similarity window and entered the sampling pool.
@@ -132,6 +150,13 @@ pub struct AiDebugState {
     pub influence_maps: Option<InfluenceMaps>,
     /// Last decision snapshot (consumed by print system).
     pub snapshot: Option<AiDebugSnapshot>,
+    /// Actor whose plan_index is currently being counted. Same actor on the
+    /// next AI tick → increment; different actor or `None` → reset to 1.
+    /// `run_ai_turn` clears this to `None` on `EndTurn` so the next round
+    /// starts fresh for the same unit.
+    pub last_actor: Option<Entity>,
+    /// Count of plan ticks for `last_actor` within its current turn.
+    pub plan_index: u32,
 }
 
 // ── Toggle system ───────────────────────────────────────────────────────────
@@ -176,7 +201,7 @@ pub fn toggle_debug_system(
 
 // ── Console print system ────────────────────────────────────────────────────
 
-const FACTOR_NAMES: [&str; 9] = ["dmg", "kill", "cc", "heal", "pos", "risk", "foc", "int", "sca"];
+const FACTOR_NAMES: [&str; 10] = ["dmg", "kn", "kp", "cc", "heal", "intent", "sca", "tempo", "sat", "surv"];
 
 fn fmt_pos(p: [i32; 2]) -> String {
     format!("({},{})", p[0], p[1])
@@ -211,9 +236,17 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
     };
 
     let a = &snap.actor;
+    // First AI tick of this actor's turn uses the heavy "═══" banner; re-plan
+    // ticks (plan_index ≥ 2) use "---" so the visual break mirrors the logical
+    // distinction — new turn vs. continuation within the same turn.
+    let (header_mark, footer_line) = if snap.plan_index <= 1 {
+        ("═══", "════════════════════════════════")
+    } else {
+        ("---", "--------------------------------")
+    };
     println!(
-        "═══ AI DEBUG: {} [{}] ═══",
-        snap.actor_name, a.role_label,
+        "{0} AI DEBUG #{1}: {2} [{3}] {0}",
+        header_mark, snap.plan_index, snap.actor_name, a.role_label,
     );
     println!(
         "  HP: {}/{} | threat: {:.1} | pos: {} | tags: {} | AP={}/{} mov={}",
@@ -238,17 +271,18 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
         snap.top_candidates.len(),
     );
     for (i, c) in snap.top_candidates.iter().enumerate() {
-        // Skip zero factors — only meaningful numbers survive, keeps the line scannable.
+        // Skip zero factors — only meaningful numbers survive, keeps the line
+        // scannable.
         let factors: String = c
             .raw
             .iter()
             .zip(FACTOR_NAMES.iter())
             .filter(|(v, _)| v.abs() > 0.001)
-            .map(|(v, n)| format!("{}={:.2}", n, v))
+            .map(|(v, n)| format!("{n}={v:.2}"))
             .collect::<Vec<_>>()
             .join(" ");
         let header = if c.is_move_only {
-            format!("retreat → {}", fmt_pos(c.tile))
+            fmt_move_header(c.move_kind, c.tile)
         } else {
             format!("{} {} at {}", c.ability, c.target_name, fmt_pos(c.tile))
         };
@@ -300,7 +334,19 @@ pub fn print_ai_debug_system(mut state: ResMut<AiDebugState>) {
         );
     }
 
-    println!("════════════════════════════════");
+    println!("{}", footer_line);
+}
+
+/// Render a Move-only candidate header. `Wait` uses `@` (no movement) to
+/// visually separate from the directional `→` variants.
+fn fmt_move_header(kind: MoveKind, tile: [i32; 2]) -> String {
+    let (verb, arrow) = match kind {
+        MoveKind::Wait => ("wait", "@"),
+        MoveKind::Approach => ("approach", "→"),
+        MoveKind::Retreat => ("retreat", "→"),
+        MoveKind::Move => ("move", "→"),
+    };
+    format!("{} {} {}", verb, arrow, fmt_pos(tile))
 }
 
 fn map_stats(map: &InfluenceMap) -> String {
@@ -411,6 +457,38 @@ fn format_intent(intent: &TacticalIntent, names: &HashMap<Entity, String>) -> St
     }
 }
 
+/// Pick the reference point for classifying Move-only direction: intent
+/// target if the intent carries one, else the current highest-priority enemy.
+/// Returning `None` degrades the classification to `MoveKind::Move` (neutral)
+/// instead of lying about approach/retreat.
+fn focus_position(
+    active: &UnitSnapshot,
+    intent: &TacticalIntent,
+    snap: &BattleSnapshot,
+) -> Option<Hex> {
+    if let Some(t) = intent.target() {
+        if let Some(u) = snap.unit(t) {
+            return Some(u.pos);
+        }
+    }
+    highest_priority_enemy(active, snap).map(|u| u.pos)
+}
+
+fn classify_move(actor_pos: Hex, tile: Hex, focus_pos: Option<Hex>) -> MoveKind {
+    if tile == actor_pos {
+        return MoveKind::Wait;
+    }
+    let Some(fp) = focus_pos else { return MoveKind::Move };
+    let before = actor_pos.unsigned_distance_to(fp);
+    let after = tile.unsigned_distance_to(fp);
+    use std::cmp::Ordering;
+    match after.cmp(&before) {
+        Ordering::Less => MoveKind::Approach,
+        Ordering::Greater => MoveKind::Retreat,
+        Ordering::Equal => MoveKind::Move,
+    }
+}
+
 fn tile_influence_at(hex: Hex, role: &AxisProfile, maps: &InfluenceMaps) -> TileInfluence {
     TileInfluence {
         danger: maps.danger.get(hex),
@@ -484,6 +562,8 @@ pub fn build_debug_snapshot(
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     indexed.truncate(5);
 
+    let focus_pos = focus_position(active, intent, snap);
+
     let top_candidates: Vec<CandidateDebug> = indexed
         .iter()
         .map(|&(i, total)| {
@@ -495,6 +575,11 @@ pub fn build_debug_snapshot(
                 ScoredStep::Move { .. } => (String::new(), String::new(), true),
             };
             let tile = step.caster_tile();
+            let move_kind = if is_move_only {
+                classify_move(actor_pos, tile, focus_pos)
+            } else {
+                MoveKind::Move
+            };
             CandidateDebug {
                 ability: ability_label,
                 target_name,
@@ -503,6 +588,8 @@ pub fn build_debug_snapshot(
                 raw: raw_factors[i].as_array(),
                 total,
                 is_move_only,
+                move_kind,
+                is_seed: plans[i].steps.is_empty(),
             }
         })
         .collect();
@@ -522,7 +609,8 @@ pub fn build_debug_snapshot(
                         format!("{} → {}", ability, target_label(*target, names))
                     }
                     ScoredStep::Move { caster_tile } => {
-                        format!("retreat to {}", fmt_offset(*caster_tile))
+                        let kind = classify_move(actor_pos, *caster_tile, focus_pos);
+                        fmt_move_header(kind, hex_to_offset(*caster_tile))
                     }
                 };
                 PoolEntry { label, score }
@@ -543,6 +631,7 @@ pub fn build_debug_snapshot(
         pick,
         decision: decision_debug(decision, actor_pos, None, active, maps, names),
         candidate_count: plans.len(),
+        plan_index: 0, // set by run_ai_turn before storing in AiDebugState
     }
 }
 
@@ -570,6 +659,7 @@ pub fn build_fallback_debug(
         pick: None,
         decision: decision_debug(decision, actor_pos, Some(reason), active, maps, names),
         candidate_count: 0,
+        plan_index: 0, // set by run_ai_turn before storing in AiDebugState
     }
 }
 
@@ -608,7 +698,7 @@ fn decision_debug(
         }
         AiDecision::Move { path, origin } => {
             let label = match origin {
-                crate::combat::ai::utility::MoveOrigin::BestPlan => "MoveOnlyRetreat",
+                crate::combat::ai::utility::MoveOrigin::BestPlan => "MoveOnly",
                 crate::combat::ai::utility::MoveOrigin::Fallback => "MoveCloser",
             };
             let dest = path.last().copied().unwrap_or(actor_pos);

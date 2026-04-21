@@ -14,7 +14,6 @@ stats     = { max_hp = 10, strength = 5, dexterity = 3, constitution = 2, intell
 equipment = { main_hand = "dagger", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
 
 ability_ids = ["melee_attack"]
-ai_role     = "bruiser"
 
 [[unit_templates]]
 id    = "beastblood_leader"
@@ -27,7 +26,6 @@ equipment = { main_hand = "long_sword", chest = "heavy_plate", legs = "plate_gre
 resources = { rage = 5 }
 
 ability_ids = ["melee_attack", "taunt"]
-ai_role     = "bruiser"
 
 [[unit_templates]]
 id    = "wild_dog"
@@ -39,7 +37,6 @@ stats     = { max_hp = 6, strength = 3, dexterity = 5, constitution = -2, intell
 equipment = { main_hand = "dagger", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
 
 ability_ids = ["melee_attack"]
-ai_role     = "assassin"
 
 # ── Бой 2. Заброшенная стекольня ────────────────────────────────────────────
 
@@ -54,7 +51,6 @@ equipment = { main_hand = "dagger", chest = "leather_vest", legs = "leather_pant
 resources = { energy = 3 }
 
 ability_ids = ["melee_attack", "backstab"]
-ai_role     = "assassin"
 
 [[unit_templates]]
 id    = "heavy_lifter"
@@ -66,7 +62,6 @@ stats     = { max_hp = 16, strength = 7, dexterity = -2, constitution = 4, intel
 equipment = { main_hand = "short_sword", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
 
 ability_ids = ["melee_attack", "taunt"]
-ai_role     = "bruiser"
 
 [[unit_templates]]
 id    = "pact_guide"
@@ -80,7 +75,6 @@ equipment = { main_hand = "staff", chest = "mage_robe", legs = "cloth_pants", fe
 resources = { mana = 8 }
 
 ability_ids = ["melee_attack", "confuse", "whisper_from_beyond"]
-ai_role     = "mage"
 
 # ── Бой 3. Искажённая чаща ──────────────────────────────────────────────────
 
@@ -94,7 +88,6 @@ stats     = { max_hp = 12, strength = 5, dexterity = 4, constitution = 2, intell
 equipment = { main_hand = "long_sword", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
 
 ability_ids = ["melee_attack"]
-ai_role     = "bruiser"
 
 [[unit_templates]]
 id    = "morochny_double"
@@ -107,7 +100,6 @@ equipment = { main_hand = "dagger", chest = "mage_robe", legs = "cloth_pants", f
 resources = { mana = 4 }
 
 ability_ids = ["melee_attack", "confuse"]
-ai_role     = "mage"
 
 [[unit_templates]]
 id    = "obsessed_novice"
@@ -120,7 +112,6 @@ stats     = { max_hp = 10, strength = 3, dexterity = 0, constitution = 0, intell
 equipment = { main_hand = "short_sword", chest = "leather_vest", legs = "cloth_pants", feet = "cloth_shoes" }
 
 ability_ids = ["melee_attack"]
-ai_role     = "bruiser"
 
 # Узел чащи: неподвижный (speed = 0), VictoryTarget, призывает мороков.
 # Убить его = окончить бой, даже если остальные живы.
@@ -135,7 +126,6 @@ equipment = { main_hand = "staff", chest = "mage_robe", legs = "cloth_pants", fe
 resources = { mana = 12 }
 
 ability_ids = ["summon_forest_morok"]
-ai_role     = "mage"
 
 # ── Бой 4. Колокольная крипта ───────────────────────────────────────────────
 
@@ -150,7 +140,6 @@ stats     = { max_hp = 12, strength = 4, dexterity = 0, constitution = 2, intell
 equipment = { main_hand = "long_sword", chest = "chainmail", legs = "leather_pants", feet = "leather_boots" }
 
 ability_ids = ["melee_attack", "taunt"]
-ai_role     = "bruiser"
 
 # Колокольный связанный: аура дезориентирует врагов в радиусе 2.
 # Живёт в состав VictoryTarget не входит — его можно обойти, но
@@ -166,7 +155,6 @@ stats     = { max_hp = 14, strength = 2, dexterity = -2, constitution = 4, intel
 equipment = { main_hand = "long_sword", chest = "chainmail", legs = "plate_greaves", feet = "iron_boots" }
 
 ability_ids = ["melee_attack"]
-ai_role     = "bruiser"
 
 # Настоятель Мерон: VictoryTarget крипты. Фаза 2 — превращение в Эхо Гостя
 # через template = "echo_guest". Перенос через VictoryTarget сохраняется —
@@ -184,4 +172,3 @@ equipment = { main_hand = "staff", chest = "mage_robe", legs = "cloth_pants", fe
 resources = { mana = 8 }
 
 ability_ids = ["melee_attack", "heal", "flash"]
-ai_role     = "support"

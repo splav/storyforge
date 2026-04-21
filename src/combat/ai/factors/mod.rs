@@ -1,27 +1,40 @@
-//! Per-step 9-factor computation.
+//! Per-step 10-factor computation.
 //!
-//! Produces `[damage, kill, cc, heal, position, risk, focus, intent, scarcity]`
+//! Produces `[damage, kill_now, kill_promised, cc, heal, intent, scarcity, tempo_gain, saturation, self_survival]`
 //! for a single `ScoredStep`. Normalisation, role-axis weighting and the
 //! plan-level aggregation (discounted sums, max-across-steps) live in
 //! `combat::ai::planning::scorer`.
 //!
 //! Module layout:
-//! - `offensive` — damage / heal / kill / cc (single-target and AoE), `aoe_area`.
+//! - `offensive` — damage / heal / kill_now / kill_promised / cc (single-target and AoE), `aoe_area`.
 //! - `scarcity`  — resource-vs-swing scoring for Cast candidates.
 //! - `adjustments` — reservation nerfs + crit-fail expected-value adjustment.
+//! - `tempo`     — plan-terminal `tempo_gain`.
+//! - `saturation` — per-plan buff-redundancy penalty (same class, same target).
+//! - `survival`  — plan-level `self_survival` (heal + armor-buff + exit-danger).
+//!
+//! Phase 6 removed the legacy `position`, `risk`, and `focus` axes. Their
+//! signals are now covered by `tempo_gain` (approach + exit-danger) and
+//! `self_survival` (per-path bleed via AoO exposure). `evaluate_position`
+//! in `position_eval.rs` is kept as a helper for `Reposition` intent scoring
+//! and influence-map debugging, but is no longer a scored factor.
 
 mod adjustments;
 mod aoe_hits;
 mod offensive;
+mod saturation;
 mod scarcity;
+mod survival;
+mod tempo;
 
 pub use adjustments::crit_fail_adjusted;
 pub use aoe_hits::{aoe_hits, AoeHits};
 pub use offensive::aoe_area;
+pub use saturation::buff_saturation_penalty;
+pub use survival::compute_plan_self_survival;
+pub use tempo::compute_plan_tempo_gain;
 
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
-use crate::combat::ai::position_eval::evaluate_position;
-use crate::combat::ai::target_priority::target_priority;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
@@ -127,8 +140,8 @@ impl<'a> ScoredStep<'a> {
 
 // ── Factor layout ───────────────────────────────────────────────────────────
 
-/// 9 utility factors: damage, kill, cc, heal, position, risk, focus, intent, scarcity.
-pub const NUM_FACTORS: usize = 9;
+/// 10 utility factors: damage, kill_now, kill_promised, cc, heal, intent, scarcity, tempo_gain, saturation, self_survival.
+pub const NUM_FACTORS: usize = 10;
 
 // Named indices into the factor array. Use these anywhere a factor is read
 // by number — `raw[DAMAGE_IDX]` makes intent obvious and makes a future
@@ -136,21 +149,22 @@ pub const NUM_FACTORS: usize = 9;
 // `scorer::compute_plan_factors_sans_intent` stays positional on purpose
 // (it's the one place *declaring* the layout).
 pub const DAMAGE_IDX: usize = 0;
-pub const KILL_IDX: usize = 1;
-pub const CC_IDX: usize = 2;
-pub const HEAL_IDX: usize = 3;
-pub const POSITION_IDX: usize = 4;
-pub const RISK_IDX: usize = 5;
-pub const FOCUS_IDX: usize = 6;
-pub const INTENT_IDX: usize = 7;
-pub const SCARCITY_IDX: usize = 8;
+pub const KILL_NOW_IDX: usize = 1;
+pub const KILL_PROMISED_IDX: usize = 2;
+pub const CC_IDX: usize = 3;
+pub const HEAL_IDX: usize = 4;
+pub const INTENT_IDX: usize = 5;
+pub const SCARCITY_IDX: usize = 6;
+pub const TEMPO_IDX: usize = 7;
+pub const SATURATION_IDX: usize = 8;
+pub const SELF_SURVIVAL_IDX: usize = 9;
 
-/// Factors that can be negative (position, intent, scarcity).
+/// Factors that can be negative (intent, scarcity, tempo_gain, saturation, self_survival).
 /// These use symmetric normalization in `planning::scorer`: divide by
 /// `max(|min|, |max|)` → [-1, 1]. Non-negative factors use max normalization
 /// → [0, 1].
 pub const SIGNED_FACTOR: [bool; NUM_FACTORS] = [
-    false, false, false, false, true, false, false, true, true,
+    false, false, false, false, false, true, true, true, true, true,
 ];
 
 /// Per-plan utility factors as a named struct. Replaces ad-hoc
@@ -161,39 +175,41 @@ pub const SIGNED_FACTOR: [bool; NUM_FACTORS] = [
 /// Numeric work (batch normalization in `finalize_scores`) still goes
 /// through `[f32; NUM_FACTORS]` views via `as_array()` / `from_array()`, so
 /// SIMD/loop-based math stays cheap. Log + debug writers convert to the
-/// stable `[f32; 9]` wire format at the boundary.
+/// stable `[f32; 10]` wire format at the boundary.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PlanFactors {
     pub damage: f32,
-    pub kill: f32,
+    pub kill_now: f32,
+    pub kill_promised: f32,
     pub cc: f32,
     pub heal: f32,
-    pub position: f32,
-    pub risk: f32,
-    pub focus: f32,
     pub intent: f32,
     pub scarcity: f32,
+    pub tempo_gain: f32,
+    pub saturation: f32,
+    pub self_survival: f32,
 }
 
 impl PlanFactors {
     pub fn as_array(&self) -> [f32; NUM_FACTORS] {
         [
-            self.damage, self.kill, self.cc, self.heal, self.position,
-            self.risk, self.focus, self.intent, self.scarcity,
+            self.damage, self.kill_now, self.kill_promised, self.cc, self.heal,
+            self.intent, self.scarcity, self.tempo_gain, self.saturation, self.self_survival,
         ]
     }
 
     pub fn from_array(a: [f32; NUM_FACTORS]) -> Self {
         Self {
             damage: a[DAMAGE_IDX],
-            kill: a[KILL_IDX],
+            kill_now: a[KILL_NOW_IDX],
+            kill_promised: a[KILL_PROMISED_IDX],
             cc: a[CC_IDX],
             heal: a[HEAL_IDX],
-            position: a[POSITION_IDX],
-            risk: a[RISK_IDX],
-            focus: a[FOCUS_IDX],
             intent: a[INTENT_IDX],
             scarcity: a[SCARCITY_IDX],
+            tempo_gain: a[TEMPO_IDX],
+            saturation: a[SATURATION_IDX],
+            self_survival: a[SELF_SURVIVAL_IDX],
         }
     }
 }
@@ -203,24 +219,21 @@ impl PlanFactors {
 pub(super) struct OffensiveFactors {
     pub(super) damage: f32,
     pub(super) heal: f32,
-    pub(super) kill: f32,
+    pub(super) kill_now: f32,
+    pub(super) kill_promised: f32,
     pub(super) cc: f32,
 }
 
-/// Compute the 9 raw utility factors for a single scored step — **excluding**
-/// the intent factor. `factor[7]` (intent) is returned as `0.0` and aggregated
-/// separately at the plan level by `scorer::compute_plan_intent_sum`. This
-/// split lets the utility pipeline cache the intent-independent factors once
-/// per plan and re-apply a new intent (viability fallback, LastStand rescore)
-/// without redoing damage/heal/kill/cc/position/risk/focus/scarcity math.
+/// Compute the per-step raw utility factors — **excluding** intent, tempo_gain,
+/// and self_survival (all three are filled plan-level by their respective
+/// compute_plan_* functions). `factor[INTENT_IDX]` is returned as `0.0` and
+/// aggregated separately at the plan level by `scorer::compute_plan_intent_sum`.
+/// This split lets the utility pipeline cache the intent-independent factors
+/// once per plan and re-apply a new intent (viability fallback, LastStand
+/// rescore) without redoing damage/heal/kill/cc/scarcity.
 ///
-/// Axes: [damage, kill, cc, heal, position, risk, focus, 0.0, scarcity].
+/// Axes: [damage, kill_now, kill_promised, cc, heal, 0.0, scarcity, 0.0, 0.0, 0.0].
 pub fn compute_factors(ctx: &ScoringCtx, step: &ScoredStep) -> PlanFactors {
-    let tile = step.caster_tile();
-    let active = ctx.active;
-    let snap = ctx.snap;
-    let maps = ctx.maps;
-
     let mut off = match step {
         ScoredStep::Cast { ability, target_pos, target, caster_tile } => {
             offensive::compute_offensive(ability, *target_pos, *target, *caster_tile, ctx)
@@ -228,33 +241,24 @@ pub fn compute_factors(ctx: &ScoringCtx, step: &ScoredStep) -> PlanFactors {
         ScoredStep::Move { .. } => OffensiveFactors::default(),
     };
 
-    let mut position = evaluate_position(tile, &active.role, maps);
-    let risk = 1.0 - maps.danger.get(tile);
-    let mut focus = step
-        .target()
-        .and_then(|t| snap.unit(t))
-        .map(|t| target_priority(active, t, snap))
-        .unwrap_or(0.0);
-
-    adjustments::apply_reservation_adjustments(
-        step, &mut off, &mut focus, &mut position, ctx,
-    );
+    adjustments::apply_reservation_adjustments(step, &mut off, ctx);
 
     let scarcity = match step {
-        ScoredStep::Cast { .. } => scarcity::compute_scarcity(step, off.kill, ctx),
+        ScoredStep::Cast { .. } => scarcity::compute_scarcity(step, off.kill_now, ctx),
         ScoredStep::Move { .. } => 0.0,
     };
 
     PlanFactors {
         damage: off.damage,
-        kill: off.kill,
+        kill_now: off.kill_now,
+        kill_promised: off.kill_promised,
         cc: off.cc,
         heal: off.heal,
-        position,
-        risk,
-        focus,
-        intent: 0.0, // intent — filled in by `compute_plan_intent_sum` when needed
+        intent: 0.0,        // filled in by `compute_plan_intent_sum` when needed
         scarcity,
+        tempo_gain: 0.0,    // filled in by `compute_plan_tempo_gain` when needed
+        saturation: 0.0,    // filled in by scorer's per-plan saturation loop
+        self_survival: 0.0, // filled in by `compute_plan_self_survival` when needed
     }
 }
 

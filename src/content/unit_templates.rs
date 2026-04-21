@@ -23,7 +23,6 @@ pub struct UnitTemplateDef {
     pub equipment: EquipmentBlock,
     pub resources: ResourcesBlock,
     pub ability_ids: Vec<AbilityId>,
-    pub ai_role: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,8 +58,6 @@ pub struct TemplateRecord {
     #[serde(default)]
     pub resources: Option<ResourcesRecord>,
     pub ability_ids: Vec<String>,
-    #[serde(default)]
-    pub ai_role: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -167,6 +164,5 @@ pub fn convert_template_record(r: TemplateRecord) -> UnitTemplateDef {
             .into_iter()
             .map(|s| AbilityId::from(s.as_str()))
             .collect(),
-        ai_role: r.ai_role,
     }
 }

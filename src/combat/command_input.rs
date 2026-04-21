@@ -51,8 +51,10 @@ pub fn player_command_system(
         return;
     }
 
-    // Auto-enter move mode after GrantMovement (e.g. Rush).
-    if c.has_bonus_move && c.ap.can_move() && !selection.move_mode {
+    // Auto-enter move mode after GrantMovement (e.g. Rush) or whenever AP is
+    // gone but MP still remains — movement is the only thing left to do.
+    let no_ap_but_can_move = c.ap.action_points <= 0 && c.ap.can_move();
+    if (c.has_bonus_move || no_ap_but_can_move) && !selection.move_mode {
         selection.move_mode = true;
         selection.selected_ability = None;
         selection.selected_target = None;
@@ -133,6 +135,13 @@ pub fn player_command_system(
     // Escape → cancel move mode.
     if keyboard.just_pressed(KeyCode::Escape) && selection.move_mode {
         selection.move_mode = false;
+    }
+
+    // E → manually end turn.
+    if keyboard.just_pressed(KeyCode::KeyE) {
+        end_turn.write(EndTurn { actor });
+        selection.clear();
+        return;
     }
 
     // Tab → cycle living targets (enemies for most abilities, allies for SingleAlly).

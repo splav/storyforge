@@ -1,4 +1,4 @@
-//! Plan scoring: replay each plan on a sim, aggregate 9 factors, normalize and
+//! Plan scoring: replay each plan on a sim, aggregate 10 factors, normalize and
 //! weight the same way single-candidate scoring does.
 //!
 //! Aggregation rules per factor:
@@ -14,7 +14,7 @@
 //!   `FocusTarget`/`ApplyCC` target, the intent is satisfied. Subsequent
 //!   steps skip the **intent** aggregation — they aren't aligned or
 //!   misaligned, they're orthogonal to a now-solved goal. All other
-//!   factors (damage, heal, cc, kill, focus, scarcity) continue at their
+//!   factors (damage, heal, cc, kill, scarcity) continue at their
 //!   normal geometric `base^k` decay. No extra multiplier — post-goal
 //!   actions are scored on their own merit, neither penalised as
 //!   "bonuses" nor inflated as "peers".
@@ -22,33 +22,29 @@
 //!   steps. Accumulates count of planned kills (each `raw_kill` is
 //!   binary 0/1 from `single_target_kill`) with geometric decay — a
 //!   plan killing two enemies outscores one killing one.
-//! - `focus`: **discounted sum** of `target_priority × step_weight`
-//!   across Cast steps. Two casts on priority targets outscore one;
-//!   double-tapping the same target accumulates appropriately.
 //! - `intent`: **discounted sum** of `intent_score × step_weight`
 //!   across all steps (Cast and Move). Captures alignment across the
 //!   whole plan, including misalign penalties on tail steps that do
 //!   drag the signal down. Skipped once the intent's goal is achieved
 //!   (see post-goal above).
+//! - `tempo_gain`: plan-terminal — captures approach quality + exit-danger
+//!   of the full plan path. See `factors::tempo`.
+//! - `self_survival`: plan-terminal — defensive value (heal + armor-buff +
+//!   exit-AoO). See `factors::survival`.
 //!
-//! All three factors now share the same aggregation shape as damage /
-//! cc / heal / scarcity: plan-wide cumulative with `base^k` decay per
-//! depth. Single rule across every Cast-accumulating factor.
-//! - `position`: `evaluate_position(final_pos)` — terminal.
-//! - `risk`: `1 − max_danger_along_path` — worst tile the actor traverses or
-//!   casts from.
+//! Phase 6 removed `position`, `risk`, and `focus` axes. Their signals are
+//! now covered by `tempo_gain` and `self_survival`.
 
 use crate::combat::ai::factors::{
-    self, PlanFactors, ScoredStep, INTENT_IDX, NUM_FACTORS, SCARCITY_IDX, SIGNED_FACTOR,
+    self, buff_saturation_penalty, compute_plan_self_survival, compute_plan_tempo_gain,
+    PlanFactors, ScoredStep, INTENT_IDX, NUM_FACTORS, SCARCITY_IDX, SIGNED_FACTOR,
 };
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{intent_score, TacticalIntent};
 use crate::combat::ai::planning::adaptation::EvaluationMode;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
-use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::estimate_st_damage;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::target_priority::target_priority;
 use crate::combat::ai::trade::{trade_delta, trade_score, unit_value};
 use crate::combat::ai::utility::{AiWorld, ScoringCtx};
 use crate::content::abilities::{CasterContext, EffectDef};
@@ -113,6 +109,7 @@ pub fn rescore_with_intent(
 ) -> Vec<f32> {
     for (p, f) in plans.iter().zip(raw.iter_mut()) {
         f.intent = compute_plan_intent_sum(p, intent, ctx);
+        f.tempo_gain = compute_plan_tempo_gain(p, intent, ctx);
     }
     finalize_scores(plans, raw, ctx)
 }
@@ -143,6 +140,7 @@ pub fn rescore_with_per_plan_modes(
     for ((p, f), mode) in plans.iter().zip(raw.iter_mut()).zip(modes.iter()) {
         let effective = mode.effective_intent(*global);
         f.intent = compute_plan_intent_sum(p, &effective, ctx);
+        f.tempo_gain = compute_plan_tempo_gain(p, &effective, ctx);
     }
     finalize_scores(plans, raw, ctx)
 }
@@ -302,11 +300,14 @@ fn plan_start_tile(plan: &TurnPlan) -> Hex {
 }
 
 /// Additive post-normalisation bonus for every `Summon` cast in the plan.
-/// Each summon contributes `summon_dpr × decay`, where `decay = 1 − count/cap`
-/// is recomputed against a **running** summon count so a multi-summon plan
-/// doesn't get linear credit as the roster fills. Zero for plans without any
-/// summon casts. `summon_dpr` is the precomputed per-template DPR table built
-/// once by `build_summon_dpr_cache`.
+/// Each summon contributes `summon_dpr × cap_decay × saturation_mult`, where:
+/// - `cap_decay = 1 − count/cap` — per-step cap pressure (local to one summoner).
+/// - `saturation_mult = 0.65^total_allies` — global over-saturation penalty:
+///   plans that summon into an already-full friendly roster score proportionally
+///   less even before the cap math clips them, preventing "spam summons" from
+///   dominating when the battlefield is already crowded.
+/// Zero for plans without any summon casts. `summon_dpr` is the precomputed
+/// per-template DPR table built once by `build_summon_dpr_cache`.
 fn plan_summon_bonus(
     plan: &TurnPlan,
     active: &UnitSnapshot,
@@ -314,11 +315,22 @@ fn plan_summon_bonus(
     snap: &BattleSnapshot,
     summon_dpr: &std::collections::HashMap<String, f32>,
 ) -> f32 {
+    // Only LIVE summons occupy a cap slot (spawn.rs filters Dead too). Dead
+    // units stay in the snapshot with hp=0 — counting them would make the AI
+    // think the cap is reached when the spawn side would happily summon more.
     let mut count = snap
         .units
         .iter()
-        .filter(|u| u.summoner == Some(active.entity))
+        .filter(|u| u.summoner == Some(active.entity) && u.is_alive())
         .count() as f32;
+
+    // Global saturation: total live allies on the actor's team (excluding actor).
+    let total_allies = snap
+        .units
+        .iter()
+        .filter(|u| u.team == active.team && u.entity != active.entity && u.is_alive())
+        .count() as f32;
+    let saturation_mult = 0.65_f32.powf(total_allies);
 
     let mut total = 0.0f32;
     for step in &plan.steps {
@@ -333,7 +345,7 @@ fn plan_summon_bonus(
         }
 
         let dpr = summon_dpr.get(template).copied().unwrap_or(0.0);
-        total += dpr * decay;
+        total += dpr * decay * saturation_mult;
         count += 1.0;
     }
     total
@@ -393,12 +405,11 @@ fn build_summon_dpr_cache(
     cache
 }
 
-/// Compute the 9 raw utility factors for a single plan. Thin combinator over
-/// `compute_plan_factors_sans_intent` + `compute_plan_intent_sum` — kept so
-/// scorer tests and any single-shot caller that does want both halves in one
-/// call have a stable entry point. Empty plan (seed) yields zeros for
-/// cumulative factors and baselines on position/risk at the actor's current
-/// tile. See module docs for per-factor aggregation rules.
+/// Compute the 10 raw utility factors for a single plan. Thin combinator over
+/// `compute_plan_factors_sans_intent` + intent/tempo/self_survival columns —
+/// kept so scorer tests and any single-shot caller that does want both halves
+/// in one call have a stable entry point. See module docs for per-factor
+/// aggregation rules.
 pub fn compute_plan_factors(
     plan: &TurnPlan,
     intent: &TacticalIntent,
@@ -406,19 +417,19 @@ pub fn compute_plan_factors(
 ) -> PlanFactors {
     let mut out = compute_plan_factors_sans_intent(plan, ctx);
     out.intent = compute_plan_intent_sum(plan, intent, ctx);
+    out.tempo_gain = compute_plan_tempo_gain(plan, intent, ctx);
     out
 }
 
-/// Everything except the intent factor (`factor[7]` stays 0.0). Intent-
-/// independent, so the utility pipeline computes this once per plan and
-/// reuses it across viability / LastStand intent swaps.
+/// Everything except the intent, tempo_gain, and self_survival factors (they
+/// stay 0.0). Intent-independent, so the utility pipeline computes this once
+/// per plan and reuses it across viability / LastStand intent swaps.
 pub fn compute_plan_factors_sans_intent(
     plan: &TurnPlan,
     ctx: &ScoringCtx,
 ) -> PlanFactors {
     let active = ctx.active;
     let snap = ctx.snap;
-    let maps = ctx.maps;
     // No sim is run here: the generator already produced the sim state after
     // every step and cached it on the plan. `pre_step_snapshot` handles both
     // the `idx == 0` baseline and the deserialized-plan case (empty
@@ -431,18 +442,11 @@ pub fn compute_plan_factors_sans_intent(
 
     let mut damage_sum = 0.0f32;
     let mut heal_sum = 0.0f32;
-    let mut kill_sum = 0.0f32;
+    let mut kill_now_sum = 0.0f32;
+    let mut kill_promised_sum = 0.0f32;
     let mut cc_sum = 0.0f32;
     let mut scarcity_sum = 0.0f32;
-    let mut focus_sum = 0.0f32;
-    // Worst danger across path tiles + final tile. Helper is shared with
-    // sanity's `worst_path_danger`; we additionally fold in `active.pos`
-    // because a plan that *stays put* in a dangerous tile should still see
-    // the starting tile reflected in its risk factor (sanity ignores
-    // `active.pos` because its survival penalty already keys off
-    // `current_danger` separately).
-    let path_danger_max =
-        worst_path_danger(plan, maps).max(maps.danger.get(active.pos));
+    let mut saturation_sum = 0.0f32;
 
     let base_discount = ctx.world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;
@@ -463,39 +467,33 @@ pub fn compute_plan_factors_sans_intent(
             // sum with base^k decay. Deep Casts keep contributing but weigh
             // less, reflecting execution uncertainty over plan depth.
             damage_sum += raw.damage * step_weight;
-            kill_sum += raw.kill * step_weight;
+            kill_now_sum += raw.kill_now * step_weight;
+            kill_promised_sum += raw.kill_promised * step_weight;
             cc_sum += raw.cc * step_weight;
             heal_sum += raw.heal * step_weight;
-            focus_sum += raw.focus * step_weight;
             scarcity_sum += raw.scarcity * step_weight;
+            if let PlanStep::Cast { ability, target, .. } = step {
+                let sat = buff_saturation_penalty(
+                    ability, *target, active.entity, pre_snap, step_ctx.world.content,
+                );
+                saturation_sum += sat * step_weight;
+            }
         }
 
         step_weight *= base_discount;
     }
 
-    let position = evaluate_position(plan.final_pos, &active.role, maps);
-    // `path_danger_max` already includes `plan.final_pos` (via helper).
-    let risk = 1.0 - path_danger_max;
-
-    // Focus floor for empty plans: use the best priority target on current
-    // snapshot so "do nothing" doesn't misleadingly score with focus=0.
-    if plan.steps.is_empty() {
-        focus_sum = snap
-            .enemies_of(active.team)
-            .map(|t| target_priority(active, t, snap))
-            .fold(0.0f32, f32::max);
-    }
-
     PlanFactors {
         damage: damage_sum,
-        kill: kill_sum,
+        kill_now: kill_now_sum,
+        kill_promised: kill_promised_sum,
         cc: cc_sum,
         heal: heal_sum,
-        position,
-        risk,
-        focus: focus_sum,
-        intent: 0.0, // filled in by `compute_plan_intent_sum` when needed
+        intent: 0.0,        // filled in by `compute_plan_intent_sum` when needed
         scarcity: scarcity_sum,
+        tempo_gain: 0.0,    // filled in by `compute_plan_tempo_gain` when needed
+        saturation: saturation_sum,
+        self_survival: compute_plan_self_survival(plan, ctx),
     }
 }
 
@@ -515,7 +513,6 @@ pub fn compute_plan_intent_sum(
 
     let active = ctx.active;
     let snap = ctx.snap;
-    let maps = ctx.maps;
     let world = ctx.world;
     let base_discount = world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;
@@ -530,15 +527,8 @@ pub fn compute_plan_intent_sum(
         let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
 
         if !goal_achieved {
-            let iv = intent_score(
-                intent,
-                &scored_step,
-                &sim_actor,
-                pre_snap,
-                maps,
-                world.content,
-                world.difficulty,
-            );
+            let step_ctx = ctx.with_perspective(&sim_actor, pre_snap);
+            let iv = intent_score(intent, &scored_step, &step_ctx);
             intent_sum += iv * step_weight;
         }
 
@@ -602,9 +592,10 @@ mod tests {
     }
 
     /// Under discounted-sum aggregation, a chain of Cast@focus steps
-    /// accumulates `Σ intent_score(step) × base^k`. For plans built from
-    /// Cast-only steps, each contributes `1.0 × base^depth` → intent_sum
-    /// equals the geometric sum.
+    /// accumulates `Σ intent_score(step) × base^k`. The per-step intent
+    /// score is now a factor dot-product (no longer a hardcoded 1.0), so we
+    /// first measure the single-step value `s1`, then verify that two-step
+    /// and three-step plans accumulate exactly `s1 × Σ base^k`.
     ///
     /// Pure Move-preceded chains under FocusTarget are **not** pinned
     /// here since Fix B — after that change, Move steps contribute
@@ -614,8 +605,24 @@ mod tests {
     /// intent-independent from pursuit by using Cast-only step chains.
     #[test]
     fn sum_factors_scale_by_step_weight() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        let focus = unit(2, Team::Player, hex_from_offset(5, 0));
+        use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::content::abilities::CasterContext;
+        use crate::core::DiceExpr;
+
+        // Give actor a weapon die so melee_attack (weapon_attack effect)
+        // produces non-zero damage factors. Without weapon_dice the caster_ctx
+        // returns 0 expected damage, making the FocusTarget dot-product 0.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .ap(2)
+            .tags(AiTags::MELEE_ONLY)
+            .ability_names(&["melee_attack"])
+            .caster_ctx(CasterContext {
+                str_mod: 2,
+                weapon_dice: Some(DiceExpr::new(1, 8, 0)),
+                ..Default::default()
+            })
+            .build();
+        let focus = unit(2, Team::Player, hex_from_offset(1, 0)); // adjacent: ranged not needed
         let snap = BattleSnapshot::new(vec![actor.clone(), focus.clone()], 1);
         let content =
             crate::content::content_view::ContentView::load_global_for_tests();
@@ -645,32 +652,33 @@ mod tests {
             }
         };
 
-        // Cast@focus at depth k contributes 1.0 × 0.85^k. Chained Casts
-        // accumulate: N casts → Σ 0.85^k for k=0..N-1.
-        let cases: Vec<(&str, TurnPlan, f32)> = vec![
-            ("single cast — 1.0",
-                build(vec![cast_focus()]),
-                1.0),
-            ("two casts — 1.0 + 0.85 = 1.85",
-                build(vec![cast_focus(), cast_focus()]),
-                1.0 + 0.85),
-            ("three casts — 1.0 + 0.85 + 0.85² = 2.5725",
-                build(vec![cast_focus(), cast_focus(), cast_focus()]),
-                1.0 + 0.85 + 0.85 * 0.85),
-        ];
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
-        for (name, plan, expected_sum) in cases {
-            let f = compute_plan_factors(&plan, &intent, &scoring_ctx);
-            let intent_val = f.intent;
-            assert!(
-                (intent_val - expected_sum).abs() < 0.005,
-                "{name}: intent={intent_val}, expected≈{expected_sum}",
-            );
-            assert!(
-                f.focus > 0.0,
-                "{name}: focus_sum > 0 (Cast on priority target)",
-            );
-        }
+
+        // Measure single-step intent value: whatever the factor dot-product
+        // gives for melee_attack@focus is `s1`. Multi-step sums must follow
+        // the geometric decay pattern `s1 × Σ base^k`.
+        let single = compute_plan_factors(&build(vec![cast_focus()]), &intent, &scoring_ctx);
+        let s1 = single.intent;
+        assert!(s1 > 0.0, "single cast@focus must produce positive intent: {s1}");
+
+        // Two casts: s1 + s1×0.85 = s1 × 1.85
+        let two = compute_plan_factors(&build(vec![cast_focus(), cast_focus()]), &intent, &scoring_ctx);
+        let expected_two = s1 * (1.0 + 0.85);
+        assert!(
+            (two.intent - expected_two).abs() < 0.005,
+            "two casts: intent={}, expected≈{expected_two} (s1={s1})", two.intent,
+        );
+
+        // Three casts: s1 × (1 + 0.85 + 0.85²)
+        let three = compute_plan_factors(
+            &build(vec![cast_focus(), cast_focus(), cast_focus()]),
+            &intent, &scoring_ctx,
+        );
+        let expected_three = s1 * (1.0 + 0.85 + 0.85 * 0.85);
+        assert!(
+            (three.intent - expected_three).abs() < 0.005,
+            "three casts: intent={}, expected≈{expected_three} (s1={s1})", three.intent,
+        );
     }
 
     /// Post-goal must not penalise further useful actions. Two identical
@@ -738,10 +746,10 @@ mod tests {
         // itself does differ (post-goal skips it), not asserted here.
         for (got, want, name) in [
             (f_goal.damage, f_miss.damage, "damage"),
-            (f_goal.kill, f_miss.kill, "kill"),
+            (f_goal.kill_now, f_miss.kill_now, "kill_now"),
+            (f_goal.kill_promised, f_miss.kill_promised, "kill_promised"),
             (f_goal.cc, f_miss.cc, "cc"),
             (f_goal.heal, f_miss.heal, "heal"),
-            (f_goal.focus, f_miss.focus, "focus"),
             (f_goal.scarcity, f_miss.scarcity, "scarcity"),
         ] {
             assert_eq!(
@@ -947,7 +955,7 @@ mod tests {
 
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let support = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-            .ai_role(crate::combat::ai::role::AiRole::Support)
+            .role(crate::combat::ai::role::AxisProfile { support: 1.0, ..Default::default() })
             .threat(6.0)
             .build();
         let rat = UnitBuilder::new(3, Team::Player, hex_from_offset(2, 0))
@@ -1017,7 +1025,7 @@ mod tests {
         // High-value support: role=Support + strong threat drives
         // `unit_value` well above the actor's own.
         let support = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-            .ai_role(crate::combat::ai::role::AiRole::Support)
+            .role(crate::combat::ai::role::AxisProfile { support: 1.0, ..Default::default() })
             .threat(8.0)
             .build();
         // Provoker that guarantees AoO lethal on retreat from support.

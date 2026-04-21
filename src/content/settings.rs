@@ -15,6 +15,11 @@ pub struct GameSettings {
     /// `logs/ai_decisions_<timestamp>.jsonl` when empty.
     pub ai_log_path: String,
     pub current_slot: u8,
+    /// When true (default), the AI reuses the stored plan after a MoveOnly step
+    /// instead of replanning from scratch. The fresh plan is still computed for
+    /// divergence diagnostics. Set to false to restore the old replan-every-tick
+    /// behaviour for comparison.
+    pub ai_freeze_plan_after_move: bool,
 }
 
 impl Default for GameSettings {
@@ -28,6 +33,7 @@ impl Default for GameSettings {
             ai_log: false,
             ai_log_path: String::new(),
             current_slot: 1,
+            ai_freeze_plan_after_move: true,
         }
     }
 }
@@ -85,7 +91,11 @@ pub struct DebugSection {
     pub ai_log: bool,
     #[serde(default)]
     pub ai_log_path: String,
+    #[serde(default = "default_true")]
+    pub ai_freeze_plan_after_move: bool,
 }
+
+fn default_true() -> bool { true }
 
 #[derive(Serialize, Deserialize)]
 pub struct DifficultySection {
@@ -109,6 +119,7 @@ impl GameSettings {
             ai_log: f.debug.ai_log,
             ai_log_path: f.debug.ai_log_path,
             current_slot: clamp_slot(f.profile.current_slot),
+            ai_freeze_plan_after_move: f.debug.ai_freeze_plan_after_move,
         }
     }
 
@@ -122,6 +133,7 @@ impl GameSettings {
                 ai_debug: self.ai_debug,
                 ai_log: self.ai_log,
                 ai_log_path: self.ai_log_path.clone(),
+                ai_freeze_plan_after_move: self.ai_freeze_plan_after_move,
             },
             profile: ProfileSection { current_slot: self.current_slot },
         }

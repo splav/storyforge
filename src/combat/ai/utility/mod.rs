@@ -61,6 +61,20 @@ pub enum AiDecision {
     EndTurn,
 }
 
+/// Structured output of a successful `pick_action` call (non-fallback path).
+/// Carries the winning plan and its final score so `run_ai_turn` can store
+/// them in `AiMemory` for the plan-freeze continuation logic.
+pub struct ChosenInfo {
+    /// Winning plan, without `sim_snapshots` (cleared to avoid carrying heavy
+    /// simulation data across ticks — those are only needed during scoring).
+    pub plan: TurnPlan,
+    /// Final adapted score (post-mercy, post-adaptation) — the value used for
+    /// the pick decision and written to the decision log.
+    pub score: f32,
+    /// Tactical intent that was active when the plan was scored.
+    pub intent: TacticalIntent,
+}
+
 /// Source of a `Move` decision. See `AiDecision::Move`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MoveOrigin {
@@ -136,6 +150,8 @@ impl<'w, 'p> ScoringCtx<'w, 'p> {
 
 /// Top-level decision function. Replaces evaluate_targets + plan_movement.
 /// When `debug` is true, returns an `AiDebugSnapshot` alongside the decision.
+/// Always returns a `ChosenInfo` on the normal path (None only for the
+/// no-plans fallback) so callers can store the winning plan in `AiMemory`.
 pub fn pick_action(
     actor: Entity,
     actor_pos: Hex,
@@ -148,12 +164,12 @@ pub fn pick_action(
     logger: &mut AiLogger,
     debug: bool,
     debug_names: &HashMap<Entity, String>,
-) -> (AiDecision, Option<AiDebugSnapshot>) {
+) -> (AiDecision, Option<AiDebugSnapshot>, Option<ChosenInfo>) {
     let log_on = logger.is_enabled();
     let t0 = if log_on { Some(std::time::Instant::now()) } else { None };
 
     let Some(active) = snap.unit(actor) else {
-        return (AiDecision::EndTurn, None);
+        return (AiDecision::EndTurn, None, None);
     };
 
     // ── Select tactical intent ──────────────────────────────────────────
@@ -171,7 +187,7 @@ pub fn pick_action(
                 "no plans generated", snap, maps, debug_names,
             ))
         } else { None };
-        return (decision, ds);
+        return (decision, ds, None);
     }
 
     // Bundle the read-only scoring inputs once. Threaded as `&ScoringCtx`
@@ -200,7 +216,7 @@ pub fn pick_action(
     let base_scored = ranking.scored.clone();
     ranking.apply_adaptation(&plans, &scoring_ctx);
     if matches!(ranking.intent, TacticalIntent::ProtectSelf) {
-        ranking.apply_protect_self(&plans, &scoring_ctx);
+        ranking.apply_protect_self();
     }
 
     let (best_idx, mech) = ranking.pick(world, rng);
@@ -220,6 +236,7 @@ pub fn pick_action(
     let pick_mech = debug.then_some(mech);
 
     let best_plan = &plans[best_idx];
+    let best_score = ranking.scored[best_idx];
     let (decision, consumed) = commit_plan(best_plan, actor_pos);
 
     // Debug formatter walks the plans directly — one `ScoredStep` per plan
@@ -251,7 +268,17 @@ pub fn pick_action(
         );
     }
 
-    (decision, debug_snapshot)
+    // Build ChosenInfo for plan-freeze continuation. Clear sim_snapshots to
+    // avoid carrying heavy simulation data across ticks.
+    let mut chosen_plan = best_plan.clone();
+    chosen_plan.sim_snapshots.clear();
+    let chosen = Some(ChosenInfo {
+        plan: chosen_plan,
+        score: best_score,
+        intent: ranking.intent,
+    });
+
+    (decision, debug_snapshot, chosen)
 }
 
 /// Write one JSONL entry for the decision that `pick_action` just produced.

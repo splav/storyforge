@@ -52,13 +52,16 @@ plans with **raw** + normalised factors, and the committed decision.
   number. Verbose mode tags adapted plans with
   `[adapted: last_stand ← <reason>]`.
 
-The replay accepts schema 1–6; newer writes are rejected with a warning.
+The replay accepts schema 1–10; newer writes are rejected with a warning.
 
 ## Running
 
 ```bash
-cargo run --bin replay_ai_log -- <log-file> [flags]
+cargo run --bin replay_ai_log -- <log.jsonl> [<log2.jsonl> ...] [flags]
 ```
+
+Multiple file arguments are accepted; each is processed in order and a
+cumulative `--metrics-summary` section is printed at the end.
 
 Flags:
 
@@ -71,6 +74,9 @@ Flags:
   `viability_fallback`), the replay applies the ProtectSelf mask as if A+B
   had been active at log time. Useful for "would this fix have helped that
   bad decision?" checks.
+- `--metrics-summary` — aggregate regression metrics across all processed
+  files and print a summary block at the end. Use with a corpus glob to
+  capture a baseline: `replay_ai_log --metrics-summary logs/corpus/*.jsonl > baseline.txt`.
 
 Output markers:
 
@@ -111,7 +117,7 @@ Ending summary line: `N entries, K ranking changes after sanity`.
 - `post_sanity_top` — rank after all current post-hoc adjustments (sanity,
   ProtectSelf mask, etc.) are applied.
 - Per-plan lines show the plan's first-step chain and its raw factor vector
-  `[damage, kill, cc, heal, position, risk, focus, intent, scarcity]`.
+  `[damage, kill_now, kill_promised, cc, heal, position, risk, focus, intent, scarcity, tempo_gain, saturation]`.
 
 A score of `-inf` in the **post** column means the plan was masked out by
 the current sanity pipeline — either the ProtectSelf mask (when intent is
@@ -131,6 +137,70 @@ generator failed to surface, or that AoO/sanity would have killed it.
 
 Each plan appears with its rank, chosen-flag (`★`), pre/post scores, Δ, the
 final destination hex, and the step chain. Sorted by **post** score.
+
+## Regression metrics
+
+Three counters that serve as a numeric health-check for the AI scoring
+pipeline. Computed from the **logged data** (no re-scoring), so they reflect
+the live game's behaviour at the time the log was produced.
+
+### `wasted_mp_ratio`
+
+Fraction of committed `MoveOnly` prefixes whose destination equals the actor's
+starting position (displacement = 0). A round-trip move wastes movement points
+without advancing the actor toward any goal.
+
+```
+wasted_mp_ratio = wasted_MoveOnly / total_MoveOnly
+```
+
+Baseline (`logs/corpus_20260421`, 47 entries): **0.0 %** (0/19).
+Phase 1 target: no regression.
+
+### `panic_leak_rate`
+
+Among entries where the chosen plan's `adaptation_reason ∈
+{protect_self_no_defensive, protect_self_futile}` (i.e. the AI entered the
+ProtectSelf contract), the fraction where the committed action is
+**non-defensive**: not `EndTurn`, not `MoveOnlyRetreat`, not a cast targeting
+self or an ally.
+
+```
+panic_leak_rate = leaked_panic / total_panic
+```
+
+Baseline: **0.0 %** (0/0 — no adaptation-triggered panic entries in current
+corpus). Phase 5 target: ≤ 2 %.
+
+### `killable_closure_rate`
+
+Among entries with `selection_kind == "killable"`, the fraction where the
+chosen plan's `raw_factors[KILL_NOW_IDX] > 0` — i.e. at least one cast in the
+committed prefix scored an immediate kill signal.
+
+```
+killable_closure_rate = closed / total_killable
+```
+
+Baseline: **0.0 %** (0/7). Phase 2 target: ≥ 85 %.
+
+### Generating / comparing a baseline
+
+```bash
+# Save baseline from the current corpus:
+cargo run --bin replay_ai_log -- --metrics-summary logs/corpus_20260421/*.jsonl \
+  > logs/baseline_20260421.txt
+
+# After a code change, compare against the saved baseline:
+cargo run --bin replay_ai_log -- --metrics-summary logs/corpus_20260421/*.jsonl \
+  > logs/candidate.txt
+diff logs/baseline_20260421.txt logs/candidate.txt
+```
+
+Entries from schemas without the required fields (e.g. v1–v5 lack
+`adaptation_reason`) are handled gracefully: the field defaults to `None`, so
+they simply don't contribute to `panic_total`. No explicit "partial" marking
+is needed.
 
 ## Intended workflow
 

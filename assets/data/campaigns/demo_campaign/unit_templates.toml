@@ -18,7 +18,6 @@ equipment = { main_hand = "staff", chest = "chainmail", legs = "plate_greaves", 
 resources = { mana = 8 }
 
 ability_ids = ["melee_attack", "thunderstrike", "heal"]
-ai_role     = "mage"
 
 # Слабый мелкий призывной юнит. Шаблон используется способностью `summon_storm_spirit`.
 [[unit_templates]]
@@ -31,4 +30,3 @@ stats     = { max_hp = 6, strength = 3, dexterity = 4, constitution = -2, intell
 equipment = { main_hand = "short_sword", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
 
 ability_ids = ["melee_attack"]
-ai_role     = "bruiser"

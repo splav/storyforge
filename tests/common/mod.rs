@@ -6,7 +6,7 @@ use bevy::state::app::StatesPlugin;
 
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
-    advance_turn::advance_turn_system, ai::debug::AiDebugState,
+    advance_turn::{advance_turn_system, check_victory_system}, ai::debug::AiDebugState,
     ai::difficulty::DifficultyProfile, ai::influence::InfluenceConfig,
     ai::reservations::Reservations,
     apply_effects::apply_effects_system, ai::enemy_turn::enemy_ai_system,
@@ -135,6 +135,7 @@ pub fn effects_app() -> App {
                 apply_effects_system,
                 phase_transition_system,
                 advance_turn_system,
+                check_victory_system,
             )
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand)),
@@ -166,7 +167,7 @@ pub fn resolve_app() -> App {
         .add_message::<SpawnUnit>()
         .add_systems(
             Update,
-            (resolve_action_system, apply_effects_system, advance_turn_system)
+            (resolve_action_system, apply_effects_system, advance_turn_system, check_victory_system)
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand)),
         );
@@ -209,6 +210,7 @@ pub fn stun_app() -> App {
                 enemy_ai_system,
                 apply_effects_system,
                 advance_turn_system,
+                check_victory_system,
             )
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand)),
@@ -282,6 +284,7 @@ pub fn pipeline_app() -> App {
                 resolve_action_system,
                 apply_effects_system,
                 advance_turn_system,
+                check_victory_system,
             )
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand)),
@@ -306,6 +309,7 @@ pub fn insert_taunt_status(app: &mut App) {
             hp_percent_dot: 0,
             ai_controlled: false,
             causes_disadvantage: false,
+            buff_class: None,
         },
     );
 }
@@ -326,6 +330,7 @@ pub fn insert_stun_status(app: &mut App) {
             hp_percent_dot: 0,
             ai_controlled: false,
             causes_disadvantage: false,
+            buff_class: None,
         },
     );
 }
@@ -346,6 +351,7 @@ pub fn insert_burning_status(app: &mut App) {
             hp_percent_dot: 0,
             ai_controlled: false,
             causes_disadvantage: false,
+            buff_class: None,
         },
     );
 }
@@ -366,6 +372,7 @@ pub fn insert_poison_status(app: &mut App) {
             hp_percent_dot: 0,
             ai_controlled: false,
             causes_disadvantage: false,
+            buff_class: None,
         },
     );
 }

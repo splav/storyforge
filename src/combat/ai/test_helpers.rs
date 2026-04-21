@@ -6,7 +6,7 @@
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
 use crate::combat::ai::reservations::Reservations;
-use crate::combat::ai::role::{AiRole, AxisProfile};
+use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::{AiWorld, ScoringCtx};
 use crate::content::abilities::CasterContext;
@@ -68,7 +68,7 @@ impl UnitBuilder {
             inner: UnitSnapshot {
                 entity: Entity::from_raw_u32(id).expect("valid entity id"),
                 team,
-                role: AxisProfile::from(AiRole::Bruiser),
+                role: AxisProfile { tank: 0.5, melee: 0.5, ranged: 0.0, control: 0.0, support: 0.0 },
                 pos,
                 hp: 20,
                 max_hp: 20,
@@ -131,9 +131,6 @@ impl UnitBuilder {
     pub fn role(mut self, role: AxisProfile) -> Self {
         self.inner.role = role;
         self
-    }
-    pub fn ai_role(self, role: AiRole) -> Self {
-        self.role(AxisProfile::from(role))
     }
     pub fn tags(mut self, tags: AiTags) -> Self {
         self.inner.tags = tags;
