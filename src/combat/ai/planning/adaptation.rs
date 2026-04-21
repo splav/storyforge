@@ -43,8 +43,9 @@ use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::sanity::expected_aoo_damage;
 use crate::combat::ai::planning::scorer::rescore_with_per_plan_modes;
 use crate::combat::ai::planning::{plan_is_defensive, TurnPlan};
-use crate::combat::ai::snapshot::UnitSnapshot;
+use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
+use crate::content::content_view::ContentView;
 
 /// Evaluation regime used when scoring the intent-column of a plan.
 ///
@@ -94,6 +95,11 @@ pub enum AdaptationReason {
     /// exceeds the actor's current HP → continue-to-exist value = 0 →
     /// evaluate under LastStand. Per-plan override.
     ///
+    /// **Horizon — step-local.** AoO fires *during* a specific Move
+    /// transition; the suffix of the plan doesn't help if the actor
+    /// dies mid-path. So `expected_aoo_damage(plan)` sums per-step AoO
+    /// bleed on transitions, not an end-of-turn projection.
+    ///
     /// "Expected" because `expected_aoo_damage` is an EV aggregate
     /// (crit-fail is disabled in sim); in a live turn the plan may or
     /// may not kill the actor. The adaptation threshold is conservative:
@@ -101,9 +107,26 @@ pub enum AdaptationReason {
     ExpectedSelfLethal { aoo_dmg: f32, actor_hp: i32 },
     /// Global intent is `ProtectSelf` but **no** plan in the pool is
     /// defensive (by `plan_is_defensive`). The ProtectSelf contract
-    /// cannot be satisfied, so every plan is evaluated under LastStand.
-    /// Global override (applied to all plans).
+    /// cannot be satisfied *spatially*, so every plan is evaluated
+    /// under LastStand. Global override (applied to all plans).
     ProtectSelfNoDefensive,
+    /// Global intent is `ProtectSelf`, defensive options exist, but
+    /// pending DoT (`sum(dot_per_tick + hp_percent_dot) over active
+    /// statuses`) exceeds `actor.hp` AND no plan in the pool would
+    /// leave the actor alive at end-of-turn. Contract is *temporally*
+    /// unsatisfiable: the actor can get to safety but still dies from
+    /// DoT before acting again.
+    ///
+    /// **Horizon — end-of-turn.** In this engine only the current actor
+    /// mutates state during his own turn; DoT ticks fire on the
+    /// applier's turn, *after* this actor finishes. So the correct
+    /// rescue horizon is `sim_snapshots.last()` — "will I be alive when
+    /// my turn ends" — not the committed prefix.
+    ///
+    /// Global override (applied to all plans). Payload:
+    /// `pending_dot` = `pending_dot_before_next_action(active)`,
+    /// `actor_hp` = `active.hp`.
+    ProtectSelfFutile { pending_dot: i32, actor_hp: i32 },
 }
 
 impl AdaptationReason {
@@ -113,8 +136,77 @@ impl AdaptationReason {
         match self {
             Self::ExpectedSelfLethal { .. } => "expected_self_lethal",
             Self::ProtectSelfNoDefensive => "protect_self_no_defensive",
+            Self::ProtectSelfFutile { .. } => "protect_self_futile",
         }
     }
+}
+
+/// Sum of damage the actor is guaranteed to take from active status
+/// effects before their next meaningful action — i.e. the pending DoT
+/// tick that will fire while someone else is acting.
+///
+/// Components:
+/// - `dot_per_tick` (capped at `.max(0)` — defensive guardrail against
+///   hypothetical negative values; live code only writes positives).
+/// - `hp_percent_dot` from `StatusDef` in content, converted to absolute
+///   HP via `ceil(max_hp × pct / 100)` — mirrors the live tick path in
+///   `advance_turn::tick_statuses_on_entity`.
+///
+/// Only statuses with `rounds_remaining > 0` are counted (expired rows
+/// are usually filtered already, but the check keeps this safe if a
+/// snapshot includes zero-round entries mid-refresh).
+///
+/// Used by `apply_adaptation` to detect the `ProtectSelfFutile` case —
+/// "contract can be satisfied spatially, but DoT will kill the actor
+/// anyway before he acts again".
+pub fn pending_dot_before_next_action(active: &UnitSnapshot, content: &ContentView) -> i32 {
+    let mut total = 0i32;
+    for s in &active.statuses {
+        if s.rounds_remaining == 0 {
+            continue;
+        }
+        total = total.saturating_add(s.dot_per_tick.max(0));
+        if let Some(sd) = content.statuses.get(&s.id) {
+            if sd.hp_percent_dot > 0 {
+                let tick = (active.max_hp as f32 * sd.hp_percent_dot as f32 / 100.0).ceil() as i32;
+                total = total.saturating_add(tick.max(0));
+            }
+        }
+    }
+    total
+}
+
+/// Would executing this plan leave the actor alive at the end of its
+/// own turn, after the next status tick that will fire before the actor
+/// acts again?
+///
+/// Reads the post-plan snapshot (`sim_snapshots.last()`) — the correct
+/// horizon for DoT doom because external state doesn't change during a
+/// single actor's turn in this engine, and DoT from enemy-applied
+/// statuses ticks on the *applier's* turn (after this actor is done).
+/// So a plan that heals / cleanses in its tail genuinely rescues, even
+/// if the heal is outside the committed prefix — the next AI-tick
+/// continues the same plan from the same doom-state.
+///
+/// Deserialized plans (empty `sim_snapshots`, see shape invariant on
+/// `TurnPlan::sim_snapshots`) fall back to `initial` — safe but stale;
+/// in that case the check sees pre-plan HP/statuses, which for a doomed
+/// actor means "no rescue" and LastStand triggers. That's the
+/// conservative side of the fallback.
+fn plan_has_self_rescue(
+    plan: &TurnPlan,
+    active: &UnitSnapshot,
+    initial: &BattleSnapshot,
+    content: &ContentView,
+) -> bool {
+    let post = plan.sim_snapshots.last().unwrap_or(initial);
+    let Some(actor_post) = post.unit(active.entity) else {
+        return false;
+    };
+    if actor_post.hp <= 0 {
+        return false;
+    }
+    actor_post.hp > pending_dot_before_next_action(actor_post, content)
 }
 
 /// Output of the adaptation pass. Parallel vectors aligned with the plan
@@ -183,9 +275,15 @@ pub fn apply_adaptation(
     let maps = ctx.maps;
     let margin = ctx.world.difficulty.defensive_tile_margin();
 
-    // ── Global rule: ProtectSelf has no defensive option ──────────────────
-    // Applied first because it's global — any per-plan ExpectedSelfLethal
-    // rule would be shadowed by the global switch anyway.
+    // ── Global rules under ProtectSelf ────────────────────────────────────
+    // Two ways the contract can be unsatisfiable, each with its own
+    // rescue horizon (see module docstring on AdaptationReason variants):
+    //   1. SPATIAL — `ProtectSelfNoDefensive`: no plan reaches safety.
+    //   2. TEMPORAL — `ProtectSelfFutile`: safety is reachable but pending
+    //      DoT kills the actor before he acts again.
+    //
+    // Applied first because global — any per-plan ExpectedSelfLethal
+    // rule would be shadowed by a global switch anyway.
     if matches!(intent, TacticalIntent::ProtectSelf) {
         let any_defensive = plans
             .iter()
@@ -198,10 +296,42 @@ pub fn apply_adaptation(
             *scored = rescore_with_per_plan_modes(plans, raw, &adaptation.modes, intent, ctx);
             return adaptation;
         }
-        // ProtectSelf with defensive options present: contract still
-        // holds. ExpectedSelfLethal per-plan adaptation is gated off —
-        // the actor is committed to self-preservation, self-lethal plans
-        // are contract violations and should be masked, not rescored.
+
+        // Defensive option exists spatially — check temporal feasibility.
+        // is_doomed: pending DoT alone would kill the actor next tick.
+        // If so, require *some* plan to leave the actor alive at end of
+        // turn (via self-heal or cleanse in sim_snapshots.last()). If no
+        // such plan exists, the contract is futile — flip global LastStand.
+        //
+        // MVP gate: only under intent == ProtectSelf. A future extension
+        // might extend doom-check to non-ProtectSelf intents (actor
+        // doomed but picked FocusTarget because danger-map didn't flag
+        // panic_override), but that requires a broader rescue-audit and
+        // is deferred until replay evidence demands it.
+        let pending_dot = pending_dot_before_next_action(active, content);
+        if pending_dot >= active.hp {
+            let any_rescue = plans
+                .iter()
+                .any(|p| plan_has_self_rescue(p, active, ctx.snap, content));
+            if !any_rescue {
+                let reason = AdaptationReason::ProtectSelfFutile {
+                    pending_dot,
+                    actor_hp: active.hp,
+                };
+                for i in 0..plans.len() {
+                    adaptation.modes[i] = EvaluationMode::LastStand;
+                    adaptation.reasons[i] = Some(reason.clone());
+                }
+                *scored = rescore_with_per_plan_modes(plans, raw, &adaptation.modes, intent, ctx);
+                return adaptation;
+            }
+        }
+
+        // ProtectSelf with defensive options AND feasible survival:
+        // contract still holds. ExpectedSelfLethal per-plan adaptation
+        // is gated off — the actor is committed to self-preservation,
+        // self-lethal plans are contract violations and should be
+        // masked, not rescored.
         return adaptation;
     }
 
@@ -399,6 +529,250 @@ mod tests {
             adaptation.reasons[0],
             Some(AdaptationReason::ProtectSelfNoDefensive)
         ));
+    }
+
+    // ── ProtectSelfFutile: DoT doom, rescue feasibility ─────────────────
+    //
+    // End-of-turn horizon: `plan_has_self_rescue` reads
+    // `sim_snapshots.last()`. In a turn-based engine external state
+    // doesn't change during an actor's turn, so the post-plan snapshot
+    // correctly answers "will this actor be alive when his turn ends".
+    // Tests construct `sim_snapshots` by hand — we're exercising
+    // adaptation logic, not the generator's sim.
+
+    use crate::content::abilities::{
+        AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType,
+    };
+    use crate::content::statuses::StatusDef;
+    use crate::core::{AbilityId, DiceExpr, StatusId};
+
+    /// Minimal self-heal AbilityDef for content injection in rescue tests.
+    /// TargetType::SingleAlly makes `plan_is_defensive` return true for a
+    /// first-step Cast, so the contract's spatial check passes and the
+    /// doom/rescue branch actually runs.
+    fn heal_def() -> AbilityDef {
+        AbilityDef {
+            id: AbilityId::from("heal"),
+            name: "heal".into(),
+            target_type: TargetType::SingleAlly,
+            range: AbilityRange { min: 0, max: 0 },
+            effect: EffectDef::Heal { dice: DiceExpr::new(1, 6, 0) },
+            costs: Vec::new(),
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: Vec::new(),
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            key: None,
+        }
+    }
+
+    /// Minimal StatusDef with only the fields pending_dot_before_next_action
+    /// reads from content (`hp_percent_dot`). All other fields default.
+    fn dot_status(id: &str, hp_percent_dot: i32) -> StatusDef {
+        StatusDef {
+            id: StatusId::from(id),
+            name: id.into(),
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            skips_turn: false,
+            forces_targeting: false,
+            dot_dice: None as Option<DiceExpr>,
+            blocks_mana_abilities: false,
+            speed_bonus: 0,
+            hp_percent_dot,
+            ai_controlled: false,
+            causes_disadvantage: false,
+        }
+    }
+
+    /// Single-Cast "rescue" plan whose post-step snapshot reflects the
+    /// given actor state. Real generator emits one snapshot per step; we
+    /// pair a placeholder Cast step with the injected post-state so the
+    /// `sim_snapshots.len() == steps.len()` shape invariant holds.
+    fn rescue_plan(actor_post: UnitSnapshot) -> TurnPlan {
+        let post_snap = BattleSnapshot::new(vec![actor_post.clone()], 1);
+        TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: crate::core::AbilityId::from("heal"),
+                target: actor_post.entity,
+                target_pos: actor_post.pos,
+            }],
+            final_pos: actor_post.pos,
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: vec![crate::combat::ai::planning::types::StepOutcome::default()],
+            partial_score: 0.0,
+            sim_snapshots: vec![post_snap],
+        }
+    }
+
+    /// Empty-steps "skip" plan. Deserialized-like: `sim_snapshots` is
+    /// empty, so `plan_has_self_rescue` falls back to the initial
+    /// snapshot — which for a doomed actor encodes "no rescue".
+    fn skip_plan(actor_pos: Hex) -> TurnPlan {
+        TurnPlan {
+            steps: Vec::new(),
+            final_pos: actor_pos,
+            residual_ap: 1,
+            residual_mp: 0,
+            outcomes: Vec::new(),
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn doom_no_rescue_flips_all_plans_to_protect_self_futile() {
+        // #13-class scenario: hp=2, poison dot=4 → pending >= hp → doomed.
+        // Only plan = "skip" which leaves actor state unchanged → no rescue.
+        // Gate fires: all plans → LastStand w/ ProtectSelfFutile.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(2)
+            .max_hp(20)
+            .build();
+        let mut actor_with_dot = actor.clone();
+        actor_with_dot.statuses.push(crate::combat::ai::snapshot::ActiveStatusView {
+            id: StatusId::from("poison"),
+            rounds_remaining: 1,
+            dot_per_tick: 4,
+        });
+
+        let plans = vec![skip_plan(actor_with_dot.pos)];
+        let snap = BattleSnapshot::new(vec![actor_with_dot.clone()], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor_with_dot);
+
+        let mut raw = vec![PlanFactors::default()];
+        let mut scored = vec![0.5];
+        let adaptation = apply_adaptation(
+            &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+        );
+
+        assert!(matches!(adaptation.modes[0], EvaluationMode::LastStand));
+        match &adaptation.reasons[0] {
+            Some(AdaptationReason::ProtectSelfFutile { pending_dot, actor_hp }) => {
+                assert_eq!(*pending_dot, 4);
+                assert_eq!(*actor_hp, 2);
+            }
+            other => panic!("expected ProtectSelfFutile, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn doom_with_self_heal_rescue_leaves_default_mode() {
+        // Critic guardrail: actor has self-heal. The rescue plan's
+        // post-state has HP above pending DoT → any_rescue=true →
+        // adaptation must NOT flip to LastStand. Contract (ProtectSelf)
+        // stays, and the rescue plan wins via the contract mask downstream.
+        let pos = hex_from_offset(0, 0);
+        let mut actor_doomed = UnitBuilder::new(1, Team::Enemy, pos)
+            .hp(2)
+            .max_hp(20)
+            .build();
+        actor_doomed.statuses.push(crate::combat::ai::snapshot::ActiveStatusView {
+            id: StatusId::from("poison"),
+            rounds_remaining: 1,
+            dot_per_tick: 4,
+        });
+        // Post-plan: self-heal raises HP to 12, DoT still pending (heal
+        // didn't cleanse). 12 > 4 → rescue holds.
+        let mut actor_healed = actor_doomed.clone();
+        actor_healed.hp = 12;
+
+        let plans = vec![rescue_plan(actor_healed)];
+        let snap = BattleSnapshot::new(vec![actor_doomed.clone()], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let mut content = empty_content();
+        let def = heal_def();
+        content.abilities.insert(def.id.clone(), def);
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor_doomed);
+
+        let mut raw = vec![PlanFactors::default()];
+        let mut scored = vec![0.5];
+        let adaptation = apply_adaptation(
+            &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+        );
+
+        assert!(
+            matches!(adaptation.modes[0], EvaluationMode::Default),
+            "self-heal enough to outpace DoT must keep contract alive",
+        );
+        assert!(adaptation.reasons[0].is_none());
+    }
+
+    #[test]
+    fn doom_with_cleanse_rescue_leaves_default_mode() {
+        // Cleanse path: post-plan actor has hp=2 (not healed) but DoT
+        // status removed. pending_dot post = 0, actor hp > 0 → rescued.
+        let pos = hex_from_offset(0, 0);
+        let mut actor_doomed = UnitBuilder::new(1, Team::Enemy, pos)
+            .hp(2)
+            .max_hp(20)
+            .build();
+        actor_doomed.statuses.push(crate::combat::ai::snapshot::ActiveStatusView {
+            id: StatusId::from("poison"),
+            rounds_remaining: 1,
+            dot_per_tick: 4,
+        });
+        // Post-plan: statuses vec cleared (cleanse). HP unchanged.
+        let mut actor_cleansed = actor_doomed.clone();
+        actor_cleansed.statuses.clear();
+
+        let plans = vec![rescue_plan(actor_cleansed)];
+        let snap = BattleSnapshot::new(vec![actor_doomed.clone()], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let mut content = empty_content();
+        let def = heal_def();
+        content.abilities.insert(def.id.clone(), def);
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor_doomed);
+
+        let mut raw = vec![PlanFactors::default()];
+        let mut scored = vec![0.5];
+        let adaptation = apply_adaptation(
+            &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+        );
+
+        assert!(
+            matches!(adaptation.modes[0], EvaluationMode::Default),
+            "cleanse that drops pending DoT below hp must keep contract alive",
+        );
+    }
+
+    #[test]
+    fn pending_dot_includes_hp_percent_dot_from_content() {
+        // Status has no per-tick flat damage but has hp_percent_dot=20
+        // on a 40-max-hp actor → 8 per tick. Actor hp=5 → pending >= hp
+        // even though `dot_per_tick` alone reports 0.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(5)
+            .max_hp(40)
+            .build();
+        let mut actor_sick = actor.clone();
+        actor_sick.statuses.push(crate::combat::ai::snapshot::ActiveStatusView {
+            id: StatusId::from("exhaustion"),
+            rounds_remaining: 1,
+            dot_per_tick: 0, // the flat-damage channel is empty
+        });
+        let mut content = empty_content();
+        content.statuses.insert(
+            StatusId::from("exhaustion"),
+            dot_status("exhaustion", 20), // 20% of max_hp=40 → 8 per tick
+        );
+        let pending = pending_dot_before_next_action(&actor_sick, &content);
+        assert_eq!(pending, 8, "hp_percent_dot must contribute to pending");
+        assert!(pending >= actor_sick.hp, "doom holds via %hp DoT alone");
     }
 
     #[test]

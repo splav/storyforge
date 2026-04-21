@@ -61,7 +61,11 @@ use crate::game::hex::Hex;
 ///   `trade.score`); the block just exposes the HP-equivalent
 ///   breakdown that produced the `score` contribution. Older logs
 ///   tolerate via `#[serde(default)]` — empty breakdown.
-pub const SCHEMA_VERSION: u32 = 7;
+/// - v7 → v8: new `AdaptationReason::ProtectSelfFutile { pending_dot,
+///   actor_hp }` variant. Older logs don't contain this kind, so they
+///   stay readable; analyzers must grow a case for the new `kind` code
+///   `"protect_self_futile"` to decode v8 entries that carry it.
+pub const SCHEMA_VERSION: u32 = 8;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can

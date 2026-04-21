@@ -601,14 +601,17 @@ mod tests {
         crate::combat::ai::test_helpers::make_test_ctx(content, difficulty)
     }
 
-    /// Under discounted-sum aggregation, a single Cast@focus at depth k
-    /// contributes `intent_score × base^k` to intent_sum (and similarly
-    /// `target_priority × base^k` to focus_sum). Move steps under
-    /// FocusTarget intent score 0, so they don't accumulate intent.
+    /// Under discounted-sum aggregation, a chain of Cast@focus steps
+    /// accumulates `Σ intent_score(step) × base^k`. For plans built from
+    /// Cast-only steps, each contributes `1.0 × base^depth` → intent_sum
+    /// equals the geometric sum.
     ///
-    /// For a plan with exactly one Cast@focus, intent_sum equals the
-    /// step_weight at the Cast step: 1.0 direct, 0.85 bundled, 0.72
-    /// deep-3. This pins the aggregation shape.
+    /// Pure Move-preceded chains under FocusTarget are **not** pinned
+    /// here since Fix B — after that change, Move steps contribute
+    /// pursuit-of-target signal (see `intent::pursuit_move_score`) which
+    /// depends on hex-grid geometry. That signal is covered by the
+    /// dedicated pursuit tests in `intent::tests`. This test stays
+    /// intent-independent from pursuit by using Cast-only step chains.
     #[test]
     fn sum_factors_scale_by_step_weight() {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
@@ -629,7 +632,6 @@ mod tests {
             target: focus.entity,
             target_pos: focus.pos,
         };
-        let mov = |q, r| PlanStep::Move { path: vec![hex_from_offset(q, r)] };
         let build = |steps: Vec<PlanStep>| {
             let len = steps.len();
             TurnPlan {
@@ -643,19 +645,18 @@ mod tests {
             }
         };
 
-        // (description, plan, expected intent_sum). intent_score for
-        // FocusTarget-match Cast = 1.0; Move = 0.0. Single Cast plan's
-        // intent_sum equals step_weight at the Cast position.
+        // Cast@focus at depth k contributes 1.0 × 0.85^k. Chained Casts
+        // accumulate: N casts → Σ 0.85^k for k=0..N-1.
         let cases: Vec<(&str, TurnPlan, f32)> = vec![
-            ("direct cast — step 0, weight 1.0",
+            ("single cast — 1.0",
                 build(vec![cast_focus()]),
                 1.0),
-            ("bundle cast — step 1, weight 0.85",
-                build(vec![mov(1, 0), cast_focus()]),
-                0.85),
-            ("deep cast — step 2, weight 0.85²",
-                build(vec![mov(0, 1), mov(0, 2), cast_focus()]),
-                0.85 * 0.85),
+            ("two casts — 1.0 + 0.85 = 1.85",
+                build(vec![cast_focus(), cast_focus()]),
+                1.0 + 0.85),
+            ("three casts — 1.0 + 0.85 + 0.85² = 2.5725",
+                build(vec![cast_focus(), cast_focus(), cast_focus()]),
+                1.0 + 0.85 + 0.85 * 0.85),
         ];
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
         for (name, plan, expected_sum) in cases {
@@ -670,17 +671,6 @@ mod tests {
                 "{name}: focus_sum > 0 (Cast on priority target)",
             );
         }
-
-        // Two-Cast plan accumulates: intent = 1.0 + 1.0×0.85 = 1.85.
-        // Demonstrates that sum genuinely stacks signals, which max
-        // used to collapse.
-        let plan_double = build(vec![cast_focus(), cast_focus()]);
-        let f = compute_plan_factors(&plan_double, &intent, &scoring_ctx);
-        assert!(
-            (f.intent - 1.85).abs() < 0.005,
-            "double Cast@focus: intent_sum expected ≈ 1.85, got {}",
-            f.intent,
-        );
     }
 
     /// Post-goal must not penalise further useful actions. Two identical

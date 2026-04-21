@@ -177,7 +177,7 @@ pub enum ScoredStep<'a> {
 | `position` | **signed** | `evaluate_position(final_pos)` | терминальная |
 | `risk` | non-neg | `1 − max_danger_along_path` | худший тайл на пути |
 | `focus` | non-neg | `target_priority()` | **max** |
-| `intent` | **signed** | `intent_score()` | **max** (Move-шаги участвуют для Reposition) |
+| `intent` | **signed** | `intent_score()` | **discounted sum** (Cast и Move; latching ×0 после kill intent-цели) |
 | `scarcity` | **signed** | `swing_value − resource_ratio` | **Discounted sum** |
 
 Плюс **`summon_bonus`** — post-normalisation additive: за каждый `Summon` Cast в плане `dpr × decay`, где `decay = 1 − count/cap` с running counter (второй Summon в одном плане ценится меньше первого).
@@ -265,13 +265,30 @@ Stickiness bonus `+0.25` за continuation (+`0.15` если target тот же)
 
 | Intent | Cast score | Move score |
 |--------|-----------|-----------|
-| FocusTarget | 1.0 target match; heal = 0.3; AoE-covers-focus = 0.6; иначе −0.5 | 0.0 |
-| ApplyCC | 1.0 CC на цель; 0.5 damage на цель; −0.5 CC мимо | 0.0 |
+| FocusTarget | 1.0 target match; heal = 0.3; AoE-covers-focus = 0.6; иначе −0.5 | **pursuit** (см. ниже) |
+| ApplyCC | 1.0 CC на цель; 0.5 damage на цель; −0.5 CC мимо | **pursuit** (reach по CC range) |
 | Reposition | **tiered** | tiered |
 | ProtectSelf | self-heal/self-buff = 1.0; иначе `1 − danger(tile)` | `1 − danger(tile)` |
 | ProtectAlly | 1.0 heal ally; −0.3 heal wrong; 0.5 tile adj | 0.5 если adj к ally |
 | SetupAOE | hits/total или −0.3 single-target | 0.0 |
 | LastStand | dmg+kill+CC offensive combo | −0.3 |
+
+**Pursuit Move score (FocusTarget / ApplyCC).** Чистый Move во время фокус-интента оценивается `pursuit_move_score(from_pos, to_pos, target_pos, reach)`:
+
+| Условие | Score |
+|---|---|
+| `new_dist ≤ reach` — вошёл в threat bubble | `0.8` |
+| closing (`Δ > 0`) — сократил дистанцию | `min(0.3 × Δ / reach, 0.3)` |
+| retreat (`Δ < 0`) — увеличил дистанцию | `-min(0.1 × |Δ| / reach, 0.1)` (soft, не ломает обходы) |
+| без изменений | `0.0` |
+
+**Reach семантика** — "смогу ли я действовать на своём следующем meaningful action":
+- FocusTarget: `active.speed + active.max_attack_range`
+- ApplyCC: `active.speed + cc_reach(active, content)` (max range среди CC-способностей)
+
+Enter-reach (0.8) выбран ниже Cast (1.0), чтобы Cast план всегда побеждал когда достижим. Closing capped at 0.3 — ниже viability threshold 0.5, значит "просто сближаюсь" не проходит guard в одиночку. Retreat soft (cap 0.1) — position/risk колонки доминируют над intent для обходных манёвров через choke/LoS.
+
+**Viability threshold `FocusTarget=0.5` семантически = "уже почти в контакте"**, не "иду в нужную сторону". Фокусно: если best план не enter-reach этим тиком, guard переключает на достижимый `default_focus_target` — по дизайну, не случайное совпадение.
 
 **Reposition tiered:**
 
@@ -316,20 +333,25 @@ enum EvaluationMode { Default, LastStand }
 
 ### `AdaptationReason`
 
-| Reason | Триггер | Gate | Mode |
-|---|---|---|---|
-| `ExpectedSelfLethal { aoo_dmg, actor_hp }` | `expected_aoo_damage(plan) ≥ actor_hp` | `intent != ProtectSelf` | `LastStand` (per-plan) |
-| `ProtectSelfNoDefensive` | ни один план не `plan_is_defensive` | `intent == ProtectSelf` | `LastStand` (глобально) |
+| Reason | Триггер | Gate | Mode | Horizon |
+|---|---|---|---|---|
+| `ExpectedSelfLethal { aoo_dmg, actor_hp }` | `expected_aoo_damage(plan) ≥ actor_hp` | `intent != ProtectSelf` | `LastStand` (per-plan) | **step-local** (AoO per-transition) |
+| `ProtectSelfNoDefensive` | ни один план не `plan_is_defensive` | `intent == ProtectSelf` | `LastStand` (глобально) | — (spatial) |
+| `ProtectSelfFutile { pending_dot, actor_hp }` | `pending_dot_before_next_action(active) ≥ hp` **AND** ни один план не `plan_has_self_rescue` | `intent == ProtectSelf`, defensive option ∃ | `LastStand` (глобально) | **end-of-turn** (`sim_snapshots.last()`) |
 
-`ExpectedSelfLethal` под ProtectSelf не срабатывает: если есть defensive options, contract прав — актор не должен сам себя ставить под смертельный AoO; если defensive нет — `ProtectSelfNoDefensive` делает глобальный switch первым.
+**Horizon per threat type.** AoO fires внутри шага → step-local rescue невозможна суффиксом → смотрим per-step AoO bleed. DoT, в движке с гарантией «только текущий актор меняет состояние в рамках хода», тикает на ходу *applier'а*, после окончания хода отравленного — значит правильный horizon для doom-rescue = конец полного плана (`sim_snapshots.last()`). Два разных типа угроз → два разных horizon'а в одном слое.
 
-«Expected» в названии — потому что `expected_aoo_damage` это EV-оценка (sim живёт на EV без crit-fail), а не гарантия смерти в живом бою.
+`ExpectedSelfLethal` под ProtectSelf не срабатывает: если есть defensive options и doom-check не фатален, contract прав — актор не должен сам себя ставить под смертельный AoO. Если defensive нет → `ProtectSelfNoDefensive` делает глобальный switch. Если defensive есть, но pending DoT ≥ hp и ни один план не спасает → `ProtectSelfFutile` делает глобальный switch.
+
+**MVP scope `ProtectSelfFutile`**: gate только под `intent == ProtectSelf`. Doomed-актор, у которого `select_intent` выбрал не-ProtectSelf (например, ушёл на safe tile, urgency не триггернула), — граничный случай, покрывается при появлении replay-свидетельства.
+
+«Expected» в названии `ExpectedSelfLethal` — потому что `expected_aoo_damage` это EV-оценка (sim живёт на EV без crit-fail), а не гарантия смерти в живом бою. `pending_dot_before_next_action` — детерминированный snapshot-факт, без EV-проекции.
 
 ### Логи / debug
 
 Для каждого плана в JSONL (schema v6+):
 - `evaluation_mode: "default" | "last_stand"`
-- `adaptation_reason: null | { kind: "expected_self_lethal", …} | { kind: "protect_self_no_defensive" }`
+- `adaptation_reason: null | { kind: "expected_self_lethal", …} | { kind: "protect_self_no_defensive" } | { kind: "protect_self_futile", pending_dot, actor_hp }` (v8+)
 - `base_score` — score до adaptation
 - `adapted_score` — финальный (= `score`)
 

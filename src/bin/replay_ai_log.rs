@@ -161,6 +161,14 @@ enum LoggedAdaptationReason {
         actor_hp: i32,
     },
     ProtectSelfNoDefensive,
+    ProtectSelfFutile {
+        #[serde(default)]
+        #[allow(dead_code)]
+        pending_dot: i32,
+        #[serde(default)]
+        #[allow(dead_code)]
+        actor_hp: i32,
+    },
 }
 
 impl LoggedAdaptationReason {
@@ -168,6 +176,7 @@ impl LoggedAdaptationReason {
         match self {
             Self::ExpectedSelfLethal { .. } => "expected_self_lethal",
             Self::ProtectSelfNoDefensive => "protect_self_no_defensive",
+            Self::ProtectSelfFutile { .. } => "protect_self_futile",
         }
     }
 }
