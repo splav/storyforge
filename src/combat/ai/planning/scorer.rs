@@ -1005,6 +1005,99 @@ mod tests {
         );
     }
 
+    /// End-to-end smoke: a self-lethal plan that kills a high-value
+    /// support must out-score a passive plan, even under a non-
+    /// ProtectSelf intent where MVP1 adaptation flips it to LastStand.
+    /// This is the user-visible MVP2 behaviour — self-lethal-for-value
+    /// is no longer strictly dominated by passive alternatives.
+    ///
+    /// Goes through `score_plans_with_raw` so the full pipeline
+    /// (factors → normalisation → role weights → trade_bonus → noise)
+    /// is exercised, not just the trade helper in isolation.
+    #[test]
+    fn self_lethal_kill_support_outscores_passive_under_last_stand() {
+        use crate::combat::ai::test_helpers::UnitBuilder;
+
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(3)
+            .ap(2)
+            .threat(6.0)
+            .ability_names(&["melee_attack"])
+            .build();
+        // High-value support: role=Support + strong threat drives
+        // `unit_value` well above the actor's own.
+        let support = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .ai_role(crate::combat::ai::role::AiRole::Support)
+            .threat(8.0)
+            .build();
+        // Provoker that guarantees AoO lethal on retreat from support.
+        let provoker = UnitBuilder::new(3, Team::Player, hex_from_offset(0, 1))
+            .aoo(5.0, 1)
+            .build();
+        let snap = BattleSnapshot::new(
+            vec![actor.clone(), support.clone(), provoker.clone()],
+            1,
+        );
+        let content =
+            crate::content::content_view::ContentView::load_global_for_tests();
+        // Normal difficulty; score_noise > 0 — but the ranking assertion
+        // below is robust to noise as long as the signal spread exceeds
+        // the noise amplitude floor, which holds here (value of support
+        // ≈ 2 × unit_value(self)).
+        let difficulty = DifficultyProfile::normal();
+        let ctx = test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: support.entity };
+
+        // Plan A — self-lethal cast killing support. `outcomes[0].killed`
+        // encodes the kill that sim would observe; move-then-cast
+        // triggers the AoO from `provoker` so `expected_aoo_damage ≥ hp`
+        // flips the plan into the self-lethal trade branch.
+        let plan_self_lethal = TurnPlan {
+            steps: vec![
+                PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
+                PlanStep::Cast {
+                    ability: "melee_attack".into(),
+                    target: support.entity,
+                    target_pos: support.pos,
+                },
+            ],
+            final_pos: hex_from_offset(1, 0),
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: vec![
+                StepOutcome::default(),
+                StepOutcome {
+                    killed: vec![support.entity],
+                    ..Default::default()
+                },
+            ],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(), snap.clone()],
+        };
+        // Plan B — the "do nothing useful" baseline (EndTurn).
+        let plan_passive = TurnPlan {
+            steps: Vec::new(),
+            final_pos: actor.pos,
+            residual_ap: 2,
+            residual_mp: 3,
+            outcomes: Vec::new(),
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+
+        let plans = vec![plan_passive, plan_self_lethal];
+        let (scores, _) = score_plans_with_raw(&plans, &intent, &scoring_ctx);
+
+        assert!(
+            scores[1] > scores[0],
+            "self-lethal kill-support ({}) must out-score passive ({})",
+            scores[1], scores[0],
+        );
+    }
+
     /// Trade bonus on an inert plan (no kills, no self-lethal exposure)
     /// is exactly zero — the modifier must not drift the scoring of
     /// neutral plans. Baseline contrast against `_favors_valuable_victim`.
