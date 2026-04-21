@@ -22,7 +22,7 @@ use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{
     select_intent, update_memory, AiMemory, IntentReason, TacticalIntent,
 };
-use crate::combat::ai::log::{self, AiLogger, IntentBlock};
+use crate::combat::ai::log::{self, AiLogger, IntentBlock, TradeBlock};
 use crate::combat::ai::factors::PlanFactors;
 use crate::combat::ai::planning::{
     commit_plan, generate_plans, record_committed_reservations, TurnPlan,
@@ -244,10 +244,10 @@ pub fn pick_action(
     if log_on {
         let decision_time_ms = t0.map_or(0, |t| t.elapsed().as_millis() as u64);
         write_decision_log(
-            logger, decision_time_ms, actor, active, snap, &ranking.intent,
-            &ranking.intent_reason, &plans, &base_scored, &ranking.scored,
-            &ranking.raw_factors, &ranking.adaptation, best_idx, &decision,
-            debug_names,
+            logger, decision_time_ms, actor, active, snap, world.content,
+            &ranking.intent, &ranking.intent_reason, &plans, &base_scored,
+            &ranking.scored, &ranking.raw_factors, &ranking.adaptation,
+            best_idx, &decision, debug_names,
         );
     }
 
@@ -263,6 +263,7 @@ fn write_decision_log(
     actor: Entity,
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
+    content: &ContentView,
     intent: &TacticalIntent,
     intent_reason: &IntentReason,
     plans: &[TurnPlan],
@@ -276,6 +277,11 @@ fn write_decision_log(
 ) {
     let plan_id = logger.next_plan_id();
 
+    // Cache once — actor's own value is plan-independent. Same
+    // denominator the scorer used for its trade bonus, so the `score`
+    // column the log reports matches the increment the scorer applied.
+    let actor_value = crate::combat::ai::trade::unit_value(active, content);
+
     // Rank plans by final (adapted) score, keep top-10 for size budget.
     let mut indexed: Vec<(usize, f32)> =
         scored.iter().copied().enumerate().collect();
@@ -286,6 +292,17 @@ fn write_decision_log(
         .take(shown)
         .enumerate()
         .map(|(rank, &(idx, score))| {
+            let br = crate::combat::ai::trade::trade_delta(
+                &plans[idx], active, snap, content,
+            );
+            let trade = TradeBlock {
+                delta: br.delta,
+                killed: br.killed_value,
+                lost: br.lost_value,
+                self_lost: br.self_lost,
+                self_lethal: br.self_lethal,
+                score: crate::combat::ai::trade::trade_score(&br, actor_value),
+            };
             log::plan_to_log_entry(
                 &plans[idx],
                 rank + 1,
@@ -295,6 +312,7 @@ fn write_decision_log(
                 score,
                 &adaptation.modes[idx],
                 adaptation.reasons[idx].as_ref(),
+                trade,
             )
         })
         .collect();

@@ -55,7 +55,13 @@ use crate::game::hex::Hex;
 ///   read a comparable value. Older logs without the new fields deser
 ///   via `#[serde(default)]` — `evaluation_mode=Default`,
 ///   `adaptation_reason=None`, `base_score=score`.
-pub const SCHEMA_VERSION: u32 = 6;
+/// - v6 → v7: per-plan TRADE block (`trade: { delta, killed, lost,
+///   self_lost, self_lethal, score }`) added to `PlanLogEntry`. `score`
+///   in the top-level row is still the final number (already includes
+///   `trade.score`); the block just exposes the HP-equivalent
+///   breakdown that produced the `score` contribution. Older logs
+///   tolerate via `#[serde(default)]` — empty breakdown.
+pub const SCHEMA_VERSION: u32 = 7;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -177,6 +183,38 @@ pub struct PlanLogEntry<'a> {
     /// in `intent.reason`; this field exposes it for every plan in the
     /// pool, not just the chosen one).
     pub adaptation_reason: Option<&'a AdaptationReason>,
+    /// MVP2 trade economics breakdown. `score` inside this block is the
+    /// plan-level modifier actually added to the top-level `score`
+    /// field, so a reader can subtract it and recover the pre-trade
+    /// composition if desired. The HP-scaled decomposition
+    /// (`delta`, `killed`, `lost`, `self_lost`, `self_lethal`) explains
+    /// how the modifier arose.
+    pub trade: TradeBlock,
+}
+
+/// Serialised form of `combat::ai::trade::TradeBreakdown` plus the
+/// post-tanh score contribution. Fields are HP-equivalent except
+/// `score` (already normalised + weighted) and `self_lethal` (flag).
+#[derive(Serialize, Default)]
+pub struct TradeBlock {
+    /// `killed - lost - self_lost`; the input to `tanh`.
+    pub delta: f32,
+    /// Σ `unit_value` over enemies the plan kills within its commit
+    /// prefix.
+    pub killed: f32,
+    /// Σ `unit_value` over allies the plan kills within its commit
+    /// prefix (including the actor via self-AoE friendly fire).
+    pub lost: f32,
+    /// `unit_value(self)` if the plan is self-lethal via AoO and the
+    /// actor is not already in a sim kill list. `0.0` otherwise.
+    pub self_lost: f32,
+    /// True when the plan is expected to terminate the actor this
+    /// turn — via sim kill-list membership or EV-lethal AoO.
+    pub self_lethal: bool,
+    /// `trade::trade_score(delta, actor_value)` — the post-tanh
+    /// weighted number added to the composite score. Matches the
+    /// increment the scorer applied verbatim.
+    pub score: f32,
 }
 
 #[derive(Serialize)]
@@ -288,8 +326,8 @@ pub fn now_ms() -> u128 {
 }
 
 /// Build a `PlanLogEntry` from a plan + its raw factors, per-adaptation
-/// score pair, and evaluation-mode metadata. `chosen` reflects whether
-/// this plan was the one `pick_action` committed.
+/// score pair, trade breakdown, and evaluation-mode metadata. `chosen`
+/// reflects whether this plan was the one `pick_action` committed.
 pub fn plan_to_log_entry<'a>(
     plan: &'a TurnPlan,
     rank: usize,
@@ -299,6 +337,7 @@ pub fn plan_to_log_entry<'a>(
     score: f32,
     evaluation_mode: &'a EvaluationMode,
     adaptation_reason: Option<&'a AdaptationReason>,
+    trade: TradeBlock,
 ) -> PlanLogEntry<'a> {
     PlanLogEntry {
         rank,
@@ -313,6 +352,7 @@ pub fn plan_to_log_entry<'a>(
         base_score,
         evaluation_mode,
         adaptation_reason,
+        trade,
     }
 }
 

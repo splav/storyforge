@@ -52,6 +52,15 @@ const FIXED_LIFETIME_ROUNDS: f32 = 2.0;
 /// when a plan mass-kills trash.
 pub const UNIT_VALUE_FLOOR: f32 = 1.0;
 
+/// Amplitude of the plan-level trade modifier. Output of [`trade_score`]
+/// lives in `[-TRADE_WEIGHT, +TRADE_WEIGHT]` after the tanh squash.
+///
+/// Conservative 0.5 launch default per MVP2 review: the modifier is
+/// already outside role-composition and applied globally, which makes
+/// it a "loud" signal. Raise only after replay evidence shows
+/// self-trade-for-support still doesn't pull through.
+pub const TRADE_WEIGHT: f32 = 0.5;
+
 /// HP-equivalent actor-agnostic value of `u`. See module docs for the
 /// contract; the formula is
 ///
@@ -284,6 +293,21 @@ fn prefix_is_move_shaped(plan: &TurnPlan, prefix_len: usize) -> bool {
         .iter()
         .take(prefix_len)
         .any(|s| matches!(s, crate::combat::ai::planning::PlanStep::Move { .. }))
+}
+
+/// Post-normalisation scoring contribution of a [`TradeBreakdown`]:
+///
+/// ```text
+/// tanh(delta / max(actor_value, UNIT_VALUE_FLOOR)) × TRADE_WEIGHT
+/// ```
+///
+/// Single source of truth consumed by the scorer (`plan_trade_bonus`)
+/// and the log writer so the "what did trade contribute to the score"
+/// column in the JSONL always reconciles with what the ranking
+/// actually used.
+pub fn trade_score(br: &TradeBreakdown, actor_value: f32) -> f32 {
+    let denom = actor_value.max(UNIT_VALUE_FLOOR);
+    (br.delta / denom).tanh() * TRADE_WEIGHT
 }
 
 #[cfg(test)]

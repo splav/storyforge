@@ -98,6 +98,30 @@ struct PlanLog {
     /// `evaluation_mode = Default`.
     #[serde(default)]
     adaptation_reason: Option<LoggedAdaptationReason>,
+    /// v7+: per-plan trade breakdown + post-tanh score contribution.
+    /// Older logs default to an all-zero block — render suppresses the
+    /// line when `delta == 0 && !self_lethal`.
+    #[serde(default)]
+    trade: LoggedTradeBlock,
+}
+
+/// Mirrors `log::TradeBlock`. Verbose-only rendering; not consumed by
+/// the scoring reconstruction.
+#[derive(Deserialize, Default, Clone, Copy, Debug)]
+#[allow(dead_code)]
+struct LoggedTradeBlock {
+    #[serde(default)]
+    delta: f32,
+    #[serde(default)]
+    killed: f32,
+    #[serde(default)]
+    lost: f32,
+    #[serde(default)]
+    self_lost: f32,
+    #[serde(default)]
+    self_lethal: bool,
+    #[serde(default)]
+    score: f32,
 }
 
 /// Mirrors `planning::adaptation::EvaluationMode` for deserialization.
@@ -209,7 +233,10 @@ fn main() {
         // - v5 → v6: per-plan ADAPTATION dump. Replay surfaces it in verbose
         //   output; older logs default to `evaluation_mode=default` and
         //   `adaptation_reason=None` so the renderer stays silent.
-        if entry.schema_version < 1 || entry.schema_version > 6 {
+        // - v6 → v7: per-plan TRADE block (delta/killed/lost/self_lost/
+        //   self_lethal/score). Replay surfaces the breakdown under
+        //   `--verbose`; older logs drop to a default-filled block.
+        if !(1..=7).contains(&entry.schema_version) {
             eprintln!("unsupported schema_version {}, skipping", entry.schema_version);
             continue;
         }
@@ -389,8 +416,25 @@ fn main() {
                 } else {
                     String::new()
                 };
+                // v7 trade block. Quiet when the plan didn't make a trade
+                // — no kills, no ally losses, no self-lethal exposure.
+                let trade = &entry.plans[i].trade;
+                let trade_tag = if trade.delta != 0.0
+                    || trade.self_lethal
+                    || trade.killed != 0.0
+                    || trade.lost != 0.0
+                {
+                    let self_tag = if trade.self_lethal { " SELF-LETHAL" } else { "" };
+                    format!(
+                        "  [trade: Δ={:+.1} (kill {:+.1} / lost {:+.1} / self {:+.1}) score={:+.2}{}]",
+                        trade.delta, trade.killed, trade.lost, trade.self_lost,
+                        trade.score, self_tag,
+                    )
+                } else {
+                    String::new()
+                };
                 println!(
-                    "      #{}{}  pre={:+.2}  post={:+.2}  Δ={:+.2}  final=({},{})  {}{}",
+                    "      #{}{}  pre={:+.2}  post={:+.2}  Δ={:+.2}  final=({},{})  {}{}{}",
                     entry.plans[i].rank,
                     if entry.plans[i].chosen { "★" } else { " " },
                     pre,
@@ -400,6 +444,7 @@ fn main() {
                     entry.plans[i].final_pos[1],
                     plan_shape(&entry.plans[i]),
                     adapt_tag,
+                    trade_tag,
                 );
             }
         }

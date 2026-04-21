@@ -49,7 +49,7 @@ use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::estimate_st_damage;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
-use crate::combat::ai::trade::{trade_delta, unit_value, UNIT_VALUE_FLOOR};
+use crate::combat::ai::trade::{trade_delta, trade_score, unit_value};
 use crate::combat::ai::utility::{AiWorld, ScoringCtx};
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::core::modifier;
@@ -339,28 +339,12 @@ fn plan_summon_bonus(
     total
 }
 
-/// TRADE_WEIGHT: amplifies the [-1, 1] tanh output of `plan_trade_bonus`
-/// before it's added to the post-normalisation score.
-///
-/// Conservative 0.5 launch default per review: the trade modifier is
-/// already outside role-composition (same scale across all actors) and
-/// applied globally, which makes it a "loud" signal. Raising to 1.0+
-/// should wait for replay evidence that self-trade-for-support still
-/// doesn't pull through at 0.5.
-const TRADE_WEIGHT: f32 = 0.5;
-
 /// Plan-level signed modifier in roughly `[-TRADE_WEIGHT, +TRADE_WEIGHT]`.
 ///
-/// Squashes `trade_delta(plan) / max(unit_value(self), ε)` through
-/// `tanh` so the modifier saturates at `±1` once the exchange is
-/// "clearly profitable" or "clearly ruinous" relative to the actor's
-/// own worth. The denominator normalises across actor tiers — a cheap
-/// brute and an expensive ace see the same "how meaningful is this
-/// trade" shape, not absolute HP counts.
-///
-/// Floor [`UNIT_VALUE_FLOOR`] applied at the denominator only;
-/// `unit_value` itself returns honest zero for inert units (so a plan
-/// that mass-kills zero-value trash isn't silently boosted).
+/// Thin wrapper over `trade::trade_score` that first computes the
+/// plan's trade breakdown. Kept here rather than inlined at the call
+/// site so the log writer can reuse the same breakdown + score helper
+/// without duplicating the formula — see `combat::ai::trade`.
 fn plan_trade_bonus(
     plan: &TurnPlan,
     active: &UnitSnapshot,
@@ -369,8 +353,7 @@ fn plan_trade_bonus(
     actor_value: f32,
 ) -> f32 {
     let br = trade_delta(plan, active, snap, ctx.content);
-    let denom = actor_value.max(UNIT_VALUE_FLOOR);
-    (br.delta / denom).tanh() * TRADE_WEIGHT
+    trade_score(&br, actor_value)
 }
 
 /// Walk the plan pool, gather unique `Summon` template ids, and price each
