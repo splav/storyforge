@@ -3,10 +3,14 @@
 //!
 //! 1. Parses the entry (snapshot, intent, plan pool with raw factors).
 //! 2. Rebuilds `InfluenceMaps` deterministically from the snapshot.
-//! 3. Re-normalizes raw factors and applies role weights to reproduce the
-//!    "pre-sanity" score the game computed at logging time (minus noise).
+//! 3. Feeds the logged raw factors through the live `finalize_scores` so
+//!    scores match production bit-for-bit (summon_bonus, trade_bonus,
+//!    hash-based noise, batch normalisation).
 //! 4. Runs `sanity_adjust_plans` on that score vector.
-//! 5. Prints the original top plan and the post-sanity top plan side-by-side,
+//! 5. Picks the post-sanity winner via the live `pick_best_plan` (mercy
+//!    + top-K RNG tiebreak). Pre-sanity top uses argmax as a diagnostic
+//!      reference.
+//! 6. Prints the original top plan and the post-sanity top plan side-by-side,
 //!    flagging entries where the choice changed.
 //!
 //! Usage: `cargo run --bin replay_ai_log -- logs/<file>.jsonl [--verbose]`.
@@ -18,9 +22,11 @@ use bevy::prelude::Entity;
 use serde::Deserialize;
 
 use storyforge::combat::ai::difficulty::DifficultyProfile;
+use storyforge::combat::ai::factors::PlanFactors;
 use storyforge::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::planning::{
-    apply_protect_self_mask, sanity_adjust_plans, PlanStep, StepOutcome, TurnPlan,
+    apply_protect_self_mask, finalize_scores, pick_best_plan, sanity_adjust_plans, PlanStep,
+    StepOutcome, TurnPlan,
 };
 use storyforge::combat::ai::role::AxisProfile;
 use storyforge::combat::ai::snapshot::BattleSnapshot;
@@ -166,10 +172,6 @@ impl LoggedAdaptationReason {
     }
 }
 
-const SIGNED_FACTOR: [bool; 9] = [
-    false, false, false, false, true, false, false, true, true,
-];
-
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut verbose = false;
@@ -197,7 +199,6 @@ fn main() {
     let inf_cfg = InfluenceConfig::default();
     let difficulty = DifficultyProfile::normal();
     let mut rng = DiceRng::with_seed(0);
-    let _ = &mut rng;
 
     let mut total = 0usize;
     let mut changed = 0usize;
@@ -277,43 +278,16 @@ fn main() {
                 sim_snapshots: Vec::new(),
             })
             .collect();
-        let raw: Vec<[f32; 9]> = entry.plans.iter().map(|p| p.raw_factors).collect();
-
-        // Re-normalize raw factors batch-relative (matches score_plans_with_raw).
-        let mut maxes = [0.0f32; 9];
-        let mut mins = [0.0f32; 9];
-        for row in &raw {
-            for (i, &v) in row.iter().enumerate() {
-                if v > maxes[i] { maxes[i] = v; }
-                if v < mins[i] { mins[i] = v; }
-            }
-        }
-        let denom: [f32; 9] = std::array::from_fn(|i| {
-            if SIGNED_FACTOR[i] { mins[i].abs().max(maxes[i].abs()) } else { maxes[i] }
-        });
-
-        let mut weights = active.role.factor_weights();
-        weights[7] *= difficulty.intent_commitment;
-        weights[8] *= difficulty.resource_discipline;
-
-        // Noise is skipped — replay aims to be deterministic. Logged `score`
-        // may differ by |noise| ≤ score_noise (0 on hard, ~0.15 on normal).
-        let mut scores: Vec<f32> = raw
+        // Convert logged raw factor arrays back to structured PlanFactors so
+        // the shared scoring pipeline can ingest them directly.
+        let raw_factors: Vec<PlanFactors> = entry
+            .plans
             .iter()
-            .map(|row| {
-                (0..9)
-                    .map(|i| {
-                        let n = if denom[i] > f32::EPSILON { row[i] / denom[i] } else { 0.0 };
-                        n * weights[i]
-                    })
-                    .sum()
-            })
+            .map(|p| PlanFactors::from_array(p.raw_factors))
             .collect();
-        let pre_scores = scores.clone();
 
-        // Apply current sanity_adjust. Reservations are empty during replay —
-        // each entry is scored in isolation, without the round's coordination
-        // state from live play.
+        // Reservations are empty during replay — each entry is scored in
+        // isolation, without the round's coordination state from live play.
         let reservations = Reservations::default();
         let scoring_ctx = ScoringCtx {
             world: &world,
@@ -322,6 +296,14 @@ fn main() {
             snap: &entry.snapshot,
             active: &active,
         };
+
+        // Reuse the production `finalize_scores` so summon_bonus, trade_bonus,
+        // hash-based noise, and batch normalisation all match the live
+        // pipeline bit-for-bit. Invariant: replay's pre-sanity score equals
+        // what production produced given the same raw factors.
+        let mut scores = finalize_scores(&plans, &raw_factors, &scoring_ctx);
+        let pre_scores = scores.clone();
+
         sanity_adjust_plans(&mut scores, &plans, &scoring_ctx);
 
         // ProtectSelf mask — two paths:
@@ -363,9 +345,17 @@ fn main() {
         }
         let _ = applied_mask;
 
-        // Compare rankings.
+        // Compare rankings. Pre-sanity uses argmax as a simple reference
+        // point ("what a perfect-information picker would take").
+        // Post-sanity goes through the production `pick_best_plan` so
+        // replay's final pick reflects mercy reordering and top-K
+        // tie-breaking exactly as the live pipeline would. Replay's rng
+        // is seeded independently of production's live state, so tie-breaks
+        // on normal/easy difficulty (where top_k > 1 and multiple plans
+        // fall within `window`) may diverge — that's RNG drift, not a
+        // logic mismatch.
         let top_pre = argmax(&pre_scores);
-        let top_post = argmax(&scores);
+        let (top_post, _pick_mech) = pick_best_plan(&scores, &raw_factors, &world, &mut rng);
 
         let pre_was_chosen = entry.plans.iter().find(|p| p.chosen).map(|p| p.rank).unwrap_or(0);
         let hp = format!("{}/{}", active.hp, active.max_hp);

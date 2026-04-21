@@ -162,7 +162,7 @@ pub fn rescore_with_per_plan_modes(
 /// flat batch noise barely moves the ranking, while on a high-variance batch
 /// it stays proportional. The old absolute-amplitude scheme made noise "loud"
 /// when scores clustered and "quiet" when they spread.
-fn finalize_scores(
+pub fn finalize_scores(
     plans: &[TurnPlan],
     raw: &[PlanFactors],
     ctx: &ScoringCtx,
