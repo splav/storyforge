@@ -49,6 +49,7 @@ use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::estimate_st_damage;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
+use crate::combat::ai::trade::{trade_delta, unit_value, UNIT_VALUE_FLOOR};
 use crate::combat::ai::utility::{AiWorld, ScoringCtx};
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::core::modifier;
@@ -176,6 +177,9 @@ fn finalize_scores(
     // this scales as O(M·S·K); the cache replaces it with O(unique_templates·K)
     // upfront + O(1) lookup inside `plan_summon_bonus`.
     let summon_dpr = build_summon_dpr_cache(plans, world);
+    // Actor's own `unit_value` is plan-independent — compute once per
+    // batch and reuse as the tanh denominator inside `plan_trade_bonus`.
+    let actor_value = unit_value(active, world.content);
     // Per-factor min/max for batch-relative normalization. Convert each
     // PlanFactors row to its array view once for the inner loop.
     let mut maxes = [0.0f32; NUM_FACTORS];
@@ -224,6 +228,12 @@ fn finalize_scores(
             // roles the damage-axis weight is too low to lift a raw summon
             // score on its own.
             score += plan_summon_bonus(plan, active, world, snap, &summon_dpr);
+            // Trade bonus: signed plan-level modifier in [-1, 1] via tanh
+            // over `trade_delta / unit_value(self)`. Applied outside the
+            // factor normalisation for the same reason as summon_bonus —
+            // the factor pipeline has no channel for "is this exchange
+            // worth it"; it answers "was anything useful done".
+            score += plan_trade_bonus(plan, active, snap, world, actor_value);
             score
         })
         .collect();
@@ -327,6 +337,40 @@ fn plan_summon_bonus(
         count += 1.0;
     }
     total
+}
+
+/// TRADE_WEIGHT: amplifies the [-1, 1] tanh output of `plan_trade_bonus`
+/// before it's added to the post-normalisation score.
+///
+/// Conservative 0.5 launch default per review: the trade modifier is
+/// already outside role-composition (same scale across all actors) and
+/// applied globally, which makes it a "loud" signal. Raising to 1.0+
+/// should wait for replay evidence that self-trade-for-support still
+/// doesn't pull through at 0.5.
+const TRADE_WEIGHT: f32 = 0.5;
+
+/// Plan-level signed modifier in roughly `[-TRADE_WEIGHT, +TRADE_WEIGHT]`.
+///
+/// Squashes `trade_delta(plan) / max(unit_value(self), ε)` through
+/// `tanh` so the modifier saturates at `±1` once the exchange is
+/// "clearly profitable" or "clearly ruinous" relative to the actor's
+/// own worth. The denominator normalises across actor tiers — a cheap
+/// brute and an expensive ace see the same "how meaningful is this
+/// trade" shape, not absolute HP counts.
+///
+/// Floor [`UNIT_VALUE_FLOOR`] applied at the denominator only;
+/// `unit_value` itself returns honest zero for inert units (so a plan
+/// that mass-kills zero-value trash isn't silently boosted).
+fn plan_trade_bonus(
+    plan: &TurnPlan,
+    active: &UnitSnapshot,
+    snap: &BattleSnapshot,
+    ctx: &AiWorld,
+    actor_value: f32,
+) -> f32 {
+    let br = trade_delta(plan, active, snap, ctx.content);
+    let denom = actor_value.max(UNIT_VALUE_FLOOR);
+    (br.delta / denom).tanh() * TRADE_WEIGHT
 }
 
 /// Walk the plan pool, gather unique `Summon` template ids, and price each
@@ -915,5 +959,97 @@ mod tests {
             scores_ab[1], scores_ba[0],
             "plan_b score must be position-independent",
         );
+    }
+
+    /// `plan_trade_bonus` must reward killing a valuable target over a
+    /// trivial one, all else equal. Both plans declare a kill in their
+    /// `outcomes[0].killed`; the only difference is the victim's
+    /// `unit_value` (driven here by `threat` through `horizon_avg`).
+    /// Pins the architectural claim of MVP2 phase 3: the trade
+    /// modifier actually differentiates the "what did we kill" signal
+    /// that the binary `kill` factor can't.
+    #[test]
+    fn trade_bonus_favors_valuable_victim() {
+        use crate::combat::ai::test_helpers::UnitBuilder;
+
+        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
+        let support = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .ai_role(crate::combat::ai::role::AiRole::Support)
+            .threat(6.0)
+            .build();
+        let rat = UnitBuilder::new(3, Team::Player, hex_from_offset(2, 0))
+            .threat(1.0)
+            .build();
+        let snap = BattleSnapshot::new(
+            vec![actor.clone(), support.clone(), rat.clone()],
+            1,
+        );
+        let content =
+            crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::normal();
+        let ctx = test_ctx(&content, &difficulty);
+        let actor_val = unit_value(&actor, ctx.content);
+
+        let mk_kill_plan = |victim: &UnitSnapshot| TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: "melee_attack".into(),
+                target: victim.entity,
+                target_pos: victim.pos,
+            }],
+            final_pos: actor.pos,
+            residual_ap: 1,
+            residual_mp: 3,
+            outcomes: vec![StepOutcome {
+                killed: vec![victim.entity],
+                ..Default::default()
+            }],
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+
+        let b_support = plan_trade_bonus(
+            &mk_kill_plan(&support), &actor, &snap, &ctx, actor_val,
+        );
+        let b_rat = plan_trade_bonus(
+            &mk_kill_plan(&rat), &actor, &snap, &ctx, actor_val,
+        );
+
+        assert!(b_support > 0.0, "kill-support bonus must be positive: {b_support}");
+        assert!(b_rat > 0.0, "kill-rat bonus still positive, just small: {b_rat}");
+        assert!(
+            b_support > b_rat,
+            "trade_bonus must rank support-kill > rat-kill: {b_support} vs {b_rat}",
+        );
+    }
+
+    /// Trade bonus on an inert plan (no kills, no self-lethal exposure)
+    /// is exactly zero — the modifier must not drift the scoring of
+    /// neutral plans. Baseline contrast against `_favors_valuable_victim`.
+    #[test]
+    fn trade_bonus_zero_for_neutral_plan() {
+        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let content =
+            crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::normal();
+        let ctx = test_ctx(&content, &difficulty);
+        let actor_val = unit_value(&actor, ctx.content);
+
+        let plan = TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: "melee_attack".into(),
+                target: actor.entity,
+                target_pos: actor.pos,
+            }],
+            final_pos: actor.pos,
+            residual_ap: 1,
+            residual_mp: 3,
+            outcomes: vec![StepOutcome::default()],
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+
+        let b = plan_trade_bonus(&plan, &actor, &snap, &ctx, actor_val);
+        assert_eq!(b, 0.0);
     }
 }
