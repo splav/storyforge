@@ -10,15 +10,18 @@
 //! **Offline prototype only.** Production pipeline never calls this module.
 //! Single consumer: `replay_ai_log --phase7-prototype`.
 
+use crate::combat::ai::factors::aoe_hits;
+use crate::combat::ai::factors::aoe_area;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::scorer::{compute_plan_factors, finalize_scores};
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
-use crate::combat::ai::scoring::score_action;
+use crate::combat::ai::scoring::{applies_cc, score_action};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
 use crate::combat::ai::utility::ScoringCtx;
+use crate::content::abilities::AoEShape;
 use crate::game::hex::Hex;
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -116,6 +119,11 @@ pub fn committed_prefix_end_pos(plan: &TurnPlan) -> Hex {
 /// - `λ_mob = 0.1 × reachable_tile_count / PHASE7_MAX_MOBILITY` — freedom of
 ///   movement (proxied by distance-based reachability from `committed_pos`).
 ///
+/// P1: λ-weights are intent-aware. `ProtectSelf` zeroes attack and doubles pos;
+/// `FocusTarget`/`ApplyCC` filter candidates to the intent target; `SetupAOE`
+/// uses only AoE abilities against max-hits tile. Intents not listed here use
+/// default weights.
+///
 /// All three are additive, unweighted relative to each other (only `γ` scales
 /// the whole FutureValue against PrefixScore in the outer formula).
 pub fn future_value_from_committed_state(
@@ -124,9 +132,19 @@ pub fn future_value_from_committed_state(
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     ctx: &ScoringCtx,
+    intent: &TacticalIntent,
 ) -> f32 {
-    let lambda_pos = position_component(active, committed_pos, maps);
-    let lambda_attack = attack_component(active, committed_pos, snap, ctx);
+    let pos_weight = match intent {
+        TacticalIntent::ProtectSelf => 2.0,
+        _ => 1.0,
+    };
+    let lambda_pos = pos_weight * position_component(active, committed_pos, maps);
+
+    let lambda_attack = match intent {
+        TacticalIntent::ProtectSelf | TacticalIntent::ProtectAlly { .. } => 0.0,
+        _ => attack_component_intent(active, committed_pos, snap, ctx, intent),
+    };
+
     let lambda_mob = mobility_component(committed_pos, active.speed, snap);
     lambda_pos + lambda_attack + lambda_mob
 }
@@ -136,56 +154,100 @@ fn position_component(active: &UnitSnapshot, committed_pos: Hex, maps: &Influenc
     evaluate_position(committed_pos, &active.role, maps)
 }
 
-/// λ_attack = 0.5 × best `score_action` among top-3 reachable enemies.
+/// λ_attack = 0.5 × best `score_action` for the intent-filtered candidate set.
+///
+/// Per-intent filtering (P1):
+/// - `FocusTarget{T}`: only T is considered (0 if T dead / unreachable).
+/// - `ApplyCC{T}`: only T considered, only CC-capable abilities.
+/// - `SetupAOE`: only AoE abilities; target is the enemy position that maximises hit count.
+/// - All other intents: top-3 enemies by priority (original Phase 7 logic).
 ///
 /// Reachability filter: `distance(committed_pos, target.pos) <= speed + max_attack_range`.
-/// Simple distance check is sufficient for the prototype — full BFS would be
-/// redundant overhead for an offline estimator.
-fn attack_component(
+fn attack_component_intent(
     active: &UnitSnapshot,
     committed_pos: Hex,
     snap: &BattleSnapshot,
     ctx: &ScoringCtx,
+    intent: &TacticalIntent,
 ) -> f32 {
     let content = ctx.world.content;
     let maps = ctx.maps;
-
-    let mut enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
-    if enemies.is_empty() {
-        return 0.0;
-    }
-
-    // Sort descending by target_priority to pick top-3.
-    enemies.sort_by(|a, b| {
-        target_priority(active, b, snap)
-            .partial_cmp(&target_priority(active, a, snap))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    let top_enemies = &enemies[..enemies.len().min(3)];
-
-    // Budget: how far the actor can reach from committed_pos.
     let reach_budget = active.speed.max(0) + active.max_attack_range as i32;
 
-    let mut best: f32 = 0.0;
-
-    for target in top_enemies {
-        let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
-        if dist > reach_budget {
-            continue; // outside attack range from committed_pos
+    match intent {
+        TacticalIntent::FocusTarget { target: target_entity } => {
+            let Some(target) = snap.unit(*target_entity) else { return 0.0 };
+            let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
+            if dist > reach_budget { return 0.0; }
+            let danger = maps.danger.get(target.pos);
+            let best = active.abilities.iter()
+                .filter_map(|id| content.abilities.get(id))
+                .map(|def| score_action(def, target, &active.caster_ctx, content, danger))
+                .fold(0.0f32, f32::max);
+            0.5 * best
         }
 
-        let danger_at_target = maps.danger.get(target.pos);
+        TacticalIntent::ApplyCC { target: target_entity } => {
+            let Some(target) = snap.unit(*target_entity) else { return 0.0 };
+            let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
+            if dist > reach_budget { return 0.0; }
+            let danger = maps.danger.get(target.pos);
+            let best = active.abilities.iter()
+                .filter_map(|id| content.abilities.get(id))
+                .filter(|def| applies_cc(def, content))
+                .map(|def| score_action(def, target, &active.caster_ctx, content, danger))
+                .fold(0.0f32, f32::max);
+            0.5 * best
+        }
 
-        for ability_id in &active.abilities {
-            let Some(def) = content.abilities.get(ability_id) else { continue };
-            let s = score_action(def, target, &active.caster_ctx, content, danger_at_target);
-            if s > best {
-                best = s;
+        TacticalIntent::SetupAOE => {
+            // Best AoE ability × position with the most enemies hit.
+            let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
+            if enemies.is_empty() { return 0.0; }
+
+            let mut best: f32 = 0.0;
+            for ability_id in &active.abilities {
+                let Some(def) = content.abilities.get(ability_id) else { continue };
+                if def.aoe == AoEShape::None { continue }
+                // Use each enemy's tile as a candidate AoE center.
+                for target in &enemies {
+                    let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
+                    if dist > reach_budget { continue; }
+                    let area = aoe_area(def, target.pos, committed_pos);
+                    let hits = aoe_hits(&area, active, snap);
+                    let hit_count = hits.enemies.len() as f32;
+                    if hit_count > best { best = hit_count; }
+                }
             }
+            // Normalise by a soft cap of 4 enemies (analogous to the 0.5 scalar).
+            0.5 * (best / 4.0).min(1.0)
+        }
+
+        // Default: top-3 enemies by priority (original Phase 7 logic).
+        _ => {
+            let mut enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
+            if enemies.is_empty() { return 0.0; }
+            enemies.sort_by(|a, b| {
+                target_priority(active, b, snap)
+                    .partial_cmp(&target_priority(active, a, snap))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            let top_enemies = &enemies[..enemies.len().min(3)];
+
+            let mut best: f32 = 0.0;
+            for target in top_enemies {
+                let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
+                if dist > reach_budget { continue; }
+                let danger = maps.danger.get(target.pos);
+                for ability_id in &active.abilities {
+                    let Some(def) = content.abilities.get(ability_id) else { continue };
+                    let s = score_action(def, target, &active.caster_ctx, content, danger);
+                    if s > best { best = s; }
+                }
+            }
+            0.5 * best
         }
     }
-
-    0.5 * best
 }
 
 /// λ_mob = 0.1 × (reachable tile count) / PHASE7_MAX_MOBILITY.
@@ -262,6 +324,7 @@ pub fn score_plans_prototype(
                 ctx.snap,
                 ctx.maps,
                 ctx,
+                intent,
             );
             ps + PHASE7_GAMMA * fv
         })
@@ -274,16 +337,28 @@ pub fn score_plans_prototype(
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::influence::{InfluenceConfig, InfluenceMap, InfluenceMaps};
+    use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome};
     use crate::combat::ai::reservations::Reservations;
     use crate::combat::ai::snapshot::AiTags;
     use crate::combat::ai::test_helpers::{make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::content::abilities::CasterContext;
+    use crate::core::DiceExpr;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
 
     fn ent(id: u32) -> bevy::prelude::Entity {
         bevy::prelude::Entity::from_raw_u32(id).expect("valid")
+    }
+
+    /// `CasterContext` with a weapon so `WeaponAttack` effect yields non-zero expected damage.
+    fn melee_caster() -> CasterContext {
+        CasterContext {
+            str_mod: 2,
+            int_mod: 0,
+            spell_power: 0,
+            weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+        }
     }
 
     fn make_cast(ability: &str, target: bevy::prelude::Entity, pos: Hex) -> PlanStep {
@@ -436,7 +511,8 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        let fv = future_value_from_committed_state(&actor, h, &snap, &maps, &ctx);
+        let intent = TacticalIntent::Reposition;
+        let fv = future_value_from_committed_state(&actor, h, &snap, &maps, &ctx, &intent);
         // position_eval returns negative for dangerous tiles for most roles.
         // At minimum the function must not panic and return a finite value.
         assert!(fv.is_finite(), "future_value must be finite: {fv}");
@@ -452,6 +528,7 @@ mod tests {
                 escape: InfluenceMap::new(),
             },
             &ctx,
+            &intent,
         );
         assert_ne!(fv, fv_safe, "dangerous tile must differ from safe tile");
     }
@@ -471,7 +548,9 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        let result = attack_component(&actor, actor.pos, &snap, &ctx);
+        let result = attack_component_intent(
+            &actor, actor.pos, &snap, &ctx, &TacticalIntent::Reposition,
+        );
         assert_eq!(result, 0.0, "no enemies → zero attack component");
     }
 
@@ -494,7 +573,9 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        let with_nearby = attack_component(&actor, committed_pos, &snap, &ctx);
+        let with_nearby = attack_component_intent(
+            &actor, committed_pos, &snap, &ctx, &TacticalIntent::Reposition,
+        );
         // Nearby enemy is reachable; far is not. Component should be positive.
         // Exact value depends on ability scoring, but must exceed no-enemy case.
         assert!(with_nearby >= 0.0, "attack component must be non-negative");
@@ -546,9 +627,10 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        let fv = future_value_from_committed_state(&actor, pos, &snap, &maps, &ctx);
+        let intent = TacticalIntent::Reposition;
+        let fv = future_value_from_committed_state(&actor, pos, &snap, &maps, &ctx, &intent);
         let lp = position_component(&actor, pos, &maps);
-        let la = attack_component(&actor, pos, &snap, &ctx);
+        let la = attack_component_intent(&actor, pos, &snap, &ctx, &intent);
         let lm = mobility_component(pos, actor.speed, &snap);
 
         assert!(
@@ -663,6 +745,148 @@ mod tests {
         // This is a smoke test — not strict under all configurations.
         assert_eq!(scores.len(), 2);
         assert!(scores.iter().all(|s| s.is_finite()), "all scores must be finite");
+    }
+
+    // ── P1 intent-aware FV tests ──────────────────────────────────────────────
+
+    /// FocusTarget: attack_component counts only the specified target.
+    /// Position where the non-target B is reachable but target A is not → FV with
+    /// FocusTarget{A} must be lower than with FocusTarget{B} (or default).
+    #[test]
+    fn focus_target_ignores_non_target_enemies() {
+        let actor_pos = hex_from_offset(5, 5);
+        let pos_a = hex_from_offset(10, 10); // far — outside reach_budget
+        let pos_b = hex_from_offset(6, 5);   // adjacent — reachable
+
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ability_names(&["melee_attack"])
+            .caster_ctx(melee_caster())
+            .build();
+        let enemy_a = UnitBuilder::new(2, Team::Player, pos_a).build();
+        let enemy_b = UnitBuilder::new(3, Team::Player, pos_b).build();
+        let snap = BattleSnapshot::new(
+            vec![actor.clone(), enemy_a.clone(), enemy_b.clone()],
+            1,
+        );
+
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::normal();
+        let world = make_test_ctx(&content, &difficulty);
+        let maps = crate::combat::ai::test_helpers::empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let fv_focus_a = future_value_from_committed_state(
+            &actor, actor_pos, &snap, &maps, &ctx,
+            &TacticalIntent::FocusTarget { target: enemy_a.entity },
+        );
+        let fv_focus_b = future_value_from_committed_state(
+            &actor, actor_pos, &snap, &maps, &ctx,
+            &TacticalIntent::FocusTarget { target: enemy_b.entity },
+        );
+
+        // FocusTarget{A}: A is far → attack_component = 0. FocusTarget{B}: B adjacent → > 0.
+        assert!(
+            fv_focus_a < fv_focus_b,
+            "FocusTarget on unreachable A must score lower than on reachable B: fv_a={fv_focus_a}, fv_b={fv_focus_b}"
+        );
+    }
+
+    /// ProtectSelf: attack_component = 0, pos weighted ×2.
+    #[test]
+    fn protect_self_suppresses_attack_component() {
+        let actor_pos = hex_from_offset(5, 5);
+        let enemy_pos = hex_from_offset(6, 5); // adjacent — would contribute to attack under default
+
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ability_names(&["melee_attack"])
+            .caster_ctx(melee_caster())
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
+
+        // Add danger at actor_pos so pos_component is non-zero (proves ×2 took effect).
+        let mut danger_map = InfluenceMap::new();
+        danger_map.add(actor_pos, 0.5);
+        let maps = InfluenceMaps {
+            danger: danger_map,
+            ally_support: InfluenceMap::new(),
+            opportunity: InfluenceMap::new(),
+            escape: InfluenceMap::new(),
+        };
+
+        let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::normal();
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let fv_default = future_value_from_committed_state(
+            &actor, actor_pos, &snap, &maps, &ctx, &TacticalIntent::Reposition,
+        );
+        let fv_protect = future_value_from_committed_state(
+            &actor, actor_pos, &snap, &maps, &ctx, &TacticalIntent::ProtectSelf,
+        );
+
+        // Under ProtectSelf: attack_component = 0 (enemy adjacent, but ignored).
+        // pos_component is ×2 vs default ×1.
+        // λ_mob is same for both.
+        let attack_default = attack_component_intent(
+            &actor, actor_pos, &snap, &ctx, &TacticalIntent::Reposition,
+        );
+        let pos_default = position_component(&actor, actor_pos, &maps);
+        let mob = mobility_component(actor_pos, actor.speed, &snap);
+
+        // attack under ProtectSelf must be zero (enemy reachable but suppressed).
+        assert!(
+            attack_default > 0.0,
+            "sanity: default attack must be positive with reachable enemy: {attack_default}"
+        );
+        let expected_protect = 2.0 * pos_default + mob;
+        assert!(
+            (fv_protect - expected_protect).abs() < 1e-5,
+            "ProtectSelf FV must be 2×pos + mob (attack=0): got {fv_protect}, expected {expected_protect}"
+        );
+        assert!(
+            (fv_default - (pos_default + attack_default + mob)).abs() < 1e-5,
+            "default FV must sum all three: got {fv_default}"
+        );
+    }
+
+    /// ApplyCC: attack_component counts only CC-capable abilities.
+    /// When actor has no CC abilities → attack_component = 0.
+    /// (Real CC ability test would require a CC ability in test fixtures; we prove
+    /// the zero branch which is pure logic coverage of the filter path.)
+    #[test]
+    fn apply_cc_uses_only_cc_abilities() {
+        let actor_pos = hex_from_offset(5, 5);
+        let enemy_pos = hex_from_offset(6, 5);
+
+        // melee_attack has no CC statuses → ApplyCC attack_component must be 0.
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ability_names(&["melee_attack"])
+            .caster_ctx(melee_caster())
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
+
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::normal();
+        let world = make_test_ctx(&content, &difficulty);
+        let maps = crate::combat::ai::test_helpers::empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let attack_cc = attack_component_intent(
+            &actor, actor_pos, &snap, &ctx,
+            &TacticalIntent::ApplyCC { target: enemy.entity },
+        );
+        let attack_default = attack_component_intent(
+            &actor, actor_pos, &snap, &ctx, &TacticalIntent::Reposition,
+        );
+
+        assert_eq!(attack_cc, 0.0, "no CC abilities → ApplyCC attack_component = 0");
+        assert!(attack_default > 0.0, "sanity: melee_attack scores >0 in default path");
     }
 
     // ── plateau_tie_rate helper test ──────────────────────────────────────────
