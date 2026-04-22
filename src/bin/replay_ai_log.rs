@@ -232,9 +232,11 @@ struct Metrics {
 
     // ── Killable kill-line metrics (step-2 checkpoint) ───────────────────────
     /// Entries where intent=FocusTarget(killable) AND ≥1 plan in the pool has a
-    /// "real kill-line" (kill_now≥1 OR damage_vs_target≥target_hp·α). Denominator
-    /// for killable_non_offensive_rate / wrong_target_rate / kill_conversion_rate.
-    /// See `docs/ai_rework.md §5.2` for threshold rationale.
+    /// "real kill-line": `offensive_vs_target && (committed_prefix_kills_target
+    /// OR damage ≥ hp·α)`. Mirrors production gate's intent-coherent definition
+    /// (see `killable_gate.rs::apply_killable_gate`). Denominator for
+    /// killable_non_offensive_rate / wrong_target_rate / kill_conversion_rate.
+    /// See `docs/ai_rework.md §5.2` for rationale.
     killable_with_kill_line_total: usize,
     /// … and chosen plan is non-offensive (no Cast vs intent target).
     killable_non_offensive: usize,
@@ -330,7 +332,7 @@ impl Metrics {
         );
         let conv = pct(self.killable_kill_converted, killable_denom);
         println!(
-            "kill_conversion_rate:         {:5.1}%  ({}/{} killable+kill_line → kill_now≥1)  [target >85%]",
+            "kill_conversion_rate:         {:5.1}%  ({}/{} killable+kill_line → committed prefix kills target)  [target >85%]",
             conv, self.killable_kill_converted, killable_denom,
         );
 
@@ -559,14 +561,61 @@ fn post_cast_metrics(steps: &[PlanStep], final_pos: Hex, start: Hex) -> (bool, b
 // KEEP IN SYNC with src/combat/ai/planning/killable_gate.rs::KILLABLE_ALPHA
 const KILLABLE_ALPHA: f32 = 0.3;
 
+// KEEP IN SYNC with src/combat/ai/planning/killable_gate.rs::apply_killable_gate
+/// Does this plan's **committed prefix** actually kill `target`?
+///
+/// Committed prefix mirrors `commit_plan` rules (see `src/combat/ai/planning/picker.rs`):
+/// - `[]`                    → no commit → false.
+/// - `[Cast, ...]`           → 1-step solo cast prefix.
+/// - `[Move, Cast, ...]`     → 2-step MoveAndCast bundle.
+/// - `[Move, ...]` (no Cast) → 1-step move-only prefix, no cast → false.
+///
+/// For each step in the prefix that is `Cast { target: intent_target, .. }`,
+/// check whether `outcomes[i].killed` contains `intent_target`. The AoO during
+/// a Move step never kills intent target directly (AoO hits the mover), so we
+/// only look at Cast steps.
+///
+/// Tail steps beyond the committed prefix are **phantom** — their outcomes
+/// represent what the simulator projected, but `commit_plan` will never
+/// actually execute them. Counting tail kills would reward phantom tails,
+/// the same anti-pattern as pre-step-1c intent_sum accumulation.
+fn plan_committed_prefix_kills_target(plan: &PlanLog, target: Entity) -> bool {
+    let prefix_len = match plan.steps.first() {
+        None => 0,
+        Some(PlanStep::Cast { .. }) => 1,
+        Some(PlanStep::Move { .. }) => {
+            if matches!(plan.steps.get(1), Some(PlanStep::Cast { .. })) { 2 } else { 1 }
+        }
+    };
+    for i in 0..prefix_len.min(plan.steps.len()) {
+        if let PlanStep::Cast { target: t, .. } = &plan.steps[i] {
+            if *t == target {
+                if let Some(o) = plan.outcomes.get(i) {
+                    if o.killed.contains(&target) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+// KEEP IN SYNC with src/combat/ai/planning/killable_gate.rs::apply_killable_gate
 /// True if at least one plan in the pool can finish or meaningfully damage
-/// `intent_target`. "Real kill-line": kill_now ≥ 1.0 OR damage ≥ target_hp·α.
-fn has_real_kill_line(plans: &[PlanLog], intent_target_hp: i32) -> bool {
-    let hp_f = intent_target_hp.max(0) as f32;
+/// `target`. Intent-coherent definition: plan must be `offensive_vs_target`
+/// AND either kill target in the committed prefix OR deal damage ≥ target_hp·α.
+///
+/// Matches production `apply_killable_gate` strength detection so the
+/// denominator of kill-line metrics equals the gate's own firing condition.
+fn has_real_kill_line(plans: &[PlanLog], target: Entity, target_hp: i32) -> bool {
+    let hp_f = target_hp.max(0) as f32;
     plans.iter().any(|p| {
-        let kn = p.raw_factors.get(KILL_NOW_IDX).copied().unwrap_or(0.0);
-        let dmg = p.raw_factors.get(DAMAGE_IDX).copied().unwrap_or(0.0);
-        kn >= 1.0 || dmg >= hp_f * KILLABLE_ALPHA
+        if !plan_is_offensive_vs(p, target) {
+            return false;
+        }
+        plan_committed_prefix_kills_target(p, target)
+            || p.raw_factors.get(DAMAGE_IDX).copied().unwrap_or(0.0) >= hp_f * KILLABLE_ALPHA
     })
 }
 
@@ -830,7 +879,7 @@ fn main() {
                     .plans
                     .iter()
                     .find(|p| p.chosen)
-                    .map_or(false, |p| p.raw_factors.get(KILL_NOW_IDX).copied().unwrap_or(0.0) > 0.0)
+                    .is_some_and(|p| p.raw_factors.get(KILL_NOW_IDX).copied().unwrap_or(0.0) > 0.0)
                 {
                     metrics.killable_closed += 1;
                 }
@@ -841,7 +890,7 @@ fn main() {
                     entry.intent.intent
                 {
                     if let Some(target_snap) = entry.snapshot.unit(target) {
-                        if has_real_kill_line(&entry.plans, target_snap.hp) {
+                        if has_real_kill_line(&entry.plans, target, target_snap.hp) {
                             metrics.killable_with_kill_line_total += 1;
                             if let Some(chosen) = entry.plans.iter().find(|p| p.chosen) {
                                 let offensive_vs_target = plan_is_offensive_vs(chosen, target);
@@ -852,12 +901,7 @@ fn main() {
                                         metrics.killable_wrong_target += 1;
                                     }
                                 }
-                                let kn = chosen
-                                    .raw_factors
-                                    .get(KILL_NOW_IDX)
-                                    .copied()
-                                    .unwrap_or(0.0);
-                                if kn >= 1.0 {
+                                if plan_committed_prefix_kills_target(chosen, target) {
                                     metrics.killable_kill_converted += 1;
                                 }
                             }
@@ -1201,4 +1245,120 @@ fn print_plan(label: &str, p: &PlanLog, pre: f32, post: f32) {
 #[allow(dead_code)]
 fn _touch_axis(p: &AxisProfile) -> [f32; 10] {
     p.factor_weights()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use storyforge::combat::ai::planning::{PlanStep, StepOutcome};
+    use storyforge::core::AbilityId;
+    use storyforge::game::hex::Hex;
+
+    fn ent(id: u32) -> Entity {
+        Entity::from_raw_u32(id).expect("valid entity id")
+    }
+
+    fn cast_step(target: Entity) -> PlanStep {
+        PlanStep::Cast {
+            ability: AbilityId::from("strike"),
+            target,
+            target_pos: Hex::ZERO,
+        }
+    }
+
+    fn move_step() -> PlanStep {
+        PlanStep::Move { path: vec![Hex::new(1, 0)] }
+    }
+
+    fn outcome_kills(target: Entity) -> StepOutcome {
+        StepOutcome { killed: vec![target], ..StepOutcome::default() }
+    }
+
+    fn outcome_empty() -> StepOutcome {
+        StepOutcome::default()
+    }
+
+    /// Build a minimal `PlanLog` for tests. Fields not relevant to the helper
+    /// under test are set to harmless defaults.
+    fn plan_log(steps: Vec<PlanStep>, outcomes: Vec<StepOutcome>) -> PlanLog {
+        PlanLog {
+            rank: 1,
+            chosen: false,
+            steps,
+            outcomes,
+            final_pos: [0, 0],
+            residual_ap: 0,
+            residual_mp: 0,
+            raw_factors: vec![0.0; 10],
+            score: None,
+            base_score: None,
+            evaluation_mode: LoggedEvaluationMode::Default,
+            adaptation_reason: None,
+            trade: LoggedTradeBlock::default(),
+        }
+    }
+
+    // ── Test 1: solo Cast that kills target counts as conversion ─────────────
+
+    #[test]
+    fn committed_cast_kill_counts_as_conversion() {
+        let tgt = ent(42);
+        let plan = plan_log(
+            vec![cast_step(tgt)],
+            vec![outcome_kills(tgt)],
+        );
+        assert!(plan_committed_prefix_kills_target(&plan, tgt));
+    }
+
+    // ── Test 2: Move→Cast kill counts as conversion (Bug #1 regression guard) ─
+
+    #[test]
+    fn move_and_cast_kill_counts_as_conversion() {
+        let tgt = ent(42);
+        // Outcomes: step 0 (Move) → empty; step 1 (Cast) → kills target.
+        let plan = plan_log(
+            vec![move_step(), cast_step(tgt)],
+            vec![outcome_empty(), outcome_kills(tgt)],
+        );
+        assert!(plan_committed_prefix_kills_target(&plan, tgt));
+    }
+
+    // ── Test 3: phantom tail Cast kill does NOT count ─────────────────────────
+
+    #[test]
+    fn tail_cast_kill_does_not_count() {
+        let tgt = ent(42);
+        // Shape: [Move, Move, Cast @ tgt] — Cast is at step index 2 (phantom tail).
+        // Committed prefix = MoveOnly (step 0 only), so step 2 is never executed.
+        let plan = plan_log(
+            vec![move_step(), move_step(), cast_step(tgt)],
+            vec![outcome_empty(), outcome_empty(), outcome_kills(tgt)],
+        );
+        assert!(!plan_committed_prefix_kills_target(&plan, tgt));
+    }
+
+    // ── Test 4: has_real_kill_line requires offensive_vs_target (Bug #2 guard) ─
+
+    #[test]
+    fn has_real_kill_line_requires_offensive_vs_target() {
+        let intent_target = ent(1);
+        let other_enemy = ent(2);
+
+        // Plan A: Cast @ other_enemy with kn=1 — collateral kill, NOT vs intent target.
+        let mut raw_a = vec![0.0f32; 10];
+        raw_a[KILL_NOW_IDX] = 1.0;
+        let plan_a = PlanLog {
+            steps: vec![cast_step(other_enemy)],
+            outcomes: vec![outcome_kills(other_enemy)],
+            raw_factors: raw_a,
+            ..plan_log(vec![], vec![])
+        };
+
+        // Plan B: heal / no cast at all.
+        let plan_b = plan_log(vec![], vec![]);
+
+        let pool = vec![plan_a, plan_b];
+        // intent_target has HP = 20; neither plan is offensive_vs_target.
+        assert!(!has_real_kill_line(&pool, intent_target, 20));
+    }
 }
