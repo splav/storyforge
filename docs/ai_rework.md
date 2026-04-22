@@ -103,14 +103,42 @@ Gate — **последнее** звено mask-цепочки. Strength и keep
 
 Gate использует **plan-level** `offensive_vs_target` (`.any(step.target == intent_target)`) и plan-level `kill_now` (discounted sum по шагам). План формы `[Cast @ other, Cast @ intent_target]` проходит gate (один из шагов бьёт intent target, plan-level `kn ≥ 1`), но `commit_plan` выполнит **только первый Cast** (по other). Это та же prefix-vs-scored асимметрия, что и в остальном scoring (Phase 7 territory). Gate и replay metric используют идентичное определение `offensive_vs_target`, так что ложное срабатывание видно через `killable_wrong_target_rate`, а не через расхождение gate↔metric.
 
-### 3.3. Разделение `self_survival` и `ally_rescue`
+### 3.3. Step-4a — phantom-tail fix для `self_survival.exit_danger`
 
-Текущая ось `self_survival` неявно принимает ally-heal через AXIS_FACTOR_WEIGHTS. Разделяем:
+**Originally planned as `self_survival / ally_rescue` split** для закрытия ally-heal leak из §2.4. Но на baseline post-step-3 (`logs/baseline_20260422_step3.txt`) обнаружилось два факта:
 
-- `self_survival` — только реальный self-effect (heal_self, armor_self, exit_aoo, distance-from-threat).
-- `ally_rescue` — новая ось: heal/buff/taunt-redirect на союзника.
+1. **Ally-mixing в коде уже нет**. `factors/survival.rs:34` фильтрует `target != active.entity → skip`; ally-heal не попадает в `self_survival`. Split был бы refactor без метрической мотивации — drop.
+2. **`panic_leak_rate = 16.7%` (2/12)** драйвит **другая причина**: `compute_plan_self_survival` считает `exit_danger` через `plan.final_pos`, но `plan.final_pos` включает **phantom tail** (Move после committed Cast, который `commit_plan` не исполняет). План `Cast @ enemy → phantom retreat` получает `self_survival` credit за retreat, который никогда не произойдёт → проходит ProtectSelf ε-gate.
 
-**ProtectSelf ε-gate** требует `plan.self_survival ≥ ε_self`, **не** смесь. Ally-heal под panic проходит только если попутно поднимает self_survival (например, AoE heal-beam с собой в зоне).
+Конкретика из corpus'а:
+
+| actor | HP | chosen | phantom tail | self_surv | проходит ε=0.15 |
+|---|---|---|---|---|---|
+| Проводник Договора | 1 | `Cast whisper @ enemy` | `Move retreat [0,5]→[2,5]` | **0.47** | ✓ (leak) |
+| Одержимый послушник | 2 | `Cast melee @ enemy` | `Move retreat [2,3]→[4,3]` | **0.547** | ✓ (leak) |
+
+Оба получают exit_danger ≈ 0.5 от retreat-клетки, которая phantom.
+
+### 3.3a. Фикс — commit-prefix final_pos
+
+`compute_plan_self_survival` использует `committed_prefix_final_pos(plan)` вместо `plan.final_pos`:
+
+- `[]` → `actor.pos` (no commit).
+- `[Cast, ...]` → `actor.pos` (solo cast, caster не двигался).
+- `[Move, Cast, ...]` → destination первого Move (MoveAndCast bundle, 2 шага commit'ятся).
+- `[Move, ...]` (no Cast) → destination первого Move (MoveOnly, 1 шаг).
+
+Self-heal и armor-buff Cast-компоненты — аналогично, считаются **только** если Cast находится в committed prefix (шаг 0 solo или шаг 1 в MoveAndCast). Phantom-tail self-cast'ы не дают credit.
+
+Это прямое зеркало step-1c (intent_sum phantom-tail shortcut) для другой оси. Паттерн одинаковый: фактор аггрегирует по всему плану, но `commit_plan` исполняет только prefix — phantom tail инфлейтит.
+
+### 3.3b. Паттерн phantom-tail-per-axis — триггер Phase 7
+
+Step-1c (`intent_sum`) и step-4a (`self_survival.exit_danger`) — две заплатки одного и того же bug'а в разных осях. `tempo_gain` частично похож (переписан на net displacement в step-1, но `plan.final_pos` всё ещё включает tail). `damage` / `kill_now` / `heal` / `cc` / `scarcity` — discounted sum, tail contributions зачтены но discounted; step-3 CanFinish gate использует `kn ≥ 1.0` threshold как immunity от discounted tail kills.
+
+Как только появится **третий** точечный phantom-tail фикс (candidate: `tempo` clean-up для guards §5.5) — patch-подход сломан. Phase 7 (`PrefixScore + γ · FutureValue`) архитектурно решает все такие случаи раз. Запускаем **Phase 7 prototype track** параллельно step-4a (см. §4).
+
+Дроп original split-plan: если в будущем появится реальный ally-heal leak в corpus'е (сейчас: 0/25 ProtectSelf entries), вернёмся к идее. Пока отложено.
 
 ### 3.4. Tempo — plan-terminal через net displacement
 
@@ -141,10 +169,15 @@ Gate использует **plan-level** `offensive_vs_target` (`.any(step.targe
 | 2 | Replay checkpoint: замер M2.*, M4.1–3; решение о форме шага 3 | 1/1b |
 | 2.5 | Schema v15: поля `gate_applied`, `survival_mode_active`, `last_stand_active` + R5 plumbing (evaluation_mode per-plan в replay) | 2 |
 | 3 | Tiered killable gate под `FocusTarget` (Pressure / CanFinish, live-pool) | 2.5 |
-| 4 | Split `self_survival` / `ally_rescue`; ε-gate ProtectSelf на self-component | 3 |
-| 5 | Summon saturation axis + intent-specific credit filter | 4 |
+| 4a | **Phantom-tail фикс `self_survival.exit_danger`** — commit-prefix final_pos вместо plan.final_pos | 3 |
+| 5 | Summon saturation axis + intent-specific credit filter | 4a |
+| ‖ Phase 7 prototype | Offline: `future_value_from_committed_state` как pure function, replay на corpus без production change; замер plateau. Параллельно с 4a/5. | — |
 
 Реальные правки в коде начинаются с шага 1 — шаги 0 и 0.5 инструментальные.
+
+**Step-4 (оригинальный split `self_survival` / `ally_rescue`)** — dropped. Ally-mixing уже не в коде (§3.3). Если появится corpus-свидетельство — отдельная итерация.
+
+**Phase 7 prototype** — параллельный track. Не блокирует 4a/5. По завершении 4a и 5 + готовый prototype с данными → решение о merge Phase 7 в следующей итерации.
 
 ---
 
@@ -179,12 +212,29 @@ Gate использует **plan-level** `offensive_vs_target` (`.any(step.targe
 
 **`killable_wrong_target_rate` как guard**. Tier CanFinish требует `offensive_vs_target ∧ kn ≥ 1`, значит коллатеральные kill'и (Cast @ other с kn=1) НЕ переживают gate. Если эта метрика растёт после step-3 — значит strength detection не учитывает `offensive_vs_target` и срабатывает на collateral kn — regression-сигнал, **не auto-merge**.
 
-### 5.3. Шаг 4 (self/ally split) — acceptance
+### 5.3. Шаг 4a (phantom-tail `self_survival`) — acceptance
 
-| Метрика | Цель |
+| Метрика | Формула | Цель |
+|---|---|---|
+| `panic_leak_rate` | ProtectSelf+Default & chosen = non-defensive (replay's `is_defensive_decision` = false) / ProtectSelf+Default | **≤ 5%** (baseline post-step-3: 16.7%) |
+| `false_panic_mask_rate` (новый guard) | ProtectSelf+Default & chosen был бы legit self-heal/retreat но замаскирован в `-∞` / ProtectSelf+Default | **< 1%** — не должны переть legit cases |
+| unit-тесты | см. § step-4a в plan | 100% pass |
+
+**Почему `panic_leak_rate` цель `≤ 5%`, не `< 2%`**: 2/12 leaks в baseline — оба с `Cast(kill) @ enemy + phantom retreat`. Commit-prefix фикс уберёт credit за retreat, `self_survival = 0` → mask сработает. Оба leak'а закрываются. Остаток 5% — буфер под редкие edge-cases (self-buff + phantom что-то).
+
+Дополнительно guard §5.5: `kill_conversion_rate` post-4a ≤ −5 pp от post-step-3 (80%). Step-4a не должен ломать killable gate-commits. Если упал — investigation.
+
+### 5.3a. Phase 7 prototype — exit criteria (не acceptance, а decision point)
+
+Prototype offline, не мержится в production. Критерии для «да, идём в Phase 7» (следующая итерация):
+
+| Сигнал | Threshold |
 |---|---|
-| `panic_ally_directed_commit_rate` — ProtectSelf + chosen = ally-directed heal & self_survival < ε_self / ProtectSelf-entries | **< 2%** |
-| unit-тесты: ProtectSelf с self-heal → pass; ProtectSelf с ally-heal (без self-AoE) → fail threshold | 100% |
+| `phantom_tail_flips_committed` на prototype scoring | ≥ 40% снижение от baseline 65% |
+| Plateau size (доля top-K с `max − min < 0.05`) | текущий > 20% → prototype < 10% |
+| Regression на existing acceptance (§5.1–5.2) | Δ ≤ 5 pp на всех |
+
+Если три out of three — Phase 7 следующая итерация. Если один or два — доп. design-doc с decomposition-вариантами перед merge.
 
 ### 5.4. Шаг 5 (summon) — acceptance
 

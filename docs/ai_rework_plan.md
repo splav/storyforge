@@ -487,47 +487,181 @@ cargo run --release --bin replay_ai_log -- logs/corpus_20260422_post_step3/*.jso
 
 ---
 
-## Шаг 4. Split `self_survival` / `ally_rescue`
+## Шаг 4a. Phantom-tail фикс для `self_survival.exit_danger`
 
-### Файлы / функции
+**Триггер**: baseline_20260422_step3 показал `panic_leak_rate = 16.7%` (2/12 ProtectSelf+Default entries). Audit выявил: оба leak'а — планы `Cast @ enemy → phantom Move retreat`, где `compute_plan_self_survival` получает `exit_danger` credit от phantom retreat (Move после committed Cast, который `commit_plan` не исполняет). self_survival перескакивает `SELF_SURVIVAL_EPSILON = 0.15`, `apply_protect_self_mask` пропускает план, AI под panic коммитит offensive cast.
 
-- `src/combat/ai/factors/survival.rs` — сейчас вычисляет единую `self_survival` ось.
-- `src/combat/ai/factors/mod.rs:144+` — `NUM_FACTORS`, `*_IDX` константы.
-- `src/combat/ai/role.rs` — `AXIS_FACTOR_WEIGHTS` (добавить столбец для `ally_rescue`).
-- `src/combat/ai/intent.rs:910-925` — `TacticalIntent::ProtectSelf` intent_score.
-- `src/combat/ai/planning/sanity.rs:276+` — `apply_protect_self_mask`.
-- `src/combat/ai/log.rs` — schema v16.
+Детальный анализ и два конкретных corpus-примера — [`ai_rework.md §3.3 / §3.3a`](ai_rework.md#33-step-4a--phantom-tail-fix-для-self_survivalexit_danger).
+
+**Originally planned as step-4 (split `self_survival` / `ally_rescue`)** — dropped. Текущий код уже фильтрует `target != active.entity` в `factors/survival.rs:34`, ally-mixing в коде нет. Split был бы refactor без метрической мотивации.
+
+### Файл / функция
+
+- `src/combat/ai/factors/survival.rs` — `compute_plan_self_survival`.
+- Новый helper `committed_prefix_final_pos` (internal к функции или в `factors/mod.rs`).
+
+Никаких других файлов не трогаем. В частности:
+- **Не трогаем** `NUM_FACTORS`, layout `PlanFactors`, `AXIS_FACTOR_WEIGHTS`.
+- **Не bump'аем** schema — raw_factors layout не меняется, только numeric values.
+- **Не трогаем** `apply_protect_self_mask`, `SELF_SURVIVAL_EPSILON`, `plan_is_defensive`.
 
 ### Что делать
 
-1. **Факторный layout.** `NUM_FACTORS = 11`, добавить `ALLY_RESCUE_IDX = 10`. `PlanFactors::ally_rescue: f32`.
-2. **Вычисление.**
-   - `self_survival` — **только** self-directed: heal_self, armor_self, exit_aoo, distance_from_threat. Ally-эффекты из формулы убираются.
-   - `ally_rescue` — новая функция в `factors/survival.rs` (или отдельный файл `factors/ally_rescue.rs`): heal на союзника, buff на союзника, taunt-redirect. Агрегация — discounted sum.
-3. **`AXIS_FACTOR_WEIGHTS`** — колонка для `ally_rescue`: Tank 0.3, Melee 0.5, Ranged 0.3, Control 0.4, Support 1.2.
-4. **ProtectSelf ε-gate.** В `apply_protect_self_mask` проверка:
+1. **Helper `committed_prefix_final_pos(plan, actor_pos) -> Hex`.**
+
+   Зеркалит правила `commit_plan` (`src/combat/ai/planning/picker.rs`):
+
    ```rust
-   if plan.factors.self_survival < EPS_SELF { scores[i] = f32::NEG_INFINITY; }
+   fn committed_prefix_final_pos(plan: &TurnPlan, actor_pos: Hex) -> Hex {
+       match plan.steps.as_slice() {
+           [] => actor_pos,                              // EndTurn, no commit
+           [PlanStep::Cast { .. }, ..] => actor_pos,     // CastInPlace, caster не двигался
+           [PlanStep::Move { path }, PlanStep::Cast { .. }, ..] => {
+               path.last().copied().unwrap_or(actor_pos) // MoveAndCast bundle (2 commits)
+           }
+           [PlanStep::Move { path }, ..] => {
+               path.last().copied().unwrap_or(actor_pos) // MoveOnly (1 commit)
+           }
+       }
+   }
    ```
-   `EPS_SELF = 0.15` (≈ 15% max_hp эквивалент). Ally-rescue **не зачитывается** в этот порог.
-5. **Schema v16 bump** — новое поле `ally_rescue: f32` в `PlanLogEntry::raw_factors`. Старые логи — `#[serde(default)]`, получают 0.
-6. **Замапить старые тесты.** `adaptation.rs` / `intent.rs` тесты на ProtectSelf → проверить, что self-heal планы проходят, ally-heal планы (без self-AoE) — fail gate.
+
+2. **`compute_plan_self_survival` перестраивается на committed prefix.**
+
+   - `exit_danger` считается между `active.pos` и `committed_prefix_final_pos`, не `plan.final_pos`.
+   - Self-heal и armor-buff Cast'ы учитываются **только** если `Cast` находится в committed prefix (step 0 solo или step 1 в MoveAndCast). Phantom-tail self-cast'ы не дают credit.
+
+   Реализация: при итерации по `plan.steps`, tracking `step_idx` и committed_prefix_len:
+   ```rust
+   let prefix_len = match plan.steps.first() {
+       None => 0,
+       Some(PlanStep::Cast { .. }) => 1,
+       Some(PlanStep::Move { .. }) => {
+           if matches!(plan.steps.get(1), Some(PlanStep::Cast { .. })) { 2 } else { 1 }
+       }
+   };
+   // В цикле:
+   for (idx, step) in plan.steps.iter().enumerate() {
+       if idx >= prefix_len { break; }  // phantom tail — skip
+       // ... existing self-directed filter ...
+   }
+   ```
+
+3. **goal_achieved или другие инварианты?** Не применимо — `self_survival` не имеет latching-логики, это pure aggregation.
 
 ### Тесты
 
-- `factors/survival::tests::self_heal_raises_self_survival_only`: план с `Cast heal(self)`. `self_survival > 0`, `ally_rescue = 0`.
-- `factors/ally_rescue::tests::ally_heal_raises_ally_rescue_only`: план с `Cast heal(ally)`. `self_survival = 0`, `ally_rescue > 0`.
-- `factors/survival::tests::aoe_heal_self_in_zone_raises_both`: AoE heal, caster в зоне. Обе оси положительные.
-- `sanity::tests::protect_self_eps_gate_blocks_ally_only_heal`: ProtectSelf intent, план с `Cast heal(ally)`, `self_survival = 0`. Должен получить `-inf`.
-- `sanity::tests::protect_self_eps_gate_passes_self_heal`: ProtectSelf intent, план `Cast heal(self)`. `self_survival ≥ ε`, сохраняется.
+В `factors/survival::tests`:
+
+1. **`self_heal_in_committed_cast_counts`** — план `[Cast heal(self)]`. `self_survival` от heal_sum > 0. Regression pin (не ломаем существующий self-heal credit).
+
+2. **`self_heal_in_phantom_tail_does_not_count`** — план `[Cast damage(enemy), Cast heal(self)]`. Первый Cast committed (CastInPlace solo). Второй Cast — phantom tail. `self_survival = 0` (self-heal не в prefix).
+
+3. **`exit_danger_uses_committed_prefix_end`** ← regression guard bug. План `[Cast damage(enemy), Move retreat]` с start=danger(0.88), retreat dest=danger(0.3). Committed prefix = только Cast, caster не двинулся → `exit_danger = danger(start) - danger(start) = 0`. Полный `plan.final_pos` даёт -0.58 — **не** должен использоваться. Regression для обоих наблюдаемых corpus leak'ов.
+
+4. **`move_and_cast_bundle_counts_move_destination`** — план `[Move→tile_B, Cast enemy]`. Committed prefix = оба (MoveAndCast). `committed_prefix_final_pos = tile_B`. `exit_danger` считается корректно.
+
+5. **`move_only_counts_first_move_destination`** — план `[Move→tile_A, Move→tile_B]`. Committed prefix = только первый Move (MoveOnly). `committed_prefix_final_pos = tile_A`, не `tile_B`. Phantom-tail Move не инфлейтит.
+
+6. **`armor_buff_in_phantom_cast_ignored`** — план `[Move, Cast damage(enemy), Cast armor_buff(self)]`. Committed = MoveAndCast bundle (2 шага). Третий Cast (armor) — phantom. `armor_sum = 0`.
+
+7. **Regression tests** из `factors/survival.rs` должны продолжать проходить (`self_heal_cast_gives_positive_survival`, `retreat_move_gives_positive_survival`, `summon_plan_gives_zero_survival`) — после апдейта `retreat_move_gives_positive_survival` нужно проверить: тест использует `[Move]` plan (pure move), committed prefix = destination, так что тест должен проходить идентично.
 
 ### Acceptance
 
-См. [`ai_rework.md §5.3`](ai_rework.md#53-шаг-4-selfally-split--acceptance).
+См. [`ai_rework.md §5.3`](ai_rework.md#53-шаг-4a-phantom-tail-self_survival--acceptance).
+
+**Измерение**: пересобрать, сыграть те же 8 боёв (те же seeds/encounters), прогнать replay:
+```
+cargo run --release --bin replay_ai_log -- logs/<новые_post_step4a>*.jsonl --metrics-summary
+```
+
+Сравнить с `logs/baseline_20260422_step3.txt`. Ожидаемые дельты:
+- `panic_leak_rate`: 16.7% → ≤ 5% (оба наблюдаемых leak'а закрываются).
+- `kill_conversion_rate`: 80% → ≥ 75% (guard: не ломаем killable commits; небольшая просадка допустима из-за ranking shift).
+- `killable_non_offensive_rate`, `killable_wrong_target_rate`: остаются на нулях.
+- `repeated_tile_rate`, `zero_net_move_rate`, `post_cast_retreat_rate`, `phantom_tail_*`: Δ ≤ 5 pp.
 
 ### Риск
 
-Высокий — трогает осевой layout, `AXIS_FACTOR_WEIGHTS`, intent.rs, sanity pipeline. Schema bump. Нужен полный replay-corpus перед merge. Guard: Δ метрик шагов 1–3 ≤ 5%.
+Низкий.
+
+- Локальный: одна функция в `factors/survival.rs`, ~30 строк.
+- Семантически зеркалит step-1c (intent_sum phantom-tail shortcut) — проверенный паттерн.
+- Не трогает schema, layout, mask'и, веса.
+- Существующие тесты на self_survival должны остаться зелёными; phantom-tail добавления покрываются новыми 6 тестами.
+
+Основной риск: **overly aggressive phantom-tail filtering** может зарубить legitimate self-buff планы в форме `[Cast self_armor, Move]` — здесь Cast committed, всё корректно. Если `[Cast dmg, Cast self_heal]` (двойной Cast, phantom tail) — второй Cast действительно phantom (commit_plan fires только первый Cast), correct behavior.
+
+---
+
+## Phase 7 prototype (parallel track, не в scope step-4a)
+
+**Статус**: prototype, НЕ production change. Идёт параллельно step-4a / 5. Отдельный worktree рекомендован.
+
+### Мотивация
+
+Step-1c (`intent_sum`) и step-4a (`self_survival.exit_danger`) — **две заплатки** одного bug'а в разных осях. Паттерн: фактор агрегирует по всему плану, но `commit_plan` исполняет только prefix, phantom tail инфлейтит. Третий candidate — `tempo_gain` (net displacement на `plan.final_pos`). Patch-по-одной оси масштабируется плохо: каждый новый фактор требует своего phantom-tail shortcut'а.
+
+Phase 7 (`ai_rework_plan.md §Phase 7`):
+```
+Score(plan) = PrefixScore(committed_prefix) + γ · FutureValue(committed_state)
+```
+
+Архитектурно решает все phantom-tail случаи сразу.
+
+### Что делать в prototype
+
+**Ограничения:** offline, replay-only, ничего в production scoring НЕ меняется. Цель — собрать данные для decision о merge Phase 7 в следующей итерации.
+
+1. **Новая функция** `future_value_from_committed_state(actor, committed_pos, snap, maps) -> f32` в новом модуле (например `src/combat/ai/planning/future_value.rs`), cfg-gated или behind feature flag. Pure function, не вызывается из `pick_action`.
+
+   Использует существующие `evaluate_position`, `target_priority`, `score_action`, BFS от `committed_pos`:
+   - Best future position (position_eval на reachable tiles next turn).
+   - Best future attack (max `score_action` на reachable-then-attack таргетов).
+   - Mobility (count reachable tiles, soft bonus).
+   - Linear combo с `λ_pos / λ_attack / λ_mob` (начальные значения: 0.4 / 0.5 / 0.1).
+
+2. **Prototype scorer** — новая функция `score_plans_prototype(plans, ctx) -> Vec<f32>`:
+   ```
+   for plan in plans:
+       prefix_score = PrefixScore(committed_prefix)  // использует raw_factors, но отфильтрованные на prefix
+       future_value = future_value_from_committed_state(actor, committed_prefix_end, snap, maps)
+       score[plan] = prefix_score + γ · future_value   // γ = 0.25 стартовое
+   ```
+
+   `PrefixScore` — то же, что текущий `finalize_scores`, но `raw_factors` пересчитаны только по prefix (не по всему плану). Практически: `compute_plan_factors(plan.prefix_only(), ctx)` где `prefix_only()` срезает steps до committed len.
+
+3. **Extend `replay_ai_log`** флагом `--phase7-prototype`:
+   ```
+   cargo run --release --bin replay_ai_log -- <logs> --phase7-prototype --metrics-summary
+   ```
+   Применяет prototype scorer к каждому entry, сравнивает ranking с логгированным, выдаёт:
+   - `ranking_change_rate` — % entries где top-1 plan меняется.
+   - `phantom_tail_flips_committed` post-prototype — ожидаемо drop'нет.
+   - `plateau_tie_rate` — % entries где top-K внутри `max − min < 0.05`.
+   - Δ на всех existing metrics из §5.1/5.2/5.3.
+
+4. **Regression corpus**: прогнать на всех post-step-3 логах (8 боёв) + baseline_20260422_final (4 боя). Итого 12 логов.
+
+### Decision criteria (`ai_rework.md §5.3a`)
+
+- `phantom_tail_flips_committed` на prototype < 40% (baseline 65%).
+- `plateau_tie_rate` < 10% (текущий > 20% ожидается).
+- Δ на acceptance-метриках §5.1/5.2/5.3 ≤ 5 pp.
+
+Три из трёх → Phase 7 следующая итерация с full design-doc + multi-PR разбиение (6+ шагов: prefix-factors, future_value integration, schema bump, weight recalibration, sanity/mask refit, test-refactor).
+
+Два или один → доп. design work перед commitment.
+
+### Что prototype **не** закрывает
+
+- Panic_leak_rate (это тактическая регрессия, закрывается step-4a сейчас).
+- Сами acceptance-метрики §5.1/5.2 (prototype only сравнивает, не перемеряет контракт).
+
+### Риск prototype
+
+Нулевой для production (offline). Риск track'а — timeline: если prototype покажет, что Phase 7 недостаточно аккуратен без доп. design'а, decision стоит 1–2 дней анализа.
 
 ---
 
@@ -578,13 +712,17 @@ cargo run --release --bin replay_ai_log -- logs/corpus_20260422_post_step3/*.jso
 
 ```
 0 → 0.5 ──┐
-           ├─→ 1 ─→ 1b ─→ 1c ─→ 2 (checkpoint) ─→ 2.5 ─→ 3 ─→ 4 ─→ 5
+           ├─→ 1 ─→ 1b ─→ 1c ─→ 2 (checkpoint) ─→ 2.5 ─→ 3 ─→ 4a ─→ 5
+                                                                    ║
+                                                       Phase 7 prototype (parallel)
 ```
 
-- **Последовательность обязательна.** Шаги 3–5 зависят от стабилизированного tempo (шаги 1/1b/1c) и schema v15 (шаг 2.5).
-- **Параллельно можно:** пока 1 в измерении, готовить 2.5 (schema bump) как отдельный PR.
-- **Не спешить с 4 и 5.** Между ними прогнать corpus минимум один раз, убедиться что шаг 3 стабилен.
-- **Phase 7 — параллельная опция** (см. ниже). Может идти в own worktree пока текущая итерация завершается.
+- **Step 4 (split) dropped** — см. `ai_rework.md §3.3`. Заменён на 4a (phantom-tail фикс).
+- **Последовательность обязательна.** Шаги 3 → 4a → 5 зависят от стабилизированного tempo (шаги 1/1b/1c) и schema v15 (шаг 2.5).
+- **Параллельно можно:**
+  - Пока 1 в измерении, готовить 2.5 (schema bump) как отдельный PR.
+  - **Phase 7 prototype** идёт параллельно с 4a/5 в отдельном worktree. Offline-only, не блокирует никого.
+- **Не спешить с 4a и 5.** Между ними прогнать corpus минимум один раз, убедиться что шаг 3 стабилен.
 
 ---
 
