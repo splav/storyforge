@@ -154,6 +154,7 @@ fn compute_aoe_damage(
 /// - `kill_now = 1.0` if direct expected damage kills the target this cast.
 /// - `kill_promised = 1.0` if direct damage won't kill alone but accumulated
 ///   DoT (pending on target + newly applied by this ability) will finish it.
+///
 /// Invariant: at most one is 1.0; `kill_now = 1` implies `kill_promised = 0`.
 fn split_kill(
     def: &AbilityDef,

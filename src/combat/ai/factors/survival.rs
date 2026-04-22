@@ -66,7 +66,7 @@ pub fn compute_plan_self_survival(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
 
         // Self-heal: expected heal amount / max_hp.
         if let EffectDef::Heal { dice } = &def.effect {
-            let ev = (dice.expected() as f32
+            let ev = (dice.expected()
                 + caster.int_mod as f32
                 + caster.spell_power as f32)
                 .max(0.0);

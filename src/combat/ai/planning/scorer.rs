@@ -306,6 +306,7 @@ fn plan_start_tile(plan: &TurnPlan) -> Hex {
 ///   plans that summon into an already-full friendly roster score proportionally
 ///   less even before the cap math clips them, preventing "spam summons" from
 ///   dominating when the battlefield is already crowded.
+///
 /// Zero for plans without any summon casts. `summon_dpr` is the precomputed
 /// per-template DPR table built once by `build_summon_dpr_cache`.
 fn plan_summon_bonus(
