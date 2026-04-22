@@ -1,252 +1,508 @@
 # AI Rework — Developer Plan
 
-Практическое сопровождение к [`docs/ai_rework.md`](ai_rework.md). Описывает **что и где править** для перехода на goal-axis impact model, с привязкой к текущему коду и смыслу каждого шага. Детализация — средняя: даёт карту правок, но не подменяет дизайн-доки.
+План-руководство для имплементации следующей итерации. Контекст, решения и acceptance-метрики — [`docs/ai_rework.md`](ai_rework.md).
 
-Связанные документы:
-- [`docs/ai_rework.md`](ai_rework.md) — целевая картина, принципы, маппинг симптомов.
-- [`docs/ai.md`](ai.md) — текущая архитектура scoring / adaptation.
-- [`docs/ai-replay.md`](ai-replay.md) — offline-replay и будущие regression metrics.
+Каждый шаг описан в формате: **файлы + функции**, **суть правки**, **тесты**, **acceptance-хук**. Ссылки на код даны на актуальный HEAD.
 
 ---
 
-## Принципы работы
+## Шаг 0. Починить `replay_ai_log` ✅
 
-1. Каждая фаза — отдельная PR-ветка от `ai/axis-impact`. Мерж только после прогонки replay corpus'а из Phase 0 и подтверждения, что целевая метрика фазы достигнута, а соседние не ухудшились >5%.
-2. Каждая фаза, меняющая layout факторов → **бамп `SCHEMA_VERSION`** в `src/combat/ai/log.rs:73`, новые поля через `#[serde(default)]` у reader'а.
-3. Тесты в `planning/scorer.rs`, `intent.rs`, `adaptation.rs`, `role.rs` должны проходить на каждой фазе. Правила обновлять, а не удалять — fixture может переписываться, но инвариант должен быть тот же (или явно заменён).
-4. Если фаза по пути упирается в неожиданную связность — стоп, документируем в `ai_rework.md`, корректируем scope.
+**Блокер всей итерации** — без работающего replay метрики неизмеримы.
 
----
+### Решение
 
-## Текущее состояние кода (reference map)
+Лог не содержит `campaign_dir`/`scenario_dir`, но имя файла кодирует их:
+`<timestamp>_<campaign>_<scenario>_<encounter>.jsonl`.
 
-| Файл | Роль сегодня | Что трогаем |
-|---|---|---|
-| `src/combat/ai/factors/mod.rs` | Определение `PlanFactors` (9 полей), `NUM_FACTORS`, `SIGNED_FACTOR`, `compute_factors` | Все фазы: добавление осей, переименования |
-| `src/combat/ai/factors/offensive.rs` | Per-step `compute_offensive`, `single_target_kill`, `status_cc_value` | Phase 2 (kill split), Phase 4 (per-target breakdown) |
-| `src/combat/ai/factors/scarcity.rs` | Resource-vs-swing штраф Cast-ов | Не трогаем |
-| `src/combat/ai/factors/adjustments.rs` | Reservation / crit-fail нерфы | Не трогаем |
-| `src/combat/ai/role.rs` | `AxisProfile`, `AXIS_FACTOR_WEIGHTS` (колонки на 9 факторов), композитные веса | Каждая фаза, добавляющая ось, добавляет колонку |
-| `src/combat/ai/intent.rs` | `TacticalIntent`, `intent_score`, `select_intent`, `pursuit_move_score` | Phase 4 (refactor `intent_score` в dot+geometry), Phase 5 (ProtectSelf contract) |
-| `src/combat/ai/planning/scorer.rs` | `compute_plan_factors`, `finalize_scores`, `plan_summon_bonus` | Phase 1-5 (агрегация новых осей), Phase 3 (global summon saturation) |
-| `src/combat/ai/planning/sanity.rs` | `plan_is_defensive`, `apply_protect_self_mask` | Phase 5 — `plan_is_defensive` переезжает на axis threshold |
-| `src/combat/ai/planning/adaptation.rs` | `apply_adaptation`, `EvaluationMode`, `ProtectSelfNoDefensive` trigger | Phase 5 — `any_defensive` вычисляется через `self_survival ≥ ε` |
-| `src/combat/ai/position_eval.rs` | `evaluate_position` (danger + ally_support + opportunity) | Phase 6 — возможная замена production-читалкой `tempo_gain + self_survival_terminal` |
-| `src/combat/ai/log.rs` | `SCHEMA_VERSION`, `PlanLogEntry`, raw factors | Каждая фаза — новая ось в wire-формате |
-| `src/bin/replay_ai_log.rs` | Offline replay/recompute | Phase 0 — добавление regression metrics; далее `#[serde(default)]` для новых полей |
+Инференс: `infer_content_dirs()` сканирует `assets/data/campaigns/` и однозначно
+определяет campaign/scenario по имени файла. Fallback — `--campaign`/`--scenario`
+CLI-флаги, затем global-only с предупреждением.
+
+`ContentView::load_global_for_tests()` (cfg-гейтирован, нет в release) заменён на
+`ContentView::load_layered(&campaign_dir, &scenario_dir)` — работает и в debug, и в release.
+
+### Acceptance
+
+Выполнено: `cargo run --bin replay_ai_log -- logs/20260421T164625_*.jsonl`
+выводит список replayed планов. Release-build компилируется без ошибок.
 
 ---
 
-## Phase 0 — Baseline и инструментарий
+## Шаг 0.5. Baseline corpus
 
-**Цель.** Иметь числовой критерий регрессии до того, как что-либо ломать.
+### Что делать
 
-### Шаги
+1. Собрать 10–20 боёв с **фиксированными seed'ами**. Использовать `[debug].ai_log = true` и `[debug].rng_seed = <N>` в `assets/data/settings.toml` (если нет — добавить, это отдельный one-liner).
+2. Разнообразие сценариев: `demo_stormborn_camp`, `demo_beastblood_raid`, `bell_under_veil_ch1_*`.
+3. Зафиксировать в `logs/corpus_20260422/` (новый каталог, отдельно от старого `corpus_20260421/`).
+4. Прогнать текущие метрики, сохранить в `logs/baseline_20260422.txt`.
 
-1. **Собрать replay corpus** в `logs/corpus_20260421/`: 15–20 jsonl-логов разных сценариев (stormborn / beastblood / bell_under_veil). Источник — несколько быстрых прохождений демо + провокационные encounter'ы, где уже ловили S1–S5.
-2. **Расширить `src/bin/replay_ai_log.rs`** секцией regression metrics. Вводим три счётчика:
-   - `wasted_mp_ratio` — доля committed-планов, где `committed_prefix` тип `MoveOnly` и displacement=0 (актор вернулся в ту же клетку, см. `PlanLogEntry::committed_prefix`).
-   - `panic_leak_rate` — доля записей с `adaptation_reason ∈ {ProtectSelfNoDefensive, ProtectSelfFutile}`, где committed action — не heal/buff/retreat (простейшая проверка: `target_type != SingleAlly|Myself` И не снижает danger на destination).
-   - `killable_closure_rate` — среди записей с `intent_reason.kind == "killable"`: доля, где хоть один cast в committed-prefix даёт `raw_kill > 0` (читаем из raw factors, индекс `KILL_IDX`).
-3. **Добавить флаг `--metrics-summary`** в replay-tool: при его наличии агрегирует метрики по всем переданным файлам и выводит сводку. Формулы — в `docs/ai-replay.md` в новый раздел «Regression metrics».
-4. **Зафиксировать baseline.** Прогнать `replay_ai_log --metrics-summary logs/corpus_20260421/*.jsonl > logs/baseline_20260421.txt`, закоммитить в репо (только этот файл и corpus).
+### Минимальный набор baseline-метрик
 
-**Выход.** Базовые значения метрик в txt-файле. Каждая следующая фаза сравнивает новую прогонку (на том же corpus, но обновлённой версии replay-tool) с этим baseline'ом.
+Сейчас `replay_ai_log` считает `wasted_mp_ratio`, `panic_leak_rate`, `killable_closure_rate`. Добавить:
 
-**Риски.** Baseline замеряет поведение **до** правок, но если corpus содержит старые schema-версии, метрики могут быть не определены для них (например, `trade_breakdown` появился в v6). Помечать такие записи как partial и не делить на них.
+- `repeated_tile_rate`, `zero_net_move_rate`, `post_cast_retreat_rate` (шаг 1 acceptance).
 
----
+Реализация — в `Metrics` struct (`src/bin/replay_ai_log.rs:428+`). Для `post_cast_retreat_rate` нужен helper, разбивающий план на pre-cast и post-cast сегменты.
 
-## Phase 1 — Ось `tempo_gain` (лечит S1)
+### Acceptance
 
-**Смысл.** Move-шаги, реально приближающие к цели / в cast-range / из danger, должны получать положительный вклад. Сейчас `position` и `risk` их учитывают только через tile-evaluation, и если start-/end-тайл имеют одинаковый score (открытое поле без маркировки), то move вклад = 0 → холостой ход получает полный intent-bonus без полезного движения.
-
-### Шаги
-
-1. **Расширить layout факторов** в `src/combat/ai/factors/mod.rs`:
-   - `NUM_FACTORS` → 10.
-   - Добавить `TEMPO_IDX = 9`.
-   - `SIGNED_FACTOR` — добавить `true` (ось signed).
-   - `PlanFactors` — поле `pub tempo_gain: f32`. Обновить `as_array` / `from_array`.
-2. **Новый модуль `src/combat/ai/factors/tempo.rs`** с функцией `pub(super) fn compute_tempo_gain(step, ctx, intent_target) -> f32`. Формула (ref. `ai_rework.md` §3.1):
-   - движение — базис `Δdistance_to(intent_target) / speed`, clamp [-1, 1];
-   - `+0.3` если шаг входит в cast-range (проверка: max attack range > 0 и `distance(caster_tile, target) ≤ max_attack_range`, где target берётся из intent);
-   - `+0.2` за gained LoS (пока нет LoS-модели — оставляем `TODO`, возвращаем 0);
-   - `+max(0, danger(active.pos) − danger(caster_tile))` как «exit_danger_bonus»;
-   - move без intent_target → 0.
-   - Cast: если cast попал без предшествующего move — `tempo_gain = 0`; если с move перед ним — unified через `ScoredStep::caster_tile()`, формула та же.
-3. **Интегрировать** в `compute_factors` (`factors/mod.rs:218`): после `focus`-блока вызвать `tempo::compute_tempo_gain`. Агрегация на уровне плана: `plan-terminal` — т.е. значение берётся из последнего ScoredStep плана (в отличие от discounted sum). Добавить ветку в `scorer::compute_plan_factors_sans_intent` — правее `position` аналогичным образом.
-4. **Добавить колонку в `AXIS_FACTOR_WEIGHTS`** (`role.rs:39`): `[Tank 0.8, Melee 1.0, Ranged 1.2, Control 1.0, Support 0.8]`. 10-я колонка. `AXIS_FACTOR_WEIGHTS: [[f32; 10]; 5]`, `AxisProfile::factor_weights()` → `[f32; 10]`.
-5. **Wire-формат:** в `log.rs` бамп `SCHEMA_VERSION = 10`, `PlanLogEntry::raw_factors` становится `[f32; 10]`. Reader в `replay_ai_log` — через `#[serde(default)]`.
-6. **Тесты.** В `tempo.rs` — unit: (a) approach move к известному target даёт положительный tempo; (b) round-trip move (туда-обратно) даёт tempo ≤ 0; (c) cast без предшествующего move даёт tempo = 0 (terminal, но start=end по клетке). В `scorer.rs` — проверить, что holostoy-план проигрывает аналогичному-но-без-move под `FocusTarget`.
-
-**Проверка.** Прогон Phase 0 metrics: `wasted_mp_ratio` падает ≥ 50%; `killable_closure_rate`, `panic_leak_rate` без регрессии > 5%.
-
-**Откат-точка.** Если ось завалит regression — убрать колонку из `AXIS_FACTOR_WEIGHTS` (set to 0), не удаляя сам фактор. Это оставит wire-формат, позволит дотестировать.
+Файл `baseline_20260422.txt` существует; репозиторный `cargo run --bin replay_ai_log -- logs/corpus_20260422/*.jsonl --metrics-summary` воспроизводит его цифры.
 
 ---
 
-## Phase 2 — `kill` → `kill_now / kill_promised` (лечит S3)
+## Шаг 1. `tempo_gain` → net displacement ✅ (код готов, метрики не сошлись)
 
-**Смысл.** Сейчас `single_target_kill` в `factors/offensive.rs:150` возвращает 1 и за burst-kill в commit-prefix, и за DoT, который дотикает к смерти через 3 хода. Скорер трактует их одинаково, и `FocusTarget(killable)` с весом kill=1.6 одинаково поощряет обе опции — burn часто побеждает по сумме (низкий scarcity + добавка damage_now от тика). Разделив оси, DoT получит discount, burst сохранит полный credit.
+### Файл / функция
 
-### Шаги
+- `src/combat/ai/factors/tempo.rs:28-64` — `compute_plan_tempo_gain`.
 
-1. **Выделить `kill_promised`.** В `factors/offensive.rs`:
-   - Ввести helper `fn dot_tick_sum(def, target, caster) -> i32` — сумма ожидаемых тиков DoT-эффектов статуса на длительности (читаем `StatusDef::damage_per_turn × duration`).
-   - `compute_offensive` возвращает `OffensiveFactors { damage, heal, kill_now, kill_promised, cc }` вместо одного `kill`. Правило:
-     - `kill_now = 1` если `damage_now ≥ target.hp` **сейчас** (текущий expected damage, уже считается).
-     - `kill_promised = 1` если `kill_now = 0` **и** `damage_now + dot_tick_sum + already_pending_dot_on(target) ≥ target.hp`. `already_pending_dot_on` — сканируем statuses на target в snapshot.
-   - AoE-ветка: `kill_now` если хотя бы одна цель умирает сейчас; `kill_promised` если хотя бы одна цель умирает от DoT.
-2. **PlanFactors** в `factors/mod.rs`: поле `kill` заменяется на `kill_now` и `kill_promised`. Индексы: `KILL_NOW_IDX = 1`, `KILL_PROMISED_IDX = <next>`. `NUM_FACTORS` — +1 ещё раз (уже 10 из Phase 1, становится 11).
-3. **`AXIS_FACTOR_WEIGHTS`** (`role.rs:39`) — колонка `kill` становится двумя:
-   - `kill_now` = текущие значения (оставляем 0.6/1.6/1.3/0.5/0.3).
-   - `kill_promised` = `kill_now × 0.5` для всех, кроме Control — там 0.8 (DoT стратегически ценен в Control).
-4. **`rescore_with_intent` / scorer** (`planning/scorer.rs:108, 229`): агрегация — `kill_now` и `kill_promised` оба discounted sum по `base^k`, как `kill` сейчас. Отдельные max-ы **не** применяем (это уже не binary после плана с двумя kill'ами).
-5. **Intent веса — временное.** Перед Phase 4 просто поднять `AXIS_FACTOR_WEIGHTS[...][kill_now]` для всех ролей до ≥ `kill_promised × 2`. В Phase 4 это окончательно переедет в `intent.weights`.
-6. **Log schema.** `SCHEMA_VERSION = 11`. Добавить поле `kill_now` / `kill_promised` в raw-массив. `replay_ai_log` — `#[serde(default)]`, для старых логов оба поля = 0.
+### Что сделано
 
-**Проверка.** `killable_closure_rate` +25 pp на corpus (было ~60%, цель ≥85%). `wasted_mp_ratio`, `panic_leak_rate` — без регрессии > 5%.
+Per-step итерация заменена на одиночный `step_tempo(actor_start → plan.final_pos)`. Семантика `step_tempo` не менялась: dist_before/after теперь считается между start и final, range_bonus и exit_bonus работают как прежде.
 
-**Риск.** `dot_tick_sum` может перекрывать damage_now (если ability наносит и damage и применяет DoT). Бронь: `kill_promised` имеет смысл только как «убийство, которое произойдёт **без** нового каста». В Phase 2 MVP достаточно того, что kill_now и kill_promised не выставляются **одновременно** (guard: `if kill_now == 1 { kill_promised = 0 }`).
+Тесты в `factors/tempo.rs::tests`:
+- `round_trip_move_gives_nonpositive_tempo` — реальный round-trip (A→B→A) возвращает tempo ≤ 0.
+- `backtrack_longer_path_no_credit` — длина пути не даёт кредита при равном net displacement.
+- 4 теста проходят, `cargo test combat::ai::factors::tempo` ok.
 
----
+Параллельно — фикс `reach.rs`: `enemies_of` → `all_enemies_of`, чтобы BFS видел трупы и не планировал pass-through через них.
 
-## Phase 3 — Ось `saturation_penalty` (лечит S2)
+### Результат измерения (post-step-1 корпус, 2 боя)
 
-**Смысл.** `plan_summon_bonus` (`planning/scorer.rs:310`) уже считает per-plan saturation: внутри одного плана второй summon получает меньше кредита. Но между ходами — свежий план, `count` из snapshot, и если уже 3 спирита — cap=3 → decay=0, но **контракт не гарантирует** чтение cap из content: при cap=5 и активных 3 decay=0.4 → bonus всё ещё большой. Нужен дополнительный nonlinear global penalty. Параллельно — buffs: те же проблемы (haste поверх haste), но более деликатно: штрафовать only same (target, buff_class).
+`logs/baseline_20260422_step1.txt` vs `baseline_20260422.txt` (15 боёв):
 
-### Шаги
+| Метрика | baseline-15 | post-step-1 (2 боя) | delta |
+|---|---|---|---|
+| repeated_tile_rate | 29.3% | 27.5% | −1.8 pp (шум) |
+| zero_net_move_rate | 17.3% | 15.7% | −1.6 pp (шум) |
+| post_cast_retreat_rate | 33.3% | 30.0% | −3.3 pp (шум) |
 
-1. **Global summon saturation.** В `plan_summon_bonus` (`scorer.rs:310`):
-   - После вычисления `decay` добавить множитель `0.65_f32.powi(active_count as i32)`, где `active_count` — уже учтено в `count` (первые строки функции), т.е. формула меняется на `total += dpr * decay * 0.65_f32.powf(count_at_step)` где `count_at_step` = initial + предыдущие summon'ы этого плана.
-   - Смысл: decay относится к cap'у ability, 0.65^N — отдельный архетипный нелинейный штраф, независимый от cap. 3 активных спирита → 0.65³ ≈ 0.27 дополнительно.
-2. **Buff saturation — same-target/same-class.**
-   - Ввести поле `buff_class: Option<BuffClass>` в `StatusDef` (`src/content/statuses.rs`). Enum: `Haste, ArmorBuff, DamageUp, Shield, None`. Default = `None`. Класс выставляется в TOML или наследуется от effect-signature.
-   - В `factors/mod.rs` новая ось `saturation: f32` (signed, обычно ≤ 0). Расчёт per-step для Cast: если cast применяет status с `buff_class = Some(c)` на target, и на target уже висит другой status того же класса → штраф `-0.4`.
-   - Агрегация — **discounted sum**. Плюс колонка в `AXIS_FACTOR_WEIGHTS`: 1.0 для всех ролей (saturation уже signed, знак регулирует направление).
-   - Ось отдельная от `scarcity`: scarcity — про mana/rage economy, saturation — про buff-overlay redundancy.
-3. **Проверки.** Не штрафовать:
-   - разные bufftargets с одним classом (haste-ы на двух разных carry'ях);
-   - разные buff_class на одном target (haste + armor_buff);
-   - per-plan: если план сам собой кастует haste + потом **второй** haste на того же target — штрафуется (внутри плана тоже, через running state как в summon).
-4. **Log/schema.** `SCHEMA_VERSION = 12`, `saturation` в raw-array. Для summon-saturation — отдельное логирование не нужно (проявляется в итоговом score).
+**Acceptance не достигнут.** Целевые `<5%` / `<1%` / `↓≥70%` — далеко. Step 1 чинил только tempo; `intent_sum` остался доминирующим источником кредита за длину Move-цепочки → переходим в 1b безусловно.
 
-**Проверка.** Corpus-тест: (a) Старшина не делает 3 summon подряд при 3 активных spirits на поле; (b) легитимный стак (haste + armor на танке) не страдает.
+### Доказательство из логов
 
-**Риск.** `StatusDef.buff_class` — новое поле. В TOML-контенте нужно проставить хотя бы для 4–6 очевидных бафов. Если пропустить — fallback: `None` → штраф не начисляется, старое поведение сохраняется. Не full-coverage, но без регрессии.
+`logs/20260421T191051_demo_campaign_demo_stormborn_camp.jsonl` line 12 — изолированный случай с контролируемыми переменными:
+
+| | shape | final_pos | INT | TEMPO | surv | score |
+|---|---|---|---|---|---|---|
+| chosen #1 | Move(4,5) · **Move(4,4)** · Move(3,6) | [3,6] | **+2.06** | +0.11 | +0.36 | **2.07** |
+| alt #2 | Move(4,5) · Move(3,6) | [3,6] | +1.48 | +0.11 | +0.36 | 1.91 |
+
+Оба плана заканчиваются в **одной клетке**. Start = (4,4), chosen делает петлю через стартовую клетку. Tempo корректно одинаковый. Intent отличается на +0.58 — ровно за лишний Move. Round-trip выиграл исключительно из-за `intent_sum`.
+
+Арифметика: `pursuit_move_score ≈ 0.8`, `base_discount = 0.9`:
+- 3 шага: `0.8·(1+0.9+0.81) ≈ 2.05` ≈ **+2.06** в логе
+- 2 шага: `0.8·(1+0.9) = 1.52` ≈ **+1.48** в логе
+
+### Риск
+
+Средний. Меняет семантику axis, которая уже учитывается в `AXIS_FACTOR_WEIGHTS`. Веса могут требовать пере-калибровки. Guard: regression на `damage_now`, `kill_now`, `cc_impact` axis distributions — Δ ≤ 5%.
 
 ---
 
-## Phase 4 — Intent as weight vector (лечит S5)
+## Шаг 1b. `intent_sum` для Move-цепочек — ✅
 
-**Смысл.** Сейчас `intent_score` (`intent.rs:733`) — длинный match с ad-hoc формулами (0.3 за heal под FocusTarget, 1.0 за direct hit, и т.д.). Пять симптомов S5 показывают: ad-hoc формулы игнорируют **величину** impact'а (1 dmg по armored target даёт тот же intent-credit, что 10 dmg по голому). Переводим на dot-product `plan_impact × intent.weights` + geometry hook для pursuit / reposition, которые не сводятся к осям чисто.
+**Статус триггера**: метрики step-1 не сошлись (см. таблицу выше), изолированный кейс подтверждает что именно `intent_sum` — драйвер repeated_tile/zero_net.
 
-### Шаги
+### Файл / функция
 
-1. **`IntentContract` struct** в `intent.rs`. Поля как в `ai_rework.md` §3.2: `weights: AxisVector`, `geometry: Option<fn(...)>`, `hard_threshold: Option<(Axis, f32)>`. `AxisVector` — typed wrapper over `[f32; NUM_FACTORS]` с builder-методами.
-2. **Таблица контрактов.** Для каждого варианта `TacticalIntent` — статическая функция, возвращающая `IntentContract`. Напр.:
-   - `FocusTarget { target }` → weights: `kill_now = 2.0, kill_promised = 0.3, damage_now = 1.0, cc = 0.5` (all per-target-filtered — см. шаг 4). Geometry: `Some(pursuit_move_score_hook)`. Hard threshold: `None` (kill-based threshold добавляется в Phase 5 для killable sub-case).
-   - `ApplyCC { target }` → weights: `cc = 1.5, damage_now = 0.3`. Geometry: `Some(pursuit_move_score_hook)` с `cc_reach`.
-   - `Reposition` → weights: `tempo_gain = 1.0`. Geometry: `Some(reposition_tier_hook)`.
-   - `ProtectSelf` → weights: `self_survival = 2.0, damage_now = 0.2, heal = 1.0`. Geometry: `None`. Hard threshold: Phase 5.
-   - `ProtectAlly`, `SetupAOE`, `LastStand` — аналогично, перенос существующих формул.
-3. **Новый `intent_score`.** Заменить тело на:
+- `src/combat/ai/planning/scorer.rs:519-549` — цикл аккумулирования `intent_sum`.
+- `src/combat/ai/intent.rs:694-709` — `pursuit_move_score`.
+
+### Варианты правки
+
+**Вариант А (рекомендуется):** для pure-move цепочек (нет Cast в плане) заменить `Σ intent_score` на одиночный `pursuit_move_score(actor_start, plan.final_pos, target.pos, reach)`. План оценивается как план.
+
+**Вариант Б:** `intent_sum` для Move-шагов — `max`, не `Σ`. Сохраняет per-step оценку, но запрещает длине быть credit'ом.
+
+Предпочтение — А: концептуально проще, чинит root cause напрямую. Б оставить как fallback, если А сломает какой-нибудь edge case с pursuit reach'ем.
+
+### Что сделано
+
+Вариант А реализован в `compute_plan_intent_sum` (`scorer.rs`).
+
+- Детекция pure-move: `plan.steps.iter().all(|s| matches!(s, PlanStep::Move { .. }))`.
+- Для pure-move + FocusTarget/ApplyCC: один вызов `pursuit_move_score(actor_start, plan.final_pos, target.pos, reach)`. Путь не имеет значения.
+- Для Cast-планов и всех остальных intent'ов: прежний per-step discounted sum сохранён без изменений.
+- goal_achieved latch остался в per-step ветке (только Cast может записать kill в outcomes).
+
+Импорт в scorer.rs: `cc_reach` и `pursuit_move_score` добавлены к импортам из `intent`.
+
+Добавлены 4 теста:
+- `pure_move_chain_intent_equals_single_pursuit` — 1/2/3 шага к одной final клетке дают одинаковый intent_sum.
+- `round_trip_pure_move_intent_no_credit` — прямой pin изолированного кейса из лога (round-trip = прямой путь).
+- `cast_after_moves_keeps_cast_intent` — Move+Cast не использует shortcut, Cast contributes normally.
+- `goal_achieved_latch_still_works` — latch подавляет Move-credit после kill.
+
+### Результат
+
+`cargo test combat::ai::planning::scorer`: 12 тестов, все ok (было 8).  
+`cargo test`: 261 unit + все интеграционные — 0 FAILED.  
+`cargo build --release`: без ошибок.
+
+Replay divergence (post-step-1b):
+- `beastblood_raid.jsonl`: 5 divergence / 9 entries = 56%
+- `stormborn_camp.jsonl`: 29 divergence / 45 entries = 64%
+- Итого: 34/54 = **63%** — рост со старого ~63% ... однако эти цифры сравниваются с логами которые были сгенерированы до шага 1, поэтому дальнейшее сравнение метрик будет возможно только на новых боях с пересобранным бинарником (шаг 2).
+
+Наблюдение: для `ProtectSelf` pure-move intent per-step оценка не заменяется — это семантически верно (tile safety отличается для каждого промежуточного шага). Фикс специфичен для FocusTarget/ApplyCC, где pursuit-геометрия опирается только на конечную точку.
+
+### Acceptance
+
+Метрики шага 1 в целях — измерение на новых боях (шаг 2).
+
+---
+
+## Шаг 1c. `intent_sum` для Cast-планов — post-cast Move tail
+
+**Триггер**: Step-1b закрыл pure-move ветку (`repeated_tile_rate` 27.5% → 17.1%), но 6/6 остаточных round-trip случаев в новых логах — Cast-планы с post-cast Move tail. Cast-ветка `compute_plan_intent_sum` сохранила per-step `Σ pursuit_move_score × discount^k` — это даёт phantom-tail'у с лишним Move кредит ~+0.58 INT (см. stormborn line 23 в `logs/baseline_20260422_step1b.txt`).
+
+Важный контекст: phantom tail'ы **не исполняются физически** (committed_decision = только Cast/MoveAndCast prefix), но участвуют в скоринге и смещают выбор плана vs альтернатив с тем же префиксом.
+
+### Файл / функция
+
+- `src/combat/ai/planning/scorer.rs:504-549` — `compute_plan_intent_sum`.
+- `src/combat/ai/intent.rs:694-709` — `pursuit_move_score` (reused, не меняется).
+
+### Что делать
+
+Расширить terminal-pursuit логику (вариант А из step-1b) на Cast-планы для **tail ПОСЛЕ первого Cast**.
+
+Новая схема обработки плана `steps[0..cast_idx]·Cast·steps[cast_idx+1..]`:
+
+1. **До Cast**: per-step Σ с дисконтом — без изменений (pre-cast Move шаги оцениваются как setup для каста).
+2. **Cast step**: per-step intent_score с дисконтом — без изменений.
+3. **После Cast**: вместо `Σ intent_score(tail_step_k) × discount^k` — **один вызов**:
    ```rust
-   pub fn intent_score(intent, step, active, snap, maps, content, difficulty) -> f32 {
-       let contract = contract_for(intent);
-       let step_impact = compute_step_impact_vector(step, ctx);  // re-uses compute_factors
-       let weighted = dot(step_impact, contract.weights);
-       let geom = contract.geometry.map(|f| f(step, ctx)).unwrap_or(0.0);
-       weighted + geom
+   pursuit_move_score(cast_pos, plan.final_pos, target.pos, reach)
+   ```
+   где `cast_pos` = позиция кастующего в момент Cast (= последний pre-cast Move dest или actor_start если Cast — первый шаг), `reach` = `max_attack_range` или `cc_reach` в зависимости от intent.
+
+   Учёт дисконта: domен итогового post-cast contribution должен быть на уровне одного tail-step, т.е. multiply by `base_discount^(cast_idx+1)`.
+
+4. **goal_achieved latch сохраняется**: если Cast убивает intent target, `goal_achieved = true`, post-cast tail обнуляется (pursuit не нужен — goal solved).
+
+5. **Pure-cast планы (нет Move после Cast)** → ветка не меняется. **Pure-move планы** → step-1b shortcut продолжает работать.
+
+6. **Неприменимо к `ProtectSelf`** — там per-step семантика про tile safety содержательна, pursuit-шорткат неприменим (step-1b установил этот же guardrail).
+
+### Тесты
+
+Добавить в `src/combat/ai/planning/scorer.rs::tests`:
+
+1. `cast_plus_move_tail_collapses_to_single_pursuit` — план `Move→A · Cast(target) · Move→B · Move→C` с final=C. `intent_sum` для post-cast части = `pursuit_move_score(cast_pos, C, target.pos, reach) × discount^(cast_idx+1)`. Длина tail не влияет.
+
+2. `cast_plus_roundtrip_tail_no_credit` — план `Cast · Move→A · Move→start`, final = cast_pos. Post-cast contribution ≈ 0 (либо точно = 0 если pursuit_move_score вернёт 0 для no-displacement, либо negligibly small). Regression pin для line 25 / line 23 из `baseline_20260422_step1b.txt`.
+
+3. `cast_plus_approach_tail_earns_credit` — план `Cast · Move→closer_to_target`. Post-cast contribution положительный. Legitimate case preserved.
+
+4. `cast_kills_then_tail_no_credit` — `Cast(kills target) · Move→A`. `outcomes[cast_idx].killed` содержит target. Post-cast tail обнуляется через `goal_achieved` латч.
+
+5. Regression: `pure_move_chain_intent_equals_single_pursuit` (step-1b test) продолжает проходить — step-1b shortcut для pure-move не нарушен.
+
+### Acceptance
+
+1. `cargo test combat::ai::planning::scorer` — все тесты ok.
+2. `cargo test` — 0 failed.
+3. **Offline replay**: `cargo run --release --bin replay_ai_log -- logs/20260421T195030_*.jsonl logs/20260421T195059_*.jsonl --metrics-summary` — сравнить с `baseline_20260422_step1b.txt`. Ожидаемо: `repeated_tile_rate` и `post_cast_retreat_rate` упадут (эти метрики сейчас считают полный план; после фикса round-trip-tail планы получат меньший score и проиграют alt'ам).
+
+   **Реалистичный прогноз** (из анализа 2 боёв): из 6 round-trip случаев step-1c прямо закрывает ~1-2 (line 23). Остальные — sanity pipeline + tempo plateau, отдельные проблемы. Ждать `repeated_tile_rate < 5%` не следует; ожидание — ~12–15%.
+
+4. Обновить `docs/ai_rework_plan.md` — пометить шаг 1c как ✅ с divergence и метриками до/после.
+
+### Риск
+
+Низкий-средний. Правка локальная в одной функции. Основной риск — случайно обнулить legitimate "cast then reposition" через слишком агрессивный shortcut. Guard — тест `cast_plus_approach_tail_earns_credit`.
+
+---
+
+## Шаг 2. Replay checkpoint
+
+### Что делать
+
+1. Прогнать полный набор метрик шагов 1/1b на corpus'е.
+2. Записать результаты в `logs/baseline_20260422_step1b.txt` (формат как `baseline_20260422_step1.txt`).
+3. Принять решение о форме шага 3:
+   - Если `killable_non_offensive_rate < 5%` и `kill_conversion_rate > 70%` уже на пост-шаг-1b — шаг 3 делается **мягким** (bias weights, не prune).
+   - Если метрики ниже — шаг 3 делается **hard prune** как описано.
+
+Документировать выбор в commit message шага 3.
+
+### Acceptance
+
+Записанный файл + chosen вариант для шага 3 в PR description.
+
+---
+
+## Шаг 2.5. Schema v15 + R5 plumbing
+
+### Файлы / функции
+
+- `src/combat/ai/log.rs` — `SCHEMA_VERSION`, `PlanLogEntry`.
+- `src/bin/replay_ai_log.rs` — `LoggedPlan` struct, `evaluation_mode` plumbing.
+- `docs/ai-replay.md` — раздел Schema versions.
+
+### Что делать
+
+1. **Bump `SCHEMA_VERSION = 15`** в `log.rs`.
+2. Добавить в `PlanLogEntry`:
+   - `gate_applied: bool` (default false, serde).
+   - `gate_pruned_count: usize`.
+   - `survival_mode_active: bool`.
+   - `last_stand_active: bool`.
+   Либо одним структурированным полем `gate_telemetry: Option<GateTelemetry>`. Выбор — в зависимости от того, сколько полей в итоге набежит.
+3. **R5 (plumbing из `ai_rework.md §11` предыдущей итерации — оставалось открытым):** `replay_ai_log` должен читать `evaluation_mode` per-plan из логов и передавать в `apply_protect_self_mask`. Сейчас — заглушка, все планы `Default`. `LoggedPlan` добавить `#[serde(default)] evaluation_mode: EvaluationMode`. Передать в mask.
+4. Обновить `docs/ai-replay.md` — добавить v15 в Schema versions.
+
+### Тесты
+
+- `log.rs` unit-test: round-trip сериализации v15-entry → deserialize → поля сохранены.
+- `replay_ai_log`: на v14 логах `evaluation_mode` = `Default` для всех планов (serde default), поведение эквивалентно заглушке. На v15 — читает реальный mode.
+
+### Acceptance
+
+`cargo run --bin replay_ai_log -- logs/corpus_20260422/*.jsonl` на v14 логах даёт тот же output, что до bump'а. Новые логи пишут v15.
+
+### Риск
+
+Низкий. Schema bump обратно-совместим через `#[serde(default)]`.
+
+---
+
+## Шаг 3. Hard gate `FocusTarget(killable)` под survival-policy
+
+### Файл / функция
+
+- `src/combat/ai/planning/sanity.rs` — где применяется ProtectSelf mask (line 276+: `apply_protect_self_mask`). Killable gate живёт рядом, в том же конвейере.
+- `src/combat/ai/utility/ranking.rs:148` — `apply_adaptation`, вызывается до mask.
+
+### Что делать
+
+1. **Определить `has_real_kill_line(plans, intent_target, alpha)`**:
+   ```rust
+   fn has_real_kill_line(plans: &[TurnPlan], target: Entity, target_hp: f32, alpha: f32) -> bool {
+       plans.iter().any(|p| {
+           let f = &p.factors; // PlanFactors
+           f.kill_now >= 1.0 || f.damage_now_vs(target) >= target_hp * alpha
+       })
    }
    ```
-   Агрегация по плану — пока оставляем discounted sum как сейчас в `compute_plan_intent_sum` (`scorer.rs`).
-4. **Per-target filtering.** Для `FocusTarget{target}` damage-вклад должен считаться **только по этому target'у**. Это значит, что `PlanFactors.damage` перестаёт быть scalar'ом — становится `Vec<(Entity, f32)>` **или** (прагматичнее для MVP) мы добавляем в `OffensiveFactors` поле `target_entity: Option<Entity>` и при dot-product в `intent_score` фильтруем по совпадению. Предпочтительно второе — меньше инвазии.
-5. **Удалить ad-hoc формулы** в старом `intent_score` (`intent.rs:750-901`). Миграция тестов в `intent.rs::tests` — fixture'ы переписать на проверку `dot(impact, weights)`, а не на точные числа intent_score.
+   `alpha = 0.3` — фиксированный (см. `ai_rework.md §5.2`).
 
-**Проверка.** Corpus: `low_value_hit_rate` (committed melee с `damage_now/target_hp < 0.1`) падает с ~10% до ≤ 4%. CC/setup планы сохраняют ранги — smoke-тест на нескольких существующих encounter'ах.
+2. **Новая функция `apply_killable_gate`** в `sanity.rs`:
+   ```rust
+   pub fn apply_killable_gate(
+       plans: &mut [TurnPlan],
+       scores: &mut [f32],
+       modes: &[EvaluationMode],
+       intent: &TacticalIntent,
+       snap: &BattleSnapshot,
+   ) {
+       let TacticalIntent::FocusTarget { target } = intent else { return };
+       let Some(t) = snap.unit(*target) else { return };
+       // Only active in Default mode on entries where killable gate applies
+       let applicable = plans.iter().zip(modes).any(|(_, m)| matches!(m, EvaluationMode::Default));
+       if !applicable { return; }
+       if !has_real_kill_line(plans, *target, t.hp as f32, 0.3) { return; }
 
-**Риск.** Самая большая фаза по объёму кода (`intent.rs` — 1264 строки, refactor затронет ~300 из них). Разбить на две сессии: (a) IntentContract + таблица, (b) замена тела `intent_score`. Между — прогон тестов.
+       for (i, plan) in plans.iter().enumerate() {
+           if !matches!(modes[i], EvaluationMode::Default) { continue; }
+           if !plan_is_offensive_vs(plan, *target) {
+               scores[i] = f32::NEG_INFINITY;
+           }
+       }
+   }
+   ```
+   `plan_is_offensive_vs` — новая helper: план считается offensive против `target`, если содержит Cast offensive-ability с этим target ИЛИ `plan.factors.damage_vs_target ≥ hp·α`.
 
----
+3. **Вызов в pipeline.** В `pick_action` (или где сейчас `apply_protect_self_mask`) добавить **после** adaptation и **после** ProtectSelf mask:
+   ```rust
+   apply_adaptation(...);            // #1
+   apply_protect_self_mask(...);     // #2 (ε-gate будет в шаге 4)
+   apply_killable_gate(...);         // #3, только Default-planы
+   ```
 
-## Phase 5 — Ось `self_survival` + ProtectSelf contract (лечит S4)
+4. **Telemetry.** Заполнить `gate_applied`, `gate_pruned_count` для logging (schema v15 из шага 2.5).
 
-**Смысл.** Сейчас `plan_is_defensive` (`planning/sanity.rs:269`) признаёт план defensive по type-sniff'у action'а: move in safer direction **или** cast с `target_type ∈ {SingleAlly, Myself}`. Это пропускает `summon_storm_spirit` (target_type = Ground или Myself в зависимости от spec) и `EndTurn` (через пустой план). Rework: contract переформулирован как порог по оси `self_survival`. Любое действие, реально поднимающее ось, — defensive; не поднимающее — нет. Автоматически работает для новых способностей.
+### Тесты
 
-### Шаги
+- `sanity::tests::killable_gate_prunes_heal_when_kill_exists`: corpus с `FocusTarget(killable)`, один план melee-kill, один план heal. После gate: heal = `-inf`, melee сохраняется.
+- `sanity::tests::killable_gate_disabled_in_last_stand`: тот же setup, но `modes[i] = LastStand`. Heal НЕ prune'нут.
+- `sanity::tests::killable_gate_disabled_without_kill_line`: все планы weak-damage. Gate не срабатывает, heal сохраняется.
+- Regression на `apply_protect_self_mask` tests — не должны сдвинуться.
 
-1. **Ось `self_survival`.**
-   - Новый модуль `src/combat/ai/factors/survival.rs` с `pub(super) fn compute_self_survival(step, ctx) -> f32`. Формула (см. `ai_rework.md` §3.3):
-     - `+ heal_self / max_hp` (только если cast targets self);
-     - `+ armor_buff_self_duration × 3 / max_hp` (self-buff, свеча 3 хода usage-weight);
-     - `+ exit_aoo_ev / max_hp` — если move уходит из AoO-зон; опирается на `expected_aoo_damage` (`planning/sanity.rs`) — тот считает для plan-в-целом, нужна per-step версия или diff between «с move» / «без move»;
-     - `+ distance_from_threat_centroid × 0.1`, где `threat_centroid` — взвешенный центр по `InfluenceMaps.danger`;
-     - `− new_aoo_exposure / max_hp` — если move входит в новую AoO-зону.
-   - Plan-terminal aggregation (как tempo_gain).
-2. **`PlanFactors` / AXIS_FACTOR_WEIGHTS.** Новое поле `self_survival`. Колонка в `AXIS_FACTOR_WEIGHTS`: Tank 1.0, Melee 0.8, Ranged 0.8, Control 0.8, Support 1.2.
-3. **Переформулировать `plan_is_defensive`** (`planning/sanity.rs:269`).
-   - Тело: `plan.impact.self_survival ≥ SELF_SURVIVAL_EPSILON` (ε = 0.15 ≈ 15% max_hp).
-   - Параметр `defensive_margin` сохраняем или заменяем на ε.
-   - Все call-sites (`apply_protect_self_mask`, `apply_adaptation::any_defensive` в `planning/adaptation.rs:288`) автоматически подхватывают новую семантику.
-4. **IntentContract для ProtectSelf** (Phase 4) — добавить `hard_threshold: Some((Axis::SelfSurvival, ε))`. Это дублирует фильтр `plan_is_defensive`, но кодирует на уровне intent-контракта. Единый источник правды — один из двух (предпочту `plan_is_defensive`, если выбираю сразу; threshold в контракте — для будущего cleanup в Phase 6). MVP: держать в одном месте, выбрать — **`plan_is_defensive` через ось**, threshold в intent не подключать.
-5. **IntentContract для `FocusTarget(killable)`.**
-   - `select_intent` (`intent.rs:363`) возвращает `IntentReason::Killable{...}`, но сам `TacticalIntent` — обычный `FocusTarget{target}`.
-   - Либо: ввести новый вариант `TacticalIntent::KillTarget { target }` отдельно от `FocusTarget{target}` (чище, но больше кода); либо: IntentContract читает `IntentReason`, если в `Adaptation` данные передаются вниз. MVP: добавить вариант, миграция scorer'а и adaptation — минимальная.
-   - Новый контракт: `hard_threshold: Some((Axis::KillNow, 0.5))`, т.е. план с kill_now=0 при killable intent получает -∞ (как ProtectSelf без defensive). Это гарантирует, что burn не выиграет у burst-kill'а даже по сумме, если burst-kill в пуле есть. Если burst-kill нет — план с максимумом kill_promised побеждает.
-6. **Удалить старый `plan_is_defensive`-branch по target_type.** После того, как ось стабилизирована и threshold работает — убрать код проверки `matches!(def.target_type, SingleAlly|Myself)` в `sanity.rs:283-293`.
-7. **Тесты.**
-   - `sanity.rs::tests` — переписать fixture'ы: план с summon у актора HP=4/22 **не** проходит `plan_is_defensive` (self_survival ≈ 0 < ε). План с self-heal проходит. EndTurn (пустой план) — self_survival = 0 → не defensive (было defensive!). Это семантическое изменение, нужно прогнать на corpus, чтобы убедиться, что не сломало LastStand-fallback: если *никакой* план не defensive, adaptation flip'ает в LastStand (существующее поведение).
-   - `adaptation.rs::tests` — `ProtectSelfNoDefensive` тригерится при self_survival < ε во всех планах.
-   - `intent.rs::tests` — killable intent с burst-kill в пуле → kill_now-план выбирается. С burn только (kill_promised) → проходит, если hard_threshold приходит в killable только для burst.
+### Acceptance
 
-**Проверка.** `panic_leak_rate` ≤ 2% (было ~15%). Существующие ProtectSelf-тесты компилируются с обновлёнными fixture, все проходят. `killable_closure_rate` — без регрессии > 5% (в идеале даже растёт дальше, т.к. kill-threshold жёстче).
+См. [`ai_rework.md §5.2`](ai_rework.md#52-шаг-3-killable-gate--acceptance). Все conjuncts (AND), не OR.
 
-**Риск.** ε = 0.15 — число из воздуха. Калибровать на corpus: прогнать с разными значениями (0.05 / 0.1 / 0.15 / 0.2) и выбрать то, где `panic_leak_rate` минимален при стабильном `wasted_mp_ratio`. Многоосевой threshold (`self_survival + ally_rescue × 0.5`) — fallback, если ProtectSelf + heal-на-ранненого-ally-при-ущербе-себе начнёт резаться.
+### Риск
 
----
-
-## Phase 6 ✅ — Канонизация (выполнено 2026-04-21)
-
-Удалены старые оси `position`, `focus`, `risk`, дублировавшие сигналы `tempo_gain` и `self_survival`.
-
-Изменения:
-- `NUM_FACTORS = 10` (`damage, kill_now, kill_promised, cc, heal, intent, scarcity, tempo_gain, saturation, self_survival`)
-- `SCHEMA_VERSION = 14`: `raw_factors` сократился с 13 до 10 элементов; v1–v13 логи несовместимы по индексам (предупреждение в replay tool)
-- `evaluate_position` остаётся в `position_eval.rs` как вспомогательная функция для `sanity.rs` и `intent.rs` (Reposition)
-- `apply_reservation_adjustments` упрощена: убраны параметры `focus` и `position`, убраны focus-fire bonus и tile-collision penalty
-- Тесты обновлены, все проходят
+Средний. Gate может скрытно prune'нуть valid heal'ы. Guard: `false_gate_rate < 3%` и явный test для LastStand-случая.
 
 ---
 
-## Порядок и зависимости
+## Шаг 4. Split `self_survival` / `ally_rescue`
+
+### Файлы / функции
+
+- `src/combat/ai/factors/survival.rs` — сейчас вычисляет единую `self_survival` ось.
+- `src/combat/ai/factors/mod.rs:144+` — `NUM_FACTORS`, `*_IDX` константы.
+- `src/combat/ai/role.rs` — `AXIS_FACTOR_WEIGHTS` (добавить столбец для `ally_rescue`).
+- `src/combat/ai/intent.rs:910-925` — `TacticalIntent::ProtectSelf` intent_score.
+- `src/combat/ai/planning/sanity.rs:276+` — `apply_protect_self_mask`.
+- `src/combat/ai/log.rs` — schema v16.
+
+### Что делать
+
+1. **Факторный layout.** `NUM_FACTORS = 11`, добавить `ALLY_RESCUE_IDX = 10`. `PlanFactors::ally_rescue: f32`.
+2. **Вычисление.**
+   - `self_survival` — **только** self-directed: heal_self, armor_self, exit_aoo, distance_from_threat. Ally-эффекты из формулы убираются.
+   - `ally_rescue` — новая функция в `factors/survival.rs` (или отдельный файл `factors/ally_rescue.rs`): heal на союзника, buff на союзника, taunt-redirect. Агрегация — discounted sum.
+3. **`AXIS_FACTOR_WEIGHTS`** — колонка для `ally_rescue`: Tank 0.3, Melee 0.5, Ranged 0.3, Control 0.4, Support 1.2.
+4. **ProtectSelf ε-gate.** В `apply_protect_self_mask` проверка:
+   ```rust
+   if plan.factors.self_survival < EPS_SELF { scores[i] = f32::NEG_INFINITY; }
+   ```
+   `EPS_SELF = 0.15` (≈ 15% max_hp эквивалент). Ally-rescue **не зачитывается** в этот порог.
+5. **Schema v16 bump** — новое поле `ally_rescue: f32` в `PlanLogEntry::raw_factors`. Старые логи — `#[serde(default)]`, получают 0.
+6. **Замапить старые тесты.** `adaptation.rs` / `intent.rs` тесты на ProtectSelf → проверить, что self-heal планы проходят, ally-heal планы (без self-AoE) — fail gate.
+
+### Тесты
+
+- `factors/survival::tests::self_heal_raises_self_survival_only`: план с `Cast heal(self)`. `self_survival > 0`, `ally_rescue = 0`.
+- `factors/ally_rescue::tests::ally_heal_raises_ally_rescue_only`: план с `Cast heal(ally)`. `self_survival = 0`, `ally_rescue > 0`.
+- `factors/survival::tests::aoe_heal_self_in_zone_raises_both`: AoE heal, caster в зоне. Обе оси положительные.
+- `sanity::tests::protect_self_eps_gate_blocks_ally_only_heal`: ProtectSelf intent, план с `Cast heal(ally)`, `self_survival = 0`. Должен получить `-inf`.
+- `sanity::tests::protect_self_eps_gate_passes_self_heal`: ProtectSelf intent, план `Cast heal(self)`. `self_survival ≥ ε`, сохраняется.
+
+### Acceptance
+
+См. [`ai_rework.md §5.3`](ai_rework.md#53-шаг-4-selfally-split--acceptance).
+
+### Риск
+
+Высокий — трогает осевой layout, `AXIS_FACTOR_WEIGHTS`, intent.rs, sanity pipeline. Schema bump. Нужен полный replay-corpus перед merge. Guard: Δ метрик шагов 1–3 ≤ 5%.
+
+---
+
+## Шаг 5. Summon: saturation axis + intent-specific credit filter
+
+### Файлы / функции
+
+- `src/combat/ai/factors/saturation.rs` — расширение.
+- `src/combat/ai/factors/mod.rs` — возможно новая ось или расширение существующей.
+- `src/combat/ai/intent.rs:866-905` — `IntentWeights` / intent_score.
+- `src/combat/ai/planning/scorer.rs:311-352` — `plan_summon_bonus`.
+
+### Что делать
+
+1. **Saturation axis расширить на summon.** Сейчас `factors/saturation.rs:22-63` считает `buff_saturation_penalty` через `buff_class`. Добавить `summon_saturation_penalty` — `-0.4` за каждого живого summon'а того же template'а у актора. Либо вынести обе в общий `saturation_axis` value.
+   - Входы: `ability` (чтобы понять, что это `EffectDef::Summon { template, .. }`), `snap`, `caster: Entity`.
+   - Формула: `active_count = snap.units.filter(|u| u.summoner == Some(caster) && u.template == template && u.is_alive()).count()`. Penalty = `-0.4 × active_count`.
+2. **Intent-specific credit filter.** В `intent_score` (`intent.rs:850+`) добавить правило для `FocusTarget / ApplyCC / ProtectAlly`:
+   ```rust
+   if let Some((_, _, cast_target)) = cast {
+       if cast_target != intent.target().unwrap_or(Entity::PLACEHOLDER) {
+           // For these intents, cast must be vs intent target to earn intent credit
+           return 0.0;
+       }
+   }
+   ```
+   `SetupAOE`, `ProtectSelf`, `LastStand`, `Reposition` — правило **не** применяется (у них нет single-target или target ∈ allies).
+3. **`plan_summon_bonus` калибровка.** Сейчас `saturation_mult = 0.65^total_allies` — это global, не per-template. Оставить как coarse bound, добавить per-template через шаг 1 saturation axis (они умножатся).
+
+### Тесты
+
+- `factors/saturation::tests::summon_saturation_per_template`: актор с 2 живыми storm_spirit того же template → penalty = -0.8.
+- `factors/saturation::tests::different_templates_independent`: 2 storm_spirit + 1 другой template → penalty только от storm_spirit'ов.
+- `intent::tests::summon_no_credit_under_focus_target`: `FocusTarget(enemy_T)`, план `Cast summon_X → Move`. intent_score для Cast-шага = 0.
+- `intent::tests::summon_earns_credit_under_setup_aoe`: `SetupAOE`, план `Cast summon_X`. intent_score сохраняется.
+
+### Acceptance
+
+См. [`ai_rework.md §5.4`](ai_rework.md#54-шаг-5-summon--acceptance). Дополнительно — regression test для legitimate buff-стэка (haste + armor на одном target'е) не должен триггерить новые penalty.
+
+### Риск
+
+Средний. Правка в `intent_score` затрагивает большой объём поведения. Необходим полный replay-corpus.
+
+---
+
+## Порядок и параллелизм
 
 ```
-Phase 0 ─┬─ Phase 1 (tempo_gain) ─┐
-         │                        │
-         ├─ Phase 2 (kill split) ─┤
-         │                        ├─→ Phase 4 (intent refactor) ─→ Phase 5 (self_survival + ProtectSelf) ─→ Phase 6 (cleanup)
-         └─ Phase 3 (saturation) ─┘
+0 → 0.5 ──┐
+           ├─→ 1 ─→ 1b ─→ 1c ─→ 2 (checkpoint) ─→ 2.5 ─→ 3 ─→ 4 ─→ 5
 ```
 
-Phases 1–3 независимы между собой — можно параллелить по отдельным веткам. Phase 4 требует осей из 1–3. Phase 5 требует Phase 4 (intent contract). Phase 6 — после стабильной Phase 5.
+- **Последовательность обязательна.** Шаги 3–5 зависят от стабилизированного tempo (шаги 1/1b/1c) и schema v15 (шаг 2.5).
+- **Параллельно можно:** пока 1 в измерении, готовить 2.5 (schema bump) как отдельный PR.
+- **Не спешить с 4 и 5.** Между ними прогнать corpus минимум один раз, убедиться что шаг 3 стабилен.
+- **Phase 7 — параллельная опция** (см. ниже). Может идти в own worktree пока текущая итерация завершается.
 
 ---
 
-## Что **не** трогаем
+## Phase 7 (следующая итерация). Prefix + FutureValue scoring
 
-- `src/combat/ai/trade.rs` — `trade_delta`, `trade_score`. Изолированная система, интегрирована через `plan_trade_bonus` (`scorer.rs:351`). Не пересекается с импакт-осями.
-- `src/combat/ai/planning/adaptation.rs::apply_adaptation` — сам layer и его fact-triggers (`ExpectedSelfLethal`, `ProtectSelfFutile`) остаются. Только условие `any_defensive` переформулируется через ось в Phase 5.
-- `src/combat/ai/intent.rs::select_intent` — логика выбора intent. Меняем только **оценку** плана под выбранным intent.
-- `src/combat/ai/planning/sanity.rs::sanity_adjust_plans` — multiplicative penalty pipeline, не value-function. Не трогаем.
-- `src/combat/ai/difficulty.rs` — новые weights и ε жёстко зашиваем в код первые несколько недель; в difficulty-profile выносим только если появится сигнал, что разным уровням нужны разные значения.
+**Статус**: предложение, не начато. Концептуально — замена фундамента plan scoring'а, не инкрементальная правка.
+
+### Мотивация
+
+Из анализа `baseline_20260422_step1b.txt`: beam search log'ит 3+ шаговые планы, но committed_decision — это только prefix (`CastInPlace` / `MoveAndCast` / `MoveOnly`). Post-prefix tail **физически не исполняется**, но смещает scoring → phantom-tail bias. Step-1c адресует это локально для intent_sum, но:
+
+- `tempo_gain` всё ещё смотрит на `plan.final_pos` (включая phantom tail).
+- `self_survival` — то же самое.
+- Plateau от `pursuit_move_score` step-function (`0.8` для всего attack range) даёт кучу одинаково-оценённых планов, которые разрешаются через top-K RNG.
+
+Architecturally правильное решение — отказаться от скоринга полного beam-плана и перейти на:
+
+```
+Score(plan) = PrefixScore(committed_prefix) + γ · FutureValue(committed_state)
+```
+
+где `FutureValue` — value-of-state оценка (cheap one-ply surrogate от committed_pos: best future position, best future attack, mobility), не зависящая от конкретного хвоста.
+
+### Зачем отдельной итерацией
+
+Это НЕ замена step-1c. Step-1c — 50 строк, точечно чинит один symptom. Phase 7 — замена pipeline:
+
+- Перекалибровка всех `AXIS_FACTOR_WEIGHTS` под новую декомпозицию.
+- Schema bump (raw_factors layout меняется).
+- Перепроектирование `sanity_adjust_plans` + `apply_protect_self_mask` + `apply_killable_gate` под prefix-based signals.
+- Все текущие тесты, пиннящие raw_factors значения, ломаются.
+- Новый набор метрик: `committed_decision_quality` и т.п. (текущие `repeated_tile_rate` теряют смысл, если tail не скорится).
+
+### Предварительный scope
+
+- `future_value_from_committed_state(actor, committed_pos, snap, maps)` — использует существующие `evaluate_position` (position_eval.rs), `target_priority`, `score_action`. Bfs по reachable_next_turn от committed_pos; max/avg по future-position / future-attack / mobility.
+- `PrefixScore` — то, что истинно после committed action: damage_now/kill_now/cc/heal из actual Cast-outcome + position-eval в committed_pos.
+- `γ = 0.25` как starting point, λ_safe/press/mob/setup — перекалибровать через replay-corpus.
+- Phase 6 решение об удалении position/risk/focus axes **не отменяется** — `evaluate_position` используется как internal helper в FutureValue, не как самостоятельная ось.
+
+### Preconditions (что должно быть сделано ДО Phase 7)
+
+1. Текущая итерация (step-1 → 1c → 2 → 3 → 4 → 5) завершена и задеплоена.
+2. **Offline prototype**: написать `future_value_from_committed_state` как pure function, replay на corpus offline (без изменения production scoring), сравнить ranking с текущим. Если FutureValue даёт measurable differentiation в plateau-tied случаях — есть смысл. Если нет — revisit подход.
+3. Замер plateau на corpus: сколько top-K entries имеют `max - min < ε`. Если <5% — Phase 7 имеет низкий приоритет, phantom-tail достаточно лечится через step-1c + точечные фиксы.
+
+### Риск
+
+Очень высокий. Затрагивает основной scoring pipeline, schema, все sanity-gates, все calibrated weights. В одном PR не делается — нужна разбивка минимум на 3-4 шага с своими checkpoint'ами.
+
+### Документация
+
+Детальный design-doc пишется отдельно (`docs/ai_scoring_prefix_plus_future.md`), когда итерация будет готова стартовать. В этом плане — только stub для tracking.
 
 ---
 
-## Что делать **прямо сейчас**
+## Вне scope
 
-1. `git checkout -b ai/axis-impact` от `main`.
-2. Phase 0: расширить `replay_ai_log`, собрать corpus, зафиксировать baseline. PR `ai/axis-impact-phase0`.
-3. Phase 1: `tempo_gain` MVP. PR `ai/axis-impact-phase1`. Ожидание: 1–2 дня реализации + 1 день на калибровку весов на corpus.
-4. После Phase 1 — пересмотр плана: если corpus показывает, что S3/S5 выражены слабее, чем казалось по 3 логам — возможно, перепорядочить 2/3 или пропустить одну из фаз на MVP.
+- Полная канонизация факторов (следующая итерация).
+- Marginal board value для summon'ов (технический долг).
+- Trade economy, difficulty knobs, sanity pipeline calibration — изолированы.
+- Intent selection (`select_intent`) — меняем только scoring, не выбор.
+- Plateau-ties от step-function `pursuit_move_score` (0.8 flat в attack range) — отдельный bug, не scope текущей итерации. Возможно лечится через Phase 7 FutureValue differentiation или через smooth closing в `pursuit_move_score`. Пока зафиксировано в `logs/baseline_20260422_step1b.txt` как известный артефакт.
+
+Детали — [`ai_rework.md §6`](ai_rework.md#6-что-вне-scope).

@@ -84,7 +84,14 @@ use crate::game::hex::Hex;
 ///   axes. `raw_factors` shrinks to 10 elements. Indices 5–9 now map to
 ///   intent/scarcity/tempo_gain/saturation/self_survival. **Not backward-
 ///   compatible** — old v1–v13 logs cannot be replayed with v14 raw_factors.
-pub const SCHEMA_VERSION: u32 = 14;
+/// - v14 → v15: added 4 entry-level telemetry fields for future killable gate
+///   (step 3 of the rework): `gate_applied`, `gate_pruned_count`,
+///   `survival_mode_active`, `last_stand_active`. v14 logs deserialize via
+///   `#[serde(default)]` → false / 0 for new fields. Until step 3 ships,
+///   `gate_applied` and `gate_pruned_count` are always stub values
+///   (false / 0); `last_stand_active` and `survival_mode_active` are
+///   derived at log-time from the plan pool and the intent selection kind.
+pub const SCHEMA_VERSION: u32 = 15;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -158,6 +165,19 @@ pub struct AiLogEntry<'a> {
     pub intent: IntentBlock<'a>,
     pub plans: Vec<PlanLogEntry<'a>>,
     pub committed_decision: DecisionBlock,
+    /// True when the killable gate (step-3) fired on this entry. Stub
+    /// `false` until step-3 ships; then populated by `apply_killable_gate`
+    /// caller via `build_entry`.
+    pub gate_applied: bool,
+    /// Number of plans the gate masked to `-inf`. Stub `0` until step-3 ships.
+    pub gate_pruned_count: usize,
+    /// True if the actor is in a survival regime this decision — intent
+    /// is `ProtectSelf` or selection_kind indicates panic fallback. Derived
+    /// in `build_entry` from the intent block; stable across log versions.
+    pub survival_mode_active: bool,
+    /// True if any plan in the pool has `evaluation_mode == LastStand`.
+    /// Derived in `build_entry` from the plan_entries slice.
+    pub last_stand_active: bool,
 }
 
 #[derive(Serialize)]
@@ -436,7 +456,17 @@ pub fn build_entry<'a>(
     plans_shown: usize,
     plan_entries: Vec<PlanLogEntry<'a>>,
     decision: &AiDecision,
+    gate_applied: bool,
+    gate_pruned_count: usize,
 ) -> AiLogEntry<'a> {
+    let survival_mode_active = matches!(intent.intent, TacticalIntent::ProtectSelf)
+        || intent.selection_kind.starts_with("protect_self")
+        || intent.selection_kind == "last_stand";
+
+    let last_stand_active = plan_entries
+        .iter()
+        .any(|p| matches!(p.evaluation_mode, EvaluationMode::LastStand));
+
     AiLogEntry {
         schema_version: SCHEMA_VERSION,
         plan_id,
@@ -456,6 +486,10 @@ pub fn build_entry<'a>(
         intent,
         plans: plan_entries,
         committed_decision: DecisionBlock::from(decision),
+        gate_applied,
+        gate_pruned_count,
+        survival_mode_active,
+        last_stand_active,
     }
 }
 
@@ -601,6 +635,52 @@ mod tests {
         let s = p.to_string_lossy();
         assert!(s.starts_with("logs"), "prefix logs/: {s}");
         assert!(s.ends_with("20260419T143022_main_scene1_goblin_camp.jsonl"), "{s}");
+    }
+
+    #[test]
+    fn entry_serializes_v15_telemetry_fields() {
+        // Minimal AiLogEntry constructed directly to verify new v15 fields
+        // appear in the JSON output with the expected types. AiLogEntry has no
+        // Deserialize derive (lifetime refs), so we assert via serde_json::Value.
+        let snap = BattleSnapshot::default();
+        let intent_val = TacticalIntent::ProtectSelf;
+        let reason_val = IntentReason::NoRuleDefault;
+        let entry = AiLogEntry {
+            schema_version: SCHEMA_VERSION,
+            plan_id: 0,
+            timestamp_ms: 0,
+            decision_time_ms: 0,
+            round: 1,
+            actor_id: 0,
+            actor_name: "test",
+            actor_pos: [0, 0],
+            actor_ap: 2,
+            actor_max_ap: 2,
+            actor_mp: 3,
+            actor_max_mp: 3,
+            plans_evaluated: 0,
+            plans_shown: 0,
+            snapshot: &snap,
+            intent: IntentBlock {
+                intent: &intent_val,
+                selection_kind: "protect_self",
+                reason_text: "",
+                reason: &reason_val,
+            },
+            plans: vec![],
+            committed_decision: DecisionBlock::EndTurn,
+            gate_applied: true,
+            gate_pruned_count: 3,
+            survival_mode_active: true,
+            last_stand_active: false,
+        };
+        let json = serde_json::to_string(&entry).expect("serialize");
+        let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        assert_eq!(v["schema_version"], 15);
+        assert_eq!(v["gate_applied"], true);
+        assert_eq!(v["gate_pruned_count"], 3);
+        assert_eq!(v["survival_mode_active"], true);
+        assert_eq!(v["last_stand_active"], false);
     }
 
     #[test]

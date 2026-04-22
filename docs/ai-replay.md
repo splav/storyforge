@@ -51,8 +51,24 @@ plans with **raw** + normalised factors, and the committed decision.
   so older v1-v5 tools that only read `score` still see a meaningful
   number. Verbose mode tags adapted plans with
   `[adapted: last_stand ← <reason>]`.
+- **v15** — 4 entry-level telemetry fields for the upcoming killable gate
+  (step 3 of AI rework):
+  - `gate_applied: bool` — was the killable gate triggered? (stub `false`
+    until step 3 ships)
+  - `gate_pruned_count: usize` — how many plans the gate masked to -inf
+    (stub `0` until step 3 ships)
+  - `survival_mode_active: bool` — derived at log-time: intent is
+    `ProtectSelf` or `selection_kind` signals panic/last_stand
+  - `last_stand_active: bool` — derived at log-time: any plan in the pool
+    has `evaluation_mode == LastStand`
 
-The replay accepts schema 1–10; newer writes are rejected with a warning.
+  v14 logs deserialize with these fields defaulting to `false`/`0` via
+  `#[serde(default)]`. No impact on `raw_factors` layout — bump is
+  orthogonal to the Phase 6 axis cleanup.
+
+The replay accepts schema 1–15; newer versions are rejected with a warning.
+Schemas v1–v13 produce an additional warning because their `raw_factors`
+layout differs from v14 (three axes removed in Phase 6 cleanup).
 
 ## Running
 
@@ -77,6 +93,12 @@ Flags:
 - `--metrics-summary` — aggregate regression metrics across all processed
   files and print a summary block at the end. Use with a corpus glob to
   capture a baseline: `replay_ai_log --metrics-summary logs/corpus/*.jsonl > baseline.txt`.
+- `--campaign <dir>` / `--scenario <dir>` — explicit content override paths
+  passed to `ContentView::load_layered`. By default the tool infers the
+  campaign and scenario dirs from the log filename
+  (`<timestamp>_<campaign>_<scenario>_<encounter>.jsonl`) by scanning
+  `assets/data/campaigns/`. Falls back to global-only loading
+  (`assets/data`) with a warning if inference fails.
 
 Output markers:
 
@@ -159,17 +181,32 @@ Phase 1 target: no regression.
 
 ### `panic_leak_rate`
 
-Among entries where the chosen plan's `adaptation_reason ∈
-{protect_self_no_defensive, protect_self_futile}` (i.e. the AI entered the
-ProtectSelf contract), the fraction where the committed action is
-**non-defensive**: not `EndTurn`, not `MoveOnlyRetreat`, not a cast targeting
-self or an ally.
+Among entries where **both** conditions hold:
+
+1. `intent == ProtectSelf` (the actor was in a panic/survival mode), and
+2. The chosen plan's `evaluation_mode == Default` (the ProtectSelf mask was
+   active — it was *not* overridden by adaptation into `LastStand`),
+
+the fraction where the committed action is **non-defensive**: not `EndTurn`,
+not `MoveOnlyRetreat`, not a cast targeting self or an ally.
 
 ```
 panic_leak_rate = leaked_panic / total_panic
+
+where:
+  total_panic  = entries with intent=ProtectSelf AND chosen evaluation_mode=Default
+  leaked_panic = … AND committed action is non-defensive
 ```
 
-Baseline: **0.0 %** (0/0 — no adaptation-triggered panic entries in current
+**LastStand entries are excluded from the denominator.** When adaptation
+transitions all plans to `LastStand`, the actor deliberately commits the most
+useful final action regardless of whether it is defensive — that is the
+designed behaviour, not a mask leak.
+
+Entries from schemas without `evaluation_mode` (v1–v5) default to `Default`
+via `#[serde(default)]` and are included; a warning is printed for those logs.
+
+Baseline: **0.0 %** (0/0 — no Default-mode ProtectSelf entries in current
 corpus). Phase 5 target: ≤ 2 %.
 
 ### `killable_closure_rate`
@@ -182,19 +219,144 @@ committed prefix scored an immediate kill signal.
 killable_closure_rate = closed / total_killable
 ```
 
-Baseline: **0.0 %** (0/7). Phase 2 target: ≥ 85 %.
+Baseline: **36.7 %** (18/49). Phase 2 target: ≥ 85 %.
+
+### `repeated_tile_rate`
+
+Among chosen plans that include ≥1 Move step, the fraction where at least one
+tile is visited more than once across all Move paths (starting tile included).
+Captures zigzag / return-trip movement where the actor revisits a cell it
+already occupied earlier in the same plan.
+
+```
+repeated_tile_rate = plans_with_repeated_tile / plans_with_moves
+```
+
+Baseline (`logs/baseline_20260422.txt`, 15 боёв, 294 plans-with-moves): **29.3 %**.
+Phase 1 (tempo) target: **< 5 %**.
+
+### `zero_net_move_rate`
+
+Among chosen plans that include ≥1 Move step, the fraction where the plan's
+`final_pos` equals the actor's starting position (round-trip displacement = 0).
+
+```
+zero_net_move_rate = plans_ending_at_start / plans_with_moves
+```
+
+Baseline: **17.3 %** (51/294). Phase 1 target: **< 1 %**.
+
+### `post_cast_retreat_rate`
+
+Among chosen plans where a Cast step is followed by ≥1 Move step (post-cast
+move), the fraction where:
+
+- the post-cast move revisits ≥1 tile from the pre-cast visit set (including
+  the starting tile), **and**
+- the net displacement from start at plan end ≤ the displacement at cast time
+  (the post-cast move made no net progress away from the starting position).
+
+```
+post_cast_retreat_rate = post_cast_retreat_plans / plans_with_post_cast_move
+```
+
+Baseline: **33.3 %** (22/66). Phase 1 target: **↓ ≥ 70 %** from baseline (i.e. ≤ ~10 %).
+
+### `killable_non_offensive_rate`  *(step-2 checkpoint)*
+
+Among entries where `selection_kind == "killable"` AND `intent == FocusTarget`
+AND ≥1 plan in the pool has a **real kill-line**
+(`kill_now ≥ 1.0` OR `damage ≥ target_hp × 0.3`, α from `docs/ai_rework.md §5.2`),
+the fraction where the **chosen plan is non-offensive** — it contains no Cast
+step directed at the intent target (including the case where the chosen plan has
+no Casts at all).
+
+```
+killable_non_offensive_rate = killable_non_offensive / killable_with_kill_line_total
+```
+
+Step-2 target: **< 2 %**. If already < 5 % post-step-1b → step-3 uses bias
+weights rather than hard prune.
+
+### `killable_wrong_target_rate`  *(step-2 checkpoint)*
+
+Subset of the same denominator (`killable_with_kill_line_total`) where the
+chosen plan **has** a Cast step but none of them target the intent target (i.e.
+the AI cast something but misdirected it at a different unit).
+
+```
+killable_wrong_target_rate = killable_wrong_target / killable_with_kill_line_total
+```
+
+Step-2 target: **< 5 %**.
+
+### `kill_conversion_rate`  *(step-2 checkpoint)*
+
+Among the same denominator, the fraction where the chosen plan's
+`raw_factors[KILL_NOW_IDX] ≥ 1.0` — the target was actually killed this turn
+(kill_now normalisation guarantees ≥ 1.0 means guaranteed kill).
+
+```
+kill_conversion_rate = killable_kill_converted / killable_with_kill_line_total
+```
+
+Step-2 target: **> 85 %**. If already > 70 % post-step-1b → step-3 can be
+soft (bias weights); below that → hard prune required.
+
+### `phantom_tail_chosen_rate`
+
+Among chosen plans that contain ≥1 Cast step, the fraction with a
+**post-cast Move step** (a Move step after the first Cast in `plan.steps`).
+Such Move steps are *phantom tail*: the committed prefix is `Cast` or
+`MoveThenCast`, so the trailing Move never executes this tick.
+
+```
+phantom_tail_chosen_rate = phantom_tail_chosen / chosen_with_cast_total
+```
+
+High values mean the beam frequently selects plans with phantom lookahead.
+This is not harmful by itself — see `phantom_tail_flips_committed_rate` for
+whether the tail actually distorts the committed action.
+
+### `phantom_tail_flips_committed_rate`
+
+Among chosen plans with a phantom tail (numerator of `phantom_tail_chosen_rate`),
+the fraction where the **best tailless alternative** in the scored pool commits a
+**different action** than the chosen plan.
+
+```
+phantom_tail_flips_committed_rate = phantom_tail_flips_committed / phantom_tail_chosen
+```
+
+"Best tailless alt": the highest-*logged*-score plan that has no post-cast Move
+tail and is not the chosen plan itself. "Different action" means the two plans'
+`committed_prefix()` results differ in at least one of: action kind (EndTurn /
+MoveOnly / Cast / MoveThenCast), move destination, ability, or target.
+
+`CommittedActionKey` is extracted via `TurnPlan::committed_prefix()` — the same
+production source of truth used by the live picker — so the comparison is
+identical to what the game would consider when issuing the `AiDecision`.
+
+- **0 %** — phantom tail is purely cosmetic; same prefix would have been chosen
+  regardless.
+- **> 0 %** — phantom tail scoring is influencing which committed action wins.
+  Investigate whether beam scoring should be gated to the committed prefix.
+
+Baseline (`logs/`, 2 бои, 23 entries): **phantom_tail_chosen_rate = 33.3 %** (4/12),
+**phantom_tail_flips_committed = 75.0 %** (3/4). High flip rate signals the
+phantom tail is non-cosmetic and actively shifts committed actions on these logs.
 
 ### Generating / comparing a baseline
 
 ```bash
 # Save baseline from the current corpus:
-cargo run --bin replay_ai_log -- --metrics-summary logs/corpus_20260421/*.jsonl \
-  > logs/baseline_20260421.txt
+cargo run --bin replay_ai_log -- --metrics-summary logs/corpus_20260422/*.jsonl \
+  > logs/baseline_20260422.txt
 
 # After a code change, compare against the saved baseline:
-cargo run --bin replay_ai_log -- --metrics-summary logs/corpus_20260421/*.jsonl \
+cargo run --bin replay_ai_log -- --metrics-summary logs/corpus_20260422/*.jsonl \
   > logs/candidate.txt
-diff logs/baseline_20260421.txt logs/candidate.txt
+diff logs/baseline_20260422.txt logs/candidate.txt
 ```
 
 Entries from schemas without the required fields (e.g. v1–v5 lack
@@ -236,7 +398,7 @@ is needed.
   will differ from the game's. Log the config snapshot too if this becomes
   relevant.
 - **Schema strictness.** Entries outside the supported range (currently
-  v1–v5) are skipped with a warning. Bump + migration required when adding
+  v1–v15) are skipped with a warning. Bump + migration required when adding
   or removing fields.
 - **Beam-pruned plans.** The log records **only the top-N plans kept by the
   beam**, so plans dropped earlier are invisible. If the intent phase

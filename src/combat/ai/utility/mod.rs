@@ -355,9 +355,12 @@ fn write_decision_log(
         reason_text: &reason_text,
         reason: intent_reason,
     };
+    // gate_applied / gate_pruned_count are stubs until step-3 (killable gate) ships.
     let entry = log::build_entry(
         plan_id, decision_time_ms, active, actor_name, snap, intent_block,
         plans.len(), shown, plan_entries, decision,
+        false, // gate_applied — step-3 will supply the real value
+        0,     // gate_pruned_count — step-3 will supply the real value
     );
     if let Err(e) = logger.write_entry(&entry) {
         warn!("AI log write failed: {}", e);

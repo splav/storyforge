@@ -15,6 +15,7 @@
 //!
 //! Usage: `cargo run --bin replay_ai_log -- logs/<file>.jsonl [--verbose]`.
 
+use std::cmp::Reverse;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
@@ -22,11 +23,11 @@ use bevy::prelude::Entity;
 use serde::Deserialize;
 
 use storyforge::combat::ai::difficulty::DifficultyProfile;
-use storyforge::combat::ai::factors::{PlanFactors, KILL_NOW_IDX};
+use storyforge::combat::ai::factors::{PlanFactors, DAMAGE_IDX, KILL_NOW_IDX};
 use storyforge::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::planning::{
-    apply_protect_self_mask, finalize_scores, pick_best_plan, sanity_adjust_plans, PlanStep,
-    StepOutcome, TurnPlan,
+    apply_protect_self_mask, finalize_scores, pick_best_plan, sanity_adjust_plans, CommittedPrefix,
+    PlanStep, StepOutcome, TurnPlan,
 };
 use storyforge::combat::ai::role::AxisProfile;
 use storyforge::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -60,6 +61,19 @@ struct LogEntry {
     intent: IntentBlock,
     plans: Vec<PlanLog>,
     committed_decision: serde_json::Value,
+    /// v15+: killable gate telemetry. v14 and earlier default to false/0.
+    #[serde(default)]
+    #[allow(dead_code)]
+    gate_applied: bool,
+    #[serde(default)]
+    #[allow(dead_code)]
+    gate_pruned_count: usize,
+    #[serde(default)]
+    #[allow(dead_code)]
+    survival_mode_active: bool,
+    #[serde(default)]
+    #[allow(dead_code)]
+    last_stand_active: bool,
 }
 
 #[derive(Deserialize)]
@@ -195,7 +209,9 @@ struct Metrics {
     move_only_total: usize,
     /// … and destination == actor's starting position (displacement = 0).
     move_only_wasted: usize,
-    /// Chosen plan's `adaptation_reason ∈ {ProtectSelfNoDefensive, ProtectSelfFutile}`.
+    /// Intent == ProtectSelf AND chosen plan's evaluation_mode == Default
+    /// (mask was applied; LastStand entries are excluded — their non-defensive
+    /// commit is by design, not a leak).
     panic_total: usize,
     /// … and committed action is non-defensive (attack / move-closer).
     panic_leaked: usize,
@@ -203,6 +219,37 @@ struct Metrics {
     killable_total: usize,
     /// … and chosen plan's `raw_factors[KILL_NOW_IDX] > 0`.
     killable_closed: usize,
+    /// Chosen plans that contain ≥1 Move step.
+    plans_with_moves: usize,
+    /// … and ≥1 tile is visited more than once across all Move paths (including start).
+    repeated_tile_plans: usize,
+    /// … (among plans_with_moves) and final_pos == actor start pos.
+    zero_net_move_plans: usize,
+    /// Chosen plans that have a Cast step followed by ≥1 Move step.
+    plans_with_post_cast_move: usize,
+    /// … and the post-cast move revisits a pre-cast tile AND net displacement ≤ pre-cast.
+    post_cast_retreat_plans: usize,
+
+    // ── Killable kill-line metrics (step-2 checkpoint) ───────────────────────
+    /// Entries where intent=FocusTarget(killable) AND ≥1 plan in the pool has a
+    /// "real kill-line" (kill_now≥1 OR damage_vs_target≥target_hp·α). Denominator
+    /// for killable_non_offensive_rate / wrong_target_rate / kill_conversion_rate.
+    /// See `docs/ai_rework.md §5.2` for threshold rationale.
+    killable_with_kill_line_total: usize,
+    /// … and chosen plan is non-offensive (no Cast vs intent target).
+    killable_non_offensive: usize,
+    /// … and chosen plan is offensive (has Cast) but no Cast targets intent.target.
+    killable_wrong_target: usize,
+    /// … and chosen plan's `raw_factors[KILL_NOW_IDX] >= 1.0` (target actually killed).
+    killable_kill_converted: usize,
+
+    // ── Phantom-tail metrics ──────────────────────────────────────────────────
+    /// Chosen plans that contain ≥1 Cast step (denominator for phantom_tail_chosen_rate).
+    chosen_with_cast_total: usize,
+    /// … and have a post-cast Move step (phantom tail — not committed this tick).
+    phantom_tail_chosen: usize,
+    /// Of phantom-tail choices: best tailless alt has a DIFFERENT committed action key.
+    phantom_tail_flips_committed: usize,
 }
 
 impl Metrics {
@@ -225,7 +272,7 @@ impl Metrics {
             0.0
         };
         println!(
-            "panic_leak_rate:      {:5.1}%  ({}/{} ProtectSelf adaptations → non-defensive commit)",
+            "panic_leak_rate:      {:5.1}%  ({}/{} ProtectSelf+Default-mode entries → non-defensive commit)",
             leak, self.panic_leaked, self.panic_total,
         );
 
@@ -238,7 +285,148 @@ impl Metrics {
             "killable_closure_rate:{:5.1}%  ({}/{} killable intents → kill factor > 0)",
             closure, self.killable_closed, self.killable_total,
         );
+
+        let repeated = if self.plans_with_moves > 0 {
+            self.repeated_tile_plans as f64 / self.plans_with_moves as f64 * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "repeated_tile_rate:   {:5.1}%  ({}/{} plans-with-moves revisit ≥1 tile)  [target <5%]",
+            repeated, self.repeated_tile_plans, self.plans_with_moves,
+        );
+
+        let zero_net = if self.plans_with_moves > 0 {
+            self.zero_net_move_plans as f64 / self.plans_with_moves as f64 * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "zero_net_move_rate:   {:5.1}%  ({}/{} plans-with-moves end at start pos)  [target <1%]",
+            zero_net, self.zero_net_move_plans, self.plans_with_moves,
+        );
+
+        let retreat = if self.plans_with_post_cast_move > 0 {
+            self.post_cast_retreat_plans as f64 / self.plans_with_post_cast_move as f64 * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "post_cast_retreat_rate:{:4.1}%  ({}/{} post-cast-move plans retreat & revisit tile)  [target ↓≥70%]",
+            retreat, self.post_cast_retreat_plans, self.plans_with_post_cast_move,
+        );
+
+        // ── Killable kill-line metrics (step-2 checkpoint) ───────────────────
+        let killable_denom = self.killable_with_kill_line_total;
+        let non_off = pct(self.killable_non_offensive, killable_denom);
+        println!(
+            "killable_non_offensive_rate:  {:5.1}%  ({}/{} killable+kill_line → chosen not offensive vs target)  [target <2%]",
+            non_off, self.killable_non_offensive, killable_denom,
+        );
+        let wrong_tgt = pct(self.killable_wrong_target, killable_denom);
+        println!(
+            "killable_wrong_target_rate:   {:5.1}%  ({}/{} killable+kill_line → offensive but wrong target)  [target <5%]",
+            wrong_tgt, self.killable_wrong_target, killable_denom,
+        );
+        let conv = pct(self.killable_kill_converted, killable_denom);
+        println!(
+            "kill_conversion_rate:         {:5.1}%  ({}/{} killable+kill_line → kill_now≥1)  [target >85%]",
+            conv, self.killable_kill_converted, killable_denom,
+        );
+
+        // ── Phantom-tail metrics ──────────────────────────────────────────────
+        let phantom_rate = pct(self.phantom_tail_chosen, self.chosen_with_cast_total);
+        println!(
+            "phantom_tail_chosen_rate:     {:5.1}%  ({}/{} chosen-with-cast plans have post-cast Move tail)",
+            phantom_rate, self.phantom_tail_chosen, self.chosen_with_cast_total,
+        );
+        let flip_rate = pct(self.phantom_tail_flips_committed, self.phantom_tail_chosen);
+        println!(
+            "phantom_tail_flips_committed: {:5.1}%  ({}/{} phantom-tail choices → best tailless alt has different committed action)",
+            flip_rate, self.phantom_tail_flips_committed, self.phantom_tail_chosen,
+        );
     }
+}
+
+fn pct(num: usize, denom: usize) -> f64 {
+    if denom > 0 { num as f64 / denom as f64 * 100.0 } else { 0.0 }
+}
+
+// ── Phantom-tail helpers ─────────────────────────────────────────────────────
+
+/// True if `plan` has at least one Move step AFTER the first Cast step.
+fn has_post_cast_tail(plan: &PlanLog) -> bool {
+    let Some(cast_idx) = plan.steps.iter().position(|s| matches!(s, PlanStep::Cast { .. })) else {
+        return false;
+    };
+    plan.steps[cast_idx + 1..].iter().any(|s| matches!(s, PlanStep::Move { .. }))
+}
+
+/// Comparable key for the *committed prefix* of a plan.
+///
+/// Uses the production `TurnPlan::committed_prefix()` as the single source of
+/// truth (see `src/combat/ai/planning/types.rs`). Two plans with the same key
+/// execute the same action this tick, so differences in their phantom tails are
+/// purely cosmetic.
+///
+/// NOTE: `CommittedPrefix` is lifetime-bound and has no `PartialEq`/`Eq`, so
+/// we convert it to an owned, comparable key here — without touching production
+/// types.
+#[derive(PartialEq, Eq, Debug)]
+enum CommittedActionKey {
+    EndTurn,
+    MoveOnly { dest: Hex },
+    CastInPlace {
+        ability: storyforge::core::AbilityId,
+        target: Entity,
+        target_pos: Hex,
+    },
+    MoveThenCast {
+        dest: Hex,
+        ability: storyforge::core::AbilityId,
+        target: Entity,
+        target_pos: Hex,
+    },
+}
+
+impl CommittedActionKey {
+    fn from_prefix(p: CommittedPrefix<'_>) -> Self {
+        match p {
+            CommittedPrefix::EndTurn => Self::EndTurn,
+            CommittedPrefix::MoveOnly { path } => Self::MoveOnly {
+                dest: path.last().copied().unwrap_or(Hex::ZERO),
+            },
+            CommittedPrefix::Cast { ability, target, target_pos } => Self::CastInPlace {
+                ability: ability.clone(),
+                target,
+                target_pos,
+            },
+            CommittedPrefix::MoveThenCast { path, ability, target, target_pos } => {
+                Self::MoveThenCast {
+                    dest: path.last().copied().unwrap_or(Hex::ZERO),
+                    ability: ability.clone(),
+                    target,
+                    target_pos,
+                }
+            }
+        }
+    }
+}
+
+/// Build a lightweight `TurnPlan` from a `PlanLog` and extract its
+/// `CommittedActionKey`. The plan's `partial_score` and `sim_snapshots`
+/// are irrelevant for `committed_prefix()`, so we use neutral defaults.
+fn committed_action_key(plan: &PlanLog) -> CommittedActionKey {
+    let tp = TurnPlan {
+        steps: plan.steps.clone(),
+        final_pos: Hex::new(plan.final_pos[0], plan.final_pos[1]),
+        residual_ap: plan.residual_ap,
+        residual_mp: plan.residual_mp,
+        outcomes: plan.outcomes.clone(),
+        partial_score: 0.0,
+        sim_snapshots: Vec::new(),
+    };
+    CommittedActionKey::from_prefix(tp.committed_prefix())
 }
 
 /// Returns `Some(true)` when the committed decision is a `MoveOnly` with
@@ -288,19 +476,193 @@ fn is_defensive_decision(
     }
 }
 
+/// Tile-path metrics for the chosen plan. Returns `(has_moves, has_repeated_tile, zero_net_move)`.
+///
+/// Visits every tile in every Move step (plus the actor's starting tile) and
+/// checks for revisits. `zero_net_move` is true when the actor has ≥1 Move step
+/// but ends exactly where it started.
+fn plan_move_metrics(steps: &[PlanStep], final_pos: Hex, start: Hex) -> (bool, bool, bool) {
+    let has_moves = steps.iter().any(|s| matches!(s, PlanStep::Move { .. }));
+    if !has_moves {
+        return (false, false, false);
+    }
+    let mut visited = std::collections::HashSet::new();
+    visited.insert(start);
+    let mut repeated = false;
+    for step in steps {
+        if let PlanStep::Move { path } = step {
+            for tile in path {
+                if !visited.insert(*tile) {
+                    repeated = true;
+                }
+            }
+        }
+    }
+    let zero_net = final_pos == start;
+    (true, repeated, zero_net)
+}
+
+/// Post-cast retreat metrics. Returns `(has_post_cast_move, is_retreat)`.
+///
+/// A plan "has post-cast move" when a Cast step is followed by ≥1 Move step.
+/// "retreat" = the post-cast moves revisit ≥1 pre-cast tile AND the final
+/// displacement from `start` is no greater than it was at cast time, i.e.
+/// the actor didn't make net progress after the cast.
+fn post_cast_metrics(steps: &[PlanStep], final_pos: Hex, start: Hex) -> (bool, bool) {
+    // Find first Cast step index.
+    let cast_idx = match steps.iter().position(|s| matches!(s, PlanStep::Cast { .. })) {
+        Some(i) => i,
+        None => return (false, false),
+    };
+    // Any Move step after the Cast?
+    let has_post = steps[cast_idx + 1..].iter().any(|s| matches!(s, PlanStep::Move { .. }));
+    if !has_post {
+        return (false, false);
+    }
+    // Collect tiles visited up to (and including) cast position.
+    let mut pre_cast_tiles = std::collections::HashSet::new();
+    pre_cast_tiles.insert(start);
+    let mut cast_pos = start;
+    for step in &steps[..cast_idx] {
+        if let PlanStep::Move { path } = step {
+            for tile in path {
+                pre_cast_tiles.insert(*tile);
+            }
+            if let Some(last) = path.last() {
+                cast_pos = *last;
+            }
+        }
+    }
+    // Check post-cast moves for revisits.
+    let mut post_repeated = false;
+    for step in &steps[cast_idx + 1..] {
+        if let PlanStep::Move { path } = step {
+            for tile in path {
+                if pre_cast_tiles.contains(tile) {
+                    post_repeated = true;
+                }
+            }
+        }
+    }
+    // "net ≤ 0": final distance from start ≤ cast distance from start.
+    let cast_dist = cast_pos.unsigned_distance_to(start);
+    let final_dist = final_pos.unsigned_distance_to(start);
+    let net_regressed = final_dist <= cast_dist;
+    let retreat = post_repeated && net_regressed;
+    (true, retreat)
+}
+
+// ── Kill-line helpers ────────────────────────────────────────────────────────
+
+/// α threshold for "real kill-line" via damage: damage ≥ target_hp × α is
+/// considered meaningful kill pressure. See `docs/ai_rework.md §5.2`.
+const KILLABLE_ALPHA: f32 = 0.3;
+
+/// True if at least one plan in the pool can finish or meaningfully damage
+/// `intent_target`. "Real kill-line": kill_now ≥ 1.0 OR damage ≥ target_hp·α.
+fn has_real_kill_line(plans: &[PlanLog], intent_target_hp: i32) -> bool {
+    let hp_f = intent_target_hp.max(0) as f32;
+    plans.iter().any(|p| {
+        let kn = p.raw_factors.get(KILL_NOW_IDX).copied().unwrap_or(0.0);
+        let dmg = p.raw_factors.get(DAMAGE_IDX).copied().unwrap_or(0.0);
+        kn >= 1.0 || dmg >= hp_f * KILLABLE_ALPHA
+    })
+}
+
+/// Is `plan` "offensive vs target" — i.e., casts at least one Cast step
+/// directly at `target`. AoE casts aimed at another tile are NOT counted;
+/// only plans that explicitly target the intent target qualify.
+fn plan_is_offensive_vs(plan: &PlanLog, target: Entity) -> bool {
+    plan.steps
+        .iter()
+        .any(|s| matches!(s, PlanStep::Cast { target: t, .. } if *t == target))
+}
+
+/// Does the plan have ≥1 Cast step at all (regardless of target)?
+/// Used to distinguish "non-offensive / no cast" vs "offensive but wrong target".
+fn plan_has_any_cast(plan: &PlanLog) -> bool {
+    plan.steps.iter().any(|s| matches!(s, PlanStep::Cast { .. }))
+}
+
+/// Infer `(campaign_dir, scenario_dir)` from a log filename by scanning known
+/// campaign/scenario directories under `assets/data/campaigns/`.
+///
+/// Log filenames follow the pattern `<timestamp>_<campaign>_<scenario>_<encounter>.jsonl`
+/// (all three IDs sanitized with underscores). We iterate over actual filesystem
+/// dirs to find an unambiguous match without fragile string splitting.
+fn infer_content_dirs(log_path: &std::path::Path) -> Option<(PathBuf, PathBuf)> {
+    let stem = log_path
+        .file_name()?
+        .to_str()?
+        .trim_end_matches(".jsonl");
+    // Strip timestamp prefix `YYYYMMDDTHHMMSS_`.
+    let rest = {
+        let mut parts = stem.splitn(2, '_');
+        let _ts = parts.next()?;
+        parts.next()?
+    };
+
+    let campaigns_base = std::path::Path::new("assets/data/campaigns");
+    let Ok(entries) = std::fs::read_dir(campaigns_base) else {
+        return None;
+    };
+    let mut campaign_ids: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().ok().is_some_and(|t| t.is_dir()))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    campaign_ids.sort_by_key(|s| Reverse(s.len())); // longest first → greedy match
+
+    for campaign_id in &campaign_ids {
+        let prefix = format!("{campaign_id}_");
+        let Some(after_campaign) = rest.strip_prefix(prefix.as_str()) else {
+            continue;
+        };
+
+        let campaign_dir = campaigns_base.join(campaign_id);
+        let Ok(scen_entries) = std::fs::read_dir(&campaign_dir) else {
+            continue;
+        };
+        let mut scenario_ids: Vec<String> = scen_entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|t| t.is_dir()))
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        scenario_ids.sort_by_key(|s| Reverse(s.len()));
+
+        for scenario_id in &scenario_ids {
+            let scen_prefix = format!("{scenario_id}_");
+            if after_campaign.starts_with(scen_prefix.as_str())
+                || after_campaign == scenario_id.as_str()
+            {
+                let scenario_dir = campaign_dir.join(scenario_id);
+                return Some((campaign_dir, scenario_dir));
+            }
+        }
+    }
+    None
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut verbose = false;
     let mut simulate_ab = false;
     let mut metrics_summary = false;
+    let mut campaign_override: Option<PathBuf> = None;
+    let mut scenario_override: Option<PathBuf> = None;
     let mut paths: Vec<PathBuf> = Vec::new();
-    for a in &args[1..] {
+    let mut iter = args[1..].iter();
+    while let Some(a) = iter.next() {
         if a == "--verbose" || a == "-v" {
             verbose = true;
         } else if a == "--simulate-ab" {
             simulate_ab = true;
         } else if a == "--metrics-summary" {
             metrics_summary = true;
+        } else if a == "--campaign" {
+            campaign_override = iter.next().map(PathBuf::from);
+        } else if a == "--scenario" {
+            scenario_override = iter.next().map(PathBuf::from);
         } else if !a.starts_with('-') {
             paths.push(PathBuf::from(a));
         }
@@ -308,12 +670,27 @@ fn main() {
     if paths.is_empty() {
         eprintln!(
             "usage: replay_ai_log <log.jsonl> [<log2.jsonl> ...] \
-             [--verbose] [--simulate-ab] [--metrics-summary]"
+             [--verbose] [--simulate-ab] [--metrics-summary] \
+             [--campaign <dir>] [--scenario <dir>]"
         );
         std::process::exit(2);
     }
 
-    let content = ContentView::load_global_for_tests();
+    // Resolve content dirs: explicit flags > filename inference > global fallback.
+    let global = std::path::Path::new("assets/data");
+    let (campaign_dir, scenario_dir) = if let (Some(c), Some(s)) = (&campaign_override, &scenario_override) {
+        (c.clone(), s.clone())
+    } else if let Some((c, s)) = paths.first().and_then(|p| infer_content_dirs(p)) {
+        (c, s)
+    } else {
+        eprintln!(
+            "warning: could not infer campaign/scenario from filename; \
+             loading global content only (assets/data). \
+             Pass --campaign <dir> --scenario <dir> to override."
+        );
+        (global.to_path_buf(), global.to_path_buf())
+    };
+    let content = ContentView::load_layered(&campaign_dir, &scenario_dir);
     let inf_cfg = InfluenceConfig::default();
     let difficulty = DifficultyProfile::normal();
     let mut rng = DiceRng::with_seed(0);
@@ -391,7 +768,7 @@ fn main() {
             // - v6 → v7: per-plan TRADE block (delta/killed/lost/self_lost/
             //   self_lethal/score). Replay surfaces the breakdown under
             //   `--verbose`; older logs drop to a default-filled block.
-            if !(1..=14).contains(&entry.schema_version) {
+            if !(1..=15).contains(&entry.schema_version) {
                 eprintln!("unsupported schema_version {}, skipping", entry.schema_version);
                 continue;
             }
@@ -425,23 +802,24 @@ fn main() {
                     metrics.move_only_wasted += 1;
                 }
             }
-            if let Some(chosen_plan) = entry.plans.iter().find(|p| p.chosen) {
-                let is_panic = matches!(
-                    chosen_plan.adaptation_reason,
-                    Some(
-                        LoggedAdaptationReason::ProtectSelfNoDefensive
-                            | LoggedAdaptationReason::ProtectSelfFutile { .. }
-                    )
-                );
-                if is_panic {
-                    metrics.panic_total += 1;
-                    if !is_defensive_decision(
-                        &entry.committed_decision,
-                        entry.actor_id,
-                        &active,
-                        &entry.snapshot,
-                    ) {
-                        metrics.panic_leaked += 1;
+            // panic_leak_rate: ProtectSelf intent + Default evaluation_mode
+            // (mask was active). LastStand entries are excluded — their
+            // non-defensive commit is design, not a leak.
+            if matches!(
+                entry.intent.intent,
+                storyforge::combat::ai::intent::TacticalIntent::ProtectSelf
+            ) {
+                if let Some(chosen_plan) = entry.plans.iter().find(|p| p.chosen) {
+                    if chosen_plan.evaluation_mode == LoggedEvaluationMode::Default {
+                        metrics.panic_total += 1;
+                        if !is_defensive_decision(
+                            &entry.committed_decision,
+                            entry.actor_id,
+                            &active,
+                            &entry.snapshot,
+                        ) {
+                            metrics.panic_leaked += 1;
+                        }
                     }
                 }
             }
@@ -454,6 +832,87 @@ fn main() {
                     .map_or(false, |p| p.raw_factors.get(KILL_NOW_IDX).copied().unwrap_or(0.0) > 0.0)
                 {
                     metrics.killable_closed += 1;
+                }
+
+                // Kill-line metrics: restrict to entries where the pool actually
+                // contained a plan capable of finishing the target this turn.
+                if let storyforge::combat::ai::intent::TacticalIntent::FocusTarget { target } =
+                    entry.intent.intent
+                {
+                    if let Some(target_snap) = entry.snapshot.unit(target) {
+                        if has_real_kill_line(&entry.plans, target_snap.hp) {
+                            metrics.killable_with_kill_line_total += 1;
+                            if let Some(chosen) = entry.plans.iter().find(|p| p.chosen) {
+                                let offensive_vs_target = plan_is_offensive_vs(chosen, target);
+                                if !offensive_vs_target {
+                                    metrics.killable_non_offensive += 1;
+                                    // Has casts but aimed at a different unit → wrong target.
+                                    if plan_has_any_cast(chosen) {
+                                        metrics.killable_wrong_target += 1;
+                                    }
+                                }
+                                let kn = chosen
+                                    .raw_factors
+                                    .get(KILL_NOW_IDX)
+                                    .copied()
+                                    .unwrap_or(0.0);
+                                if kn >= 1.0 {
+                                    metrics.killable_kill_converted += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // tempo metrics: repeated_tile_rate, zero_net_move_rate, post_cast_retreat_rate
+            if let Some(chosen) = entry.plans.iter().find(|p| p.chosen) {
+                let final_pos = Hex::new(chosen.final_pos[0], chosen.final_pos[1]);
+                let (has_moves, repeated, zero_net) =
+                    plan_move_metrics(&chosen.steps, final_pos, active.pos);
+                if has_moves {
+                    metrics.plans_with_moves += 1;
+                    if repeated {
+                        metrics.repeated_tile_plans += 1;
+                    }
+                    if zero_net {
+                        metrics.zero_net_move_plans += 1;
+                    }
+                }
+                let (has_post_cast, retreat) =
+                    post_cast_metrics(&chosen.steps, final_pos, active.pos);
+                if has_post_cast {
+                    metrics.plans_with_post_cast_move += 1;
+                    if retreat {
+                        metrics.post_cast_retreat_plans += 1;
+                    }
+                }
+            }
+            // phantom-tail metrics
+            if let Some(chosen) = entry.plans.iter().find(|p| p.chosen) {
+                let has_cast = chosen.steps.iter().any(|s| matches!(s, PlanStep::Cast { .. }));
+                if has_cast {
+                    metrics.chosen_with_cast_total += 1;
+                    if has_post_cast_tail(chosen) {
+                        metrics.phantom_tail_chosen += 1;
+                        let chosen_key = committed_action_key(chosen);
+                        // Best tailless alt: not chosen, no post-cast tail, has a score.
+                        let best_tailless_alt = entry
+                            .plans
+                            .iter()
+                            .filter(|p| !p.chosen && !has_post_cast_tail(p))
+                            .filter(|p| p.score.is_some())
+                            .max_by(|a, b| {
+                                a.score
+                                    .unwrap_or(f32::NEG_INFINITY)
+                                    .partial_cmp(&b.score.unwrap_or(f32::NEG_INFINITY))
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            });
+                        if let Some(alt) = best_tailless_alt {
+                            if committed_action_key(alt) != chosen_key {
+                                metrics.phantom_tail_flips_committed += 1;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -523,14 +982,32 @@ fn main() {
             //      factors stay as-logged (they were computed under the old
             //      intent), so this under-counts ProtectSelf's intent-factor
             //      boost on defensive plans. Enough for directional verification.
-            // MVP1: replay does not reconstruct ADAPTATION yet (Phase 7 extends
-            // schema to v6 and pipes adaptation.modes through). For now pass a
-            // default-mode vector so every plan participates in the contract
-            // mask as before — preserves replay semantics on v1-v5 logs.
-            let modes = vec![
-                storyforge::combat::ai::planning::EvaluationMode::Default;
-                plans.len()
-            ];
+            //
+            // Reconstruct evaluation_mode from the logged plans (schema v6+).
+            // Pre-v6 logs default every plan to `evaluation_mode=Default` via
+            // #[serde(default)], so the mask still behaves as it did before;
+            // the warning below flags those logs so callers know the result may
+            // differ from the original live run.
+            if entry.schema_version < 6 {
+                eprintln!(
+                    "warning: schema_version {} < 6 — evaluation_mode not available; \
+                     replay applies mask as Default for all plans (results may differ \
+                     from original live run)",
+                    entry.schema_version
+                );
+            }
+            let modes: Vec<storyforge::combat::ai::planning::EvaluationMode> = entry
+                .plans
+                .iter()
+                .map(|p| match p.evaluation_mode {
+                    LoggedEvaluationMode::Default => {
+                        storyforge::combat::ai::planning::EvaluationMode::Default
+                    }
+                    LoggedEvaluationMode::LastStand => {
+                        storyforge::combat::ai::planning::EvaluationMode::LastStand
+                    }
+                })
+                .collect();
             let mut applied_mask = false;
             let mut simulated_switch = false;
             if matches!(
