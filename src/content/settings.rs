@@ -44,6 +44,7 @@ pub enum DifficultyPreset {
     Easy,
     Normal,
     Hard,
+    Epic,
 }
 
 impl DifficultyPreset {
@@ -52,6 +53,7 @@ impl DifficultyPreset {
             Self::Easy => DifficultyProfile::easy(),
             Self::Normal => DifficultyProfile::normal(),
             Self::Hard => DifficultyProfile::hard(),
+            Self::Epic => DifficultyProfile::epic(),
         }
     }
 }

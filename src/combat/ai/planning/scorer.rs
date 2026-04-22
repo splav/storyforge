@@ -40,7 +40,7 @@ use crate::combat::ai::factors::{
     PlanFactors, ScoredStep, INTENT_IDX, NUM_FACTORS, SCARCITY_IDX, SIGNED_FACTOR,
 };
 use crate::combat::ai::influence::InfluenceMaps;
-use crate::combat::ai::intent::{intent_score, TacticalIntent};
+use crate::combat::ai::intent::{cc_reach, intent_score, pursuit_move_score, TacticalIntent};
 use crate::combat::ai::planning::adaptation::EvaluationMode;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::estimate_st_damage;
@@ -497,10 +497,54 @@ pub fn compute_plan_factors_sans_intent(
     }
 }
 
-/// Intent-column aggregation. Walks the plan's cached sim snapshots, scoring
-/// each step's alignment with `intent` and accumulating with geometric decay.
-/// Latches off once the intent's declared target has been killed — further
-/// steps are orthogonal to a solved goal and shouldn't dilute the signal.
+/// Intent-column aggregation for a plan.
+///
+/// ## Pure-move plans under FocusTarget / ApplyCC (step-1b, Variant A)
+///
+/// When the plan contains **no Cast steps** and the intent is `FocusTarget` or
+/// `ApplyCC`, path length must not generate intent credit — a 3-step round-trip
+/// ending at the same tile as a 2-step plan should score identically. The fix:
+/// replace `Σ intent_score(step) × discount^k` with a single
+/// `pursuit_move_score(actor_start, plan.final_pos, target.pos, reach)` call
+/// that scores the plan by where it actually ends up, not how many steps it took.
+///
+/// ## Cast plans under FocusTarget / ApplyCC: post-first-Cast tail (step-1c)
+///
+/// For plans of the shape `steps[0..cast_idx] · Cast · steps[cast_idx+1..]`
+/// under `FocusTarget`/`ApplyCC` (excluding `ProtectSelf`):
+///
+/// - **Pre-Cast steps** (Move setup): per-step discounted sum, unchanged.
+/// - **Cast step**: per-step intent_score with discount, unchanged.
+/// - **Post-Cast tail**: collapsed into a single terminal-pursuit call
+///   `pursuit_move_score(cast_pos, plan.final_pos, target.pos, reach)`
+///   multiplied by `base_discount^(cast_idx + 1)`.
+///
+/// Rationale: the post-Cast tail is never physically executed (committed_decision
+/// is only the prefix up to and including the Cast). Per-step Σ over the tail
+/// inflates intent credit linearly with tail length — a round-trip tail (Cast
+/// then retreat to cast_pos) still earned ~+0.58 INT per extra step, causing
+/// phantom-tail plans to outscore shorter equivalents. The terminal shortcut
+/// scores the tail by net displacement from cast_pos, which is zero for a
+/// round-trip and positive only for genuine approach.
+///
+/// Multiple Casts: the shortcut applies after the **first** Cast. All subsequent
+/// steps (Cast or Move) are collapsed into the single terminal-pursuit call.
+/// The first Cast is the action commit boundary; beam search replans after it.
+///
+/// ProtectSelf is excluded: its per-step tile-safety semantics differ for each
+/// intermediate position and cannot be reduced to a single terminal value.
+///
+/// ## Other intents / ProtectSelf
+///
+/// Per-step discounted sum is preserved for all non-pursuit intents and for
+/// ProtectSelf. Cast-step intent values are semantically richer and do not
+/// exhibit path-length inflation.
+///
+/// ## goal_achieved latch
+///
+/// Once a `FocusTarget`/`ApplyCC` target is killed by a Cast step, the latch
+/// fires and the post-Cast tail contribution is set to zero — pursuit is
+/// irrelevant when the goal is already solved.
 pub fn compute_plan_intent_sum(
     plan: &TurnPlan,
     intent: &TacticalIntent,
@@ -514,7 +558,51 @@ pub fn compute_plan_intent_sum(
     let active = ctx.active;
     let snap = ctx.snap;
     let world = ctx.world;
+    let content = world.content;
     let base_discount = world.difficulty.plan_step_discount;
+
+    // Detect pure-move plan: no Cast step anywhere.
+    let is_pure_move = plan.steps.iter().all(|s| matches!(s, PlanStep::Move { .. }));
+
+    // Step-1b: for pure-move plans under pursuit intents, score by final
+    // position only — path length must not be a source of intent credit.
+    if is_pure_move {
+        match intent {
+            TacticalIntent::FocusTarget { target } => {
+                return match snap.unit(*target) {
+                    Some(t) => {
+                        let reach = (active.speed.max(0) as u32)
+                            .saturating_add(active.max_attack_range);
+                        pursuit_move_score(active.pos, plan.final_pos, t.pos, reach)
+                    }
+                    None => 0.0,
+                };
+            }
+            TacticalIntent::ApplyCC { target } => {
+                return match snap.unit(*target) {
+                    Some(t) => {
+                        let reach = (active.speed.max(0) as u32)
+                            .saturating_add(cc_reach(active, content));
+                        pursuit_move_score(active.pos, plan.final_pos, t.pos, reach)
+                    }
+                    None => 0.0,
+                };
+            }
+            // Other intents: fall through to per-step accumulation below.
+            _ => {}
+        }
+    }
+
+    // Step-1c: post-first-Cast tail shortcut for FocusTarget/ApplyCC.
+    // ProtectSelf is excluded — tile safety is position-specific each step.
+    let applies_cast_shortcut = matches!(
+        intent,
+        TacticalIntent::FocusTarget { .. } | TacticalIntent::ApplyCC { .. }
+    );
+
+    // Per-step discounted accumulation for pre-Cast steps and the Cast itself.
+    // Once the first Cast is processed, the post-Cast tail is collapsed into
+    // a single terminal-pursuit call (step-1c) instead of continuing the loop.
     let mut step_weight: f32 = 1.0;
     let mut intent_sum = 0.0f32;
     let mut goal_achieved = false;
@@ -543,6 +631,41 @@ pub fn compute_plan_intent_sum(
             if killed_intent_target(killed, intent) {
                 goal_achieved = true;
             }
+        }
+
+        // First Cast encountered: apply post-Cast terminal shortcut and stop.
+        if applies_cast_shortcut && matches!(step, PlanStep::Cast { .. }) {
+            // Post-Cast tail is empty or goal already reached → no tail credit.
+            let has_tail = idx + 1 < plan.steps.len();
+            if has_tail && !goal_achieved {
+                let cast_pos = sim_actor.pos;
+                let tail_discount = step_weight; // = base_discount^(cast_idx+1)
+                let tail_score = match intent {
+                    TacticalIntent::FocusTarget { target } => {
+                        match snap.unit(*target) {
+                            Some(t) => {
+                                let reach = (active.speed.max(0) as u32)
+                                    .saturating_add(active.max_attack_range);
+                                pursuit_move_score(cast_pos, plan.final_pos, t.pos, reach)
+                            }
+                            None => 0.0,
+                        }
+                    }
+                    TacticalIntent::ApplyCC { target } => {
+                        match snap.unit(*target) {
+                            Some(t) => {
+                                let reach = (active.speed.max(0) as u32)
+                                    .saturating_add(cc_reach(active, content));
+                                pursuit_move_score(cast_pos, plan.final_pos, t.pos, reach)
+                            }
+                            None => 0.0,
+                        }
+                    }
+                    _ => 0.0,
+                };
+                intent_sum += tail_score * tail_discount;
+            }
+            break;
         }
     }
 
@@ -591,18 +714,25 @@ mod tests {
         crate::combat::ai::test_helpers::make_test_ctx(content, difficulty)
     }
 
-    /// Under discounted-sum aggregation, a chain of Cast@focus steps
-    /// accumulates `Σ intent_score(step) × base^k`. The per-step intent
-    /// score is now a factor dot-product (no longer a hardcoded 1.0), so we
-    /// first measure the single-step value `s1`, then verify that two-step
-    /// and three-step plans accumulate exactly `s1 × Σ base^k`.
+    /// Pins the `intent` factor aggregation across single- and multi-cast plans
+    /// under `FocusTarget`.
     ///
-    /// Pure Move-preceded chains under FocusTarget are **not** pinned
-    /// here since Fix B — after that change, Move steps contribute
-    /// pursuit-of-target signal (see `intent::pursuit_move_score`) which
-    /// depends on hex-grid geometry. That signal is covered by the
-    /// dedicated pursuit tests in `intent::tests`. This test stays
-    /// intent-independent from pursuit by using Cast-only step chains.
+    /// **Step-1c semantics**: the post-first-Cast tail shortcut applies when
+    /// intent is `FocusTarget`/`ApplyCC`. For a multi-cast plan
+    /// `[Cast@focus, Cast@focus]`, only the first Cast contributes per-step
+    /// intent; the second Cast is treated as the post-Cast tail and replaced by
+    /// a single `pursuit_move_score(cast_pos, final_pos, focus.pos, reach)`
+    /// call multiplied by `base_discount^1`. This is intentional — the second
+    /// Cast is never physically executed (committed_decision is the first
+    /// Cast prefix), so scoring it per-step inflates intent linearly with
+    /// phantom tail length.
+    ///
+    /// Concrete formula for a `[Cast, Cast]` plan with `final_pos = actor.pos`:
+    ///   intent = s1 + pursuit_move_score(cast_pos, final_pos, focus.pos, reach) × 0.85
+    /// where `s1` is the per-step intent of the first Cast.
+    ///
+    /// Pure Move-preceded chains under FocusTarget are not pinned here —
+    /// those are covered by `pure_move_chain_intent_equals_single_pursuit`.
     #[test]
     fn sum_factors_scale_by_step_weight() {
         use crate::combat::ai::test_helpers::UnitBuilder;
@@ -626,7 +756,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone(), focus.clone()], 1);
         let content =
             crate::content::content_view::ContentView::load_global_for_tests();
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_step_discount = 0.85;
         let _abilities = Abilities(vec!["melee_attack".into()]);
         let ctx = test_ctx(&content, &difficulty);
@@ -643,7 +773,7 @@ mod tests {
             let len = steps.len();
             TurnPlan {
                 steps,
-                final_pos: hex_from_offset(0, 0),
+                final_pos: hex_from_offset(0, 0), // actor stays at start
                 residual_ap: 0,
                 residual_mp: 0,
                 outcomes: vec![StepOutcome::default(); len],
@@ -654,30 +784,34 @@ mod tests {
 
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
 
-        // Measure single-step intent value: whatever the factor dot-product
-        // gives for melee_attack@focus is `s1`. Multi-step sums must follow
-        // the geometric decay pattern `s1 × Σ base^k`.
+        // Single-cast: per-step intent_score for melee_attack@focus.
         let single = compute_plan_factors(&build(vec![cast_focus()]), &intent, &scoring_ctx);
         let s1 = single.intent;
         assert!(s1 > 0.0, "single cast@focus must produce positive intent: {s1}");
 
-        // Two casts: s1 + s1×0.85 = s1 × 1.85
+        // Two casts (step-1c): first Cast per-step + terminal pursuit for tail.
+        // cast_pos = actor.pos = (0,0), final_pos = (0,0), focus at (1,0).
+        // dist(final, focus) = 1 <= reach=4 → pursuit returns 0.8.
+        // intent = s1 + 0.8 × 0.85
+        let reach = (actor.speed.max(0) as u32).saturating_add(actor.max_attack_range);
+        let tail_pursuit = pursuit_move_score(actor.pos, hex_from_offset(0, 0), focus.pos, reach);
+        let expected_two = s1 + tail_pursuit * 0.85;
         let two = compute_plan_factors(&build(vec![cast_focus(), cast_focus()]), &intent, &scoring_ctx);
-        let expected_two = s1 * (1.0 + 0.85);
         assert!(
             (two.intent - expected_two).abs() < 0.005,
-            "two casts: intent={}, expected≈{expected_two} (s1={s1})", two.intent,
+            "two casts: intent={}, expected≈{expected_two} (s1={s1}, tail_pursuit={tail_pursuit})", two.intent,
         );
 
-        // Three casts: s1 × (1 + 0.85 + 0.85²)
+        // Three casts: same formula — tail still collapses to single pursuit.
+        // Second and third Casts are both in the tail after first Cast.
+        let expected_three = expected_two; // tail shortcut is the same regardless of tail length
         let three = compute_plan_factors(
             &build(vec![cast_focus(), cast_focus(), cast_focus()]),
             &intent, &scoring_ctx,
         );
-        let expected_three = s1 * (1.0 + 0.85 + 0.85 * 0.85);
         assert!(
             (three.intent - expected_three).abs() < 0.005,
-            "three casts: intent={}, expected≈{expected_three} (s1={s1})", three.intent,
+            "three casts: intent={}, expected≈{expected_three} (same tail shortcut as two)", three.intent,
         );
     }
 
@@ -698,7 +832,7 @@ mod tests {
         );
         let content =
             crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = DifficultyProfile::normal();
+        let difficulty = DifficultyProfile::hard();
         let _abilities = Abilities(vec!["melee_attack".into()]);
         let ctx = test_ctx(&content, &difficulty);
         let maps = empty_maps();
@@ -777,7 +911,7 @@ mod tests {
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         // Deterministic per-plan noise: rescore and a fresh-score under the
         // same intent produce identical scores regardless of profile.
-        let difficulty = DifficultyProfile::hard();
+        let difficulty = DifficultyProfile::epic();
         let _abilities = Abilities(vec!["melee_attack".into()]);
         let ctx = test_ctx(&content, &difficulty);
         let maps = empty_maps();
@@ -829,7 +963,7 @@ mod tests {
         let enemy = unit(2, Team::Player, hex_from_offset(1, 0));
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = DifficultyProfile::normal();
+        let difficulty = DifficultyProfile::hard();
         let _abilities = Abilities(vec!["melee_attack".into()]);
         let ctx = test_ctx(&content, &difficulty);
         let maps = empty_maps();
@@ -894,12 +1028,13 @@ mod tests {
             1,
         );
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        // Non-zero noise amplitude — `normal()` has score_noise > 0, so this
-        // pins that the invariant holds even when noise actually contributes.
-        let difficulty = DifficultyProfile::normal();
+        // Non-zero noise amplitude — only `easy()` has score_noise > 0 after the
+        // noise-isolation refactor, so this pins that the invariant holds even when
+        // noise actually contributes.
+        let difficulty = DifficultyProfile::easy();
         assert!(
             difficulty.score_noise() > 0.0,
-            "precondition: noise is non-zero under `normal` profile",
+            "precondition: noise is non-zero under `easy` profile",
         );
         let _abilities = Abilities(vec!["melee_attack".into()]);
         let ctx = test_ctx(&content, &difficulty);
@@ -967,7 +1102,7 @@ mod tests {
         );
         let content =
             crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = DifficultyProfile::normal();
+        let difficulty = DifficultyProfile::hard();
         let ctx = test_ctx(&content, &difficulty);
         let actor_val = unit_value(&actor, ctx.content);
 
@@ -1042,7 +1177,7 @@ mod tests {
         // below is robust to noise as long as the signal spread exceeds
         // the noise amplitude floor, which holds here (value of support
         // ≈ 2 × unit_value(self)).
-        let difficulty = DifficultyProfile::normal();
+        let difficulty = DifficultyProfile::hard();
         let ctx = test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -1096,6 +1231,695 @@ mod tests {
         );
     }
 
+    // ── Step 1b: intent_sum for Move chains ─────────────────────────────────
+
+    /// Regression pin for the "round-trip wins via intent_sum" bug:
+    /// a pure-move plan is scored by its final position, not by path length.
+    /// Three different path shapes to the same final tile must all produce
+    /// the same intent_sum as a single-step plan ending there.
+    #[test]
+    fn pure_move_chain_intent_equals_single_pursuit() {
+        // actor at (0,0), target far enough that reach doesn't flip the score.
+        // speed=3, max_attack_range=1 → reach=4. Target at (6,0): dist=6 > 4.
+        let actor = crate::combat::ai::test_helpers::UnitBuilder::new(
+                1, Team::Enemy, hex_from_offset(0, 0))
+            .speed(3)
+            .max_attack_range(1)
+            .build();
+        let target = unit(2, Team::Player, hex_from_offset(6, 0));
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let ctx = test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+
+        // final_pos = (3, 0) for all plans. intermediate tiles differ.
+        let final_pos = hex_from_offset(3, 0);
+        let via_a = hex_from_offset(1, 0);
+        let via_b = hex_from_offset(2, 0);
+
+        let mk_move_plan = |steps: Vec<PlanStep>| {
+            let n = steps.len();
+            TurnPlan {
+                steps,
+                final_pos,
+                residual_ap: 0,
+                residual_mp: 0,
+                outcomes: vec![StepOutcome::default(); n],
+                partial_score: 0.0,
+                sim_snapshots: (0..n).map(|_| snap.clone()).collect(),
+            }
+        };
+
+        let one_step = mk_move_plan(vec![
+            PlanStep::Move { path: vec![final_pos] },
+        ]);
+        let two_steps = mk_move_plan(vec![
+            PlanStep::Move { path: vec![via_b] },
+            PlanStep::Move { path: vec![final_pos] },
+        ]);
+        let three_steps = mk_move_plan(vec![
+            PlanStep::Move { path: vec![via_a] },
+            PlanStep::Move { path: vec![via_b] },
+            PlanStep::Move { path: vec![final_pos] },
+        ]);
+
+        let s1 = compute_plan_intent_sum(&one_step, &intent, &scoring_ctx);
+        let s2 = compute_plan_intent_sum(&two_steps, &intent, &scoring_ctx);
+        let s3 = compute_plan_intent_sum(&three_steps, &intent, &scoring_ctx);
+
+        assert!(s1 > 0.0, "single-step plan must have positive intent: {s1}");
+        assert_eq!(s1, s2, "two-step plan to same final tile must equal one-step: s1={s1} s2={s2}");
+        assert_eq!(s1, s3, "three-step plan to same final tile must equal one-step: s1={s1} s3={s3}");
+    }
+
+    /// Regression pin for the exact log case (line 12 of stormborn_camp log):
+    /// round-trip plan [Move→A, Move→start, Move→C] must not outscore
+    /// [Move→C] despite visiting more tiles. Both must equal the direct
+    /// pursuit_move_score(start, C, target, reach).
+    #[test]
+    fn round_trip_pure_move_intent_no_credit() {
+        let start = hex_from_offset(4, 4);
+        let tile_a = hex_from_offset(4, 5);
+        let tile_c = hex_from_offset(3, 6);
+        let target_pos = hex_from_offset(1, 6); // arbitrary far target
+
+        let actor = crate::combat::ai::test_helpers::UnitBuilder::new(
+                1, Team::Enemy, start)
+            .speed(3)
+            .max_attack_range(1)
+            .build();
+        let target_unit = unit(2, Team::Player, target_pos);
+        let snap = BattleSnapshot::new(vec![actor.clone(), target_unit.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let ctx = test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: target_unit.entity };
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+
+        // Direct: one move to tile_c
+        let direct = TurnPlan {
+            steps: vec![PlanStep::Move { path: vec![tile_c] }],
+            final_pos: tile_c,
+            residual_ap: 0, residual_mp: 0,
+            outcomes: vec![StepOutcome::default()],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone()],
+        };
+        // Round-trip: A → start → C (same final)
+        let round_trip = TurnPlan {
+            steps: vec![
+                PlanStep::Move { path: vec![tile_a] },
+                PlanStep::Move { path: vec![start] },
+                PlanStep::Move { path: vec![tile_c] },
+            ],
+            final_pos: tile_c,
+            residual_ap: 0, residual_mp: 0,
+            outcomes: vec![StepOutcome::default(); 3],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(); 3],
+        };
+
+        let s_direct = compute_plan_intent_sum(&direct, &intent, &scoring_ctx);
+        let s_roundtrip = compute_plan_intent_sum(&round_trip, &intent, &scoring_ctx);
+
+        assert_eq!(
+            s_direct, s_roundtrip,
+            "round-trip to same final tile must not outscore direct path: direct={s_direct} roundtrip={s_roundtrip}",
+        );
+    }
+
+    /// Plans containing a Cast step must use per-step discounted accumulation,
+    /// not the single-pursuit shortcut. The Cast step must contribute its full
+    /// intent_score (via IntentWeights dot-product); Move steps before it also
+    /// contribute their per-step pursuit score.
+    #[test]
+    fn cast_after_moves_keeps_cast_intent() {
+        use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::content::abilities::CasterContext;
+        use crate::core::DiceExpr;
+
+        // Actor needs weapon_dice so melee_attack produces non-zero damage factors.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .ap(2)
+            .speed(3)
+            .max_attack_range(1)
+            .tags(AiTags::MELEE_ONLY)
+            .ability_names(&["melee_attack"])
+            .caster_ctx(CasterContext {
+                str_mod: 2,
+                weapon_dice: Some(DiceExpr::new(1, 8, 0)),
+                ..Default::default()
+            })
+            .build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0))
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let mut difficulty = DifficultyProfile::hard();
+        difficulty.plan_step_discount = 0.9;
+        let ctx = test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+
+        // Pure-cast plan: one Cast step. Measure its intent contribution as s_cast.
+        let cast_step = PlanStep::Cast {
+            ability: "melee_attack".into(),
+            target: target.entity,
+            target_pos: target.pos,
+        };
+        let pure_cast = TurnPlan {
+            steps: vec![cast_step.clone()],
+            final_pos: actor.pos,
+            residual_ap: 1, residual_mp: 3,
+            outcomes: vec![StepOutcome::default()],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone()],
+        };
+        let s_cast_only = compute_plan_intent_sum(&pure_cast, &intent, &scoring_ctx);
+        assert!(s_cast_only > 0.0, "cast-only plan must have positive intent: {s_cast_only}");
+
+        // Move + Cast plan: Move to adjacent tile, then Cast.
+        let move_then_cast = TurnPlan {
+            steps: vec![
+                PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
+                cast_step,
+            ],
+            final_pos: hex_from_offset(1, 0),
+            residual_ap: 0, residual_mp: 2,
+            outcomes: vec![StepOutcome::default(), StepOutcome::default()],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(), snap.clone()],
+        };
+        let s_move_cast = compute_plan_intent_sum(&move_then_cast, &intent, &scoring_ctx);
+
+        // The Move+Cast plan is NOT pure-move, so it uses per-step accumulation.
+        // It must yield a finite positive value that includes the cast's contribution.
+        // We can't pin the exact value (Move pursuit score depends on geometry),
+        // but we know s_cast_only is the cast's contribution at discount^1.
+        // The Move+Cast result must be >= discount*s_cast_only (cast at step 1 with 0.9 weight).
+        let min_expected = 0.9 * s_cast_only; // cast at discount^1
+        assert!(
+            s_move_cast >= min_expected,
+            "Move+Cast intent_sum ({s_move_cast}) must include cast's discounted contribution (≥{min_expected})",
+        );
+        // Also must not equal the pure-move single-pursuit result (that would mean
+        // the shortcut fired incorrectly on a plan with a Cast step).
+        let reach = (actor.speed.max(0) as u32).saturating_add(actor.max_attack_range);
+        let pursuit_only = pursuit_move_score(actor.pos, hex_from_offset(1, 0), target.pos, reach);
+        assert_ne!(
+            s_move_cast, pursuit_only,
+            "Move+Cast must NOT use the pure-move shortcut (pursuit-only={pursuit_only})",
+        );
+    }
+
+    /// Once the intent target is killed by a Cast step, the goal_achieved latch
+    /// fires and subsequent Move steps must not contribute pursuit credit.
+    /// Compares [Cast(kill), Move→A] with latch active vs. hypothetical without.
+    #[test]
+    fn goal_achieved_latch_still_works() {
+        use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::content::abilities::CasterContext;
+        use crate::core::DiceExpr;
+
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .ap(2)
+            .speed(3)
+            .max_attack_range(1)
+            .tags(AiTags::MELEE_ONLY)
+            .ability_names(&["melee_attack"])
+            .caster_ctx(CasterContext {
+                str_mod: 2,
+                weapon_dice: Some(DiceExpr::new(1, 8, 0)),
+                ..Default::default()
+            })
+            .build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let ctx = test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+
+        // Plan: Cast(kill target) then Move away. The Move would give pursuit
+        // credit if the latch didn't fire (target is dead, but pos still relevant).
+        let plan_with_kill = TurnPlan {
+            steps: vec![
+                PlanStep::Cast {
+                    ability: "melee_attack".into(),
+                    target: target.entity,
+                    target_pos: target.pos,
+                },
+                PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
+            ],
+            final_pos: hex_from_offset(1, 0),
+            residual_ap: 1, residual_mp: 2,
+            outcomes: vec![
+                StepOutcome { killed: vec![target.entity], ..Default::default() },
+                StepOutcome::default(),
+            ],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(), snap.clone()],
+        };
+
+        // Same plan but kill NOT recorded in outcomes — latch does not fire,
+        // Move step's pursuit score accumulates.
+        let plan_no_kill = TurnPlan {
+            steps: plan_with_kill.steps.clone(),
+            final_pos: plan_with_kill.final_pos,
+            residual_ap: plan_with_kill.residual_ap,
+            residual_mp: plan_with_kill.residual_mp,
+            outcomes: vec![StepOutcome::default(), StepOutcome::default()],
+            partial_score: 0.0,
+            sim_snapshots: plan_with_kill.sim_snapshots.clone(),
+        };
+
+        let s_with_kill = compute_plan_intent_sum(&plan_with_kill, &intent, &scoring_ctx);
+        let s_no_kill = compute_plan_intent_sum(&plan_no_kill, &intent, &scoring_ctx);
+
+        // With latch: only the Cast step contributes intent. Without latch: Cast +
+        // discounted Move-pursuit also contributes. The latch plan must be ≤ no-latch
+        // plan (Move pursuit could be positive or zero, but never negative for
+        // approaching the target that we just killed — snap still shows it alive).
+        assert!(
+            s_with_kill <= s_no_kill,
+            "goal_achieved latch must suppress post-kill Move pursuit credit: \
+             with_kill={s_with_kill} no_kill={s_no_kill}",
+        );
+    }
+
+    // ── Step 1c: post-Cast tail shortcut ────────────────────────────────────
+
+    /// The post-first-Cast tail is collapsed into a single terminal pursuit,
+    /// regardless of tail length. A plan [Move→A, Cast, Move→B, Move→C]
+    /// must have the same intent_sum as [Move→A, Cast, Move→C] — the number
+    /// of tail steps does not matter, only the final position does.
+    #[test]
+    fn cast_plus_move_tail_collapses_to_single_pursuit() {
+        use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::content::abilities::CasterContext;
+        use crate::core::DiceExpr;
+
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .ap(3)
+            .speed(3)
+            .max_attack_range(1)
+            .tags(AiTags::MELEE_ONLY)
+            .ability_names(&["melee_attack"])
+            .caster_ctx(CasterContext {
+                str_mod: 2,
+                weapon_dice: Some(DiceExpr::new(1, 8, 0)),
+                ..Default::default()
+            })
+            .build();
+        // Target far away so dist > reach for the tail positions
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(8, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let mut difficulty = DifficultyProfile::hard();
+        difficulty.plan_step_discount = 0.9;
+        let ctx = test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+
+        let tile_a = hex_from_offset(1, 0); // Move before Cast
+        let cast_pos = tile_a;              // position at time of Cast
+        let tile_b = hex_from_offset(2, 0);
+        let tile_c = hex_from_offset(3, 0); // final destination for both plans
+
+        let cast_step = PlanStep::Cast {
+            ability: "melee_attack".into(),
+            target: target.entity,
+            target_pos: target.pos,
+        };
+
+        // Plan with long tail: Move→A, Cast, Move→B, Move→C
+        let plan_long_tail = TurnPlan {
+            steps: vec![
+                PlanStep::Move { path: vec![tile_a] },
+                cast_step.clone(),
+                PlanStep::Move { path: vec![tile_b] },
+                PlanStep::Move { path: vec![tile_c] },
+            ],
+            final_pos: tile_c,
+            residual_ap: 0, residual_mp: 0,
+            outcomes: vec![StepOutcome::default(); 4],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(); 4],
+        };
+
+        // Plan with short tail: Move→A, Cast, Move→C (same final)
+        let plan_short_tail = TurnPlan {
+            steps: vec![
+                PlanStep::Move { path: vec![tile_a] },
+                cast_step,
+                PlanStep::Move { path: vec![tile_c] },
+            ],
+            final_pos: tile_c,
+            residual_ap: 0, residual_mp: 0,
+            outcomes: vec![StepOutcome::default(); 3],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(); 3],
+        };
+
+        let s_long = compute_plan_intent_sum(&plan_long_tail, &intent, &scoring_ctx);
+        let s_short = compute_plan_intent_sum(&plan_short_tail, &intent, &scoring_ctx);
+
+        // Terminal pursuit from cast_pos to tile_c: both plans land at the same
+        // final_pos, so the tail contribution must be identical regardless of
+        // how many Move steps the tail contains.
+        assert!(
+            (s_long - s_short).abs() < 0.001,
+            "long-tail and short-tail plans with same final_pos must have equal intent: \
+             long={s_long} short={s_short} cast_pos={cast_pos:?} final={tile_c:?}",
+        );
+    }
+
+    /// Regression pin for the stormborn_camp line 23 bug:
+    /// a Cast followed by a retreat tail (returning to cast_pos) must not earn
+    /// post-Cast pursuit credit. `pursuit_move_score(cast_pos, cast_pos, ...)` = 0
+    /// since there is no net displacement. The intent_sum equals just the Cast's
+    /// per-step contribution, no tail bonus.
+    #[test]
+    fn cast_plus_roundtrip_tail_no_credit() {
+        use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::content::abilities::CasterContext;
+        use crate::core::DiceExpr;
+
+        let cast_pos = hex_from_offset(0, 6); // actor casts from here
+        let actor = UnitBuilder::new(1, Team::Enemy, cast_pos)
+            .ap(3)
+            .speed(3)
+            .max_attack_range(1)
+            .tags(AiTags::MELEE_ONLY)
+            .ability_names(&["melee_attack"])
+            .caster_ctx(CasterContext {
+                str_mod: 2,
+                weapon_dice: Some(DiceExpr::new(1, 8, 0)),
+                ..Default::default()
+            })
+            .build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(6, 6)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let mut difficulty = DifficultyProfile::hard();
+        difficulty.plan_step_discount = 0.9;
+        let ctx = test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+
+        let cast_step = PlanStep::Cast {
+            ability: "melee_attack".into(),
+            target: target.entity,
+            target_pos: target.pos,
+        };
+
+        // Cast-only plan: measures the Cast's per-step contribution
+        let cast_only = TurnPlan {
+            steps: vec![cast_step.clone()],
+            final_pos: cast_pos,
+            residual_ap: 0, residual_mp: 3,
+            outcomes: vec![StepOutcome::default()],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone()],
+        };
+
+        // Round-trip tail: Cast, then retreat back to cast_pos (net displacement = 0)
+        let tile_retreat = hex_from_offset(0, 5);
+        let round_trip = TurnPlan {
+            steps: vec![
+                cast_step.clone(),
+                PlanStep::Move { path: vec![tile_retreat] },
+                PlanStep::Move { path: vec![cast_pos] },
+            ],
+            final_pos: cast_pos, // same as cast_pos — zero net displacement
+            residual_ap: 0, residual_mp: 1,
+            outcomes: vec![StepOutcome::default(); 3],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(); 3],
+        };
+
+        let s_cast_only = compute_plan_intent_sum(&cast_only, &intent, &scoring_ctx);
+        let s_round_trip = compute_plan_intent_sum(&round_trip, &intent, &scoring_ctx);
+
+        // pursuit_move_score(cast_pos, cast_pos, target, reach) = 0: no displacement.
+        // Round-trip tail earns zero post-Cast credit, equaling the cast-only plan.
+        assert!(
+            (s_round_trip - s_cast_only).abs() < 0.001,
+            "round-trip tail must earn no post-Cast credit: \
+             round_trip={s_round_trip} cast_only={s_cast_only}",
+        );
+    }
+
+    /// Legitimate "cast then reposition toward target" earns positive post-Cast
+    /// pursuit credit. A plan [Cast, Move→closer] must score higher than
+    /// [Cast] alone when the final position brings the actor into range.
+    #[test]
+    fn cast_plus_approach_tail_earns_credit() {
+        use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::content::abilities::CasterContext;
+        use crate::core::DiceExpr;
+
+        // Actor far from target so even cast_pos is outside reach
+        let cast_pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, cast_pos)
+            .ap(2)
+            .speed(3)
+            .max_attack_range(1)
+            .tags(AiTags::MELEE_ONLY)
+            .ability_names(&["melee_attack"])
+            .caster_ctx(CasterContext {
+                str_mod: 2,
+                weapon_dice: Some(DiceExpr::new(1, 8, 0)),
+                ..Default::default()
+            })
+            .build();
+        // Target at distance 8, reach = speed(3) + range(1) = 4
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(8, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let mut difficulty = DifficultyProfile::hard();
+        difficulty.plan_step_discount = 0.9;
+        let ctx = test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+
+        let cast_step = PlanStep::Cast {
+            ability: "melee_attack".into(),
+            target: target.entity,
+            target_pos: target.pos,
+        };
+
+        // Cast-only: no tail contribution
+        let cast_only = TurnPlan {
+            steps: vec![cast_step.clone()],
+            final_pos: cast_pos,
+            residual_ap: 0, residual_mp: 3,
+            outcomes: vec![StepOutcome::default()],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone()],
+        };
+
+        // Cast then approach: move 3 tiles closer to target
+        let closer_pos = hex_from_offset(3, 0); // dist to target = 5, still > reach=4
+        let cast_then_approach = TurnPlan {
+            steps: vec![
+                cast_step,
+                PlanStep::Move { path: vec![closer_pos] },
+            ],
+            final_pos: closer_pos,
+            residual_ap: 0, residual_mp: 0,
+            outcomes: vec![StepOutcome::default(); 2],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(); 2],
+        };
+
+        let s_cast_only = compute_plan_intent_sum(&cast_only, &intent, &scoring_ctx);
+        let s_approach = compute_plan_intent_sum(&cast_then_approach, &intent, &scoring_ctx);
+
+        // Approach reduces distance (8→5 > reach), earning positive pursuit delta.
+        // The "cast then reposition" pattern must be rewarded.
+        assert!(
+            s_approach > s_cast_only,
+            "cast+approach to closer tile must score higher than cast-only: \
+             approach={s_approach} cast_only={s_cast_only}",
+        );
+    }
+
+    /// When the Cast kills the intent target, the goal_achieved latch fires
+    /// and the post-Cast tail earns zero credit — pursuit is irrelevant when
+    /// the goal is solved. Regression for the latch interaction with step-1c.
+    #[test]
+    fn cast_kills_then_tail_no_credit() {
+        use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::content::abilities::CasterContext;
+        use crate::core::DiceExpr;
+
+        let cast_pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, cast_pos)
+            .ap(2)
+            .speed(3)
+            .max_attack_range(1)
+            .tags(AiTags::MELEE_ONLY)
+            .ability_names(&["melee_attack"])
+            .caster_ctx(CasterContext {
+                str_mod: 2,
+                weapon_dice: Some(DiceExpr::new(1, 8, 0)),
+                ..Default::default()
+            })
+            .build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let mut difficulty = DifficultyProfile::hard();
+        difficulty.plan_step_discount = 0.9;
+        let ctx = test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+
+        let cast_step = PlanStep::Cast {
+            ability: "melee_attack".into(),
+            target: target.entity,
+            target_pos: target.pos,
+        };
+
+        // Cast that kills, then Move→closer_to_where_target_was
+        let tile_a = hex_from_offset(3, 0);
+        let plan_with_kill = TurnPlan {
+            steps: vec![
+                cast_step.clone(),
+                PlanStep::Move { path: vec![tile_a] },
+            ],
+            final_pos: tile_a,
+            residual_ap: 0, residual_mp: 2,
+            outcomes: vec![
+                StepOutcome { killed: vec![target.entity], ..Default::default() },
+                StepOutcome::default(),
+            ],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(); 2],
+        };
+
+        // Same plan, Cast does not kill — tail gets pursuit credit
+        let plan_no_kill = TurnPlan {
+            steps: plan_with_kill.steps.clone(),
+            final_pos: tile_a,
+            residual_ap: 0, residual_mp: 2,
+            outcomes: vec![StepOutcome::default(); 2],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(); 2],
+        };
+
+        let s_with_kill = compute_plan_intent_sum(&plan_with_kill, &intent, &scoring_ctx);
+        let s_no_kill = compute_plan_intent_sum(&plan_no_kill, &intent, &scoring_ctx);
+
+        // Kill latches goal_achieved, tail contribution = 0.
+        // No-kill plan gets tail pursuit credit (approaching a now-alive target).
+        // Target at (1,0), tile_a at (3,0): dist(3,0 to 1,0)=2 > dist(0,0 to 1,0)=1
+        // but dist(1,0 to 1,0)=0 <= reach, so pursuit_move_score = 0.8.
+        // With kill: intent = cast_intent + 0 (latched).
+        // Without kill: intent = cast_intent + 0.8 × 0.9.
+        assert!(
+            s_with_kill < s_no_kill,
+            "goal_achieved latch must suppress post-Cast tail when Cast kills target: \
+             with_kill={s_with_kill} no_kill={s_no_kill}",
+        );
+    }
+
+    /// When a plan has two Casts [Cast(X), Cast(Y), Move→B], only the first
+    /// Cast contributes per-step intent. Everything after (second Cast + Move)
+    /// is collapsed into the terminal pursuit from first-cast position to
+    /// final_pos. The second Cast must NOT receive its own per-step intent credit.
+    #[test]
+    fn cast_then_cast_then_move_uses_first_cast_as_boundary() {
+        use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::content::abilities::CasterContext;
+        use crate::core::DiceExpr;
+
+        let actor_pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ap(3)
+            .speed(3)
+            .max_attack_range(1)
+            .tags(AiTags::MELEE_ONLY)
+            .ability_names(&["melee_attack"])
+            .caster_ctx(CasterContext {
+                str_mod: 2,
+                weapon_dice: Some(DiceExpr::new(1, 8, 0)),
+                ..Default::default()
+            })
+            .build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(8, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let mut difficulty = DifficultyProfile::hard();
+        difficulty.plan_step_discount = 0.9;
+        let ctx = test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let intent = TacticalIntent::FocusTarget { target: target.entity };
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+
+        let cast_step = || PlanStep::Cast {
+            ability: "melee_attack".into(),
+            target: target.entity,
+            target_pos: target.pos,
+        };
+
+        let final_pos = hex_from_offset(3, 0);
+
+        // Two-cast + move plan: [Cast, Cast, Move→final]
+        let plan_two_cast = TurnPlan {
+            steps: vec![cast_step(), cast_step(), PlanStep::Move { path: vec![final_pos] }],
+            final_pos,
+            residual_ap: 0, residual_mp: 0,
+            outcomes: vec![StepOutcome::default(); 3],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(); 3],
+        };
+
+        // One-cast + move plan: [Cast, Move→final] — for comparison
+        let plan_one_cast = TurnPlan {
+            steps: vec![cast_step(), PlanStep::Move { path: vec![final_pos] }],
+            final_pos,
+            residual_ap: 0, residual_mp: 0,
+            outcomes: vec![StepOutcome::default(); 2],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap.clone(); 2],
+        };
+
+        let s_two_cast = compute_plan_intent_sum(&plan_two_cast, &intent, &scoring_ctx);
+        let s_one_cast = compute_plan_intent_sum(&plan_one_cast, &intent, &scoring_ctx);
+
+        // Both plans: first Cast gets per-step credit, then terminal pursuit
+        // from actor_pos to final_pos. The second Cast in plan_two_cast is
+        // collapsed into the tail — it must NOT add extra per-step credit.
+        // Therefore intent_sum must be equal for both plans.
+        assert!(
+            (s_two_cast - s_one_cast).abs() < 0.001,
+            "second Cast in tail must not add extra per-step credit: \
+             two_cast={s_two_cast} one_cast={s_one_cast}",
+        );
+    }
+
     /// Trade bonus on an inert plan (no kills, no self-lethal exposure)
     /// is exactly zero — the modifier must not drift the scoring of
     /// neutral plans. Baseline contrast against `_favors_valuable_victim`.
@@ -1105,7 +1929,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let content =
             crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = DifficultyProfile::normal();
+        let difficulty = DifficultyProfile::hard();
         let ctx = test_ctx(&content, &difficulty);
         let actor_val = unit_value(&actor, ctx.content);
 

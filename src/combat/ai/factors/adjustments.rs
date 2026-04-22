@@ -90,7 +90,7 @@ mod tests {
     fn fixture() -> (ContentView, DifficultyProfile) {
         (
             ContentView::load_global_for_tests(),
-            DifficultyProfile::normal(),
+            DifficultyProfile::hard(),
         )
     }
 

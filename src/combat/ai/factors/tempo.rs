@@ -1,22 +1,18 @@
 //! Plan-terminal `tempo_gain` factor — measures how much a plan advances the
-//! actor toward its intent target.
+//! actor toward its intent target via **net displacement**.
 //!
-//! Aggregation: **plan-terminal** (value of the last `ScoredStep`). Unlike
-//! discounted-sum factors, tempo captures the final positioning quality of the
-//! whole plan rather than per-step contributions.
+//! Aggregation: single call to `step_tempo(actor_start → plan.final_pos)`.
+//! Per-step accumulation was removed because it rewarded round-trip move chains
+//! whose last step happened to face the target (e.g. A→B→A scored positively).
 //!
-//! Formula per step (applied only to the last step):
-//! - Move: `Δdistance_to(target) / speed`, clamped to [-1, 1]
-//!   + `0.3` if the destination is within max attack range
-//!   + `max(0, danger(ref_pos) − danger(dest))` — exit-danger bonus
-//! - Cast following a Move: same formula, using the cast tile as destination
-//!   and the plan-start position as reference (captures the full journey).
-//! - Cast from the actor's starting tile (no preceding move): 0.
+//! Formula:
+//! - `Δdistance(actor_start → target, plan.final_pos → target) / speed`, clamped [-1, 1]
+//!   + `0.3` if `plan.final_pos` is within max attack range
+//!   + `max(0, danger(actor_start) − danger(plan.final_pos))` — exit-danger bonus
 //! - No intent target (Reposition, ProtectSelf, …): 0.
 //!
 //! TODO: +0.2 gained-LoS bonus — deferred until a LoS model exists.
 
-use crate::combat::ai::factors::ScoredStep;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::utility::ScoringCtx;
@@ -24,43 +20,20 @@ use crate::content::abilities::TargetType;
 use crate::game::hex::Hex;
 
 /// Compute the plan-terminal `tempo_gain` for `plan` under `intent`.
-/// Returns 0.0 for intents without a spatial target or for empty plans.
+/// Returns 0.0 for intents without a spatial target.
 pub fn compute_plan_tempo_gain(
     plan: &TurnPlan,
     intent: &TacticalIntent,
     ctx: &ScoringCtx,
 ) -> f32 {
-    let target_pos = match intent.target().and_then(|t| ctx.snap.unit(t)) {
-        Some(u) => u.pos,
-        None => return 0.0,
+    let Some(target) = intent.target().and_then(|t| ctx.snap.unit(t)) else {
+        return 0.0;
     };
-
     let actor_start = ctx.active.pos;
     let speed = ctx.active.speed.max(1);
     let max_attack_range = max_offensive_range(ctx);
 
-    let mut last_tempo = 0.0f32;
-
-    for (idx, step) in plan.steps.iter().enumerate() {
-        let pre_snap = plan.pre_step_snapshot(idx, ctx.snap);
-        let Some(sim_actor) = pre_snap.unit(ctx.active.entity).cloned() else {
-            break;
-        };
-        let scored = ScoredStep::from_plan_step(step, sim_actor.pos);
-        let dest = scored.caster_tile();
-
-        // For a Cast, the reference point is the plan start so the full
-        // movement delta is captured; a Cast-in-place (dest == actor_start)
-        // produces delta = 0 naturally.
-        let ref_pos: Hex = match &scored {
-            ScoredStep::Move { .. } => sim_actor.pos,
-            ScoredStep::Cast { .. } => actor_start,
-        };
-
-        last_tempo = step_tempo(ref_pos, dest, target_pos, speed, max_attack_range, ctx);
-    }
-
-    last_tempo
+    step_tempo(actor_start, plan.final_pos, target.pos, speed, max_attack_range, ctx)
 }
 
 /// Tempo value for a single step given ref → dest movement and target location.
@@ -141,7 +114,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::normal();
+        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
         let ctx = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -160,10 +133,13 @@ mod tests {
         assert!(tempo > 0.0, "approaching target should give positive tempo, got {tempo}");
     }
 
-    /// Round-trip move (move away then back, final pos = start) → tempo ≤ 0.
+    /// Real round-trip (start → away → start, final_pos = start) → tempo ≤ 0.
+    /// With per-step scoring the last step (-1,0)→(0,0) gave spuriously positive
+    /// tempo; net-displacement scoring correctly returns 0.
     #[test]
     fn round_trip_move_gives_nonpositive_tempo() {
         let start = hex_from_offset(0, 0);
+        let away = hex_from_offset(-1, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, start)
             .speed(4)
             .ability_names(&["melee_attack"])
@@ -172,28 +148,74 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::normal();
+        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
         let ctx = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
         let intent = TacticalIntent::FocusTarget { target: target.entity };
 
-        // Move away: (0,0) → (-1,0), then back: (-1,0) → (0,0).
-        // Last step is the return, so the terminal step went from (-1,0) → (0,0).
-        // dist_before from (-1,0) to target(4,0) = 5; dist_after from (0,0) to target = 4 → positive!
-        // We need a true round-trip: the *last* step returns to start.
-        // Let's do a single step that ends at the same tile.
-        let plan_stay = build_plan(
-            vec![PlanStep::Move { path: vec![start] }],
+        let plan = build_plan(
+            vec![
+                PlanStep::Move { path: vec![away] },
+                PlanStep::Move { path: vec![start] },
+            ],
             start,
             &snap,
         );
 
-        let tempo = compute_plan_tempo_gain(&plan_stay, &intent, &scoring_ctx);
+        let tempo = compute_plan_tempo_gain(&plan, &intent, &scoring_ctx);
         assert!(
             tempo <= 0.0,
-            "move ending at start tile gives no tempo benefit, got {tempo}"
+            "round-trip (net displacement = 0) must not earn tempo, got {tempo}"
+        );
+    }
+
+    /// Longer path with same net displacement → same tempo as direct path.
+    /// Verifies that backtracking steps don't accumulate extra credit.
+    #[test]
+    fn backtrack_longer_path_no_credit() {
+        let start = hex_from_offset(0, 0);
+        let away = hex_from_offset(-1, 0);
+        let dest = hex_from_offset(1, 0); // one step closer to target
+        let actor = UnitBuilder::new(1, Team::Enemy, start)
+            .speed(4)
+            .ability_names(&["melee_attack"])
+            .build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let ctx = make_test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
+        let intent = TacticalIntent::FocusTarget { target: target.entity };
+
+        // Wasteful: start → away → start → dest (3 steps, same net as direct)
+        let long_plan = build_plan(
+            vec![
+                PlanStep::Move { path: vec![away] },
+                PlanStep::Move { path: vec![start] },
+                PlanStep::Move { path: vec![dest] },
+            ],
+            dest,
+            &snap,
+        );
+
+        // Direct: start → dest (1 step)
+        let short_plan = build_plan(
+            vec![PlanStep::Move { path: vec![dest] }],
+            dest,
+            &snap,
+        );
+
+        let tempo_long = compute_plan_tempo_gain(&long_plan, &intent, &scoring_ctx);
+        let tempo_short = compute_plan_tempo_gain(&short_plan, &intent, &scoring_ctx);
+        assert_eq!(
+            tempo_long, tempo_short,
+            "longer path with same net displacement must not earn extra tempo"
         );
     }
 
@@ -208,7 +230,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::normal();
+        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
         let ctx = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();

@@ -76,7 +76,7 @@ pub fn setup_settings(
                 },
             ))
             .with_children(|row| {
-                for preset in [DifficultyPreset::Easy, DifficultyPreset::Normal, DifficultyPreset::Hard] {
+                for preset in [DifficultyPreset::Easy, DifficultyPreset::Normal, DifficultyPreset::Hard, DifficultyPreset::Epic] {
                     let is_active = settings.difficulty_preset == preset;
                     let label = format!(
                         "{}{}",
@@ -85,6 +85,7 @@ pub fn setup_settings(
                             DifficultyPreset::Easy => "Легко",
                             DifficultyPreset::Normal => "Нормально",
                             DifficultyPreset::Hard => "Сложно",
+                            DifficultyPreset::Epic => "Эпично",
                         }
                     );
                     spawn_standard_button(

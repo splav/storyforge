@@ -1,8 +1,8 @@
 [difficulty]
-# Сложность AI: "easy", "normal", "hard"
-ai = "normal"
+# Сложность AI: "easy", "normal", "hard", "epic"
+ai = "hard"
 # Кость критического провала (число граней). Крит. провал = выпало 1.
-crit_fail_die = 10
+crit_fail_die = 20
 
 [debug]
 # Включает сбор AI-отладки (консольный лог + influence maps). Overlay по тильде (~).

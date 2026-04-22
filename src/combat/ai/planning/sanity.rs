@@ -532,7 +532,7 @@ mod tests {
         let def = fireball_def(1);
         content.abilities.insert(def.id.clone(), def);
 
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::normal();
+        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
         let utility = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();

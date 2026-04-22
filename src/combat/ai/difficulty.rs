@@ -11,8 +11,9 @@ pub struct DifficultyProfile {
     /// intent selection (not a score multiplier — it would cancel out under
     /// symmetric normalization). Low = misses danger, slow to reposition.
     pub awareness: f32,
-    /// [0..1] Quality of the final pick. Derives score_noise (high = 0) and
-    /// top_k (high = always best). Single exposed knob for two internal effects.
+    /// [0..1] Quality of the final pick. Controls top_k_choice threshold and
+    /// derives score_noise: easy tier (< 0.15) uses top_k = 3; noise scales
+    /// linearly from 0.20 at 0.10 down to 0.0 at 0.30. Normal+ → argmax/0.
     pub decision_quality: f32,
     /// Multiplier on role_weights[intent]. Low = intent is a suggestion;
     /// high = AI really plays around the chosen intent.
@@ -50,7 +51,25 @@ pub struct DifficultyProfile {
 }
 
 impl DifficultyProfile {
+    /// Beginner tier with stochastic picks: high noise and top-k sampling
+    /// let lower-quality plans win occasionally, producing forgiving AI.
     pub fn easy() -> Self {
+        Self {
+            awareness: 0.35,
+            decision_quality: 0.10,
+            intent_commitment: 0.55,
+            survival_instinct: 0.40,
+            resource_discipline: 0.40,
+            coordination: 0.20,
+            mercy: 0.50,
+            plan_max_depth: 2,
+            plan_beam_width: 6,
+            plan_step_discount: 0.70,
+            damage_horizon_rounds: 3,
+        }
+    }
+
+    pub fn normal() -> Self {
         Self {
             awareness: 0.55,
             decision_quality: 0.30,
@@ -66,7 +85,7 @@ impl DifficultyProfile {
         }
     }
 
-    pub fn normal() -> Self {
+    pub fn hard() -> Self {
         Self {
             awareness: 0.80,
             decision_quality: 0.75,
@@ -82,7 +101,7 @@ impl DifficultyProfile {
         }
     }
 
-    pub fn hard() -> Self {
+    pub fn epic() -> Self {
         Self {
             awareness: 1.00,
             decision_quality: 1.00,
@@ -101,17 +120,25 @@ impl DifficultyProfile {
     // ── Derived parameters ──────────────────────────────────────────────
     // All reads go through these methods so the mapping lives in one place.
 
-    /// Random noise added per-plan in `score_plans_with_raw`. 0 = deterministic.
+    /// Random noise added per-plan in `finalize_scores`. Derived from
+    /// `decision_quality`: noise is only present on the `easy` tier (where
+    /// `decision_quality < 0.30`), scaling down linearly to 0 by the time
+    /// `decision_quality` reaches 0.30. Normal/hard/epic have noise=0 —
+    /// reproducibility and determinism by construction, not by explicit flag.
+    ///
+    /// Amplitude values:
+    /// - easy (decision_quality=0.10) → 0.20
+    /// - normal+ (decision_quality ≥ 0.30) → 0.0
     pub fn score_noise(&self) -> f32 {
-        lerp(0.6, 0.0, self.decision_quality)
+        (0.3 - self.decision_quality).max(0.0)
     }
 
     /// How many top candidates to sample from (1 = always argmax).
+    /// Only the new `easy` tier (decision_quality < 0.15) returns 3;
+    /// all other tiers pin this to 1 for deterministic argmax.
     pub fn top_k_choice(&self) -> usize {
-        if self.decision_quality < 0.4 {
+        if self.decision_quality < 0.15 {
             3
-        } else if self.decision_quality < 0.8 {
-            2
         } else {
             1
         }
@@ -190,4 +217,25 @@ impl Default for DifficultyProfile {
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t.clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DifficultyProfile;
+
+    #[test]
+    fn noise_is_only_on_easy() {
+        assert!(DifficultyProfile::easy().score_noise() > 0.0);
+        assert_eq!(DifficultyProfile::normal().score_noise(), 0.0);
+        assert_eq!(DifficultyProfile::hard().score_noise(), 0.0);
+        assert_eq!(DifficultyProfile::epic().score_noise(), 0.0);
+    }
+
+    #[test]
+    fn top_k_is_argmax_above_easy() {
+        assert_eq!(DifficultyProfile::easy().top_k_choice(), 3);
+        assert_eq!(DifficultyProfile::normal().top_k_choice(), 1);
+        assert_eq!(DifficultyProfile::hard().top_k_choice(), 1);
+        assert_eq!(DifficultyProfile::epic().top_k_choice(), 1);
+    }
 }

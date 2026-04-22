@@ -695,7 +695,7 @@ mod tests {
         let def = strike_def("strike", 1, 1);
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 1;
         let _caster = CasterContext {
             str_mod: 4,
@@ -737,7 +737,7 @@ mod tests {
         let def = strike_def("strike", 10, 1);
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 2;
         difficulty.plan_beam_width = 2;
         let _caster = CasterContext {
@@ -775,7 +775,7 @@ mod tests {
         let def = strike_def("strike", 10, 1);
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 2;
         difficulty.plan_beam_width = 8;
         let _caster = CasterContext {
@@ -818,7 +818,7 @@ mod tests {
         let def = strike_def("strike", 1, 1);
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 3;
         difficulty.plan_beam_width = 8;
         let _caster = CasterContext {
@@ -1038,7 +1038,7 @@ mod tests {
         let heal = heal_def("heal", 3);
         let mut content = empty_content();
         content.abilities.insert(heal.id.clone(), heal.clone());
-        let difficulty = DifficultyProfile::normal();
+        let difficulty = DifficultyProfile::hard();
         let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let _abilities = Abilities(vec![heal.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
@@ -1070,7 +1070,7 @@ mod tests {
         content.abilities.insert(def.id.clone(), def.clone());
         content.statuses.insert(StatusId::from("stun"), stun_status());
 
-        let difficulty = DifficultyProfile::normal();
+        let difficulty = DifficultyProfile::hard();
         let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
@@ -1101,7 +1101,7 @@ mod tests {
         content.abilities.insert(def.id.clone(), def.clone());
         content.statuses.insert(StatusId::from("stun"), stun_status());
 
-        let difficulty = DifficultyProfile::normal();
+        let difficulty = DifficultyProfile::hard();
         let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
@@ -1128,7 +1128,7 @@ mod tests {
         let def = fireball_def("fireball", 5, 1);
         let mut content = empty_content();
         content.abilities.insert(def.id.clone(), def.clone());
-        let difficulty = DifficultyProfile::normal();
+        let difficulty = DifficultyProfile::hard();
         let _caster = CasterContext { str_mod: 0, int_mod: 4, spell_power: 2, weapon_dice: None };
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
@@ -1154,7 +1154,7 @@ mod tests {
         let def = fireball_def("fireball", 10, 1);
         let mut content = empty_content();
         content.abilities.insert(def.id.clone(), def.clone());
-        let difficulty = DifficultyProfile::normal();
+        let difficulty = DifficultyProfile::hard();
         let _caster = CasterContext { str_mod: 0, int_mod: 4, spell_power: 2, weapon_dice: None };
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
@@ -1184,7 +1184,7 @@ mod tests {
         let mut content = empty_content();
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 1;
         let _caster = CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None };
         let _abilities = Abilities(vec![def.id.clone()]);
@@ -1260,7 +1260,7 @@ mod tests {
             },
         );
 
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 1;
         let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let _abilities = Abilities(vec![mana_bolt.id.clone(), melee.id.clone()]);
@@ -1327,7 +1327,7 @@ mod tests {
 
         let mut content = empty_content();
         content.abilities.insert(fireball.id.clone(), fireball.clone());
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 1;
         let ctx = make_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![actor, enemy_a, enemy_b], 1);
@@ -1389,7 +1389,7 @@ mod tests {
         let def = strike_def("strike", 1, 1);
         let mut content = empty_content();
         content.abilities.insert(def.id.clone(), def.clone());
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 1;
         let _caster = CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None };
         let _abilities = Abilities(vec![def.id.clone()]);
@@ -1468,7 +1468,7 @@ mod tests {
             },
         );
 
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 1;
         let ctx = make_ctx(&content, &difficulty);
         let maps = empty_maps();
@@ -1535,7 +1535,7 @@ mod tests {
 
         let mut content = empty_content();
         content.abilities.insert(summon_def.id.clone(), summon_def.clone());
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 2;
         let ctx = make_ctx(&content, &difficulty);
 
@@ -1590,7 +1590,7 @@ mod tests {
 
         let mut content = empty_content();
         content.abilities.insert(summon_def.id.clone(), summon_def.clone());
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 1;
         let ctx = make_ctx(&content, &difficulty);
 
@@ -1640,7 +1640,7 @@ mod tests {
 
         let mut content = empty_content();
         content.abilities.insert(summon_def.id.clone(), summon_def.clone());
-        let mut difficulty = DifficultyProfile::normal();
+        let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 3;
         let ctx = make_ctx(&content, &difficulty);
 
