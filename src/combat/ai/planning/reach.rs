@@ -15,8 +15,10 @@ use std::collections::HashSet;
 
 /// BFS from `actor.pos` with the planner's passability / stop rules:
 ///
-/// - **Pass-through**: only live enemies block (walked through but not
-///   landable). Live allies and corpses are pass-through-friendly.
+/// - **Pass-through**: all enemies (live or dead) block. Only live allies
+///   are pass-through-friendly — walking through a corpse is forbidden
+///   to prevent paths that trigger AoOs from units the snapshot thought
+///   were dead.
 /// - **Stopping**: every non-actor occupant blocks — live enemy, live
 ///   ally, and corpse (hp=0 unit still in the snapshot). The actor's own
 ///   tile stays legal so a zero-MP reach includes it.
@@ -25,7 +27,7 @@ use std::collections::HashSet;
 /// instead of in a parallel `blocked_tiles` channel.
 pub fn reach_from(snap: &BattleSnapshot, actor: &UnitSnapshot) -> ReachableMap {
     let enemy_positions: HashSet<Hex> = snap
-        .enemies_of(actor.team)
+        .all_enemies_of(actor.team)
         .map(|u| u.pos)
         .collect();
     let stop_blockers: HashSet<Hex> = snap
@@ -99,36 +101,26 @@ mod tests {
         );
     }
 
-    /// Corpses are live in the snapshot with `hp = 0` (no more parallel
-    /// `blocked_tiles` channel). The reach adapter must still treat their
-    /// tile as a stop-blocker — identical behaviour to the pre-lift era,
-    /// just resolved from one source of truth.
+    /// Corpses (hp=0 enemy units) fully block the tile — no stopping and no
+    /// pass-through. This prevents paths that would route through a tile the
+    /// planner thinks is clear but that triggers an AoO at execution time.
     #[test]
-    fn corpse_tile_is_rejected_as_stop() {
+    fn corpse_tile_is_fully_blocked() {
         let actor = unit(1, Team::Enemy, hex_from_offset(3, 3));
         let corpse_pos = hex_from_offset(4, 3);
         let corpse = UnitBuilder::new(2, Team::Player, corpse_pos).hp(0).build();
         let s = snap(vec![actor.clone(), corpse]);
         let reach = reach_from(&s, &actor);
+        // Can't stop on the corpse tile.
         assert!(
             !reach.destinations.contains(&corpse_pos),
             "corpse tile must not be a stop destination",
         );
-    }
-
-    /// Symmetrical invariant: a corpse is **pass-through-friendly** because
-    /// it isn't a live enemy. Pathing to a tile beyond the corpse succeeds.
-    #[test]
-    fn tile_beyond_corpse_is_reachable_via_pass_through() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(3, 3));
-        let corpse_pos = hex_from_offset(4, 3);
-        let corpse = UnitBuilder::new(2, Team::Player, corpse_pos).hp(0).build();
-        let s = snap(vec![actor.clone(), corpse]);
-        let reach = reach_from(&s, &actor);
-        let beyond = hex_from_offset(5, 3);
+        // BFS never visits the corpse tile (it's impassable), so there's no
+        // reconstructible path through it even as an intermediate step.
         assert!(
-            reach.destinations.contains(&beyond),
-            "corpse blocks stopping but lets the actor walk over",
+            reach.path_to(corpse_pos).is_none(),
+            "corpse tile must be impassable — BFS should not have explored it",
         );
     }
 }

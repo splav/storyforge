@@ -163,7 +163,7 @@ fn split_kill(
 ) -> (f32, f32) {
     let Some(calc) = def.effect.calc(caster) else { return (0.0, 0.0) };
     let armor = if calc.pierces_armor { 0.0 } else { (target.armor + target.armor_bonus) as f32 };
-    let net = calc.expected() - armor + target.damage_taken_bonus as f32;
+    let net = calc.expected().round() - armor + target.damage_taken_bonus as f32;
     if net >= target.hp as f32 {
         return (1.0, 0.0);
     }
@@ -232,7 +232,7 @@ mod tests {
     use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
-    use crate::core::{AbilityId, StatusId};
+    use crate::core::{AbilityId, DiceExpr, StatusId};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -292,5 +292,21 @@ mod tests {
         let (kn, kp) = split_kill(get_def(&content, "melee_attack"), &target, &melee_caster(0), &content);
         assert_eq!(kn, 0.0);
         assert_eq!(kp, 0.0);
+    }
+
+    /// Boundary case: WeaponAttack 1d6 + str_mod=2 → expected=5.5, sim rounds to 6.
+    /// Target hp=6, armor=0. Scorer must match sim: kill_now=1, not 0.
+    #[test]
+    fn split_kill_rounds_expected_to_match_sim() {
+        let content = db();
+        let caster = CasterContext {
+            str_mod: 2,
+            weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+            ..Default::default()
+        };
+        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(6).build();
+        let (kn, kp) = split_kill(get_def(&content, "melee_attack"), &target, &caster, &content);
+        assert_eq!(kn, 1.0, "kill_now must be 1: expected()=5.5 rounds to 6 >= hp=6");
+        assert_eq!(kp, 0.0, "kill_promised must be 0 when kill_now=1");
     }
 }

@@ -482,6 +482,7 @@ pub fn select_intent(
         let reach_budget = (active.speed.max(0) as u32).saturating_add(active.max_attack_range);
         let killable = snap
             .enemies_of(active.team)
+            .filter(|_| active.action_points > 0)
             .filter(|e| active.threat >= e.eff_hp() as f32)
             .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
             .min_by_key(|e| e.eff_hp());
@@ -1483,5 +1484,44 @@ mod tests {
         let stored = PlanSnapshot::capture(&actor_at_expected, None, expected);
         // Actor captured at expected pos, but now at actual (path truncated).
         assert_eq!(stored.mismatch(&actor_at_actual, None), Some("actor_pos_mismatch"));
+    }
+
+    /// AP=0: enemy is reachable and within threat, but no action budget →
+    /// `killable` filter must skip and fall through to `BestPriority`.
+    #[test]
+    fn killable_requires_action_points() {
+        let actor_pos = hex_from_offset(0, 0);
+        let enemy_pos = hex_from_offset(1, 0); // distance=1, within reach_budget=4+1=5
+
+        // ap=0, speed=4, max_attack_range=1, threat=8 > enemy eff_hp=3
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ap(0)
+            .speed(4)
+            .max_attack_range(1)
+            .threat(8.0)
+            .build();
+
+        // enemy: eff_hp=3 (hp=3, armor=0), reachable and killable in threat
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos)
+            .full_hp(3)
+            .build();
+
+        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let maps = empty_maps();
+        let memory = AiMemory::default();
+        let difficulty = DifficultyProfile::default();
+
+        let choice = select_intent(&actor, &snap, &maps, &memory, &difficulty);
+
+        assert!(
+            !matches!(choice.reason, IntentReason::Killable { .. }),
+            "AP=0 must not yield Killable; got {:?}",
+            choice.reason,
+        );
+        assert!(
+            matches!(choice.reason, IntentReason::BestPriority { .. }),
+            "AP=0 should fall through to BestPriority; got {:?}",
+            choice.reason,
+        );
     }
 }
