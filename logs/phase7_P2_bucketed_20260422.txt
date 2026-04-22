@@ -1,0 +1,178 @@
+    Finished `release` profile [optimized] target(s) in 0.19s
+     Running `target/release/replay_ai_log --metrics-summary --phase7-p2 logs/20260422T061106_demo_campaign_demo_beastblood_raid.jsonl logs/20260422T061123_demo_campaign_demo_stormborn_camp.jsonl logs/20260422T061347_demo_campaign_demo_beastblood_raid.jsonl logs/20260422T061357_demo_campaign_demo_stormborn_camp.jsonl logs/20260422T063337_bell_under_veil_ch1_road_bridge.jsonl logs/20260422T063427_bell_under_veil_ch1_glassworks.jsonl logs/20260422T063506_bell_under_veil_ch1_twisted_grove.jsonl logs/20260422T063643_bell_under_veil_ch1_bell_crypt.jsonl logs/20260422T043500_demo_campaign_demo_beastblood_raid.jsonl logs/20260422T043523_demo_campaign_demo_stormborn_camp.jsonl logs/20260422T043720_demo_campaign_demo_beastblood_raid.jsonl logs/20260422T043743_demo_campaign_demo_stormborn_camp.jsonl`
+
+=== Replay: logs/20260422T061106_demo_campaign_demo_beastblood_raid.jsonl ===
+
+
+=== 3 entries, 0 ranking changes after sanity ===
+
+=== Replay: logs/20260422T061123_demo_campaign_demo_stormborn_camp.jsonl ===
+
+🔁 r3 Грозорождённый Воин: HP 7/18 AP 1/1 MP 3, intent=FocusTarget [taunt_forced], plans_eval=29, decision=0ms
+   logged_chose=#1, pre_sanity_top=#1 (+2.38), post_sanity_top=#3 (+1.59)
+   pre  #1 score +2.38→+1.07  Cast(melee_attack→21474836133) · Move→(0,3)  raw=[2.3222222, 0.0, 0.0, 0.0, 0.0, 3.0022223, 0.0, 0.3, 0.0, 0.0]
+   post #3 score +2.38→+1.59  Cast(melee_attack→21474836133) · Move→(0,3) · Move→(1,2)  raw=[2.3222222, 0.0, 0.0, 0.0, 0.0, 3.0022223, 0.0, 0.3, 0.0, 0.0]
+🔁 r4 Грозорождённый Старшина: HP 4/22 AP 1/1 MP 3, intent=ProtectSelf [panic_override], plans_eval=43, decision=1ms
+   logged_chose=#1, pre_sanity_top=#2 (+2.73), post_sanity_top=#1 (+2.37)
+   pre  #2 score +2.73→+1.89  Cast(heal→12884901537) · Move→(1,2) · Move→(0,3)  raw=[0.0, 0.0, 0.0, 0.0, 9.715908, 1.1011499, -0.8, 0.0, 0.0, 0.20454545]
+   post #1 score +2.66→+2.37  Cast(heal→12884901537)  raw=[0.0, 0.0, 0.0, 0.0, 9.715908, 1.0, -0.8, 0.0, 0.0, 0.20454545]
+
+=== 25 entries, 2 ranking changes after sanity ===
+=== 4 divergence events: 0 used continuation (0%), 4 replanned ===
+
+=== Replay: logs/20260422T061347_demo_campaign_demo_beastblood_raid.jsonl ===
+
+
+=== 1 entries, 0 ranking changes after sanity ===
+
+=== Replay: logs/20260422T061357_demo_campaign_demo_stormborn_camp.jsonl ===
+
+🔁 r1 Грозорождённый Старшина: HP 13/22 AP 0/1 MP 2, intent=ProtectAlly [protect_ally], plans_eval=10, decision=0ms
+   logged_chose=#1, pre_sanity_top=#4 (+1.76), post_sanity_top=#1 (+1.01)
+   pre  #4 score +1.76→+0.88  Move→(5,3)  raw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.30971426, 0.0, 0.009714246]
+   post #1 score +1.01→+1.01  Move→(5,3) · Move→(4,3)  raw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.925, 0.0, 0.3, 0.0, 0.0]
+🔁 r5 Бурешаман: HP 3/30 AP 1/1 MP 3, intent=ProtectSelf [panic_override], plans_eval=40, decision=1ms
+   logged_chose=#1, pre_sanity_top=#4 (+1.80), post_sanity_top=#1 (+1.45)
+   pre  #4 score +1.80→+1.05  Cast(heal→81604378281) · Move→(3,0) · Move→(4,0)  raw=[0.0, 0.0, 0.0, 0.0, 11.732499, 1.2096667, -0.9666667, 0.0, 0.0, 0.21666667]
+   post #1 score +1.67→+1.45  Cast(heal→81604378281)  raw=[0.0, 0.0, 0.0, 0.0, 11.732499, 1.0, -0.9666667, 0.0, 0.0, 0.21666667]
+
+=== 19 entries, 2 ranking changes after sanity ===
+=== 6 divergence events: 0 used continuation (0%), 6 replanned ===
+
+=== Replay: logs/20260422T063337_bell_under_veil_ch1_road_bridge.jsonl ===
+
+🔁 r1 Зверокров Налётчик: HP 4/10 AP 1/1 MP 5, intent=FocusTarget [killable], plans_eval=37, decision=0ms
+   logged_chose=#1, pre_sanity_top=#1 (+4.24), post_sanity_top=#2 (+4.20)
+   pre  #1 score +4.24→+4.00  Cast(melee_attack→68719476382)  raw=[0.52725, 0.37, 0.0, 0.0, 0.0, 1.2672501, 0.0, 0.3, 0.0, 0.0]
+   post #2 score +4.24→+4.20  Cast(melee_attack→68719476382) · Move→(1,2)  raw=[0.52725, 0.37, 0.0, 0.0, 0.0, 1.2672501, 0.0, 0.3, 0.0, 0.0]
+
+=== 13 entries, 1 ranking changes after sanity ===
+=== 1 divergence events: 0 used continuation (0%), 1 replanned ===
+
+=== Replay: logs/20260422T063427_bell_under_veil_ch1_glassworks.jsonl ===
+
+🔁 r2 Человек Грузчик-ломатель: HP 1/16 AP 1/1 MP 3, intent=ProtectSelf [panic_override], plans_eval=39, decision=0ms
+   logged_chose=#1, pre_sanity_top=#6 (+2.11), post_sanity_top=#1 (+1.27)
+   pre  #6 score +2.11→+0.42  Cast(taunt→77309410974) · Move→(3,0)  raw=[0.0, 0.0, 0.0, 4.0, 0.0, 1.5035579, 0.0, 0.0, 0.0, 1.2198948]
+   post #1 score +1.50→+1.27  Cast(taunt→77309410974)  raw=[0.0, 0.0, 0.0, 4.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.75]
+
+=== 12 entries, 1 ranking changes after sanity ===
+=== 4 divergence events: 0 used continuation (0%), 4 replanned ===
+
+=== Replay: logs/20260422T063506_bell_under_veil_ch1_twisted_grove.jsonl ===
+
+🔁 r3 Зверокров Искажённый зверь: HP 5/12 AP 1/1 MP 5, intent=FocusTarget [expected_self_lethal], plans_eval=38, decision=0ms
+   logged_chose=#1, pre_sanity_top=#1 (+2.85), post_sanity_top=#5 (+0.58)
+   pre  #1 score +2.85→+0.65  Move→(0,0) · Cast(melee_attack→68719476387)  raw=[6.46, 0.85, 0.0, 0.0, 0.0, 0.125, 0.0, 0.0, 0.0, 0.0]
+   post #5 score +2.20→+0.58  Cast(melee_attack→73014443690) · Move→(4,3)  raw=[3.8558824, 0.0, 0.0, 0.0, 0.0, 0.24499997, 0.0, 0.0, 0.0, 0.54666674]
+
+=== 36 entries, 1 ranking changes after sanity ===
+=== 11 divergence events: 0 used continuation (0%), 11 replanned ===
+
+=== Replay: logs/20260422T063643_bell_under_veil_ch1_bell_crypt.jsonl ===
+
+🔁 r1 Человек Криптовый служка: HP 8/12 AP 1/1 MP 3, intent=FocusTarget [best_priority], plans_eval=33, decision=0ms
+   logged_chose=#1, pre_sanity_top=#2 (+2.09), post_sanity_top=#1 (+2.24)
+   pre  #2 score +2.09→+2.29  Cast(taunt→55834574489) · Move→(1,2)  raw=[0.0, 0.0, 0.0, 4.0, 0.0, 0.68, 0.0, 1.3, 0.0, 1.0]
+   post #1 score +2.03→+2.24  Move→(1,2) · Cast(melee_attack→141733920430)  raw=[3.14925, 0.0, 0.0, 0.0, 0.0, 3.94925, 0.0, 1.3, 0.0, 0.0]
+🔁 r2 Человек Настоятель Мерон: HP 11/18 AP 1/1 MP 3, intent=FocusTarget [best_priority], plans_eval=42, decision=1ms
+   logged_chose=#1, pre_sanity_top=#4 (+1.99), post_sanity_top=#1 (+2.05)
+   pre  #4 score +1.99→+1.99  Cast(flash→141733920430)  raw=[2.6184375, 0.0, 0.0, 0.0, 0.0, 2.6184375, -0.14285715, 0.3, 0.0, 0.0]
+   post #1 score +1.86→+2.05  Cast(flash→141733920430) · Move→(3,3)  raw=[2.6184375, 0.0, 0.0, 0.0, 0.0, 3.2984376, -0.14285715, 0.031074792, 0.0, 0.36440814]
+🔁 r2 Человек Криптовый служка: HP 5/12 AP 1/1 MP 3, intent=FocusTarget [best_priority], plans_eval=37, decision=0ms
+   logged_chose=#1, pre_sanity_top=#3 (+2.32), post_sanity_top=#1 (+2.08)
+   pre  #3 score +2.32→+2.10  Cast(taunt→81604378282) · Move→(-1,2)  raw=[0.0, 0.0, 0.0, 4.0, 0.0, 0.68, 0.0, 0.6333333, 0.0, 1.0]
+   post #1 score +2.29→+2.08  Move→(0,3) · Cast(melee_attack→141733920430) · Move→(-1,2)  raw=[3.3309376, 0.0, 0.0, 0.0, 0.0, 4.7089376, 0.0, 0.6333333, 0.0, 0.0]
+
+=== 18 entries, 3 ranking changes after sanity ===
+=== 4 divergence events: 0 used continuation (0%), 4 replanned ===
+
+=== Replay: logs/20260422T043500_demo_campaign_demo_beastblood_raid.jsonl ===
+
+
+=== 4 entries, 0 ranking changes after sanity ===
+=== 2 divergence events: 0 used continuation (0%), 2 replanned ===
+
+=== Replay: logs/20260422T043523_demo_campaign_demo_stormborn_camp.jsonl ===
+
+🔁 r2 Грозорождённый Буревестник: HP 8/14 AP 0/1 MP 2, intent=FocusTarget [taunt_forced], plans_eval=9, decision=0ms
+   logged_chose=#1, pre_sanity_top=#5 (+2.54), post_sanity_top=#1 (+1.81)
+   pre  #5 score +2.54→+0.76  Move→(2,5)  raw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.0, 0.66440815, 0.0, 0.36440814]
+   post #1 score +1.83→+1.81  Move→(1,3)  raw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.0, 0.8, 0.0, 0.0]
+🔁 r4 Грозорождённый Буревестник: HP 8/14 AP 1/1 MP 4, intent=FocusTarget [killable], plans_eval=41, decision=0ms
+   logged_chose=#1, pre_sanity_top=#1 (+2.84), post_sanity_top=#2 (+2.96)
+   pre  #1 score +2.84→+2.80  Cast(melee_attack→21474836139)  raw=[1.6822916, 0.0, 0.0, 0.0, 0.0, 1.6822916, 0.0, 0.3, 0.0, 0.0]
+   post #2 score +2.73→+2.96  Move→(-1,3) · Cast(heal→17179868836) · Move→(-1,4)  raw=[0.0, 0.0, 0.0, 0.0, 9.516964, 1.378, -0.85, 0.3, 0.0, 0.39285713]
+🔁 r5 Грозорождённый Старшина: HP 5/22 AP 1/1 MP 3, intent=ProtectSelf [panic_override], plans_eval=42, decision=1ms
+   logged_chose=#1, pre_sanity_top=#4 (+2.73), post_sanity_top=#1 (+2.43)
+   pre  #4 score +2.73→+2.22  Cast(heal→8589934238) · Move→(-1,4) · Move→(0,4)  raw=[0.0, 0.0, 0.0, 0.0, 9.473011, 1.01445, -0.70000005, 0.0, 0.0, 0.20454545]
+   post #1 score +2.72→+2.43  Cast(heal→8589934238) · Move→(-1,3)  raw=[0.0, 0.0, 0.0, 0.0, 9.473011, 1.0, -0.70000005, 0.0, 0.0, 0.20454545]
+
+=== 31 entries, 3 ranking changes after sanity ===
+=== 9 divergence events: 0 used continuation (0%), 9 replanned ===
+
+=== Replay: logs/20260422T043720_demo_campaign_demo_beastblood_raid.jsonl ===
+
+
+=== 4 entries, 0 ranking changes after sanity ===
+
+=== Replay: logs/20260422T043743_demo_campaign_demo_stormborn_camp.jsonl ===
+
+🔁 r2 Грозорождённый Воин: HP 18/18 AP 0/1 MP 1, intent=FocusTarget [best_priority], plans_eval=3, decision=0ms
+   logged_chose=#1, pre_sanity_top=#2 (+2.25), post_sanity_top=#1 (+1.64)
+   pre  #2 score +2.25→+1.13  Move→(0,1)  raw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.0, 0.19999996, 0.0, 0.5333333]
+   post #1 score +1.64→+1.64    raw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.0, 0.3, 0.0, 0.0]
+🔁 r3 Грозорождённый Старшина: HP 8/22 AP 1/1 MP 3, intent=FocusTarget [killable], plans_eval=37, decision=0ms
+   logged_chose=#1, pre_sanity_top=#1 (+2.82), post_sanity_top=#10 (+2.55)
+   pre  #1 score +2.82→+2.48  Move→(2,3) · Cast(melee_attack→21474836133)  raw=[1.0457125, 0.3145, 0.0, 0.0, 0.0, 2.4747126, 0.0, 0.3, 0.0, 0.0]
+   post #10 score +2.72→+2.55  Cast(summon_storm_spirit→12884901537)  raw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.5, 0.3, 0.0, 0.0]
+🔁 r2 Грозорождённый Воин: HP 18/18 AP 1/1 MP 3, intent=FocusTarget [killable], plans_eval=24, decision=0ms
+   logged_chose=#1, pre_sanity_top=#2 (+2.46), post_sanity_top=#1 (+2.36)
+   pre  #2 score +2.46→+1.35  Move→(0,2) · Cast(melee_attack→4294966934) · Move→(0,1)  raw=[5.2689376, 0.0, 0.0, 0.0, 0.0, 1.378, 0.0, 0.6666667, 0.0, 0.0]
+   post #1 score +2.15→+2.36  Move→(0,2) · Cast(melee_attack→4294966934)  raw=[5.2689376, 0.0, 0.0, 0.0, 0.0, 0.8, 0.0, 0.6666667, 0.0, 0.0]
+🔁 r2 Грозорождённый Воин: HP 18/18 AP 0/1 MP 1, intent=FocusTarget [best_priority], plans_eval=3, decision=0ms
+   logged_chose=#1, pre_sanity_top=#2 (+2.25), post_sanity_top=#1 (+1.64)
+   pre  #2 score +2.25→+1.13  Move→(0,1)  raw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.0, 0.19999996, 0.0, 0.5333333]
+   post #1 score +1.64→+1.64    raw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.0, 0.3, 0.0, 0.0]
+🔁 r3 Грозорождённый Буревестник: HP 14/14 AP 1/1 MP 4, intent=FocusTarget [best_priority], plans_eval=39, decision=1ms
+   logged_chose=#1, pre_sanity_top=#5 (+3.45), post_sanity_top=#1 (+0.71)
+   pre  #5 score +3.45→+0.28  Move→(1,1) · Cast(thunderstrike→4294966930) · Move→(0,1)  raw=[10.242137, 0.0, 0.0, 0.0, 0.0, 7.5232825, -0.68, 0.5900001, 0.0, 0.5400001]
+   post #1 score +0.71→+0.71  Cast(melee_attack→4294966934)  raw=[0.79471153, 0.0, 0.0, 0.0, 0.0, 0.79471153, 0.0, 0.3, 0.0, 0.0]
+🔁 r3 Грозорождённый Буревестник: HP 14/14 AP 0/1 MP 4, intent=FocusTarget [best_priority], plans_eval=30, decision=0ms
+   logged_chose=#1, pre_sanity_top=#5 (+2.73), post_sanity_top=#1 (+1.30)
+   pre  #5 score +2.73→+0.21  Move→(1,1)  raw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.0, 0.5900001, 0.0, 0.5400001]
+   post #1 score +1.30→+1.30    raw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.0, 0.3, 0.0, 0.0]
+🔁 r3 Бурешаман: HP 30/30 AP 1/1 MP 3, intent=FocusTarget [best_priority], plans_eval=24, decision=0ms
+   logged_chose=#1, pre_sanity_top=#4 (+3.33), post_sanity_top=#1 (+1.88)
+   pre  #4 score +3.33→+0.94  Cast(thunderstrike→4294966929) · Move→(0,1)  raw=[6.298026, 0.0, 0.0, 0.0, 0.0, 4.4588156, -0.6333333, 0.5066668, 0.0, 0.5400001]
+   post #1 score +1.88→+1.88  Cast(thunderstrike→4294966929)  raw=[6.298026, 0.0, 0.0, 0.0, 0.0, 3.7788157, -0.6333333, 0.3, 0.0, 0.0]
+
+=== 56 entries, 7 ranking changes after sanity ===
+=== 9 divergence events: 0 used continuation (0%), 9 replanned ===
+
+=== Regression Metrics ===
+wasted_mp_ratio:        0.0%  (0/53 MoveOnly commits with displacement=0)
+panic_leak_rate:       13.3%  (2/15 ProtectSelf+Default-mode entries → non-defensive commit)
+killable_closure_rate: 48.4%  (15/31 killable intents → kill factor > 0)
+repeated_tile_rate:     8.8%  (12/137 plans-with-moves revisit ≥1 tile)  [target <5%]
+zero_net_move_rate:     4.4%  (6/137 plans-with-moves end at start pos)  [target <1%]
+post_cast_retreat_rate:23.5%  (8/34 post-cast-move plans retreat & revisit tile)  [target ↓≥70%]
+killable_non_offensive_rate:    0.0%  (0/17 killable+kill_line → chosen not offensive vs target)  [target <2%]
+killable_wrong_target_rate:     0.0%  (0/17 killable+kill_line → offensive but wrong target)  [target <5%]
+kill_conversion_rate:          88.2%  (15/17 killable+kill_line → committed prefix kills target)  [target >85%]
+phantom_tail_chosen_rate:      31.2%  (34/109 chosen-with-cast plans have post-cast Move tail)
+phantom_tail_flips_committed:  64.7%  (22/34 phantom-tail choices → best tailless alt has different committed action)
+
+=== Phase 7 P2 Bucketed Ranking Metrics ===
+ranking_change_rate:           10.4%  (23/222 entries where P2 picks different committed action)
+plateau_tie_rate:  baseline=24.3%  p2=23.4%  Δ=-0.9 pp  [target ≤ baseline+5 pp]
+
+  -- Acceptance metrics (P2 pick) --
+  panic_leak_rate:      baseline=13.3%  p2=13.3%  Δ=+0.0 pp  [target ≤ baseline+5 pp]
+  killable_non_offensive_rate: baseline=0.0%  p2=0.0%  Δ=+0.0 pp  [target ≤ 2%]
+  kill_conversion_rate:        baseline=88.2%  p2=88.2%  Δ=+0.0 pp  [target ≥ 80%]
+  repeated_tile_rate:   baseline=8.8%  p2=8.0%  Δ=-0.8 pp
+  zero_net_move_rate:   baseline=4.4%  p2=3.6%  Δ=-0.8 pp
+  post_cast_retreat_rate: baseline=23.5%  p2=17.1%  Δ=-6.4 pp
+  phantom_tail_chosen_rate: baseline=31.2%  p2=33.0%  Δ=+1.8 pp
+  phantom_tail_flips_committed: baseline=64.7%  p2=60.0%  Δ=-4.7 pp  [not a P2 target]

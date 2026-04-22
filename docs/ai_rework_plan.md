@@ -236,7 +236,27 @@ Compare: `(rank, scalar_finalize_score)` лексикографически.
 | `phantom_tail_flips_committed` | NOT acceptance для P2 — P2 не таргетирует phantom-tail, это P1/committed_state territory |
 | `plateau_tie_rate` | ≤ baseline + 5 pp (buckets не должны увеличивать плато) |
 
-**P2 "честный провал"** — acceptance metrics не вернулись к baseline (значит bucketing сам по себе не покрывает corruption, возможно проблема и в scalar-компоненте внутри bucket'а).
+**Results (2026-04-22, corpus 12 логов, 222 entries)**:
+
+| Metric                        | Baseline | Phase 7 | P1    | P2     | Δ P2 vs Baseline | Target            |
+|-------------------------------|----------|---------|-------|--------|------------------|-------------------|
+| killable_non_offensive_rate   | 0.0%     | 23.5%   | 23.5% | 0.0%   | 0 pp             | ≤ 2%              |
+| kill_conversion_rate          | 88.2%    | 64.7%   | 64.7% | 88.2%  | 0 pp             | ≥ 80%             |
+| panic_leak_rate               | 13.3%    | 13.3%*  | 13.3%*| 13.3%  | 0 pp             | ≤ baseline+5 pp   |
+| phantom_tail_flips_committed  | 64.7%    | 47.6%   | 52.4% | 60.0%  | −4.7 pp          | NOT acceptance    |
+| plateau_tie_rate              | 24.3%    | 20.3%   | 18.9% | 23.4%  | −0.9 pp          | ≤ baseline+5 pp   |
+
+\* Phase 7 / P1 panic_leak измерялось на тех же логах, значение не менялось.
+
+**Verdict: 4/4 acceptance** — сценарий B по stop-rule: P2 прошёл все strict-метрики.
+
+Интерпретация: bucket-reranking не ухудшил ни одну метрику потому что работает как defensive ordering layer без additive FV-смещения. Baseline killable-метрики (0%/88.2%) уже были правильными — P2 их защищает при любых будущих изменениях. Phase 7 и P1 их ломали через γ·FV cross-class reranking; P2 как паттерн это исправляет не добавляя FV вообще.
+
+Ranking change rate 10.4% (23/222 записей) — P2 меняет выбор в случаях где phantom-tail план побеждал до bucket. post_cast_retreat снизился на 6.4 pp (хороший сигнал).
+
+**Следующий шаг по stop-rule сценарий B**: merge P2 pattern в production как step-6 — расширение killable gate + ProtectSelf mask на явные buckets, без FV. P1 архивируется.
+
+Полный output: [`logs/phase7_P2_bucketed_20260422.txt`](../logs/phase7_P2_bucketed_20260422.txt).
 
 #### P3 — композиция P1 + P2 (опционально)
 

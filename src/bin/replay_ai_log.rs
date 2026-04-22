@@ -28,13 +28,14 @@ use bevy::prelude::Entity;
 use serde::Deserialize;
 
 use storyforge::combat::ai::difficulty::DifficultyProfile;
-use storyforge::combat::ai::factors::{PlanFactors, DAMAGE_IDX, KILL_NOW_IDX};
+use storyforge::combat::ai::factors::{PlanFactors, DAMAGE_IDX, KILL_NOW_IDX, SELF_SURVIVAL_IDX};
 use storyforge::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::planning::{
-    apply_protect_self_mask, finalize_scores, pick_best_plan, sanity_adjust_plans, CommittedPrefix,
-    PlanStep, StepOutcome, TurnPlan,
+    apply_protect_self_mask, finalize_scores, pick_best_plan,
+    sanity_adjust_plans, CommittedPrefix, PlanStep, StepOutcome, TurnPlan,
 };
-use storyforge::combat::ai::planning::future_value::score_plans_prototype;
+use storyforge::combat::ai::planning::future_value::{plan_prefix_only, score_plans_prototype};
+use storyforge::combat::ai::planning::sanity::SELF_SURVIVAL_EPSILON;
 use storyforge::combat::ai::role::AxisProfile;
 use storyforge::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use storyforge::combat::ai::reservations::Reservations;
@@ -261,6 +262,8 @@ struct Metrics {
 
     // ── Phase 7 prototype (only populated when --phase7-prototype is set) ─────
     proto: Option<Box<PrototypeMetrics>>,
+    // ── P2 bucketed ranking (only populated when --phase7-p2 is set) ──────────
+    p2: Option<Box<P2Metrics>>,
 }
 
 /// Metrics collected from the Phase 7 prototype pipeline.
@@ -282,6 +285,35 @@ struct PrototypeMetrics {
     plateau_ties_prototype: usize,
 
     // ── Mirrored acceptance metrics (prototype pick) ─────────────────────────
+    move_only_total: usize,
+    move_only_wasted: usize,
+    panic_total: usize,
+    panic_leaked: usize,
+    killable_with_kill_line_total: usize,
+    killable_non_offensive: usize,
+    killable_wrong_target: usize,
+    killable_kill_converted: usize,
+    plans_with_moves: usize,
+    repeated_tile_plans: usize,
+    zero_net_move_plans: usize,
+    plans_with_post_cast_move: usize,
+    post_cast_retreat_plans: usize,
+    chosen_with_cast_total: usize,
+    phantom_tail_chosen: usize,
+    phantom_tail_flips_committed: usize,
+}
+
+/// Metrics collected from the P2 bucketed-ranking pipeline.
+/// Same acceptance-metric set as `PrototypeMetrics` — parallel to baseline for delta-pp.
+#[derive(Default)]
+struct P2Metrics {
+    total_entries: usize,
+
+    ranking_changed: usize,
+
+    plateau_ties_baseline: usize,
+    plateau_ties_p2: usize,
+
     move_only_total: usize,
     move_only_wasted: usize,
     panic_total: usize,
@@ -397,6 +429,9 @@ impl Metrics {
         if let Some(p) = &self.proto {
             self.print_prototype_summary(p);
         }
+        if let Some(p) = &self.p2 {
+            self.print_p2_summary(p);
+        }
     }
 
     fn print_prototype_summary(&self, p: &PrototypeMetrics) {
@@ -480,10 +515,214 @@ impl Metrics {
             flip_b, flip_p, flip_p - flip_b,
         );
     }
+
+    fn print_p2_summary(&self, p: &P2Metrics) {
+        println!("\n=== Phase 7 P2 Bucketed Ranking Metrics ===");
+        let total = p.total_entries;
+
+        let change_rate = pct(p.ranking_changed, total);
+        println!(
+            "ranking_change_rate:          {:5.1}%  ({}/{} entries where P2 picks different committed action)",
+            change_rate, p.ranking_changed, total,
+        );
+
+        let plateau_base = pct(p.plateau_ties_baseline, total);
+        let plateau_p2 = pct(p.plateau_ties_p2, total);
+        let plateau_delta = plateau_p2 - plateau_base;
+        println!(
+            "plateau_tie_rate:  baseline={:.1}%  p2={:.1}%  Δ={:+.1} pp  [target ≤ baseline+5 pp]",
+            plateau_base, plateau_p2, plateau_delta,
+        );
+
+        println!("\n  -- Acceptance metrics (P2 pick) --");
+
+        let leak_b = pct(self.panic_leaked, self.panic_total);
+        let leak_p = pct(p.panic_leaked, p.panic_total);
+        println!(
+            "  panic_leak_rate:      baseline={:.1}%  p2={:.1}%  Δ={:+.1} pp  [target ≤ baseline+5 pp]",
+            leak_b, leak_p, leak_p - leak_b,
+        );
+
+        let kll_denom_b = self.killable_with_kill_line_total;
+        let kll_denom_p = p.killable_with_kill_line_total;
+        let non_off_b = pct(self.killable_non_offensive, kll_denom_b);
+        let non_off_p = pct(p.killable_non_offensive, kll_denom_p);
+        println!(
+            "  killable_non_offensive_rate: baseline={:.1}%  p2={:.1}%  Δ={:+.1} pp  [target ≤ 2%]",
+            non_off_b, non_off_p, non_off_p - non_off_b,
+        );
+        let conv_b = pct(self.killable_kill_converted, kll_denom_b);
+        let conv_p = pct(p.killable_kill_converted, kll_denom_p);
+        println!(
+            "  kill_conversion_rate:        baseline={:.1}%  p2={:.1}%  Δ={:+.1} pp  [target ≥ 80%]",
+            conv_b, conv_p, conv_p - conv_b,
+        );
+
+        let rep_b = pct(self.repeated_tile_plans, self.plans_with_moves);
+        let rep_p = pct(p.repeated_tile_plans, p.plans_with_moves);
+        println!(
+            "  repeated_tile_rate:   baseline={:.1}%  p2={:.1}%  Δ={:+.1} pp",
+            rep_b, rep_p, rep_p - rep_b,
+        );
+        let zero_b = pct(self.zero_net_move_plans, self.plans_with_moves);
+        let zero_p = pct(p.zero_net_move_plans, p.plans_with_moves);
+        println!(
+            "  zero_net_move_rate:   baseline={:.1}%  p2={:.1}%  Δ={:+.1} pp",
+            zero_b, zero_p, zero_p - zero_b,
+        );
+        let post_b = pct(self.post_cast_retreat_plans, self.plans_with_post_cast_move);
+        let post_p = pct(p.post_cast_retreat_plans, p.plans_with_post_cast_move);
+        println!(
+            "  post_cast_retreat_rate: baseline={:.1}%  p2={:.1}%  Δ={:+.1} pp",
+            post_b, post_p, post_p - post_b,
+        );
+        let phantom_b = pct(self.phantom_tail_chosen, self.chosen_with_cast_total);
+        let phantom_p = pct(p.phantom_tail_chosen, p.chosen_with_cast_total);
+        println!(
+            "  phantom_tail_chosen_rate: baseline={:.1}%  p2={:.1}%  Δ={:+.1} pp",
+            phantom_b, phantom_p, phantom_p - phantom_b,
+        );
+        let flip_b = pct(self.phantom_tail_flips_committed, self.phantom_tail_chosen);
+        let flip_p = pct(p.phantom_tail_flips_committed, p.phantom_tail_chosen);
+        println!(
+            "  phantom_tail_flips_committed: baseline={:.1}%  p2={:.1}%  Δ={:+.1} pp  [not a P2 target]",
+            flip_b, flip_p, flip_p - flip_b,
+        );
+    }
 }
 
 fn pct(num: usize, denom: usize) -> f64 {
     if denom > 0 { num as f64 / denom as f64 * 100.0 } else { 0.0 }
+}
+
+// ── P2 bucketed ranking ──────────────────────────────────────────────────────
+
+/// Rank offset large enough to make any rank difference dominate the scalar
+/// score differential. Scores from `finalize_scores` stay in ~[-5, +5] after
+/// sanity; 100 clears that comfortably.
+const P2_RANK_OFFSET: f32 = 100.0;
+
+/// Classify the bucket rank for a `FocusTarget{T}` plan.
+///
+/// Evaluates the **committed prefix only** (steps/outcomes up to `prefix_len`).
+/// Returns:
+/// - `2` if the prefix kills T (outcome.killed contains T at any Cast-vs-T step).
+/// - `1` if offensive vs T AND prefix damage on T ≥ α * target_hp.
+/// - `0` if offensive vs T (weak offense, damage below threshold).
+/// - `-1` otherwise (off-intent: no Cast targeting T in prefix).
+///
+/// `target_hp` is the snapshot HP before this tick (not modified by this plan's prefix).
+/// α = `KILLABLE_ALPHA` (0.3), kept in sync with `killable_gate.rs`.
+pub fn classify_focus_target_bucket(
+    steps: &[storyforge::combat::ai::planning::PlanStep],
+    outcomes: &[storyforge::combat::ai::planning::StepOutcome],
+    target: bevy::prelude::Entity,
+    target_hp: i32,
+) -> i32 {
+    use storyforge::combat::ai::planning::PlanStep;
+
+    // Committed prefix length: same rule as `plan_prefix_only` / `committed_step_count`.
+    let prefix_len = match steps.first() {
+        None => 0,
+        Some(PlanStep::Cast { .. }) => 1,
+        Some(PlanStep::Move { .. }) => {
+            if matches!(steps.get(1), Some(PlanStep::Cast { .. })) { 2 } else { 1 }
+        }
+    };
+
+    let mut prefix_kills = false;
+    let mut prefix_damage_on_t: f32 = 0.0;
+    let mut offensive_vs_t = false;
+
+    for (step, outcome) in steps
+        .iter()
+        .take(prefix_len)
+        .zip(outcomes.iter())
+    {
+        if let PlanStep::Cast { target: t, .. } = step {
+            if *t == target {
+                offensive_vs_t = true;
+                prefix_damage_on_t += outcome.damage;
+                if outcome.killed.contains(&target) {
+                    prefix_kills = true;
+                }
+            }
+        }
+    }
+
+    if prefix_kills {
+        return 2;
+    }
+    let hp_f = target_hp.max(0) as f32;
+    if offensive_vs_t && prefix_damage_on_t >= hp_f * KILLABLE_ALPHA {
+        return 1;
+    }
+    if offensive_vs_t {
+        return 0;
+    }
+    -1
+}
+
+/// Classify the bucket rank for a `ProtectSelf` plan.
+///
+/// Uses `self_survival` from plan factors (computed on committed prefix in P2 pipeline).
+/// Returns:
+/// - `1` if `self_survival >= SELF_SURVIVAL_EPSILON` (0.15).
+/// - `0` otherwise.
+pub fn classify_protect_self_bucket(self_survival: f32) -> i32 {
+    if self_survival >= SELF_SURVIVAL_EPSILON { 1 } else { 0 }
+}
+
+/// Apply P2 bucket reranking to an already-scored (and sanity/mask-adjusted) score vector.
+///
+/// For `FocusTarget{T}`: classifies each plan's committed prefix, assigns a bucket rank,
+/// and shifts the score by `rank * P2_RANK_OFFSET` so lexicographic (rank, scalar) ordering
+/// is represented as a single float comparison.
+///
+/// For `ProtectSelf`: uses `raw_factors[SELF_SURVIVAL_IDX]` on the committed prefix plan.
+///
+/// Other intents: no-op (scores unchanged, invariance preserved).
+///
+/// Plans already at `-∞` (masked out) are skipped — their rank can't lift them.
+fn apply_p2_bucket_rerank(
+    scores: &mut [f32],
+    plans: &[TurnPlan],
+    intent: &storyforge::combat::ai::intent::TacticalIntent,
+    snap: &BattleSnapshot,
+    ctx: &storyforge::combat::ai::utility::ScoringCtx,
+) {
+    use storyforge::combat::ai::intent::TacticalIntent;
+    use storyforge::combat::ai::planning::scorer::compute_plan_factors;
+
+    match intent {
+        TacticalIntent::FocusTarget { target } => {
+            let Some(target_snap) = snap.unit(*target) else { return };
+            let target_hp = target_snap.hp;
+            for (plan, score) in plans.iter().zip(scores.iter_mut()) {
+                if !score.is_finite() { continue; }
+                let rank = classify_focus_target_bucket(
+                    &plan.steps,
+                    &plan.outcomes,
+                    *target,
+                    target_hp,
+                );
+                *score += rank as f32 * P2_RANK_OFFSET;
+            }
+        }
+        TacticalIntent::ProtectSelf => {
+            for (plan, score) in plans.iter().zip(scores.iter_mut()) {
+                if !score.is_finite() { continue; }
+                // Recompute factors on committed prefix for committed-prefix discipline.
+                let prefix = plan_prefix_only(plan);
+                let prefix_factors = compute_plan_factors(&prefix, intent, ctx);
+                let self_survival = prefix_factors.as_array()[SELF_SURVIVAL_IDX];
+                let rank = classify_protect_self_bucket(self_survival);
+                *score += rank as f32 * P2_RANK_OFFSET;
+            }
+        }
+        // All other intents: baseline scalar ordering unchanged.
+        _ => {}
+    }
 }
 
 // ── Phantom-tail helpers ─────────────────────────────────────────────────────
@@ -846,6 +1085,7 @@ fn main() {
     let mut simulate_ab = false;
     let mut metrics_summary = false;
     let mut phase7_prototype = false;
+    let mut phase7_p2 = false;
     let mut campaign_override: Option<PathBuf> = None;
     let mut scenario_override: Option<PathBuf> = None;
     let mut paths: Vec<PathBuf> = Vec::new();
@@ -859,6 +1099,8 @@ fn main() {
             metrics_summary = true;
         } else if a == "--phase7-prototype" {
             phase7_prototype = true;
+        } else if a == "--phase7-p2" {
+            phase7_p2 = true;
         } else if a == "--campaign" {
             campaign_override = iter.next().map(PathBuf::from);
         } else if a == "--scenario" {
@@ -871,7 +1113,7 @@ fn main() {
         eprintln!(
             "usage: replay_ai_log <log.jsonl> [<log2.jsonl> ...] \
              [--verbose] [--simulate-ab] [--metrics-summary] [--phase7-prototype] \
-             [--campaign <dir>] [--scenario <dir>]"
+             [--phase7-p2] [--campaign <dir>] [--scenario <dir>]"
         );
         std::process::exit(2);
     }
@@ -894,11 +1136,13 @@ fn main() {
     let inf_cfg = InfluenceConfig::default();
     let difficulty = DifficultyProfile::normal();
     let mut rng = DiceRng::with_seed(0);
-    // Separate rng for prototype pipeline — baseline rng must not be advanced
-    // by prototype picks (invariance: without --phase7-prototype, output is identical).
+    // Separate rngs for experimental pipelines — baseline rng must not be advanced
+    // by any experimental picks (invariance: without flags, output is identical).
     let mut rng_proto = DiceRng::with_seed(1);
+    let mut rng_p2 = DiceRng::with_seed(2);
     let mut metrics = Metrics {
         proto: if phase7_prototype { Some(Box::new(PrototypeMetrics::default())) } else { None },
+        p2: if phase7_p2 { Some(Box::new(P2Metrics::default())) } else { None },
         ..Metrics::default()
     };
 
@@ -1415,6 +1659,169 @@ fn main() {
                 }
             }
 
+            // ── Phase 7 P2 bucketed ranking pipeline ─────────────────────────────
+            // Only runs when --phase7-p2 is set. Own rng_p2 for seed hygiene.
+            if let Some(ref mut p2) = metrics.p2 {
+                p2.total_entries += 1;
+
+                // Scalar scores: same baseline pipeline as production.
+                let mut p2_scores = finalize_scores(&plans, &raw_factors, &scoring_ctx);
+                sanity_adjust_plans(&mut p2_scores, &plans, &scoring_ctx);
+                if matches!(
+                    entry.intent.intent,
+                    storyforge::combat::ai::intent::TacticalIntent::ProtectSelf
+                ) {
+                    apply_protect_self_mask(&mut p2_scores, &raw_factors, &modes);
+                } else if simulate_ab && entry.intent.selection_kind == "viability_fallback" {
+                    let hp_pct = active.hp_pct();
+                    let actor_danger = maps.danger.get(active.pos);
+                    let midpanic_hp = difficulty.midpanic_hp_threshold();
+                    let panic_danger = difficulty.awareness_danger_threshold();
+                    if hp_pct < midpanic_hp && actor_danger > panic_danger {
+                        apply_protect_self_mask(&mut p2_scores, &raw_factors, &modes);
+                    }
+                }
+
+                // Bucket rerank: overrides scalar ordering for FocusTarget and ProtectSelf.
+                apply_p2_bucket_rerank(
+                    &mut p2_scores,
+                    &plans,
+                    &entry.intent.intent,
+                    &entry.snapshot,
+                    &scoring_ctx,
+                );
+
+                let (top_post_p2, _) =
+                    pick_best_plan(&p2_scores, &raw_factors, &world, &mut rng_p2);
+
+                // ranking_change_rate vs baseline.
+                let baseline_key = committed_action_key(&entry.plans[top_post]);
+                let p2_key = committed_action_key(&entry.plans[top_post_p2]);
+                if baseline_key != p2_key {
+                    p2.ranking_changed += 1;
+                }
+
+                // plateau_tie_rate on scalar scores (before bucket shift) and p2 scores.
+                let mut base_sorted = scores.clone();
+                base_sorted.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+                if is_plateau(&base_sorted, 0.05, 3) {
+                    p2.plateau_ties_baseline += 1;
+                }
+                let mut p2_sorted = p2_scores.clone();
+                p2_sorted.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+                if is_plateau(&p2_sorted, 0.05, 3) {
+                    p2.plateau_ties_p2 += 1;
+                }
+
+                // ── Mirrored acceptance metrics on P2 pick ────────────────────────
+                let p2_chosen_log = &entry.plans[top_post_p2];
+                let p2_final_pos =
+                    Hex::new(p2_chosen_log.final_pos[0], p2_chosen_log.final_pos[1]);
+
+                let (has_moves_p2, repeated_p2, zero_net_p2) = plan_move_metrics(
+                    &p2_chosen_log.steps,
+                    p2_final_pos,
+                    active.pos,
+                );
+                if has_moves_p2 {
+                    p2.plans_with_moves += 1;
+                    if repeated_p2 { p2.repeated_tile_plans += 1; }
+                    if zero_net_p2 { p2.zero_net_move_plans += 1; }
+                }
+                let (has_post_p2, retreat_p2) =
+                    post_cast_metrics(&p2_chosen_log.steps, p2_final_pos, active.pos);
+                if has_post_p2 {
+                    p2.plans_with_post_cast_move += 1;
+                    if retreat_p2 { p2.post_cast_retreat_plans += 1; }
+                }
+                {
+                    let tp_p2 = TurnPlan {
+                        steps: p2_chosen_log.steps.clone(),
+                        final_pos: p2_final_pos,
+                        residual_ap: p2_chosen_log.residual_ap,
+                        residual_mp: p2_chosen_log.residual_mp,
+                        outcomes: p2_chosen_log.outcomes.clone(),
+                        partial_score: 0.0,
+                        sim_snapshots: Vec::new(),
+                    };
+                    if let CommittedPrefix::MoveOnly { path } = tp_p2.committed_prefix() {
+                        p2.move_only_total += 1;
+                        let dest = path.last().copied().unwrap_or(active.pos);
+                        if dest == active.pos {
+                            p2.move_only_wasted += 1;
+                        }
+                    }
+                }
+                // panic_leak
+                if matches!(
+                    entry.intent.intent,
+                    storyforge::combat::ai::intent::TacticalIntent::ProtectSelf
+                ) && p2_chosen_log.evaluation_mode == LoggedEvaluationMode::Default
+                {
+                    p2.panic_total += 1;
+                    if !is_defensive_decision(
+                        &entry.committed_decision,
+                        entry.actor_id,
+                        &active,
+                        &entry.snapshot,
+                    ) {
+                        p2.panic_leaked += 1;
+                    }
+                }
+                // killable kill-line metrics
+                if entry.intent.selection_kind == "killable" {
+                    if let storyforge::combat::ai::intent::TacticalIntent::FocusTarget {
+                        target,
+                    } = entry.intent.intent
+                    {
+                        if let Some(target_snap) = entry.snapshot.unit(target) {
+                            if has_real_kill_line(&entry.plans, target, target_snap.hp) {
+                                p2.killable_with_kill_line_total += 1;
+                                let offensive = plan_is_offensive_vs(p2_chosen_log, target);
+                                if !offensive {
+                                    p2.killable_non_offensive += 1;
+                                    if plan_has_any_cast(p2_chosen_log) {
+                                        p2.killable_wrong_target += 1;
+                                    }
+                                }
+                                if plan_committed_prefix_kills_target(p2_chosen_log, target) {
+                                    p2.killable_kill_converted += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                // phantom-tail metrics
+                let has_cast_p2 = p2_chosen_log
+                    .steps
+                    .iter()
+                    .any(|s| matches!(s, PlanStep::Cast { .. }));
+                if has_cast_p2 {
+                    p2.chosen_with_cast_total += 1;
+                    if has_post_cast_tail(p2_chosen_log) {
+                        p2.phantom_tail_chosen += 1;
+                        let p2_chosen_key = committed_action_key(p2_chosen_log);
+                        let best_tailless_p2 = entry
+                            .plans
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, p)| *i != top_post_p2 && !has_post_cast_tail(p))
+                            .filter(|(i, _)| p2_scores.get(*i).is_some())
+                            .max_by(|(i, _), (j, _)| {
+                                p2_scores[*i]
+                                    .partial_cmp(&p2_scores[*j])
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                            .map(|(_, p)| p);
+                        if let Some(alt) = best_tailless_p2 {
+                            if committed_action_key(alt) != p2_chosen_key {
+                                p2.phantom_tail_flips_committed += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
             let pre_was_chosen = entry.plans.iter().find(|p| p.chosen).map(|p| p.rank).unwrap_or(0);
             let hp = format!("{}/{}", active.hp, active.max_hp);
 
@@ -1719,5 +2126,168 @@ mod tests {
     #[test]
     fn plateau_empty_is_not_plateau() {
         assert!(!is_plateau(&[], 0.05, 3));
+    }
+}
+
+// ── P2 unit tests ────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod p2_tests {
+    use super::*;
+    use storyforge::combat::ai::planning::{PlanStep, StepOutcome};
+    use storyforge::core::AbilityId;
+    use storyforge::game::hex::Hex;
+
+    fn ent(id: u32) -> Entity {
+        Entity::from_raw_u32(id).expect("valid entity id")
+    }
+
+    fn cast(target: Entity) -> PlanStep {
+        PlanStep::Cast {
+            ability: AbilityId::from("strike"),
+            target,
+            target_pos: Hex::ZERO,
+        }
+    }
+
+    fn cast_other() -> PlanStep {
+        // Cast targeting entity 99 — not the intent target in tests.
+        PlanStep::Cast {
+            ability: AbilityId::from("strike"),
+            target: ent(99),
+            target_pos: Hex::ZERO,
+        }
+    }
+
+    fn outcome_kill(target: Entity) -> StepOutcome {
+        StepOutcome { killed: vec![target], damage: 20.0, ..StepOutcome::default() }
+    }
+
+    fn outcome_damage(dmg: f32) -> StepOutcome {
+        StepOutcome { damage: dmg, ..StepOutcome::default() }
+    }
+
+    // ── Test 1: rank=2 (lethal) beats rank=1 (pressure) ─────────────────────
+
+    /// A plan that kills T in the committed prefix (rank=2) must sort above a
+    /// plan that deals pressure damage (rank=1), even when the pressure plan
+    /// has a higher scalar score.
+    #[test]
+    fn focus_target_lethal_beats_pressure() {
+        let tgt = ent(1);
+        let target_hp = 10;
+
+        // Plan A: Cast at T, kills T (rank=2), scalar score 0.5 (low).
+        let rank_a = classify_focus_target_bucket(
+            &[cast(tgt)],
+            &[outcome_kill(tgt)],
+            tgt,
+            target_hp,
+        );
+        // Plan B: Cast at T, deals 5 damage = 0.5 * 10 hp ≥ 0.3 * 10 (rank=1), scalar score 2.0 (high).
+        let rank_b = classify_focus_target_bucket(
+            &[cast(tgt)],
+            &[outcome_damage(5.0)],
+            tgt,
+            target_hp,
+        );
+
+        assert_eq!(rank_a, 2, "lethal prefix → rank 2");
+        assert_eq!(rank_b, 1, "pressure prefix → rank 1");
+
+        // Lexicographic order: even with scalar A=0.5 and scalar B=2.0,
+        // the final score A wins when rank gap dominates.
+        let score_a = 0.5 + rank_a as f32 * P2_RANK_OFFSET;
+        let score_b = 2.0 + rank_b as f32 * P2_RANK_OFFSET;
+        assert!(score_a > score_b, "lethal plan wins despite lower scalar: {score_a} vs {score_b}");
+    }
+
+    // ── Test 2: rank=0 (weak offense) beats rank=-1 (off-intent) ────────────
+
+    /// A plan that casts at T but deals sub-threshold damage (rank=0) must beat
+    /// a plan that casts at a different target (rank=-1), regardless of scalar.
+    #[test]
+    fn focus_target_weak_offense_beats_off_intent() {
+        let tgt = ent(2);
+        let target_hp = 20;
+
+        // Plan A: Cast at T, damage=1 < 0.3*20=6 (rank=0).
+        let rank_a = classify_focus_target_bucket(
+            &[cast(tgt)],
+            &[outcome_damage(1.0)],
+            tgt,
+            target_hp,
+        );
+        // Plan B: Cast at other enemy (rank=-1), high scalar.
+        let rank_b = classify_focus_target_bucket(
+            &[cast_other()],
+            &[outcome_damage(30.0)],
+            tgt,
+            target_hp,
+        );
+
+        assert_eq!(rank_a, 0, "weak offense at T → rank 0");
+        assert_eq!(rank_b, -1, "no cast at T → rank -1");
+
+        let score_a = 0.0 + rank_a as f32 * P2_RANK_OFFSET; // scalar=0
+        let score_b = 3.0 + rank_b as f32 * P2_RANK_OFFSET; // scalar=3, but rank=-1
+        assert!(score_a > score_b, "weak offense (rank 0) beats off-intent (rank -1): {score_a} vs {score_b}");
+    }
+
+    // ── Test 3: ProtectSelf survival rank=1 beats rank=0 ────────────────────
+
+    /// A plan with self_survival=0.2 (rank=1) beats a plan with self_survival=0.1
+    /// (rank=0), even if the offensive plan has a higher scalar score.
+    #[test]
+    fn protect_self_defensive_beats_offensive_under_mask() {
+        let rank_defensive = classify_protect_self_bucket(0.20);
+        let rank_offensive  = classify_protect_self_bucket(0.10);
+
+        assert_eq!(rank_defensive, 1, "self_survival 0.20 ≥ ε_self → rank 1");
+        assert_eq!(rank_offensive,  0, "self_survival 0.10 < ε_self → rank 0");
+
+        // Even when offensive scalar is higher, defensive wins via rank.
+        let score_defensive = 0.5 + rank_defensive as f32 * P2_RANK_OFFSET;
+        let score_offensive  = 2.0 + rank_offensive  as f32 * P2_RANK_OFFSET;
+        assert!(
+            score_defensive > score_offensive,
+            "defensive plan (rank 1) beats offensive (rank 0) despite lower scalar: {score_defensive} vs {score_offensive}"
+        );
+    }
+
+    // ── Test 4: prefix discipline — only committed steps count ───────────────
+
+    /// Key invariant test: `Cast T (lethal)` in plan A has prefix that kills T (rank=2).
+    /// Plan B: `Cast other → Cast T (lethal)` — committed prefix is just `Cast other`
+    /// (MoveOnly/Cast-only prefix = first step only when step[0] is Cast).
+    /// B's prefix is Cast at 'other', not T → rank=-1.
+    ///
+    /// This ensures bucket classification uses committed-prefix discipline,
+    /// not the full-plan outcome.
+    #[test]
+    fn bucket_uses_prefix_damage_not_tail() {
+        let tgt = ent(3);
+        let target_hp = 10;
+
+        // Plan A: [Cast T (lethal)]. Committed prefix = [Cast T]. Kills T in prefix → rank 2.
+        let rank_a = classify_focus_target_bucket(
+            &[cast(tgt)],
+            &[outcome_kill(tgt)],
+            tgt,
+            target_hp,
+        );
+
+        // Plan B: [Cast other, Cast T (lethal)].
+        // Committed prefix: step[0] is Cast → prefix_len=1 → only [Cast other] is in prefix.
+        // The Cast T is in the phantom tail — not committed. Prefix has no Cast at T → rank=-1.
+        let rank_b = classify_focus_target_bucket(
+            &[cast_other(), cast(tgt)],
+            &[outcome_damage(0.0), outcome_kill(tgt)],
+            tgt,
+            target_hp,
+        );
+
+        assert_eq!(rank_a, 2, "solo Cast T kills in prefix → rank 2");
+        assert_eq!(rank_b, -1, "Cast other is prefix, Cast T is tail → rank -1 (prefix does not cover T)");
     }
 }
