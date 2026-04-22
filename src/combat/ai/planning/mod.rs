@@ -6,6 +6,7 @@
 
 pub mod adaptation;
 pub mod generator;
+pub mod killable_gate;
 pub mod picker;
 pub mod reach;
 pub mod sanity;
@@ -15,6 +16,7 @@ pub mod types;
 
 pub use adaptation::{apply_adaptation, Adaptation, AdaptationReason, EvaluationMode};
 pub use generator::generate_plans;
+pub use killable_gate::{apply_killable_gate, plan_is_offensive_vs, GateStats, KillLineStrength, KILLABLE_ALPHA};
 pub use picker::{commit_plan, pick_best_plan, record_committed_reservations, PickMechanics};
 pub use reach::reach_from;
 pub use sanity::{apply_protect_self_mask, plan_is_defensive, sanity_adjust_plans};

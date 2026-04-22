@@ -218,6 +218,9 @@ pub fn pick_action(
     if matches!(ranking.intent, TacticalIntent::ProtectSelf) {
         ranking.apply_protect_self();
     }
+    if matches!(ranking.intent, TacticalIntent::FocusTarget { .. }) {
+        ranking.apply_killable_gate(&plans, &scoring_ctx);
+    }
 
     let (best_idx, mech) = ranking.pick(world, rng);
 
@@ -264,6 +267,7 @@ pub fn pick_action(
             logger, decision_time_ms, actor, active, snap, world.content,
             &ranking.intent, &ranking.intent_reason, &plans, &base_scored,
             &ranking.scored, &ranking.raw_factors, &ranking.adaptation,
+            ranking.gate_stats.applied, ranking.gate_stats.pruned_count,
             best_idx, &decision, debug_names,
         );
     }
@@ -298,6 +302,8 @@ fn write_decision_log(
     scored: &[f32],
     raw_factors: &[PlanFactors],
     adaptation: &crate::combat::ai::planning::Adaptation,
+    gate_applied: bool,
+    gate_pruned_count: usize,
     best_idx: usize,
     decision: &AiDecision,
     debug_names: &HashMap<Entity, String>,
@@ -355,12 +361,11 @@ fn write_decision_log(
         reason_text: &reason_text,
         reason: intent_reason,
     };
-    // gate_applied / gate_pruned_count are stubs until step-3 (killable gate) ships.
     let entry = log::build_entry(
         plan_id, decision_time_ms, active, actor_name, snap, intent_block,
         plans.len(), shown, plan_entries, decision,
-        false, // gate_applied — step-3 will supply the real value
-        0,     // gate_pruned_count — step-3 will supply the real value
+        gate_applied,
+        gate_pruned_count,
     );
     if let Err(e) = logger.write_entry(&entry) {
         warn!("AI log write failed: {}", e);

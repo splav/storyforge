@@ -51,28 +51,57 @@ r4 Старшина HP 3/22, `panic_override`: `Cast heal(ally) → Move`. Heal 
 
 ### 3.1. Policy under condition вместо отрицательных весов
 
-**Killable → heal** не лечится «отрицательным intent-weight на heal». Политика семантически точнее:
+**Killable → heal** не лечится «отрицательным intent-weight на heal». Политика семантически точнее. Baseline после шагов 1/1b/1c показал: `killable_non_offensive_rate = 7.7%` (в рамках шума), но `kill_conversion_rate = 0%` — AI стабильно выбирает *offensive-но-не-убивающий* план, когда в пуле есть убивающий. Значит gate должен различать *силу* kill-line, а не только её наличие.
+
+**Стратифицированный gate по силе kill-line**:
 
 ```
-if intent == FocusTarget(killable)
-   && exists plan P with (P.kill_now ≥ 1 OR P.damage_vs_target ≥ hp·α)
-   && actor NOT in LastStand / ProtectSelf mode:
-       prune non-offensive plans to -∞
-else:
-       normal scoring
+KillLineStrength = match live_pool {
+    ∃ i: offensive_vs_target(i) ∧ kill_now[i] ≥ 1        → CanFinish
+    ∃ i: offensive_vs_target(i) ∧ damage[i] ≥ hp·α       → Pressure
+    otherwise                                              → None
+}
 ```
 
-Отрицательный вес ломает edge cases (death-save, status-strip, kill-line недостижима). Hard gate выражает смысл режима: *если kill реально достижим, heal не должен молча выиграть*.
+где `live_pool` = планы с `mode == Default ∧ scores[i].is_finite()`
+(композиция с предыдущими mask-слоями, см. 3.2).
 
-### 3.2. Killable hard gate живёт **под** survival-policy
+**Keep-set по tier'у**:
 
-Gate применяется только если `evaluation_mode == Default`. В `LastStand` и под `ProtectSelf`-инвариантом он **не** активируется — иначе юнит может prune'нуть свой последний heal при гарантированной смерти просто потому, что где-то в пуле есть формальная kill-line.
+| Strength | Keep predicate | Закрывает метрику |
+|---|---|---|
+| `None` | `true` (no-op) | — |
+| `Pressure` | `offensive_vs_target(plan, target)` | `killable_non_offensive_rate < 2%` |
+| `CanFinish` | `offensive_vs_target(plan, target) ∧ kill_now ≥ 1` | `kill_conversion_rate > 85%` |
 
-Формальный порядок evaluation:
-1. `apply_adaptation` → `LastStand` при `ExpectedSelfLethal` / `ProtectSelfFutile`.
-2. ProtectSelf ε-gate на self-component (см. 3.3).
-3. Killable hard gate — **только если не сработал шаг 2 и mode == Default**.
-4. Обычный scoring.
+Оба правила — **intent-coherent**: detection И keep-predicate требуют `offensive_vs_target`, чтобы коллатеральные kill/damage (AoE в соседа, не в intent target) не поднимали strength и не переживали gate. Без `offensive_vs_target` в keep-set на CanFinish план `Cast.fireball @ enemy_B` (kn=1, collateral) выжил бы, закрыл `kill_conversion_rate`, но разнёс `killable_wrong_target_rate`.
+
+`α = 0.3` — порог «real kill-line через pressure». Синхронизирован между production gate и replay diagnostic (`replay_ai_log.rs::KILLABLE_ALPHA`). `plan_is_offensive_vs(plan, target)` — `plan.steps.any(step == Cast ∧ step.target == target)`; семантика идентична replay-метрике, чтобы gate и measurement видели одну истину.
+
+Отрицательный вес ломает edge cases (death-save, status-strip, kill-line недостижима). Hard gate выражает смысл режима: *если kill реально достижим против intent target, не-убивающий offensive не должен молча выиграть*.
+
+### 3.2. Killable hard gate композирует с предыдущими масками
+
+Gate — **последнее** звено mask-цепочки. Strength и keep-set оба читают **живой пул** (`mode == Default ∧ scores[i].is_finite()`), не полный `raw`-массив. Это даёт композиционный инвариант:
+
+> **Gate observes survivors, not candidates.** Любой план, замаскированный предыдущим слоем (sanity в `-∞` — в будущем, adaptation mode-switch, ProtectSelf ε-gate), автоматически выпадает из рассмотрения gate'а. Sanity *soft* penalty (multiplicative, finite) — остаётся в пуле; план с `kn=1` но sanity-задавленным score всё равно поднимает strength до `CanFinish`, и gate прунит альтернативы. Это осознанный выбор: contract «killable → kill» побеждает мягкое sanity suggestion.
+
+Без `.is_finite()` фильтра был риск: если `kn≥1`-план замаскирован любым будущим hard-mask слоем, gate всё равно увидит его в `raw` и поднимет strength до CanFinish, после чего прунит все живые альтернативы → в пуле останутся только `-∞`.
+
+Формальный порядок evaluation под `FocusTarget`:
+1. `apply_viability` — переключение intent при пустом align'е.
+2. `apply_sanity` — soft multiplicative penalties (floor 0.25).
+3. `apply_adaptation` → `LastStand` при `ExpectedSelfLethal`. Self-lethal план получает `mode != Default` → вне gate-пула.
+4. Killable gate — **только** для `FocusTarget`, на `live_pool`.
+5. Picker (mercy + top-K).
+
+Под `ProtectSelf` gate **не запускается** (guard в `ranking.rs`: `if intent == FocusTarget`), потому что:
+- `ProtectSelf` и `FocusTarget` — взаимоисключающие `TacticalIntent`, gate не может активироваться под ProtectSelf по определению.
+- Под `LastStand` (adaptation set `mode = LastStand` для всех планов) `live_pool` пуст → gate no-op.
+
+### 3.2a. Известное ограничение (не в scope step-3)
+
+Gate использует **plan-level** `offensive_vs_target` (`.any(step.target == intent_target)`) и plan-level `kill_now` (discounted sum по шагам). План формы `[Cast @ other, Cast @ intent_target]` проходит gate (один из шагов бьёт intent target, plan-level `kn ≥ 1`), но `commit_plan` выполнит **только первый Cast** (по other). Это та же prefix-vs-scored асимметрия, что и в остальном scoring (Phase 7 territory). Gate и replay metric используют идентичное определение `offensive_vs_target`, так что ложное срабатывание видно через `killable_wrong_target_rate`, а не через расхождение gate↔metric.
 
 ### 3.3. Разделение `self_survival` и `ally_rescue`
 
@@ -111,7 +140,7 @@ Gate применяется только если `evaluation_mode == Default`. 
 | 1b | **Условный** fix `intent_sum` для Move-цепочек, если шаг 1 не добил метрики | 1 + measurement |
 | 2 | Replay checkpoint: замер M2.*, M4.1–3; решение о форме шага 3 | 1/1b |
 | 2.5 | Schema v15: поля `gate_applied`, `survival_mode_active`, `last_stand_active` + R5 plumbing (evaluation_mode per-plan в replay) | 2 |
-| 3 | Hard gate `FocusTarget(killable)` под ProtectSelf/LastStand | 2.5 |
+| 3 | Tiered killable gate под `FocusTarget` (Pressure / CanFinish, live-pool) | 2.5 |
 | 4 | Split `self_survival` / `ally_rescue`; ε-gate ProtectSelf на self-component | 3 |
 | 5 | Summon saturation axis + intent-specific credit filter | 4 |
 
@@ -136,17 +165,19 @@ Gate применяется только если `evaluation_mode == Default`. 
 
 ### 5.2. Шаг 3 (killable gate) — acceptance
 
-| Метрика | Формула | Цель |
-|---|---|---|
-| `killable_non_offensive_rate` | killable+real_kill_line & chosen=non_offensive / killable+real_kill_line | **< 2%** |
-| `killable_wrong_target_rate` | killable+real_kill_line & chosen=offensive & target≠intent.target / знаменатель | **< 5%** |
-| `kill_conversion_rate` | killable+real_kill_line & chosen_kills_now≥1 / знаменатель | **> 85%** |
-| `false_gate_rate` | gate_applied & (survival OR last_stand) & committed должен был быть defensive / gate_applied | **< 3%** |
-| `gate_uselessness_rate` | gate_applied & kn=0 & dmg_vs_target<hp·α / gate_applied | **< 5%** (диагностический) |
+| Метрика | Формула | Цель | Tier, который закрывает |
+|---|---|---|---|
+| `killable_non_offensive_rate` | killable+real_kill_line & chosen=non_offensive / killable+real_kill_line | **< 2%** | Pressure ∨ CanFinish |
+| `killable_wrong_target_rate` | killable+real_kill_line & chosen=offensive & target≠intent.target / знаменатель | **< 5%** | — (guard, должен остаться стабильным) |
+| `kill_conversion_rate` | killable+real_kill_line & chosen_kills_now≥1 / знаменатель | **> 85%** | **CanFinish only** |
+| `false_gate_rate` | gate_applied & committed должен был быть defensive / gate_applied | **< 3%** | guard против overly-aggressive gate |
+| `gate_uselessness_rate` | gate_applied & strength=Pressure & chosen.dmg<hp·α / gate_applied | **< 5%** (диагностический) | — |
 
-`α = 0.3` — фиксированный порог «real kill-line» (damage_vs_target ≥ hp·α). Значение согласовано между gate-проверкой и диагностической метрикой — меняется одновременно в обеих точках.
+`α = 0.3` — фиксированный порог «real kill-line» через pressure (damage ≥ hp·α). Значение согласовано между production gate (`killable_gate.rs::KILLABLE_ALPHA`) и replay diagnostic (`replay_ai_log.rs::KILLABLE_ALPHA`) — меняется одновременно в обеих точках. Комментарий `// KEEP IN SYNC` в обоих файлах — механический guard против drift.
 
-`has_real_kill_line` считается по `plans_shown` (top-10 в логе), а не по всем evaluated. Редкие kill-линии вне top-10 пропускаются — acceptable approximation, записано в методологии.
+`has_real_kill_line` в replay-метрике считается по `plans_shown` (top-10 в логе), а не по всем evaluated. Редкие kill-линии вне top-10 пропускаются — acceptable approximation, записано в методологии. Production gate работает на полном пуле (не top-10), так что реальная строгость выше — метрика может слегка недооценивать `kill_conversion_rate`.
+
+**`killable_wrong_target_rate` как guard**. Tier CanFinish требует `offensive_vs_target ∧ kn ≥ 1`, значит коллатеральные kill'и (Cast @ other с kn=1) НЕ переживают gate. Если эта метрика растёт после step-3 — значит strength detection не учитывает `offensive_vs_target` и срабатывает на collateral kn — regression-сигнал, **не auto-merge**.
 
 ### 5.3. Шаг 4 (self/ally split) — acceptance
 

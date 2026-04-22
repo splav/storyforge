@@ -15,8 +15,9 @@ use crate::combat::ai::intent::{
     default_focus_target, intent_viability_threshold, IntentReason, TacticalIntent,
 };
 use crate::combat::ai::planning::{
-    apply_adaptation, apply_protect_self_mask, pick_best_plan, rescore_with_intent,
-    sanity_adjust_plans, score_plans_with_raw, Adaptation, PickMechanics, TurnPlan,
+    apply_adaptation, apply_killable_gate, apply_protect_self_mask, pick_best_plan,
+    rescore_with_intent, sanity_adjust_plans, score_plans_with_raw, Adaptation, GateStats,
+    PickMechanics, TurnPlan,
 };
 use crate::core::DiceRng;
 use crate::game::hex::Hex;
@@ -38,6 +39,9 @@ pub struct PlanRanking {
     /// `apply_adaptation`. Empty until that phase runs; see
     /// `planning::adaptation` for semantics.
     pub adaptation: Adaptation,
+    /// Telemetry from the killable gate pass. Default (not applied) until
+    /// `apply_killable_gate` runs; only populated under `FocusTarget` intent.
+    pub gate_stats: GateStats,
 }
 
 impl PlanRanking {
@@ -50,7 +54,7 @@ impl PlanRanking {
     ) -> Self {
         let (scored, raw_factors) = score_plans_with_raw(plans, &intent, ctx);
         let adaptation = Adaptation::empty(plans.len());
-        Self { intent, intent_reason, scored, raw_factors, adaptation }
+        Self { intent, intent_reason, scored, raw_factors, adaptation, gate_stats: GateStats::default() }
     }
 
     /// Intent viability guard. If no plan achieves the current intent's
@@ -177,6 +181,27 @@ impl PlanRanking {
         );
     }
 
+    /// FocusTarget killable gate. Enforces the contract "if a kill is reachable
+    /// against the intent target, the winning plan must pursue that kill".
+    ///
+    /// Runs after `apply_adaptation` so that plans already switched to
+    /// `LastStand` (AoO-lethal) are excluded from the live pool and do not
+    /// spuriously raise kill-line strength.
+    ///
+    /// Caller guards with `matches!(self.intent, FocusTarget { .. })`; the
+    /// guard is load-bearing — `ProtectSelf` and `FocusTarget` are mutually
+    /// exclusive intents, so the gate must not run under `ProtectSelf`.
+    pub fn apply_killable_gate(&mut self, plans: &[TurnPlan], ctx: &ScoringCtx) {
+        self.gate_stats = apply_killable_gate(
+            plans,
+            &self.raw_factors,
+            &mut self.scored,
+            &self.adaptation.modes,
+            &self.intent,
+            ctx.snap,
+        );
+    }
+
     /// Final pick: mercy + top-K window. Returns the index into `plans` of
     /// the winning plan and the mechanics trace (top-K pool, similarity
     /// window, whether mercy reranked) for debug overlay.
@@ -221,6 +246,7 @@ mod tests {
             scored: vec![0.5],
             raw_factors: vec![factors],
             adaptation: Adaptation::empty(1),
+            gate_stats: GateStats::default(),
         };
         (vec![plan], ranking)
     }
@@ -374,6 +400,7 @@ mod tests {
                 PlanFactors::default(), // non-defensive
             ],
             adaptation: Adaptation::empty(2),
+            gate_stats: GateStats::default(),
         };
 
         ranking.apply_protect_self();

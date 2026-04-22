@@ -271,75 +271,219 @@ Replay divergence (post-step-1b):
 
 ---
 
-## Шаг 3. Hard gate `FocusTarget(killable)` под survival-policy
+## Шаг 3. Tiered killable gate под `FocusTarget`
+
+**Триггер**: baseline_20260422_final показал `killable_non_offensive_rate = 7.7%` (~на цели) но `kill_conversion_rate = 0%` (0/13). Single-predicate gate «non-offensive → `-∞`» закроет только первую метрику; вторую драйвит выбор *offensive-но-не-убивающего* плана при наличии убивающего в пуле. Решение — **стратифицированный** gate по силе kill-line, с intent-coherent detection и keep-set.
+
+Детальная мотивация и alternatives rejected — [`ai_rework.md §3.1`](ai_rework.md#31-policy-under-condition-вместо-отрицательных-весов) / [§3.2](ai_rework.md#32-killable-hard-gate-композирует-с-предыдущими-масками).
 
 ### Файл / функция
 
-- `src/combat/ai/planning/sanity.rs` — где применяется ProtectSelf mask (line 276+: `apply_protect_self_mask`). Killable gate живёт рядом, в том же конвейере.
-- `src/combat/ai/utility/ranking.rs:148` — `apply_adaptation`, вызывается до mask.
+- **Новый файл**: `src/combat/ai/planning/killable_gate.rs`. Sanity-слой держит инвариант «только soft multiplicative penalties»; hard mask с другой семантикой правильнее изолировать. ProtectSelf mask живёт в `sanity.rs` по историческим причинам — новых mask'ов туда не добавляем.
+- `src/combat/ai/planning/mod.rs` — `pub mod killable_gate; pub use ...`.
+- `src/combat/ai/utility/ranking.rs` — новое поле `gate_stats` на `PlanRanking`, новый метод `apply_killable_gate`, вызов под guard'ом `if intent == FocusTarget` после `apply_protect_self`.
+- `src/combat/ai/utility/mod.rs:362–363` — `write_decision_log` читает `ranking.gate_stats` вместо stub `false/0`.
 
 ### Что делать
 
-1. **Определить `has_real_kill_line(plans, intent_target, alpha)`**:
-   ```rust
-   fn has_real_kill_line(plans: &[TurnPlan], target: Entity, target_hp: f32, alpha: f32) -> bool {
-       plans.iter().any(|p| {
-           let f = &p.factors; // PlanFactors
-           f.kill_now >= 1.0 || f.damage_now_vs(target) >= target_hp * alpha
-       })
-   }
-   ```
-   `alpha = 0.3` — фиксированный (см. `ai_rework.md §5.2`).
+#### 3.1. Типы
 
-2. **Новая функция `apply_killable_gate`** в `sanity.rs`:
-   ```rust
-   pub fn apply_killable_gate(
-       plans: &mut [TurnPlan],
-       scores: &mut [f32],
-       modes: &[EvaluationMode],
-       intent: &TacticalIntent,
-       snap: &BattleSnapshot,
-   ) {
-       let TacticalIntent::FocusTarget { target } = intent else { return };
-       let Some(t) = snap.unit(*target) else { return };
-       // Only active in Default mode on entries where killable gate applies
-       let applicable = plans.iter().zip(modes).any(|(_, m)| matches!(m, EvaluationMode::Default));
-       if !applicable { return; }
-       if !has_real_kill_line(plans, *target, t.hp as f32, 0.3) { return; }
+```rust
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KillLineStrength {
+    #[default]
+    None,       // нет kill-line против intent target
+    Pressure,   // damage ≥ hp·α у offensive-vs-target плана
+    CanFinish,  // kill_now ≥ 1 у offensive-vs-target плана
+}
 
-       for (i, plan) in plans.iter().enumerate() {
-           if !matches!(modes[i], EvaluationMode::Default) { continue; }
-           if !plan_is_offensive_vs(plan, *target) {
-               scores[i] = f32::NEG_INFINITY;
-           }
-       }
-   }
-   ```
-   `plan_is_offensive_vs` — новая helper: план считается offensive против `target`, если содержит Cast offensive-ability с этим target ИЛИ `plan.factors.damage_vs_target ≥ hp·α`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GateStats {
+    pub applied: bool,       // true если strength != None
+    pub strength: KillLineStrength,
+    pub pruned_count: usize,
+}
 
-3. **Вызов в pipeline.** В `pick_action` (или где сейчас `apply_protect_self_mask`) добавить **после** adaptation и **после** ProtectSelf mask:
-   ```rust
-   apply_adaptation(...);            // #1
-   apply_protect_self_mask(...);     // #2 (ε-gate будет в шаге 4)
-   apply_killable_gate(...);         // #3, только Default-planы
-   ```
+// KEEP IN SYNC with src/bin/replay_ai_log.rs::KILLABLE_ALPHA
+pub const KILLABLE_ALPHA: f32 = 0.3;
+```
 
-4. **Telemetry.** Заполнить `gate_applied`, `gate_pruned_count` для logging (schema v15 из шага 2.5).
+#### 3.2. Helper
+
+```rust
+/// Matches the semantics of replay_ai_log::plan_is_offensive_vs — plan is
+/// offensive vs `target` iff it has ≥1 Cast step whose `target == target`.
+/// AoE casts aimed at another tile that happen to cover the target are NOT
+/// counted — keeps gate and diagnostic metric in lock-step.
+pub fn plan_is_offensive_vs(plan: &TurnPlan, target: Entity) -> bool {
+    plan.steps.iter().any(|s| matches!(s, PlanStep::Cast { target: t, .. } if *t == target))
+}
+```
+
+#### 3.3. Main function
+
+```rust
+pub fn apply_killable_gate(
+    plans: &[TurnPlan],
+    raw: &[PlanFactors],
+    scores: &mut [f32],
+    modes: &[EvaluationMode],
+    intent: &TacticalIntent,
+    snap: &BattleSnapshot,
+) -> GateStats {
+    let TacticalIntent::FocusTarget { target } = *intent else {
+        return GateStats::default();
+    };
+    let Some(t) = snap.unit(target) else { return GateStats::default() };
+    let hp_f = t.hp.max(0) as f32;
+
+    // Live pool: survived adaptation + any prior hard mask. Sanity soft
+    // penalties leave scores finite → plan stays in consideration.
+    let live: Vec<usize> = (0..plans.len())
+        .filter(|&i| matches!(modes[i], EvaluationMode::Default))
+        .filter(|&i| scores[i].is_finite())
+        .collect();
+    if live.is_empty() { return GateStats::default() }
+
+    // Strength: intent-coherent detection on the live pool.
+    let can_finish = live.iter().any(|&i| {
+        plan_is_offensive_vs(&plans[i], target) && raw[i].kill_now >= 1.0
+    });
+    let has_pressure = live.iter().any(|&i| {
+        plan_is_offensive_vs(&plans[i], target) && raw[i].damage >= hp_f * KILLABLE_ALPHA
+    });
+    let strength = match (can_finish, has_pressure) {
+        (true, _) => KillLineStrength::CanFinish,
+        (false, true) => KillLineStrength::Pressure,
+        _ => return GateStats::default(),
+    };
+
+    // Apply keep-set. Only prune indices in `live`; plans already at -∞
+    // or in non-Default mode stay untouched.
+    let mut pruned = 0usize;
+    for &i in &live {
+        let keep = match strength {
+            KillLineStrength::None => true,
+            KillLineStrength::Pressure => plan_is_offensive_vs(&plans[i], target),
+            KillLineStrength::CanFinish => {
+                plan_is_offensive_vs(&plans[i], target) && raw[i].kill_now >= 1.0
+            }
+        };
+        if !keep {
+            scores[i] = f32::NEG_INFINITY;
+            pruned += 1;
+        }
+    }
+
+    GateStats { applied: true, strength, pruned_count: pruned }
+}
+```
+
+**Два ключевых инварианта в коде** (зеркалят `ai_rework.md §3.1, §3.2`):
+
+- *Live pool* — `mode == Default ∧ scores[i].is_finite()`. Композиция с предыдущими mask-слоями: план, задавленный в `-∞` sanity/adaptation/future mask'ом, автоматически выпадает из strength detection. Sanity soft penalty (multiplicative, finite) — остаётся.
+- *Intent-coherent detection* — strength поднимается только если `offensive_vs_target` плана же даёт kn ≥ 1 или dmg ≥ hp·α. Без этого коллатеральный kill в AoE-соседа поднимает strength до CanFinish и gate прунит все non-killing vs intent target — классический «kill_conversion_rate вверх, killable_wrong_target_rate тоже вверх».
+
+#### 3.4. Wiring в `utility/ranking.rs`
+
+```rust
+pub struct PlanRanking {
+    // ...existing fields...
+    pub gate_stats: GateStats,
+}
+
+impl PlanRanking {
+    // new method, mirrors apply_protect_self style
+    pub fn apply_killable_gate(&mut self, plans: &[TurnPlan], ctx: &ScoringCtx) {
+        self.gate_stats = apply_killable_gate(
+            plans, &self.raw_factors, &mut self.scored,
+            &self.adaptation.modes, &self.intent, ctx.snap,
+        );
+    }
+}
+```
+
+`pick_action` порядок:
+
+```rust
+ranking.apply_viability(...);
+ranking.apply_sanity(...);
+ranking.apply_adaptation(...);
+if matches!(ranking.intent, TacticalIntent::ProtectSelf) {
+    ranking.apply_protect_self();
+}
+if matches!(ranking.intent, TacticalIntent::FocusTarget { .. }) {
+    ranking.apply_killable_gate(&plans, &scoring_ctx);
+}
+```
+
+`ProtectSelf` и `FocusTarget` — взаимоисключающие `TacticalIntent` варианты, маски никогда не пересекаются.
+
+#### 3.5. Telemetry (schema v15 уже готова)
+
+В `utility/mod.rs:362–363` stub заменяется на:
+
+```rust
+ranking.gate_stats.applied,          // gate_applied
+ranking.gate_stats.pruned_count,     // gate_pruned_count
+```
+
+Опционально (можно отдельным мелким PR после step-3): добавить поле `gate_strength: Option<KillLineStrength>` в `PlanLogEntry` через `#[serde(default)]`, чтобы replay мог различать Pressure / CanFinish tier-based срабатывания. Не обязательно для acceptance §5.2.
 
 ### Тесты
 
-- `sanity::tests::killable_gate_prunes_heal_when_kill_exists`: corpus с `FocusTarget(killable)`, один план melee-kill, один план heal. После gate: heal = `-inf`, melee сохраняется.
-- `sanity::tests::killable_gate_disabled_in_last_stand`: тот же setup, но `modes[i] = LastStand`. Heal НЕ prune'нут.
-- `sanity::tests::killable_gate_disabled_without_kill_line`: все планы weak-damage. Gate не срабатывает, heal сохраняется.
-- Regression на `apply_protect_self_mask` tests — не должны сдвинуться.
+В `planning/killable_gate::tests`:
+
+1. **`no_kill_line_is_noop`** — пул = heal + reposition, нет dmg≥α·hp, нет kn≥1 → `strength=None`, `pruned_count=0`, scores неизменны.
+
+2. **`pressure_tier_prunes_non_offensive_only`** — offensive план с dmg=0.5·hp (kn=0) + heal-план. Strength=Pressure. После gate: heal=-∞, offensive живой.
+
+3. **`can_finish_tier_prunes_all_non_killing`** — offensive план с kn=1 + offensive-но-weak план (kn=0) + heal. Strength=CanFinish. Gate маскирует heal И weak-offensive, оставляет только killing.
+
+4. **`can_finish_ignores_collateral_kill_line`** ← regression для user-критики #2. План A: `Cast @ other_enemy` kn=1 (collateral kill). План B: `Cast @ intent_target` dmg≥α·hp kn=0. План C: heal. Strength должна упасть до Pressure (A не `offensive_vs_target`), B сохраняется, C маскируется. Не CanFinish, не forcing A.
+
+5. **`pressure_ignores_collateral_damage`** — симметрично предыдущему: план A `Cast @ other` dmg=0.5·hp, план B heal, план C reposition-offensive-at-intent (если такой possible). Strength=None (никакой plan не coherent pressure). Gate no-op.
+
+6. **`gate_ignores_plans_already_masked_by_prior_layer`** ← regression для user-критики #1. Два плана: (a) `Cast @ intent_target kn=1`, но `scores[0] = -∞` (замаскирован); (b) offensive kn=0, score=0.5. Без `.is_finite()` фильтра: strength=CanFinish → b тоже `-∞` → пул всех `-∞`. С фиксом: (a) не в live_pool → strength падает до Pressure (если b даёт dmg≥α·hp) или None → b остаётся живым.
+
+7. **`gate_respects_last_stand_mode`** — план killing-но-AoO-lethal: adaptation уже flipped `mode=LastStand`. Gate его не видит (`live` фильтрует). Другой план defensive под Default остаётся живым, не маскируется CanFinish (плана с kn≥1 в live нет → strength=None).
+
+8. **`gate_disabled_under_apply_cc`** — `intent=ApplyCC`. Early return `let FocusTarget = intent else return`. Gate no-op даже при kn≥1.
+
+9. **`gate_disabled_under_protect_self`** — `intent=ProtectSelf`. В `ranking.rs` guard не вызывает gate. (Проверяем на уровне `ranking.apply_killable_gate` через guard-контракт, не внутри самой функции.)
+
+**Regression**: 
+- `planning::sanity::tests::*` — не задевается (gate в отдельном файле).
+- `planning::adaptation::tests::*` — не задевается.
+- `utility::ranking::tests::apply_protect_self_*` — pipeline порядок не изменил их контекст.
 
 ### Acceptance
 
 См. [`ai_rework.md §5.2`](ai_rework.md#52-шаг-3-killable-gate--acceptance). Все conjuncts (AND), не OR.
 
+**Измерение**: пересобрать, перезапустить те же 2 сценария (`demo_beastblood_raid`, `demo_stormborn_camp`) на hard difficulty с теми же seeds. Прогнать replay на свежих логах:
+
+```
+cargo run --release --bin replay_ai_log -- logs/corpus_20260422_post_step3/*.jsonl --metrics-summary
+```
+
+Сравнить с `logs/baseline_20260422_final.txt`. Ожидаемые дельты:
+
+- `killable_non_offensive_rate`: 7.7% → < 2% (минимум 1 из 13 non-offensive → offensive).
+- `kill_conversion_rate`: 0% → > 85% (CanFinish tier форсит `kn ≥ 1` среди offensive).
+- `killable_wrong_target_rate`: ~7.7% → **≤ baseline** (guard: не должна расти; если поднялась — strength detection ловит collateral, regression).
+- `repeated_tile_rate`, `zero_net_move_rate`, `post_cast_retreat_rate`: Δ ≤ 5 pp (не в scope шага).
+- `phantom_tail_chosen_rate / flips`: Δ ≤ 5 pp (не в scope — Phase 7).
+
 ### Риск
 
-Средний. Gate может скрытно prune'нуть valid heal'ы. Guard: `false_gate_rate < 3%` и явный test для LastStand-случая.
+Средний.
+
+- **Forcing bad kill-plan**: если sanity задавила единственный killing-план, gate всё равно поднимает strength до CanFinish и прунит альтернативы. Осознанный выбор (см. §3.2 в `ai_rework.md`): contract побеждает soft penalty. Guard — `false_gate_rate < 3%`. Если метрика высокая — сигнал добавить relative-score threshold в Phase 7.
+- **Collateral kill/damage**: закрыт intent-coherent detection (`offensive_vs_target` в обоих условиях). Regression-тесты #4, #5.
+- **Interactions с future masks**: `.is_finite()` фильтр делает gate composable с любым будущим слоем, который пишет `-∞`. Regression-тест #6.
+- **Multi-cast план с Cast @ other на prefix**: известное ограничение, задокументировано в `ai_rework.md §3.2a`. Phase 7 territory; если replay покажет частоту > 5% — выделить отдельный issue.
 
 ---
 

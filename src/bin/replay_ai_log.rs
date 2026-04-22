@@ -556,6 +556,7 @@ fn post_cast_metrics(steps: &[PlanStep], final_pos: Hex, start: Hex) -> (bool, b
 
 /// α threshold for "real kill-line" via damage: damage ≥ target_hp × α is
 /// considered meaningful kill pressure. See `docs/ai_rework.md §5.2`.
+// KEEP IN SYNC with src/combat/ai/planning/killable_gate.rs::KILLABLE_ALPHA
 const KILLABLE_ALPHA: f32 = 0.3;
 
 /// True if at least one plan in the pool can finish or meaningfully damage
