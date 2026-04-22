@@ -104,7 +104,7 @@
 
 ### Track 2 — Phase 7 prototype (offline)
 
-Параллельно Track 1. Отдельный worktree, production-код не меняется.
+Параллельно Track 1. Production-pipeline не вызывает prototype-код: новый модуль — pure helper, единственный потребитель — `replay_ai_log --phase7-prototype`. Поэтому cfg-gate не нужен, но `score_plans_prototype` остаётся `pub` и не используется production'ом — это и есть "offline".
 
 #### Мотивация
 
@@ -116,42 +116,100 @@ Score(plan) = PrefixScore(committed_prefix) + γ · FutureValue(committed_state)
 
 архитектурно решает все такие случаи сразу.
 
-#### Что делать в prototype
+#### Целевые артефакты
 
-1. **Новый модуль** `src/combat/ai/planning/future_value.rs` (cfg-gated или behind feature flag). Pure function:
+- `src/combat/ai/planning/future_value.rs` — новый модуль с `future_value_from_committed_state`, `score_plans_prototype`, `plan_prefix_only`.
+- `src/bin/replay_ai_log.rs` — флаг `--phase7-prototype`, dual-метрики, новые `ranking_change_rate` и `plateau_tie_rate`.
+- `logs/phase7_prototype_<date>.txt` — output прогона corpus'а + decision table.
 
-   ```rust
-   pub fn future_value_from_committed_state(
-       actor: &UnitSnapshot,
-       committed_pos: Hex,
-       snap: &BattleSnapshot,
-       maps: &InfluenceMaps,
-   ) -> f32 { ... }
-   ```
+#### Этапы
 
-   Компоненты (начальные коэффициенты, перекалибровка после replay):
-   - `λ_pos = 0.4` × `evaluate_position(committed_pos, role, maps)` (position_eval.rs).
-   - `λ_attack = 0.5` × best `score_action` из `reachable_from(committed_pos, speed+max_attack_range)` против топ-3 по target_priority.
-   - `λ_mob = 0.1` × `reachable_tile_count(committed_pos, speed) / max_mobility`.
+Независимы в плане review, зависимы по коду (каждый следующий строит на предыдущем). Между этапами — отдельный commit, чтобы progress видно в git log.
 
-2. **Prototype scorer** `score_plans_prototype(plans, ctx) -> Vec<f32>`:
+##### Step-2A — `plan_prefix_only` + skeleton `future_value.rs`
 
-   ```rust
-   for plan in plans:
-       prefix_factors = compute_factors(plan.prefix_only(), ctx)
-       prefix_score   = finalize_scores(prefix_factors)   // как в production, но на prefix
-       future_value   = future_value_from_committed_state(actor, committed_prefix_end, snap, maps)
-       score[plan]    = prefix_score + γ · future_value   // γ = 0.25 start
-   ```
+**Файлы**:
+- `src/combat/ai/planning/future_value.rs` (new).
+- `src/combat/ai/planning/mod.rs` — `pub mod future_value;` + re-export.
+- `src/combat/ai/planning/types.rs` — опционально: `TurnPlan::prefix_only()` как метод (либо free-function в `future_value.rs`, выбор реализатора — что естественнее читается).
 
-   `plan.prefix_only()` — новый helper: срезает `steps / outcomes / sim_snapshots` до `committed_step_count()`.
+**Что делать**:
+1. `plan_prefix_only(plan: &TurnPlan) -> TurnPlan` — клонирует первые `committed_step_count()` элементов `steps / outcomes / sim_snapshots`. `final_pos` = позиция актёра после последнего prefix-шага (для `EndTurn` — `plan.final_pos`; для `MoveOnly`/`MoveThenCast` — last tile пути; для solo `Cast` — prefix сохраняет `plan.final_pos` от pre-cast позиции). `residual_ap`/`residual_mp` — из соответствующего `sim_snapshots[prefix_len-1]`, либо (если `sim_snapshots.is_empty()` — deserialized plan) — оставить исходные значения (консервативно).
+2. `future_value_from_committed_state(...)` — skeleton с только `λ_pos` компонентом (через `evaluate_position`). λ_attack и λ_mob — `todo!()` + `#[allow(dead_code)]` константы, либо возвращают 0.0 с TODO-комментарием. Signature и docstring финальные.
 
-3. **Flag в `replay_ai_log`** `--phase7-prototype`:
-   - Применяет prototype scorer к каждому entry.
-   - Выдаёт дополнительные метрики: `ranking_change_rate`, `phantom_tail_flips_committed` (post-prototype), `plateau_tie_rate`.
-   - Все existing метрики (§5.1/5.2/5.3) перемеряются под prototype scoring.
+**Тесты**:
+- `plan_prefix_only::tests::{end_turn, solo_cast, move_only, move_then_cast, sim_snapshots_truncated, deserialized_plan_sim_empty}`.
+- `future_value::tests::pos_component_reads_position_eval` — minimal sanity что λ_pos работает.
 
-4. **Regression corpus**: все post-step-3 логи (8 боёв) + оригинальный baseline_final (4 боя). Итого 12 логов.
+##### Step-2B — `future_value` attack + mobility components
+
+**Файлы**:
+- `src/combat/ai/planning/future_value.rs` — дополняет skeleton.
+
+**Что делать**:
+1. **λ_attack = 0.5 × best-score-action against top-3 targets by `target_priority`**. 
+   - Reachable tiles из `committed_pos` с бюджетом `active.speed + active.max_attack_range` — используется `planning::reach::reach_from` с pseudo-unit-snapshot в committed_pos (или ручной хелпер: для prototype допустима упрощённая BFS по `snap.units` как blockers).
+   - Top-3 врагов: сортировать `snap.enemies_of(active.team)` по `target_priority(active, e, snap)`. Для каждого — берём best `score_action(ability, target, ctx, content, danger)` по `active.abilities` (требует `CasterContext` из `active`). Возвращаем `max` по всем (ability, target) парам.
+   - **Упрощение**: для prototype можно не моделировать перемещение — смотреть `score_action` от текущей `committed_pos`, бюджет reach используется только чтобы отфильтровать недостижимые цели (в attack range от committed_pos учитывая speed).
+2. **λ_mob = 0.1 × reachable_tile_count(committed_pos, speed) / max_mobility**. `max_mobility` = константа (напр. 30) либо `snap.units.map(mobility).max()`. Нормализация на max_mobility keeps output in roughly [0, 1].
+3. Вес `γ = 0.25` — хардкод-константа `PHASE7_GAMMA` с `KEEP IN SYNC` комментарием для replay.
+
+**Тесты** (каждый тест — один компонент, не ансамбль):
+- `attack_component_picks_best_reachable_target`.
+- `attack_component_zero_when_no_enemies`.
+- `mobility_component_scales_with_reachable_count`.
+- `future_value_sums_components` — regression guard на композицию.
+
+##### Step-2C — `score_plans_prototype`
+
+**Файлы**:
+- `src/combat/ai/planning/future_value.rs` — `pub fn score_plans_prototype`.
+
+**Что делать**:
+1. Для каждого plan:
+   - `prefix = plan_prefix_only(plan)`.
+   - `prefix_factors = compute_plan_factors(&prefix, intent, ctx)` (используя production `compute_plan_factors`, чтобы в prefix попадали `intent_sum` / `tempo_gain` / `self_survival` уже на укороченной последовательности).
+   - Накопить все `prefix_factors` в матрицу.
+2. `prefix_scores = finalize_scores(&prefix_plans, &prefix_factors_matrix, ctx)` — production normalisation / noise / summon / trade по prefix-плану.
+3. Для каждого plan: `score[i] = prefix_scores[i] + γ × future_value_from_committed_state(active, committed_prefix_end_pos(plan, active.pos), snap, maps)`.
+4. Output `Vec<f32>`.
+
+**Что такое `committed_prefix_end_pos`**: `plan_prefix_only(plan).final_pos` — одна точка правды.
+
+**Тесты**:
+- `score_plans_prototype::tests::empty_plans_returns_empty`.
+- `score_plans_prototype::tests::phantom_tail_plans_tie_with_tailless_equivalents` — два плана, отличающиеся только phantom-tail'ом после Cast, должны получить одинаковый prototype-score (кроме noise). Central regression — это основной бенефит prototype.
+- `score_plans_prototype::tests::longer_prefix_wins_over_shorter_with_same_end_state` — smoke.
+
+##### Step-2D — `--phase7-prototype` в `replay_ai_log` + новые метрики
+
+**Файлы**:
+- `src/bin/replay_ai_log.rs` — флаг, dual-pipeline, метрики.
+
+**Что делать**:
+1. **CLI**: добавить `--phase7-prototype` (bool, default false).
+2. **Dual pipeline**: когда флаг включён, для каждого entry считать **две** ranking'а (baseline + prototype) и сравнивать `committed_action_key` у `top_post_baseline` vs `top_post_prototype`. Baseline pipeline — как сейчас (production scoring).
+3. **Новые метрики** в `Metrics`:
+   - `ranking_change_rate` = (entries где committed_action_key разошёлся) / (total). Печатается только при `--phase7-prototype`.
+   - `plateau_tie_rate` = (entries где top-K c `max − min < 0.05` содержит ≥ 3 планов) / (total). Печатается для ОБЕИХ ranking'ов (baseline и prototype) — это основной decision criterion.
+   - `phantom_tail_flips_committed` под prototype — re-use существующей логики, но на prototype-ranking.
+4. **Dual-emission**: когда флаг включён, summary печатает "== Baseline ==" и "== Phase7 Prototype ==" блоки со всеми существующими метриками из `§4.1/4.2/4.3` (вычисленными на соответствующем ranking'е). Это нужно для regression-сравнения в decision criteria.
+5. **Invariance**: когда флаг выключен — поведение replay'а побайтно совпадает с текущим (no-op, даже `ranking_change_rate` / `plateau_tie_rate` не печатаются).
+
+**Тесты**:
+- Добавить отдельный test-case (unit либо небольшой integration) на `plateau_tie_rate`: синтетический вектор scores, проверка формулы.
+- Smoke: `cargo run --bin replay_ai_log -- logs/<any>.jsonl --phase7-prototype` не падает.
+
+##### Step-2E — corpus run + decision note
+
+**Что делать**:
+1. Прогнать 12-log corpus через `replay_ai_log --phase7-prototype --metrics-summary` (8 post-step-3 логов + 4 baseline_final).
+2. Записать output в `logs/phase7_prototype_20260422.txt` (либо актуальная дата).
+3. Дополнить `docs/ai_rework.md §4.4` / `docs/ai_rework_plan.md` этой секцией таблицей decision criteria:
+   - `phantom_tail_flips_committed` baseline vs prototype (target: ≥ 40% drop).
+   - `plateau_tie_rate` baseline vs prototype (target: < 10%).
+   - Δ на acceptance-метриках (target: ≤ 5 pp).
+4. Вердикт: **3/3** → "Phase 7 merge в следующей итерации"; **2/3** → "design-doc перед merge"; **≤ 1/3** → "прототип не оправдан, назад к точечным фиксам".
 
 #### Decision criteria
 
@@ -184,7 +242,7 @@ Score(plan) = PrefixScore(committed_prefix) + γ · FutureValue(committed_state)
                                                          │
                                                          ├─→ Step-4a measurement ─→ Step-5 ─→ итерация закрыта
                                                          │
-                                                         └─→ Phase 7 prototype ─→ decision → next iteration
+                                                         └─→ Phase 7 prototype [2A → 2B → 2C → 2D → 2E] ─→ decision → next iteration
 ```
 
 - Track 1 и Track 2 независимы.

@@ -1,6 +1,11 @@
 //! Replay an AI decision log (JSONL) and show what the **current** sanity
 //! pipeline does to each entry's ranking. For every log line the tool:
 //!
+//! Optional `--phase7-prototype` flag runs a dual pipeline: baseline scoring
+//! plus the Phase 7 decomposition prototype (`score_plans_prototype` from
+//! `future_value.rs`). Prints extra metrics blocks when combined with
+//! `--metrics-summary`. No effect on output when flag is absent (invariance).
+//!
 //! 1. Parses the entry (snapshot, intent, plan pool with raw factors).
 //! 2. Rebuilds `InfluenceMaps` deterministically from the snapshot.
 //! 3. Feeds the logged raw factors through the live `finalize_scores` so
@@ -29,6 +34,7 @@ use storyforge::combat::ai::planning::{
     apply_protect_self_mask, finalize_scores, pick_best_plan, sanity_adjust_plans, CommittedPrefix,
     PlanStep, StepOutcome, TurnPlan,
 };
+use storyforge::combat::ai::planning::future_value::score_plans_prototype;
 use storyforge::combat::ai::role::AxisProfile;
 use storyforge::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use storyforge::combat::ai::reservations::Reservations;
@@ -252,6 +258,46 @@ struct Metrics {
     phantom_tail_chosen: usize,
     /// Of phantom-tail choices: best tailless alt has a DIFFERENT committed action key.
     phantom_tail_flips_committed: usize,
+
+    // ── Phase 7 prototype (only populated when --phase7-prototype is set) ─────
+    proto: Option<Box<PrototypeMetrics>>,
+}
+
+/// Metrics collected from the Phase 7 prototype pipeline.
+/// Mirrors the acceptance-metric set from the baseline pipeline so delta-pp can
+/// be computed in `print_summary`.
+#[derive(Default)]
+struct PrototypeMetrics {
+    /// Total entries processed under the prototype pipeline (== Metrics total entries).
+    total_entries: usize,
+
+    // ── ranking_change_rate ──────────────────────────────────────────────────
+    /// Entries where `committed_action_key` differs between baseline and prototype winner.
+    ranking_changed: usize,
+
+    // ── plateau_tie_rate ─────────────────────────────────────────────────────
+    /// Baseline: entries classified as plateau (≥3 plans within 0.05 of top).
+    plateau_ties_baseline: usize,
+    /// Prototype: same formula on prototype scores.
+    plateau_ties_prototype: usize,
+
+    // ── Mirrored acceptance metrics (prototype pick) ─────────────────────────
+    move_only_total: usize,
+    move_only_wasted: usize,
+    panic_total: usize,
+    panic_leaked: usize,
+    killable_with_kill_line_total: usize,
+    killable_non_offensive: usize,
+    killable_wrong_target: usize,
+    killable_kill_converted: usize,
+    plans_with_moves: usize,
+    repeated_tile_plans: usize,
+    zero_net_move_plans: usize,
+    plans_with_post_cast_move: usize,
+    post_cast_retreat_plans: usize,
+    chosen_with_cast_total: usize,
+    phantom_tail_chosen: usize,
+    phantom_tail_flips_committed: usize,
 }
 
 impl Metrics {
@@ -346,6 +392,92 @@ impl Metrics {
         println!(
             "phantom_tail_flips_committed: {:5.1}%  ({}/{} phantom-tail choices → best tailless alt has different committed action)",
             flip_rate, self.phantom_tail_flips_committed, self.phantom_tail_chosen,
+        );
+
+        if let Some(p) = &self.proto {
+            self.print_prototype_summary(p);
+        }
+    }
+
+    fn print_prototype_summary(&self, p: &PrototypeMetrics) {
+        println!("\n=== Phase 7 Prototype Metrics ===");
+        let total = p.total_entries;
+
+        let change_rate = pct(p.ranking_changed, total);
+        println!(
+            "ranking_change_rate:          {:5.1}%  ({}/{} entries where prototype picks different committed action)",
+            change_rate, p.ranking_changed, total,
+        );
+
+        let plateau_base = pct(p.plateau_ties_baseline, total);
+        let plateau_proto = pct(p.plateau_ties_prototype, total);
+        let plateau_delta = plateau_proto - plateau_base;
+        println!(
+            "plateau_tie_rate:  baseline={:.1}%  prototype={:.1}%  Δ={:+.1} pp  [target prototype < 10%]",
+            plateau_base, plateau_proto, plateau_delta,
+        );
+
+        // ── Mirrored acceptance metrics ───────────────────────────────────────
+        println!("\n  -- Acceptance metrics (prototype pick) --");
+
+        let wasted_b = pct(self.move_only_wasted, self.move_only_total);
+        let wasted_p = pct(p.move_only_wasted, p.move_only_total);
+        println!(
+            "  wasted_mp_ratio:      baseline={:.1}%  prototype={:.1}%  Δ={:+.1} pp",
+            wasted_b, wasted_p, wasted_p - wasted_b,
+        );
+
+        let leak_b = pct(self.panic_leaked, self.panic_total);
+        let leak_p = pct(p.panic_leaked, p.panic_total);
+        println!(
+            "  panic_leak_rate:      baseline={:.1}%  prototype={:.1}%  Δ={:+.1} pp",
+            leak_b, leak_p, leak_p - leak_b,
+        );
+
+        let kll_denom_b = self.killable_with_kill_line_total;
+        let kll_denom_p = p.killable_with_kill_line_total;
+        let non_off_b = pct(self.killable_non_offensive, kll_denom_b);
+        let non_off_p = pct(p.killable_non_offensive, kll_denom_p);
+        println!(
+            "  killable_non_offensive_rate: baseline={:.1}%  prototype={:.1}%  Δ={:+.1} pp",
+            non_off_b, non_off_p, non_off_p - non_off_b,
+        );
+        let conv_b = pct(self.killable_kill_converted, kll_denom_b);
+        let conv_p = pct(p.killable_kill_converted, kll_denom_p);
+        println!(
+            "  kill_conversion_rate:        baseline={:.1}%  prototype={:.1}%  Δ={:+.1} pp",
+            conv_b, conv_p, conv_p - conv_b,
+        );
+
+        let rep_b = pct(self.repeated_tile_plans, self.plans_with_moves);
+        let rep_p = pct(p.repeated_tile_plans, p.plans_with_moves);
+        println!(
+            "  repeated_tile_rate:   baseline={:.1}%  prototype={:.1}%  Δ={:+.1} pp",
+            rep_b, rep_p, rep_p - rep_b,
+        );
+        let zero_b = pct(self.zero_net_move_plans, self.plans_with_moves);
+        let zero_p = pct(p.zero_net_move_plans, p.plans_with_moves);
+        println!(
+            "  zero_net_move_rate:   baseline={:.1}%  prototype={:.1}%  Δ={:+.1} pp",
+            zero_b, zero_p, zero_p - zero_b,
+        );
+        let post_b = pct(self.post_cast_retreat_plans, self.plans_with_post_cast_move);
+        let post_p = pct(p.post_cast_retreat_plans, p.plans_with_post_cast_move);
+        println!(
+            "  post_cast_retreat_rate: baseline={:.1}%  prototype={:.1}%  Δ={:+.1} pp",
+            post_b, post_p, post_p - post_b,
+        );
+        let phantom_b = pct(self.phantom_tail_chosen, self.chosen_with_cast_total);
+        let phantom_p = pct(p.phantom_tail_chosen, p.chosen_with_cast_total);
+        println!(
+            "  phantom_tail_chosen_rate: baseline={:.1}%  prototype={:.1}%  Δ={:+.1} pp",
+            phantom_b, phantom_p, phantom_p - phantom_b,
+        );
+        let flip_b = pct(self.phantom_tail_flips_committed, self.phantom_tail_chosen);
+        let flip_p = pct(p.phantom_tail_flips_committed, p.phantom_tail_chosen);
+        println!(
+            "  phantom_tail_flips_committed: baseline={:.1}%  prototype={:.1}%  Δ={:+.1} pp  [target prototype ≥40% drop]",
+            flip_b, flip_p, flip_p - flip_b,
         );
     }
 }
@@ -634,6 +766,21 @@ fn plan_has_any_cast(plan: &PlanLog) -> bool {
     plan.steps.iter().any(|s| matches!(s, PlanStep::Cast { .. }))
 }
 
+/// Classify a score vector as a "plateau" for the plateau_tie_rate metric.
+///
+/// Algorithm: look at top-K = min(5, len) scores (assumed sorted descending).
+/// If ≥ `min_count` scores satisfy `top - score < window`, it's a plateau.
+/// Applied identically to baseline and prototype score vectors.
+fn is_plateau(scores: &[f32], window: f32, min_count: usize) -> bool {
+    if scores.is_empty() {
+        return false;
+    }
+    let k = scores.len().min(5);
+    let top = scores[0];
+    let within = scores[..k].iter().filter(|&&s| top - s < window).count();
+    within >= min_count
+}
+
 /// Infer `(campaign_dir, scenario_dir)` from a log filename by scanning known
 /// campaign/scenario directories under `assets/data/campaigns/`.
 ///
@@ -698,6 +845,7 @@ fn main() {
     let mut verbose = false;
     let mut simulate_ab = false;
     let mut metrics_summary = false;
+    let mut phase7_prototype = false;
     let mut campaign_override: Option<PathBuf> = None;
     let mut scenario_override: Option<PathBuf> = None;
     let mut paths: Vec<PathBuf> = Vec::new();
@@ -709,6 +857,8 @@ fn main() {
             simulate_ab = true;
         } else if a == "--metrics-summary" {
             metrics_summary = true;
+        } else if a == "--phase7-prototype" {
+            phase7_prototype = true;
         } else if a == "--campaign" {
             campaign_override = iter.next().map(PathBuf::from);
         } else if a == "--scenario" {
@@ -720,7 +870,7 @@ fn main() {
     if paths.is_empty() {
         eprintln!(
             "usage: replay_ai_log <log.jsonl> [<log2.jsonl> ...] \
-             [--verbose] [--simulate-ab] [--metrics-summary] \
+             [--verbose] [--simulate-ab] [--metrics-summary] [--phase7-prototype] \
              [--campaign <dir>] [--scenario <dir>]"
         );
         std::process::exit(2);
@@ -744,7 +894,13 @@ fn main() {
     let inf_cfg = InfluenceConfig::default();
     let difficulty = DifficultyProfile::normal();
     let mut rng = DiceRng::with_seed(0);
-    let mut metrics = Metrics::default();
+    // Separate rng for prototype pipeline — baseline rng must not be advanced
+    // by prototype picks (invariance: without --phase7-prototype, output is identical).
+    let mut rng_proto = DiceRng::with_seed(1);
+    let mut metrics = Metrics {
+        proto: if phase7_prototype { Some(Box::new(PrototypeMetrics::default())) } else { None },
+        ..Metrics::default()
+    };
 
     for path in &paths {
         let file = std::fs::File::open(path)
@@ -1086,6 +1242,179 @@ fn main() {
             let top_pre = argmax(&pre_scores);
             let (top_post, _pick_mech) = pick_best_plan(&scores, &raw_factors, &world, &mut rng);
 
+            // ── Phase 7 prototype dual pipeline ──────────────────────────────────
+            // Only runs when --phase7-prototype is set. Uses a separate rng so
+            // the baseline rng is never advanced by prototype picks (invariance).
+            if let Some(ref mut proto) = metrics.proto {
+                proto.total_entries += 1;
+
+                // Prototype scores: score_plans_prototype → sanity → mask → pick.
+                let mut proto_scores = score_plans_prototype(
+                    &plans,
+                    &entry.intent.intent,
+                    &scoring_ctx,
+                );
+                sanity_adjust_plans(&mut proto_scores, &plans, &scoring_ctx);
+                if matches!(
+                    entry.intent.intent,
+                    storyforge::combat::ai::intent::TacticalIntent::ProtectSelf
+                ) {
+                    apply_protect_self_mask(&mut proto_scores, &raw_factors, &modes);
+                } else if simulate_ab && entry.intent.selection_kind == "viability_fallback" {
+                    let hp_pct = active.hp_pct();
+                    let actor_danger = maps.danger.get(active.pos);
+                    let midpanic_hp = difficulty.midpanic_hp_threshold();
+                    let panic_danger = difficulty.awareness_danger_threshold();
+                    if hp_pct < midpanic_hp && actor_danger > panic_danger {
+                        apply_protect_self_mask(&mut proto_scores, &raw_factors, &modes);
+                    }
+                }
+                let (top_post_proto, _) =
+                    pick_best_plan(&proto_scores, &raw_factors, &world, &mut rng_proto);
+
+                // ranking_change_rate: committed action key differs.
+                let baseline_key = committed_action_key(&entry.plans[top_post]);
+                let proto_key = committed_action_key(&entry.plans[top_post_proto]);
+                if baseline_key != proto_key {
+                    proto.ranking_changed += 1;
+                }
+
+                // plateau_tie_rate — applied to both vectors (sorted descending).
+                let mut base_sorted = scores.clone();
+                base_sorted.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+                if is_plateau(&base_sorted, 0.05, 3) {
+                    proto.plateau_ties_baseline += 1;
+                }
+                let mut proto_sorted = proto_scores.clone();
+                proto_sorted
+                    .sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+                if is_plateau(&proto_sorted, 0.05, 3) {
+                    proto.plateau_ties_prototype += 1;
+                }
+
+                // ── Mirrored acceptance metrics on prototype pick ─────────────
+                // Use the chosen plan from prototype pick (top_post_proto index).
+                let proto_chosen_log = &entry.plans[top_post_proto];
+                let proto_final_pos =
+                    Hex::new(proto_chosen_log.final_pos[0], proto_chosen_log.final_pos[1]);
+
+                // wasted_mp
+                if let Some(wasted) = is_wasted_move(&entry.committed_decision, active.pos) {
+                    // denominator is the same (entry type doesn't change); only
+                    // check if the prototype pick changes the waste outcome for
+                    // MoveOnly commits — but the committed_decision key is logged
+                    // from production, not from prototype. For move metrics we
+                    // use the prototype winner's plan shape directly.
+                    let _ = wasted; // production-committed_decision stays as-is
+                }
+                // For move-shape metrics use the prototype winner's steps.
+                let (has_moves_p, repeated_p, zero_net_p) = plan_move_metrics(
+                    &proto_chosen_log.steps,
+                    proto_final_pos,
+                    active.pos,
+                );
+                if has_moves_p {
+                    proto.plans_with_moves += 1;
+                    if repeated_p { proto.repeated_tile_plans += 1; }
+                    if zero_net_p { proto.zero_net_move_plans += 1; }
+                }
+                let (has_post_p, retreat_p) =
+                    post_cast_metrics(&proto_chosen_log.steps, proto_final_pos, active.pos);
+                if has_post_p {
+                    proto.plans_with_post_cast_move += 1;
+                    if retreat_p { proto.post_cast_retreat_plans += 1; }
+                }
+                // move_only_total/wasted: use the MoveOnly commit shape of proto winner.
+                {
+                    use storyforge::combat::ai::planning::CommittedPrefix;
+                    let tp_proto = TurnPlan {
+                        steps: proto_chosen_log.steps.clone(),
+                        final_pos: proto_final_pos,
+                        residual_ap: proto_chosen_log.residual_ap,
+                        residual_mp: proto_chosen_log.residual_mp,
+                        outcomes: proto_chosen_log.outcomes.clone(),
+                        partial_score: 0.0,
+                        sim_snapshots: Vec::new(),
+                    };
+                    if let CommittedPrefix::MoveOnly { path } = tp_proto.committed_prefix() {
+                        proto.move_only_total += 1;
+                        let dest = path.last().copied().unwrap_or(active.pos);
+                        if dest == active.pos {
+                            proto.move_only_wasted += 1;
+                        }
+                    }
+                }
+                // panic_leak (ProtectSelf + Default mode)
+                if matches!(
+                    entry.intent.intent,
+                    storyforge::combat::ai::intent::TacticalIntent::ProtectSelf
+                ) && proto_chosen_log.evaluation_mode == LoggedEvaluationMode::Default
+                {
+                    proto.panic_total += 1;
+                    if !is_defensive_decision(
+                        &entry.committed_decision,
+                        entry.actor_id,
+                        &active,
+                        &entry.snapshot,
+                    ) {
+                        proto.panic_leaked += 1;
+                    }
+                }
+                // killable kill-line metrics
+                if entry.intent.selection_kind == "killable" {
+                    if let storyforge::combat::ai::intent::TacticalIntent::FocusTarget {
+                        target,
+                    } = entry.intent.intent
+                    {
+                        if let Some(target_snap) = entry.snapshot.unit(target) {
+                            if has_real_kill_line(&entry.plans, target, target_snap.hp) {
+                                proto.killable_with_kill_line_total += 1;
+                                let offensive = plan_is_offensive_vs(proto_chosen_log, target);
+                                if !offensive {
+                                    proto.killable_non_offensive += 1;
+                                    if plan_has_any_cast(proto_chosen_log) {
+                                        proto.killable_wrong_target += 1;
+                                    }
+                                }
+                                if plan_committed_prefix_kills_target(proto_chosen_log, target) {
+                                    proto.killable_kill_converted += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                // phantom-tail metrics on proto winner
+                let has_cast_p = proto_chosen_log
+                    .steps
+                    .iter()
+                    .any(|s| matches!(s, PlanStep::Cast { .. }));
+                if has_cast_p {
+                    proto.chosen_with_cast_total += 1;
+                    if has_post_cast_tail(proto_chosen_log) {
+                        proto.phantom_tail_chosen += 1;
+                        let proto_chosen_key = committed_action_key(proto_chosen_log);
+                        // Best tailless alt by prototype score.
+                        let best_tailless_proto = entry
+                            .plans
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, p)| *i != top_post_proto && !has_post_cast_tail(p))
+                            .filter(|(i, _)| proto_scores.get(*i).is_some())
+                            .max_by(|(i, _), (j, _)| {
+                                proto_scores[*i]
+                                    .partial_cmp(&proto_scores[*j])
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                            .map(|(_, p)| p);
+                        if let Some(alt) = best_tailless_proto {
+                            if committed_action_key(alt) != proto_chosen_key {
+                                proto.phantom_tail_flips_committed += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
             let pre_was_chosen = entry.plans.iter().find(|p| p.chosen).map(|p| p.rank).unwrap_or(0);
             let hp = format!("{}/{}", active.hp, active.max_hp);
 
@@ -1360,5 +1689,35 @@ mod tests {
         let pool = vec![plan_a, plan_b];
         // intent_target has HP = 20; neither plan is offensive_vs_target.
         assert!(!has_real_kill_line(&pool, intent_target, 20));
+    }
+
+    // ── is_plateau tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn plateau_three_within_window_is_plateau() {
+        // top=1.0, then 0.98 and 0.97 are both within 0.05 → 3 total scores
+        // satisfy top - s < 0.05.  Should be a plateau.
+        let scores = vec![1.0f32, 0.98, 0.97, 0.5, 0.4];
+        assert!(is_plateau(&scores, 0.05, 3), "3 scores within 0.05 → plateau");
+    }
+
+    #[test]
+    fn plateau_only_two_within_window_is_not_plateau() {
+        // top=1.0, only 0.95 within 0.05 (0.94 is 0.06 away → excluded) → 2 < 3.
+        // Wait: 0.95: 1.0 - 0.95 = 0.05, NOT < 0.05. So only 1.0 itself.
+        // Use 0.96: 1.0 - 0.96 = 0.04 < 0.05 → 2 total (1.0, 0.96).
+        let scores = vec![1.0f32, 0.96, 0.5, 0.4];
+        assert!(!is_plateau(&scores, 0.05, 3), "only 2 scores within 0.05 → not plateau");
+    }
+
+    #[test]
+    fn plateau_clear_winner_is_not_plateau() {
+        let scores = vec![1.0f32, 0.3, 0.2];
+        assert!(!is_plateau(&scores, 0.05, 3), "spread > 0.05 → not plateau");
+    }
+
+    #[test]
+    fn plateau_empty_is_not_plateau() {
+        assert!(!is_plateau(&[], 0.05, 3));
     }
 }
