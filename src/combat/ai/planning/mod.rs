@@ -5,6 +5,7 @@
 //! - `sim`   — pure simulation of plan steps on a cloned snapshot.
 
 pub mod adaptation;
+pub mod future_value;
 pub mod generator;
 pub mod killable_gate;
 pub mod picker;
