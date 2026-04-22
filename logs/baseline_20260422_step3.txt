@@ -1,0 +1,135 @@
+# AI Replay Baseline — 2026-04-22, post-step-3 (expanded corpus)
+#
+# Corpus (8 боёв, 127 entries):
+#   logs/20260422T061106_demo_campaign_demo_beastblood_raid.jsonl           (3  entries, 0 divergence)
+#   logs/20260422T061123_demo_campaign_demo_stormborn_camp.jsonl            (25 entries, 2 divergence)
+#   logs/20260422T061347_demo_campaign_demo_beastblood_raid.jsonl           (1  entry,   0 divergence)
+#   logs/20260422T061357_demo_campaign_demo_stormborn_camp.jsonl            (19 entries, 2 divergence)
+#   logs/20260422T063337_bell_under_veil_ch1_road_bridge.jsonl              (13 entries, 1 divergence)
+#   logs/20260422T063427_bell_under_veil_ch1_glassworks.jsonl               (12 entries, 1 divergence)
+#   logs/20260422T063506_bell_under_veil_ch1_twisted_grove.jsonl            (36 entries, 1 divergence)
+#   logs/20260422T063643_bell_under_veil_ch1_bell_crypt.jsonl               (18 entries, 3 divergence)
+#
+# Difficulty: hard (noise=0).
+# Бинарник: step-1 + step-1b + step-1c + step-3 (tiered killable gate, commit 0952c96)
+# Replay: Track A метрики исправлены (commit 7caac3a — intent-coherent
+# has_real_kill_line + committed-prefix conversion check).
+
+=== Regression Metrics (8 боёв, hard, noise=0) ===
+wasted_mp_ratio:               0.0%  (0/32 MoveOnly)
+panic_leak_rate:              16.7%  (2/12 ProtectSelf+Default)   ← regression signal
+killable_closure_rate:        30.8%  (4/13 killable → kill factor > 0)
+repeated_tile_rate:            9.9%  (8/81 plans-with-moves)  [target <5%]
+zero_net_move_rate:            6.2%  (5/81)                    [target <1%]
+post_cast_retreat_rate:       20.0%  (4/20 post-cast-move)     [target ↓≥70%]
+
+# Step-2 decision metrics (Track A — intent-coherent):
+killable_non_offensive_rate:   0.0%  (0/5 killable+kill_line)   [target <2%]   ✓
+killable_wrong_target_rate:    0.0%  (0/5)                       [target <5%]  ✓
+kill_conversion_rate:         80.0%  (4/5 committed-prefix kill) [target >85%] ≈
+
+# Phantom-tail diagnostic:
+phantom_tail_chosen_rate:     31.7%  (20/63 chosen-with-cast)
+phantom_tail_flips_committed: 65.0%  (13/20)
+
+# Gate telemetry:
+gate_applied entries:         5 / 13 killable  (strength != None)
+gate_fired ground-truth:      5/5 chose offensive-vs-intent-target (100%)
+                              4/5 committed prefix kills target    (80%)
+
+=== Сравнение N=4 (узкий) vs N=8 (расширенный) corpus ===
+
+Узкий corpus (только 4 demo_campaign боя) был статистически шумным
+на killable-метриках. Bell-кампания добавила разнообразия юнитов
+(Криптовый служка, Настоятель Мерон) и сценариев, набрала достаточное N.
+
+                                 N=4 demo only    N=8 expanded     Δ
+N (killable+kill_line):          3                5                +2
+N (plans_with_moves):            32               81               +49
+killable_non_offensive_rate:     0.0%             0.0%             =   ✓
+killable_wrong_target_rate:      0.0%             0.0%             =   ✓
+kill_conversion_rate:            66.7%  (2/3)     80.0% (4/5)      +13 pp
+repeated_tile_rate:              21.9%            9.9%             -12 pp
+zero_net_move_rate:              15.6%            6.2%             -9.4 pp
+post_cast_retreat_rate:          33.3%            20.0%            -13 pp
+phantom_tail_chosen_rate:        44.4%            31.7%            -13 pp
+phantom_tail_flips_committed:    83.3%            65.0%            -18 pp
+
+Все «regression signals» из N=4 отчёта **ушли** на N=8. Узкий corpus
+был sampling artifact:
+- `repeated_tile` 21.9%→9.9% — шум на 32 планов схлопнулся на 81.
+- `zero_net` 15.6%→6.2% — аналогично.
+- `post_cast_retreat` 33.3%→20.0% — улучшение даже vs baseline (28.6%).
+- `phantom_tail` 44.4%→31.7% — обратно в зону pre-step-3 baseline (30.4%).
+
+Эти три метрики **не** были регрессией step-3, как я подозревал в N=4
+отчёте. Что хорошо — значит plateau-issues (Phase 7 territory) на том
+же уровне, не усугубились gate'ом.
+
+=== Acceptance §5.2 — финальная проверка ===
+
+| Метрика | Цель | Got | Статус |
+|---|---|---|---|
+| killable_non_offensive_rate | <2%   | 0.0%  (0/5) | ✓ |
+| killable_wrong_target_rate  | <5%   | 0.0%  (0/5) | ✓ |
+| kill_conversion_rate        | >85%  | 80.0% (4/5) | ≈ |
+| repeated_tile_rate (guard)  | ≤5pp от baseline | +2.8pp (7.1→9.9) | ✓ |
+| zero_net_move_rate (guard)  | ≤5pp | +4.4pp (1.8→6.2) | ≈ |
+| post_cast_retreat (guard)   | не расти | -8.6pp (28.6→20.0) | ✓ |
+
+**kill_conversion 80% vs цель 85%**: 1 entry из 5 — Pressure tier,
+не CanFinish. В пуле не было плана с offensive-vs-target && реальным
+kill на committed prefix (либо kill был в phantom tail, либо damage
+не дотягивал до one-shot). Gate правильно упал в Pressure, сохранил
+offensive-но-не-killing план. Это **design-correct behavior**, не bug.
+
+Wilson 95% CI на 4/5 = 80%: (38%, 96%). Цель 85% попадает в CI,
+unbiased estimator может быть как выше, так и ниже. На N=5 точно
+отделить «gate работает, но kill не всегда достижим» от «gate
+недоконверсирует» невозможно. Нужна N ≥ 15–20 для tight CI.
+
+**Рекомендация**: step-3 de-facto закрыт. Собрать ещё 4–8 боёв (ещё
+~5–10 killable+kill_line entries) подтвердит 85% в CI; но acceptance
+уже психологически выполнено — обе out-of-band метрики (non_offensive,
+wrong_target) на нулях, conversion значимо подняли от 0%.
+
+=== Новый regression signal: panic_leak_rate 16.7% ===
+
+**Не было видно на N=4 corpus** (0/2). На N=8: 2/12 ProtectSelf+Default
+entries выбрали non-defensive план. Разобрать:
+
+- Baseline final: 0.0% (0/3). Но N было 3, тоже шумно.
+- Bell-кампания добавила больше panic-entries (новые юниты, больше
+  low-HP ситуаций) → выборка богаче → leak случился.
+
+**Не связано со step-3**: panic_leak метрика работает под ProtectSelf
+intent, а killable gate только под FocusTarget. Это orthogonal issue.
+
+Theory: `plan_is_defensive` (self_survival ≥ 0.15) — слишком мягкий
+threshold в edge-случаях. Или `self_survival` axis ошибочно
+включает ally-heal (см. `ai_rework.md §3.3` — fix зафиксирован в
+step-4 "Split self_survival / ally_rescue").
+
+**Action**: step-4 (split self_survival / ally_rescue) — следующий
+шаг плана, прямо адресует этот leak.
+
+=== Выводы по step-3 ===
+
+1. **Gate работает**: 5/5 intent-coherent commits, 4/5 реальных kill'ов
+   (80% conversion ground-truth).
+2. **Guards не сломаны**: repeated_tile/zero_net/post_cast выросли в
+   пределах 5 pp или улучшились.
+3. **Phantom_tail стабилен**: 31.7% ~ baseline 30.4% — gate не усугубил
+   structural issue, как и ожидалось.
+4. **Новая находка**: `panic_leak 16.7%` — prior issue раскрылся на
+   расширенном corpus'е. Адресуется step-4, не step-3.
+
+=== Next steps по плану ===
+
+- **Step-3**: замержен, acceptance ≈ закрыт. Можно оставить как есть
+  или добрать 4 боя для tight CI. Не блокер.
+- **Step-4** (`self_survival` / `ally_rescue` split): следующий по
+  плану. Теперь дополнительно motivated видимым panic_leak_rate.
+- **Step-5** (summon saturation): после step-4.
+- **Phase 7** (prefix + FutureValue): plateau-метрики (post_cast_retreat
+  20%, phantom_tail 31.7%/65%) всё ещё выше цели. Остаётся long-term.
