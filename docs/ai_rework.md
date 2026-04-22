@@ -113,7 +113,7 @@ Score(plan) = PrefixScore(committed_prefix) + γ · FutureValue(committed_state)
 
 ### 4.4. Phase 7 prototype decision criteria
 
-См. §3 Track 2. Не acceptance, а точка принятия решения о merge в следующей итерации.
+Прогон 12-log corpus (8 post-step-3 + 4 baseline_final, 222 entries) через `replay_ai_log --phase7-prototype` от 2026-04-22 дал результат **0/3** по критериям принятия: `phantom_tail_flips_committed` снизился лишь на 26% (цель ≥40%), `plateau_tie_rate` осталась 20.3% (цель <10%), а acceptance-метрики показали критическую деградацию — `killable_non_offensive_rate` 0%→23.5%, `kill_conversion_rate` 88.2%→64.7%. **Вердикт: prototype не оправдан, возвращаемся к точечным фиксам.** Детальный анализ и таблица в `ai_rework_plan.md §Step-2E Results`, полный output — `logs/phase7_prototype_20260422.txt`.
 
 ---
 

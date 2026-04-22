@@ -211,6 +211,30 @@ Score(plan) = PrefixScore(committed_prefix) + γ · FutureValue(committed_state)
    - Δ на acceptance-метриках (target: ≤ 5 pp).
 4. Вердикт: **3/3** → "Phase 7 merge в следующей итерации"; **2/3** → "design-doc перед merge"; **≤ 1/3** → "прототип не оправдан, назад к точечным фиксам".
 
+###### Results (run 2026-04-22)
+
+Corpus: 12 logs (8 post-step-3 + 4 baseline_final). 222 entries total.
+
+| Criterion | Threshold | Baseline | Prototype | Δ | Pass |
+|---|---|---|---|---|---|
+| phantom_tail_flips_committed | ≥40% relative drop from 64.7% (→ prototype ≤ 38.8%) | 64.7% | 47.6% | -17.1 pp (-26% relative) | ✗ |
+| plateau_tie_rate | prototype < 10% (from >20%) | 24.3% | 20.3% | -4.1 pp | ✗ |
+| Δ acceptance (killable_non_offensive, kill_conversion, post_cast_retreat, repeated_tile, zero_net_move) | all ≤ 5 pp | — | — | max +23.5 pp (killable_non_offensive: 0%→23.5%; kill_conversion: 88.2%→64.7%; post_cast_retreat: 23.5%→33.3%) | ✗ |
+
+**Verdict: 0/3 → prototype не оправдан, возвращаемся к точечным фиксам.**
+
+Анализ сбоев:
+
+- **phantom_tail_flips_committed** снизился только на 26% относительно (с 64.7% до 47.6%), тогда как цель была ≥40%. FutureValue частично нивелирует phantom-tail различия через λ_mob (mobility из committed_pos), но λ_attack и λ_pos создают новые расслоения, не связанные с prefix-качеством.
+
+- **plateau_tie_rate** практически не изменился (24.3% → 20.3%). `pursuit_move_score` step-function (flat 0.8 в attack range) порождает ties на уровне PrefixScore, и FutureValue с текущим γ=0.25 и λ-весами недостаточно сильна, чтобы дифференцировать их.
+
+- **Acceptance деградация** — главная находка: `killable_non_offensive_rate` вырос с 0% до 23.5%, а `kill_conversion_rate` упал с 88.2% до 64.7%. Вероятная причина: prototype перевзвешивает планы по FutureValue(committed_state), где committed_state после Cast часто хуже positionally, чем committed_state после Move-then-Cast. В результате gate-passed offensive планы смещаются ниже non-offensive в prototype ranking. Это структурная проблема: `score_plans_prototype` применяет γ·FV поверх уже работающего killable gate, что может нарушать gate-инварианты.
+
+Следствие: prototype в текущей форме не готов к merge. Точечные фиксы (tempo clean-up, `post_cast_retreat` via step-3 extension) предпочтительны.
+
+Full output: `logs/phase7_prototype_20260422.txt`.
+
 #### Decision criteria
 
 | Сигнал | Threshold |
