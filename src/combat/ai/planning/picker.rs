@@ -18,7 +18,7 @@ pub struct PickMechanics {
 use crate::combat::ai::factors::{aoe_area, aoe_hits, PlanFactors};
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::reservations::Reservations;
-use crate::combat::ai::scoring::{applies_cc, score_action};
+use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::{AiDecision, AiWorld, MoveOrigin};
 use crate::content::abilities::{AoEShape, TargetType};
@@ -191,7 +191,7 @@ pub fn record_committed_reservations(
     actor_pos: Hex,
 ) {
     let mut resting_tile = actor_pos;
-    for (_, step, caster_tile) in plan.walk_with_caster(actor_pos).take(consumed) {
+    for (idx, step, caster_tile) in plan.walk_with_caster(actor_pos).take(consumed) {
         // After a Move, `walk_with_caster` advances to the destination on
         // the *next* yield — track the post-step caster ourselves so the
         // final reservation uses the resting tile after the committed prefix.
@@ -214,13 +214,12 @@ pub fn record_committed_reservations(
                 .collect()
         };
         for ent in hits {
-            if let Some(target_unit) = snap.unit(ent) {
+            if let Some(_target_unit) = snap.unit(ent) {
                 if def.target_type != TargetType::SingleAlly {
-                    // `0.0` danger — this path only ever hits the damage
-                    // branch (SingleAlly guarded above), which ignores the
-                    // danger input. Heal-branch urgency weighting isn't
-                    // reachable from reservation bookkeeping.
-                    let dmg = score_action(def, target_unit, &active.caster_ctx, ctx.content, 0.0);
+                    // Use the sim-populated expected_damage from PlanAnnotation —
+                    // it reflects the actual projected damage for this step and
+                    // avoids re-calling score_action for reservation bookkeeping.
+                    let dmg = plan.annotation.outcomes.get(idx).map_or(0.0, |o| o.expected_damage);
                     if dmg > 0.0 {
                         reservations.reserve_damage(ent, dmg);
                     }

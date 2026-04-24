@@ -17,7 +17,8 @@ use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::scorer::{compute_plan_factors, finalize_scores};
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
-use crate::combat::ai::scoring::{applies_cc, score_action};
+use crate::combat::ai::outcome::estimate_hypothetical;
+use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
 use crate::combat::ai::tuning::AiTuning;
@@ -116,7 +117,7 @@ pub fn committed_prefix_end_pos(plan: &TurnPlan) -> Hex {
 ///
 /// Decomposes into three components:
 /// - `λ_pos = evaluate_position(committed_pos, role, maps)` — tile quality.
-/// - `λ_attack = 0.5 × best score_action among top-3 reachable enemies` — offensive
+/// - `λ_attack = 0.5 × best estimate_hypothetical().expected_damage among top-3 reachable enemies` — offensive
 ///   potential from the committed position.
 /// - `λ_mob = 0.1 × reachable_tile_count / PHASE7_MAX_MOBILITY` — freedom of
 ///   movement (proxied by distance-based reachability from `committed_pos`).
@@ -156,7 +157,7 @@ fn position_component(active: &UnitSnapshot, committed_pos: Hex, tuning: &AiTuni
     evaluate_position(committed_pos, &active.role, tuning, maps)
 }
 
-/// λ_attack = 0.5 × best `score_action` for the intent-filtered candidate set.
+/// λ_attack = 0.5 × best `estimate_hypothetical(...).expected_damage` for the intent-filtered candidate set.
 ///
 /// Per-intent filtering (P1):
 /// - `FocusTarget{T}`: only T is considered (0 if T dead / unreachable).
@@ -184,7 +185,7 @@ fn attack_component_intent(
             let danger = maps.danger.get(target.pos);
             let best = active.abilities.iter()
                 .filter_map(|id| content.abilities.get(id))
-                .map(|def| score_action(def, target, &active.caster_ctx, content, danger))
+                .map(|def| estimate_hypothetical(def, target, &active.caster_ctx, content, danger).expected_damage)
                 .fold(0.0f32, f32::max);
             0.5 * best
         }
@@ -197,7 +198,7 @@ fn attack_component_intent(
             let best = active.abilities.iter()
                 .filter_map(|id| content.abilities.get(id))
                 .filter(|def| applies_cc(def, content))
-                .map(|def| score_action(def, target, &active.caster_ctx, content, danger))
+                .map(|def| estimate_hypothetical(def, target, &active.caster_ctx, content, danger).expected_damage)
                 .fold(0.0f32, f32::max);
             0.5 * best
         }
@@ -243,7 +244,7 @@ fn attack_component_intent(
                 let danger = maps.danger.get(target.pos);
                 for ability_id in &active.abilities {
                     let Some(def) = content.abilities.get(ability_id) else { continue };
-                    let s = score_action(def, target, &active.caster_ctx, content, danger);
+                    let s = estimate_hypothetical(def, target, &active.caster_ctx, content, danger).expected_damage;
                     if s > best { best = s; }
                 }
             }

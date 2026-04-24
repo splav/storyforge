@@ -7,6 +7,7 @@
 
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::types::PlanStep;
+#[allow(deprecated)]
 use crate::combat::ai::scoring::{score_action, status_applications, stun_denial_value};
 use crate::combat::ai::snapshot::UnitSnapshot;
 use crate::content::abilities::{AbilityDef, CasterContext, TargetType};
@@ -119,6 +120,7 @@ pub fn estimate_deny_value(
 /// and wraps it with `crit_fail_adjusted` — exactly as
 /// `factors::offensive::compute_offensive` does for the `heal` branch.
 /// Returns `0.0` for non-heal or non-SingleAlly abilities.
+#[allow(deprecated)] // score_action: heal path migrated in step 4.5
 pub fn estimate_rescue_value(
     def: &AbilityDef,
     target: &UnitSnapshot,
@@ -146,6 +148,7 @@ pub fn estimate_rescue_value(
 /// Returns `0.0` for non-SingleEnemy abilities (heal / AoE / status-only).
 /// For AoE, the generator calls `compute_aoe_damage` directly and stores the
 /// result, so this helper is not used there.
+#[allow(deprecated)] // score_action: bridge to legacy; estimate_expected_damage stays in outcome.rs, removed when score_action is removed in 4.5
 pub fn estimate_expected_damage(
     def: &AbilityDef,
     target: &UnitSnapshot,
@@ -160,6 +163,57 @@ pub fn estimate_expected_damage(
     }
     let raw = score_action(def, target, caster, content, 0.0);
     crit_fail_adjusted_rescue(raw, def, crit_fail_effect, crit_fail_chance)
+}
+
+/// Hypothetical (without sim) outcome estimate for a single (ability, target) pair.
+///
+/// Used by `future_value::λ_attack` and `picker::record_committed_reservations`
+/// where no sim step has been executed — we need an HP-equivalent value from
+/// first principles.
+///
+/// `expected_damage` is set to the full `score_action` result (damage + status
+/// contribution), which makes `λ_attack = 0.5 * expected_damage` identical
+/// to the legacy `0.5 * score_action(...)` in HP-equivalent units.
+///
+/// `danger_at_target` is passed straight to `score_action`'s heal-urgency path;
+/// callers that don't have a danger map pass `0.0` (as before).
+#[allow(deprecated)] // score_action: estimate_hypothetical is the migration bridge; score_action removed in 4.5
+pub fn estimate_hypothetical(
+    def: &AbilityDef,
+    target: &UnitSnapshot,
+    caster: &CasterContext,
+    content: &ContentView,
+    danger_at_target: f32,
+) -> ActionOutcomeEstimate {
+    // Full HP-equivalent score — mirrors what score_action returns without
+    // the crit_fail adjustment (future_value never had crit_fail).
+    let score = score_action(def, target, caster, content, danger_at_target);
+
+    // Kill detection: if net damage (same formula as scoring) >= hp, kill_now.
+    let p_kill_now = {
+        let killed = if let Some(calc) = def.effect.calc(caster) {
+            let armor = if calc.pierces_armor { 0.0 } else { (target.armor + target.armor_bonus) as f32 };
+            let net = (calc.expected() - armor + target.damage_taken_bonus as f32).max(0.0);
+            net >= target.hp as f32
+        } else {
+            false
+        };
+        if killed { 1.0f32 } else { 0.0f32 }
+    };
+    let p_kill_soon = if p_kill_now == 0.0 {
+        estimate_kill_soon(def, target, caster, content)
+    } else {
+        0.0
+    };
+    let deny_value = estimate_deny_value(def, target, content);
+
+    ActionOutcomeEstimate {
+        expected_damage: score,
+        p_kill_now,
+        p_kill_soon,
+        deny_value,
+        ..Default::default()
+    }
 }
 
 /// Max danger value along the path tiles of a single Move step.
@@ -395,5 +449,69 @@ mod tests {
         maps.danger.add(h2, 7.0);
         let step = PlanStep::Move { path: vec![h1, h2] };
         assert_eq!(step_path_danger(&step, &maps), 7.0);
+    }
+
+    // --- estimate_hypothetical ---
+
+    /// `estimate_hypothetical(...).expected_damage` equals `score_action(...)` for a damage ability.
+    /// This invariant is what makes `λ_attack = 0.5 * expected_damage` identical
+    /// to the legacy `0.5 * score_action(...)` (zero golden-replay divergences in step 4.4).
+    #[test]
+    fn estimate_hypothetical_matches_score_action_for_damage_ability() {
+        let content = db();
+        let def = get_def(&content, "melee_attack");
+        let caster = melee_caster(2);
+        let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build();
+
+        #[allow(deprecated)]
+        let expected = crate::combat::ai::scoring::score_action(def, &target, &caster, &content, 0.0);
+        let est = estimate_hypothetical(def, &target, &caster, &content, 0.0);
+
+        assert!(
+            (est.expected_damage - expected).abs() < 1e-6,
+            "expected_damage {:.6} should equal score_action {:.6}",
+            est.expected_damage, expected
+        );
+    }
+
+    /// `λ_attack = 0.5 * est.expected_damage` is identical to `0.5 * score_action` by construction.
+    #[test]
+    fn lambda_attack_formula_equals_legacy() {
+        let content = db();
+        let def = get_def(&content, "melee_attack");
+        let caster = melee_caster(1);
+        let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(10).build();
+
+        #[allow(deprecated)]
+        let legacy = 0.5 * crate::combat::ai::scoring::score_action(def, &target, &caster, &content, 0.0);
+        let est = estimate_hypothetical(def, &target, &caster, &content, 0.0);
+        let new_lambda = 0.5 * est.expected_damage;
+
+        assert!((new_lambda - legacy).abs() < 1e-6,
+            "λ_attack new={:.6} legacy={:.6}", new_lambda, legacy);
+    }
+
+    /// `p_kill_now = 1.0` when net damage >= target.hp.
+    #[test]
+    fn estimate_hypothetical_kill_now_when_damage_exceeds_hp() {
+        let content = db();
+        let def = get_def(&content, "melee_attack");
+        let caster = melee_caster(5); // high str_mod for guaranteed kill
+        let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).hp(1).build();
+
+        let est = estimate_hypothetical(def, &target, &caster, &content, 0.0);
+        assert_eq!(est.p_kill_now, 1.0, "should detect kill when net_dmg >= hp");
+        assert_eq!(est.p_kill_soon, 0.0, "p_kill_soon must be 0 when p_kill_now=1");
+    }
+
+    /// `deny_value` for a no-CC damage ability is 0.
+    #[test]
+    fn estimate_hypothetical_deny_zero_for_melee_attack() {
+        let content = db();
+        let def = get_def(&content, "melee_attack");
+        let caster = melee_caster(0);
+        let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build();
+        let est = estimate_hypothetical(def, &target, &caster, &content, 0.0);
+        assert_eq!(est.deny_value, 0.0, "melee_attack has no CC -> deny_value=0");
     }
 }

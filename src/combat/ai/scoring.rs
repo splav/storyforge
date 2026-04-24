@@ -55,6 +55,12 @@ pub fn status_applications<'a, 'c: 'a>(
 /// the projected incoming damage on the target over the next tick.
 /// Only read by the heal branch (urgency weighting). Callers that don't
 /// have a danger map handy pass `0.0`.
+///
+/// # Deprecation
+/// Prefer reading `ActionOutcomeEstimate` fields populated by the generator
+/// or computed via `outcome::estimate_hypothetical`. This function remains
+/// for AoE friendly-fire in `factors::offensive` (step 4.5 removes it).
+#[deprecated(since = "0.1.0", note = "use ActionOutcomeEstimate / estimate_hypothetical instead; removed in step 4.5")]
 pub fn score_action(
     def: &AbilityDef,
     target: &UnitSnapshot,

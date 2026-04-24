@@ -8,6 +8,7 @@
 use super::aoe_hits::{aoe_hits, AoeHits};
 use super::{crit_fail_adjusted, OffensiveFactors};
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
+#[allow(deprecated)]
 use crate::combat::ai::scoring::score_action;
 
 use crate::combat::ai::snapshot::UnitSnapshot;
@@ -90,6 +91,7 @@ pub fn aoe_area(def: &AbilityDef, target_pos: Hex, caster_tile: Hex) -> HashSet<
 
 /// `raw × (1 + raw/max_hp)` — punishes plans that chunk a non-enemy's HP%
 /// harder, so a fireball on a full-HP ally is worse than on a nicked one.
+#[allow(deprecated)] // score_action: legacy path, removed in step 4.5
 fn friendly_fire_penalty(
     def: &AbilityDef,
     u: &UnitSnapshot,
@@ -109,6 +111,7 @@ fn friendly_fire_penalty(
 /// `allies_of(team)` (which includes self) plus an explicit self-branch
 /// subtracted self-damage twice.
 #[allow(clippy::too_many_arguments)]
+#[allow(deprecated)] // score_action: legacy path, removed in step 4.5
 fn compute_aoe_damage(
     def: &AbilityDef,
     hits: &AoeHits,
