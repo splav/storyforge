@@ -1,0 +1,15 @@
+# Offensive baseline: первый ход, Зверокров Падальщик hp=6/6, ap=1/1, mp=6,
+# FocusTarget на цель 12884901544 (hp=12/12). Ближайший враг в шаге,
+# дешёвый melee_attack — AI обязан коммитить атаку, а не EndTurn или отступ.
+#
+# Что именно тестируем: AI не «залипает» и не ищет эзотерические ходы при
+# очевидной дешёвой атаке ближайшего enemy.
+
+[scope]
+plan_id = 0
+
+[[expectations]]
+decision_kind = ["MoveAndCast", "CastInPlace"]
+cast_ability = ["melee_attack"]
+intent_kind = ["FocusTarget"]
+primary_effect = ["Damage"]

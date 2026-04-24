@@ -1,0 +1,14 @@
+# LastStand с выгодным trade: Зверокров Искажённый зверь r2, hp=1/12 (8%),
+# ap=1/1, intent=ProtectSelf, last_stand_active=true, survival_mode=true.
+# Цель 17179868827 в досягаемости с hp=2/20. AI под LastStand контрактом
+# — отступать бессмысленно, «забрать с собой» выгодно.
+#
+# Ожидание: Cast offensive при LastStand — AI не паникует и не EndTurn'ит,
+# даже если ProtectSelf intent (LastStand override).
+
+[scope]
+plan_id = 13
+
+[[expectations]]
+decision_kind = ["CastInPlace", "MoveAndCast"]
+primary_effect = ["Damage"]

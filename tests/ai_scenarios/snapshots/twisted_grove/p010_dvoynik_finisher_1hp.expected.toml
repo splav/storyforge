@@ -1,0 +1,15 @@
+# Offensive finisher: Морочник Морочный двойник r2, hp=8/8, FocusTarget на
+# цель 25769803436 которая осталась с 1/12 hp (ранее выбита до 1). Актор в
+# мили-досягаемости, killable gate (GATE) активен в логе. Ожидание: AI
+# **коммитит убийство** через Cast — любое отступление/EndTurn здесь
+# провал finisher-логики.
+
+[scope]
+plan_id = 10
+
+[[expectations]]
+decision_kind = ["MoveAndCast", "CastInPlace"]
+cast_ability = ["melee_attack"]
+cast_target = [25769803436]
+intent_kind = ["FocusTarget"]
+primary_effect = ["Damage"]

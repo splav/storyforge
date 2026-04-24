@@ -1,0 +1,17 @@
+# Continuation / monotone focus: Морочник Двойник, r3, hp=8/8, ap=1/1.
+# FocusTarget на 25769803433 (тот же таргет, что атаковался в r2 — p015
+# и дальше p021, p023 в логе). Цель ослаблена до 10/14 за предыдущие
+# раунды. Ожидание: AI продолжает focus-fire на ту же цель, а не
+# переключается на другую.
+#
+# Это позитивный тест на plan freeze / goal commitment: решение должно
+# быть стабильным через раунды, когда цель выжила, но ослаблена.
+
+[scope]
+plan_id = 19
+
+[[expectations]]
+decision_kind = ["MoveAndCast", "CastInPlace"]
+cast_target = [25769803433]
+intent_kind = ["FocusTarget"]
+primary_effect = ["Damage"]

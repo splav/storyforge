@@ -1,0 +1,14 @@
+# Protect-self retreat: Человек Колокольный связанный r2, hp=1/14 (7%),
+# ap=1/1, intent=ProtectSelf, survival_mode_active=true, last_stand НЕ
+# активен. Классический случай — низкий hp, survival-режим, без
+# LastStand контракта → отступать/тянуть ход, не идти в обмен.
+#
+# Ожидание: НЕ атакующее решение. MoveOnlyRetreat — самый естественный
+# commit; EndTurn также приемлем как «ничего полезного не могу».
+
+[scope]
+plan_id = 8
+
+[[expectations]]
+decision_kind = ["Move", "EndTurn"]
+intent_kind = ["ProtectSelf"]

@@ -1,0 +1,13 @@
+# LastStand без полезного commit'а: Зверокров Искажённый зверь r2, hp=2/12
+# (16%), **ap=0/1** (ход уже закончен!), intent=ProtectSelf, LS+SV. Раз
+# AP=0, любая offensive ветка невозможна; ожидание — EndTurn, без попыток
+# изобрести Cast, который `can_afford=false`.
+#
+# Это проверка sanity: AI не хардкодит «LastStand=всегда атака», а смотрит
+# на доступные действия.
+
+[scope]
+plan_id = 36
+
+[[expectations]]
+decision_kind = ["EndTurn"]

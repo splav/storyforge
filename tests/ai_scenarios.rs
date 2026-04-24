@@ -1,24 +1,26 @@
 //! Scenario-based AI regression tests.
 //!
-//! Walks [`tests/ai_scenarios/snapshots/`] and asserts every captured
-//! decision against its overlay file. Each pair is `<name>.jsonl` (one or
-//! more log entries extracted from `logs/`) + `<name>.jsonl.expected.toml`
-//! (see [`Overlay`](storyforge::combat::ai::replay_assertion) for format).
+//! Layout: `tests/ai_scenarios/snapshots/<group>/log.jsonl` plus one or
+//! more `<case>.expected.toml` overlays in the same directory. Each
+//! overlay is an independent test case against the group's log; the
+//! overlay's `[scope] plan_id` selects which entry. Case filenames
+//! typically start with `p<plan_id>_<short_desc>` so the target entry is
+//! obvious at a glance.
 //!
-//! Unlike [`tests/replay_assert.rs`], which spawns the `replay_ai_log`
-//! binary, this harness calls [`assert_log_file`] directly. The whole
-//! batch runs in a single process — one content load, no subprocess, so
-//! 10–15 scenarios finish in well under a second.
+//! Harness walks `snapshots/` and requires every subdirectory to contain
+//! exactly one `*.jsonl` (the group source) plus at least one
+//! `*.expected.toml`. Unlike [`tests/replay_assert.rs`] (which spawns the
+//! `replay_ai_log` binary), this harness calls [`assert_log_file`]
+//! directly — one process, one content load — so 10–15 scenarios finish
+//! in well under a second.
 //!
-//! To add a scenario: drop the JSONL (from a real playtest) and an
-//! overlay into `tests/ai_scenarios/snapshots/`, run `cargo test --test
-//! ai_scenarios`. See `tests/ai_scenarios/README.md`.
+//! See `tests/ai_scenarios/README.md` for adding scenarios.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use storyforge::combat::ai::influence::InfluenceConfig;
-use storyforge::combat::ai::replay::{assert_log_file, default_overlay_path};
+use storyforge::combat::ai::replay::assert_log_file;
 use storyforge::combat::ai::replay_assertion::AssertResult;
 use storyforge::content::content_view::ContentView;
 
@@ -26,29 +28,77 @@ fn snapshots_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/ai_scenarios/snapshots")
 }
 
-/// Collect `*.jsonl` files in the snapshots directory whose sibling
-/// `<name>.jsonl.expected.toml` exists. Ordered by filename for
-/// reproducible failure output.
-fn discover_pairs(dir: &Path) -> Vec<(PathBuf, PathBuf)> {
+/// Walk subdirectories of `dir`, pairing each `*.expected.toml` with the
+/// single `*.jsonl` that must sit alongside it. Empty-looking dirs,
+/// dirs without a JSONL, or dirs with >1 JSONL trigger a panic with the
+/// offending path — silent skipping hides scenario mis-setup.
+///
+/// Returns `(jsonl, overlay, case_name)` triples sorted by path for
+/// reproducible failure output. `case_name` is `<group>/<overlay-stem>`
+/// and is meant for display only.
+fn discover_pairs(dir: &Path) -> Vec<(PathBuf, PathBuf, String)> {
     let mut pairs = Vec::new();
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(e) => panic!("cannot read snapshots dir {}: {e}", dir.display()),
-    };
+    let entries = std::fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("cannot read snapshots dir {}: {e}", dir.display()));
     for entry in entries {
-        let path = entry.expect("read_dir entry").path();
-        if path.extension() != Some(OsStr::new("jsonl")) {
-            continue;
-        }
-        let overlay = default_overlay_path(&path);
-        if !overlay.exists() {
+        let group_dir = entry.expect("read_dir entry").path();
+        if !group_dir.is_dir() {
             panic!(
-                "orphan snapshot {} — create sibling overlay {}",
-                path.display(),
-                overlay.display()
+                "unexpected file at snapshots root: {} — scenarios live in subdirs",
+                group_dir.display()
             );
         }
-        pairs.push((path, overlay));
+
+        let mut jsonl: Option<PathBuf> = None;
+        let mut overlays: Vec<PathBuf> = Vec::new();
+        let group_entries = std::fs::read_dir(&group_dir)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", group_dir.display()));
+        for f in group_entries {
+            let p = f.expect("read_dir entry").path();
+            if !p.is_file() {
+                continue;
+            }
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name.ends_with(".expected.toml") {
+                overlays.push(p);
+            } else if p.extension() == Some(OsStr::new("jsonl")) {
+                if let Some(existing) = &jsonl {
+                    panic!(
+                        "group {} has multiple JSONL files ({} and {}) — one per group",
+                        group_dir.display(),
+                        existing.display(),
+                        p.display()
+                    );
+                }
+                jsonl = Some(p);
+            }
+        }
+
+        let jsonl = jsonl.unwrap_or_else(|| {
+            panic!("group {} has no *.jsonl source log", group_dir.display())
+        });
+        if overlays.is_empty() {
+            panic!(
+                "group {} has no *.expected.toml cases",
+                group_dir.display()
+            );
+        }
+
+        let group_name = group_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+            .to_string();
+        for overlay in overlays {
+            let case_stem = overlay
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.strip_suffix(".expected.toml"))
+                .unwrap_or("?")
+                .to_string();
+            let case_name = format!("{group_name}/{case_stem}");
+            pairs.push((jsonl.clone(), overlay, case_name));
+        }
     }
     pairs.sort();
     pairs
@@ -71,13 +121,14 @@ fn all_ai_scenarios_pass() {
     let content = ContentView::load_layered(&global, &global);
     let inf_cfg = InfluenceConfig::default();
 
+    eprintln!("discovered {} ai scenario case(s)", pairs.len());
     let mut failures: Vec<String> = Vec::new();
-    for (jsonl, overlay) in &pairs {
+    for (jsonl, overlay, case_name) in &pairs {
         let outcome = match assert_log_file(jsonl, overlay, &content, &inf_cfg) {
             Ok(o) => o,
             Err(e) => {
                 failures.push(format!(
-                    "ERROR  {}\n       overlay: {}\n       {e}",
+                    "ERROR  {case_name}\n       log:     {}\n       overlay: {}\n       {e}",
                     jsonl.display(),
                     overlay.display()
                 ));
@@ -86,7 +137,7 @@ fn all_ai_scenarios_pass() {
         };
         if let AssertResult::Fail(results) = &outcome.result {
             let mut msg = format!(
-                "FAIL   {}\n       overlay: {}\n       actual:\n\
+                "FAIL   {case_name}\n       log:     {}\n       overlay: {}\n       actual:\n\
                  \x20        decision_kind  = {:?}\n\
                  \x20        intent_kind    = {:?}\n\
                  \x20        cast_ability   = {:?}\n\

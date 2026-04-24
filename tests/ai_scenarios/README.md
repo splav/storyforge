@@ -1,15 +1,21 @@
 # AI scenario regression tests
 
-Поведенческая регрессия AI. Каждый сценарий — пара файлов:
+Поведенческая регрессия AI. **Одна папка = один лог = N кейсов:**
 
 ```
-snapshots/<name>.jsonl                 # лог-срез из реального боя
-snapshots/<name>.jsonl.expected.toml   # ожидания по решению
+snapshots/<group>/
+  log.jsonl                      # лог-срез из реального боя
+  p000_basic_melee.expected.toml # кейс 1: ожидания по entry plan_id=0
+  p010_finisher_1hp.expected.toml # кейс 2: по entry plan_id=10
+  p013_last_stand_trade.expected.toml
 ```
+
+Имя кейса **префикс `p<plan_id>_`** → сразу видно, какой entry тестируется.
+Каждый overlay — независимый тест с `[scope] plan_id = N`.
 
 `cargo test --test ai_scenarios` прогоняет production-пайплайн
 (`finalize_scores` → `sanity_adjust_plans` → `apply_protect_self_mask`
-→ `pick_best_plan`) на каждом снапшоте и сверяет с overlay. Весь
+→ `pick_best_plan`) на каждом кейсе и сверяет с overlay. Весь
 batch — один процесс, один load контента.
 
 ## Зачем
@@ -22,35 +28,43 @@ harness ловит поведенческие изменения на реаль
 
 ## Добавить сценарий
 
-1. Найти в `logs/` ситуацию, которая описывает нужную проблему
-   (из mining-таблицы `docs/ai_need_signals.md` или из недавнего бага).
-2. Скопировать JSONL целиком в `snapshots/<name>.jsonl`. Файл может
-   содержать несколько entries — overlay выберет нужную через
-   `[scope] plan_id`.
-3. Написать `snapshots/<name>.jsonl.expected.toml`:
+### Новый лог (первый кейс в группе)
 
-   ```toml
-   [scope]
-   plan_id = 0                         # опционально; default = первая запись
+1. Найти в `logs/` ситуацию (из mining-таблицы
+   `docs/ai_need_signals.md` или из недавнего бага).
+2. Создать папку `snapshots/<group>/`, скопировать лог в `log.jsonl`.
+   Имя группы — короткое описание playtest'а (например,
+   `bell_crypt_r2`, `twisted_grove_focus_fire`).
+3. Добавить первый overlay (см. ниже).
 
-   [[expectations]]
-   decision_kind = ["MoveAndCast"]     # any-of
-   cast_ability = ["melee_attack"]
-   intent_kind = ["FocusTarget"]
-   primary_effect = ["Damage"]
-   ```
+### Новый кейс в существующей группе
 
-   Несколько блоков `[[expectations]]` = OR: достаточно совпадения
-   одного варианта. Поля:
-   - `decision_kind` — `CastInPlace | MoveAndCast | Move | EndTurn`
-   - `cast_ability` — имя из `assets/data/abilities.toml`
-   - `cast_target` — `Entity::to_bits()` из снапшота
-   - `end_position` — `[x, y]`
-   - `intent_kind` — имя варианта `TacticalIntent`
-   - `primary_effect` — `Damage | Heal | GrantMovement | RestoreResources | Summon | None`
-   - `not_target` / `not_end_position` — exclusion lists.
+Просто добавить новый `<case>.expected.toml` рядом с `log.jsonl`.
 
-4. `cargo test --test ai_scenarios`.
+### Формат overlay
+
+```toml
+[scope]
+plan_id = 0                         # обязательно для multi-entry log'а
+
+[[expectations]]
+decision_kind = ["MoveAndCast"]     # any-of
+cast_ability = ["melee_attack"]
+intent_kind = ["FocusTarget"]
+primary_effect = ["Damage"]
+```
+
+Несколько блоков `[[expectations]]` = OR: достаточно совпадения одного
+варианта. Поля:
+- `decision_kind` — `CastInPlace | MoveAndCast | Move | EndTurn`
+- `cast_ability` — имя из `assets/data/abilities.toml`
+- `cast_target` — `Entity::to_bits()` из снапшота
+- `end_position` — `[x, y]`
+- `intent_kind` — имя варианта `TacticalIntent`
+- `primary_effect` — `Damage | Heal | GrantMovement | RestoreResources | Summon | None`
+- `not_target` / `not_end_position` — exclusion lists.
+
+Запустить: `cargo test --test ai_scenarios`.
 
 ## Правила
 
