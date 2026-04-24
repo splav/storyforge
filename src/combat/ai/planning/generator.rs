@@ -14,7 +14,10 @@ use crate::combat::ai::action_state::SnapshotActionState;
 use crate::combat::ai::factors::{aoe_area, aoe_hits};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::sim::SimState;
-use crate::combat::ai::outcome::ActionOutcomeEstimate;
+use crate::combat::ai::outcome::{
+    ActionOutcomeEstimate, estimate_deny_value, estimate_kill_soon, estimate_rescue_value,
+    step_path_danger,
+};
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
@@ -161,6 +164,17 @@ pub fn generate_plans(
                 };
 
                 let step_damage = outcome.damage;
+                // Step 4.2: compute all 9 ActionOutcomeEstimate fields.
+                let ann_outcome = build_step_outcome_estimate(
+                    &step,
+                    &outcome,
+                    step_damage,
+                    &base_sim.snapshot,
+                    &caster_ctx,
+                    &sa.crit_fail_effect,
+                    ctx,
+                    maps,
+                );
                 let mut extended = plan.clone();
                 extended.steps.push(step);
                 extended.outcomes.push(outcome);
@@ -168,11 +182,7 @@ pub fn generate_plans(
                 // level here) can read it without re-simulating.
                 extended.sim_snapshots.push(ext_sim.snapshot);
                 // Maintain annotation.outcomes in lock-step with steps/outcomes.
-                // Step 4.1: populate expected_damage from sim outcome.
-                extended.annotation.outcomes.push(ActionOutcomeEstimate {
-                    expected_damage: step_damage,
-                    ..Default::default()
-                });
+                extended.annotation.outcomes.push(ann_outcome);
                 extended.final_pos = final_pos;
                 extended.residual_ap = residual_ap;
                 extended.residual_mp = residual_mp;
@@ -193,6 +203,88 @@ pub fn generate_plans(
     }
 
     dedup_by_logical_key(all_plans, actor_u.pos)
+}
+
+/// Build the full `ActionOutcomeEstimate` for one plan step (step 4.2).
+///
+/// Uses the pre-step snapshot for target reads so killed targets (hp→0 in
+/// `outcome.killed`) are still visible via their pre-death stats.
+#[allow(clippy::too_many_arguments)]
+fn build_step_outcome_estimate(
+    step: &PlanStep,
+    outcome: &crate::combat::ai::planning::types::StepOutcome,
+    step_damage: f32,
+    pre_snap: &crate::combat::ai::snapshot::BattleSnapshot,
+    caster: &crate::content::abilities::CasterContext,
+    crit_fail_effect: &crate::content::races::CritFailEffect,
+    ctx: &AiWorld,
+    maps: &InfluenceMaps,
+) -> ActionOutcomeEstimate {
+    match step {
+        PlanStep::Cast { ability, target, target_pos } => {
+            let content = ctx.content;
+            let Some(def) = content.abilities.get(ability) else {
+                return ActionOutcomeEstimate {
+                    expected_damage: step_damage,
+                    ..Default::default()
+                };
+            };
+            let target_unit = pre_snap.unit(*target);
+
+            // p_kill_now: 1.0 if any entity was killed by this step.
+            let p_kill_now = if outcome.killed.is_empty() { 0.0 } else { 1.0 };
+
+            // p_kill_soon: kill-promised for single-target (0 for AoE or no target).
+            let p_kill_soon = target_unit
+                .filter(|_| def.aoe == AoEShape::None)
+                .map_or(0.0, |t| estimate_kill_soon(def, t, caster, content));
+
+            // deny_value: CC / vulnerability / armor-shred denial.
+            // Single-target: per the primary target.
+            // AoE: use primary target only (conservative; the factor scorer sums
+            // over all hits via compute_offensive — this annotation field is for
+            // analytics, not scoring input yet).
+            let deny_value = target_unit.map_or(0.0, |t| estimate_deny_value(def, t, content));
+
+            // rescue_value: heal value with urgency (only for SingleAlly).
+            let danger_at_target = maps.danger.get(*target_pos);
+            let rescue_value = target_unit.map_or(0.0, |t| {
+                estimate_rescue_value(
+                    def, t, caster, content, danger_at_target,
+                    crit_fail_effect, ctx.crit_fail_chance,
+                )
+            });
+
+            // resource_swing: -(AP cost) - (mana/rage/energy costs).
+            let resource_swing = -(def.cost_ap as f32)
+                - def.costs.iter().map(|c| c.amount as f32).sum::<f32>();
+
+            ActionOutcomeEstimate {
+                expected_damage: step_damage,
+                p_kill_now,
+                p_kill_soon,
+                deny_value,
+                rescue_value,
+                board_pressure: 0.0,  // filled in step 5
+                exposure_delta: 0.0,  // Cast: no movement, no path danger
+                geometry_gain: 0.0,   // filled in step 17
+                resource_swing,
+            }
+        }
+        PlanStep::Move { path } => {
+            ActionOutcomeEstimate {
+                expected_damage: 0.0,
+                p_kill_now: 0.0,
+                p_kill_soon: 0.0,
+                deny_value: 0.0,
+                rescue_value: 0.0,
+                board_pressure: 0.0,   // filled in step 5
+                exposure_delta: step_path_danger(step, maps),
+                geometry_gain: 0.0,    // filled in step 17
+                resource_swing: -(path.len() as f32),
+            }
+        }
+    }
 }
 
 /// Collapse plans that differ only in movement path to the same hex. Two plans

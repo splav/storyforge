@@ -3,9 +3,9 @@
 use super::adjustments::crit_fail_adjusted;
 use super::aoe_hits::{aoe_hits, AoeHits};
 use super::OffensiveFactors;
-use crate::combat::ai::scoring::{
-    score_action, status_applications, stun_denial_value,
-};
+use crate::combat::ai::outcome::{estimate_deny_value, estimate_kill_soon};
+use crate::combat::ai::scoring::score_action;
+
 use crate::combat::ai::snapshot::UnitSnapshot;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::effects_math::aoe_cells;
@@ -156,6 +156,9 @@ fn compute_aoe_damage(
 ///   DoT (pending on target + newly applied by this ability) will finish it.
 ///
 /// Invariant: at most one is 1.0; `kill_now = 1` implies `kill_promised = 0`.
+///
+/// `kill_promised` delegates to `outcome::estimate_kill_soon` so both callers
+/// share exactly one formula.
 fn split_kill(
     def: &AbilityDef,
     target: &UnitSnapshot,
@@ -168,32 +171,7 @@ fn split_kill(
     if net >= target.hp as f32 {
         return (1.0, 0.0);
     }
-    let pending_dot = already_pending_dot(target);
-    let new_dot = dot_tick_sum_for_ability(def, target, content);
-    if net + pending_dot + new_dot >= target.hp as f32 { (0.0, 1.0) } else { (0.0, 0.0) }
-}
-
-/// Sum of expected DoT damage from `def`'s status applications over their
-/// full durations. Positive-clamped per application so heal-over-time statuses
-/// don't reduce the total.
-fn dot_tick_sum_for_ability(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> f32 {
-    status_applications(def, content)
-        .map(|(sd, dur)| {
-            let per_tick = sd.dot_dice.as_ref().map(|d| d.expected()).unwrap_or(0.0)
-                + sd.hp_percent_dot as f32 / 100.0 * target.max_hp as f32;
-            per_tick * dur
-        })
-        .filter(|&v| v > 0.0)
-        .sum()
-}
-
-/// Expected total DoT damage already pending on `target` from existing statuses.
-fn already_pending_dot(target: &UnitSnapshot) -> f32 {
-    target
-        .statuses
-        .iter()
-        .map(|s| s.dot_per_tick.max(0) as f32 * s.rounds_remaining as f32)
-        .sum()
+    (0.0, estimate_kill_soon(def, target, caster, content))
 }
 
 /// Sum the CC-denial value of `def`'s statuses against `target`. Used
@@ -209,21 +187,11 @@ fn already_pending_dot(target: &UnitSnapshot) -> f32 {
 /// helper — same formula the `scarcity` swing branch reads, so the two
 /// stay in lockstep. Vulnerability / armor-shred contributions fold in
 /// separately here because the scarcity branch doesn't consider them.
+///
+/// Delegates to `outcome::estimate_deny_value` so both the factor and the
+/// annotation annotation share exactly one formula.
 fn status_cc_value(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> f32 {
-    let stun = stun_denial_value(def, target, content);
-    let other: f32 = status_applications(def, content)
-        .map(|(sd, d)| {
-            let mut val = 0.0f32;
-            if sd.damage_taken_bonus > 0 {
-                val += sd.damage_taken_bonus as f32 * d;
-            }
-            if sd.armor_bonus > 0 {
-                val += sd.armor_bonus as f32 * d;
-            }
-            val
-        })
-        .sum();
-    stun + other
+    estimate_deny_value(def, target, content)
 }
 
 #[cfg(test)]
