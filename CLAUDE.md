@@ -40,7 +40,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 ## Tools
-* prefer Grep tool over bash grep, prefer ripgrep (rg) over grep
+* делегируй задачи по правке кода агенту
+* prefer Grep tool over bash grep
 * prefer using ya tool ast-index is suitable
 
 ---
