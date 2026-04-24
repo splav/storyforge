@@ -407,14 +407,14 @@ assets/data/ai_tuning.toml
 
 ## Волна 1 — обновлённая последовательность
 
-**0 ✓ → 1 ✓ → 2a ← сейчас здесь → 4 (+annotation) → 3 → 5 → 6**
+**0 ✓ → 1 ✓ → 2a ✓ → 4 ✓ ← сейчас здесь → 3 → 5 → 6**
 
 Где:
 
 - **0** ✓ (sim parity 0.1a + mining + log patch 0.3C) — закрыт. Артефакт `docs/ai_need_signals.md` готов под step 3.
 - **1** ✓ (log extension 1.1 + assertion overlay 1.2–1.7) — закрыт. Ключевые коммиты: `81aa504` (1.1), `fb720b0` (1.2+1.3), `b018f9c` (1.4a library extraction), `2ed7cf2` (1.4b harness), `b2b6a2c` (1.5 первый batch из 9 кейсов). 1.6 (CI) скипнут, 1.7 активен.
-- **2a** ← **в работе** (constants migration + golden replay gate). Шаги 2.0–2.5 закрыты (`a1cc460` → `88ff6b8`). Осталось 2.6 (DifficultyProfile lerps) и 2.7 (UnitQuirks scaffolding); все предыдущие шаги прошли gate `--compare-golden` 0 / 131 diff.
-- **4** (outcome vector) — общий словарь, **до** need layer. **Внутри step 4** заводится структура `PlanAnnotation` с единственным начальным полем `outcome: Vec<OutcomeEstimate>` — annotation растёт по мере появления потребителей, не как отдельный «пустой» шаг 7a. Step 7a из последовательности убран.
+- **2a** ✓ (constants migration + golden replay gate). 8 сабшагов 2.0–2.7 закрыты (`a1cc460` → `66457e9`), каждый прошёл `--compare-golden` 0 / 131 diff.
+- **4** ✓ (outcome vector + PlanAnnotation). 6 сабшагов 4.0–4.5 закрыты (`cb94250` → `6ae1429`), декомпозиция — `docs/ai_rework_step4_plan.md`. `ActionOutcomeEstimate` (9 полей) populated в sim, read через explicit param в `compute_factors` / `intent_score`; `score_action` удалён, schema v19. Golden 0/131 diff на каждом сабшаге. Step 7a ранее был убран из последовательности.
 - **3** (need layer) — поверх outcome. **Важно:** дескриптор step 3 в `ai_rework.md` должен быть обновлён: «Входы: NeedSignals считаются из `ActionOutcomeEstimate` + influence maps; raw snapshot достаётся только для tactical facts (hp%, role, статусы)». Синхронизация — коммит одновременно с реализацией.
 - **5** (terminal eval) — поверх outcome и sim parity (0.1a). Требование 0.1b (end-to-end) появляется только в шаге 12.
 - **6** (goal-preserving repair) — расширяет существующий `mismatch()` + continuation из `enemy_turn.rs:181–212`, не переписывает.
