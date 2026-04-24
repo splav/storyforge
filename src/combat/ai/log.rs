@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::intent::{AiMemory, IntentKind, IntentReason, StoredPlan, TacticalIntent};
+use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::{AdaptationReason, EvaluationMode, PlanStep, SanityHit, StepOutcome, TurnPlan};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::{AiDecision, ChosenInfo};
@@ -108,7 +109,10 @@ use crate::game::hex::Hex;
 /// - v17 → v18: `UnitSnapshot.ai_tuning_override` added (default `None`).
 ///   Per-unit AiTuning override scaffolding (step 2.7). v17 logs deserialize
 ///   via `#[serde(default)]` → `None`, preserving backward compatibility.
-pub const SCHEMA_VERSION: u32 = 18;
+/// - v18 → v19: `TurnPlan.annotation` (`PlanAnnotation` with `outcomes` vector)
+///   serialized into `PlanLogEntry`. v18 logs deserialize via `#[serde(default)]`
+///   → empty annotation, preserving backward compatibility.
+pub const SCHEMA_VERSION: u32 = 19;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -265,6 +269,10 @@ pub struct PlanLogEntry<'a> {
     /// v15 logs without this field deserialize via `#[serde(default)]`
     /// to an empty slice.
     pub sanity_breakdown: &'a [SanityHit],
+    /// Per-step outcome annotations (step 4.5, schema v19). Each entry contains
+    /// an `ActionOutcomeEstimate` for the corresponding plan step. v18 logs
+    /// deserialize via `#[serde(default)]` → empty annotation.
+    pub annotation: &'a PlanAnnotation,
 }
 
 /// Serialised form of `combat::ai::trade::TradeBreakdown` plus the
@@ -431,6 +439,7 @@ pub fn plan_to_log_entry<'a>(
         adaptation_reason,
         trade,
         sanity_breakdown,
+        annotation: &plan.annotation,
     }
 }
 

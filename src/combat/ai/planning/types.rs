@@ -73,11 +73,9 @@ pub struct TurnPlan {
     /// eval) read this instead of recomputing from raw snapshot — see
     /// docs/ai_rework.md §4.
     ///
-    /// Step 4.0: zero-filled. Step 4.1+: sim starts writing expected_damage.
-    ///
-    /// `#[serde(skip)]` — runtime-only in wave 1. Schema bump v18→v19 deferred
-    /// to step 4.5 (see open Q3 in docs/ai_rework_step4_plan.md).
-    #[serde(skip, default)]
+    /// Step 4.5: serialized into JSONL (schema v19). v18 logs deserialize via
+    /// `#[serde(default)]` → empty annotation, preserving backward compatibility.
+    #[serde(default)]
     pub annotation: PlanAnnotation,
 }
 

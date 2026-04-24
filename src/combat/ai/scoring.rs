@@ -1,6 +1,6 @@
 use crate::content::content_view::ContentView;
 use crate::combat::ai::snapshot::UnitSnapshot;
-use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, TargetType};
+use crate::content::abilities::{AbilityDef, CasterContext, TargetType};
 use crate::content::statuses::StatusDef;
 use crate::core::ResourceKind;
 use crate::game::components::Abilities;
@@ -48,78 +48,6 @@ pub fn status_applications<'a, 'c: 'a>(
     })
 }
 
-/// Score a single (ability, target) pair in HP-equivalent units.
-/// Higher = more desirable. Returns 0.0 for options that should be skipped.
-///
-/// `danger_at_target` is the influence-map danger at the target's tile —
-/// the projected incoming damage on the target over the next tick.
-/// Only read by the heal branch (urgency weighting). Callers that don't
-/// have a danger map handy pass `0.0`.
-///
-/// # Deprecation
-/// Prefer reading `ActionOutcomeEstimate` fields populated by the generator
-/// or computed via `outcome::estimate_hypothetical`. This function remains
-/// for AoE friendly-fire in `factors::offensive` (step 4.5 removes it).
-#[deprecated(since = "0.1.0", note = "use ActionOutcomeEstimate / estimate_hypothetical instead; removed in step 4.5")]
-pub fn score_action(
-    def: &AbilityDef,
-    target: &UnitSnapshot,
-    ctx: &CasterContext,
-    content: &ContentView,
-    danger_at_target: f32,
-) -> f32 {
-    let Some(calc) = def.effect.calc(ctx) else {
-        return if matches!(def.effect, EffectDef::GrantMovement { .. }) {
-            0.0
-        } else {
-            status_score(def, target, content)
-        };
-    };
-
-    let expected = calc.expected();
-
-    let dmg_score = if calc.is_heal {
-        let missing = (target.max_hp - target.hp) as f32;
-        if missing <= 0.0 {
-            return 0.0;
-        }
-        let effective = expected.min(missing);
-        // Heal value: "fraction of ally restored" × "ally's projected
-        // damage output over the horizon" × urgency.
-        //
-        // - `delta_pct` captures heal magnitude relative to the ally's
-        //   total HP — big heal on an almost-full ally is still a small
-        //   delta_pct and scores low.
-        // - `horizon_sum` is what the ally is projected to deal over the
-        //   next N rounds if kept alive — swapped in for the old `threat`
-        //   (peak) read, which over-weighted burst casters.
-        // - `urgency` weights emergency saves: low HP OR incoming damage
-        //   that would chew through remaining HP both push urgency up.
-        //   Capped at 2.0 so a single factor can at most double value.
-        let delta_pct = effective / target.max_hp.max(1) as f32;
-        let horizon_sum: f32 = target.damage_horizon.iter().sum::<f32>().max(target.threat);
-        let hp_missing = 1.0 - target.hp_pct();
-        let incoming = (danger_at_target / target.hp.max(1) as f32).min(1.0);
-        let urgency = 1.0 + hp_missing.max(incoming).min(1.0);
-        delta_pct * horizon_sum * urgency
-    } else {
-        let mitigation = if calc.pierces_armor {
-            0.0
-        } else {
-            (target.armor + target.armor_bonus) as f32
-        };
-        // Post-armor damage. No artificial floor: if armor absorbs everything,
-        // score is 0. Kill bonus is handled by the separate `kill` factor.
-        let raw = (expected - mitigation + target.damage_taken_bonus as f32).max(0.0);
-        // Progress multiplier: a hit that meaningfully clips the target's
-        // current HP is worth more than the same raw damage into a fresh pool.
-        // 0.5 baseline keeps single hits meaningful; bonus rewards finishing.
-        let progress = (raw / target.hp.max(1) as f32).min(1.0);
-        raw * (0.5 + 0.5 * progress)
-    };
-
-    dmg_score + status_score(def, target, content)
-}
 
 /// Sum of projected damage over the first `duration` rounds of the
 /// target's damage horizon. Rounds-up fractional durations (a
@@ -302,6 +230,17 @@ pub fn estimate_damage_horizon(
 
 // ── Internals ──────────────────────────────────────────────────────────────
 
+/// Public alias for `status_score` used by `outcome::compute_score_core` so it
+/// can inline the full `score_action` formula without calling the deprecated
+/// function. Only for use within this crate — not part of the public API.
+pub(crate) fn status_score_pub(
+    def: &AbilityDef,
+    target: &UnitSnapshot,
+    content: &ContentView,
+) -> f32 {
+    status_score(def, target, content)
+}
+
 fn status_score(
     def: &AbilityDef,
     target: &UnitSnapshot,
@@ -355,7 +294,7 @@ fn status_score(
 mod tests {
     use super::*;
     use crate::content::abilities::{
-        AbilityDef, AbilityRange, AoEShape, ResourceCost, StatusApplication, StatusOn,
+        AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, StatusApplication, StatusOn,
     };
     use crate::core::{AbilityId, DiceExpr, StatusId};
     use std::collections::HashMap;

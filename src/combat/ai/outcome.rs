@@ -7,10 +7,9 @@
 
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::types::PlanStep;
-#[allow(deprecated)]
-use crate::combat::ai::scoring::{score_action, status_applications, stun_denial_value};
+use crate::combat::ai::scoring::{status_applications, stun_denial_value};
 use crate::combat::ai::snapshot::UnitSnapshot;
-use crate::content::abilities::{AbilityDef, CasterContext, TargetType};
+use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, TargetType};
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;
 use serde::{Deserialize, Serialize};
@@ -116,11 +115,10 @@ pub fn estimate_deny_value(
 
 /// Heal value for a `SingleAlly` ability with urgency baked in.
 ///
-/// Calls `scoring::score_action` (the single source of truth for heal scoring)
-/// and wraps it with `crit_fail_adjusted` — exactly as
-/// `factors::offensive::compute_offensive` does for the `heal` branch.
-/// Returns `0.0` for non-heal or non-SingleAlly abilities.
-#[allow(deprecated)] // score_action: heal path migrated in step 4.5
+/// Uses `compute_score_core` (the inlined `score_action` formula) and wraps it
+/// with `crit_fail_adjusted` — exactly as `factors::offensive::compute_offensive`
+/// does for the `heal` branch. Returns `0.0` for non-heal or non-SingleAlly
+/// abilities.
 pub fn estimate_rescue_value(
     def: &AbilityDef,
     target: &UnitSnapshot,
@@ -133,22 +131,20 @@ pub fn estimate_rescue_value(
     if def.target_type != TargetType::SingleAlly {
         return 0.0;
     }
-    let raw = score_action(def, target, caster, content, danger_at_target);
-    // Apply crit-fail adjustment (same as compute_offensive wraps score_action).
+    let raw = compute_score_core(def, target, caster, content, danger_at_target);
     crit_fail_adjusted_rescue(raw, def, crit_fail_effect, crit_fail_chance)
 }
 
 /// Scorer-compatible damage estimate for a single-target enemy cast.
 ///
 /// Mirrors the damage path of `factors::offensive::compute_offensive`:
-/// `score_action + crit_fail_adjusted`. This is the value stored in
+/// `compute_score_core + crit_fail_adjusted`. This is the value stored in
 /// `ActionOutcomeEstimate::expected_damage` for single-target casts so that
-/// the scorer can read it directly without re-calling `score_action`.
+/// the scorer can read it directly without re-running the score formula.
 ///
 /// Returns `0.0` for non-SingleEnemy abilities (heal / AoE / status-only).
 /// For AoE, the generator calls `compute_aoe_damage` directly and stores the
 /// result, so this helper is not used there.
-#[allow(deprecated)] // score_action: bridge to legacy; estimate_expected_damage stays in outcome.rs, removed when score_action is removed in 4.5
 pub fn estimate_expected_damage(
     def: &AbilityDef,
     target: &UnitSnapshot,
@@ -157,11 +153,10 @@ pub fn estimate_expected_damage(
     crit_fail_effect: &CritFailEffect,
     crit_fail_chance: f32,
 ) -> f32 {
-    use crate::content::abilities::TargetType;
     if def.target_type != TargetType::SingleEnemy {
         return 0.0;
     }
-    let raw = score_action(def, target, caster, content, 0.0);
+    let raw = compute_score_core(def, target, caster, content, 0.0);
     crit_fail_adjusted_rescue(raw, def, crit_fail_effect, crit_fail_chance)
 }
 
@@ -171,13 +166,12 @@ pub fn estimate_expected_damage(
 /// where no sim step has been executed — we need an HP-equivalent value from
 /// first principles.
 ///
-/// `expected_damage` is set to the full `score_action` result (damage + status
-/// contribution), which makes `λ_attack = 0.5 * expected_damage` identical
+/// `expected_damage` is set to the full `compute_score_core` result (damage +
+/// status contribution), which makes `λ_attack = 0.5 * expected_damage` identical
 /// to the legacy `0.5 * score_action(...)` in HP-equivalent units.
 ///
-/// `danger_at_target` is passed straight to `score_action`'s heal-urgency path;
+/// `danger_at_target` is passed straight to the heal-urgency formula;
 /// callers that don't have a danger map pass `0.0` (as before).
-#[allow(deprecated)] // score_action: estimate_hypothetical is the migration bridge; score_action removed in 4.5
 pub fn estimate_hypothetical(
     def: &AbilityDef,
     target: &UnitSnapshot,
@@ -185,9 +179,9 @@ pub fn estimate_hypothetical(
     content: &ContentView,
     danger_at_target: f32,
 ) -> ActionOutcomeEstimate {
-    // Full HP-equivalent score — mirrors what score_action returns without
+    // Full HP-equivalent score — mirrors what score_action returned without
     // the crit_fail adjustment (future_value never had crit_fail).
-    let score = score_action(def, target, caster, content, danger_at_target);
+    let score = compute_score_core(def, target, caster, content, danger_at_target);
 
     // Kill detection: if net damage (same formula as scoring) >= hp, kill_now.
     let p_kill_now = {
@@ -284,6 +278,59 @@ fn crit_fail_adjusted_rescue(
         }
         _ => score * (1.0 - chance),
     }
+}
+
+/// Core HP-equivalent score for a single (ability, target) pair.
+///
+/// Exact copy of `scoring::score_action` body — extracted here so
+/// `score_action` can be deleted (step 4.5). All callers that previously
+/// used `score_action` now call this instead. Formulas are bit-identical;
+/// any divergence would break the golden-replay gate.
+///
+/// `danger_at_target` is only consumed by the heal branch (urgency weighting);
+/// callers on the damage path pass `0.0`.
+pub(crate) fn compute_score_core(
+    def: &AbilityDef,
+    target: &UnitSnapshot,
+    ctx: &CasterContext,
+    content: &ContentView,
+    danger_at_target: f32,
+) -> f32 {
+    use crate::combat::ai::scoring::status_score_pub;
+    let Some(calc) = def.effect.calc(ctx) else {
+        return if matches!(def.effect, EffectDef::GrantMovement { .. }) {
+            0.0
+        } else {
+            status_score_pub(def, target, content)
+        };
+    };
+
+    let expected = calc.expected();
+
+    let dmg_score = if calc.is_heal {
+        let missing = (target.max_hp - target.hp) as f32;
+        if missing <= 0.0 {
+            return 0.0;
+        }
+        let effective = expected.min(missing);
+        let delta_pct = effective / target.max_hp.max(1) as f32;
+        let horizon_sum: f32 = target.damage_horizon.iter().sum::<f32>().max(target.threat);
+        let hp_missing = 1.0 - target.hp_pct();
+        let incoming = (danger_at_target / target.hp.max(1) as f32).min(1.0);
+        let urgency = 1.0 + hp_missing.max(incoming).min(1.0);
+        delta_pct * horizon_sum * urgency
+    } else {
+        let mitigation = if calc.pierces_armor {
+            0.0
+        } else {
+            (target.armor + target.armor_bonus) as f32
+        };
+        let raw = (expected - mitigation + target.damage_taken_bonus as f32).max(0.0);
+        let progress = (raw / target.hp.max(1) as f32).min(1.0);
+        raw * (0.5 + 0.5 * progress)
+    };
+
+    dmg_score + status_score_pub(def, target, content)
 }
 
 #[cfg(test)]
@@ -453,7 +500,7 @@ mod tests {
 
     // --- estimate_hypothetical ---
 
-    /// `estimate_hypothetical(...).expected_damage` equals `score_action(...)` for a damage ability.
+    /// `estimate_hypothetical(...).expected_damage` equals `compute_score_core(...)` for a damage ability.
     /// This invariant is what makes `λ_attack = 0.5 * expected_damage` identical
     /// to the legacy `0.5 * score_action(...)` (zero golden-replay divergences in step 4.4).
     #[test]
@@ -463,18 +510,17 @@ mod tests {
         let caster = melee_caster(2);
         let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build();
 
-        #[allow(deprecated)]
-        let expected = crate::combat::ai::scoring::score_action(def, &target, &caster, &content, 0.0);
+        let expected = compute_score_core(def, &target, &caster, &content, 0.0);
         let est = estimate_hypothetical(def, &target, &caster, &content, 0.0);
 
         assert!(
             (est.expected_damage - expected).abs() < 1e-6,
-            "expected_damage {:.6} should equal score_action {:.6}",
+            "expected_damage {:.6} should equal compute_score_core {:.6}",
             est.expected_damage, expected
         );
     }
 
-    /// `λ_attack = 0.5 * est.expected_damage` is identical to `0.5 * score_action` by construction.
+    /// `λ_attack = 0.5 * est.expected_damage` matches the core score formula by construction.
     #[test]
     fn lambda_attack_formula_equals_legacy() {
         let content = db();
@@ -482,13 +528,12 @@ mod tests {
         let caster = melee_caster(1);
         let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(10).build();
 
-        #[allow(deprecated)]
-        let legacy = 0.5 * crate::combat::ai::scoring::score_action(def, &target, &caster, &content, 0.0);
+        let core = compute_score_core(def, &target, &caster, &content, 0.0);
         let est = estimate_hypothetical(def, &target, &caster, &content, 0.0);
         let new_lambda = 0.5 * est.expected_damage;
 
-        assert!((new_lambda - legacy).abs() < 1e-6,
-            "λ_attack new={:.6} legacy={:.6}", new_lambda, legacy);
+        assert!((new_lambda - 0.5 * core).abs() < 1e-6,
+            "λ_attack new={:.6} core={:.6}", new_lambda, core);
     }
 
     /// `p_kill_now = 1.0` when net damage >= target.hp.

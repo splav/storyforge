@@ -7,10 +7,7 @@
 
 use super::aoe_hits::{aoe_hits, AoeHits};
 use super::{crit_fail_adjusted, OffensiveFactors};
-use crate::combat::ai::outcome::ActionOutcomeEstimate;
-#[allow(deprecated)]
-use crate::combat::ai::scoring::score_action;
-
+use crate::combat::ai::outcome::{compute_score_core, ActionOutcomeEstimate};
 use crate::combat::ai::snapshot::UnitSnapshot;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::effects_math::aoe_cells;
@@ -91,7 +88,6 @@ pub fn aoe_area(def: &AbilityDef, target_pos: Hex, caster_tile: Hex) -> HashSet<
 
 /// `raw × (1 + raw/max_hp)` — punishes plans that chunk a non-enemy's HP%
 /// harder, so a fireball on a full-HP ally is worse than on a nicked one.
-#[allow(deprecated)] // score_action: legacy path, removed in step 4.5
 fn friendly_fire_penalty(
     def: &AbilityDef,
     u: &UnitSnapshot,
@@ -99,7 +95,7 @@ fn friendly_fire_penalty(
     content: &ContentView,
 ) -> f32 {
     // Friendly-fire splash is a damage estimate; heal-urgency is irrelevant.
-    let raw = score_action(def, u, caster, content, 0.0).abs();
+    let raw = compute_score_core(def, u, caster, content, 0.0).abs();
     raw * (1.0 + raw / u.max_hp.max(1) as f32)
 }
 
@@ -111,7 +107,6 @@ fn friendly_fire_penalty(
 /// `allies_of(team)` (which includes self) plus an explicit self-branch
 /// subtracted self-damage twice.
 #[allow(clippy::too_many_arguments)]
-#[allow(deprecated)] // score_action: legacy path, removed in step 4.5
 fn compute_aoe_damage(
     def: &AbilityDef,
     hits: &AoeHits,
@@ -125,7 +120,7 @@ fn compute_aoe_damage(
     let enemy_damage: f32 = hits
         .enemies
         .iter()
-        .map(|e| score_action(def, e, caster, content, 0.0))
+        .map(|e| compute_score_core(def, e, caster, content, 0.0))
         .sum();
     let splash: f32 = if def.friendly_fire {
         hits.allies
