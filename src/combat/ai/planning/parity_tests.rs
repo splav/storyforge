@@ -649,14 +649,14 @@ mod tests {
                 }
                 // Any entity with hp=0 after damage must appear in killed list.
                 for &ent in &expected_outcome.affected {
-                    if matches!(&expected_outcome.primary, OutcomePrimary::Damage { .. }) {
-                        if sim2.snapshot.unit(ent).is_some_and(|u| u.hp == 0) {
-                            assert!(
-                                step_outcome.killed.contains(&ent),
-                                "[{label}] {:?} has hp=0 but not in killed list",
-                                ent,
-                            );
-                        }
+                    if matches!(&expected_outcome.primary, OutcomePrimary::Damage { .. })
+                        && sim2.snapshot.unit(ent).is_some_and(|u| u.hp == 0)
+                    {
+                        assert!(
+                            step_outcome.killed.contains(&ent),
+                            "[{label}] {:?} has hp=0 but not in killed list",
+                            ent,
+                        );
                     }
                 }
             }

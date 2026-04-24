@@ -896,7 +896,7 @@ mod tests {
     #[test]
     fn plateau_tie_rate_formula() {
         // Synthetic scores: spread < 0.05 among top-3 → plateau.
-        let scores = vec![1.0f32, 0.98, 0.97, 0.80, 0.70];
+        let scores = [1.0f32, 0.98, 0.97, 0.80, 0.70];
         let k = 5.min(scores.len());
         let top_k = &scores[..k];
         let top = top_k[0];
@@ -904,7 +904,7 @@ mod tests {
         assert!(plateau_count >= 3, "three scores within 0.05 of top → plateau");
 
         // Non-plateau: clear winner.
-        let scores2 = vec![1.0f32, 0.80, 0.60];
+        let scores2 = [1.0f32, 0.80, 0.60];
         let k2 = 5.min(scores2.len());
         let top_k2 = &scores2[..k2];
         let top2 = top_k2[0];

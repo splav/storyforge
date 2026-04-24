@@ -498,7 +498,7 @@ mod tests {
 
         assert_eq!(*transitions.get(&("best_priority".to_owned(), "best_priority".to_owned())).unwrap(), 1);
         assert_eq!(*transitions.get(&("best_priority".to_owned(), "killable".to_owned())).unwrap(), 1);
-        assert!(transitions.get(&("killable".to_owned(), "best_priority".to_owned())).is_none());
+        assert!(!transitions.contains_key(&("killable".to_owned(), "best_priority".to_owned())));
     }
 
     #[test]

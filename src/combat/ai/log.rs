@@ -884,9 +884,11 @@ mod tests {
     fn ai_memory_snapshot_round_trips() {
         use crate::combat::ai::intent::AiMemory;
         // Non-default memory to exercise the Some path.
-        let mut m = AiMemory::default();
-        m.last_intent = Some(IntentKind::FocusTarget);
-        m.turns_committed = 2;
+        let m = AiMemory {
+            last_intent: Some(IntentKind::FocusTarget),
+            turns_committed: 2,
+            ..AiMemory::default()
+        };
         let snap = AiMemorySnapshot::from_memory(&m).expect("non-default → Some");
         let json = serde_json::to_string(&snap).expect("serialize");
         let back: AiMemorySnapshot = serde_json::from_str(&json).expect("deserialize");

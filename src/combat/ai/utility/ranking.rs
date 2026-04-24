@@ -266,6 +266,7 @@ mod tests {
         (vec![plan], ranking)
     }
 
+    #[allow(dead_code)] // helper defined for future tests, not yet called
     fn move_plan(path: Vec<Hex>) -> TurnPlan {
         TurnPlan {
             steps: vec![PlanStep::Move { path }],
