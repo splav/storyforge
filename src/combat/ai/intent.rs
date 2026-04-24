@@ -56,7 +56,7 @@ pub enum TacticalIntent {
 }
 
 /// Intent kind without target data, for stickiness comparison.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum IntentKind {
     FocusTarget,
     ApplyCC,

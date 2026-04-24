@@ -254,6 +254,12 @@ pub fn pick_action(
         None
     };
 
+    // Capture reservation state before this actor writes its own — the log
+    // entry reflects what prior actors have reserved, not this actor's output.
+    let reservations_snap = if log_on { reservations.to_snapshot() } else {
+        crate::combat::ai::log::ReservationsSnapshot::default()
+    };
+
     // Reserve only the prefix that will actually execute this tick — every
     // subsequent tick re-plans from scratch, so reserving the full plan
     // would leave ghost reservations on actions that never happen.
@@ -270,6 +276,7 @@ pub fn pick_action(
             &ranking.sanity_breakdown,
             ranking.gate_stats.applied, ranking.gate_stats.pruned_count,
             best_idx, &decision, debug_names,
+            world.difficulty, memory, reservations_snap,
         );
     }
 
@@ -289,6 +296,7 @@ pub fn pick_action(
 /// Write one JSONL entry for the decision that `pick_action` just produced.
 /// Kept out of `pick_action` so the hot path stays focused on decisioning;
 /// the top-K sort and string formatting only run when logging is enabled.
+#[allow(clippy::too_many_arguments)]
 fn write_decision_log(
     logger: &mut AiLogger,
     decision_time_ms: u64,
@@ -309,6 +317,9 @@ fn write_decision_log(
     best_idx: usize,
     decision: &AiDecision,
     debug_names: &HashMap<Entity, String>,
+    difficulty: &DifficultyProfile,
+    memory: &AiMemory,
+    reservations_snap: crate::combat::ai::log::ReservationsSnapshot,
 ) {
     let plan_id = logger.next_plan_id();
 
@@ -370,6 +381,9 @@ fn write_decision_log(
         plans.len(), shown, plan_entries, decision,
         gate_applied,
         gate_pruned_count,
+        difficulty,
+        memory,
+        reservations_snap,
     );
     if let Err(e) = logger.write_entry(&entry) {
         warn!("AI log write failed: {}", e);

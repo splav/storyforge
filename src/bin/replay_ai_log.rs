@@ -82,6 +82,20 @@ struct LogEntry {
     #[serde(default)]
     #[allow(dead_code)]
     last_stand_active: bool,
+    /// v17+: difficulty profile frozen at decision time. v16 and earlier default
+    /// to `DifficultyProfileSnapshot::default()` (populated via `DifficultyProfile::normal()`
+    /// in step 1.3 — for now the field is present for structural completeness).
+    #[serde(default)]
+    #[allow(dead_code)]
+    difficulty: Option<storyforge::combat::ai::log::DifficultyProfileSnapshot>,
+    /// v17+: actor memory state before pick_action. `None` for fresh actors or v16 logs.
+    #[serde(default)]
+    #[allow(dead_code)]
+    ai_memory: Option<storyforge::combat::ai::log::AiMemorySnapshot>,
+    /// v17+: team reservation state before pick_action. v16 and earlier default to empty.
+    #[serde(default)]
+    #[allow(dead_code)]
+    reservations: Option<storyforge::combat::ai::log::ReservationsSnapshot>,
 }
 
 #[derive(Deserialize)]

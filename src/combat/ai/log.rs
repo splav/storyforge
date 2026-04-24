@@ -32,9 +32,10 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use crate::combat::ai::intent::{IntentKind, IntentReason, StoredPlan, TacticalIntent};
+use crate::combat::ai::difficulty::DifficultyProfile;
+use crate::combat::ai::intent::{AiMemory, IntentKind, IntentReason, StoredPlan, TacticalIntent};
 use crate::combat::ai::planning::{AdaptationReason, EvaluationMode, PlanStep, SanityHit, StepOutcome, TurnPlan};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::{AiDecision, ChosenInfo};
@@ -97,7 +98,14 @@ use crate::game::hex::Hex;
 ///   (e.g. `"survival"`, `"aoo_bleed"`); `multiplier` is the factor
 ///   actually applied (post-floor clamp). v15 logs deserialize via
 ///   `#[serde(default)]` → empty vec, preserving backward compatibility.
-pub const SCHEMA_VERSION: u32 = 16;
+/// - v16 → v17: three pre-decision snapshots added to `AiLogEntry`:
+///   `difficulty` (`DifficultyProfileSnapshot`), `ai_memory`
+///   (`Option<AiMemorySnapshot>`), `reservations` (`ReservationsSnapshot`).
+///   Makes JSONL self-contained for replay: steps 1.4 "Plan freeze" and
+///   "Team coordination" need the real difficulty + memory + reservation
+///   state rather than hardcoded defaults. v16 logs deserialize via
+///   `#[serde(default)]` on the new fields.
+pub const SCHEMA_VERSION: u32 = 17;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -184,6 +192,16 @@ pub struct AiLogEntry<'a> {
     /// True if any plan in the pool has `evaluation_mode == LastStand`.
     /// Derived in `build_entry` from the plan_entries slice.
     pub last_stand_active: bool,
+    /// Frozen difficulty profile used by this decision. Makes the log
+    /// self-contained for replay: re-running with the same profile
+    /// reproduces the same scores without relying on external defaults.
+    pub difficulty: DifficultyProfileSnapshot,
+    /// Persistent memory state of this actor immediately before pick_action.
+    /// `None` when AiMemory is at default (no prior decisions this combat).
+    pub ai_memory: Option<AiMemorySnapshot>,
+    /// Team-wide reservation state immediately before pick_action (before
+    /// this actor's own reservations are written for the round).
+    pub reservations: ReservationsSnapshot,
 }
 
 #[derive(Serialize)]
@@ -473,6 +491,9 @@ pub fn build_entry<'a>(
     decision: &AiDecision,
     gate_applied: bool,
     gate_pruned_count: usize,
+    difficulty: &DifficultyProfile,
+    memory: &AiMemory,
+    reservations_snap: ReservationsSnapshot,
 ) -> AiLogEntry<'a> {
     let survival_mode_active = matches!(intent.intent, TacticalIntent::ProtectSelf)
         || intent.selection_kind.starts_with("protect_self")
@@ -505,6 +526,9 @@ pub fn build_entry<'a>(
         gate_pruned_count,
         survival_mode_active,
         last_stand_active,
+        difficulty: DifficultyProfileSnapshot::from(difficulty),
+        ai_memory: AiMemorySnapshot::from_memory(memory),
+        reservations: reservations_snap,
     }
 }
 
@@ -540,6 +564,124 @@ pub struct PlanDivergenceEntry {
     pub ability_changed: bool,
     pub target_changed: bool,
     pub score_delta: f32,
+}
+
+// ── Replay snapshot wire types (v17+) ─────────────────────────────────────
+
+/// Frozen `DifficultyProfile` captured at decision time for self-contained replay.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DifficultyProfileSnapshot {
+    pub awareness: f32,
+    pub decision_quality: f32,
+    pub intent_commitment: f32,
+    pub survival_instinct: f32,
+    pub resource_discipline: f32,
+    pub coordination: f32,
+    pub mercy: f32,
+    pub plan_max_depth: usize,
+    pub plan_beam_width: usize,
+    pub plan_step_discount: f32,
+    pub damage_horizon_rounds: u32,
+}
+
+impl From<&DifficultyProfile> for DifficultyProfileSnapshot {
+    fn from(d: &DifficultyProfile) -> Self {
+        Self {
+            awareness: d.awareness,
+            decision_quality: d.decision_quality,
+            intent_commitment: d.intent_commitment,
+            survival_instinct: d.survival_instinct,
+            resource_discipline: d.resource_discipline,
+            coordination: d.coordination,
+            mercy: d.mercy,
+            plan_max_depth: d.plan_max_depth,
+            plan_beam_width: d.plan_beam_width,
+            plan_step_discount: d.plan_step_discount,
+            damage_horizon_rounds: d.damage_horizon_rounds,
+        }
+    }
+}
+
+/// Trimmed `StoredPlan` for log wire format. Excludes `sim_snapshots` (not
+/// stored in `StoredPlan` itself) and flattens `PlanSnapshot` to primitives
+/// so no non-serializable types leak into the log schema.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct StoredPlanSnapshot {
+    pub steps: Vec<PlanStep>,
+    pub step_index: usize,
+    // PlanSnapshot fields flattened — Hex as [x, y], Entity as u64 bits.
+    pub snap_actor_hp: i32,
+    pub snap_actor_rage: i32,
+    pub snap_actor_status_hash: u64,
+    pub snap_expected_actor_pos: [i32; 2],
+    pub snap_target: Option<u64>,
+    pub snap_target_hp: i32,
+    pub snap_target_pos: [i32; 2],
+    pub intent: IntentKind,
+    pub cast_ability: Option<AbilityId>,
+    pub cast_target: Option<u64>,
+    pub score: f32,
+}
+
+impl From<&StoredPlan> for StoredPlanSnapshot {
+    fn from(p: &StoredPlan) -> Self {
+        Self {
+            steps: p.steps.clone(),
+            step_index: p.step_index,
+            snap_actor_hp: p.snapshot.actor_hp,
+            snap_actor_rage: p.snapshot.actor_rage,
+            snap_actor_status_hash: p.snapshot.actor_status_hash,
+            snap_expected_actor_pos: [p.snapshot.expected_actor_pos.x, p.snapshot.expected_actor_pos.y],
+            snap_target: p.snapshot.target.map(|e| e.to_bits()),
+            snap_target_hp: p.snapshot.target_hp,
+            snap_target_pos: [p.snapshot.target_pos.x, p.snapshot.target_pos.y],
+            intent: p.intent,
+            cast_ability: p.cast_ability.clone(),
+            cast_target: p.cast_target.map(|e| e.to_bits()),
+            score: p.score,
+        }
+    }
+}
+
+/// Persistent actor memory captured immediately before pick_action.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AiMemorySnapshot {
+    pub last_intent: Option<IntentKind>,
+    /// `last_target` entity serialized as u64 bits; `None` when no target.
+    pub last_target: Option<u64>,
+    pub turns_committed: u8,
+    /// Stored continuation plan, if any. Excludes sim_snapshots per StoredPlan design.
+    pub last_plan: Option<StoredPlanSnapshot>,
+}
+
+impl AiMemorySnapshot {
+    /// Build from live `AiMemory`. Returns `None` when memory is fully default
+    /// (no prior decisions), matching the `Option<AiMemorySnapshot>` field
+    /// semantics in `AiLogEntry` — keeps the JSON compact for fresh actors.
+    pub fn from_memory(m: &AiMemory) -> Option<Self> {
+        if m.last_intent.is_none() && m.last_target.is_none()
+            && m.turns_committed == 0 && m.last_plan.is_none()
+        {
+            return None;
+        }
+        Some(Self {
+            last_intent: m.last_intent,
+            last_target: m.last_target.map(|e| e.to_bits()),
+            turns_committed: m.turns_committed,
+            last_plan: m.last_plan.as_ref().map(StoredPlanSnapshot::from),
+        })
+    }
+}
+
+/// Team-wide reservation state captured immediately before pick_action.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct ReservationsSnapshot {
+    /// Damage already claimed on each target entity (entity bits → f32).
+    pub damage: std::collections::HashMap<u64, f32>,
+    /// Entities that have CC already reserved (as entity bits).
+    pub cc: std::collections::HashSet<u64>,
+    /// Tiles claimed by earlier actors this round (as `[x, y]`).
+    pub tiles: std::collections::HashSet<[i32; 2]>,
 }
 
 impl AiLogger {
@@ -653,13 +795,17 @@ mod tests {
     }
 
     #[test]
-    fn entry_serializes_v16_telemetry_fields() {
+    fn entry_serializes_v17_telemetry_fields() {
         // Minimal AiLogEntry constructed directly to verify current schema fields
         // appear in the JSON output with the expected types. AiLogEntry has no
         // Deserialize derive (lifetime refs), so we assert via serde_json::Value.
+        use crate::combat::ai::difficulty::DifficultyProfile;
+
         let snap = BattleSnapshot::default();
         let intent_val = TacticalIntent::ProtectSelf;
         let reason_val = IntentReason::NoRuleDefault;
+        let difficulty = DifficultyProfile::normal();
+        let memory = crate::combat::ai::intent::AiMemory::default();
         let entry = AiLogEntry {
             schema_version: SCHEMA_VERSION,
             plan_id: 0,
@@ -688,14 +834,66 @@ mod tests {
             gate_pruned_count: 3,
             survival_mode_active: true,
             last_stand_active: false,
+            difficulty: DifficultyProfileSnapshot::from(&difficulty),
+            ai_memory: AiMemorySnapshot::from_memory(&memory),
+            reservations: ReservationsSnapshot::default(),
         };
         let json = serde_json::to_string(&entry).expect("serialize");
         let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
-        assert_eq!(v["schema_version"], 16);
+        assert_eq!(v["schema_version"], 17);
         assert_eq!(v["gate_applied"], true);
         assert_eq!(v["gate_pruned_count"], 3);
         assert_eq!(v["survival_mode_active"], true);
         assert_eq!(v["last_stand_active"], false);
+        // v17 snapshot sections are present.
+        assert!(v["difficulty"].is_object(), "difficulty section present");
+        assert!(v["ai_memory"].is_null(), "fresh actor → null ai_memory");
+        assert!(v["reservations"].is_object(), "reservations section present");
+    }
+
+    #[test]
+    fn difficulty_snapshot_round_trips() {
+        use crate::combat::ai::difficulty::DifficultyProfile;
+        let snap = DifficultyProfileSnapshot::from(&DifficultyProfile::hard());
+        let json = serde_json::to_string(&snap).expect("serialize");
+        let back: DifficultyProfileSnapshot = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.awareness, snap.awareness);
+        assert_eq!(back.plan_max_depth, snap.plan_max_depth);
+        assert_eq!(back.damage_horizon_rounds, snap.damage_horizon_rounds);
+    }
+
+    #[test]
+    fn ai_memory_snapshot_round_trips() {
+        use crate::combat::ai::intent::AiMemory;
+        // Non-default memory to exercise the Some path.
+        let mut m = AiMemory::default();
+        m.last_intent = Some(IntentKind::FocusTarget);
+        m.turns_committed = 2;
+        let snap = AiMemorySnapshot::from_memory(&m).expect("non-default → Some");
+        let json = serde_json::to_string(&snap).expect("serialize");
+        let back: AiMemorySnapshot = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.last_intent, Some(IntentKind::FocusTarget));
+        assert_eq!(back.turns_committed, 2);
+        assert!(back.last_target.is_none());
+        assert!(back.last_plan.is_none());
+    }
+
+    #[test]
+    fn reservations_snapshot_round_trips() {
+        use crate::combat::ai::reservations::Reservations;
+        use crate::game::hex::Hex;
+        let e = Entity::from_raw_u32(42).expect("valid");
+        let mut r = Reservations::default();
+        r.reserve_damage(e, 15.5);
+        r.reserve_cc(e);
+        r.reserve_tile(Hex::new(3, -1));
+        let snap = r.to_snapshot();
+        let json = serde_json::to_string(&snap).expect("serialize");
+        let back: ReservationsSnapshot = serde_json::from_str(&json).expect("deserialize");
+        let restored = Reservations::from_snapshot(&back);
+        assert_eq!(restored.reserved_damage(e), 15.5);
+        assert!(restored.has_reserved_cc(e));
+        assert!(restored.is_tile_reserved(Hex::new(3, -1)));
     }
 
     #[test]

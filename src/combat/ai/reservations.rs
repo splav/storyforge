@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use crate::combat::ai::log::ReservationsSnapshot;
 use crate::game::hex::Hex;
 use std::collections::{HashMap, HashSet};
 
@@ -61,6 +62,32 @@ impl Reservations {
 
     pub fn is_tile_reserved(&self, tile: Hex) -> bool {
         self.tiles.contains(&tile)
+    }
+
+    /// Capture current state as a serializable snapshot for JSONL logging.
+    pub fn to_snapshot(&self) -> ReservationsSnapshot {
+        ReservationsSnapshot {
+            damage: self.damage.iter().map(|(e, &v)| (e.to_bits(), v)).collect(),
+            cc: self.cc.iter().map(|e| e.to_bits()).collect(),
+            tiles: self.tiles.iter().map(|h| [h.x, h.y]).collect(),
+        }
+    }
+
+    /// Restore reservations from a snapshot (used by replay tooling).
+    pub fn from_snapshot(snap: &ReservationsSnapshot) -> Self {
+        Self {
+            damage: snap
+                .damage
+                .iter()
+                .filter_map(|(&bits, &v)| Entity::try_from_bits(bits).map(|e| (e, v)))
+                .collect(),
+            cc: snap
+                .cc
+                .iter()
+                .filter_map(|&bits| Entity::try_from_bits(bits))
+                .collect(),
+            tiles: snap.tiles.iter().map(|&[x, y]| Hex::new(x, y)).collect(),
+        }
     }
 }
 

@@ -65,8 +65,23 @@ plans with **raw** + normalised factors, and the committed decision.
   v14 logs deserialize with these fields defaulting to `false`/`0` via
   `#[serde(default)]`. No impact on `raw_factors` layout — bump is
   orthogonal to the Phase 6 axis cleanup.
+- **v16** — per-plan `sanity_breakdown` field (step 0.3C). v15 logs default
+  to an empty breakdown via `#[serde(default)]`.
+- **v17** — three pre-decision snapshots for self-contained replay (step 1.1):
+  - `difficulty: DifficultyProfileSnapshot` — full set of 11 difficulty
+    knobs frozen at decision time; enables replay with the exact profile
+    used in-game rather than a hardcoded default.
+  - `ai_memory: Option<AiMemorySnapshot>` — actor's persistent memory
+    (`last_intent`, `last_target`, `turns_committed`, `last_plan`) captured
+    before `pick_action`. `null` for fresh actors with no prior decisions.
+  - `reservations: ReservationsSnapshot` — team-wide reservation state
+    (damage, CC, tiles) captured before this actor's own reservations are
+    written. Enables "Team coordination" and "Plan freeze" replay scenarios.
 
-The replay accepts schema 1–15; newer versions are rejected with a warning.
+  v16 logs deserialize with all three fields defaulting via `#[serde(default)]`
+  (`difficulty` → `None`, `ai_memory` → `None`, `reservations` → empty).
+
+The replay accepts schema 1–17; newer versions are rejected with a warning.
 Schemas v1–v13 produce an additional warning because their `raw_factors`
 layout differs from v14 (three axes removed in Phase 6 cleanup).
 
@@ -398,7 +413,7 @@ is needed.
   will differ from the game's. Log the config snapshot too if this becomes
   relevant.
 - **Schema strictness.** Entries outside the supported range (currently
-  v1–v15) are skipped with a warning. Bump + migration required when adding
+  v1–v17) are skipped with a warning. Bump + migration required when adding
   or removing fields.
 - **Beam-pruned plans.** The log records **only the top-N plans kept by the
   beam**, so plans dropped earlier are invisible. If the intent phase
