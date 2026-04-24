@@ -326,7 +326,7 @@ assets/data/ai_tuning.toml
 
 Матрица `AXIS_POSITION_WEIGHTS` (5 axes × 3 influence maps) удалена из `role.rs` и переехала в `AiTuning.tables.axis_position_weights` как 2D-массив. `AxisProfile::position_weights` расширена параметром `tuning: &AiTuning`. `evaluate_position` расширена параметром `tuning: &AiTuning` и пробросила его в `position_weights`. Callers обновлены: `intent.rs` (3 точки), `sanity.rs` (2 точки), `future_value.rs` (через `position_component`), `debug.rs` (`tile_influence_at`, `build_debug_snapshot`, `build_fallback_debug`, `decision_debug`). Тесты `position_eval.rs` передают `&AiTuning::default()`.
 
-**Golden-replay:** 0 / 131 diff.
+**Коммит:** `88ff6b8`. **Golden-replay:** 0 / 131 diff.
 
 ### 2.6. Класс C — `DifficultyProfile` lerps → `tuning.difficulty`
 
@@ -351,16 +351,16 @@ Golden-replay: **0 diff'ов** (никто override не объявляет).
 
 ### Итого
 
-| # | Шаг | Эстимейт | Golden-replay ожидание |
-|---|---|---|---|
-| 2.0 | golden-replay tool | 0.5 | — (создание инструмента) | **DONE** |
-| 2.1 | AiTuning scaffolding | 0.5 | 0 diff |
-| 2.2 | sanity.rs → TOML | 1.0 | 0 diff |
-| 2.3 | intent.rs → TOML | 0.5 | 0 diff |
-| 2.4 | role factor_weights → table | 1.5 | 0 diff | **DONE** |
-| 2.5 | position_eval → table | 1.0 | 0 diff | **DONE** |
-| 2.6 | DifficultyProfile lerps → TOML | 1.5 | 0 diff |
-| 2.7 | UnitQuirks override scaffolding | 0.5 | 0 diff |
+| # | Шаг | Эстимейт | Golden-replay | Статус |
+|---|---|---|---|---|
+| 2.0 | golden-replay tool | 0.5 | — (создание инструмента) | **DONE** (`a1cc460`) |
+| 2.1 | AiTuning scaffolding | 0.5 | 0 diff | **DONE** (`a099740`) |
+| 2.2 | sanity.rs → TOML | 1.0 | 0 diff | **DONE** (`7d9bbaa`) |
+| 2.3 | intent.rs → TOML | 0.5 | 0 diff | **DONE** (`a31b696`) |
+| 2.4 | role factor_weights → table | 1.5 | 0 diff | **DONE** (`5d45398`) |
+| 2.5 | position_eval → table | 1.0 | 0 diff | **DONE** (`88ff6b8`) |
+| 2.6 | DifficultyProfile lerps → TOML | 1.5 | 0 diff | pending |
+| 2.7 | UnitQuirks override scaffolding | 0.5 | 0 diff | pending |
 
 **Суммарно ~7 дней.** Любой шаг с ≠0 diff → откат коммита, разбор причины, повтор.
 
@@ -411,7 +411,7 @@ Golden-replay: **0 diff'ов** (никто override не объявляет).
 
 - **0** ✓ (sim parity 0.1a + mining + log patch 0.3C) — закрыт. Артефакт `docs/ai_need_signals.md` готов под step 3.
 - **1** ✓ (log extension 1.1 + assertion overlay 1.2–1.7) — закрыт. Ключевые коммиты: `81aa504` (1.1), `fb720b0` (1.2+1.3), `b018f9c` (1.4a library extraction), `2ed7cf2` (1.4b harness), `b2b6a2c` (1.5 первый batch из 9 кейсов). 1.6 (CI) скипнут, 1.7 активен.
-- **2a** ← **следующий** (constants migration + golden replay gate) — 5–7 дней, чистая миграция под защитой golden replay. Стартуем с 2.0 (golden-replay tool).
+- **2a** ← **в работе** (constants migration + golden replay gate). Шаги 2.0–2.5 закрыты (`a1cc460` → `88ff6b8`). Осталось 2.6 (DifficultyProfile lerps) и 2.7 (UnitQuirks scaffolding); все предыдущие шаги прошли gate `--compare-golden` 0 / 131 diff.
 - **4** (outcome vector) — общий словарь, **до** need layer. **Внутри step 4** заводится структура `PlanAnnotation` с единственным начальным полем `outcome: Vec<OutcomeEstimate>` — annotation растёт по мере появления потребителей, не как отдельный «пустой» шаг 7a. Step 7a из последовательности убран.
 - **3** (need layer) — поверх outcome. **Важно:** дескриптор step 3 в `ai_rework.md` должен быть обновлён: «Входы: NeedSignals считаются из `ActionOutcomeEstimate` + influence maps; raw snapshot достаётся только для tactical facts (hp%, role, статусы)». Синхронизация — коммит одновременно с реализацией.
 - **5** (terminal eval) — поверх outcome и sim parity (0.1a). Требование 0.1b (end-to-end) появляется только в шаге 12.
