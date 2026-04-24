@@ -1,0 +1,19 @@
+# Scenario: FocusTarget + MoveAndCast melee attack.
+#
+# Smoke-level сценарий: у Зверокрова Стража (actor 12884901547) активный
+# intent = FocusTarget, ближайший враг в досягаемости melee. Ожидаем, что
+# AI коммитит MoveAndCast через melee_attack на этом противнике, а не
+# тратит ход на EndTurn / отступление.
+#
+# Source: первый entry в jsonl (plan_id=0), schema v15 — через дефолтный
+# DifficultyProfile::normal + пустой Reservations (нет team-coord зависимостей,
+# actor self-contained).
+
+[scope]
+plan_id = 0
+
+[[expectations]]
+decision_kind = ["MoveAndCast"]
+cast_ability = ["melee_attack"]
+intent_kind = ["FocusTarget"]
+primary_effect = ["Damage"]
