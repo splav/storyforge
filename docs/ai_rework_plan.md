@@ -334,18 +334,22 @@ assets/data/ai_tuning.toml
 
 **Коммит:** `18b62fd`. **Golden-replay:** 0 / 131 diff.
 
-### 2.7. UnitQuirks — пустая override-инфраструктура
+### 2.7. UnitQuirks — пустая override-инфраструктура **DONE**
 
-Добавить:
-- `AiTuningOverride` — структура, где все поля `Option<T>` (partial merge).
-- Поле `ai_tuning_override: Option<AiTuningOverride>` в `unit_templates.toml`.
-- Явная функция `AiTuning::apply_override(&self, o: &AiTuningOverride) -> AiTuning` (80–100 строк, **не derive-магия**). Вызывается один раз при сборке `ScoringCtx` для юнита.
+Реализовано:
+- `AiTuningOverride` + `ThresholdsOverride` в `tuning.rs` — все поля `Option<T>`, partial merge.
+- `AiTuning::apply_override(&self, ov: &AiTuningOverride) -> AiTuning` — явный per-field merge, no derive-magic.
+- Поле `ai_tuning_override: Option<AiTuningOverride>` в `TemplateRecord` и `UnitTemplateDef` (`unit_templates.rs`).
+- Поле `ai_tuning_override: Option<AiTuningOverride>` в `UnitSnapshot` (`snapshot.rs`, Schema v18+, `#[serde(default)]` для backward compat).
+- Swap-логика в `pick_action` (`utility/mod.rs`) — локальный `per_actor_tuning` + `per_actor_world` до первого обращения к `world.tuning`.
+- `SCHEMA_VERSION` 17 → 18 в `log.rs` с записью истории.
+- 3 юнит-теста в `tuning.rs`: `apply_override_empty_is_identity`, `apply_override_partial_thresholds`, `apply_override_toml_roundtrip`.
+
+**В текущем scope override покрыт только для `thresholds`** (9 scalar полей). `difficulty` (LerpCurve) и `tables` (role-axis matrices) остались hooks-only (закомментированные поля в `AiTuningOverride`) — расширение по запросу первого quirk'а.
 
 **Не в scope:** наполнение quirk'ами (Berserker / Coward / Focused). Пустая инфраструктура — конкретные override'ы появятся по дизайну позже.
 
-Golden-replay: **0 diff'ов** (никто override не объявляет).
-
-**Эстимейт:** 0.5 дня.
+**Коммит:** `66457e9`. **Golden-replay:** 0 / 131 diff (никто override не объявляет — scaffolding inert).
 
 ### Итого
 
@@ -358,7 +362,7 @@ Golden-replay: **0 diff'ов** (никто override не объявляет).
 | 2.4 | role factor_weights → table | 1.5 | 0 diff | **DONE** (`5d45398`) |
 | 2.5 | position_eval → table | 1.0 | 0 diff | **DONE** (`88ff6b8`) |
 | 2.6 | DifficultyProfile lerps → TOML | 1.5 | 0 diff | **DONE** (`18b62fd`) |
-| 2.7 | UnitQuirks override scaffolding | 0.5 | 0 diff | pending |
+| 2.7 | UnitQuirks override scaffolding | 0.5 | 0 diff | **DONE** (`66457e9`) |
 
 **Суммарно ~7 дней.** Любой шаг с ≠0 diff → откат коммита, разбор причины, повтор.
 
