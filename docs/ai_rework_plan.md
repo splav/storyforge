@@ -300,6 +300,8 @@ assets/data/ai_tuning.toml
 
 `InfluenceConfig` остаётся отдельным Resource **пока что**. Слияние в `AiTuning.influence` — опциональная поздняя правка, не блокирует 2a.
 
+**Коммит:** `a099740`. **Golden-replay:** 0 / 131 diff.
+
 ### 2.2. Класс А — `sanity.rs` thresholds → TOML
 
 Мигрируем: `SURVIVAL_FLOOR`, `LOW_HP_FACTOR`, `AOO_PENALTY_K`, `AOO_RISK_FLOOR`, `SELF_SURVIVAL_EPSILON` (последнее сейчас `pub const` — переносим в `tuning.thresholds.self_survival_epsilon`). Каждая точка использования `const FOO` → чтение из Resource.
