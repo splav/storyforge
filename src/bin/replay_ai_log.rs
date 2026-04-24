@@ -36,6 +36,7 @@ use storyforge::combat::ai::planning::{
 };
 use storyforge::combat::ai::planning::future_value::{plan_prefix_only, score_plans_prototype};
 use storyforge::combat::ai::planning::sanity::SELF_SURVIVAL_EPSILON;
+use storyforge::combat::ai::SanityHit;
 use storyforge::combat::ai::role::AxisProfile;
 use storyforge::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use storyforge::combat::ai::reservations::Reservations;
@@ -134,6 +135,11 @@ struct PlanLog {
     /// line when `delta == 0 && !self_lethal`.
     #[serde(default)]
     trade: LoggedTradeBlock,
+    /// v16+: per-rule sanity breakdown. v15 and earlier logs default to
+    /// an empty vec via `#[serde(default)]`.
+    #[serde(default)]
+    #[allow(dead_code)]
+    sanity_breakdown: Vec<SanityHit>,
 }
 
 /// Mirrors `log::TradeBlock`. Verbose-only rendering; not consumed by
@@ -1417,7 +1423,7 @@ fn main() {
             let mut scores = finalize_scores(&plans, &raw_factors, &scoring_ctx);
             let pre_scores = scores.clone();
 
-            sanity_adjust_plans(&mut scores, &plans, &scoring_ctx);
+            let _ = sanity_adjust_plans(&mut scores, &plans, &scoring_ctx);
 
             // ProtectSelf mask — two paths:
             //   1. The logged intent is already ProtectSelf (fix A deployed at
@@ -1498,7 +1504,7 @@ fn main() {
                     &entry.intent.intent,
                     &scoring_ctx,
                 );
-                sanity_adjust_plans(&mut proto_scores, &plans, &scoring_ctx);
+                let _ = sanity_adjust_plans(&mut proto_scores, &plans, &scoring_ctx);
                 if matches!(
                     entry.intent.intent,
                     storyforge::combat::ai::intent::TacticalIntent::ProtectSelf
@@ -1666,7 +1672,7 @@ fn main() {
 
                 // Scalar scores: same baseline pipeline as production.
                 let mut p2_scores = finalize_scores(&plans, &raw_factors, &scoring_ctx);
-                sanity_adjust_plans(&mut p2_scores, &plans, &scoring_ctx);
+                let _ = sanity_adjust_plans(&mut p2_scores, &plans, &scoring_ctx);
                 if matches!(
                     entry.intent.intent,
                     storyforge::combat::ai::intent::TacticalIntent::ProtectSelf
@@ -2031,6 +2037,7 @@ mod tests {
             evaluation_mode: LoggedEvaluationMode::Default,
             adaptation_reason: None,
             trade: LoggedTradeBlock::default(),
+            sanity_breakdown: Vec::new(),
         }
     }
 

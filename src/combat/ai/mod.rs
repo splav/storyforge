@@ -17,5 +17,7 @@ pub mod target_priority;
 pub mod trade;
 pub mod utility;
 
+pub use planning::{SanityHit, SanityRule};
+
 #[cfg(test)]
 pub(crate) mod test_helpers;

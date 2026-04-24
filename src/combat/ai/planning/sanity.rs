@@ -21,6 +21,54 @@ use crate::content::abilities::AoEShape;
 use crate::game::hex::{has_los, in_bounds, Hex};
 use std::collections::HashSet;
 
+// ── Sanity rule observability ──────────────────────────────────────────────
+
+/// Identifies one sanity rule. One variant per rule in `sanity_adjust_plans`,
+/// in the order they fire. Stable codes consumed by offline analyzers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SanityRule {
+    /// Low-HP actor crossing/resting on dangerous tiles (survival quadratic).
+    Survival,
+    /// Non-healer abandoning the team's unguarded healer.
+    HealerExposure,
+    /// Ranged unit ending its turn with no enemy in LoS.
+    LosBlindspot,
+    /// Final tile has fewer than 2 open neighbours (retreat trap).
+    RetreatTrap,
+    /// Any Cast step in the plan centers a friendly-fire AoE on the caster.
+    SelfAoe,
+    /// Move step provokes an opportunity attack (AoO bleed).
+    AoOBleed,
+    /// Plan repositions to a safer/better tile AND includes a useful cast (synergy bonus).
+    SynergyBonus,
+}
+
+impl SanityRule {
+    /// Short stable code for offline analyzer consumption.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Survival => "survival",
+            Self::HealerExposure => "healer_exposure",
+            Self::LosBlindspot => "los_blindspot",
+            Self::RetreatTrap => "retreat_trap",
+            Self::SelfAoe => "self_aoe",
+            Self::AoOBleed => "aoo_bleed",
+            Self::SynergyBonus => "synergy_bonus",
+        }
+    }
+}
+
+/// Records that one sanity rule fired on one plan and the factor it applied.
+/// `multiplier < 1.0` for penalties; `> 1.0` for the synergy bonus.
+/// The value is the **clamped** factor that was actually multiplied into the
+/// plan score (i.e. post-`max(SURVIVAL_FLOOR)` / post-`max(AOO_RISK_FLOOR)`).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SanityHit {
+    pub rule: SanityRule,
+    pub multiplier: f32,
+}
+
 /// Minimum multiplier applied by survival quadratic. Keeps low-HP-in-danger
 /// plans comparable when every option is bad.
 const SURVIVAL_FLOOR: f32 = 0.25;
@@ -34,9 +82,28 @@ const AOO_PENALTY_K: f32 = 2.0;
 /// SURVIVAL_FLOOR: keep the plan comparable when every option bleeds.
 const AOO_RISK_FLOOR: f32 = 0.25;
 
-pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &ScoringCtx) {
+/// Apply sanity multipliers to `scores` in place and return a per-plan
+/// breakdown of which rules fired and with what multiplier.
+///
+/// The outer `Vec` is parallel to `plans`/`scores`. Each inner `Vec` lists
+/// the `SanityHit`s for that plan in the order they fired; an empty inner
+/// vec means no rules fired for that plan and the score was unchanged.
+///
+/// **Early-return case (`scores.len() <= 1`):** returns a `Vec` of empty
+/// inner vecs sized to `scores.len()` (0 or 1 entries). The single-plan
+/// edge case does not run any rule, so the breakdown is empty — but the
+/// outer length still matches `scores.len()` so callers can index it safely
+/// without a special-case check.
+pub fn sanity_adjust_plans(
+    scores: &mut [f32],
+    plans: &[TurnPlan],
+    ctx: &ScoringCtx,
+) -> Vec<Vec<SanityHit>> {
+    // Pre-allocate one empty inner vec per plan.
+    let mut breakdown: Vec<Vec<SanityHit>> = (0..scores.len()).map(|_| Vec::new()).collect();
+
     if scores.len() <= 1 {
-        return;
+        return breakdown;
     }
 
     let active = ctx.active;
@@ -62,12 +129,13 @@ pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &Scoring
     let current_pos_eval = evaluate_position(active.pos, &active.role, maps);
     let current_danger = maps.danger.get(active.pos);
 
-    for (plan, score) in plans.iter().zip(scores.iter_mut()) {
+    for (idx, (plan, score)) in plans.iter().zip(scores.iter_mut()).enumerate() {
         if !score.is_finite() {
             continue;
         }
         let mut penalty = 1.0f32;
         let final_pos = plan.final_pos;
+        let hits = &mut breakdown[idx];
 
         // Worst danger the actor touches across moves + resting tile.
         // Shared helper with scorer (`scorer::worst_path_danger`) so the
@@ -81,7 +149,9 @@ pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &Scoring
         let excess = (max_path_danger - 0.5).max(0.0);
         let surv = LOW_HP_FACTOR * hp_need * excess * excess;
         if surv > 0.0 {
-            penalty *= (1.0 - surv).max(SURVIVAL_FLOOR);
+            let multiplier = (1.0 - surv).max(SURVIVAL_FLOOR);
+            penalty *= multiplier;
+            hits.push(SanityHit { rule: SanityRule::Survival, multiplier });
         }
 
         // 2. Healer exposure: a non-healer abandoning the team's healer.
@@ -98,6 +168,7 @@ pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &Scoring
                     });
                     if !other_guard {
                         penalty *= 0.5;
+                        hits.push(SanityHit { rule: SanityRule::HealerExposure, multiplier: 0.5 });
                     }
                 }
             }
@@ -112,6 +183,7 @@ pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &Scoring
             });
             if !can_see_any {
                 penalty *= 0.3;
+                hits.push(SanityHit { rule: SanityRule::LosBlindspot, multiplier: 0.3 });
             }
         }
 
@@ -124,12 +196,14 @@ pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &Scoring
             .count();
         if open_neighbors < 2 {
             penalty *= 0.5;
+            hits.push(SanityHit { rule: SanityRule::RetreatTrap, multiplier: 0.5 });
         }
 
         // 5. Self-AoE: any Cast step in the plan centers a friendly-fire AoE
         // on a tile that covers the caster's position at that moment.
         if plan_has_self_aoe(plan, ctx) {
             penalty *= 0.5;
+            hits.push(SanityHit { rule: SanityRule::SelfAoe, multiplier: 0.5 });
         }
 
         // 6. AoO bleed: every Move step transition `was_adj && !still_adj`
@@ -146,8 +220,9 @@ pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &Scoring
         let aoo_dmg = expected_aoo_damage(active, plan, &enemies);
         if aoo_dmg > 0.0 {
             let ratio = (aoo_dmg / active.hp.max(1) as f32).min(1.0);
-            let factor = (1.0 - AOO_PENALTY_K * ratio * ratio).max(AOO_RISK_FLOOR);
-            penalty *= factor;
+            let multiplier = (1.0 - AOO_PENALTY_K * ratio * ratio).max(AOO_RISK_FLOOR);
+            penalty *= multiplier;
+            hits.push(SanityHit { rule: SanityRule::AoOBleed, multiplier });
         }
 
         // 7. Synergy bonus: the plan repositions to a safer/better tile AND
@@ -158,11 +233,14 @@ pub fn sanity_adjust_plans(scores: &mut [f32], plans: &[TurnPlan], ctx: &Scoring
             let better_pos = evaluate_position(final_pos, &active.role, maps) > current_pos_eval;
             if (safer_tile || better_pos) && plan_has_useful_cast(plan, ctx) {
                 penalty *= 1.1;
+                hits.push(SanityHit { rule: SanityRule::SynergyBonus, multiplier: 1.1 });
             }
         }
 
         *score *= penalty;
     }
+
+    breakdown
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -562,5 +640,105 @@ mod tests {
             !plan_has_self_aoe(&cast_fireball_at(hex_from_offset(5, 5)), &ctx),
             "AoE centred far from the caster must not be flagged",
         );
+    }
+
+    /// Verify that `sanity_adjust_plans` returns a correct per-plan breakdown
+    /// when multiple rules fire on the same plan.
+    ///
+    /// Setup: two plans so the early-exit (len ≤ 1) is bypassed.
+    /// - Plan 0 (noop): actor stays in place — no rules should fire.
+    /// - Plan 1 (Survival + AoO bleed): actor at low HP moves away from an
+    ///   adjacent melee enemy through a high-danger tile. This triggers both
+    ///   `Survival` (low HP + dangerous path) and `AoOBleed` (leaves
+    ///   adjacency with an enemy that has reactions).
+    ///
+    /// Grid note: the even-r grid has rows 0–6; row 0 (even) has columns 0–6.
+    /// Actor at (3,0), enemy at (4,0), destination (2,0) — all in-bounds.
+    /// Moving from (3,0) to (2,0) leaves adjacency with enemy at (4,0).
+    ///
+    /// We assert:
+    /// - Plan 0 breakdown is empty (no rules fired).
+    /// - Plan 1 breakdown contains `Survival` and `AoOBleed`.
+    /// - Both penalty multipliers are < 1.0.
+    #[test]
+    fn breakdown_reports_survival_and_aoo_bleed() {
+        use crate::combat::ai::reservations::Reservations;
+        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx};
+
+        // Actor: very low HP (5/30 → hp_pct ≈ 0.17, well below the 0.6 threshold).
+        let actor_pos = hex_from_offset(3, 0);
+        let actor = unit(1, Team::Enemy, actor_pos, 5); // low HP triggers survival rule
+        // Enemy adjacent to actor at (4,0) with reactions — will provoke AoO
+        // when the actor moves to (2,0), leaving adjacency.
+        let enemy_pos = hex_from_offset(4, 0);
+        let enemy = unit(2, Team::Player, enemy_pos, 20);
+
+        let content = empty_content();
+        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let mut maps = empty_maps();
+        // Add danger to the destination tile so the survival rule fires.
+        // Actor hp_pct ≈ 0.17 → hp_need ≈ 0.72; excess = (danger - 0.5).max(0).
+        // With danger=0.9: excess=0.4; surv = 1.2 × 0.72 × 0.16 = 0.138 > 0.
+        let dest = hex_from_offset(2, 0);
+        maps.danger.add(dest, 0.9);
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        // Plan 0: actor stays in place (no steps, final_pos = actor_pos).
+        // (3,0) has ≥2 open neighbours so RetreatTrap doesn't fire.
+        let noop_plan = TurnPlan {
+            steps: Vec::new(),
+            final_pos: actor_pos,
+            residual_ap: 0,
+            residual_mp: 4,
+            outcomes: Vec::new(),
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        };
+        // Plan 1: move from (3,0) to (2,0) — leaves adjacency with enemy at
+        // (4,0), triggering AoOBleed; path is through the high-danger tile,
+        // triggering Survival.
+        let dest = hex_from_offset(2, 0);
+        let aoo_plan = move_plan(vec![dest]);
+
+        let plans = vec![noop_plan, aoo_plan];
+        let mut scores = vec![1.0f32, 1.0f32];
+
+        let breakdown = sanity_adjust_plans(&mut scores, &plans, &ctx);
+
+        assert_eq!(breakdown.len(), 2, "breakdown length == plans length");
+
+        // Plan 0 should have no hits (noop, no danger, no adjacency change).
+        assert!(
+            breakdown[0].is_empty(),
+            "noop plan must produce no sanity hits, got: {:?}",
+            breakdown[0],
+        );
+
+        // Plan 1 must contain Survival and AoOBleed (in order).
+        let hits = &breakdown[1];
+        let rules: Vec<SanityRule> = hits.iter().map(|h| h.rule).collect();
+        assert!(
+            rules.contains(&SanityRule::Survival),
+            "expected Survival hit in breakdown, got: {:?}", rules,
+        );
+        assert!(
+            rules.contains(&SanityRule::AoOBleed),
+            "expected AoOBleed hit in breakdown, got: {:?}", rules,
+        );
+
+        // Both are penalties — multipliers < 1.0.
+        for hit in hits {
+            if hit.rule == SanityRule::Survival || hit.rule == SanityRule::AoOBleed {
+                assert!(
+                    hit.multiplier < 1.0,
+                    "{:?} is a penalty — multiplier must be < 1.0, got {}",
+                    hit.rule, hit.multiplier,
+                );
+            }
+        }
     }
 }

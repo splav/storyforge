@@ -19,6 +19,7 @@ use crate::combat::ai::planning::{
     rescore_with_intent, sanity_adjust_plans, score_plans_with_raw, Adaptation, GateStats,
     PickMechanics, TurnPlan,
 };
+use crate::combat::ai::planning::sanity::SanityHit;
 use crate::core::DiceRng;
 use crate::game::hex::Hex;
 
@@ -42,6 +43,11 @@ pub struct PlanRanking {
     /// Telemetry from the killable gate pass. Default (not applied) until
     /// `apply_killable_gate` runs; only populated under `FocusTarget` intent.
     pub gate_stats: GateStats,
+    /// Per-plan sanity rule breakdown, populated by `apply_sanity`.
+    /// Outer index parallel to `plans`; inner vec lists the hits that fired
+    /// for that plan in order. Empty inner vec = no rules fired.
+    /// Empty outer vec until `apply_sanity` runs.
+    pub sanity_breakdown: Vec<Vec<SanityHit>>,
 }
 
 impl PlanRanking {
@@ -54,7 +60,15 @@ impl PlanRanking {
     ) -> Self {
         let (scored, raw_factors) = score_plans_with_raw(plans, &intent, ctx);
         let adaptation = Adaptation::empty(plans.len());
-        Self { intent, intent_reason, scored, raw_factors, adaptation, gate_stats: GateStats::default() }
+        Self {
+            intent,
+            intent_reason,
+            scored,
+            raw_factors,
+            adaptation,
+            gate_stats: GateStats::default(),
+            sanity_breakdown: Vec::new(),
+        }
     }
 
     /// Intent viability guard. If no plan achieves the current intent's
@@ -142,7 +156,7 @@ impl PlanRanking {
     /// retreat traps). Runs on all plans so low-ranked terrible ones can't
     /// sneak up via noise.
     pub fn apply_sanity(&mut self, plans: &[TurnPlan], ctx: &ScoringCtx) {
-        sanity_adjust_plans(&mut self.scored, plans, ctx);
+        self.sanity_breakdown = sanity_adjust_plans(&mut self.scored, plans, ctx);
     }
 
     /// Run the ADAPTATION pass — value-function overrides based on facts
@@ -247,6 +261,7 @@ mod tests {
             raw_factors: vec![factors],
             adaptation: Adaptation::empty(1),
             gate_stats: GateStats::default(),
+            sanity_breakdown: Vec::new(),
         };
         (vec![plan], ranking)
     }
@@ -401,6 +416,7 @@ mod tests {
             ],
             adaptation: Adaptation::empty(2),
             gate_stats: GateStats::default(),
+            sanity_breakdown: Vec::new(),
         };
 
         ranking.apply_protect_self();

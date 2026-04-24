@@ -267,6 +267,7 @@ pub fn pick_action(
             logger, decision_time_ms, actor, active, snap, world.content,
             &ranking.intent, &ranking.intent_reason, &plans, &base_scored,
             &ranking.scored, &ranking.raw_factors, &ranking.adaptation,
+            &ranking.sanity_breakdown,
             ranking.gate_stats.applied, ranking.gate_stats.pruned_count,
             best_idx, &decision, debug_names,
         );
@@ -302,6 +303,7 @@ fn write_decision_log(
     scored: &[f32],
     raw_factors: &[PlanFactors],
     adaptation: &crate::combat::ai::planning::Adaptation,
+    sanity_breakdown: &[Vec<crate::combat::ai::planning::SanityHit>],
     gate_applied: bool,
     gate_pruned_count: usize,
     best_idx: usize,
@@ -336,6 +338,7 @@ fn write_decision_log(
                 self_lethal: br.self_lethal,
                 score: crate::combat::ai::trade::trade_score(&br, actor_value),
             };
+            let plan_sanity = sanity_breakdown.get(idx).map(|v| v.as_slice()).unwrap_or(&[]);
             log::plan_to_log_entry(
                 &plans[idx],
                 rank + 1,
@@ -346,6 +349,7 @@ fn write_decision_log(
                 &adaptation.modes[idx],
                 adaptation.reasons[idx].as_ref(),
                 trade,
+                plan_sanity,
             )
         })
         .collect();

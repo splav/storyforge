@@ -888,7 +888,7 @@ mod tests {
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
         let mut scored = vec![1.0, 1.0];
-        sanity_adjust_plans(&mut scored, &plans, &ctx);
+        let _ = sanity_adjust_plans(&mut scored, &plans, &ctx);
 
         assert!(
             scored[1].is_finite(),

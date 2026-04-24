@@ -35,7 +35,7 @@ use bevy::prelude::*;
 use serde::Serialize;
 
 use crate::combat::ai::intent::{IntentKind, IntentReason, StoredPlan, TacticalIntent};
-use crate::combat::ai::planning::{AdaptationReason, EvaluationMode, PlanStep, StepOutcome, TurnPlan};
+use crate::combat::ai::planning::{AdaptationReason, EvaluationMode, PlanStep, SanityHit, StepOutcome, TurnPlan};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::{AiDecision, ChosenInfo};
 use crate::core::AbilityId;
@@ -91,7 +91,13 @@ use crate::game::hex::Hex;
 ///   `gate_applied` and `gate_pruned_count` are always stub values
 ///   (false / 0); `last_stand_active` and `survival_mode_active` are
 ///   derived at log-time from the plan pool and the intent selection kind.
-pub const SCHEMA_VERSION: u32 = 15;
+/// - v15 → v16: new per-plan `sanity_breakdown` field — list of
+///   `{rule, multiplier}` objects for sanity rules that fired on that
+///   plan (step 0.3C of the rework). `rule` is a snake_case string
+///   (e.g. `"survival"`, `"aoo_bleed"`); `multiplier` is the factor
+///   actually applied (post-floor clamp). v15 logs deserialize via
+///   `#[serde(default)]` → empty vec, preserving backward compatibility.
+pub const SCHEMA_VERSION: u32 = 16;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -232,6 +238,12 @@ pub struct PlanLogEntry<'a> {
     /// (`delta`, `killed`, `lost`, `self_lost`, `self_lethal`) explains
     /// how the modifier arose.
     pub trade: TradeBlock,
+    /// Per-rule sanity breakdown for this plan (step 0.3C). Each entry
+    /// records one rule that fired and the multiplier it applied.
+    /// Empty when no sanity rules fired for this plan.
+    /// v15 logs without this field deserialize via `#[serde(default)]`
+    /// to an empty slice.
+    pub sanity_breakdown: &'a [SanityHit],
 }
 
 /// Serialised form of `combat::ai::trade::TradeBreakdown` plus the
@@ -368,8 +380,9 @@ pub fn now_ms() -> u128 {
 }
 
 /// Build a `PlanLogEntry` from a plan + its raw factors, per-adaptation
-/// score pair, trade breakdown, and evaluation-mode metadata. `chosen`
-/// reflects whether this plan was the one `pick_action` committed.
+/// score pair, trade breakdown, evaluation-mode metadata, and sanity
+/// breakdown. `chosen` reflects whether this plan was the one `pick_action`
+/// committed.
 pub fn plan_to_log_entry<'a>(
     plan: &'a TurnPlan,
     rank: usize,
@@ -380,6 +393,7 @@ pub fn plan_to_log_entry<'a>(
     evaluation_mode: &'a EvaluationMode,
     adaptation_reason: Option<&'a AdaptationReason>,
     trade: TradeBlock,
+    sanity_breakdown: &'a [SanityHit],
 ) -> PlanLogEntry<'a> {
     PlanLogEntry {
         rank,
@@ -395,6 +409,7 @@ pub fn plan_to_log_entry<'a>(
         evaluation_mode,
         adaptation_reason,
         trade,
+        sanity_breakdown,
     }
 }
 
@@ -638,8 +653,8 @@ mod tests {
     }
 
     #[test]
-    fn entry_serializes_v15_telemetry_fields() {
-        // Minimal AiLogEntry constructed directly to verify new v15 fields
+    fn entry_serializes_v16_telemetry_fields() {
+        // Minimal AiLogEntry constructed directly to verify current schema fields
         // appear in the JSON output with the expected types. AiLogEntry has no
         // Deserialize derive (lifetime refs), so we assert via serde_json::Value.
         let snap = BattleSnapshot::default();
@@ -676,7 +691,7 @@ mod tests {
         };
         let json = serde_json::to_string(&entry).expect("serialize");
         let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
-        assert_eq!(v["schema_version"], 15);
+        assert_eq!(v["schema_version"], 16);
         assert_eq!(v["gate_applied"], true);
         assert_eq!(v["gate_pruned_count"], 3);
         assert_eq!(v["survival_mode_active"], true);
