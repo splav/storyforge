@@ -1,3 +1,4 @@
+use crate::combat::ai::tuning::AiTuning;
 use crate::content::abilities::{AoEShape, EffectDef, TargetType};
 use crate::content::content_view::ContentView;
 use crate::core::AbilityId;
@@ -32,24 +33,6 @@ pub struct AxisProfile {
 /// hybrids), `>1.0` biases toward the dominant axis. `1.5` keeps hybrids
 /// readable while pure roles converge to enum-like behaviour.
 pub const COMPOSITION_EXPONENT: f32 = 1.5;
-
-/// Per-axis weights for the 10 utility factors.
-/// Columns: [damage, kill_now, kill_promised, cc, heal, intent, scarcity, tempo_gain, saturation, self_survival].
-/// kill_promised = kill_now × 0.5 for all roles except Control (0.8 — DoT is
-/// strategically valuable for controllers).
-/// saturation = 1.0 for all roles (signed axis, sign drives the direction).
-/// self_survival: Support 1.2 (healer cares most), Tank 1.0, others 0.8.
-/// Phase 6 removed position, risk, focus columns — their signals are now
-/// covered by tempo_gain and self_survival.
-#[rustfmt::skip]
-const AXIS_FACTOR_WEIGHTS: [[f32; 10]; 5] = [
-    //            dmg   kn    kp    cc    heal  intent scarc tempo  sat   surv
-    /* Tank    */ [0.4,  0.6,  0.3,  0.5,  0.2,  1.0,  0.4,  0.8,  1.0,  1.0],
-    /* Melee   */ [1.3,  1.6,  0.8,  0.2,  0.0,  1.0,  0.3,  1.0,  1.0,  0.8],
-    /* Ranged  */ [1.3,  1.3,  0.65, 0.3,  0.0,  1.0,  0.5,  1.2,  1.0,  0.8],
-    /* Control */ [0.4,  0.5,  0.4,  1.6,  0.0,  1.0,  1.2,  1.0,  1.0,  0.8],
-    /* Support */ [0.2,  0.3,  0.15, 0.6,  2.0,  1.0,  0.8,  0.8,  1.0,  1.2],
-];
 
 /// Per-axis weights for the 3 influence maps (danger, ally_support, opportunity).
 #[rustfmt::skip]
@@ -88,12 +71,22 @@ impl AxisProfile {
     }
 
     /// Composed 10-factor weights for utility scoring.
-    pub fn factor_weights(&self) -> [f32; 10] {
+    ///
+    /// Per-axis rows live in `tuning.tables.axis_factor_weights`. Columns:
+    /// [damage, kill_now, kill_promised, cc, heal, intent, scarcity,
+    /// tempo_gain, saturation, self_survival]. `kill_promised` = kill_now × 0.5
+    /// for all roles except Control (0.8 — DoT is strategically valuable for
+    /// controllers). `saturation` = 1.0 for all roles (signed axis, sign drives
+    /// the direction). `self_survival`: Support 1.2 (healer cares most), Tank
+    /// 1.0, others 0.8. Phase 6 removed position/risk/focus columns — their
+    /// signals are now covered by tempo_gain and self_survival.
+    pub fn factor_weights(&self, tuning: &AiTuning) -> [f32; 10] {
         let mix = self.biased_normalized();
+        let table = &tuning.tables.axis_factor_weights;
         let mut out = [0.0f32; 10];
         for axis in 0..5 {
             for f in 0..10 {
-                out[f] += mix[axis] * AXIS_FACTOR_WEIGHTS[axis][f];
+                out[f] += mix[axis] * table[axis][f];
             }
         }
         out
@@ -289,8 +282,9 @@ mod tests {
     #[test]
     fn factor_weights_mix_correctly() {
         // 50/50 Tank + Melee: heal (index 4) should be near zero (both axes have heal≈0.1 average).
+        let tuning = AiTuning::default();
         let p = AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() };
-        let w = p.factor_weights();
+        let w = p.factor_weights(&tuning);
         assert!(w[HEAL_IDX] < 0.15, "heal weight should be small for tank/melee hybrid, got {}", w[HEAL_IDX]);
         // Damage should be meaningful (melee contributes 1.3).
         assert!(w[DAMAGE_IDX] > 0.6, "damage weight should be substantial, got {}", w[DAMAGE_IDX]);
@@ -299,8 +293,9 @@ mod tests {
     #[test]
     fn pure_support_heal_weight_near_axis_value() {
         // After bias, pure support normalizes to 1.0; heal = 1.0 × 2.0 = 2.0.
+        let tuning = AiTuning::default();
         let p = AxisProfile { support: 1.0, ..Default::default() };
-        let w = p.factor_weights();
+        let w = p.factor_weights(&tuning);
         assert!((w[HEAL_IDX] - 2.0).abs() < 0.01, "pure support heal weight = 2.0, got {}", w[HEAL_IDX]);
     }
 

@@ -316,13 +316,11 @@ assets/data/ai_tuning.toml
 
 **Коммит:** `a31b696`. **Golden-replay:** 0 / 131 diff.
 
-### 2.4. Класс B — `role::AxisProfile::factor_weights()` → таблица
+### 2.4. Класс B — `role::AxisProfile::factor_weights()` → таблица ✓ DONE
 
-Сейчас `factor_weights()` — функция от 5 role-осей, возвращает массив весов. Переносим в `tuning.tables.axis_factor_weights` как 2D-матрицу `[axis][factor]` (TOML-inline или `[[ai_tuning.tables.axis_factor_weights]]` блоки). Функция читает по индексам, **сигнатура не меняется**.
+Матрица `AXIS_FACTOR_WEIGHTS` (5 axes × 10 factors) удалена из `role.rs` и переехала в `AiTuning.tables.axis_factor_weights` как 2D-массив. `AxisProfile::factor_weights` расширена параметром `tuning: &AiTuning` (как в 2.2 / 2.3 — чистая миграция к ровно той же формуле). Callers обновлены: `finalize_scores` (`scorer.rs:204`), тесты `role.rs`, `_touch_axis` в `replay_ai_log.rs`. TOML-секция `[tables]` в `assets/data/ai_tuning.toml` содержит матрицу с комментарием-шапкой колонок.
 
-Golden-replay: **0 diff'ов**.
-
-**Эстимейт:** 1.5 дня (переписывание матричного кода + тесты + golden).
+**Коммит:** pending. **Golden-replay:** 0 / 131 diff.
 
 ### 2.5. Класс B — `position_eval.rs` weights → таблица
 
@@ -361,7 +359,7 @@ Golden-replay: **0 diff'ов** (никто override не объявляет).
 | 2.1 | AiTuning scaffolding | 0.5 | 0 diff |
 | 2.2 | sanity.rs → TOML | 1.0 | 0 diff |
 | 2.3 | intent.rs → TOML | 0.5 | 0 diff |
-| 2.4 | role factor_weights → table | 1.5 | 0 diff |
+| 2.4 | role factor_weights → table | 1.5 | 0 diff | **DONE** |
 | 2.5 | position_eval → table | 1.0 | 0 diff |
 | 2.6 | DifficultyProfile lerps → TOML | 1.5 | 0 diff |
 | 2.7 | UnitQuirks override scaffolding | 0.5 | 0 diff |

@@ -53,10 +53,31 @@ impl Default for Thresholds {
     }
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+/// Tabular weights keyed by role-axis. Rows = axes (Tank, Melee, Ranged,
+/// Control, Support). Columns depend on the table.
+#[derive(Deserialize, Debug, Clone)]
 #[serde(default)]
 pub struct Tables {
-    // populated in step 2.4 (role factor weights) and 2.5 (position eval weights).
+    /// Per-axis weights for the 10 utility factors.
+    /// Columns: [damage, kill_now, kill_promised, cc, heal, intent,
+    /// scarcity, tempo_gain, saturation, self_survival].
+    pub axis_factor_weights: [[f32; 10]; 5],
+}
+
+impl Default for Tables {
+    #[rustfmt::skip]
+    fn default() -> Self {
+        Self {
+            axis_factor_weights: [
+                //  dmg   kn    kp    cc    heal  intent scarc tempo sat   surv
+                [   0.4,  0.6,  0.3,  0.5,  0.2,  1.0,  0.4,  0.8,  1.0,  1.0 ], // Tank
+                [   1.3,  1.6,  0.8,  0.2,  0.0,  1.0,  0.3,  1.0,  1.0,  0.8 ], // Melee
+                [   1.3,  1.3,  0.65, 0.3,  0.0,  1.0,  0.5,  1.2,  1.0,  0.8 ], // Ranged
+                [   0.4,  0.5,  0.4,  1.6,  0.0,  1.0,  1.2,  1.0,  1.0,  0.8 ], // Control
+                [   0.2,  0.3,  0.15, 0.6,  2.0,  1.0,  0.8,  0.8,  1.0,  1.2 ], // Support
+            ],
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]

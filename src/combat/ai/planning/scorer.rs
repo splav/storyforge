@@ -201,7 +201,7 @@ pub fn finalize_scores(
         };
     }
 
-    let mut weights = active.role.factor_weights();
+    let mut weights = active.role.factor_weights(world.tuning);
     weights[INTENT_IDX] *= world.difficulty.intent_commitment;
     weights[SCARCITY_IDX] *= world.difficulty.resource_discipline;
     let noise_amp = world.difficulty.score_noise();

@@ -2109,8 +2109,8 @@ fn print_plan(label: &str, p: &PlanLog, pre: f32, post: f32) {
 /// Silences dead_code lints on `AxisProfile::factor_weights` when only
 /// referenced via deser chain.
 #[allow(dead_code)]
-fn _touch_axis(p: &AxisProfile) -> [f32; 10] {
-    p.factor_weights()
+fn _touch_axis(p: &AxisProfile, tuning: &storyforge::combat::ai::tuning::AiTuning) -> [f32; 10] {
+    p.factor_weights(tuning)
 }
 
 #[cfg(test)]
