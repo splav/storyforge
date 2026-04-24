@@ -55,7 +55,7 @@
 
 **Коммит:** `88da91f`. **Golden-replay:** 0 / 131 diff.
 
-### 4.3. `factors::offensive` читает outcome (первый real consumer)
+### 4.3. `factors::offensive` читает outcome (первый real consumer) ✓ DONE
 
 **Scope.**
 - `compute_factors` signature → `compute_factors(ctx, step, outcome: &ActionOutcomeEstimate)`. Два call-sites: `scorer::compute_plan_factors_sans_intent:466`, `intent::intent_score:858,880`.
@@ -64,7 +64,7 @@
 
 **Gate.** `factors::offensive::tests::*` + `scorer::tests::rescore_matches_full_score_under_same_intent` зелёные. Golden **0 / 131 diff** — extracted формулы 1:1 из `score_action`. Любой diff → откат, разбор.
 
-**Эстимейт.** 1.5 дня. **Коммит:** `ai/factors: шаг 4.3 — compute_factors.offensive reads ActionOutcomeEstimate`.
+**Коммит:** `7aae9c9`. **Golden-replay:** 0 / 131 diff.
 
 ### 4.4. `future_value::λ_attack` + `picker` reservations на outcome
 
@@ -96,7 +96,7 @@
 | 4.0 | scaffolding | 0.5 | 0 diff | **DONE** (`cb94250`) |
 | 4.1 | expected_damage | 0.5 | 0 diff | **DONE** (`7de5c30`) |
 | 4.2 | full 9-field | 1.5 | 0 diff | **DONE** (`88da91f`) |
-| 4.3 | offensive consumer | 1.5 | 0 diff | pending |
+| 4.3 | offensive consumer | 1.5 | 0 diff | **DONE** (`7aae9c9`) |
 | 4.4 | future_value + picker | 1.0 | ≤3 epsilons | pending |
 | 4.5 | cleanup + JSONL v18→v19 | 1.0 | 0 diff | pending |
 
