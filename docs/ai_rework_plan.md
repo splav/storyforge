@@ -280,7 +280,7 @@ Pre-v17 fallback path на этапе 2a заморожен отдельно (р
 
 **Эстимейт:** 0.5 дня (большая часть кода уже есть в `assert_log_file` — нужна лишь stream-обёртка).
 
-### 2.1. Схема `AiTuning` как единый Resource + scaffolding
+### 2.1. Схема `AiTuning` как единый Resource + scaffolding ✓ DONE
 
 Создать:
 

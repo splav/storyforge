@@ -12,6 +12,7 @@ use storyforge::game::messages::{
 };
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::resources::{CombatContext, CombatObjective, GameDb, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty};
+use storyforge::combat::ai::tuning::AiTuning;
 use storyforge::scenario;
 use storyforge::ui;
 use storyforge::ui::animation::AnimationQueue;
@@ -49,6 +50,7 @@ fn main() {
         .init_resource::<combat::ai::reservations::Reservations>()
         .init_resource::<combat::ai::log::AiLogger>()
         .init_resource::<combat::ai::influence::InfluenceConfig>()
+        .init_resource::<AiTuning>()
         .insert_resource(settings)
         .init_resource::<ui::console_log::ConsoleCursor>()
         .init_resource::<HexPositions>()

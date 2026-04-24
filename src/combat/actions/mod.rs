@@ -292,6 +292,7 @@ mod tests {
             races: HashMap::new(),
             factions: HashMap::new(),
             paths: HashMap::new(),
+            ..ContentView::default()
         }
     }
 

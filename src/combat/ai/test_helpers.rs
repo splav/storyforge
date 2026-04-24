@@ -226,5 +226,6 @@ pub(crate) fn empty_content() -> ContentView {
         races: HashMap::new(),
         factions: HashMap::new(),
         paths: HashMap::new(),
+        ..ContentView::default()
     }
 }

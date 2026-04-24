@@ -17,6 +17,7 @@ pub mod scoring;
 pub mod snapshot;
 pub mod target_priority;
 pub mod trade;
+pub mod tuning;
 pub mod utility;
 
 pub use planning::{SanityHit, SanityRule};

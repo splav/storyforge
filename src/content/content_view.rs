@@ -15,6 +15,7 @@ use crate::content::statuses::{parse_statuses, StatusDef, STATUSES_FILE};
 use crate::content::unit_templates::{
     parse_unit_templates, UnitTemplateDef, UNIT_TEMPLATES_FILE,
 };
+use crate::combat::ai::tuning::AiTuning;
 use crate::content::weapons::{parse_weapons, WeaponDef, WEAPONS_FILE};
 use crate::core::{AbilityId, ArmorId, StatusId, WeaponId};
 use crate::game::components::{CombatStats, Equipment};
@@ -37,6 +38,7 @@ pub struct ContentView {
     pub races: HashMap<String, RaceDef>,
     pub factions: HashMap<String, FactionDef>,
     pub paths: HashMap<String, PathDef>,
+    pub ai_tuning: AiTuning,
 }
 
 impl ContentView {
@@ -116,6 +118,20 @@ impl ContentView {
 
             // Races file is a 3-in-1: races + factions + paths.
             merge_races(base, &mut v.races, &mut v.factions, &mut v.paths);
+        }
+
+        // AiTuning: singleton config, loaded with last-layer-wins override.
+        // Currently only the global layer carries content (all three layers produce
+        // default() because the TOML is empty). Layered field-level merging will be
+        // added alongside step 2.2+ when fields are actually populated.
+        for base in layers {
+            let path = base.join("ai_tuning.toml");
+            if path.is_file() {
+                let src = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|e| panic!("Cannot read {}: {e}", path.display()));
+                v.ai_tuning = toml::from_str(&src)
+                    .unwrap_or_else(|e| panic!("Cannot parse {}: {e}", path.display()));
+            }
         }
 
         // Derived: keyed_abilities — abilities that declare a hotkey, in load order.
