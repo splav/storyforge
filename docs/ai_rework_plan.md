@@ -309,13 +309,12 @@ assets/data/ai_tuning.toml
 
 **Коммит:** `7d9bbaa`. **Golden-replay:** 0 / 131 diff.
 
-### 2.3. Класс А — `intent.rs` thresholds → TOML
+### 2.3. Класс А — `intent.rs` thresholds → TOML ✓ DONE
 
-Мигрируем: `MILD_PENALTY`, `STICKINESS_BONUS`, `MAX_COMMITTED_TURNS`, плюс остальные scalar const из `intent.rs` (grep `const.*f32\|const.*u32` в этом файле — ~6-8 штук).
+Мигрированы: `MILD_PENALTY`, `STICKINESS_BONUS`, `TARGET_STICKINESS_BONUS`, `MAX_COMMITTED_TURNS` → `AiTuning.thresholds.*`.
+`select_intent` расширена параметром `tuning: &AiTuning`. `intent_score` читает `mild_penalty` через `step_ctx.world.tuning.thresholds`.
 
-Golden-replay: **0 diff'ов**.
-
-**Эстимейт:** 0.5 дня.
+**Коммит:** `a31b696`. **Golden-replay:** 0 / 131 diff.
 
 ### 2.4. Класс B — `role::AxisProfile::factor_weights()` → таблица
 
