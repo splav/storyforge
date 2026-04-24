@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 /// Fields populated incrementally across steps 4.1–4.2.
 ///
 /// Semantic note (docs/ai_rework.md §4):
-/// - `expected_damage`: raw expected damage from this step (step 4.1).
+/// - `expected_damage`: raw expected damage from this step (step 4.1, populated).
 /// - `p_kill_now`: 1.0 if step kills a target in this turn, else 0.0.
 /// - `p_kill_soon`: probability of killing a target within the damage horizon.
 /// - `deny_value`: aggregated CC / armor-debuff / vuln "denial" value.

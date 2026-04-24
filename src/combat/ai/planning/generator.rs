@@ -14,6 +14,7 @@ use crate::combat::ai::action_state::SnapshotActionState;
 use crate::combat::ai::factors::{aoe_area, aoe_hits};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::sim::SimState;
+use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
@@ -159,6 +160,7 @@ pub fn generate_plans(
                     None => (plan.final_pos, 0, 0),
                 };
 
+                let step_damage = outcome.damage;
                 let mut extended = plan.clone();
                 extended.steps.push(step);
                 extended.outcomes.push(outcome);
@@ -166,8 +168,11 @@ pub fn generate_plans(
                 // level here) can read it without re-simulating.
                 extended.sim_snapshots.push(ext_sim.snapshot);
                 // Maintain annotation.outcomes in lock-step with steps/outcomes.
-                // Step 4.0: zero-filled. Step 4.1+: sim will write expected_damage.
-                extended.annotation.outcomes.push(Default::default());
+                // Step 4.1: populate expected_damage from sim outcome.
+                extended.annotation.outcomes.push(ActionOutcomeEstimate {
+                    expected_damage: step_damage,
+                    ..Default::default()
+                });
                 extended.final_pos = final_pos;
                 extended.residual_ap = residual_ap;
                 extended.residual_mp = residual_mp;
@@ -729,6 +734,49 @@ mod tests {
                 plan.steps.len(),
                 "annotation.outcomes length must match steps length"
             );
+        }
+    }
+
+    // ── Annotation outcomes match sim outcomes ─────────────────────────────
+
+    #[test]
+    fn annotation_expected_damage_matches_step_outcome_damage() {
+        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
+        let target = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
+        let actor_id = actor.entity;
+
+        let mut content = empty_content();
+        let def = strike_def("strike", 1, 1);
+        content.abilities.insert(def.id.clone(), def.clone());
+
+        let mut difficulty = DifficultyProfile::hard();
+        difficulty.plan_max_depth = 1;
+        let ctx = make_ctx(&content, &difficulty);
+
+        let snap = BattleSnapshot::new(vec![actor, target], 1);
+        let maps = empty_maps();
+
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+
+        // Every non-empty plan: annotation.expected_damage must equal
+        // the corresponding step outcome damage (strict f32 equality —
+        // same value stored in two places, no re-computation).
+        for plan in plans.iter().filter(|p| !p.steps.is_empty()) {
+            for (i, (ann, outcome)) in plan
+                .annotation
+                .outcomes
+                .iter()
+                .zip(plan.outcomes.iter())
+                .enumerate()
+            {
+                assert_eq!(
+                    ann.expected_damage,
+                    outcome.damage,
+                    "plan step {i}: annotation.expected_damage ({}) != outcome.damage ({})",
+                    ann.expected_damage,
+                    outcome.damage
+                );
+            }
         }
     }
 
