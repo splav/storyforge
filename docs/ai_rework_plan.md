@@ -302,13 +302,12 @@ assets/data/ai_tuning.toml
 
 **Коммит:** `a099740`. **Golden-replay:** 0 / 131 diff.
 
-### 2.2. Класс А — `sanity.rs` thresholds → TOML
+### 2.2. Класс А — `sanity.rs` thresholds → TOML ✓ DONE
 
-Мигрируем: `SURVIVAL_FLOOR`, `LOW_HP_FACTOR`, `AOO_PENALTY_K`, `AOO_RISK_FLOOR`, `SELF_SURVIVAL_EPSILON` (последнее сейчас `pub const` — переносим в `tuning.thresholds.self_survival_epsilon`). Каждая точка использования `const FOO` → чтение из Resource.
+Мигрировали: `SURVIVAL_FLOOR`, `LOW_HP_FACTOR`, `AOO_PENALTY_K`, `AOO_RISK_FLOOR`, `SELF_SURVIVAL_EPSILON` → `AiTuning.thresholds.*`.
+`AiWorld` расширен полем `tuning: &'a AiTuning`. `plan_is_defensive` и `apply_protect_self_mask` принимают `epsilon: f32` параметром. `replay_ai_log.rs` мигрирован аналогично.
 
-Golden-replay: **0 diff'ов**. Любое расхождение — опечатка в TOML или missed replacement.
-
-**Эстимейт:** 1 день.
+**Коммит:** TBD. **Golden-replay:** 0 / 131 diff.
 
 ### 2.3. Класс А — `intent.rs` thresholds → TOML
 

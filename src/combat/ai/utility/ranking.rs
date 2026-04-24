@@ -187,11 +187,12 @@ impl PlanRanking {
     /// this unconditionally is a no-op on non-ProtectSelf intents only
     /// incidentally (the mask would strip nothing), so the guard is load-
     /// bearing.
-    pub fn apply_protect_self(&mut self) {
+    pub fn apply_protect_self(&mut self, epsilon: f32) {
         apply_protect_self_mask(
             &mut self.scored,
             &self.raw_factors,
             &self.adaptation.modes,
+            epsilon,
         );
     }
 
@@ -420,7 +421,7 @@ mod tests {
             sanity_breakdown: Vec::new(),
         };
 
-        ranking.apply_protect_self();
+        ranking.apply_protect_self(0.15);
 
         assert_eq!(ranking.scored[0], 0.5, "defensive plan score preserved");
         assert!(ranking.scored[1].is_infinite() && ranking.scored[1] < 0.0, "non-defensive masked to -inf");

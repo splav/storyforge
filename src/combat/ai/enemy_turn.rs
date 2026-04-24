@@ -121,7 +121,7 @@ fn run_ai_turn(
     // live on each `UnitSnapshot` row (built by `build_snapshot` above), so
     // there's no parallel `ActorCtx` to thread.
     let crit_fail_chance = 1.0 / settings.crit_fail_die as f32;
-    let world = AiWorld { content, difficulty, crit_fail_chance };
+    let world = AiWorld { content, difficulty, tuning: &content.ai_tuning, crit_fail_chance };
 
     // Build name map for debug / log.
     let debug = settings.ai_debug;

@@ -69,18 +69,6 @@ pub struct SanityHit {
     pub multiplier: f32,
 }
 
-/// Minimum multiplier applied by survival quadratic. Keeps low-HP-in-danger
-/// plans comparable when every option is bad.
-const SURVIVAL_FLOOR: f32 = 0.25;
-/// Amplifies the HP × danger² product. Same value the old sanity used.
-const LOW_HP_FACTOR: f32 = 1.2;
-/// AoO-penalty shape constant. `k * (expected/hp)^2` eats into the multiplier;
-/// k=2 gives `1 - 0.5 = 0.5x` when AoO projects to half HP, close to
-/// `SURVIVAL_FLOOR` at 70%. Tunable alongside LOW_HP.
-const AOO_PENALTY_K: f32 = 2.0;
-/// Floor for the AoO-risk (non-lethal) multiplier. Same reasoning as
-/// SURVIVAL_FLOOR: keep the plan comparable when every option bleeds.
-const AOO_RISK_FLOOR: f32 = 0.25;
 
 /// Apply sanity multipliers to `scores` in place and return a per-plan
 /// breakdown of which rules fired and with what multiplier.
@@ -147,9 +135,9 @@ pub fn sanity_adjust_plans(
         // Kael's AoO corridor to land on a safe tile" still eats the penalty.
         let hp_need = ((0.6 - active.hp_pct()) / 0.6).clamp(0.0, 1.0);
         let excess = (max_path_danger - 0.5).max(0.0);
-        let surv = LOW_HP_FACTOR * hp_need * excess * excess;
+        let surv = ctx.world.tuning.thresholds.low_hp_factor * hp_need * excess * excess;
         if surv > 0.0 {
-            let multiplier = (1.0 - surv).max(SURVIVAL_FLOOR);
+            let multiplier = (1.0 - surv).max(ctx.world.tuning.thresholds.survival_floor);
             penalty *= multiplier;
             hits.push(SanityHit { rule: SanityRule::Survival, multiplier });
         }
@@ -220,7 +208,7 @@ pub fn sanity_adjust_plans(
         let aoo_dmg = expected_aoo_damage(active, plan, &enemies);
         if aoo_dmg > 0.0 {
             let ratio = (aoo_dmg / active.hp.max(1) as f32).min(1.0);
-            let multiplier = (1.0 - AOO_PENALTY_K * ratio * ratio).max(AOO_RISK_FLOOR);
+            let multiplier = (1.0 - ctx.world.tuning.thresholds.aoo_penalty_k * ratio * ratio).max(ctx.world.tuning.thresholds.aoo_risk_floor);
             penalty *= multiplier;
             hits.push(SanityHit { rule: SanityRule::AoOBleed, multiplier });
         }
@@ -324,17 +312,12 @@ fn plan_has_useful_cast(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
 
 // ── ProtectSelf mask ───────────────────────────────────────────────────────
 
-/// Minimum `self_survival` value for a plan to be considered defensive under
-/// `ProtectSelf` intent. ≈ 15% of max_hp worth of net survival improvement
-/// (self-heal, armor-buff, or exit-danger contribution).
-pub const SELF_SURVIVAL_EPSILON: f32 = 0.15;
-
 /// A plan is **defensive** iff its `self_survival` factor is at or above
-/// `SELF_SURVIVAL_EPSILON`. The `self_survival` axis captures cumulative
-/// defensive value across the plan (self-heal, armor-buff, and danger-exit),
-/// making the threshold independent of step-level tile/target-type heuristics.
-pub fn plan_is_defensive(self_survival: f32) -> bool {
-    self_survival >= SELF_SURVIVAL_EPSILON
+/// `epsilon`. The `self_survival` axis captures cumulative defensive value
+/// across the plan (self-heal, armor-buff, and danger-exit), making the
+/// threshold independent of step-level tile/target-type heuristics.
+pub fn plan_is_defensive(self_survival: f32, epsilon: f32) -> bool {
+    self_survival >= epsilon
 }
 
 /// Mask non-defensive plans to `-∞` under `ProtectSelf` intent — contract
@@ -355,6 +338,7 @@ pub fn apply_protect_self_mask(
     scores: &mut [f32],
     raw: &[PlanFactors],
     modes: &[EvaluationMode],
+    epsilon: f32,
 ) -> bool {
     debug_assert_eq!(raw.len(), modes.len());
     let mut any_defensive = false;
@@ -365,7 +349,7 @@ pub fn apply_protect_self_mask(
         if !matches!(modes.get(i), Some(EvaluationMode::Default)) {
             continue;
         }
-        if plan_is_defensive(f.self_survival) {
+        if plan_is_defensive(f.self_survival, epsilon) {
             any_defensive = true;
         } else if i < scores.len() {
             scores[i] = f32::NEG_INFINITY;

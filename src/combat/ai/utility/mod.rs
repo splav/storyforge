@@ -19,6 +19,7 @@ use crate::content::content_view::ContentView;
 use crate::combat::ai::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::intent::{
     select_intent, update_memory, AiMemory, IntentReason, TacticalIntent,
 };
@@ -109,6 +110,7 @@ pub enum MoveOrigin {
 pub struct AiWorld<'a> {
     pub content: &'a ContentView,
     pub difficulty: &'a DifficultyProfile,
+    pub tuning: &'a AiTuning,
     pub crit_fail_chance: f32,
 }
 
@@ -216,7 +218,7 @@ pub fn pick_action(
     let base_scored = ranking.scored.clone();
     ranking.apply_adaptation(&plans, &scoring_ctx);
     if matches!(ranking.intent, TacticalIntent::ProtectSelf) {
-        ranking.apply_protect_self();
+        ranking.apply_protect_self(world.tuning.thresholds.self_survival_epsilon);
     }
     if matches!(ranking.intent, TacticalIntent::FocusTarget { .. }) {
         ranking.apply_killable_gate(&plans, &scoring_ctx);

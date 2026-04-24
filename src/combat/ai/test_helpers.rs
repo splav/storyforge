@@ -21,7 +21,8 @@ use std::collections::HashMap;
 // ── Utility context ────────────────────────────────────────────────────────
 
 /// Build an `AiWorld` with the conventional test defaults
-/// (`crit_fail_chance: 0.0`). Caller supplies content + difficulty.
+/// (`crit_fail_chance: 0.0`, `tuning: AiTuning::default()`). Caller supplies
+/// content + difficulty.
 ///
 /// Per-actor data — caster / abilities / crit_fail_effect — lives on
 /// `UnitSnapshot`; configure via `UnitBuilder::caster_ctx` /
@@ -30,7 +31,7 @@ pub(crate) fn make_test_ctx<'a>(
     content: &'a ContentView,
     difficulty: &'a DifficultyProfile,
 ) -> AiWorld<'a> {
-    AiWorld { content, difficulty, crit_fail_chance: 0.0 }
+    AiWorld { content, difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0 }
 }
 
 /// Bundle the per-test (world, snap, maps, reservations, active) refs into

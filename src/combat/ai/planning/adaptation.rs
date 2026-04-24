@@ -285,7 +285,7 @@ pub fn apply_adaptation(
     if matches!(intent, TacticalIntent::ProtectSelf) {
         let any_defensive = raw
             .iter()
-            .any(|f| plan_is_defensive(f.self_survival));
+            .any(|f| plan_is_defensive(f.self_survival, ctx.world.tuning.thresholds.self_survival_epsilon));
         if !any_defensive {
             for i in 0..plans.len() {
                 adaptation.modes[i] = EvaluationMode::LastStand;

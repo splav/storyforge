@@ -34,7 +34,6 @@ use storyforge::combat::ai::planning::{
     sanity_adjust_plans, CommittedPrefix, PlanStep, TurnPlan,
 };
 use storyforge::combat::ai::planning::future_value::{plan_prefix_only, score_plans_prototype};
-use storyforge::combat::ai::planning::sanity::SELF_SURVIVAL_EPSILON;
 use storyforge::combat::ai::replay::{
     assert_log_file, default_overlay_path, golden_from_entry, intent_kind, read_entries,
     GoldenRecord, LogEntry, LoggedEvaluationMode, PlanLog,
@@ -513,10 +512,10 @@ pub fn classify_focus_target_bucket(
 ///
 /// Uses `self_survival` from plan factors (computed on committed prefix in P2 pipeline).
 /// Returns:
-/// - `1` if `self_survival >= SELF_SURVIVAL_EPSILON` (0.15).
+/// - `1` if `self_survival >= epsilon`.
 /// - `0` otherwise.
-pub fn classify_protect_self_bucket(self_survival: f32) -> i32 {
-    if self_survival >= SELF_SURVIVAL_EPSILON { 1 } else { 0 }
+pub fn classify_protect_self_bucket(self_survival: f32, epsilon: f32) -> i32 {
+    if self_survival >= epsilon { 1 } else { 0 }
 }
 
 /// Apply P2 bucket reranking to an already-scored (and sanity/mask-adjusted) score vector.
@@ -562,7 +561,7 @@ fn apply_p2_bucket_rerank(
                 let prefix = plan_prefix_only(plan);
                 let prefix_factors = compute_plan_factors(&prefix, intent, ctx);
                 let self_survival = prefix_factors.as_array()[SELF_SURVIVAL_IDX];
-                let rank = classify_protect_self_bucket(self_survival);
+                let rank = classify_protect_self_bucket(self_survival, ctx.world.tuning.thresholds.self_survival_epsilon);
                 *score += rank as f32 * P2_RANK_OFFSET;
             }
         }
@@ -1509,6 +1508,7 @@ fn main() {
             let world = AiWorld {
                 content: &content,
                 difficulty: &difficulty,
+                tuning: &content.ai_tuning,
                 crit_fail_chance: 0.0,
             };
 
@@ -1602,7 +1602,7 @@ fn main() {
                 entry.intent.intent,
                 storyforge::combat::ai::intent::TacticalIntent::ProtectSelf
             ) {
-                apply_protect_self_mask(&mut scores, &raw_factors, &modes);
+                apply_protect_self_mask(&mut scores, &raw_factors, &modes, world.tuning.thresholds.self_survival_epsilon);
                 applied_mask = true;
             } else if simulate_ab && entry.intent.selection_kind == "viability_fallback" {
                 let hp_pct = active.hp_pct();
@@ -1610,7 +1610,7 @@ fn main() {
                 let midpanic_hp = difficulty.midpanic_hp_threshold();
                 let panic_danger = difficulty.awareness_danger_threshold();
                 if hp_pct < midpanic_hp && actor_danger > panic_danger {
-                    apply_protect_self_mask(&mut scores, &raw_factors, &modes);
+                    apply_protect_self_mask(&mut scores, &raw_factors, &modes, world.tuning.thresholds.self_survival_epsilon);
                     applied_mask = true;
                     simulated_switch = true;
                 }
@@ -1646,14 +1646,14 @@ fn main() {
                     entry.intent.intent,
                     storyforge::combat::ai::intent::TacticalIntent::ProtectSelf
                 ) {
-                    apply_protect_self_mask(&mut proto_scores, &raw_factors, &modes);
+                    apply_protect_self_mask(&mut proto_scores, &raw_factors, &modes, world.tuning.thresholds.self_survival_epsilon);
                 } else if simulate_ab && entry.intent.selection_kind == "viability_fallback" {
                     let hp_pct = active.hp_pct();
                     let actor_danger = maps.danger.get(active.pos);
                     let midpanic_hp = difficulty.midpanic_hp_threshold();
                     let panic_danger = difficulty.awareness_danger_threshold();
                     if hp_pct < midpanic_hp && actor_danger > panic_danger {
-                        apply_protect_self_mask(&mut proto_scores, &raw_factors, &modes);
+                        apply_protect_self_mask(&mut proto_scores, &raw_factors, &modes, world.tuning.thresholds.self_survival_epsilon);
                     }
                 }
                 let (top_post_proto, _) =
@@ -1814,14 +1814,14 @@ fn main() {
                     entry.intent.intent,
                     storyforge::combat::ai::intent::TacticalIntent::ProtectSelf
                 ) {
-                    apply_protect_self_mask(&mut p2_scores, &raw_factors, &modes);
+                    apply_protect_self_mask(&mut p2_scores, &raw_factors, &modes, world.tuning.thresholds.self_survival_epsilon);
                 } else if simulate_ab && entry.intent.selection_kind == "viability_fallback" {
                     let hp_pct = active.hp_pct();
                     let actor_danger = maps.danger.get(active.pos);
                     let midpanic_hp = difficulty.midpanic_hp_threshold();
                     let panic_danger = difficulty.awareness_danger_threshold();
                     if hp_pct < midpanic_hp && actor_danger > panic_danger {
-                        apply_protect_self_mask(&mut p2_scores, &raw_factors, &modes);
+                        apply_protect_self_mask(&mut p2_scores, &raw_factors, &modes, world.tuning.thresholds.self_survival_epsilon);
                     }
                 }
 
@@ -2371,8 +2371,9 @@ mod p2_tests {
     /// (rank=0), even if the offensive plan has a higher scalar score.
     #[test]
     fn protect_self_defensive_beats_offensive_under_mask() {
-        let rank_defensive = classify_protect_self_bucket(0.20);
-        let rank_offensive  = classify_protect_self_bucket(0.10);
+        let epsilon = 0.15; // default from AiTuning::default()
+        let rank_defensive = classify_protect_self_bucket(0.20, epsilon);
+        let rank_offensive  = classify_protect_self_bucket(0.10, epsilon);
 
         assert_eq!(rank_defensive, 1, "self_survival 0.20 ≥ ε_self → rank 1");
         assert_eq!(rank_offensive,  0, "self_survival 0.10 < ε_self → rank 0");

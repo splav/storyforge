@@ -373,6 +373,7 @@ pub fn reconstruct_decision(
     let world = AiWorld {
         content,
         difficulty: &difficulty,
+        tuning: &content.ai_tuning,
         crit_fail_chance: 0.0,
     };
     let scoring_ctx = ScoringCtx {
@@ -419,7 +420,7 @@ pub fn reconstruct_decision(
     let mut scores = finalize_scores(&plans, &raw_factors, &scoring_ctx);
     let _ = sanity_adjust_plans(&mut scores, &plans, &scoring_ctx);
     if matches!(entry.intent.intent, TacticalIntent::ProtectSelf) {
-        apply_protect_self_mask(&mut scores, &raw_factors, &modes);
+        apply_protect_self_mask(&mut scores, &raw_factors, &modes, world.tuning.thresholds.self_survival_epsilon);
     }
 
     let mut rng = DiceRng::with_seed(0);
