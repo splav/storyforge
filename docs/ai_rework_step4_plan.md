@@ -66,7 +66,7 @@
 
 **Коммит:** `7aae9c9`. **Golden-replay:** 0 / 131 diff.
 
-### 4.4. `future_value::λ_attack` + `picker` reservations на outcome
+### 4.4. `future_value::λ_attack` + `picker` reservations на outcome ✓ DONE
 
 **Scope.**
 - Новый helper `outcome::estimate_hypothetical(def, target, caster_ctx, content, committed_pos, danger) -> ActionOutcomeEstimate` — для committed state (без sim). Формулы те же что `score_action` — hypothetical outcome заполняется так, чтобы λ_attack = `0.5 * est.expected_damage` давал buchstabelich тот же результат.
@@ -75,7 +75,7 @@
 
 **Gate.** Tolerance **≤3 epsilons / 131 entries** (Q1 решение). В коммите фиксируется письменное обоснование: «λ_attack переехал с HP-equivalent scalar на weighted outcome fields; веса выбраны чтобы совпасть на типичных abilities ±1e-6».
 
-**Эстимейт.** 1.0 день. **Коммит:** `ai/future_value: шаг 4.4 — λ_attack + reservations read ActionOutcomeEstimate`.
+**Коммит:** `d2cf7c6`. **Golden-replay:** 0 / 131 diff. Q1 reconsidered → literal rewire (см. commit message).
 
 ### 4.5. Cleanup
 
@@ -97,7 +97,7 @@
 | 4.1 | expected_damage | 0.5 | 0 diff | **DONE** (`7de5c30`) |
 | 4.2 | full 9-field | 1.5 | 0 diff | **DONE** (`88da91f`) |
 | 4.3 | offensive consumer | 1.5 | 0 diff | **DONE** (`7aae9c9`) |
-| 4.4 | future_value + picker | 1.0 | ≤3 epsilons | pending |
+| 4.4 | future_value + picker | 1.0 | 0 diff (literal rewire) | **DONE** (`d2cf7c6`) |
 | 4.5 | cleanup + JSONL v18→v19 | 1.0 | 0 diff | pending |
 
 **Суммарно ~6 дней** (4.5 расширен: +0.5 дня friendly-fire рефактор, +0.3 дня schema bump).
