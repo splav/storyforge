@@ -28,7 +28,6 @@ use serde::{Deserialize, Serialize};
 /// - `exposure_delta`: Δdanger from step (worst_path_danger for Move, 0 for Cast).
 /// - `geometry_gain`: 0.0 placeholder, filled in step 17 (geometry awareness).
 /// - `resource_swing`: signed resource cost (negative = spent).
-#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ActionOutcomeEstimate {
     pub expected_damage: f32,
@@ -44,7 +43,6 @@ pub struct ActionOutcomeEstimate {
 
 /// Per-plan annotation bundle. Grows as pipeline stages accrue data
 /// (outcome in wave 1; critics / band / agenda in later waves).
-#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PlanAnnotation {
     /// One ActionOutcomeEstimate per plan step, same length as TurnPlan.steps

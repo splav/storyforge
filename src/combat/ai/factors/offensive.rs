@@ -138,7 +138,7 @@ fn compute_aoe_damage(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::outcome::{estimate_deny_value, estimate_kill_soon};
+    use crate::combat::ai::outcome::estimate_kill_soon;
     use crate::combat::ai::snapshot::ActiveStatusView;
     use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::content::abilities::CasterContext;
@@ -170,13 +170,6 @@ mod tests {
             return (1.0, 0.0);
         }
         (0.0, estimate_kill_soon(def, target, caster, content))
-    }
-
-    /// Thin wrapper used in tests only. Delegates to `estimate_deny_value` —
-    /// kept for test clarity, removed from prod in step 4.3.
-    #[allow(dead_code)]
-    fn status_cc_value(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> f32 {
-        estimate_deny_value(def, target, content)
     }
 
     fn db() -> ContentView {
