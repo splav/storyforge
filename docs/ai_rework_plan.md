@@ -328,13 +328,11 @@ assets/data/ai_tuning.toml
 
 **Коммит:** `88ff6b8`. **Golden-replay:** 0 / 131 diff.
 
-### 2.6. Класс C — `DifficultyProfile` lerps → `tuning.difficulty`
+### 2.6. Класс C — `DifficultyProfile` lerps → `tuning.difficulty` ✓ DONE
 
-Методы `survival_hp_threshold()`, `reposition_min_improvement()`, `awareness_danger_threshold()` — lerp'ы между двумя константами по параметру `survival_instinct`/`awareness`. Переносим `{lo, hi}` пары в `tuning.difficulty.*_curve`. Методы читают параметры, делают lerp — **сигнатура не меняется**.
+Методы `survival_hp_threshold()`, `reposition_min_improvement()`, `awareness_danger_threshold()` получили параметр `tuning: &AiTuning` и читают `tuning.difficulty.*_curve.{lo, hi}` вместо хардкодов. Добавлен тип `LerpCurve { lo, hi }` с `eval(t)` в `tuning.rs`. Секция `[difficulty]` в `ai_tuning.toml` заполнена тремя кривыми. Callers обновлены: `intent.rs` (3 точки: строки 391–392 в `select_intent`, строка 893 в `intent_score`), `ranking.rs` (строка 104), `replay_ai_log.rs` (строки 1611, 1654, 1822). Sanity-тест `lerp_curve_migration_values_match_original_hardcodes` проверяет 4 тира × 3 метода = 12 значений bit-for-bit.
 
-Golden-replay: **0 diff'ов**. Важный sanity-check: `DifficultyProfile::normal()` после миграции должен возвращать точно те же числа, что до. Юнит-тест на это.
-
-**Эстимейт:** 1.5 дня.
+**Коммит:** `18b62fd`. **Golden-replay:** 0 / 131 diff.
 
 ### 2.7. UnitQuirks — пустая override-инфраструктура
 
@@ -359,7 +357,7 @@ Golden-replay: **0 diff'ов** (никто override не объявляет).
 | 2.3 | intent.rs → TOML | 0.5 | 0 diff | **DONE** (`a31b696`) |
 | 2.4 | role factor_weights → table | 1.5 | 0 diff | **DONE** (`5d45398`) |
 | 2.5 | position_eval → table | 1.0 | 0 diff | **DONE** (`88ff6b8`) |
-| 2.6 | DifficultyProfile lerps → TOML | 1.5 | 0 diff | pending |
+| 2.6 | DifficultyProfile lerps → TOML | 1.5 | 0 diff | **DONE** (`18b62fd`) |
 | 2.7 | UnitQuirks override scaffolding | 0.5 | 0 diff | pending |
 
 **Суммарно ~7 дней.** Любой шаг с ≠0 diff → откат коммита, разбор причины, повтор.
