@@ -175,7 +175,7 @@ pub fn pick_action(
     };
 
     // ── Select tactical intent ──────────────────────────────────────────
-    let choice = select_intent(active, snap, maps, memory, world.difficulty);
+    let choice = select_intent(active, snap, maps, memory, world.difficulty, world.tuning);
     update_memory(memory, &choice.intent);
 
     // ── Generate plans (beam search over depths) ───────────────────────

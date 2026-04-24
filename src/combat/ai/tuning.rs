@@ -27,6 +27,14 @@ pub struct Thresholds {
     pub aoo_risk_floor: f32,
     /// Minimum `self_survival` for a plan to be considered defensive under ProtectSelf.
     pub self_survival_epsilon: f32,
+    /// Penalty for wrong-ally heal in ProtectAlly / non-AoE under SetupAOE.
+    pub mild_penalty: f32,
+    /// Bonus multiplier for continuing the same intent (stickiness).
+    pub stickiness_bonus: f32,
+    /// Same target bonus on top of stickiness.
+    pub target_stickiness_bonus: f32,
+    /// Max turns an intent can receive stickiness bonus.
+    pub max_committed_turns: u8,
 }
 
 impl Default for Thresholds {
@@ -37,6 +45,10 @@ impl Default for Thresholds {
             aoo_penalty_k: 2.0,
             aoo_risk_floor: 0.25,
             self_survival_epsilon: 0.15,
+            mild_penalty: -0.3,
+            stickiness_bonus: 0.25,
+            target_stickiness_bonus: 0.15,
+            max_committed_turns: 3,
         }
     }
 }

@@ -8,22 +8,13 @@ use crate::combat::ai::snapshot::{ActiveStatusView, AiTags, BattleSnapshot, Unit
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::factors::ScoredStep;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
 use std::fmt;
-
-/// Penalty for wrong-ally heal in ProtectAlly.
-const MILD_PENALTY: f32 = -0.3;
-
-/// Bonus multiplier for continuing the same intent (stickiness).
-const STICKINESS_BONUS: f32 = 0.25;
-/// Same target bonus on top of stickiness.
-const TARGET_STICKINESS_BONUS: f32 = 0.15;
-/// Max turns an intent can receive stickiness bonus.
-const MAX_COMMITTED_TURNS: u8 = 3;
 
 // ── Intent enum ─────────────────────────────────────────────────────────────
 
@@ -366,20 +357,22 @@ pub fn select_intent(
     maps: &InfluenceMaps,
     memory: &AiMemory,
     difficulty: &DifficultyProfile,
+    tuning: &AiTuning,
 ) -> IntentChoice {
+    let t = &tuning.thresholds;
     let mut best_score = f32::NEG_INFINITY;
     let mut best: Option<IntentChoice> = None;
 
     let mut consider = |intent: TacticalIntent, score: f32, reason: IntentReason| {
         let mut s = score;
         // Stickiness: bonus for continuing the same intent.
-        if memory.turns_committed < MAX_COMMITTED_TURNS
+        if memory.turns_committed < t.max_committed_turns
             && memory.last_intent == Some(intent.kind())
         {
-            s += STICKINESS_BONUS;
+            s += t.stickiness_bonus;
             if let (Some(prev), Some(cur)) = (memory.last_target, intent.target()) {
                 if prev == cur {
-                    s += TARGET_STICKINESS_BONUS;
+                    s += t.target_stickiness_bonus;
                 }
             }
         }
@@ -838,6 +831,7 @@ pub fn intent_score(
     let maps = step_ctx.maps;
     let content = step_ctx.world.content;
     let difficulty = step_ctx.world.difficulty;
+    let mild_penalty = step_ctx.world.tuning.thresholds.mild_penalty;
 
     // Move steps: scored only on position-related intent axes.
     let cast = match step {
@@ -927,7 +921,7 @@ pub fn intent_score(
             Some((ability, _, target)) => {
                 let Some(def) = content.abilities.get(ability) else { return 0.0 };
                 if def.target_type == TargetType::SingleAlly {
-                    if target == *ally { 1.0 } else { MILD_PENALTY }
+                    if target == *ally { 1.0 } else { mild_penalty }
                 } else if snap.unit(*ally).is_some_and(|a| step.caster_tile().unsigned_distance_to(a.pos) <= 1) {
                     0.5
                 } else {
@@ -950,7 +944,7 @@ pub fn intent_score(
             };
             let Some(def) = content.abilities.get(ability) else { return 0.0 };
             if def.aoe == AoEShape::None {
-                return MILD_PENALTY;
+                return mild_penalty;
             }
             let area = aoe_area(def, target_pos, step.caster_tile());
             let total = snap.enemies_of(active.team).count() as f32;
@@ -1511,7 +1505,8 @@ mod tests {
         let memory = AiMemory::default();
         let difficulty = DifficultyProfile::default();
 
-        let choice = select_intent(&actor, &snap, &maps, &memory, &difficulty);
+        let tuning = AiTuning::default();
+        let choice = select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning);
 
         assert!(
             !matches!(choice.reason, IntentReason::Killable { .. }),
