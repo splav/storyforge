@@ -31,13 +31,13 @@
 
 **Коммит:** `cb94250`. **Golden-replay:** 0 / 131 diff.
 
-### 4.1. Sim заполняет `expected_damage`
+### 4.1. Sim заполняет `expected_damage` ✓ DONE
 
 **Scope.** В generator.rs после `apply_step` → `ActionOutcomeEstimate { expected_damage: outcome.damage, ..Default::default() }`. **Point-of-computation: generator** (не `apply_step`, у которого 35+ call-sites — menять signature накладно).
 
 **Gate.** Unit-тест invariant `annotation.outcomes[i].expected_damage == plan.outcomes[i].damage`. Golden **0 / 131 diff** — no consumer.
 
-**Эстимейт.** 0.5 дня. **Коммит:** `ai/outcome: шаг 4.1 — sim fills expected_damage`.
+**Коммит:** `7de5c30`. **Golden-replay:** 0 / 131 diff.
 
 ### 4.2. Sim заполняет остальные 8 полей (producer-complete)
 
@@ -94,7 +94,7 @@
 | # | Шаг | Эстимейт | Golden-replay | Статус |
 |---|---|---|---|---|
 | 4.0 | scaffolding | 0.5 | 0 diff | **DONE** (`cb94250`) |
-| 4.1 | expected_damage | 0.5 | 0 diff | pending |
+| 4.1 | expected_damage | 0.5 | 0 diff | **DONE** (`7de5c30`) |
 | 4.2 | full 9-field | 1.5 | 0 diff | pending |
 | 4.3 | offensive consumer | 1.5 | 0 diff | pending |
 | 4.4 | future_value + picker | 1.0 | ≤3 epsilons | pending |
