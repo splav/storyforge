@@ -14,6 +14,8 @@ pub mod sanity;
 pub mod scorer;
 pub mod sim;
 pub mod types;
+#[cfg(test)]
+mod parity_tests;
 
 pub use adaptation::{apply_adaptation, Adaptation, AdaptationReason, EvaluationMode};
 pub use generator::generate_plans;
