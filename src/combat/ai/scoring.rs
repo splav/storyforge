@@ -230,18 +230,10 @@ pub fn estimate_damage_horizon(
 
 // ── Internals ──────────────────────────────────────────────────────────────
 
-/// Public alias for `status_score` used by `outcome::compute_score_core` so it
-/// can inline the full `score_action` formula without calling the deprecated
-/// function. Only for use within this crate — not part of the public API.
-pub(crate) fn status_score_pub(
-    def: &AbilityDef,
-    target: &UnitSnapshot,
-    content: &ContentView,
-) -> f32 {
-    status_score(def, target, content)
-}
-
-fn status_score(
+/// Aggregate HP-equivalent value of the statuses `def` applies to `target`.
+/// Crate-visible — consumed by `outcome::compute_score_core` (the central
+/// HP-equivalent formula).
+pub(crate) fn status_score(
     def: &AbilityDef,
     target: &UnitSnapshot,
     content: &ContentView,

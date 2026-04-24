@@ -55,14 +55,12 @@ pub struct PlanAnnotation {
 // Extraction helpers (step 4.2)
 // ---------------------------------------------------------------------------
 
-/// Kill-promised component extracted from `factors::offensive::split_kill`.
+/// `p_kill_soon` component of `ActionOutcomeEstimate`.
 ///
 /// Returns `1.0` if `def`'s direct damage won't kill `target` now but the
 /// accumulated DoT (pending on target + newly applied by this ability) will.
-/// Returns `0.0` otherwise.
-///
-/// Invariant: same formula as `split_kill`'s `kill_promised` branch — callers
-/// in both `split_kill` and generator must produce bit-equal results.
+/// Returns `0.0` otherwise (including when direct damage already kills — that
+/// case is covered by `p_kill_now` via sim's `StepOutcome.killed`).
 pub fn estimate_kill_soon(
     def: &AbilityDef,
     target: &UnitSnapshot,
@@ -294,12 +292,12 @@ pub(crate) fn compute_score_core(
     content: &ContentView,
     danger_at_target: f32,
 ) -> f32 {
-    use crate::combat::ai::scoring::status_score_pub;
+    use crate::combat::ai::scoring::status_score;
     let Some(calc) = def.effect.calc(ctx) else {
         return if matches!(def.effect, EffectDef::GrantMovement { .. }) {
             0.0
         } else {
-            status_score_pub(def, target, content)
+            status_score(def, target, content)
         };
     };
 
@@ -328,7 +326,7 @@ pub(crate) fn compute_score_core(
         raw * (0.5 + 0.5 * progress)
     };
 
-    dmg_score + status_score_pub(def, target, content)
+    dmg_score + status_score(def, target, content)
 }
 
 #[cfg(test)]
@@ -374,11 +372,27 @@ mod tests {
     }
 
     // --- estimate_kill_soon ---
+    //
+    // `p_kill_now` lives on `outcome.p_kill_now` via sim (`StepOutcome.killed`);
+    // these tests target the "DoT will finish it" signal that powers
+    // `outcome.p_kill_soon`.
 
-    /// Mirrors `kill_promised_via_pending_dot_on_target` from factors::offensive::tests.
-    /// melee_attack str_mod=0 → direct=0; pending DoT 6 ≥ hp=5 → kill_soon=1.0.
+    /// When direct damage already kills, kill_soon returns 0 — p_kill_now (via
+    /// sim.killed) covers this case, and the two fields are mutually exclusive.
+    /// melee_attack, str_mod=2 → direct=2, hp=1 → direct kills.
     #[test]
-    fn estimate_kill_soon_matches_split_kill_promised_pending_dot() {
+    fn estimate_kill_soon_is_zero_when_direct_damage_kills() {
+        let content = db();
+        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(1).build();
+        let ks = estimate_kill_soon(
+            get_def(&content, "melee_attack"), &target, &melee_caster(2), &content,
+        );
+        assert_eq!(ks, 0.0, "kill_soon=0 when direct damage kills (p_kill_now covers it)");
+    }
+
+    /// melee_attack with str_mod=0 → direct=0; pending DoT (3/tick × 2 rounds = 6) ≥ hp=5
+    #[test]
+    fn estimate_kill_soon_fires_on_pending_dot() {
         let content = db();
         let mut target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(5).build();
         target.statuses = vec![ActiveStatusView {
@@ -386,17 +400,48 @@ mod tests {
             rounds_remaining: 2,
             dot_per_tick: 3,
         }];
-        let kp = estimate_kill_soon(get_def(&content, "melee_attack"), &target, &melee_caster(0), &content);
-        assert_eq!(kp, 1.0, "pending DoT 6 >= hp=5 -> kill_soon=1.0");
+        let ks = estimate_kill_soon(
+            get_def(&content, "melee_attack"), &target, &melee_caster(0), &content,
+        );
+        assert_eq!(ks, 1.0, "pending DoT 6 ≥ hp=5 → kill_soon");
     }
 
-    /// When direct damage kills (kill_now case), kill_soon must be 0.
+    /// poison_shot: direct 1d4 (expected 2.5) + poisoned×3 (2.5/tick × 3 = 7.5) = 10 ≥ hp=5
     #[test]
-    fn estimate_kill_soon_zero_when_direct_kills() {
+    fn estimate_kill_soon_fires_on_new_dot_from_ability() {
         let content = db();
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(1).build();
-        let kp = estimate_kill_soon(get_def(&content, "melee_attack"), &target, &melee_caster(2), &content);
-        assert_eq!(kp, 0.0, "kill_now case -> kill_soon must be 0");
+        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(5).build();
+        let c = CasterContext::default();
+        let ks = estimate_kill_soon(get_def(&content, "poison_shot"), &target, &c, &content);
+        assert_eq!(ks, 1.0, "direct 2.5 + new DoT 7.5 = 10 ≥ hp=5 → kill_soon");
+    }
+
+    /// melee_attack with str_mod=0, no pending DoT: direct=0, combined=0 < hp=100
+    #[test]
+    fn estimate_kill_soon_zero_when_combined_insufficient() {
+        let content = db();
+        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(100).build();
+        let ks = estimate_kill_soon(
+            get_def(&content, "melee_attack"), &target, &melee_caster(0), &content,
+        );
+        assert_eq!(ks, 0.0);
+    }
+
+    /// Boundary case: expected=5.5 rounds to 6, hp=6 → direct kills, kill_soon=0.
+    /// Pins the `.round()` behaviour in `estimate_kill_soon` so it stays in sync
+    /// with sim's damage resolution.
+    #[test]
+    fn estimate_kill_soon_rounds_expected_to_match_sim() {
+        use crate::core::DiceExpr;
+        let content = db();
+        let caster = CasterContext {
+            str_mod: 2,
+            weapon_dice: Some(DiceExpr::new(1, 6, 0)),
+            ..Default::default()
+        };
+        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(6).build();
+        let ks = estimate_kill_soon(get_def(&content, "melee_attack"), &target, &caster, &content);
+        assert_eq!(ks, 0.0, "expected=5.5 rounds to 6 ≥ hp=6 → direct kills, kill_soon=0");
     }
 
     // --- estimate_deny_value ---
@@ -498,11 +543,12 @@ mod tests {
 
     // --- estimate_hypothetical ---
 
-    /// `estimate_hypothetical(...).expected_damage` equals `compute_score_core(...)` for a damage ability.
-    /// This invariant is what makes `λ_attack = 0.5 * expected_damage` identical
-    /// to the legacy `0.5 * score_action(...)` (zero golden-replay divergences in step 4.4).
+    /// `estimate_hypothetical(...).expected_damage` equals `compute_score_core(...)`
+    /// for a damage ability — pins the contract that the outcome's HP-equivalent
+    /// value is produced by the same formula as the sim-derived `expected_damage`.
+    /// `future_value::attack_component_intent` relies on this for λ_attack.
     #[test]
-    fn estimate_hypothetical_matches_score_action_for_damage_ability() {
+    fn estimate_hypothetical_expected_damage_matches_compute_score_core() {
         let content = db();
         let def = get_def(&content, "melee_attack");
         let caster = melee_caster(2);
@@ -516,22 +562,6 @@ mod tests {
             "expected_damage {:.6} should equal compute_score_core {:.6}",
             est.expected_damage, expected
         );
-    }
-
-    /// `λ_attack = 0.5 * est.expected_damage` matches the core score formula by construction.
-    #[test]
-    fn lambda_attack_formula_equals_legacy() {
-        let content = db();
-        let def = get_def(&content, "melee_attack");
-        let caster = melee_caster(1);
-        let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(10).build();
-
-        let core = compute_score_core(def, &target, &caster, &content, 0.0);
-        let est = estimate_hypothetical(def, &target, &caster, &content, 0.0);
-        let new_lambda = 0.5 * est.expected_damage;
-
-        assert!((new_lambda - 0.5 * core).abs() < 1e-6,
-            "λ_attack new={:.6} core={:.6}", new_lambda, core);
     }
 
     /// `p_kill_now = 1.0` when net damage >= target.hp.

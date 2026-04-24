@@ -138,112 +138,14 @@ fn compute_aoe_damage(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::outcome::estimate_kill_soon;
-    use crate::combat::ai::snapshot::ActiveStatusView;
     use crate::combat::ai::test_helpers::UnitBuilder;
-    use crate::content::abilities::CasterContext;
     use crate::content::content_view::ContentView;
-    use crate::core::{AbilityId, DiceExpr, StatusId};
+    use crate::core::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
-    /// Returns `(kill_now, kill_promised)`:
-    /// - `kill_now = 1.0` if direct expected damage kills the target this cast.
-    /// - `kill_promised = 1.0` if direct damage won't kill alone but accumulated
-    ///   DoT (pending on target + newly applied by this ability) will finish it.
-    ///
-    /// Invariant: at most one is 1.0; `kill_now = 1` implies `kill_promised = 0`.
-    ///
-    /// `kill_promised` delegates to `outcome::estimate_kill_soon` so both callers
-    /// share exactly one formula. Kept in test scope only — step 4.3 moved live
-    /// scoring to read from `ActionOutcomeEstimate` directly.
-    fn split_kill(
-        def: &AbilityDef,
-        target: &UnitSnapshot,
-        caster: &CasterContext,
-        content: &ContentView,
-    ) -> (f32, f32) {
-        let Some(calc) = def.effect.calc(caster) else { return (0.0, 0.0) };
-        let armor = if calc.pierces_armor { 0.0 } else { (target.armor + target.armor_bonus) as f32 };
-        let net = calc.expected().round() - armor + target.damage_taken_bonus as f32;
-        if net >= target.hp as f32 {
-            return (1.0, 0.0);
-        }
-        (0.0, estimate_kill_soon(def, target, caster, content))
-    }
-
     fn db() -> ContentView {
         ContentView::load_global_for_tests()
-    }
-
-    fn get_def<'a>(content: &'a ContentView, id: &str) -> &'a AbilityDef {
-        content.abilities.get(&AbilityId::from(id)).expect("ability not found in test content")
-    }
-
-    fn melee_caster(str_mod: i32) -> CasterContext {
-        CasterContext { str_mod, ..Default::default() }
-    }
-
-    /// melee_attack (WeaponAttack, bonus=str_mod, no dice): str_mod=2 → direct=2 ≥ hp=1
-    #[test]
-    fn kill_now_when_direct_damage_kills() {
-        let content = db();
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(1).build();
-        let (kn, kp) = split_kill(get_def(&content, "melee_attack"), &target, &melee_caster(2), &content);
-        assert_eq!(kn, 1.0, "kill_now should fire");
-        assert_eq!(kp, 0.0, "kill_promised must be 0 when kill_now=1");
-    }
-
-    /// melee_attack with str_mod=0 → direct=0; pending DoT (3/tick × 2 rounds = 6) ≥ hp=5
-    #[test]
-    fn kill_promised_via_pending_dot_on_target() {
-        let content = db();
-        let mut target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(5).build();
-        target.statuses = vec![ActiveStatusView {
-            id: StatusId::from("poisoned"),
-            rounds_remaining: 2,
-            dot_per_tick: 3,
-        }];
-        let (kn, kp) = split_kill(get_def(&content, "melee_attack"), &target, &melee_caster(0), &content);
-        assert_eq!(kn, 0.0, "direct=0, no kill_now");
-        assert_eq!(kp, 1.0, "pending DoT 6 ≥ hp=5 → kill_promised");
-    }
-
-    /// poison_shot: direct 1d4 (expected 2.5) + poisoned×3 (2.5/tick × 3 = 7.5) = 10 ≥ hp=5
-    #[test]
-    fn kill_promised_via_new_dot_from_ability() {
-        let content = db();
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(5).build();
-        let c = CasterContext::default();
-        let (kn, kp) = split_kill(get_def(&content, "poison_shot"), &target, &c, &content);
-        assert_eq!(kn, 0.0, "direct=2.5 does not kill hp=5");
-        assert_eq!(kp, 1.0, "direct+DoT=10 kills hp=5");
-    }
-
-    /// melee_attack with str_mod=0, no pending DoT: direct=0, combined=0 < hp=100
-    #[test]
-    fn no_kill_when_combined_insufficient() {
-        let content = db();
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(100).build();
-        let (kn, kp) = split_kill(get_def(&content, "melee_attack"), &target, &melee_caster(0), &content);
-        assert_eq!(kn, 0.0);
-        assert_eq!(kp, 0.0);
-    }
-
-    /// Boundary case: WeaponAttack 1d6 + str_mod=2 → expected=5.5, sim rounds to 6.
-    /// Target hp=6, armor=0. Scorer must match sim: kill_now=1, not 0.
-    #[test]
-    fn split_kill_rounds_expected_to_match_sim() {
-        let content = db();
-        let caster = CasterContext {
-            str_mod: 2,
-            weapon_dice: Some(DiceExpr::new(1, 6, 0)),
-            ..Default::default()
-        };
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(6).build();
-        let (kn, kp) = split_kill(get_def(&content, "melee_attack"), &target, &caster, &content);
-        assert_eq!(kn, 1.0, "kill_now must be 1: expected()=5.5 rounds to 6 >= hp=6");
-        assert_eq!(kp, 0.0, "kill_promised must be 0 when kill_now=1");
     }
 
     /// Step 4.3 contract: `compute_offensive` must read `outcome.expected_damage`,
