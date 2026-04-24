@@ -1,343 +1,440 @@
-# AI Rework — Developer Plan
+# Шаг 0: Sim↔Real parity + telemetry mining
 
-Шаги имплементации. Контекст и acceptance — [`docs/ai_rework.md`](ai_rework.md).
+## Зачем
 
-Фиксация: 2026-04-22, пост-Phase 7 prototype (verdict 0/3).
+Два контракта, которые план опирает молчаливо, должны стать явно проверяемыми до того, как поверх них строится что-то ещё.
+
+**Sim faithfulness.** В `sim.rs` честно написано, что часть производных полей «stale». Это признание возможного drift'а модели мира. Шаги 4 (outcome vector) и 5 (terminal eval) строят оценку будущего на результатах sim — если sim расходится с real resolution, весь value function считает не то. Без property-тестов равенства это риск, который не виден в логах.
+
+**Telemetry mining.** Шаг 3 (need layer) проектируется под **реальные патологии** поведения AI, а не под гипотезу о них. JSONL уже пишется со всеми нужными полями (почти — см. 0.3). Прогон анализа по существующим логам даёт таблицу реальных проблем — на неё и опирается дизайн need signals.
+
+## Что делаем
+
+### 0.1. Property-battery parity — на уровне `AbilityOutcome` фактов
+
+**Уточнение ожиданий.** Production resolver (`combat/resolution.rs`) и sim (`combat/ai/planning/sim.rs`) **оба** вызывают общий `compute_ability_outcome` (`effects_outcome.rs`) — dice-математика и primary-outcome совпадают by construction. Drift живёт **после** outcome: real применяет эффекты через Bevy messaging (`ApplyDamage` / `ApplyHeal` / `ApplyStatus` / `SpawnUnit`) с отложенным системным прогоном; sim мутирует `UnitSnapshot` сразу. Plus: death-cleanup ordering, rage-gain timing, DoT tick ordering, reaction consumption.
+
+Поэтому честная parity-батарея разрезается на два уровня:
+
+**0.1a. Outcome-facts parity (дёшево, обязательно в волне 1).**
+
+Для каждой ability прогнать: `compute_ability_outcome(ctx, EV)` vs `sim::apply_step(ctx, EV)` — сверка **набора фактов**, которые sim декларирует: damage deltas, applied statuses, resource deltas, spawn instructions. Это не end-to-end, это «соглашается ли sim с shared core о том, ЧТО произошло». Ловит 90% реальных drift-багов за 2–3 дня.
+
+**Контекст для исполнителя:** `sim::apply_cast` **уже** вызывает `compute_ability_outcome` под `ExpectedValue` (`sim.rs:161–168`), т.е. dice-математика by construction совпадает. Реальный предмет проверки — **интерпретация** возвращённого `AbilityOutcome` в sim: правильно ли `apply_primary` / `apply_statuses` / `pay_costs` переводят outcome в state deltas.
+
+**Scope задачи для 0.1a:**
+
+Создать `src/combat/ai/planning/parity_tests.rs` (новый модуль, `#[cfg(test)]`) с двумя слоями тестов:
+
+*Слой 1 — focused invariants per `OutcomePrimary` variant.*
+Для каждой ветки `OutcomePrimary::{Damage, Heal, GrantMovement, RestoreResources, Summon, None}` — 1–2 целевых теста, которые:
+1. Строят канонический fixture (actor + релевантные targets) через `test_helpers::UnitBuilder`.
+2. Вызывают `SimState::apply_step` для cast-ability с нужным effect.
+3. Ассертят, что конкретное поле `AbilityOutcome` (например, `Damage.raw`) отражено в state delta ровно так, как декларирует shared core: `final_damage_f32(raw, armor+bonus, vuln, pierces)` для Damage, `min(missing_hp, amount - dot_consumed)` для Heal, `+distance` к movement_points для GrantMovement, и т.д.
+
+*Слой 2 — property sweep по всем abilities из контента.*
+Единый тест, который:
+1. Загружает `ContentView::load_global_for_tests()`.
+2. Итерирует по `content.abilities` (~18 штук сейчас — см. `assets/data/abilities.toml`).
+3. Для каждой ability:
+   - Строит минимальный snapshot с actor + target(ами) в соответствии с `target_type` и достаточными ресурсами для `can_afford`.
+   - Вызывает `compute_ability_outcome` напрямую — получает ожидаемый `AbilityOutcome`.
+   - Параллельно вызывает `SimState::apply_step` на копии того же snapshot.
+   - **Сверяет инварианты:**
+     - HP delta каждого `affected` таргета соответствует `final_damage_f32(outcome.primary.raw, …)` (для Damage) или `min(missing, effective_heal)` (для Heal).
+     - Каждый `outcome.statuses[i]` присутствует в `target.statuses` post-cast с правильным `rounds_remaining` и `dot_per_tick = sd.dot_dice.expected().round()`.
+     - `def.costs` вычтены из соответствующих ресурсов; AP cost уменьшён на `def.cost_ap`.
+     - Для `skips_turn` статусов target получил `AiTags::IS_STUNNED`.
+     - Killed targets (hp → 0) появились в `StepOutcome.killed`.
+
+*Whitelist задокументированных divergences.*
+Оформить как `const KNOWN_DIVERGENCES: &[(AbilityFilter, &str)]` с комментарием-объяснением для каждого случая:
+- `Summon`: sim не спавнит юнит (out-of-scope по `apply_primary`); проверка только в том, что outcome declares Summon и sim не изменяет state кроме costs.
+- `ManaOverload` / crit-fail: sim жёстко передаёт `crit_failed=false`; весь crit-path не проверяется (задокументировано в `sim.rs:157–160`).
+- Любые новые расхождения, обнаруженные во время написания — добавляются в whitelist с комментарием «почему» и ссылкой на issue/drift номер.
+
+*Что НЕ входит в scope 0.1a:*
+- End-to-end Bevy App parity (это 0.1b, после шага 12).
+- Исправление обнаруженных drift'ов (только документирование в whitelist).
+- Изменения в production-коде кроме тестов.
+- Perf-оптимизация test loop (~18 abilities × 2 слоя тестов = тривиально быстро).
+
+*Критерии готовности 0.1a:*
+- `cargo test --lib combat::ai::planning::parity_tests` зелёный.
+- Whitelist коммитится вместе с тестами; каждая запись имеет комментарий причины.
+- Добавить в docstring нового модуля: «property-battery for shared-core ↔ sim parity; extends automatically as new abilities land in content».
+- Один commit, message mentions шаг 0.1a.
+
+**0.1b. End-to-end parity (opt-in, после шага 12).**
+
+Полный Bevy-прогон мини-App'а с `ValidatedAction` → захват всех компонент post-resolution → сравнение с `SimState` post-resolution. Scaffolding уже есть в `tests/effects.rs` / `tests/pipeline.rs` (150–200 строк на сценарий). Property-раннер поверх всех abilities — неделя. **Это не блокер волны 1**, делается когда mid-plan reflow (шаг 12) делает status-timing и AoO-ordering load-bearing для планирования.
+
+**Whitelist.** Задокументированные осознанные расхождения (crit-fail в sim отключён; status-application timing в 0.1a игнорируется; в 0.1b учитывается) — перечислить в тесте с комментариями.
+
+### 0.2. Инвариант в документации
+
+Добавить пятый инвариант в «что не ломаем»:
+
+> **Sim faithfulness.** `SimState::apply_step` под `ExpectedValue` даёт тот же `AbilityOutcome` fact-set, что production `compute_ability_outcome`. Для фактов, которые sim применяет немедленно (status/DoT timing), end-to-end parity гарантируется отдельной батареей (0.1b). Новый эффект добавляется сперва в shared effects core, затем параллельно в sim — property-тест гарантирует равенство. Задокументированные исключения — whitelist.
+
+### 0.3. Mining существующих логов
+
+Mining метрик делится на три класса по готовности JSONL:
+
+**Класс A — mineable из текущего лога напрямую:**
+
+- **Adaptation reason frequency**: `PlanLogEntry.adaptation_reason` (`log.rs:227`) — как часто стреляют `ExpectedSelfLethal`, `ProtectSelfNoDefensive`, `ProtectSelfFutile`.
+- **Panic-override frequency**: `IntentBlock.reason.code == "panic_override"` — как часто hard override vs сколько раз ProtectSelf выбрался бы через обычный scoring (`base_score` vs `score` ранжирование).
+- **Plan depth utilization**: `plan.steps.len()` в `PlanLogEntry.steps` — насколько часто выбирается план глубины 2 vs 3.
+- **Continuation invalidation reasons**: `replan_reason` в существующих `plan_divergence` entries (`log.rs:540`). Какие `mismatch()` codes срабатывают постоянно, какие — никогда. Прямой вход для step 6.
+
+**Класс B — требует реконструкции последовательности (день-два работы):**
+
+- **Intent transition stability**: `(prev_intent, current_intent)` за ход. В JSONL `prev_intent` не хранится per-entry; скрипт группирует по `actor_id` в пределах одного combat_log_path и упорядочивает по `plan_id` / `timestamp_ms`. Выход: матрица переходов.
+
+**Класс C — требует предварительной правки `log.rs`:**
+
+- **Sanity hit histogram**: какие правила sanity срабатывают чаще 0.5%, какие — шум. В текущем логе хранится только финальный `score` / `base_score`, **per-rule breakdown отсутствует**. Либо добавить `sanity_breakdown: Vec<SanityHit>` в `PlanLogEntry` перед mining (полдня работы), **либо** перенести эту метрику в step 10 (там benchmark-driven decomposition всё равно понадобится). Выбор: добавить поле в 0.3, это дёшево и окупается.
+
+### 0.4. Таблица патологий как вход для шага 3
+
+Из mining'а собирается артефакт `docs/ai_need_signals.md` с форматом «патология → частота → гипотеза → need signal». Именно этот документ потом коммитится **вместе** с реализацией step 3 как входной спецификацией. Не висящая в воздухе заметка — load-bearing артефакт следующего шага.
+
+Пример:
+- «Переключение FocusTarget A → FocusTarget B между ходами без смерти A» → 8% тиков → need `continue_commitment` с высоким весом.
+- «Panic_override стреляет при hp=25% но без урона по актору между ходами» → 3% тиков → порог `survival_hp_threshold` слишком высокий, либо нужен `recent_damage_taken` signal.
+
+## Что это даёт и что стоит
+
+| Подзадача | Стоимость | Permanent? | Статус |
+|-----------|-----------|------------|--------|
+| 0.1a parity (outcome-facts) | 2–3 дня | да, в CI | pending (формулировка закоммичена) |
+| 0.1b parity (end-to-end) | 1 неделя | да, в CI — но **делается после шага 12** | deferred |
+| 0.3 A+B mining | 2 дня | нет, повторяется перед каждой волной | pending |
+| 0.3 C (sanity_breakdown патч log.rs) | 0.5 дня | да, поле остаётся | **done** (commit `00b2feb`, schema v15→v16) |
+| 0.4 артефакт need_signals.md | 0.5 дня | коммитится с step 3 | **done** (`docs/ai_need_signals.md`) |
+
+Суммарно для волны 1: **4–5 дней** до старта step 1.
 
 ---
 
-## Shipped ✅
+# Шаг 1: Assertion overlay поверх существующего replay
 
-Завершённые шаги с указателями на ключевые коммиты / документацию. Детальные старые спеки в истории git; текущий код и тесты — источник истины.
+## Зачем
 
-| Step | Суть | Код | Commit |
-|---|---|---|---|
-| 0 | `replay_ai_log` compile fix + campaign inference | `src/bin/replay_ai_log.rs` | pre-e1f0d38 |
-| 0.5 | Baseline corpus metrics (`repeated_tile`, `zero_net_move`, `post_cast_retreat`) | `replay_ai_log.rs` | pre-e1f0d38 |
-| 1 | `tempo_gain` → net displacement (start→final) | `factors/tempo.rs` | e1f0d38 |
-| 1b | `intent_sum` pure-move shortcut (`pursuit_move_score` на `actor_start → plan.final_pos`) | `planning/scorer.rs::compute_plan_intent_sum` | e1f0d38 |
-| 1c | `intent_sum` post-cast tail shortcut (single `pursuit_move_score` после первого Cast) | `planning/scorer.rs` | e1f0d38 |
-| 2 / 2.5 | Schema v15 + gate telemetry поля | `combat/ai/log.rs` | f5b2b0a |
-| 3 | Tiered killable gate под `FocusTarget`: `None / Pressure / CanFinish`, live-pool (`mode == Default && scores.is_finite()`), intent-coherent detection и keep-set | `planning/killable_gate.rs` + wiring | 0952c96 |
-| Track A | Replay метрики → ground-truth (committed-prefix kill, intent-coherent `has_real_kill_line`) | `bin/replay_ai_log.rs` | 7caac3a |
-| 4a | Phantom-tail фикс для `self_survival.exit_danger` — aggregation по committed prefix, не `plan.final_pos` | `factors/survival.rs` | d5a1078 |
-| Phase 7 prototype (2A–2E) | Offline prototype `Score = PrefixScore + γ·FV`; 12-log corpus verdict **0/3**. См. § Phase 7 prototype — closed. | `planning/future_value.rs`, `bin/replay_ai_log.rs` | abbf481..60bbed2 |
+Почти всё для serialization-first регрессии **уже есть**:
 
-Ключевые инварианты (закреплены в коде и тестах):
+- `BattleSnapshot` и всё внутри — `Serialize/Deserialize` с `#[serde(default)]`.
+- JSONL пишет snapshot, intent, план-пул, raw factors, adaptation, trade breakdown, schema_version.
+- `replay_ai_log` десериализует, пересчитывает influence maps детерминированно, прогоняет production `finalize_scores` + `sanity_adjust_plans` + `pick_best_plan`, умеет diff.
+- `IntentReason` — structured enum с `code()`.
 
-- **Killable gate** композирует с предыдущими масками: strength и keep-set читают live-pool. Regression guard'ы — `gate_ignores_plans_already_masked_by_prior_layer`, `can_finish_ignores_collateral_kill_line`.
-- **Replay ↔ production parity**: `KILLABLE_ALPHA = 0.3` и семантика `plan_is_offensive_vs` синхронизированы между `killable_gate.rs` и `replay_ai_log.rs` через `// KEEP IN SYNC` комментарии.
-- **Phantom-tail gating**: `intent_sum` (step-1c) и `self_survival` (step-4a) считаются по committed prefix. `CommittedPrefix` enum из `planning/types.rs` — канонический decomposition.
+Недостаёт: assertion overlay, runner с pass/fail, pre-merge CI, и — для **части** сценариев — расширение лога.
 
----
+## Что делаем
 
-## Активные треки
+### 1.1. Расширение лога (pre-step, не откладываемый) — **done**
 
-Два независимых трека, идут параллельно.
+`replay_ai_log` сегодня хардкодит `DifficultyProfile::normal()`, fresh `Reservations::default()`, fresh `AiMemory::default()`. Для self-contained сценариев этого достаточно. Для continuation / team-coord сценариев — нет.
 
-### Track 1 — закрыть текущую итерацию
+Добавить в `AiLogEntry` перед решением:
 
-#### Step-4a measurement (pending)
+- `difficulty: DifficultyProfileSnapshot` — название тира + override-секция, чтобы replay восстановил тот же `DifficultyProfile`, с которым работала игра.
+- `ai_memory: Option<AiMemorySnapshot>` — `last_intent`, `last_target`, `turns_committed`, `last_plan` (без `sim_snapshots`). Актор-скоуп.
+- `reservations: ReservationsSnapshot` — на момент перед `pick_action`. Не после.
 
-Прогнать 8 боёв (те же encounters) на post-4a binary, replay на новом corpus'е, сравнить с `logs/baseline_20260422_step3.txt`.
+Это 50–80 строк в `log.rs` + bump `SCHEMA_VERSION`. Полдня. **Без этого patch'а** сценарии из 1.4 — класс «Plan freeze» и «Team coordination» — строят тесты на дефолтах, которые не воспроизводят реальную ситуацию.
 
-**Acceptance** (`ai_rework.md §4.1`):
+**Статус:** реализовано. Schema v16 → v17. Три snapshot-типа в `src/combat/ai/log.rs`, `Reservations::to_snapshot`/`from_snapshot` в `src/combat/ai/reservations.rs`, `LogEntry` в `replay_ai_log.rs` — с `#[serde(default)]` для backward compat со старыми v16 логами. Хардкоды `DifficultyProfile::normal()` / `Reservations::default()` в replay намеренно оставлены до шага 1.3.
 
-| Метрика | Цель | Baseline |
+### 1.2. Assertion overlay
+
+Рядом с каждым JSONL-снапшотом — `*.expected.toml`. Описывает ожидания, а не состояние.
+
+Два типа assertion'ов смешиваются в одном наборе:
+
+- **Точные** — когда решение единственно верное: `decision_kind`, `cast_ability`, `cast_target`, `end_position`.
+- **Категориальные** — когда несколько равноценных ответов: `intent ∈ {...}`, `primary_effect ∈ {Damage, Kill}`, `end_position ∈ {...}`, `not_target = ...`.
+
+Правило: assertion'ы — только на наблюдаемое поведение, не на внутренние скоры. Иначе тесты падают при любой безобидной доводке весов.
+
+### 1.3. `--assert` флаг в `replay_ai_log`
+
+Режим: читает overlay, прогоняет production `pick_action` на десериализованном снапшоте с восстановленным `AiMemory` / `Reservations` / `DifficultyProfile` из 1.1, сравнивает результат. Non-zero exit code при несовпадении, структурированный diff ожидаемого vs полученного.
+
+### 1.4. `cargo test --test ai_scenarios` — **done**
+
+**Статус:** реализовано в два коммита.
+
+**1.4a — library extraction** (commit `b018f9c`). Пайплайн пересборки решения из JSONL-снапшота (`finalize_scores` → `sanity_adjust_plans` → `apply_protect_self_mask` → `pick_best_plan` → `build_actual_decision`) вместе с serde-миррор типами (`LogEntry`, `PlanLog`, `IntentBlock`, `LoggedTradeBlock`, `LoggedEvaluationMode`, `LoggedAdaptationReason`) переехал из `src/bin/replay_ai_log.rs` в новый `src/combat/ai/replay.rs`. Публичный API: `assert_log_file(jsonl, overlay, &content, &inf_cfg) -> Result<AssertOutcome, AssertError>`. Бинарь стал тонкой I/O-оболочкой; поведение PASS/FAIL/exit-codes сохранено bit-for-bit (прошли 9 тестов `tests/replay_assert.rs` без правок).
+
+**1.4b — harness.** `tests/ai_scenarios.rs` обходит `tests/ai_scenarios/snapshots/`, по парам `<name>.jsonl` + `<name>.jsonl.expected.toml` вызывает `assert_log_file` напрямую (без subprocess). Контент и `InfluenceConfig` загружаются один раз на весь batch. При падении печатается путь к JSONL, overlay, фактическое решение и per-variant failure diff. README в `tests/ai_scenarios/README.md` описывает формат и правила.
+
+Стартовый сценарий: `focus_target_melee_basic.jsonl` (schema v15, отрабатывает через pre-v17 fallback — см. `ReservationsSnapshot`/`DifficultyProfileSnapshot` комментарии в `replay.rs`). Scope 1.4 — harness + 1 smoke scenario; наполнение корпусом на 10–15 снапшотов — отдельная задача 1.5.
+
+Время harness'а: <100ms для 1 сценария, целевой budget `<5s` для 10–15 сценариев достижим (один процесс, без ребилда).
+
+### 1.5. Первая партия — **done (первый batch)**
+
+**Статус:** закоммичено (`b2b6a2c`). Разметка `snapshots/<group>/log.jsonl + N <case>.expected.toml`; имя кейса `p<plan_id>_<desc>.expected.toml` — plan_id сразу виден. Harness рекурсивен по подпапкам; в каждой требует ровно один `*.jsonl` + ≥1 overlay, иначе panic с понятным сообщением. Имя кейса (`<group>/<stem>`) печатается при fail.
+
+Сейчас **9 кейсов** (1 smoke + 8 из 4 свежих v17 playtest'ов от 2026-04-24). Разбивка:
+
+| Группа | Кейс | Категория |
 |---|---|---|
-| `panic_leak_rate` | ≤ 5% | 16.7% |
-| `kill_conversion_rate` (guard) | ≥ 75% | 80% |
-| `killable_non_offensive_rate` (guard) | остаётся 0% | 0% |
-| `repeated_tile` / `zero_net_move` / `post_cast_retreat` (guards) | Δ ≤ 5 pp | 9.9% / 6.2% / 20% |
-| `phantom_tail_chosen` / `flips` (guards) | Δ ≤ 5 pp | 31.7% / 65% |
+| `focus_target_melee_basic` | `p000_basic_melee` | offensive (legacy smoke) |
+| `road_bridge` | `p000_padalshchik_basic_melee` | offensive baseline |
+| `twisted_grove` | `p010_dvoynik_finisher_1hp` | offensive — finisher на 1HP цель, GATE |
+| `twisted_grove` | `p013_iskazhenny_last_stand_trade` | protect-self — LS+SV, Cast "забрать с собой" |
+| `twisted_grove` | `p019_dvoynik_monotone_focus` | continuation — r3 focus-fire на ту же цель |
+| `twisted_grove` | `p036_iskazhenny_last_stand_no_options` | protect-self — LS+AP=0 → EndTurn |
+| `glassworks` | `p001_kontrabandist_backstab` | offensive positional |
+| `bell_crypt` | `p003_meron_support_heal` | support — heal раненого ally |
+| `bell_crypt` | `p008_bell_bound_retreat_low_hp` | protect-self — hp=7%, retreat |
 
-Оба наблюдаемых leak'а в baseline (HP=1 Проводник, HP=2 Одержимый — оба `Cast @ enemy + phantom retreat`) должны закрыться: phantom retreat больше не даёт exit_danger credit.
+**Категории плана vs реальность:**
 
-**Ожидаемый output**: файл `logs/baseline_20260422_step4a.txt` с обновлённой табличкой. Если acceptance зелёный — step-4a подписан, иначе investigation.
+- **Offensive correctness** — 3 кейса ✓
+- **Protect-self correctness** — 3 кейса ✓
+- **Plan freeze / continuation** — 1 кейс (monotone_focus). Недостаёт: replan при смерти цели, continuation при actor_hp_drop (есть DIV event в bell_crypt, но формат ассерта пока не прорабатывался).
+- **Team coordination** — 1 кейс (support heal). Недостаёт: no overkill через reservations, focus fire. Нужен формат для reservations-зависимых ассертов (`not_target` на уже занятого — формально поддерживается, но требуется проверить, что reservations корректно пробрасываются в `ScoringCtx` для v17 логов и выбрать evident entry).
 
-#### Step-5 — Summon saturation + intent-specific credit filter
+**Правила:**
+- Assertion'ы только на наблюдаемое поведение (`decision_kind`, `cast_ability`, `cast_target`, `primary_effect`, `intent_kind`, `end_position`). Не на внутренние скоры — упадут при любой доводке весов.
+- Снапшоты только из реальных плейтестов, не синтетика.
+- Negative-path verified: замена overlay на противоречащий кейс падает с читаемым diff'ом.
 
-**Триггер**: §2.3 оригинального плана. Не замерено на post-step-3 corpus — возможно уже подавлен gate'ом, возможно ещё проявляется. Замер на baseline_step3 + replay → если `summon_spam_rate > 1%`, step-5 в работу.
+**Доборы на будущее (не блокируют 2a):**
+- +2 continuation-кейса (replan on target death, hp_drop re-plan).
+- +2 team-coord кейса через reservations (no overkill, focus fire при разрешённом pile-on).
 
-**Файлы**:
-- `src/combat/ai/factors/saturation.rs` — расширение на summon-class.
-- `src/combat/ai/intent.rs::intent_score` — intent-specific credit filter.
-- `src/combat/ai/planning/scorer.rs::plan_summon_bonus` — калибровка с per-template saturation.
+### 1.6. CI — **skipped**
 
-**Что делать**:
+Pre-merge CI-workflow'а сейчас нет. `cargo test --test ai_scenarios` (~100ms) локально закрывает потребность. Когда/если CI заведём, harness уже готов к включению без изменений.
 
-1. **Saturation axis расширить на summon.** Добавить `summon_saturation_penalty(ability, snap, caster)`:
-   - Для `EffectDef::Summon { template, .. }` считать `active_count = snap.units.filter(|u| u.summoner == Some(caster) && u.template == template && u.is_alive()).count()`.
-   - Penalty = `-0.4 × active_count`.
-   - Складывается с существующим `buff_saturation_penalty` в общий saturation axis.
+### 1.7. Рост покрытия через баги
 
-2. **Intent-specific credit filter** в `intent_score`. Для `FocusTarget / ApplyCC / ProtectAlly` правило:
-   ```rust
-   if let Some((_, _, cast_target)) = cast {
-       if cast_target != intent.target().unwrap_or(Entity::PLACEHOLDER) {
-           return 0.0; // cast не на intent target — нет credit
-       }
-   }
-   ```
-   `SetupAOE / ProtectSelf / LastStand / Reposition` — правило **не** применяется (нет single-target).
+Правило: каждый найденный bug сначала становится снапшотом с overlay'ем, потом чинится. Снапшот снимается из существующего JSONL-лога боя, overlay пишется за минуту. **Активный механизм** теперь, когда harness живой.
 
-3. **Калибровка**. `plan_summon_bonus` в `scorer.rs` сейчас использует `saturation_mult = 0.65^total_allies` как coarse bound. Оставить; per-template penalty из шага 1 умножается поверх.
+## Что не делаем в Волне 1 (отложено)
 
-**Тесты**:
-- `factors/saturation::tests::summon_saturation_per_template` — 2 живых storm_spirit → penalty = −0.8.
-- `factors/saturation::tests::different_templates_independent` — разные template'ы считаются независимо.
-- `intent::tests::summon_no_credit_under_focus_target` — `FocusTarget(enemy_T)`, `Cast summon → Move`. Intent_score для Cast-шага = 0.
-- `intent::tests::summon_earns_credit_under_setup_aoe` — `SetupAOE`, `Cast summon`. Intent_score сохраняется.
-- Regression: legitimate buff-стэк (haste+armor у танка) не триггерит новые penalty.
+- **Hotkey сохранения в игре** — снимки уже есть через JSONL. Хоткей — по потребности.
+- **Auto-capture при падении CI** — удобно, не блокирует.
+- **Golden JSONL diff + `UPDATE_GOLDENS=1`** — вторая линия защиты, не нужна сразу. *Исключение:* для шага 2a (см. ниже) golden replay становится обязательным gate.
+- **Визуализатор diff** — отдельный инструмент, по необходимости.
+- **Integration с save/load системой** — отдельная задача игры. Формат общий (уже есть), интеграцию делаем, когда save/load будет разрабатываться.
 
-**Acceptance** (`ai_rework.md §4.2`):
+## Чего не делать
 
-| Метрика | Цель |
-|---|---|
-| `summon_spam_rate` (≥3 summon одного класса подряд за 5 ходов у одного актора) | ≤ 1% |
-| Legitimate buff-стэк (regression-тест) | pass |
-
-Для `summon_spam_rate` метрика должна быть добавлена в `replay_ai_log.rs` (новая, не существует). Простая реализация: per-actor sliding window по round, счётчик summon'ов одного template.
-
-**Риск**: средний. Intent-specific credit filter в `intent_score` затрагивает большой объём поведения, нужен полный corpus-replay перед merge. Guard: Δ на существующих acceptance-метриках ≤ 5 pp.
+- Не писать синтетические сценарии в TOML до переработки continuation/repair (шаг 6). Снимки из реальных боёв покрывают лучше.
+- Не плодить assertion'ы на внутренние скоры — упадут при любой доводке весов.
+- Не делать снапшоты взаимозависимыми.
+- Не покрывать «все возможные бои».
 
 ---
 
-### Track 2 — Phase 7 follow-up (offline experiments)
+# Шаг 2: `AiTuning` (фаза 2a) — миграция констант в данные
 
-Phase 7 prototype завершён со счётом **0/3**. Раздел ниже разбит на **(i)** post-mortem (что узнали, чтобы не потерять знание) и **(ii)** два независимых follow-up эксперимента **P1** и **P2** с опциональной композицией **P3**. Все три — offline, production-код не меняют.
+## Зачем
 
-#### Phase 7 prototype — closed
+`DifficultyProfile` уже централизует большинство тюнинг-констант с derived-методами. `InfluenceConfig` уже Resource. Но магических чисел всё ещё много в `factors/*`, `sanity.rs`, `intent.rs`, `scarcity`. Каждое — grep-only при балансировке.
 
-- Код: `src/combat/ai/planning/future_value.rs` (`plan_prefix_only`, `future_value_from_committed_state`, `score_plans_prototype`), флаг `replay_ai_log --phase7-prototype` с dual-pipeline и метриками `ranking_change_rate` / `plateau_tie_rate`. Коммиты abbf481..60bbed2.
-- Corpus: 12 логов (8 post-step-3 + 4 baseline_final), 222 entries.
-- Full output: [`logs/phase7_prototype_20260422.txt`](../logs/phase7_prototype_20260422.txt).
+Шаги 2b (response curves) и 2c (difficulty layers, live-reload, визуализатор) — отдельные фазы, по потребности, не в волне 1.
 
-| Criterion | Threshold | Baseline | Prototype | Δ | Pass |
-|---|---|---|---|---|---|
-| `phantom_tail_flips_committed` | ≥ 40% rel. drop from 64.7% | 64.7% | 47.6% | −17.1 pp (−26% rel.) | ✗ |
-| `plateau_tie_rate` | prototype < 10% | 24.3% | 20.3% | −4.1 pp | ✗ |
-| Δ acceptance (§4.1–4.3) | ≤ 5 pp на всех | — | — | **+23.5 pp** (`killable_non_offensive` 0→23.5%, `kill_conversion` 88.2→64.7%) | ✗ |
+## Классификация того, что мигрируем
 
-**Ключевые находки**:
+Grep «`const`» — оптимистичная формулировка, которая покрывает ~30% реальных точек тюнинга. Честная классификация на три класса:
 
-1. **Committed-prefix ablation сама по себе работает.** `score_plans_prototype` считает факторы на `plan_prefix_only(plan)` — это и есть partial committed_state discipline. −17 pp на phantom_tail без регрессий на prefix-factor метриках — чистый сигнал, что horizon-based discipline даст эффект в production.
-2. **γ·FV как additive reranker ломает kill-line gate.** Prototype применяет `γ · FutureValue(committed_state)` поверх уже gate-passed пула. FV игнорирует intent (одинаковая оценка для любых достижимых врагов) — gate-passed offensive план с плохим committed_pos проигрывает non-offensive плану с хорошим committed_pos. Это **не вопрос калибровки γ**, а структурная проблема cross-class reranking.
-3. **Plateau устойчив.** `pursuit_move_score` — step-function 0.8 flat в attack range → ties на уровне PrefixScore. γ=0.25 с текущими λ-весами FV недостаточно, чтобы дифференцировать плато.
+**Класс А — чистые scalar const'ы (дёшево, механическая миграция).**
 
-Код prototype оставляем: (a) он infrastructure для P1/P2/P3 — `plan_prefix_only` переиспользуется; (b) regression guard от возврата к наивному scalar scoring.
+Примеры: `MILD_PENALTY`, `STICKINESS_BONUS`, `MAX_COMMITTED_TURNS` (`intent.rs`), `SURVIVAL_FLOOR`, `LOW_HP_FACTOR`, `AOO_PENALTY_K`, `AOO_RISK_FLOOR`, `SELF_SURVIVAL_EPSILON` (`sanity.rs`), λ-values из `InfluenceConfig::default`. Переезжают в `tuning.thresholds` как плоские числа. **1 день.**
 
----
+**Класс B — role-зависимые таблицы (средняя работа, требует сохранить API).**
 
-#### Мотивация follow-up
+Примеры: `AxisProfile::factor_weights()` в `role.rs` — функция от 5 role-осей; `evaluate_position` веса в `position_eval.rs`. Это не «const → tuning», это «таблица коэффициентов (axis, factor) → tuning.tables» + функция читает таблицу по индексу. Контракт `factor_weights()` сохраняется, внутрь завозится Resource. **2–3 дня.**
 
-Две independent гипотезы о корне acceptance regression:
+**Класс C — derived-методы `DifficultyProfile` (средняя работа, рефакторинг Resource).**
 
-- **H1 (intent-agnostic FV)**: FV не знает intent и оценивает `future_attack` одинаково для любых врагов. Исправление — `FocusTarget{T} ⇒ λ_attack только vs T`, `ProtectSelf ⇒ λ_attack = 0`, и т.д. Проверяется прототипом **P1**.
-- **H2 (cross-class reranking)**: даже intent-aware FV не должен поднимать план из одного policy-class над планом из другого. Классы — admissibility regions существующего killable gate и `apply_protect_self_mask`. Исправление — bucketed ranking с FV только внутри bucket. Проверяется прототипом **P2**.
+Примеры: `survival_hp_threshold()`, `reposition_min_improvement()`, `awareness_danger_threshold()` — lerp'ы между константами с параметром `survival_instinct` / `awareness`. Сейчас это методы; после 2a — параметры lerp'а лежат в TOML, методы читают оттуда. API не меняется, реализация — читает `tuning.difficulty.awareness_danger_curve.{lo, hi}` вместо двух хардкодных чисел. **2 дня.**
 
-P1 и P2 ортогональны (модифицируют разные куски pipeline'а). Параллельный замер двух — это **декомпозиция сигнала**: если только один из двух даёт эффект, значит корень именно там; если оба частично, значит нужна композиция **P3**.
+Итого 2a = 5–7 дней. Не «дневная миграция».
 
-#### P1 — Intent-aware FutureValue
+## Что делаем в 2a
 
-**Файлы**:
-- `src/combat/ai/planning/future_value.rs` — сигнатура `future_value_from_committed_state(active, committed_pos, snap, maps, ctx)` расширяется параметром `intent: &TacticalIntent`.
-- `src/bin/replay_ai_log.rs` — флаг `--p1` (или переиспользуем `--phase7-prototype` через parameter swap, пусть решает реализатор).
+Пошаговый план, **коммит на шаг**, между коммитами — прогон golden-replay (шаг 2.0). Порядок выбран так, что каждый шаг либо расширяет инфраструктуру, либо переносит одно конкретное семейство констант.
 
-**Что делать**:
+### 2.0. Golden-replay tool — **обязательный первый шаг**
 
-Переопределяет per-intent λ-веса в `future_value_from_committed_state`:
+**Зачем.** Без него вся миграция «вслепую»: опечатка `0.15 → 0.015` в TOML не ловится ни scenarios harness'ом (9 кейсов — слишком маленькое зеркало формул), ни unit-тестами (они не покрывают end-to-end scoring).
 
-| Intent | λ_attack | λ_pos | λ_mob | Комментарий |
-|---|---|---|---|---|
-| `FocusTarget{T}` | только vs T (0 если T мёртв / недостижим) | default | default | target-locked attack budget |
-| `ApplyCC{T}` | как FocusTarget, но `score_action` ограничен ability с `applies_cc = true` | default | default | |
-| `ProtectSelf` | **0** | 2× вес (больший штраф за danger) | default | fleeing — attack будущее не релевантно |
-| `ProtectAlly{A}` | **0** | default | default | ally-coverage term вне scope P1 |
-| `SetupAOE` | best AoE ability против max-hits tile | default | default | |
-| `Reposition` / `LastStand` | default (как в Phase 7) | default | default | |
+**Реализация** — два флага в `src/bin/replay_ai_log.rs`:
 
-Остальное — без изменений. `γ = 0.25` хардкод остаётся.
+- `--capture-golden <out.jsonl>` — пройти по всем entries переданных JSONL-логов, прогнать production pipeline (ту же цепочку, что `assert_log_file`), записать в `out.jsonl` по строке на entry: `{log_path, plan_id, actor_id, decision_kind, cast_ability, cast_target, end_position}`. Никакого filter'а — весь decision stream.
+- `--compare-golden <baseline.jsonl>` — прогнать сейчас те же логи, сравнить с baseline. Exit 1 при любом расхождении, stderr: `case N diverged: field = <actual> vs <baseline>` per-entry. Итого `diverged / total`.
 
-**Тесты**:
-- `future_value::tests::focus_target_ignores_non_target_enemies` — `FocusTarget{T}` + лёгкий враг ≠ T рядом, тяжёлый T далеко: FV не поднимает план, где T недостижим.
-- `future_value::tests::protect_self_suppresses_attack_component` — λ_attack = 0 для ProtectSelf.
-- `future_value::tests::apply_cc_uses_only_cc_abilities` — регрессия для ApplyCC filter'а.
+**Корпус golden** — все `logs/*.jsonl` (~50 файлов, несколько тысяч entries). Это гораздо шире 9 сценарных кейсов.
 
-**Acceptance** (на 12-log corpus):
+**Хранение baseline.** `logs/golden_pre_2a.jsonl` (gitignore'ить не надо — это защитный snapshot). Удалится после завершения 2a.
 
-| Метрика | P1 acceptance |
-|---|---|
-| `phantom_tail_flips_committed` | drop ≥ 15 pp от Phase 7 prototype (47.6% → ≤ 32%) |
-| `kill_conversion_rate` | **частичное** восстановление, ≥ 75% (не требуем 88% — это работа P2) |
-| `killable_non_offensive_rate` | ≤ 10% (Phase 7 prototype 23.5%, baseline 0%) |
-| Δ на прочих acceptance (panic_leak, repeated_tile, zero_net_move, post_cast_retreat) | ≤ 5 pp |
+**Эстимейт:** 0.5 дня (большая часть кода уже есть в `assert_log_file` — нужна лишь stream-обёртка).
 
-**P1 "честный провал"** — phantom_tail не сдвинулся и kill_conversion < 75%. Это **информативный** результат: значит intent-awareness одна не лечит, нужен class-respecting gate (P2). В stop-rule ниже — сценарий B.
+### 2.1. Схема `AiTuning` как единый Resource + scaffolding
 
-**Results (2026-04-22, corpus 12 логов, 222 entries)**:
+Создать:
 
-| Metric                          | Baseline | Phase 7 | P1 (intent-aware) | Δ P1 vs Phase 7 | Target       |
-|---------------------------------|----------|---------|-------------------|-----------------|--------------|
-| phantom_tail_flips_committed    | 64.7%    | 47.6%   | 52.4%             | +4.8 pp         | ↓ sustained  |
-| killable_non_offensive_rate     | 0.0%     | 23.5%   | 23.5%             | 0 pp            | back to ≤5%  |
-| kill_conversion_rate            | 88.2%    | 64.7%   | 64.7%             | 0 pp            | back to ≥85% |
-| plateau_tie_rate                | 24.3%    | 20.3%   | 18.9%             | −1.4 pp         | < 10%        |
+- `assets/data/ai_tuning.toml` — **пустой на этом шаге** (только секции-заголовки).
+- `src/combat/ai/tuning.rs` — `AiTuning { thresholds, tables, difficulty }` с дефолтами из `default()`.
+- Resource-регистрация в `main.rs`.
+- Loader: `ContentView::load_layered` расширяется чтением `ai_tuning.toml` если файл есть.
 
-**Verdict: 0/3** — ни один критерий не выполнен. P1 не сдвинул killable-метрики и ухудшил phantom_tail vs Phase 7. Полный output: [`logs/phase7_P1_intent_aware_20260422.txt`](../logs/phase7_P1_intent_aware_20260422.txt).
+Пока ни одно место в коде не переехало — `AiTuning` никем не читается. **Golden-replay должен показать 0 diff'ов** (инфраструктура добавлена, формулы не тронуты).
 
-**Диагноз**: H1 (intent-agnostic FV) не является корнем проблемы. FocusTarget-фильтрация по одному target снижает attack_component, что в итоге делает FV менее дифференцирующим — от этого phantom_tail планы получают меньший штраф (их FV не хуже, чем у безхвостых). Проблема в cross-class reranking — это H2 (P2). Сценарий B по stop-rule: идём в P2.
-
-**Следующий шаг**: P2 — bucketed ranking для FocusTarget+ProtectSelf в `replay_ai_log.rs`.
-
-#### P2 — Narrow bucketed ranking (FocusTarget + ProtectSelf)
-
-**Файлы**:
-- `src/bin/replay_ai_log.rs` — дополнительный pipeline-вариант `score_plans_p2`.
-- Код живёт в replay, не в `planning/`: это узкий эксперимент, не будущая production-архитектура.
-
-**Что делать**:
-
-Для `FocusTarget{T}` и `ProtectSelf` — admissibility-buckets перед scalar finalize_scores. Остальные intents (ApplyCC, Reposition, SetupAOE, ProtectAlly, LastStand) — baseline scoring (изолированный эксперимент).
-
-**FocusTarget{T} bucketing** (считается по committed prefix, не по full plan):
 ```
-rank(plan, target=T) =
-  2  if committed_prefix kills T
-  1  if plan_is_offensive_vs(T) && damage_on_T_in_prefix ≥ α · T.hp   // α = 0.3, как в killable gate
-  0  if plan_is_offensive_vs(T)                                       // weak offense
- -1  otherwise                                                         // off-intent
+assets/data/ai_tuning.toml
+├── thresholds       # класс А: плоские scalar'ы
+├── tables           # класс B: role-фактор матрица, pos_eval weights, scarcity, trade weights
+└── difficulty       # класс C: параметры lerp'ов DifficultyProfile
 ```
-Compare: `(rank, scalar_finalize_score)` лексикографически. Внутри одного ранга — stock finalize_scores.
 
-**ProtectSelf bucketing** (переиспользует существующую `apply_protect_self_mask` logic):
-```
-rank(plan) =
-  1  if self_survival_now ≥ ε_self    // ε_self = 0.15, как в текущей mask
-  0  otherwise                        // LastStand / hard panic территория
-```
-Compare: `(rank, scalar_finalize_score)` лексикографически.
+`InfluenceConfig` остаётся отдельным Resource **пока что**. Слияние в `AiTuning.influence` — опциональная поздняя правка, не блокирует 2a.
 
-**Инвариант**: все факторы, участвующие в bucket-классификации (damage_on_T, self_survival), считаются на **committed prefix**, не full plan. `plan_prefix_only` переиспользуется.
+### 2.2. Класс А — `sanity.rs` thresholds → TOML
 
-**Тесты**:
-- `replay::p2::tests::focus_target_lethal_beats_pressure` — план-kill T всегда выше плана-pressure T.
-- `replay::p2::tests::focus_target_weak_offense_beats_off_intent`.
-- `replay::p2::tests::protect_self_defensive_beats_offensive_under_mask`.
-- `replay::p2::tests::bucket_uses_prefix_damage_not_tail` — два плана `Cast T` vs `Cast other → Cast T`: оба попадают в rank=2, не расходятся по prefix (второй в prefix имеет только Cast other).
+Мигрируем: `SURVIVAL_FLOOR`, `LOW_HP_FACTOR`, `AOO_PENALTY_K`, `AOO_RISK_FLOOR`, `SELF_SURVIVAL_EPSILON` (последнее сейчас `pub const` — переносим в `tuning.thresholds.self_survival_epsilon`). Каждая точка использования `const FOO` → чтение из Resource.
 
-**Acceptance** (на 12-log corpus):
+Golden-replay: **0 diff'ов**. Любое расхождение — опечатка в TOML или missed replacement.
 
-| Метрика | P2 acceptance |
-|---|---|
-| `killable_non_offensive_rate` | **полное** восстановление ≤ 2% (baseline 0%) |
-| `kill_conversion_rate` | ≥ 80% (baseline 88.2%) |
-| `panic_leak_rate` | ≤ baseline + 5 pp (baseline 13.3%) |
-| `phantom_tail_flips_committed` | NOT acceptance для P2 — P2 не таргетирует phantom-tail, это P1/committed_state territory |
-| `plateau_tie_rate` | ≤ baseline + 5 pp (buckets не должны увеличивать плато) |
+**Эстимейт:** 1 день.
 
-**Results (2026-04-22, corpus 12 логов, 222 entries)**:
+### 2.3. Класс А — `intent.rs` thresholds → TOML
 
-| Metric                        | Baseline | Phase 7 | P1    | P2     | Δ P2 vs Baseline | Target            |
-|-------------------------------|----------|---------|-------|--------|------------------|-------------------|
-| killable_non_offensive_rate   | 0.0%     | 23.5%   | 23.5% | 0.0%   | 0 pp             | ≤ 2%              |
-| kill_conversion_rate          | 88.2%    | 64.7%   | 64.7% | 88.2%  | 0 pp             | ≥ 80%             |
-| panic_leak_rate               | 13.3%    | 13.3%*  | 13.3%*| 13.3%  | 0 pp             | ≤ baseline+5 pp   |
-| phantom_tail_flips_committed  | 64.7%    | 47.6%   | 52.4% | 60.0%  | −4.7 pp          | NOT acceptance    |
-| plateau_tie_rate              | 24.3%    | 20.3%   | 18.9% | 23.4%  | −0.9 pp          | ≤ baseline+5 pp   |
+Мигрируем: `MILD_PENALTY`, `STICKINESS_BONUS`, `MAX_COMMITTED_TURNS`, плюс остальные scalar const из `intent.rs` (grep `const.*f32\|const.*u32` в этом файле — ~6-8 штук).
 
-\* Phase 7 / P1 panic_leak измерялось на тех же логах, значение не менялось.
+Golden-replay: **0 diff'ов**.
 
-**Verdict: 4/4 acceptance** — сценарий B по stop-rule: P2 прошёл все strict-метрики.
+**Эстимейт:** 0.5 дня.
 
-Интерпретация: bucket-reranking не ухудшил ни одну метрику потому что работает как defensive ordering layer без additive FV-смещения. Baseline killable-метрики (0%/88.2%) уже были правильными — P2 их защищает при любых будущих изменениях. Phase 7 и P1 их ломали через γ·FV cross-class reranking; P2 как паттерн это исправляет не добавляя FV вообще.
+### 2.4. Класс B — `role::AxisProfile::factor_weights()` → таблица
 
-Ranking change rate 10.4% (23/222 записей) — P2 меняет выбор в случаях где phantom-tail план побеждал до bucket. post_cast_retreat снизился на 6.4 pp (хороший сигнал).
+Сейчас `factor_weights()` — функция от 5 role-осей, возвращает массив весов. Переносим в `tuning.tables.axis_factor_weights` как 2D-матрицу `[axis][factor]` (TOML-inline или `[[ai_tuning.tables.axis_factor_weights]]` блоки). Функция читает по индексам, **сигнатура не меняется**.
 
-**Следующий шаг по stop-rule сценарий B**: merge P2 pattern в production как step-6 — расширение killable gate + ProtectSelf mask на явные buckets, без FV. P1 архивируется.
+Golden-replay: **0 diff'ов**.
 
-Полный output: [`logs/phase7_P2_bucketed_20260422.txt`](../logs/phase7_P2_bucketed_20260422.txt).
+**Эстимейт:** 1.5 дня (переписывание матричного кода + тесты + golden).
 
-#### P3 — композиция P1 + P2 (опционально)
+### 2.5. Класс B — `position_eval.rs` weights → таблица
 
-Запускается **только** если P1 и P2 каждый по себе показывают частичный signal (≥ 1/4 acceptance metrics прошли, но не все). Если один из них проходит полностью — P3 не нужен.
+`evaluate_position` веса по role-ролям + геометрическим признакам. Переносим аналогично 2.4 в `tuning.tables.position_weights`.
 
-**Что**: intent-aware FV работает только как tiebreak **внутри** P2-bucket'а. γ остаётся, но умножается на `future_value_intent_aware(active, committed_pos, snap, maps, intent)`. Bucket rank остаётся lexicographically сверху.
+Golden-replay: **0 diff'ов**.
 
-**Acceptance** P3:
-- Все P1 acceptance + все P2 acceptance одновременно.
-- `phantom_tail_flips_committed` drop ≥ 20 pp от Phase 7 prototype (объединённый эффект).
+**Эстимейт:** 1 день.
 
-#### Stop-rule (диагностический)
+### 2.6. Класс C — `DifficultyProfile` lerps → `tuning.difficulty`
 
-| Сценарий | Условие | Интерпретация | Следующий шаг |
+Методы `survival_hp_threshold()`, `reposition_min_improvement()`, `awareness_danger_threshold()` — lerp'ы между двумя константами по параметру `survival_instinct`/`awareness`. Переносим `{lo, hi}` пары в `tuning.difficulty.*_curve`. Методы читают параметры, делают lerp — **сигнатура не меняется**.
+
+Golden-replay: **0 diff'ов**. Важный sanity-check: `DifficultyProfile::normal()` после миграции должен возвращать точно те же числа, что до. Юнит-тест на это.
+
+**Эстимейт:** 1.5 дня.
+
+### 2.7. UnitQuirks — пустая override-инфраструктура
+
+Добавить:
+- `AiTuningOverride` — структура, где все поля `Option<T>` (partial merge).
+- Поле `ai_tuning_override: Option<AiTuningOverride>` в `unit_templates.toml`.
+- Явная функция `AiTuning::apply_override(&self, o: &AiTuningOverride) -> AiTuning` (80–100 строк, **не derive-магия**). Вызывается один раз при сборке `ScoringCtx` для юнита.
+
+**Не в scope:** наполнение quirk'ами (Berserker / Coward / Focused). Пустая инфраструктура — конкретные override'ы появятся по дизайну позже.
+
+Golden-replay: **0 diff'ов** (никто override не объявляет).
+
+**Эстимейт:** 0.5 дня.
+
+### Итого
+
+| # | Шаг | Эстимейт | Golden-replay ожидание |
 |---|---|---|---|
-| **A** — P1 работает | P1 пройдёт ≥ 3/4 acceptance | intent-awareness покрывает проблему без class-guard | Merge P1 semantics в production как step-6 (intent-aware factor/FV layer). P2 архивируется. |
-| **B** — P2 работает | P2 пройдёт ≥ 3/4 acceptance | class-respecting ranking покрывает без FV rework | Merge P2 pattern в production как step-6 (расширение killable gate + ProtectSelf mask на явные buckets). P1 архивируется. |
-| **C** — оба частично | P1 ≥ 1/4, P2 ≥ 1/4, ни один полностью | signal есть, нужна композиция | Запустить P3. Если P3 ≥ 3/4 acceptance — merge P3 как step-6 (dual approach); иначе — сценарий D. |
-| **D** — ничего не работает | P1 < 1/4 И P2 < 1/4 | корень не в FV и не в bucket'ах — структурная проблема (plateau / intent selection / committed_state leakage в production факторах) | Идём в **production committed_state refactor** как step-6 без prototype'а: исправляем `compute_plan_tempo_gain`, `compute_plan_self_survival`, `compute_plan_intent_sum` чтобы читали **только** committed prefix. Это не prototypeable — эффект измеряется живыми боями. |
+| 2.0 | golden-replay tool | 0.5 | — (создание инструмента) |
+| 2.1 | AiTuning scaffolding | 0.5 | 0 diff |
+| 2.2 | sanity.rs → TOML | 1.0 | 0 diff |
+| 2.3 | intent.rs → TOML | 0.5 | 0 diff |
+| 2.4 | role factor_weights → table | 1.5 | 0 diff |
+| 2.5 | position_eval → table | 1.0 | 0 diff |
+| 2.6 | DifficultyProfile lerps → TOML | 1.5 | 0 diff |
+| 2.7 | UnitQuirks override scaffolding | 0.5 | 0 diff |
 
-Критерий "прошло acceptance" — все перечисленные в таблице acceptance'а метрики в пределах target'ов.
+**Суммарно ~7 дней.** Любой шаг с ≠0 diff → откат коммита, разбор причины, повтор.
 
-#### Что НЕ в scope follow-up'а
+## Что откладывается в 2b (по потребности)
 
-- **ProtectAlly bucket** — откладывается до step-6 production. Статистически мало entries в corpus'е.
-- **Declarative IntentPolicy** (typed PlanEffects, effect ontology) — far-future refactor, не текущая итерация. Обсуждается в §7 `ai_rework.md`.
-- **Full committed_state discipline** в production — это сценарий D, не prototype. Prototype его частично покрывает через `plan_prefix_only`, но полный эффект от vещи вроде `tempo_gain prefix-only` измеряется только на production factor pipeline.
-- **Plateau fix** (`pursuit_move_score` step-function → smooth) — отдельная работа, не P1/P2. Если plateau_tie_rate останется > 10% после любого из сценариев A/B/C — отдельный step.
+Когда шаг 3 (need layer) или шаг 4 (outcome vector) реально потребуют нелинейных зависимостей — ввести `ResponseCurve` как типизированные данные.
 
-#### Артефакты follow-up
+Минимальный джентльменский набор:
 
-- `logs/p1_<date>.txt`, `logs/p2_<date>.txt`, `logs/p3_<date>.txt` (если запустится) — output corpus-прогонов.
-- Таблицы результатов + вердикт в этом же документе после каждого эксперимента.
-- Решение о step-6 по stop-rule выше.
+- **Linear clamped** — пропорциональные связи (killability от missing HP, proximity).
+- **Logistic** — urgency-сигналы с порогом в середине (self_preserve, rescue_ally, finish_target). **Самая частая** форма.
+- **Exponential decay** — спад с расстоянием/временем (у вас уже неявно через λ в influence propagation).
+- **Power** — катастрофическое нарастание в высоких значениях (survival_quadratic = `x²`; role-bias = `x^1.5`).
+- **Piecewise linear** — escape hatch.
 
-#### Риск follow-up
+Эвристика:
+- Порог в середине с плавностью → logistic.
+- Пропорционально и скучно → linear.
+- «В высоких значениях катастрофа» → power, exponent 2–3.
+- Ценность падает с расстоянием → exponential.
+- Ничего не подходит → piecewise.
 
-Нулевой для production. Timeline — 1 день на P1, 2 дня на P2, опционально 1 день на P3. Если попадём в сценарий D — prototype не даст ответа и мы идём в production refactor "вслепую"; но поскольку committed-prefix ablation из Phase 7 уже показала −17 pp на phantom_tail, мы не совсем вслепую.
+Не разворачивать инфраструктуру curves, пока три реальных потребителя не запросят.
 
----
+## Что откладывается в 2c (по потребности)
 
-## Порядок и параллелизм
+- Difficulty override как отдельные файлы с частичным merge.
+- Encounter override — когда появится шаг 14 (encounter scripting).
+- Live-reload в dev-build — когда балансировщик начнёт тюнить регулярно.
+- Визуализатор curves — когда curves станут нетривиальными настолько, что «видеть форму» будет полезнее «читать параметры».
 
-```
-[shipped: 0 → 0.5 → 1 → 1b → 1c → 2/2.5 → 3 → Track A → 4a → Phase 7 prototype (verdict 0/3)]
-                                                                                       │
-                                                                                       ├─→ Step-4a measurement ─→ Step-5 ─→ итерация закрыта
-                                                                                       │
-                                                                                       └─→ P1 ─┐
-                                                                                               ├─→ [A|B|C|D] stop-rule ─→ step-6 (production)
-                                                                                       └─→ P2 ─┘         │
-                                                                                                        (опционально P3)
-```
+Каждая — день-два работы, делается в момент реальной необходимости.
 
-- Track 1 и Track 2 независимы.
-- Step-5 после step-4a measurement (чтобы видеть чистый baseline для summon-метрики).
-- P1 и P2 можно запускать **параллельно** (P1 трогает `future_value.rs`, P2 — replay_ai_log; зоны кода не пересекаются). Рекомендованный порядок: P1 → P2 один за другим, чтобы дифф каждого был чистым для review.
-- P3 — условный; запускается только если P1 и P2 дают частичный signal (сценарий C).
-- **step-6 НЕ в текущей итерации** — только P1/P2/(P3) + decision. Сам merge — следующая итерация.
+## Чего не делать
 
----
-
-## Вне scope
-
-- Canonical-набор факторов (следующая итерация).
-- Marginal board value для summon'ов (тех долг).
-- Trade economy, difficulty knobs — изолированы.
-- Intent selection (`select_intent`) — меняем как план оценивается, не как intent выбирается.
-- Plateau-ties от step-function `pursuit_move_score` — если останутся после P1/P2/P3, отдельный step (smooth pursuit).
-- **Typed `PlanEffects` / declarative IntentPolicy / effect ontology** — архитектурные идеи уровня “Phase 8+”, не для текущей итерации; обсуждаются в `ai_rework.md` как long-term direction.
-- **ProtectAlly bucket** — откладывается до step-6 production (в follow-up'е мало data).
+- Не создавать curve-инфраструктуру, пока ни один need signal её не запрашивает.
+- Не смешивать миграцию и семантические изменения в одном коммите. 2a — **только** перенос, никаких изменений формул.
+- Не превращать `AiTuning` в god-object. Оставлять `InfluenceConfig` отдельно, пока нет явной причины сливать.
+- Не писать автоматический derive для merge'а UnitQuirks — явная функция с покрытием тестами безопаснее.
 
 ---
 
-## Справочник: completed steps (deep detail)
+## Волна 1 — обновлённая последовательность
 
-Если нужно вспомнить, **почему** шаг был сделан именно так, — читай код + тесты:
+**0 ✓ → 1 ✓ → 2a ← сейчас здесь → 4 (+annotation) → 3 → 5 → 6**
 
-- Step-3 gate (invariants, tiers): `src/combat/ai/planning/killable_gate.rs` docstring + 9 тестов.
-- Step-1c intent_sum shortcut: `src/combat/ai/planning/scorer.rs::compute_plan_intent_sum` docstring.
-- Step-4a phantom-tail fix: `src/combat/ai/factors/survival.rs` — `committed_prefix_final_pos` helper + 6 regression тестов.
-- Track A replay metric semantics: `src/bin/replay_ai_log.rs::plan_committed_prefix_kills_target` + 4 теста.
+Где:
 
-Исторические решения (user critiques про live-pool и intent-coherent detection, ally-split drop) зафиксированы в commit messages коммитов выше. Git log — авторитетный источник.
+- **0** ✓ (sim parity 0.1a + mining + log patch 0.3C) — закрыт. Артефакт `docs/ai_need_signals.md` готов под step 3.
+- **1** ✓ (log extension 1.1 + assertion overlay 1.2–1.7) — закрыт. Ключевые коммиты: `81aa504` (1.1), `fb720b0` (1.2+1.3), `b018f9c` (1.4a library extraction), `2ed7cf2` (1.4b harness), `b2b6a2c` (1.5 первый batch из 9 кейсов). 1.6 (CI) скипнут, 1.7 активен.
+- **2a** ← **следующий** (constants migration + golden replay gate) — 5–7 дней, чистая миграция под защитой golden replay. Стартуем с 2.0 (golden-replay tool).
+- **4** (outcome vector) — общий словарь, **до** need layer. **Внутри step 4** заводится структура `PlanAnnotation` с единственным начальным полем `outcome: Vec<OutcomeEstimate>` — annotation растёт по мере появления потребителей, не как отдельный «пустой» шаг 7a. Step 7a из последовательности убран.
+- **3** (need layer) — поверх outcome. **Важно:** дескриптор step 3 в `ai_rework.md` должен быть обновлён: «Входы: NeedSignals считаются из `ActionOutcomeEstimate` + influence maps; raw snapshot достаётся только для tactical facts (hp%, role, статусы)». Синхронизация — коммит одновременно с реализацией.
+- **5** (terminal eval) — поверх outcome и sim parity (0.1a). Требование 0.1b (end-to-end) появляется только в шаге 12.
+- **6** (goal-preserving repair) — расширяет существующий `mismatch()` + continuation из `enemy_turn.rs:181–212`, не переписывает.
+
+PlanStage-trait (полный 7), critics decomposition (10, benchmark-driven после step 0.3C histograma), bands+agenda+scorecard (11, разрезанный на bands-first) — фаза 2 или позже.
+
+## Гейты между шагами
+
+Каждый шаг следующей цепочки **не стартует**, пока не выполнен gate предыдущего:
+
+| Шаг | Gate для следующего |
+|-----|---------------------|
+| 0.1a | Property tests зелёные (`cargo test --lib combat::ai::planning::parity_tests`) |
+| 0.3 | Артефакт `docs/ai_need_signals.md` закоммичен |
+| 1 | Scenario harness живой (`cargo test --test ai_scenarios` зелёный), ≥9 кейсов, ≥3 категории покрыты |
+| 2.0 | Golden baseline зафиксирован (`logs/golden_pre_2a.jsonl` закоммичен) |
+| 2a | `--compare-golden` 0 diff'ов на каждом шаге 2.1–2.7; scenario harness зелёный |
+| 4 | PlanAnnotation растёт, `compute_factors` читает outcome; golden replay не деградирует |
+| 3 | Need signals из 0.4 реализованы; `select_intent` читает NeedSignals; сценарии step 1 + новые «need-driven» сценарии зелёные |
+| 5 | Terminal score включён в scorer; sim parity 0.1a гарантирует корректность финального снапшота |
+| 6 | `continuation_severity` классификация в логах; сценарии Plan freeze / continuation стабильно зелёные через сотни тиков |
+
+Без gate — не идём дальше. Gate провален → возвращаемся к предыдущему шагу.
