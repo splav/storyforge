@@ -545,7 +545,7 @@ pub fn select_intent(
 
     // Reposition: current position is significantly bad. awareness controls
     // how early the AI notices a bad tile (low = only truly terrible tiles).
-    let pos_eval = evaluate_position(active.pos, &active.role, maps);
+    let pos_eval = evaluate_position(active.pos, &active.role, tuning, maps);
     let repo_threshold = difficulty.awareness_reposition_threshold();
     if pos_eval < repo_threshold {
         let repo_score = 0.3 + (repo_threshold - pos_eval).min(1.5) * 0.4;
@@ -887,8 +887,8 @@ pub fn intent_score(
         TacticalIntent::Reposition => {
             // Tiered: strong improvement rewarded, any improvement neutral,
             // no improvement penalized — mildly if casting, hard if just moving.
-            let current = evaluate_position(active.pos, &active.role, maps);
-            let new = evaluate_position(step.caster_tile(), &active.role, maps);
+            let current = evaluate_position(active.pos, &active.role, step_ctx.world.tuning, maps);
+            let new = evaluate_position(step.caster_tile(), &active.role, step_ctx.world.tuning, maps);
             let improvement = new - current;
             let min_improv = difficulty.reposition_min_improvement();
             if improvement >= min_improv {

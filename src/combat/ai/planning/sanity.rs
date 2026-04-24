@@ -114,7 +114,7 @@ pub fn sanity_adjust_plans(
         .map(|u| u.pos)
         .collect();
     let ally_positions: HashSet<Hex> = allies.iter().map(|a| a.pos).collect();
-    let current_pos_eval = evaluate_position(active.pos, &active.role, maps);
+    let current_pos_eval = evaluate_position(active.pos, &active.role, ctx.world.tuning, maps);
     let current_danger = maps.danger.get(active.pos);
 
     for (idx, (plan, score)) in plans.iter().zip(scores.iter_mut()).enumerate() {
@@ -218,7 +218,7 @@ pub fn sanity_adjust_plans(
         // plicative so it doesn't flip sign.
         if final_pos != active.pos {
             let safer_tile = maps.danger.get(final_pos) + 0.05 < current_danger;
-            let better_pos = evaluate_position(final_pos, &active.role, maps) > current_pos_eval;
+            let better_pos = evaluate_position(final_pos, &active.role, ctx.world.tuning, maps) > current_pos_eval;
             if (safer_tile || better_pos) && plan_has_useful_cast(plan, ctx) {
                 penalty *= 1.1;
                 hits.push(SanityHit { rule: SanityRule::SynergyBonus, multiplier: 1.1 });

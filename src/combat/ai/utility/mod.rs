@@ -186,7 +186,7 @@ pub fn pick_action(
         let ds = if debug {
             Some(build_fallback_debug(
                 active, actor_pos, &choice.intent, &choice.reason, &decision,
-                "no plans generated", snap, maps, debug_names,
+                "no plans generated", snap, world.tuning, maps, debug_names,
             ))
         } else { None };
         return (decision, ds, None);
@@ -249,7 +249,7 @@ pub fn pick_action(
     let debug_snapshot = if debug {
         Some(build_debug_snapshot(
             active, actor_pos, &ranking.intent, &ranking.intent_reason, &plans,
-            &ranking.scored, &ranking.raw_factors, &decision, snap, maps,
+            &ranking.scored, &ranking.raw_factors, &decision, snap, world.tuning, maps,
             debug_names, pick_mech.as_ref(),
         ))
     } else {

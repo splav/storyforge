@@ -320,15 +320,13 @@ assets/data/ai_tuning.toml
 
 Матрица `AXIS_FACTOR_WEIGHTS` (5 axes × 10 factors) удалена из `role.rs` и переехала в `AiTuning.tables.axis_factor_weights` как 2D-массив. `AxisProfile::factor_weights` расширена параметром `tuning: &AiTuning` (как в 2.2 / 2.3 — чистая миграция к ровно той же формуле). Callers обновлены: `finalize_scores` (`scorer.rs:204`), тесты `role.rs`, `_touch_axis` в `replay_ai_log.rs`. TOML-секция `[tables]` в `assets/data/ai_tuning.toml` содержит матрицу с комментарием-шапкой колонок.
 
-**Коммит:** pending. **Golden-replay:** 0 / 131 diff.
+**Коммит:** `5d45398`. **Golden-replay:** 0 / 131 diff.
 
-### 2.5. Класс B — `position_eval.rs` weights → таблица
+### 2.5. Класс B — `position_eval.rs` weights → таблица ✓ DONE
 
-`evaluate_position` веса по role-ролям + геометрическим признакам. Переносим аналогично 2.4 в `tuning.tables.position_weights`.
+Матрица `AXIS_POSITION_WEIGHTS` (5 axes × 3 influence maps) удалена из `role.rs` и переехала в `AiTuning.tables.axis_position_weights` как 2D-массив. `AxisProfile::position_weights` расширена параметром `tuning: &AiTuning`. `evaluate_position` расширена параметром `tuning: &AiTuning` и пробросила его в `position_weights`. Callers обновлены: `intent.rs` (3 точки), `sanity.rs` (2 точки), `future_value.rs` (через `position_component`), `debug.rs` (`tile_influence_at`, `build_debug_snapshot`, `build_fallback_debug`, `decision_debug`). Тесты `position_eval.rs` передают `&AiTuning::default()`.
 
-Golden-replay: **0 diff'ов**.
-
-**Эстимейт:** 1 день.
+**Golden-replay:** 0 / 131 diff.
 
 ### 2.6. Класс C — `DifficultyProfile` lerps → `tuning.difficulty`
 
@@ -360,7 +358,7 @@ Golden-replay: **0 diff'ов** (никто override не объявляет).
 | 2.2 | sanity.rs → TOML | 1.0 | 0 diff |
 | 2.3 | intent.rs → TOML | 0.5 | 0 diff |
 | 2.4 | role factor_weights → table | 1.5 | 0 diff | **DONE** |
-| 2.5 | position_eval → table | 1.0 | 0 diff |
+| 2.5 | position_eval → table | 1.0 | 0 diff | **DONE** |
 | 2.6 | DifficultyProfile lerps → TOML | 1.5 | 0 diff |
 | 2.7 | UnitQuirks override scaffolding | 0.5 | 0 diff |
 

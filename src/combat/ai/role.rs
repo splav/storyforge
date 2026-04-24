@@ -34,16 +34,6 @@ pub struct AxisProfile {
 /// readable while pure roles converge to enum-like behaviour.
 pub const COMPOSITION_EXPONENT: f32 = 1.5;
 
-/// Per-axis weights for the 3 influence maps (danger, ally_support, opportunity).
-#[rustfmt::skip]
-const AXIS_POSITION_WEIGHTS: [[f32; 3]; 5] = [
-    //            danger ally  opp
-    /* Tank    */ [-1.0,  0.7,  0.9],
-    /* Melee   */ [-0.9,  0.4,  1.5],
-    /* Ranged  */ [-1.8,  0.7,  1.0],
-    /* Control */ [-1.5,  0.8,  0.8],
-    /* Support */ [-2.5,  1.3,  0.5],
-];
 
 /// How much each axis contributes to a target's priority-value (used in
 /// `target_priority`). Support > Control > Ranged > Melee > Tank — killing
@@ -93,12 +83,16 @@ impl AxisProfile {
     }
 
     /// Composed position-eval weights (danger, ally_support, opportunity).
-    pub fn position_weights(&self) -> [f32; 3] {
+    ///
+    /// Per-axis rows live in `tuning.tables.axis_position_weights`. Columns:
+    /// [danger, ally_support, opportunity].
+    pub fn position_weights(&self, tuning: &AiTuning) -> [f32; 3] {
         let mix = self.biased_normalized();
+        let table = &tuning.tables.axis_position_weights;
         let mut out = [0.0f32; 3];
         for axis in 0..5 {
             for k in 0..3 {
-                out[k] += mix[axis] * AXIS_POSITION_WEIGHTS[axis][k];
+                out[k] += mix[axis] * table[axis][k];
             }
         }
         out

@@ -62,6 +62,9 @@ pub struct Tables {
     /// Columns: [damage, kill_now, kill_promised, cc, heal, intent,
     /// scarcity, tempo_gain, saturation, self_survival].
     pub axis_factor_weights: [[f32; 10]; 5],
+    /// Per-axis weights for the 3 influence maps used in position evaluation.
+    /// Columns: [danger, ally_support, opportunity].
+    pub axis_position_weights: [[f32; 3]; 5],
 }
 
 impl Default for Tables {
@@ -75,6 +78,14 @@ impl Default for Tables {
                 [   1.3,  1.3,  0.65, 0.3,  0.0,  1.0,  0.5,  1.2,  1.0,  0.8 ], // Ranged
                 [   0.4,  0.5,  0.4,  1.6,  0.0,  1.0,  1.2,  1.0,  1.0,  0.8 ], // Control
                 [   0.2,  0.3,  0.15, 0.6,  2.0,  1.0,  0.8,  0.8,  1.0,  1.2 ], // Support
+            ],
+            axis_position_weights: [
+                //  danger  ally   opp
+                [   -1.0,   0.7,   0.9 ], // Tank
+                [   -0.9,   0.4,   1.5 ], // Melee
+                [   -1.8,   0.7,   1.0 ], // Ranged
+                [   -1.5,   0.8,   0.8 ], // Control
+                [   -2.5,   1.3,   0.5 ], // Support
             ],
         }
     }

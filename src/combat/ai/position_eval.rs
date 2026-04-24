@@ -1,12 +1,13 @@
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::role::AxisProfile;
+use crate::combat::ai::tuning::AiTuning;
 use crate::game::hex::Hex;
 
 /// Evaluate how desirable `tile` is for a unit with the given profile.
 /// Composed weights from `AxisProfile::position_weights()` combine the 3
 /// influence maps (danger, ally_support, opportunity) — role emergent.
-pub fn evaluate_position(tile: Hex, profile: &AxisProfile, maps: &InfluenceMaps) -> f32 {
-    let w = profile.position_weights();
+pub fn evaluate_position(tile: Hex, profile: &AxisProfile, tuning: &AiTuning, maps: &InfluenceMaps) -> f32 {
+    let w = profile.position_weights(tuning);
     w[0] * maps.danger.get(tile)
         + w[1] * maps.ally_support.get(tile)
         + w[2] * maps.opportunity.get(tile)
@@ -16,6 +17,7 @@ pub fn evaluate_position(tile: Hex, profile: &AxisProfile, maps: &InfluenceMaps)
 mod tests {
     use super::*;
     use crate::combat::ai::influence::InfluenceMap;
+    use crate::combat::ai::tuning::AiTuning;
     use crate::game::hex::hex_from_offset;
 
     /// Five reference profiles spanning the axes — used to pin role-agnostic
@@ -46,10 +48,11 @@ mod tests {
     fn support_avoids_danger_more_than_bruiser() {
         let h = hex_from_offset(3, 3);
         let maps = maps_with_danger(h, 0.7);
+        let tuning = AiTuning::default();
         let support = AxisProfile { support: 1.0, ..Default::default() };
         let bruiser = AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() };
-        let support_score = evaluate_position(h, &support, &maps);
-        let bruiser_score = evaluate_position(h, &bruiser, &maps);
+        let support_score = evaluate_position(h, &support, &tuning, &maps);
+        let bruiser_score = evaluate_position(h, &bruiser, &tuning, &maps);
         assert!(
             support_score < bruiser_score,
             "support should rate dangerous tile lower"
@@ -59,6 +62,7 @@ mod tests {
     #[test]
     fn safe_tile_scores_zero_for_all_roles() {
         let h = hex_from_offset(0, 0);
+        let tuning = AiTuning::default();
         let maps = InfluenceMaps {
             danger: InfluenceMap::new(),
             ally_support: InfluenceMap::new(),
@@ -66,7 +70,7 @@ mod tests {
             escape: InfluenceMap::new(),
         };
         for profile in sample_profiles() {
-            assert_eq!(evaluate_position(h, &profile, &maps), 0.0);
+            assert_eq!(evaluate_position(h, &profile, &tuning, &maps), 0.0);
         }
     }
 
@@ -74,6 +78,7 @@ mod tests {
     fn escape_does_not_affect_position_eval() {
         // position_eval uses only danger, ally_support, opportunity.
         let h = hex_from_offset(3, 3);
+        let tuning = AiTuning::default();
         let mut maps1 = maps_with_danger(h, 0.5);
         maps1.opportunity.add(h, 0.8);
         let mut maps2 = maps1.clone();
@@ -81,8 +86,8 @@ mod tests {
 
         for profile in sample_profiles() {
             assert_eq!(
-                evaluate_position(h, &profile, &maps1),
-                evaluate_position(h, &profile, &maps2),
+                evaluate_position(h, &profile, &tuning, &maps1),
+                evaluate_position(h, &profile, &tuning, &maps2),
                 "escape should not affect position_eval for {:?}",
                 profile,
             );

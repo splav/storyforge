@@ -7,6 +7,7 @@ use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::factors::{PlanFactors, ScoredStep};
 use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::utility::{AiDecision, PickMechanics};
 use crate::game::hex::{hex_to_offset, Hex};
 use crate::game::resources::{UiDirty, UiDirtyFlags};
@@ -489,13 +490,13 @@ fn classify_move(actor_pos: Hex, tile: Hex, focus_pos: Option<Hex>) -> MoveKind 
     }
 }
 
-fn tile_influence_at(hex: Hex, role: &AxisProfile, maps: &InfluenceMaps) -> TileInfluence {
+fn tile_influence_at(hex: Hex, role: &AxisProfile, tuning: &AiTuning, maps: &InfluenceMaps) -> TileInfluence {
     TileInfluence {
         danger: maps.danger.get(hex),
         ally_support: maps.ally_support.get(hex),
         opportunity: maps.opportunity.get(hex),
         escape: maps.escape.get(hex),
-        position_eval: evaluate_position(hex, role, maps),
+        position_eval: evaluate_position(hex, role, tuning, maps),
     }
 }
 
@@ -547,6 +548,7 @@ pub fn build_debug_snapshot(
     raw_factors: &[PlanFactors],
     decision: &AiDecision,
     snap: &BattleSnapshot,
+    tuning: &AiTuning,
     maps: &InfluenceMaps,
     names: &HashMap<Entity, String>,
     pick_mech: Option<&PickMechanics>,
@@ -584,7 +586,7 @@ pub fn build_debug_snapshot(
                 ability: ability_label,
                 target_name,
                 tile: hex_to_offset(tile),
-                tile_influence: tile_influence_at(tile, &active.role, maps),
+                tile_influence: tile_influence_at(tile, &active.role, tuning, maps),
                 raw: raw_factors[i].as_array(),
                 total,
                 is_move_only,
@@ -629,7 +631,7 @@ pub fn build_debug_snapshot(
         priority_target: priority_target_debug(active, snap, names),
         top_candidates,
         pick,
-        decision: decision_debug(decision, actor_pos, None, active, maps, names),
+        decision: decision_debug(decision, actor_pos, None, active, tuning, maps, names),
         candidate_count: plans.len(),
         plan_index: 0, // set by run_ai_turn before storing in AiDebugState
     }
@@ -644,6 +646,7 @@ pub fn build_fallback_debug(
     decision: &AiDecision,
     reason: &str,
     snap: &BattleSnapshot,
+    tuning: &AiTuning,
     maps: &InfluenceMaps,
     names: &HashMap<Entity, String>,
 ) -> AiDebugSnapshot {
@@ -657,7 +660,7 @@ pub fn build_fallback_debug(
         priority_target: priority_target_debug(active, snap, names),
         top_candidates: vec![],
         pick: None,
-        decision: decision_debug(decision, actor_pos, Some(reason), active, maps, names),
+        decision: decision_debug(decision, actor_pos, Some(reason), active, tuning, maps, names),
         candidate_count: 0,
         plan_index: 0, // set by run_ai_turn before storing in AiDebugState
     }
@@ -668,6 +671,7 @@ fn decision_debug(
     actor_pos: Hex,
     fallback_reason: Option<&str>,
     active: &UnitSnapshot,
+    tuning: &AiTuning,
     maps: &InfluenceMaps,
     names: &HashMap<Entity, String>,
 ) -> DecisionDebug {
@@ -693,7 +697,7 @@ fn decision_debug(
                     path.len(),
                 ),
                 dest_tile: Some(hex_to_offset(dest)),
-                dest_influence: Some(tile_influence_at(dest, &active.role, maps)),
+                dest_influence: Some(tile_influence_at(dest, &active.role, tuning, maps)),
             }
         }
         AiDecision::Move { path, origin } => {
@@ -715,7 +719,7 @@ fn decision_debug(
                     path.len(),
                 ),
                 dest_tile: Some(hex_to_offset(dest)),
-                dest_influence: Some(tile_influence_at(dest, &active.role, maps)),
+                dest_influence: Some(tile_influence_at(dest, &active.role, tuning, maps)),
             }
         }
         AiDecision::EndTurn => DecisionDebug {

@@ -20,6 +20,7 @@ use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::{applies_cc, score_action};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
+use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::AoEShape;
 use crate::game::hex::Hex;
@@ -138,7 +139,7 @@ pub fn future_value_from_committed_state(
         TacticalIntent::ProtectSelf => 2.0,
         _ => 1.0,
     };
-    let lambda_pos = pos_weight * position_component(active, committed_pos, maps);
+    let lambda_pos = pos_weight * position_component(active, committed_pos, ctx.world.tuning, maps);
 
     let lambda_attack = match intent {
         TacticalIntent::ProtectSelf | TacticalIntent::ProtectAlly { .. } => 0.0,
@@ -150,8 +151,8 @@ pub fn future_value_from_committed_state(
 }
 
 /// λ_pos: how good is `committed_pos` for this unit's role.
-fn position_component(active: &UnitSnapshot, committed_pos: Hex, maps: &InfluenceMaps) -> f32 {
-    evaluate_position(committed_pos, &active.role, maps)
+fn position_component(active: &UnitSnapshot, committed_pos: Hex, tuning: &AiTuning, maps: &InfluenceMaps) -> f32 {
+    evaluate_position(committed_pos, &active.role, tuning, maps)
 }
 
 /// λ_attack = 0.5 × best `score_action` for the intent-filtered candidate set.
@@ -629,7 +630,7 @@ mod tests {
 
         let intent = TacticalIntent::Reposition;
         let fv = future_value_from_committed_state(&actor, pos, &snap, &maps, &ctx, &intent);
-        let lp = position_component(&actor, pos, &maps);
+        let lp = position_component(&actor, pos, ctx.world.tuning, &maps);
         let la = attack_component_intent(&actor, pos, &snap, &ctx, &intent);
         let lm = mobility_component(pos, actor.speed, &snap);
 
@@ -834,7 +835,7 @@ mod tests {
         let attack_default = attack_component_intent(
             &actor, actor_pos, &snap, &ctx, &TacticalIntent::Reposition,
         );
-        let pos_default = position_component(&actor, actor_pos, &maps);
+        let pos_default = position_component(&actor, actor_pos, ctx.world.tuning, &maps);
         let mob = mobility_component(actor_pos, actor.speed, &snap);
 
         // attack under ProtectSelf must be zero (enemy reachable but suppressed).
