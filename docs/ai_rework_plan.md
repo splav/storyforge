@@ -307,7 +307,7 @@ assets/data/ai_tuning.toml
 Мигрировали: `SURVIVAL_FLOOR`, `LOW_HP_FACTOR`, `AOO_PENALTY_K`, `AOO_RISK_FLOOR`, `SELF_SURVIVAL_EPSILON` → `AiTuning.thresholds.*`.
 `AiWorld` расширен полем `tuning: &'a AiTuning`. `plan_is_defensive` и `apply_protect_self_mask` принимают `epsilon: f32` параметром. `replay_ai_log.rs` мигрирован аналогично.
 
-**Коммит:** TBD. **Golden-replay:** 0 / 131 diff.
+**Коммит:** `7d9bbaa`. **Golden-replay:** 0 / 131 diff.
 
 ### 2.3. Класс А — `intent.rs` thresholds → TOML
 
