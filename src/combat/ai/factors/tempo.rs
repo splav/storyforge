@@ -100,6 +100,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(); len],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(); len],
+            annotation: Default::default(),
         }
     }
 

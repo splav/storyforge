@@ -1,6 +1,7 @@
 //! Plan data model: steps, multi-step turns, and the cumulative outcome of
 //! applying a plan to a simulated battle state.
 
+use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::snapshot::BattleSnapshot;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
@@ -67,6 +68,17 @@ pub struct TurnPlan {
     /// because snapshots are derivable from `snapshot + steps`.
     #[serde(skip)]
     pub sim_snapshots: Vec<BattleSnapshot>,
+    /// Per-step outcome annotations. Populated during plan generation alongside
+    /// `outcomes`. Consumers (compute_factors, intent_score, critics, terminal
+    /// eval) read this instead of recomputing from raw snapshot — see
+    /// docs/ai_rework.md §4.
+    ///
+    /// Step 4.0: zero-filled. Step 4.1+: sim starts writing expected_damage.
+    ///
+    /// `#[serde(skip)]` — runtime-only in wave 1. Schema bump v18→v19 deferred
+    /// to step 4.5 (see open Q3 in docs/ai_rework_step4_plan.md).
+    #[serde(skip, default)]
+    pub annotation: PlanAnnotation,
 }
 
 impl TurnPlan {

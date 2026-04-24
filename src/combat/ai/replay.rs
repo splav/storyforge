@@ -395,6 +395,7 @@ pub fn reconstruct_decision(
             outcomes: p.outcomes.clone(),
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         })
         .collect();
     let raw_factors: Vec<PlanFactors> = entry

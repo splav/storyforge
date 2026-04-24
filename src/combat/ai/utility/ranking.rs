@@ -253,6 +253,7 @@ mod tests {
             outcomes: Vec::new(),
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
         let factors = PlanFactors { intent: intent_factor, ..PlanFactors::default() };
         let ranking = PlanRanking {
@@ -277,6 +278,7 @@ mod tests {
             outcomes: Vec::new(),
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         }
     }
 

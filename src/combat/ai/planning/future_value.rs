@@ -93,6 +93,7 @@ pub fn plan_prefix_only(plan: &TurnPlan) -> TurnPlan {
         outcomes,
         partial_score: 0.0,
         sim_snapshots,
+        annotation: Default::default(),
     }
 }
 
@@ -392,6 +393,7 @@ mod tests {
             outcomes,
             partial_score: 0.0,
             sim_snapshots,
+            annotation: Default::default(),
         }
     }
 

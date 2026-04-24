@@ -643,6 +643,7 @@ fn committed_action_key(plan: &PlanLog) -> CommittedActionKey {
         outcomes: plan.outcomes.clone(),
         partial_score: 0.0,
         sim_snapshots: Vec::new(),
+        annotation: Default::default(),
     };
     CommittedActionKey::from_prefix(tp.committed_prefix())
 }
@@ -1524,6 +1525,7 @@ fn main() {
                     outcomes: p.outcomes.clone(),
                     partial_score: 0.0,
                     sim_snapshots: Vec::new(),
+                    annotation: Default::default(),
                 })
                 .collect();
             // Convert logged raw factor arrays back to structured PlanFactors so
@@ -1722,6 +1724,7 @@ fn main() {
                         outcomes: proto_chosen_log.outcomes.clone(),
                         partial_score: 0.0,
                         sim_snapshots: Vec::new(),
+                        annotation: Default::default(),
                     };
                     if let CommittedPrefix::MoveOnly { path } = tp_proto.committed_prefix() {
                         proto.move_only_total += 1;
@@ -1886,6 +1889,7 @@ fn main() {
                         outcomes: p2_chosen_log.outcomes.clone(),
                         partial_score: 0.0,
                         sim_snapshots: Vec::new(),
+                        annotation: Default::default(),
                     };
                     if let CommittedPrefix::MoveOnly { path } = tp_p2.committed_prefix() {
                         p2.move_only_total += 1;

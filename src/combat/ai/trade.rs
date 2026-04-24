@@ -591,6 +591,7 @@ mod tests {
             }],
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         }
     }
 
@@ -614,6 +615,7 @@ mod tests {
             }],
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         }
     }
 
@@ -742,6 +744,7 @@ mod tests {
             outcomes: Vec::new(),
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
         let c = content();
 
@@ -808,6 +811,7 @@ mod tests {
             ],
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
         let c = content();
 
@@ -851,6 +855,7 @@ mod tests {
             ],
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
         let c = content();
 

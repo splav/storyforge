@@ -1,5 +1,6 @@
 pub mod action_state;
 pub mod log;
+pub mod outcome;
 pub mod planning;
 pub mod replay;
 pub mod replay_assertion;
@@ -20,6 +21,7 @@ pub mod trade;
 pub mod tuning;
 pub mod utility;
 
+pub use outcome::{ActionOutcomeEstimate, PlanAnnotation};
 pub use planning::{SanityHit, SanityRule};
 
 #[cfg(test)]

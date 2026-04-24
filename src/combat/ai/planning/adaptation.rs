@@ -414,6 +414,7 @@ mod tests {
             outcomes: Vec::new(),
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         }
     }
 
@@ -471,6 +472,7 @@ mod tests {
             outcomes: Vec::new(),
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
         let lethal_move = move_plan(vec![hex_from_offset(-1, 0)]);
         let plans = vec![empty_defensive, lethal_move];
@@ -609,6 +611,7 @@ mod tests {
             outcomes: vec![crate::combat::ai::planning::types::StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: vec![post_snap],
+            annotation: Default::default(),
         }
     }
 
@@ -624,6 +627,7 @@ mod tests {
             outcomes: Vec::new(),
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         }
     }
 
@@ -876,6 +880,7 @@ mod tests {
                 outcomes: Vec::new(),
                 partial_score: 0.0,
                 sim_snapshots: Vec::new(),
+                annotation: Default::default(),
             },
             move_plan(vec![hex_from_offset(-1, 0)]),
         ];

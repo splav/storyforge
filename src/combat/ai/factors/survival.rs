@@ -119,6 +119,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(); len],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(); len],
+            annotation: Default::default(),
         }
     }
 
@@ -184,6 +185,7 @@ mod tests {
             outcomes: Vec::new(),
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
         let survival = compute_plan_self_survival(&empty_plan, &ctx);
         assert_eq!(survival, 0.0, "EndTurn plan must give self_survival = 0");

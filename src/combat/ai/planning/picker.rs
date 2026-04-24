@@ -262,6 +262,7 @@ mod tests {
             outcomes: Vec::new(),
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         }
     }
 

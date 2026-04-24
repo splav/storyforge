@@ -387,6 +387,7 @@ mod tests {
             outcomes: vec![],
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         }
     }
 
@@ -614,6 +615,7 @@ mod tests {
             outcomes: vec![Default::default()],
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
 
         assert!(
@@ -681,6 +683,7 @@ mod tests {
             outcomes: Vec::new(),
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
         // Plan 1: move from (3,0) to (2,0) — leaves adjacency with enemy at
         // (4,0), triggering AoOBleed; path is through the high-danger tile,

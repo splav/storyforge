@@ -780,6 +780,7 @@ mod tests {
                 outcomes: vec![StepOutcome::default(); len],
                 partial_score: 0.0,
                 sim_snapshots: vec![snap.clone(); len],
+                annotation: Default::default(),
             }
         };
 
@@ -860,6 +861,7 @@ mod tests {
             outcomes,
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(), snap.clone()],
+            annotation: Default::default(),
         };
 
         let goal_achieved = mk(vec![
@@ -930,6 +932,7 @@ mod tests {
             outcomes: vec![StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone()],
+            annotation: Default::default(),
         };
         let plans = vec![mk_plan(&focus_a), mk_plan(&focus_b)];
 
@@ -988,6 +991,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(), StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
 
         // These must not panic despite `sim_snapshots` being empty. We don't
@@ -1055,6 +1059,7 @@ mod tests {
             outcomes: vec![StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone()],
+            annotation: Default::default(),
         };
         let plan_a = mk_plan(&t_a);
         let plan_b = mk_plan(&t_b);
@@ -1122,6 +1127,7 @@ mod tests {
             }],
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
 
         let b_support = plan_trade_bonus(
@@ -1209,6 +1215,7 @@ mod tests {
             ],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(), snap.clone()],
+            annotation: Default::default(),
         };
         // Plan B — the "do nothing useful" baseline (EndTurn).
         let plan_passive = TurnPlan {
@@ -1219,6 +1226,7 @@ mod tests {
             outcomes: Vec::new(),
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
 
@@ -1272,6 +1280,7 @@ mod tests {
                 outcomes: vec![StepOutcome::default(); n],
                 partial_score: 0.0,
                 sim_snapshots: (0..n).map(|_| snap.clone()).collect(),
+                annotation: Default::default(),
             }
         };
 
@@ -1331,6 +1340,7 @@ mod tests {
             outcomes: vec![StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone()],
+            annotation: Default::default(),
         };
         // Round-trip: A → start → C (same final)
         let round_trip = TurnPlan {
@@ -1344,6 +1354,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(); 3],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(); 3],
+            annotation: Default::default(),
         };
 
         let s_direct = compute_plan_intent_sum(&direct, &intent, &scoring_ctx);
@@ -1403,6 +1414,7 @@ mod tests {
             outcomes: vec![StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone()],
+            annotation: Default::default(),
         };
         let s_cast_only = compute_plan_intent_sum(&pure_cast, &intent, &scoring_ctx);
         assert!(s_cast_only > 0.0, "cast-only plan must have positive intent: {s_cast_only}");
@@ -1418,6 +1430,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(), StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(), snap.clone()],
+            annotation: Default::default(),
         };
         let s_move_cast = compute_plan_intent_sum(&move_then_cast, &intent, &scoring_ctx);
 
@@ -1491,6 +1504,7 @@ mod tests {
             ],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(), snap.clone()],
+            annotation: Default::default(),
         };
 
         // Same plan but kill NOT recorded in outcomes — latch does not fire,
@@ -1503,6 +1517,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(), StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: plan_with_kill.sim_snapshots.clone(),
+            annotation: Default::default(),
         };
 
         let s_with_kill = compute_plan_intent_sum(&plan_with_kill, &intent, &scoring_ctx);
@@ -1579,6 +1594,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(); 4],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(); 4],
+            annotation: Default::default(),
         };
 
         // Plan with short tail: Move→A, Cast, Move→C (same final)
@@ -1593,6 +1609,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(); 3],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(); 3],
+            annotation: Default::default(),
         };
 
         let s_long = compute_plan_intent_sum(&plan_long_tail, &intent, &scoring_ctx);
@@ -1657,6 +1674,7 @@ mod tests {
             outcomes: vec![StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone()],
+            annotation: Default::default(),
         };
 
         // Round-trip tail: Cast, then retreat back to cast_pos (net displacement = 0)
@@ -1672,6 +1690,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(); 3],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(); 3],
+            annotation: Default::default(),
         };
 
         let s_cast_only = compute_plan_intent_sum(&cast_only, &intent, &scoring_ctx);
@@ -1735,6 +1754,7 @@ mod tests {
             outcomes: vec![StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone()],
+            annotation: Default::default(),
         };
 
         // Cast then approach: move 3 tiles closer to target
@@ -1749,6 +1769,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(); 2],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(); 2],
+            annotation: Default::default(),
         };
 
         let s_cast_only = compute_plan_intent_sum(&cast_only, &intent, &scoring_ctx);
@@ -1817,6 +1838,7 @@ mod tests {
             ],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(); 2],
+            annotation: Default::default(),
         };
 
         // Same plan, Cast does not kill — tail gets pursuit credit
@@ -1827,6 +1849,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(); 2],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(); 2],
+            annotation: Default::default(),
         };
 
         let s_with_kill = compute_plan_intent_sum(&plan_with_kill, &intent, &scoring_ctx);
@@ -1895,6 +1918,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(); 3],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(); 3],
+            annotation: Default::default(),
         };
 
         // One-cast + move plan: [Cast, Move→final] — for comparison
@@ -1905,6 +1929,7 @@ mod tests {
             outcomes: vec![StepOutcome::default(); 2],
             partial_score: 0.0,
             sim_snapshots: vec![snap.clone(); 2],
+            annotation: Default::default(),
         };
 
         let s_two_cast = compute_plan_intent_sum(&plan_two_cast, &intent, &scoring_ctx);
@@ -1946,6 +1971,7 @@ mod tests {
             outcomes: vec![StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
 
         let b = plan_trade_bonus(&plan, &actor, &snap, &ctx, actor_val);

@@ -61,6 +61,7 @@ pub fn generate_plans(
         outcomes: Vec::new(),
         partial_score: seed_partial_score(actor_u, maps),
         sim_snapshots: Vec::new(),
+        annotation: Default::default(),
     };
 
     let mut all_plans: Vec<TurnPlan> = vec![seed.clone()];
@@ -164,6 +165,9 @@ pub fn generate_plans(
                 // Cache post-step snapshot so the scorer (and the next depth
                 // level here) can read it without re-simulating.
                 extended.sim_snapshots.push(ext_sim.snapshot);
+                // Maintain annotation.outcomes in lock-step with steps/outcomes.
+                // Step 4.0: zero-filled. Step 4.1+: sim will write expected_damage.
+                extended.annotation.outcomes.push(Default::default());
                 extended.final_pos = final_pos;
                 extended.residual_ap = residual_ap;
                 extended.residual_mp = residual_mp;
@@ -718,6 +722,14 @@ mod tests {
                 && matches!(&p.steps[0], PlanStep::Cast { .. })),
             "at least one single-step cast plan expected"
         );
+        // Invariant: annotation.outcomes.len() == steps.len() for every plan.
+        for plan in &plans {
+            assert_eq!(
+                plan.annotation.outcomes.len(),
+                plan.steps.len(),
+                "annotation.outcomes length must match steps length"
+            );
+        }
     }
 
     // ── Beam pruning respects width ────────────────────────────────────────
@@ -873,6 +885,7 @@ mod tests {
             outcomes: vec![],
             partial_score: 1.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
         let _ = cost_ap;
 
@@ -926,6 +939,7 @@ mod tests {
             outcomes: vec![],
             partial_score: 1.0,
             sim_snapshots: Vec::new(),
+            annotation: Default::default(),
         };
         let plans = vec![
             mk(t1, hex_from_offset(3, 0)),
