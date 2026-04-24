@@ -77,7 +77,7 @@
 
 **Коммит:** `d2cf7c6`. **Golden-replay:** 0 / 131 diff. Q1 reconsidered → literal rewire (см. commit message).
 
-### 4.5. Cleanup
+### 4.5. Cleanup ✓ DONE
 
 **Scope.**
 - AoE friendly-fire branch переписывается на hypothetical outcome (helper `estimate_hypothetical` на ally). `score_action` **удаляется полностью** (Q2).
@@ -87,7 +87,7 @@
 
 **Gate.** `cargo test/clippy`, `ai_scenarios`, golden **0 / 131 diff** — pure cleanup (semantic change был в 4.4).
 
-**Эстимейт.** 1.0 день. **Коммит:** `ai/scoring: шаг 4.5 — remove score_action + PlanAnnotation в JSONL (v19)`.
+**Коммит:** `6ae1429`. **Golden-replay:** 0 / 131 diff. `ya tool ast-index usages "score_action"` → 0.
 
 ## Итого
 
@@ -98,7 +98,7 @@
 | 4.2 | full 9-field | 1.5 | 0 diff | **DONE** (`88da91f`) |
 | 4.3 | offensive consumer | 1.5 | 0 diff | **DONE** (`7aae9c9`) |
 | 4.4 | future_value + picker | 1.0 | 0 diff (literal rewire) | **DONE** (`d2cf7c6`) |
-| 4.5 | cleanup + JSONL v18→v19 | 1.0 | 0 diff | pending |
+| 4.5 | cleanup + JSONL v18→v19 | 1.0 | 0 diff | **DONE** (`6ae1429`) |
 
 **Суммарно ~6 дней** (4.5 расширен: +0.5 дня friendly-fire рефактор, +0.3 дня schema bump).
 
