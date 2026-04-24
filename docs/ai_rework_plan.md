@@ -263,7 +263,7 @@ Grep «`const`» — оптимистичная формулировка, кот
 
 Пошаговый план, **коммит на шаг**, между коммитами — прогон golden-replay (шаг 2.0). Порядок выбран так, что каждый шаг либо расширяет инфраструктуру, либо переносит одно конкретное семейство констант.
 
-### 2.0. Golden-replay tool — **обязательный первый шаг**
+### 2.0. Golden-replay tool — **обязательный первый шаг** ✓ DONE
 
 **Зачем.** Без него вся миграция «вслепую»: опечатка `0.15 → 0.015` в TOML не ловится ни scenarios harness'ом (9 кейсов — слишком маленькое зеркало формул), ни unit-тестами (они не покрывают end-to-end scoring).
 
@@ -272,7 +272,9 @@ Grep «`const`» — оптимистичная формулировка, кот
 - `--capture-golden <out.jsonl>` — пройти по всем entries переданных JSONL-логов, прогнать production pipeline (ту же цепочку, что `assert_log_file`), записать в `out.jsonl` по строке на entry: `{log_path, plan_id, actor_id, decision_kind, cast_ability, cast_target, end_position}`. Никакого filter'а — весь decision stream.
 - `--compare-golden <baseline.jsonl>` — прогнать сейчас те же логи, сравнить с baseline. Exit 1 при любом расхождении, stderr: `case N diverged: field = <actual> vs <baseline>` per-entry. Итого `diverged / total`.
 
-**Корпус golden** — все `logs/*.jsonl` (~50 файлов, несколько тысяч entries). Это гораздо шире 9 сценарных кейсов.
+**Корпус golden** — план предполагал все `logs/*.jsonl` (~50 файлов); базовая линия собрана на 4 v17-логах
+(`logs/20260424T121330_*.jsonl`, `*121359_*.jsonl`, `*121431_*.jsonl`, `*121649_*.jsonl`, 131 запись).
+Pre-v17 fallback path на этапе 2a заморожен отдельно (расширение корпуса — backlog, не блокер).
 
 **Хранение baseline.** `logs/golden_pre_2a.jsonl` (gitignore'ить не надо — это защитный snapshot). Удалится после завершения 2a.
 
@@ -355,7 +357,7 @@ Golden-replay: **0 diff'ов** (никто override не объявляет).
 
 | # | Шаг | Эстимейт | Golden-replay ожидание |
 |---|---|---|---|
-| 2.0 | golden-replay tool | 0.5 | — (создание инструмента) |
+| 2.0 | golden-replay tool | 0.5 | — (создание инструмента) | **DONE** |
 | 2.1 | AiTuning scaffolding | 0.5 | 0 diff |
 | 2.2 | sanity.rs → TOML | 1.0 | 0 diff |
 | 2.3 | intent.rs → TOML | 0.5 | 0 diff |

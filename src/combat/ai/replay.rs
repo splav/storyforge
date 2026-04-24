@@ -24,7 +24,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use bevy::prelude::Entity;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::factors::{NUM_FACTORS, PlanFactors};
@@ -471,4 +471,106 @@ pub fn default_overlay_path(jsonl: &Path) -> PathBuf {
     name.push(".expected.toml");
     p.set_file_name(name);
     p
+}
+
+// ── Golden-replay ────────────────────────────────────────────────────────────
+
+/// A single record in a golden baseline JSONL. Captures the decision that the
+/// production scoring pipeline made for one log entry. Used by
+/// `--capture-golden` / `--compare-golden` in `replay_ai_log`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GoldenRecord {
+    /// Source JSONL path (as provided on the CLI, for corpus matching).
+    pub log_path: String,
+    /// `LogEntry::plan_id` — uniquely identifies the decision within the log.
+    pub plan_id: u64,
+    /// `LogEntry::actor_id` entity bits.
+    pub actor_id: u64,
+    /// `"CastInPlace"`, `"MoveAndCast"`, `"Move"`, or `"EndTurn"`.
+    pub decision_kind: String,
+    /// Ability name; present only for Cast variants.
+    pub cast_ability: Option<String>,
+    /// Target entity bits; present only for Cast variants.
+    pub cast_target: Option<u64>,
+    /// Final hex position `[col, row]`.
+    pub end_position: [i32; 2],
+}
+
+/// Read all valid decision entries from `path`, skipping `plan_divergence`
+/// events and unparseable lines (with a warning).
+///
+/// Mirrors the lenient behavior of [`find_entry`] but collects all entries
+/// instead of stopping at the first match.
+pub fn read_entries(path: &Path) -> Result<Vec<LogEntry>, AssertError> {
+    let file = std::fs::File::open(path).map_err(|source| AssertError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let reader = BufReader::new(file);
+    let mut entries = Vec::new();
+
+    for line in reader.lines() {
+        let line = line.map_err(|source| AssertError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+            if val.get("event_type").and_then(|v| v.as_str()) == Some("plan_divergence") {
+                continue;
+            }
+        }
+        match serde_json::from_str::<LogEntry>(&line) {
+            Ok(entry) => entries.push(entry),
+            Err(e) => {
+                eprintln!("warning: skipping unparseable line in {}: {e}", path.display());
+            }
+        }
+    }
+    Ok(entries)
+}
+
+/// Build a [`GoldenRecord`] for `entry` by running the production scoring
+/// pipeline via [`reconstruct_decision`].
+///
+/// `log_path` is stored verbatim (as provided on the CLI) for corpus matching.
+pub fn golden_from_entry(
+    entry: &LogEntry,
+    log_path: &str,
+    content: &ContentView,
+    inf_cfg: &InfluenceConfig,
+) -> Result<GoldenRecord, AssertError> {
+    let (_chosen_idx, actual) = reconstruct_decision(entry, content, inf_cfg)?;
+    Ok(GoldenRecord {
+        log_path: log_path.to_owned(),
+        plan_id: entry.plan_id,
+        actor_id: entry.actor_id,
+        decision_kind: actual.decision_kind,
+        cast_ability: actual.cast_ability,
+        cast_target: actual.cast_target,
+        end_position: actual.end_position,
+    })
+}
+
+#[cfg(test)]
+mod golden_tests {
+    use super::GoldenRecord;
+
+    #[test]
+    fn golden_record_json_roundtrip() {
+        let rec = GoldenRecord {
+            log_path: "logs/test.jsonl".to_owned(),
+            plan_id: 42,
+            actor_id: 99,
+            decision_kind: "MoveAndCast".to_owned(),
+            cast_ability: Some("melee_attack".to_owned()),
+            cast_target: Some(12884901551),
+            end_position: [3, 5],
+        };
+        let s = serde_json::to_string(&rec).unwrap();
+        let back: GoldenRecord = serde_json::from_str(&s).unwrap();
+        assert_eq!(rec, back);
+    }
 }

@@ -117,6 +117,18 @@ Flags:
 - `--assert [<overlay.toml>]` — run in **assertion mode** against an overlay
   file (see next section). Exit 0 on pass, 1 on mismatch, 2 on IO/parse
   error. Replaces the regular replay output with a pass/fail summary.
+- `--capture-golden <out.jsonl>` — iterate all entries in all provided logs,
+  run the production scoring pipeline on each, and write one `GoldenRecord`
+  per entry to `<out.jsonl>` (JSONL). Fields: `log_path`, `plan_id`,
+  `actor_id`, `decision_kind`, `cast_ability`, `cast_target`, `end_position`.
+  Use this once to freeze a baseline before a refactor. Exit 0 on success,
+  2 on I/O / pipeline error. Mutually exclusive with `--assert` and
+  `--compare-golden`.
+- `--compare-golden <baseline.jsonl>` — run the same pipeline and compare
+  line-by-line against the baseline captured by `--capture-golden`. Prints
+  per-field divergences to stderr and a `N / total diverged` summary. Exit 0
+  when all records match, 1 if any diverge, 2 on I/O error. Mutually
+  exclusive with `--assert` and `--capture-golden`.
 
 ## Assertion overlay (`--assert`)
 

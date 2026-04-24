@@ -36,7 +36,8 @@ use storyforge::combat::ai::planning::{
 use storyforge::combat::ai::planning::future_value::{plan_prefix_only, score_plans_prototype};
 use storyforge::combat::ai::planning::sanity::SELF_SURVIVAL_EPSILON;
 use storyforge::combat::ai::replay::{
-    assert_log_file, default_overlay_path, intent_kind, LogEntry, LoggedEvaluationMode, PlanLog,
+    assert_log_file, default_overlay_path, golden_from_entry, intent_kind, read_entries,
+    GoldenRecord, LogEntry, LoggedEvaluationMode, PlanLog,
 };
 #[cfg(test)]
 use storyforge::combat::ai::replay::LoggedTradeBlock;
@@ -940,6 +941,12 @@ fn main() {
     // Other pipeline modes (--metrics-summary etc.) are skipped in assert mode.
     let mut assert_mode = false;
     let mut assert_overlay_path: Option<PathBuf> = None;
+    // --capture-golden <out.jsonl> — run production pipeline on all entries of all
+    // provided logs; write one GoldenRecord per entry to <out.jsonl>.
+    let mut capture_golden: Option<PathBuf> = None;
+    // --compare-golden <baseline.jsonl> — run production pipeline, compare
+    // line-by-line with baseline. Exit 1 if any record diverges.
+    let mut compare_golden: Option<PathBuf> = None;
     let mut paths: Vec<PathBuf> = Vec::new();
     let mut iter = args[1..].iter().peekable();
     while let Some(a) = iter.next() {
@@ -965,6 +972,18 @@ fn main() {
                     assert_overlay_path = Some(PathBuf::from(iter.next().unwrap()));
                 }
             }
+        } else if a == "--capture-golden" {
+            let arg = iter.next().unwrap_or_else(|| {
+                eprintln!("error: --capture-golden requires a path argument");
+                std::process::exit(2);
+            });
+            capture_golden = Some(PathBuf::from(arg));
+        } else if a == "--compare-golden" {
+            let arg = iter.next().unwrap_or_else(|| {
+                eprintln!("error: --compare-golden requires a path argument");
+                std::process::exit(2);
+            });
+            compare_golden = Some(PathBuf::from(arg));
         } else if !a.starts_with('-') {
             paths.push(PathBuf::from(a));
         }
@@ -974,9 +993,23 @@ fn main() {
             "usage: replay_ai_log <log.jsonl> [<log2.jsonl> ...] \
              [--verbose] [--simulate-ab] [--metrics-summary] [--phase7-prototype] \
              [--phase7-p2] [--campaign <dir>] [--scenario <dir>] \
-             [--assert [<overlay.expected.toml>]]"
+             [--assert [<overlay.expected.toml>]] \
+             [--capture-golden <out.jsonl>] \
+             [--compare-golden <baseline.jsonl>]"
         );
         std::process::exit(2);
+    }
+    // Mutual exclusion: golden modes and assert mode cannot be combined.
+    {
+        let golden_active = capture_golden.is_some() || compare_golden.is_some();
+        if capture_golden.is_some() && compare_golden.is_some() {
+            eprintln!("error: --capture-golden and --compare-golden are mutually exclusive");
+            std::process::exit(2);
+        }
+        if golden_active && assert_mode {
+            eprintln!("error: --capture-golden / --compare-golden cannot be combined with --assert");
+            std::process::exit(2);
+        }
     }
 
     // Resolve content dirs: explicit flags > filename inference > global fallback.
@@ -995,6 +1028,203 @@ fn main() {
     };
     let content = ContentView::load_layered(&campaign_dir, &scenario_dir);
     let inf_cfg = InfluenceConfig::default();
+
+    // ── Capture-golden mode ───────────────────────────────────────────────────
+    // Iterates all entries in all provided JSONL logs, runs the production
+    // scoring pipeline, and writes one GoldenRecord per entry to the output
+    // file. Exits 0 on success, 2 on any I/O or pipeline error.
+    if let Some(out_path) = capture_golden {
+        use std::io::Write as _;
+        let out_file = std::fs::File::create(&out_path).unwrap_or_else(|e| {
+            eprintln!("error: cannot create {}: {e}", out_path.display());
+            std::process::exit(2);
+        });
+        let mut writer = std::io::BufWriter::new(out_file);
+        let mut captured: usize = 0;
+        for path in &paths {
+            let path_str = path.to_string_lossy();
+            let entries = match read_entries(path) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("error reading {}: {e}", path.display());
+                    std::process::exit(2);
+                }
+            };
+            for entry in &entries {
+                let rec = match golden_from_entry(entry, &path_str, &content, &inf_cfg) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!(
+                            "error on plan_id={} in {}: {e}",
+                            entry.plan_id,
+                            path.display()
+                        );
+                        std::process::exit(2);
+                    }
+                };
+                let line = serde_json::to_string(&rec).unwrap_or_else(|e| {
+                    eprintln!("error serializing golden record: {e}");
+                    std::process::exit(2);
+                });
+                writeln!(writer, "{line}").unwrap_or_else(|e| {
+                    eprintln!("error writing to {}: {e}", out_path.display());
+                    std::process::exit(2);
+                });
+                captured += 1;
+            }
+        }
+        writer.flush().unwrap_or_else(|e| {
+            eprintln!("error flushing {}: {e}", out_path.display());
+            std::process::exit(2);
+        });
+        println!("captured {captured} records → {}", out_path.display());
+        std::process::exit(0);
+    }
+    // ── End capture-golden mode ───────────────────────────────────────────────
+
+    // ── Compare-golden mode ───────────────────────────────────────────────────
+    // Reads the baseline from <baseline.jsonl>, runs the production pipeline
+    // over the same corpus, and compares line-by-line. Exits 0 when all match,
+    // 1 when any record diverges, 2 on I/O / pipeline error.
+    if let Some(baseline_path) = compare_golden {
+        // Load baseline records.
+        let baseline: Vec<GoldenRecord> = {
+            use std::io::BufRead as _;
+            let file = std::fs::File::open(&baseline_path).unwrap_or_else(|e| {
+                eprintln!("error: cannot open {}: {e}", baseline_path.display());
+                std::process::exit(2);
+            });
+            let reader = std::io::BufReader::new(file);
+            let mut recs = Vec::new();
+            for (lineno, line) in reader.lines().enumerate() {
+                let line = line.unwrap_or_else(|e| {
+                    eprintln!("error reading {}: {e}", baseline_path.display());
+                    std::process::exit(2);
+                });
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let rec: GoldenRecord = serde_json::from_str(&line).unwrap_or_else(|e| {
+                    eprintln!(
+                        "error: cannot parse golden record at line {} in {}: {e}",
+                        lineno + 1,
+                        baseline_path.display()
+                    );
+                    std::process::exit(2);
+                });
+                recs.push(rec);
+            }
+            recs
+        };
+
+        // Run production pipeline over the same corpus.
+        let mut current: Vec<GoldenRecord> = Vec::new();
+        for path in &paths {
+            let path_str = path.to_string_lossy();
+            let entries = match read_entries(path) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("error reading {}: {e}", path.display());
+                    std::process::exit(2);
+                }
+            };
+            for entry in &entries {
+                let rec = match golden_from_entry(entry, &path_str, &content, &inf_cfg) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!(
+                            "error on plan_id={} in {}: {e}",
+                            entry.plan_id,
+                            path.display()
+                        );
+                        std::process::exit(2);
+                    }
+                };
+                current.push(rec);
+            }
+        }
+
+        // Line-by-line comparison.
+        let total = baseline.len().max(current.len());
+        let mut diverged: usize = 0;
+        for i in 0..baseline.len().max(current.len()) {
+            match (current.get(i), baseline.get(i)) {
+                (None, Some(_)) => {
+                    // Handled after the loop.
+                }
+                (Some(cur), None) => {
+                    eprintln!(
+                        "case {i}: extra entry in current (log_path={:?}, plan_id={}, actor_id={})",
+                        cur.log_path, cur.plan_id, cur.actor_id
+                    );
+                    diverged += 1;
+                }
+                (Some(cur), Some(base)) => {
+                    // Key match check.
+                    if cur.log_path != base.log_path
+                        || cur.plan_id != base.plan_id
+                        || cur.actor_id != base.actor_id
+                    {
+                        eprintln!(
+                            "case {i} corpus mismatch: key = ({:?}, {}, {}) vs baseline ({:?}, {}, {})",
+                            cur.log_path, cur.plan_id, cur.actor_id,
+                            base.log_path, base.plan_id, base.actor_id,
+                        );
+                        diverged += 1;
+                        continue;
+                    }
+                    // Value comparison.
+                    let mut case_diverged = false;
+                    if cur.decision_kind != base.decision_kind {
+                        eprintln!(
+                            "case {i} diverged: decision_kind = {:?} vs {:?}",
+                            cur.decision_kind, base.decision_kind
+                        );
+                        case_diverged = true;
+                    }
+                    if cur.cast_ability != base.cast_ability {
+                        eprintln!(
+                            "case {i} diverged: cast_ability = {:?} vs {:?}",
+                            cur.cast_ability, base.cast_ability
+                        );
+                        case_diverged = true;
+                    }
+                    if cur.cast_target != base.cast_target {
+                        eprintln!(
+                            "case {i} diverged: cast_target = {:?} vs {:?}",
+                            cur.cast_target, base.cast_target
+                        );
+                        case_diverged = true;
+                    }
+                    if cur.end_position != base.end_position {
+                        eprintln!(
+                            "case {i} diverged: end_position = {:?} vs {:?}",
+                            cur.end_position, base.end_position
+                        );
+                        case_diverged = true;
+                    }
+                    if case_diverged {
+                        diverged += 1;
+                    }
+                }
+                (None, None) => {}
+            }
+        }
+        // Account for trailing baseline entries not reached by current.
+        if current.len() < baseline.len() {
+            let missing = baseline.len() - current.len();
+            eprintln!("missing {missing} trailing entries from current");
+            diverged += missing;
+        }
+
+        eprintln!("{diverged} / {total} diverged");
+        if diverged == 0 {
+            std::process::exit(0);
+        } else {
+            std::process::exit(1);
+        }
+    }
+    // ── End compare-golden mode ───────────────────────────────────────────────
 
     // ── Assert mode ──────────────────────────────────────────────────────────
     // Reads the overlay, runs the production pipeline on the targeted entry,
