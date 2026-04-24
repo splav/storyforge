@@ -94,6 +94,7 @@ impl UnitBuilder {
                 caster_ctx: Default::default(),
                 crit_fail_effect: Default::default(),
                 damage_horizon: Vec::new(),
+                ai_tuning_override: None,
             },
         }
     }

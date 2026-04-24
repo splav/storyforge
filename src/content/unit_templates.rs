@@ -7,6 +7,7 @@
 //!
 //! Templates have no hex position — position is always supplied at the use site.
 
+use crate::combat::ai::tuning::AiTuningOverride;
 use crate::core::{AbilityId, ArmorId, WeaponId};
 use crate::game::components::CombatStats;
 use serde::Deserialize;
@@ -23,6 +24,10 @@ pub struct UnitTemplateDef {
     pub equipment: EquipmentBlock,
     pub resources: ResourcesBlock,
     pub ability_ids: Vec<AbilityId>,
+    /// Per-unit AiTuning override. `None` for all current units.
+    /// Populated from `ai_tuning_override` in `unit_templates.toml`.
+    /// See step 2.7 of docs/ai_rework_plan.md.
+    pub ai_tuning_override: Option<AiTuningOverride>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +63,8 @@ pub struct TemplateRecord {
     #[serde(default)]
     pub resources: Option<ResourcesRecord>,
     pub ability_ids: Vec<String>,
+    #[serde(default)]
+    pub ai_tuning_override: Option<AiTuningOverride>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -164,5 +171,6 @@ pub fn convert_template_record(r: TemplateRecord) -> UnitTemplateDef {
             .into_iter()
             .map(|s| AbilityId::from(s.as_str()))
             .collect(),
+        ai_tuning_override: r.ai_tuning_override,
     }
 }

@@ -105,7 +105,10 @@ use crate::game::hex::Hex;
 ///   "Team coordination" need the real difficulty + memory + reservation
 ///   state rather than hardcoded defaults. v16 logs deserialize via
 ///   `#[serde(default)]` on the new fields.
-pub const SCHEMA_VERSION: u32 = 17;
+/// - v17 → v18: `UnitSnapshot.ai_tuning_override` added (default `None`).
+///   Per-unit AiTuning override scaffolding (step 2.7). v17 logs deserialize
+///   via `#[serde(default)]` → `None`, preserving backward compatibility.
+pub const SCHEMA_VERSION: u32 = 18;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -813,7 +816,7 @@ mod tests {
     }
 
     #[test]
-    fn entry_serializes_v17_telemetry_fields() {
+    fn entry_serializes_current_schema_telemetry_fields() {
         // Minimal AiLogEntry constructed directly to verify current schema fields
         // appear in the JSON output with the expected types. AiLogEntry has no
         // Deserialize derive (lifetime refs), so we assert via serde_json::Value.
@@ -858,12 +861,12 @@ mod tests {
         };
         let json = serde_json::to_string(&entry).expect("serialize");
         let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
-        assert_eq!(v["schema_version"], 17);
+        assert_eq!(v["schema_version"], SCHEMA_VERSION);
         assert_eq!(v["gate_applied"], true);
         assert_eq!(v["gate_pruned_count"], 3);
         assert_eq!(v["survival_mode_active"], true);
         assert_eq!(v["last_stand_active"], false);
-        // v17 snapshot sections are present.
+        // v17+ snapshot sections are present.
         assert!(v["difficulty"].is_object(), "difficulty section present");
         assert!(v["ai_memory"].is_null(), "fresh actor → null ai_memory");
         assert!(v["reservations"].is_object(), "reservations section present");

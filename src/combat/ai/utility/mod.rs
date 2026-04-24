@@ -174,6 +174,24 @@ pub fn pick_action(
         return (AiDecision::EndTurn, None, None);
     };
 
+    // Apply per-actor AiTuning override if present. The swap is local to
+    // pick_action — every downstream call (intent, plans, ranking, ScoringCtx)
+    // sees the per-actor tuning through `world.tuning` without API changes.
+    // In current content no unit declares `ai_tuning_override`, so this branch
+    // is inert; scaffolding is here to support quirks (see step 2.7 of
+    // docs/ai_rework_plan.md).
+    let per_actor_tuning = active
+        .ai_tuning_override
+        .as_ref()
+        .map(|ov| world.tuning.apply_override(ov));
+    let per_actor_world;
+    let world: &AiWorld = if let Some(ref t) = per_actor_tuning {
+        per_actor_world = AiWorld { tuning: t, ..*world };
+        &per_actor_world
+    } else {
+        world
+    };
+
     // ── Select tactical intent ──────────────────────────────────────────
     let choice = select_intent(active, snap, maps, memory, world.difficulty, world.tuning);
     update_memory(memory, &choice.intent);

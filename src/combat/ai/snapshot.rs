@@ -2,6 +2,7 @@ use crate::content::content_view::ContentView;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::scoring::{applies_cc, estimate_damage_horizon, estimate_st_damage};
+use crate::combat::ai::tuning::AiTuningOverride;
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
 use crate::content::races::CritFailEffect;
 use crate::core::{AbilityId, ResourceKind, StatusId};
@@ -126,6 +127,17 @@ pub struct UnitSnapshot {
     /// reading horizon falls back to `threat`-only behaviour when empty.
     #[serde(default)]
     pub damage_horizon: Vec<f32>,
+    /// Per-actor AiTuning override, propagated from the unit's template
+    /// (`ai_tuning_override` in unit_templates.toml). `None` for units without
+    /// a quirk — which is every unit in the current content, see step 2.7 of
+    /// ai_rework_plan.md. Consumed once in `pick_action` via
+    /// `AiTuning::apply_override`.
+    ///
+    /// Schema v18+: absent on v≤17 logs → `None`.
+    // TODO(step 2.7): wire UnitTemplateDef.ai_tuning_override → a Bevy component
+    // → read it here in build_snapshot when the first quirk is introduced.
+    #[serde(default)]
+    pub ai_tuning_override: Option<AiTuningOverride>,
 }
 
 /// Snapshot-shaped mirror of `ActiveStatus` (components.rs). Drops `applier`
@@ -363,6 +375,10 @@ pub fn build_snapshot(
                     c.vital.hp,
                     horizon_rounds,
                 ),
+                // TODO(step 2.7): read from a Bevy component once the first
+                // unit quirk is introduced. For now, always None — see
+                // UnitTemplateDef.ai_tuning_override and ai_rework_plan.md §2.7.
+                ai_tuning_override: None,
             })
         })
         .collect();
@@ -619,6 +635,7 @@ mod affordability_tests {
             caster_ctx: Default::default(),
             crit_fail_effect: Default::default(),
             damage_horizon: Vec::new(),
+            ai_tuning_override: None,
         }
     }
 

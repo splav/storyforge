@@ -2,7 +2,7 @@
 //! Populated incrementally across steps 2.2–2.6 (see docs/ai_rework_plan.md).
 
 use bevy::prelude::Resource;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Resource, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
@@ -137,5 +137,125 @@ impl Default for Difficulty {
             survival_hp_curve: LerpCurve { lo: 0.35, hi: 0.20 },
             awareness_danger_curve: LerpCurve { lo: 0.90, hi: 0.60 },
         }
+    }
+}
+
+// ── Per-unit override scaffolding (step 2.7) ─────────────────────────────────
+
+/// Per-unit partial override of AiTuning. Populated from `unit_templates.toml`
+/// (field `ai_tuning_override`). All sub-sections are Option'd so individual
+/// quirks can specify just the fields they tweak (Berserker: only `aoo_risk_floor`
+/// raised; Coward: only `self_survival_epsilon` lowered, etc.).
+///
+/// Consumed via `AiTuning::apply_override` at `pick_action` time.
+///
+/// Scaffolding note (step 2.7): only `thresholds` is override-able in this
+/// iteration. `difficulty` (LerpCurve) and `tables` (role-axis matrices)
+/// intentionally omitted — add `Option<...Override>` fields here when a concrete
+/// quirk needs them.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct AiTuningOverride {
+    #[serde(default)]
+    pub thresholds: Option<ThresholdsOverride>,
+    // hooks (not yet wired):
+    // pub difficulty: Option<DifficultyOverride>,
+    // pub tables: Option<TablesOverride>,
+}
+
+/// Per-unit partial override of `Thresholds`. Each field that is `Some(v)`
+/// replaces the global value; `None` fields leave the global untouched.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct ThresholdsOverride {
+    #[serde(default)] pub survival_floor: Option<f32>,
+    #[serde(default)] pub low_hp_factor: Option<f32>,
+    #[serde(default)] pub aoo_penalty_k: Option<f32>,
+    #[serde(default)] pub aoo_risk_floor: Option<f32>,
+    #[serde(default)] pub self_survival_epsilon: Option<f32>,
+    #[serde(default)] pub mild_penalty: Option<f32>,
+    #[serde(default)] pub stickiness_bonus: Option<f32>,
+    #[serde(default)] pub target_stickiness_bonus: Option<f32>,
+    #[serde(default)] pub max_committed_turns: Option<u8>,
+}
+
+impl AiTuning {
+    /// Produce a per-unit AiTuning by overlaying `ov` on `self`. `None` fields
+    /// inherit from `self`, `Some(v)` fields replace.
+    /// Explicit per-field merge — no derive-magic.
+    pub fn apply_override(&self, ov: &AiTuningOverride) -> AiTuning {
+        let mut out = self.clone();
+        if let Some(t) = &ov.thresholds {
+            if let Some(v) = t.survival_floor         { out.thresholds.survival_floor = v; }
+            if let Some(v) = t.low_hp_factor          { out.thresholds.low_hp_factor = v; }
+            if let Some(v) = t.aoo_penalty_k          { out.thresholds.aoo_penalty_k = v; }
+            if let Some(v) = t.aoo_risk_floor         { out.thresholds.aoo_risk_floor = v; }
+            if let Some(v) = t.self_survival_epsilon  { out.thresholds.self_survival_epsilon = v; }
+            if let Some(v) = t.mild_penalty           { out.thresholds.mild_penalty = v; }
+            if let Some(v) = t.stickiness_bonus       { out.thresholds.stickiness_bonus = v; }
+            if let Some(v) = t.target_stickiness_bonus { out.thresholds.target_stickiness_bonus = v; }
+            if let Some(v) = t.max_committed_turns    { out.thresholds.max_committed_turns = v; }
+        }
+        // hooks: difficulty and tables override would be applied here.
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_override_empty_is_identity() {
+        let base = AiTuning::default();
+        let result = base.apply_override(&AiTuningOverride::default());
+        // Check thresholds
+        assert_eq!(result.thresholds.survival_floor, base.thresholds.survival_floor);
+        assert_eq!(result.thresholds.max_committed_turns, base.thresholds.max_committed_turns);
+        // Check difficulty
+        assert_eq!(result.difficulty.survival_hp_curve.lo, base.difficulty.survival_hp_curve.lo);
+        // Check tables (first element of axis_factor_weights and axis_position_weights)
+        assert_eq!(result.tables.axis_factor_weights[0][0], base.tables.axis_factor_weights[0][0]);
+        assert_eq!(result.tables.axis_position_weights[0][0], base.tables.axis_position_weights[0][0]);
+    }
+
+    #[test]
+    fn apply_override_partial_thresholds() {
+        let base = AiTuning::default();
+        let ov = AiTuningOverride {
+            thresholds: Some(ThresholdsOverride {
+                survival_floor: Some(0.5),
+                aoo_risk_floor: Some(0.9),
+                ..Default::default()
+            }),
+        };
+        let result = base.apply_override(&ov);
+
+        // Overridden fields
+        assert_eq!(result.thresholds.survival_floor, 0.5);
+        assert_eq!(result.thresholds.aoo_risk_floor, 0.9);
+
+        // Untouched thresholds — must equal default
+        let def = Thresholds::default();
+        assert_eq!(result.thresholds.low_hp_factor,           def.low_hp_factor);
+        assert_eq!(result.thresholds.aoo_penalty_k,           def.aoo_penalty_k);
+        assert_eq!(result.thresholds.self_survival_epsilon,   def.self_survival_epsilon);
+        assert_eq!(result.thresholds.mild_penalty,            def.mild_penalty);
+        assert_eq!(result.thresholds.stickiness_bonus,        def.stickiness_bonus);
+        assert_eq!(result.thresholds.target_stickiness_bonus, def.target_stickiness_bonus);
+        assert_eq!(result.thresholds.max_committed_turns,     def.max_committed_turns);
+
+        // Difficulty and tables untouched
+        assert_eq!(result.difficulty.survival_hp_curve.lo, base.difficulty.survival_hp_curve.lo);
+        assert_eq!(result.tables.axis_factor_weights[0][0], base.tables.axis_factor_weights[0][0]);
+    }
+
+    #[test]
+    fn apply_override_toml_roundtrip() {
+        let toml_src = "[thresholds]\nsurvival_floor = 0.5\n";
+        let ov: AiTuningOverride = toml::from_str(toml_src)
+            .expect("AiTuningOverride should parse from TOML");
+        let result = AiTuning::default().apply_override(&ov);
+        assert_eq!(result.thresholds.survival_floor, 0.5);
+        // Other thresholds unchanged
+        assert_eq!(result.thresholds.aoo_risk_floor, Thresholds::default().aoo_risk_floor);
     }
 }
