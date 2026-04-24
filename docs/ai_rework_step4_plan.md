@@ -39,7 +39,7 @@
 
 **Коммит:** `7de5c30`. **Golden-replay:** 0 / 131 diff.
 
-### 4.2. Sim заполняет остальные 8 полей (producer-complete)
+### 4.2. Sim заполняет остальные 8 полей (producer-complete) ✓ DONE
 
 **Scope.** Каждое поле — явный источник:
 - `p_kill_now` ← `1.0 if !outcome.killed.is_empty() else 0.0`.
@@ -53,7 +53,7 @@
 
 **Gate.** Unit-тесты per field + parity тест `offensive::split_kill` не задет. Golden **0 / 131 diff** — no consumer, ничего не должно двигаться.
 
-**Эстимейт.** 1.5 дня. **Коммит:** `ai/outcome: шаг 4.2 — sim fills full 9-field ActionOutcomeEstimate`.
+**Коммит:** `88da91f`. **Golden-replay:** 0 / 131 diff.
 
 ### 4.3. `factors::offensive` читает outcome (первый real consumer)
 
@@ -95,7 +95,7 @@
 |---|---|---|---|---|
 | 4.0 | scaffolding | 0.5 | 0 diff | **DONE** (`cb94250`) |
 | 4.1 | expected_damage | 0.5 | 0 diff | **DONE** (`7de5c30`) |
-| 4.2 | full 9-field | 1.5 | 0 diff | pending |
+| 4.2 | full 9-field | 1.5 | 0 diff | **DONE** (`88da91f`) |
 | 4.3 | offensive consumer | 1.5 | 0 diff | pending |
 | 4.4 | future_value + picker | 1.0 | ≤3 epsilons | pending |
 | 4.5 | cleanup + JSONL v18→v19 | 1.0 | 0 diff | pending |
