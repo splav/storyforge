@@ -34,6 +34,7 @@ pub use saturation::buff_saturation_penalty;
 pub use survival::compute_plan_self_survival;
 pub use tempo::compute_plan_tempo_gain;
 
+use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::core::AbilityId;
@@ -232,11 +233,19 @@ pub(super) struct OffensiveFactors {
 /// once per plan and re-apply a new intent (viability fallback, LastStand
 /// rescore) without redoing damage/heal/kill/cc/scarcity.
 ///
+/// `outcome` carries the pre-annotated values from the generator
+/// (`build_step_outcome_estimate`). Pass `&ActionOutcomeEstimate::default()`
+/// when scoring outside a full plan context (e.g. intent_score tests).
+///
 /// Axes: [damage, kill_now, kill_promised, cc, heal, 0.0, scarcity, 0.0, 0.0, 0.0].
-pub fn compute_factors(ctx: &ScoringCtx, step: &ScoredStep) -> PlanFactors {
+pub fn compute_factors(
+    ctx: &ScoringCtx,
+    step: &ScoredStep,
+    outcome: &ActionOutcomeEstimate,
+) -> PlanFactors {
     let mut off = match step {
         ScoredStep::Cast { ability, target_pos, target, caster_tile } => {
-            offensive::compute_offensive(ability, *target_pos, *target, *caster_tile, ctx)
+            offensive::compute_offensive(ability, *target_pos, *target, *caster_tile, ctx, outcome)
         }
         ScoredStep::Move { .. } => OffensiveFactors::default(),
     };

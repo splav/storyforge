@@ -136,6 +136,32 @@ pub fn estimate_rescue_value(
     crit_fail_adjusted_rescue(raw, def, crit_fail_effect, crit_fail_chance)
 }
 
+/// Scorer-compatible damage estimate for a single-target enemy cast.
+///
+/// Mirrors the damage path of `factors::offensive::compute_offensive`:
+/// `score_action + crit_fail_adjusted`. This is the value stored in
+/// `ActionOutcomeEstimate::expected_damage` for single-target casts so that
+/// the scorer can read it directly without re-calling `score_action`.
+///
+/// Returns `0.0` for non-SingleEnemy abilities (heal / AoE / status-only).
+/// For AoE, the generator calls `compute_aoe_damage` directly and stores the
+/// result, so this helper is not used there.
+pub fn estimate_expected_damage(
+    def: &AbilityDef,
+    target: &UnitSnapshot,
+    caster: &CasterContext,
+    content: &ContentView,
+    crit_fail_effect: &CritFailEffect,
+    crit_fail_chance: f32,
+) -> f32 {
+    use crate::content::abilities::TargetType;
+    if def.target_type != TargetType::SingleEnemy {
+        return 0.0;
+    }
+    let raw = score_action(def, target, caster, content, 0.0);
+    crit_fail_adjusted_rescue(raw, def, crit_fail_effect, crit_fail_chance)
+}
+
 /// Max danger value along the path tiles of a single Move step.
 /// Returns `0.0` for Cast steps.
 ///

@@ -463,7 +463,8 @@ pub fn compute_plan_factors_sans_intent(
         if let PlanStep::Cast { .. } = step {
             // Mid-plan: shift perspective to the simulated actor + pre-step snap.
             let step_ctx = ctx.with_perspective(&sim_actor, pre_snap);
-            let raw = factors::compute_factors(&step_ctx, &scored_step);
+            let step_outcome = plan.annotation.outcomes.get(idx).cloned().unwrap_or_default();
+            let raw = factors::compute_factors(&step_ctx, &scored_step, &step_outcome);
             // Every Cast-accumulating factor uses the same shape: discounted
             // sum with base^k decay. Deep Casts keep contributing but weigh
             // less, reflecting execution uncertainty over plan depth.
@@ -617,7 +618,8 @@ pub fn compute_plan_intent_sum(
 
         if !goal_achieved {
             let step_ctx = ctx.with_perspective(&sim_actor, pre_snap);
-            let iv = intent_score(intent, &scored_step, &step_ctx);
+            let step_outcome = plan.annotation.outcomes.get(idx).cloned().unwrap_or_default();
+            let iv = intent_score(intent, &scored_step, &step_ctx, &step_outcome);
             intent_sum += iv * step_weight;
         }
 
@@ -689,6 +691,7 @@ fn killed_intent_target(killed: &[Entity], intent: &TacticalIntent) -> bool {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::reservations::Reservations;
     use crate::combat::ai::snapshot::AiTags;
@@ -713,6 +716,44 @@ mod tests {
         difficulty: &'a DifficultyProfile,
     ) -> AiWorld<'a> {
         crate::combat::ai::test_helpers::make_test_ctx(content, difficulty)
+    }
+
+    /// Populate `plan.annotation.outcomes` with scorer-compatible expected-damage
+    /// values for each Cast step, using the actor's `CasterContext` and the
+    /// provided pre-step snapshot.
+    ///
+    /// Required in scorer tests that build `TurnPlan` manually (with
+    /// `annotation: Default::default()`) and then call `compute_plan_factors`.
+    /// Step 4.3 moved live scoring to read `outcome.expected_damage` — without
+    /// this helper, intent factors would be 0 for all manually-built plans.
+    fn annotate_plan(
+        plan: &mut TurnPlan,
+        actor: &UnitSnapshot,
+        snap: &crate::combat::ai::snapshot::BattleSnapshot,
+        content: &crate::content::content_view::ContentView,
+        crit_fail_chance: f32,
+    ) {
+        use crate::combat::ai::outcome::estimate_expected_damage;
+        let crit_fail_effect = actor.crit_fail_effect.clone();
+        let caster_ctx = actor.caster_ctx.clone();
+        let outcomes: Vec<ActionOutcomeEstimate> = plan.steps.iter().map(|step| {
+            match step {
+                PlanStep::Cast { ability, target, .. } => {
+                    let Some(def) = content.abilities.get(ability) else {
+                        return ActionOutcomeEstimate::default();
+                    };
+                    let target_unit = snap.unit(*target);
+                    let expected_damage = target_unit.map_or(0.0, |t| {
+                        estimate_expected_damage(
+                            def, t, &caster_ctx, content, &crit_fail_effect, crit_fail_chance,
+                        )
+                    });
+                    ActionOutcomeEstimate { expected_damage, ..Default::default() }
+                }
+                PlanStep::Move { .. } => ActionOutcomeEstimate::default(),
+            }
+        }).collect();
+        plan.annotation = PlanAnnotation { outcomes };
     }
 
     /// Pins the `intent` factor aggregation across single- and multi-cast plans
@@ -772,7 +813,7 @@ mod tests {
         };
         let build = |steps: Vec<PlanStep>| {
             let len = steps.len();
-            TurnPlan {
+            let mut plan = TurnPlan {
                 steps,
                 final_pos: hex_from_offset(0, 0), // actor stays at start
                 residual_ap: 0,
@@ -781,7 +822,10 @@ mod tests {
                 partial_score: 0.0,
                 sim_snapshots: vec![snap.clone(); len],
                 annotation: Default::default(),
-            }
+            };
+            // Step 4.3: populate annotation so intent_score reads expected_damage.
+            annotate_plan(&mut plan, &actor, &snap, &content, 0.0);
+            plan
         };
 
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
@@ -1407,7 +1451,7 @@ mod tests {
             target: target.entity,
             target_pos: target.pos,
         };
-        let pure_cast = TurnPlan {
+        let mut pure_cast = TurnPlan {
             steps: vec![cast_step.clone()],
             final_pos: actor.pos,
             residual_ap: 1, residual_mp: 3,
@@ -1416,11 +1460,13 @@ mod tests {
             sim_snapshots: vec![snap.clone()],
             annotation: Default::default(),
         };
+        // Step 4.3: populate annotation so intent_score reads expected_damage.
+        annotate_plan(&mut pure_cast, &actor, &snap, &content, 0.0);
         let s_cast_only = compute_plan_intent_sum(&pure_cast, &intent, &scoring_ctx);
         assert!(s_cast_only > 0.0, "cast-only plan must have positive intent: {s_cast_only}");
 
         // Move + Cast plan: Move to adjacent tile, then Cast.
-        let move_then_cast = TurnPlan {
+        let mut move_then_cast = TurnPlan {
             steps: vec![
                 PlanStep::Move { path: vec![hex_from_offset(1, 0)] },
                 cast_step,
@@ -1432,6 +1478,8 @@ mod tests {
             sim_snapshots: vec![snap.clone(), snap.clone()],
             annotation: Default::default(),
         };
+        // Step 4.3: populate annotation so intent_score reads expected_damage.
+        annotate_plan(&mut move_then_cast, &actor, &snap, &content, 0.0);
         let s_move_cast = compute_plan_intent_sum(&move_then_cast, &intent, &scoring_ctx);
 
         // The Move+Cast plan is NOT pure-move, so it uses per-step accumulation.

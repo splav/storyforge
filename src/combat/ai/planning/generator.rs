@@ -15,8 +15,8 @@ use crate::combat::ai::factors::{aoe_area, aoe_hits};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::sim::SimState;
 use crate::combat::ai::outcome::{
-    ActionOutcomeEstimate, estimate_deny_value, estimate_kill_soon, estimate_rescue_value,
-    step_path_danger,
+    ActionOutcomeEstimate, estimate_deny_value, estimate_expected_damage, estimate_kill_soon,
+    estimate_rescue_value, step_path_danger,
 };
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
@@ -24,6 +24,7 @@ use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 use crate::core::AbilityId;
+use crate::game::components::Team;
 use crate::game::hex::Hex;
 use crate::game::pathfinding::ReachableMap;
 use bevy::prelude::Entity;
@@ -164,7 +165,7 @@ pub fn generate_plans(
                 };
 
                 let step_damage = outcome.damage;
-                // Step 4.2: compute all 9 ActionOutcomeEstimate fields.
+                // Step 4.2/4.3: compute all 9 ActionOutcomeEstimate fields.
                 let ann_outcome = build_step_outcome_estimate(
                     &step,
                     &outcome,
@@ -174,6 +175,8 @@ pub fn generate_plans(
                     &sa.crit_fail_effect,
                     ctx,
                     maps,
+                    sa.pos,
+                    sa.team,
                 );
                 let mut extended = plan.clone();
                 extended.steps.push(step);
@@ -205,10 +208,13 @@ pub fn generate_plans(
     dedup_by_logical_key(all_plans, actor_u.pos)
 }
 
-/// Build the full `ActionOutcomeEstimate` for one plan step (step 4.2).
+/// Build the full `ActionOutcomeEstimate` for one plan step (step 4.2/4.3).
 ///
 /// Uses the pre-step snapshot for target reads so killed targets (hp→0 in
 /// `outcome.killed`) are still visible via their pre-death stats.
+///
+/// `caster_tile` is the actor's position before this step — needed to compute
+/// the AoE blast area for multi-target deny_value and p_kill_soon aggregation.
 #[allow(clippy::too_many_arguments)]
 fn build_step_outcome_estimate(
     step: &PlanStep,
@@ -219,6 +225,8 @@ fn build_step_outcome_estimate(
     crit_fail_effect: &crate::content::races::CritFailEffect,
     ctx: &AiWorld,
     maps: &InfluenceMaps,
+    caster_tile: Hex,
+    actor_unit_team: Team,
 ) -> ActionOutcomeEstimate {
     match step {
         PlanStep::Cast { ability, target, target_pos } => {
@@ -234,17 +242,42 @@ fn build_step_outcome_estimate(
             // p_kill_now: 1.0 if any entity was killed by this step.
             let p_kill_now = if outcome.killed.is_empty() { 0.0 } else { 1.0 };
 
-            // p_kill_soon: kill-promised for single-target (0 for AoE or no target).
-            let p_kill_soon = target_unit
-                .filter(|_| def.aoe == AoEShape::None)
-                .map_or(0.0, |t| estimate_kill_soon(def, t, caster, content));
+            // For AoE: aggregate deny_value and p_kill_soon over all enemy hits,
+            // matching what compute_offensive does at scoring time.
+            // For single-target: use the primary target directly.
+            let (p_kill_soon, deny_value) = if def.aoe == AoEShape::None {
+                let ks = target_unit.map_or(0.0, |t| estimate_kill_soon(def, t, caster, content));
+                let dv = target_unit.map_or(0.0, |t| estimate_deny_value(def, t, content));
+                (ks, dv)
+            } else {
+                let area = crate::combat::ai::factors::aoe_area(def, *target_pos, caster_tile);
+                // Determine the actor's team to distinguish enemies from allies.
+                let actor_team = actor_unit_team;
+                let enemies_in_area: Vec<&UnitSnapshot> = pre_snap.units.iter()
+                    .filter(|u| u.is_alive() && area.contains(&u.pos) && u.team != actor_team)
+                    .collect();
+                let ks = if enemies_in_area.iter().any(|e| estimate_kill_soon(def, e, caster, content) > 0.0) {
+                    1.0
+                } else {
+                    0.0
+                };
+                let dv: f32 = enemies_in_area.iter()
+                    .map(|e| estimate_deny_value(def, e, content))
+                    .sum();
+                (ks, dv)
+            };
 
-            // deny_value: CC / vulnerability / armor-shred denial.
-            // Single-target: per the primary target.
-            // AoE: use primary target only (conservative; the factor scorer sums
-            // over all hits via compute_offensive — this annotation field is for
-            // analytics, not scoring input yet).
-            let deny_value = target_unit.map_or(0.0, |t| estimate_deny_value(def, t, content));
+            // expected_damage: scorer-compatible damage estimate for single-target
+            // enemy casts (= score_action + crit_fail_adjusted). For AoE, keep
+            // sim-derived step_damage as a reference value — the scorer uses
+            // compute_aoe_damage directly for AoE damage anyway.
+            let expected_damage = if def.aoe == AoEShape::None {
+                target_unit.map_or(0.0, |t| {
+                    estimate_expected_damage(def, t, caster, content, crit_fail_effect, ctx.crit_fail_chance)
+                })
+            } else {
+                step_damage
+            };
 
             // rescue_value: heal value with urgency (only for SingleAlly).
             let danger_at_target = maps.danger.get(*target_pos);
@@ -260,7 +293,7 @@ fn build_step_outcome_estimate(
                 - def.costs.iter().map(|c| c.amount as f32).sum::<f32>();
 
             ActionOutcomeEstimate {
-                expected_damage: step_damage,
+                expected_damage,
                 p_kill_now,
                 p_kill_soon,
                 deny_value,
@@ -832,7 +865,16 @@ mod tests {
     // ── Annotation outcomes match sim outcomes ─────────────────────────────
 
     #[test]
-    fn annotation_expected_damage_matches_step_outcome_damage() {
+    fn annotation_expected_damage_matches_estimate_expected_damage() {
+        // Step 4.3: `annotation.expected_damage` stores the scorer-compatible
+        // expected damage (= score_action() output via estimate_expected_damage),
+        // NOT the sim's actual rolled damage in `outcome.damage`.
+        // This test verifies that generator fills `annotation.expected_damage`
+        // with the same value `estimate_expected_damage` would return.
+        use crate::combat::ai::outcome::estimate_expected_damage;
+        use crate::content::abilities::CasterContext;
+        use crate::content::races::CritFailEffect;
+
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
         let target = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
         let actor_id = actor.entity;
@@ -845,28 +887,31 @@ mod tests {
         difficulty.plan_max_depth = 1;
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new(vec![actor, target], 1);
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
         let maps = empty_maps();
 
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
-        // Every non-empty plan: annotation.expected_damage must equal
-        // the corresponding step outcome damage (strict f32 equality —
-        // same value stored in two places, no re-computation).
+        let crit_fail_effect = CritFailEffect::default();
+        let caster_ctx = CasterContext::default();
+        // Expected damage as the scorer would compute it for this def + target.
+        let ref_damage = estimate_expected_damage(
+            &def, &target, &caster_ctx, &content, &crit_fail_effect, 0.0,
+        );
+
+        // Every Cast plan: annotation.expected_damage must equal the scorer's
+        // expected damage formula (strict f32 equality — same formula, no rounding).
         for plan in plans.iter().filter(|p| !p.steps.is_empty()) {
-            for (i, (ann, outcome)) in plan
-                .annotation
-                .outcomes
-                .iter()
-                .zip(plan.outcomes.iter())
-                .enumerate()
-            {
+            for (i, ann) in plan.annotation.outcomes.iter().enumerate() {
+                if !matches!(plan.steps.get(i), Some(PlanStep::Cast { .. })) {
+                    continue;
+                }
                 assert_eq!(
                     ann.expected_damage,
-                    outcome.damage,
-                    "plan step {i}: annotation.expected_damage ({}) != outcome.damage ({})",
+                    ref_damage,
+                    "plan step {i}: annotation.expected_damage ({}) != estimate_expected_damage ({})",
                     ann.expected_damage,
-                    outcome.damage
+                    ref_damage
                 );
             }
         }

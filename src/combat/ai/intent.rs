@@ -2,6 +2,7 @@ use crate::content::content_view::ContentView;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::factors::{aoe_area, aoe_hits, compute_factors, PlanFactors};
 use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{ActiveStatusView, AiTags, BattleSnapshot, UnitSnapshot};
@@ -825,6 +826,7 @@ pub fn intent_score(
     intent: &TacticalIntent,
     step: &ScoredStep,
     step_ctx: &ScoringCtx,
+    outcome: &ActionOutcomeEstimate,
 ) -> f32 {
     let active = step_ctx.active;
     let snap = step_ctx.snap;
@@ -855,7 +857,7 @@ pub fn intent_score(
                 };
             }
             // Cast: compute per-step factors, filter to focus target, dot with weights.
-            let raw = compute_factors(step_ctx, step);
+            let raw = compute_factors(step_ctx, step, outcome);
             let filtered = filter_offensive_for_target(raw, *focus, step, snap, content);
             let weights = IntentWeights::default()
                 .kill_now(2.0)
@@ -877,7 +879,7 @@ pub fn intent_score(
                 };
             }
             // Cast: compute per-step factors, filter to CC target, dot with weights.
-            let raw = compute_factors(step_ctx, step);
+            let raw = compute_factors(step_ctx, step, outcome);
             let filtered = filter_offensive_for_target(raw, *cc_target, step, snap, content);
             let weights = IntentWeights::default()
                 .cc(1.5)
@@ -988,6 +990,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::influence::InfluenceMaps;
+    use crate::combat::ai::outcome::ActionOutcomeEstimate;
     use crate::combat::ai::reservations::Reservations;
     use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::{
@@ -1056,10 +1059,10 @@ mod tests {
         let ab = AbilityId::from("melee_attack");
 
         let ctx_worse = make_scoring_ctx(&world, &snap, &maps, &reservations, &active);
-        let score_worse = intent_score(&intent, &dummy_step(worse, &ab), &ctx_worse);
+        let score_worse = intent_score(&intent, &dummy_step(worse, &ab), &ctx_worse, &ActionOutcomeEstimate::default());
 
         let ctx_better = make_scoring_ctx(&world, &snap, &maps, &reservations, &active);
-        let score_better = intent_score(&intent, &dummy_step(better, &ab), &ctx_better);
+        let score_better = intent_score(&intent, &dummy_step(better, &ab), &ctx_better, &ActionOutcomeEstimate::default());
 
         assert!(
             score_worse < 0.0,
@@ -1250,7 +1253,7 @@ mod tests {
 
         // Move to (4,0) — dist=1 to target, reach=3+1=4, 1<=4 → 0.8.
         let move_into_reach = ScoredStep::Move { caster_tile: hex_from_offset(4, 0) };
-        let score = intent_score(&intent, &move_into_reach, &ctx);
+        let score = intent_score(&intent, &move_into_reach, &ctx, &ActionOutcomeEstimate::default());
         assert!(
             score >= 0.5,
             "enter-reach Move must pass viability (0.5), got {score}",
@@ -1330,8 +1333,28 @@ mod tests {
             caster_tile: actor.pos,
         };
 
-        let score_strong = intent_score(&intent, &step_strong, &ctx);
-        let score_weak = intent_score(&intent, &step_weak, &ctx);
+        // Build outcomes so compute_offensive reads expected_damage from the
+        // annotation rather than re-deriving (step 4.3 contract).
+        use crate::combat::ai::outcome::estimate_expected_damage;
+        use crate::content::abilities::CasterContext;
+        use crate::content::races::CritFailEffect;
+        let crit_fail_effect = CritFailEffect::default();
+        let caster_ctx = CasterContext::default();
+        let outcome_strong = ActionOutcomeEstimate {
+            expected_damage: estimate_expected_damage(
+                &strong, &target, &caster_ctx, &content, &crit_fail_effect, 0.0,
+            ),
+            ..Default::default()
+        };
+        let outcome_weak = ActionOutcomeEstimate {
+            expected_damage: estimate_expected_damage(
+                &weak, &target, &caster_ctx, &content, &crit_fail_effect, 0.0,
+            ),
+            ..Default::default()
+        };
+
+        let score_strong = intent_score(&intent, &step_strong, &ctx, &outcome_strong);
+        let score_weak = intent_score(&intent, &step_weak, &ctx, &outcome_weak);
 
         assert!(
             score_strong > score_weak,
@@ -1390,7 +1413,7 @@ mod tests {
             caster_tile: actor.pos,
         };
 
-        let score = intent_score(&intent, &step_wrong, &ctx);
+        let score = intent_score(&intent, &step_wrong, &ctx, &ActionOutcomeEstimate::default());
         assert!(
             score <= 0.0,
             "hitting non-focus target must yield ≤ 0 intent score, got {score}",
