@@ -25,209 +25,31 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 use bevy::prelude::Entity;
-use serde::Deserialize;
 
 use storyforge::combat::ai::difficulty::DifficultyProfile;
 use storyforge::combat::ai::factors::{PlanFactors, DAMAGE_IDX, KILL_NOW_IDX, SELF_SURVIVAL_IDX};
 use storyforge::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::planning::{
     apply_protect_self_mask, finalize_scores, pick_best_plan,
-    sanity_adjust_plans, CommittedPrefix, PlanStep, StepOutcome, TurnPlan,
+    sanity_adjust_plans, CommittedPrefix, PlanStep, TurnPlan,
 };
 use storyforge::combat::ai::planning::future_value::{plan_prefix_only, score_plans_prototype};
 use storyforge::combat::ai::planning::sanity::SELF_SURVIVAL_EPSILON;
-use storyforge::combat::ai::replay_assertion::{
-    build_actual_decision, print_assertion_failure, run_assertion, AssertResult, Overlay,
+use storyforge::combat::ai::replay::{
+    assert_log_file, default_overlay_path, intent_kind, LogEntry, LoggedEvaluationMode, PlanLog,
 };
-use storyforge::combat::ai::SanityHit;
+#[cfg(test)]
+use storyforge::combat::ai::replay::LoggedTradeBlock;
+use storyforge::combat::ai::replay_assertion::{print_assertion_failure, AssertResult};
+use storyforge::combat::ai::reservations::Reservations;
 use storyforge::combat::ai::role::AxisProfile;
 use storyforge::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use storyforge::combat::ai::reservations::Reservations;
 use storyforge::combat::ai::utility::{AiWorld, ScoringCtx};
 use storyforge::content::content_view::ContentView;
 use storyforge::core::DiceRng;
 use storyforge::game::hex::Hex;
 
-/// Mirror of `log::AiLogEntry` with owned fields so we can deserialize.
-#[derive(Deserialize)]
-struct LogEntry {
-    schema_version: u32,
-    #[allow(dead_code)]
-    plan_id: u64,
-    #[allow(dead_code)]
-    timestamp_ms: u128,
-    decision_time_ms: u64,
-    round: u32,
-    actor_id: u64,
-    actor_name: String,
-    actor_ap: i32,
-    actor_max_ap: i32,
-    actor_mp: i32,
-    #[allow(dead_code)]
-    actor_max_mp: i32,
-    plans_evaluated: usize,
-    #[allow(dead_code)]
-    plans_shown: usize,
-    snapshot: BattleSnapshot,
-    intent: IntentBlock,
-    plans: Vec<PlanLog>,
-    committed_decision: serde_json::Value,
-    /// v15+: killable gate telemetry. v14 and earlier default to false/0.
-    #[serde(default)]
-    #[allow(dead_code)]
-    gate_applied: bool,
-    #[serde(default)]
-    #[allow(dead_code)]
-    gate_pruned_count: usize,
-    #[serde(default)]
-    #[allow(dead_code)]
-    survival_mode_active: bool,
-    #[serde(default)]
-    #[allow(dead_code)]
-    last_stand_active: bool,
-    /// v17+: difficulty profile frozen at decision time. v16 and earlier default
-    /// to `DifficultyProfileSnapshot::default()` (populated via `DifficultyProfile::normal()`
-    /// in step 1.3 — for now the field is present for structural completeness).
-    #[serde(default)]
-    #[allow(dead_code)]
-    difficulty: Option<storyforge::combat::ai::log::DifficultyProfileSnapshot>,
-    /// v17+: actor memory state before pick_action. `None` for fresh actors or v16 logs.
-    #[serde(default)]
-    #[allow(dead_code)]
-    ai_memory: Option<storyforge::combat::ai::log::AiMemorySnapshot>,
-    /// v17+: team reservation state before pick_action. v16 and earlier default to empty.
-    #[serde(default)]
-    #[allow(dead_code)]
-    reservations: Option<storyforge::combat::ai::log::ReservationsSnapshot>,
-}
-
-#[derive(Deserialize)]
-struct IntentBlock {
-    intent: storyforge::combat::ai::intent::TacticalIntent,
-    selection_kind: String,
-    // reason_text is present in the log schema but unused here; serde
-    // tolerates it via #[serde(default)] on a dropped field.
-    #[serde(default, rename = "reason_text")]
-    _reason_text: String,
-}
-
-#[derive(Deserialize)]
-struct PlanLog {
-    rank: usize,
-    chosen: bool,
-    steps: Vec<PlanStep>,
-    outcomes: Vec<StepOutcome>,
-    final_pos: [i32; 2],
-    residual_ap: i32,
-    residual_mp: i32,
-    /// v1-v9: 9 elements; v10: 10 (tempo_gain); v11: 11 (kill split); v12: 12 (saturation);
-    /// v13: 13 (self_survival); v14+: 10 elements (position/risk/focus removed,
-    /// indices renumbered — not backward-compatible with v1–v13 raw factor layout).
-    /// Using `Vec<f32>` so serde handles all lengths; callers pad/truncate to NUM_FACTORS.
-    raw_factors: Vec<f32>,
-    /// `None` when the game pruned the plan before scoring (e.g. beam-search
-    /// early rejection). Such plans still appear in the log so we can see
-    /// what was considered, but they have no numeric score to compare
-    /// against. Replay treats them as NEG_INFINITY — identical to a plan
-    /// masked by sanity — so `argmax` naturally ignores them.
-    score: Option<f32>,
-    /// v6+: pre-adaptation score. Older logs default to `None` (no
-    /// adaptation concept existed). Reserved for future `--show-adapt`
-    /// diff mode; currently the replayer recomputes its own base via
-    /// `raw_factors` so the logged number isn't used in rendering, but
-    /// it's kept on `PlanLog` so offline analyzers can round-trip it.
-    #[serde(default)]
-    #[allow(dead_code)]
-    base_score: Option<f32>,
-    /// v6+: which evaluation regime scored this plan. Older logs default
-    /// to `Default`.
-    #[serde(default)]
-    evaluation_mode: LoggedEvaluationMode,
-    /// v6+: fact that triggered a mode switch; `None` when
-    /// `evaluation_mode = Default`.
-    #[serde(default)]
-    adaptation_reason: Option<LoggedAdaptationReason>,
-    /// v7+: per-plan trade breakdown + post-tanh score contribution.
-    /// Older logs default to an all-zero block — render suppresses the
-    /// line when `delta == 0 && !self_lethal`.
-    #[serde(default)]
-    trade: LoggedTradeBlock,
-    /// v16+: per-rule sanity breakdown. v15 and earlier logs default to
-    /// an empty vec via `#[serde(default)]`.
-    #[serde(default)]
-    #[allow(dead_code)]
-    sanity_breakdown: Vec<SanityHit>,
-}
-
-/// Mirrors `log::TradeBlock`. Verbose-only rendering; not consumed by
-/// the scoring reconstruction.
-#[derive(Deserialize, Default, Clone, Copy, Debug)]
-#[allow(dead_code)]
-struct LoggedTradeBlock {
-    #[serde(default)]
-    delta: f32,
-    #[serde(default)]
-    killed: f32,
-    #[serde(default)]
-    lost: f32,
-    #[serde(default)]
-    self_lost: f32,
-    #[serde(default)]
-    self_lethal: bool,
-    #[serde(default)]
-    score: f32,
-}
-
-/// Mirrors `planning::adaptation::EvaluationMode` for deserialization.
-/// Keep in sync with the enum's serde rename when variants change.
-#[derive(Deserialize, Default, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum LoggedEvaluationMode {
-    #[default]
-    Default,
-    LastStand,
-}
-
-impl LoggedEvaluationMode {
-    fn is_adapted(self) -> bool {
-        !matches!(self, LoggedEvaluationMode::Default)
-    }
-}
-
-/// Mirrors `planning::adaptation::AdaptationReason` for deserialization.
-/// We don't need the numeric payloads during replay — just the kind —
-/// so the variants are kept unit and tagged like the game enum.
-#[derive(Deserialize, Clone, Copy, Debug)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum LoggedAdaptationReason {
-    ExpectedSelfLethal {
-        #[serde(default)]
-        #[allow(dead_code)]
-        aoo_dmg: f32,
-        #[serde(default)]
-        #[allow(dead_code)]
-        actor_hp: i32,
-    },
-    ProtectSelfNoDefensive,
-    ProtectSelfFutile {
-        #[serde(default)]
-        #[allow(dead_code)]
-        pending_dot: i32,
-        #[serde(default)]
-        #[allow(dead_code)]
-        actor_hp: i32,
-    },
-}
-
-impl LoggedAdaptationReason {
-    fn code(&self) -> &'static str {
-        match self {
-            Self::ExpectedSelfLethal { .. } => "expected_self_lethal",
-            Self::ProtectSelfNoDefensive => "protect_self_no_defensive",
-            Self::ProtectSelfFutile { .. } => "protect_self_futile",
-        }
-    }
-}
+// ── Log-entry mirror types live in `combat::ai::replay`; binary imports them.
 
 // ── Regression metrics ──────────────────────────────────────────────────────
 
@@ -1179,204 +1001,46 @@ fn main() {
     // and exits with 0 (pass) or 1 (fail). Other pipeline modes are skipped.
     if assert_mode {
         let jsonl_path = &paths[0];
-        // Derive overlay path: `<jsonl>.expected.toml` (appended, not replaced).
-        // E.g. `logs/foo.jsonl` → `logs/foo.jsonl.expected.toml`.
-        let overlay_path = assert_overlay_path
-            .unwrap_or_else(|| {
-                let mut p = jsonl_path.clone();
-                let mut name = p
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_os_string();
-                name.push(".expected.toml");
-                p.set_file_name(name);
-                p
-            });
+        let overlay_path = assert_overlay_path.unwrap_or_else(|| default_overlay_path(jsonl_path));
 
-        // Read overlay.
-        let overlay_src = match std::fs::read_to_string(&overlay_path) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("error: cannot read overlay {:?}: {e}", overlay_path);
-                std::process::exit(2);
-            }
-        };
-        let overlay: Overlay = match toml::from_str(&overlay_src) {
+        let outcome = match assert_log_file(jsonl_path, &overlay_path, &content, &inf_cfg) {
             Ok(o) => o,
             Err(e) => {
-                eprintln!("error: cannot parse overlay {:?}: {e}", overlay_path);
-                std::process::exit(2);
-            }
-        };
-        let target_plan_id: Option<u64> = overlay.scope.as_ref().and_then(|s| s.plan_id);
-
-        // Read JSONL, find target entry.
-        let file = match std::fs::File::open(jsonl_path) {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("error: cannot open {:?}: {e}", jsonl_path);
-                std::process::exit(2);
-            }
-        };
-        let reader = BufReader::new(file);
-        let mut target_entry: Option<LogEntry> = None;
-        for line in reader.lines() {
-            let line = match line {
-                Ok(l) => l,
-                Err(e) => {
-                    eprintln!("error: read error in {:?}: {e}", jsonl_path);
-                    std::process::exit(2);
-                }
-            };
-            if line.trim().is_empty() { continue; }
-            // Skip divergence events.
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
-                if val.get("event_type").and_then(|v| v.as_str()) == Some("plan_divergence") {
-                    continue;
-                }
-            }
-            let entry: LogEntry = match serde_json::from_str(&line) {
-                Ok(e) => e,
-                Err(e) => {
-                    eprintln!("warning: parse error in {:?}: {e}, skipping", jsonl_path);
-                    continue;
-                }
-            };
-            match target_plan_id {
-                Some(id) if entry.plan_id == id => {
-                    target_entry = Some(entry);
-                    break;
-                }
-                None if target_entry.is_none() => {
-                    target_entry = Some(entry);
-                    // Don't break — keep as first valid entry (already done).
-                    break;
-                }
-                _ => {}
-            }
-        }
-        let entry = match target_entry {
-            Some(e) => e,
-            None => {
-                eprintln!(
-                    "error: no matching entry found in {:?} (plan_id={:?})",
-                    jsonl_path, target_plan_id
-                );
+                eprintln!("error: {e}");
                 std::process::exit(2);
             }
         };
 
-        // Restore difficulty / reservations from v17+ snapshots.
-        // For pre-v17 logs: warn and fall back to defaults.
-        let difficulty = if entry.schema_version >= 17 {
-            entry.difficulty.as_ref()
-                .map(DifficultyProfile::from)
-                .unwrap_or_else(DifficultyProfile::normal)
-        } else {
+        if outcome.schema_version < 17 {
             eprintln!(
                 "warning: overlay assertion on pre-v17 log (schema_version={}); \
                  falling back to default difficulty/reservations",
-                entry.schema_version
+                outcome.schema_version
             );
-            DifficultyProfile::normal()
-        };
-        // AiMemory is only used in select_intent, which replay does not call.
-        // The logged intent is already present in the entry and passed directly.
-        let reservations = if entry.schema_version >= 17 {
-            entry.reservations.as_ref()
-                .map(Reservations::from_snapshot)
-                .unwrap_or_default()
-        } else {
-            Reservations::default()
-        };
-
-        // Rebuild pipeline context.
-        let actor = match Entity::try_from_bits(entry.actor_id) {
-            Some(e) => e,
-            None => {
-                eprintln!("error: invalid actor_id {}", entry.actor_id);
-                std::process::exit(2);
-            }
-        };
-        let active = match entry.snapshot.unit(actor).cloned() {
-            Some(u) => u,
-            None => {
-                eprintln!("error: actor not found in snapshot");
-                std::process::exit(2);
-            }
-        };
-        let maps = build_influence_maps(&entry.snapshot, actor, active.team, &inf_cfg);
-        let world = AiWorld {
-            content: &content,
-            difficulty: &difficulty,
-            crit_fail_chance: 0.0,
-        };
-        let scoring_ctx = ScoringCtx {
-            world: &world,
-            maps: &maps,
-            reservations: &reservations,
-            snap: &entry.snapshot,
-            active: &active,
-        };
-        let plans: Vec<TurnPlan> = entry.plans.iter().map(|p| TurnPlan {
-            steps: p.steps.clone(),
-            final_pos: Hex::new(p.final_pos[0], p.final_pos[1]),
-            residual_ap: p.residual_ap,
-            residual_mp: p.residual_mp,
-            outcomes: p.outcomes.clone(),
-            partial_score: 0.0,
-            sim_snapshots: Vec::new(),
-        }).collect();
-        let raw_factors: Vec<PlanFactors> = entry.plans.iter().map(|p| {
-            use storyforge::combat::ai::factors::NUM_FACTORS;
-            let mut arr = [0.0f32; NUM_FACTORS];
-            for (i, &v) in p.raw_factors.iter().take(NUM_FACTORS).enumerate() {
-                arr[i] = v;
-            }
-            PlanFactors::from_array(arr)
-        }).collect();
-
-        let mut scores = finalize_scores(&plans, &raw_factors, &scoring_ctx);
-        let _ = sanity_adjust_plans(&mut scores, &plans, &scoring_ctx);
-        let modes: Vec<storyforge::combat::ai::planning::EvaluationMode> = entry.plans.iter().map(|p| {
-            match p.evaluation_mode {
-                LoggedEvaluationMode::Default => storyforge::combat::ai::planning::EvaluationMode::Default,
-                LoggedEvaluationMode::LastStand => storyforge::combat::ai::planning::EvaluationMode::LastStand,
-            }
-        }).collect();
-        if matches!(entry.intent.intent, storyforge::combat::ai::intent::TacticalIntent::ProtectSelf) {
-            apply_protect_self_mask(&mut scores, &raw_factors, &modes);
         }
-        let mut rng_assert = DiceRng::with_seed(0);
-        let (chosen_idx, _) = pick_best_plan(&scores, &raw_factors, &world, &mut rng_assert);
-
-        let chosen_plan = &entry.plans[chosen_idx];
-        let intent_kind_str = intent_kind(&entry.intent.intent);
-        let actual = build_actual_decision(
-            &chosen_plan.steps,
-            chosen_plan.final_pos,
-            intent_kind_str,
-            &content,
-        );
 
         if verbose {
-            println!("assert: plan_id={} (entry {})", entry.plan_id, chosen_idx + 1);
-            println!("  decision_kind  = {:?}", actual.decision_kind);
-            println!("  intent_kind    = {:?}", actual.intent_kind);
-            println!("  cast_ability   = {:?}", actual.cast_ability);
-            println!("  cast_target    = {:?}", actual.cast_target);
-            println!("  end_position   = {:?}", actual.end_position);
-            println!("  primary_effect = {:?}", actual.primary_effect);
+            println!(
+                "assert: plan_id={} (entry {})",
+                outcome.plan_id,
+                outcome.chosen_idx + 1
+            );
+            println!("  decision_kind  = {:?}", outcome.actual.decision_kind);
+            println!("  intent_kind    = {:?}", outcome.actual.intent_kind);
+            println!("  cast_ability   = {:?}", outcome.actual.cast_ability);
+            println!("  cast_target    = {:?}", outcome.actual.cast_target);
+            println!("  end_position   = {:?}", outcome.actual.end_position);
+            println!("  primary_effect = {:?}", outcome.actual.primary_effect);
         }
 
-        match run_assertion(&actual, &overlay) {
+        match outcome.result {
             AssertResult::Pass => {
                 println!("PASS  {}", overlay_path.display());
                 std::process::exit(0);
             }
             AssertResult::Fail(results) => {
                 eprintln!("FAIL  {}", overlay_path.display());
-                print_assertion_failure(&actual, &results);
+                print_assertion_failure(&outcome.actual, &results);
                 std::process::exit(1);
             }
         }
@@ -2181,19 +1845,6 @@ fn argmax(v: &[f32]) -> usize {
         }
     }
     best
-}
-
-fn intent_kind(i: &storyforge::combat::ai::intent::TacticalIntent) -> &'static str {
-    use storyforge::combat::ai::intent::TacticalIntent::*;
-    match i {
-        FocusTarget { .. } => "FocusTarget",
-        ApplyCC { .. } => "ApplyCC",
-        Reposition => "Reposition",
-        ProtectSelf => "ProtectSelf",
-        ProtectAlly { .. } => "ProtectAlly",
-        SetupAOE => "SetupAOE",
-        LastStand => "LastStand",
-    }
 }
 
 fn plan_shape(p: &PlanLog) -> String {

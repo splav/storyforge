@@ -1,6 +1,7 @@
 pub mod action_state;
 pub mod log;
 pub mod planning;
+pub mod replay;
 pub mod replay_assertion;
 pub mod serde_helpers;
 pub mod debug;

@@ -316,6 +316,7 @@ fn match_variant(actual: &ActualDecision, exp: &Expectation, idx: usize) -> Vari
 // ── Public assertion API ─────────────────────────────────────────────────────
 
 /// Result of running the full assertion.
+#[derive(Debug)]
 pub enum AssertResult {
     /// At least one variant matched.
     Pass,
