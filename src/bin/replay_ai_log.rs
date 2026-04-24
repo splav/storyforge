@@ -36,6 +36,9 @@ use storyforge::combat::ai::planning::{
 };
 use storyforge::combat::ai::planning::future_value::{plan_prefix_only, score_plans_prototype};
 use storyforge::combat::ai::planning::sanity::SELF_SURVIVAL_EPSILON;
+use storyforge::combat::ai::replay_assertion::{
+    build_actual_decision, print_assertion_failure, run_assertion, AssertResult, Overlay,
+};
 use storyforge::combat::ai::SanityHit;
 use storyforge::combat::ai::role::AxisProfile;
 use storyforge::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -1108,8 +1111,15 @@ fn main() {
     let mut phase7_p2 = false;
     let mut campaign_override: Option<PathBuf> = None;
     let mut scenario_override: Option<PathBuf> = None;
+    // --assert [<overlay-path>]
+    // Without argument: derive overlay path from JSONL path as `<jsonl>.expected.toml`.
+    // With argument: use the provided path.
+    // When active, only assertion output is printed (unless --verbose is also given).
+    // Other pipeline modes (--metrics-summary etc.) are skipped in assert mode.
+    let mut assert_mode = false;
+    let mut assert_overlay_path: Option<PathBuf> = None;
     let mut paths: Vec<PathBuf> = Vec::new();
-    let mut iter = args[1..].iter();
+    let mut iter = args[1..].iter().peekable();
     while let Some(a) = iter.next() {
         if a == "--verbose" || a == "-v" {
             verbose = true;
@@ -1125,6 +1135,14 @@ fn main() {
             campaign_override = iter.next().map(PathBuf::from);
         } else if a == "--scenario" {
             scenario_override = iter.next().map(PathBuf::from);
+        } else if a == "--assert" {
+            assert_mode = true;
+            // Peek ahead: if next token is a non-flag string, treat it as the overlay path.
+            if let Some(next) = iter.peek() {
+                if !next.starts_with('-') {
+                    assert_overlay_path = Some(PathBuf::from(iter.next().unwrap()));
+                }
+            }
         } else if !a.starts_with('-') {
             paths.push(PathBuf::from(a));
         }
@@ -1133,7 +1151,8 @@ fn main() {
         eprintln!(
             "usage: replay_ai_log <log.jsonl> [<log2.jsonl> ...] \
              [--verbose] [--simulate-ab] [--metrics-summary] [--phase7-prototype] \
-             [--phase7-p2] [--campaign <dir>] [--scenario <dir>]"
+             [--phase7-p2] [--campaign <dir>] [--scenario <dir>] \
+             [--assert [<overlay.expected.toml>]]"
         );
         std::process::exit(2);
     }
@@ -1154,6 +1173,216 @@ fn main() {
     };
     let content = ContentView::load_layered(&campaign_dir, &scenario_dir);
     let inf_cfg = InfluenceConfig::default();
+
+    // ── Assert mode ──────────────────────────────────────────────────────────
+    // Reads the overlay, runs the production pipeline on the targeted entry,
+    // and exits with 0 (pass) or 1 (fail). Other pipeline modes are skipped.
+    if assert_mode {
+        let jsonl_path = &paths[0];
+        // Derive overlay path: `<jsonl>.expected.toml` (appended, not replaced).
+        // E.g. `logs/foo.jsonl` → `logs/foo.jsonl.expected.toml`.
+        let overlay_path = assert_overlay_path
+            .unwrap_or_else(|| {
+                let mut p = jsonl_path.clone();
+                let mut name = p
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_os_string();
+                name.push(".expected.toml");
+                p.set_file_name(name);
+                p
+            });
+
+        // Read overlay.
+        let overlay_src = match std::fs::read_to_string(&overlay_path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: cannot read overlay {:?}: {e}", overlay_path);
+                std::process::exit(2);
+            }
+        };
+        let overlay: Overlay = match toml::from_str(&overlay_src) {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("error: cannot parse overlay {:?}: {e}", overlay_path);
+                std::process::exit(2);
+            }
+        };
+        let target_plan_id: Option<u64> = overlay.scope.as_ref().and_then(|s| s.plan_id);
+
+        // Read JSONL, find target entry.
+        let file = match std::fs::File::open(jsonl_path) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("error: cannot open {:?}: {e}", jsonl_path);
+                std::process::exit(2);
+            }
+        };
+        let reader = BufReader::new(file);
+        let mut target_entry: Option<LogEntry> = None;
+        for line in reader.lines() {
+            let line = match line {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("error: read error in {:?}: {e}", jsonl_path);
+                    std::process::exit(2);
+                }
+            };
+            if line.trim().is_empty() { continue; }
+            // Skip divergence events.
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+                if val.get("event_type").and_then(|v| v.as_str()) == Some("plan_divergence") {
+                    continue;
+                }
+            }
+            let entry: LogEntry = match serde_json::from_str(&line) {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("warning: parse error in {:?}: {e}, skipping", jsonl_path);
+                    continue;
+                }
+            };
+            match target_plan_id {
+                Some(id) if entry.plan_id == id => {
+                    target_entry = Some(entry);
+                    break;
+                }
+                None if target_entry.is_none() => {
+                    target_entry = Some(entry);
+                    // Don't break — keep as first valid entry (already done).
+                    break;
+                }
+                _ => {}
+            }
+        }
+        let entry = match target_entry {
+            Some(e) => e,
+            None => {
+                eprintln!(
+                    "error: no matching entry found in {:?} (plan_id={:?})",
+                    jsonl_path, target_plan_id
+                );
+                std::process::exit(2);
+            }
+        };
+
+        // Restore difficulty / reservations from v17+ snapshots.
+        // For pre-v17 logs: warn and fall back to defaults.
+        let difficulty = if entry.schema_version >= 17 {
+            entry.difficulty.as_ref()
+                .map(DifficultyProfile::from)
+                .unwrap_or_else(DifficultyProfile::normal)
+        } else {
+            eprintln!(
+                "warning: overlay assertion on pre-v17 log (schema_version={}); \
+                 falling back to default difficulty/reservations",
+                entry.schema_version
+            );
+            DifficultyProfile::normal()
+        };
+        // AiMemory is only used in select_intent, which replay does not call.
+        // The logged intent is already present in the entry and passed directly.
+        let reservations = if entry.schema_version >= 17 {
+            entry.reservations.as_ref()
+                .map(Reservations::from_snapshot)
+                .unwrap_or_default()
+        } else {
+            Reservations::default()
+        };
+
+        // Rebuild pipeline context.
+        let actor = match Entity::try_from_bits(entry.actor_id) {
+            Some(e) => e,
+            None => {
+                eprintln!("error: invalid actor_id {}", entry.actor_id);
+                std::process::exit(2);
+            }
+        };
+        let active = match entry.snapshot.unit(actor).cloned() {
+            Some(u) => u,
+            None => {
+                eprintln!("error: actor not found in snapshot");
+                std::process::exit(2);
+            }
+        };
+        let maps = build_influence_maps(&entry.snapshot, actor, active.team, &inf_cfg);
+        let world = AiWorld {
+            content: &content,
+            difficulty: &difficulty,
+            crit_fail_chance: 0.0,
+        };
+        let scoring_ctx = ScoringCtx {
+            world: &world,
+            maps: &maps,
+            reservations: &reservations,
+            snap: &entry.snapshot,
+            active: &active,
+        };
+        let plans: Vec<TurnPlan> = entry.plans.iter().map(|p| TurnPlan {
+            steps: p.steps.clone(),
+            final_pos: Hex::new(p.final_pos[0], p.final_pos[1]),
+            residual_ap: p.residual_ap,
+            residual_mp: p.residual_mp,
+            outcomes: p.outcomes.clone(),
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+        }).collect();
+        let raw_factors: Vec<PlanFactors> = entry.plans.iter().map(|p| {
+            use storyforge::combat::ai::factors::NUM_FACTORS;
+            let mut arr = [0.0f32; NUM_FACTORS];
+            for (i, &v) in p.raw_factors.iter().take(NUM_FACTORS).enumerate() {
+                arr[i] = v;
+            }
+            PlanFactors::from_array(arr)
+        }).collect();
+
+        let mut scores = finalize_scores(&plans, &raw_factors, &scoring_ctx);
+        let _ = sanity_adjust_plans(&mut scores, &plans, &scoring_ctx);
+        let modes: Vec<storyforge::combat::ai::planning::EvaluationMode> = entry.plans.iter().map(|p| {
+            match p.evaluation_mode {
+                LoggedEvaluationMode::Default => storyforge::combat::ai::planning::EvaluationMode::Default,
+                LoggedEvaluationMode::LastStand => storyforge::combat::ai::planning::EvaluationMode::LastStand,
+            }
+        }).collect();
+        if matches!(entry.intent.intent, storyforge::combat::ai::intent::TacticalIntent::ProtectSelf) {
+            apply_protect_self_mask(&mut scores, &raw_factors, &modes);
+        }
+        let mut rng_assert = DiceRng::with_seed(0);
+        let (chosen_idx, _) = pick_best_plan(&scores, &raw_factors, &world, &mut rng_assert);
+
+        let chosen_plan = &entry.plans[chosen_idx];
+        let intent_kind_str = intent_kind(&entry.intent.intent);
+        let actual = build_actual_decision(
+            &chosen_plan.steps,
+            chosen_plan.final_pos,
+            intent_kind_str,
+            &content,
+        );
+
+        if verbose {
+            println!("assert: plan_id={} (entry {})", entry.plan_id, chosen_idx + 1);
+            println!("  decision_kind  = {:?}", actual.decision_kind);
+            println!("  intent_kind    = {:?}", actual.intent_kind);
+            println!("  cast_ability   = {:?}", actual.cast_ability);
+            println!("  cast_target    = {:?}", actual.cast_target);
+            println!("  end_position   = {:?}", actual.end_position);
+            println!("  primary_effect = {:?}", actual.primary_effect);
+        }
+
+        match run_assertion(&actual, &overlay) {
+            AssertResult::Pass => {
+                println!("PASS  {}", overlay_path.display());
+                std::process::exit(0);
+            }
+            AssertResult::Fail(results) => {
+                eprintln!("FAIL  {}", overlay_path.display());
+                print_assertion_failure(&actual, &results);
+                std::process::exit(1);
+            }
+        }
+    }
+    // ── End assert mode ──────────────────────────────────────────────────────
+
     let difficulty = DifficultyProfile::normal();
     let mut rng = DiceRng::with_seed(0);
     // Separate rngs for experimental pipelines — baseline rng must not be advanced

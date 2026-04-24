@@ -114,6 +114,73 @@ Flags:
   (`<timestamp>_<campaign>_<scenario>_<encounter>.jsonl`) by scanning
   `assets/data/campaigns/`. Falls back to global-only loading
   (`assets/data`) with a warning if inference fails.
+- `--assert [<overlay.toml>]` — run in **assertion mode** against an overlay
+  file (see next section). Exit 0 on pass, 1 on mismatch, 2 on IO/parse
+  error. Replaces the regular replay output with a pass/fail summary.
+
+## Assertion overlay (`--assert`)
+
+For regression tests and CI gates: each JSONL snapshot can be paired with a
+TOML overlay that declares what decision the AI **must** produce on that
+snapshot under the current code. Overlay path defaults to
+`<jsonl>.expected.toml` (appended to the full filename) or can be passed
+explicitly as the `--assert` argument.
+
+```toml
+[scope]
+plan_id = 5        # optional; default = first entry in the JSONL
+
+# Top-level: array of alternatives. The assertion passes iff ANY variant
+# matches fully. An empty/missing expectations list always passes.
+
+[[expectations]]
+# Variant A: "press the priority target"
+decision_kind = ["CastInPlace", "MoveAndCast"]   # actual ∈ list → OK
+cast_ability  = ["fireball"]
+cast_target   = [12884901548]                     # entity bits
+end_position  = [[3, 4], [4, 4]]
+intent_kind   = ["FocusTarget"]
+primary_effect = ["Damage"]
+not_target    = [12884901543]                     # actual ∉ list → OK
+
+[[expectations]]
+# Variant B — independent alternative
+decision_kind = ["Move"]
+intent_kind   = ["ProtectSelf"]
+```
+
+Rules:
+
+- Every field inside a variant is optional (`#[serde(default)]`). Unset
+  fields are not checked.
+- Every field is a list: `[x]` = exact match, `[x, y, z]` = any-of.
+- `not_<field>` — list of forbidden values. Field matches iff actual ∉ list.
+- Allowed `decision_kind`: `CastInPlace`, `MoveAndCast`, `Move`, `EndTurn`
+  (the replay maps both `MoveOnlyRetreat` and `MoveCloser` to `"Move"`).
+- Allowed `intent_kind`: `FocusTarget`, `ApplyCC`, `Reposition`,
+  `ProtectSelf`, `ProtectAlly`, `SetupAOE`, `LastStand` (the target entity
+  inside intent variants is not compared — use `cast_target` / `not_target`).
+- Allowed `primary_effect`: `Damage`, `Heal`, `GrantMovement`,
+  `RestoreResources`, `Summon`, `None`. Asserting `primary_effect` on a
+  Move/EndTurn decision fails the variant.
+- **No assertions on internal scores or `raw_factors`.** Assertions target
+  observable behavior only; score-level assertions would break on any
+  weight tuning.
+
+### Scope limitation
+
+Assert mode re-runs the existing replay pipeline (`finalize_scores` →
+`sanity_adjust_plans` → `pick_best_plan`) with `DifficultyProfile` and
+`Reservations` restored from the v17+ snapshots. **Intent selection is not
+re-run** — the logged intent is taken as input. This is enough to catch
+regressions in scoring, sanity, and plan picking, but cannot catch
+regressions in `select_intent` itself. If an intent-level regression test
+becomes necessary, the replay pipeline will need `AiMemory` reconstruction
+and a `select_intent` call added.
+
+Pre-v17 logs fall back to `DifficultyProfile::normal()` + empty
+`Reservations` with a warning; assertion results on those logs may differ
+from what the game actually saw.
 
 Output markers:
 

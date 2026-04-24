@@ -602,6 +602,24 @@ impl From<&DifficultyProfile> for DifficultyProfileSnapshot {
     }
 }
 
+impl From<&DifficultyProfileSnapshot> for DifficultyProfile {
+    fn from(s: &DifficultyProfileSnapshot) -> Self {
+        Self {
+            awareness: s.awareness,
+            decision_quality: s.decision_quality,
+            intent_commitment: s.intent_commitment,
+            survival_instinct: s.survival_instinct,
+            resource_discipline: s.resource_discipline,
+            coordination: s.coordination,
+            mercy: s.mercy,
+            plan_max_depth: s.plan_max_depth,
+            plan_beam_width: s.plan_beam_width,
+            plan_step_discount: s.plan_step_discount,
+            damage_horizon_rounds: s.damage_horizon_rounds,
+        }
+    }
+}
+
 /// Trimmed `StoredPlan` for log wire format. Excludes `sim_snapshots` (not
 /// stored in `StoredPlan` itself) and flattens `PlanSnapshot` to primitives
 /// so no non-serializable types leak into the log schema.
