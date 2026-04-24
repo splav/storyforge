@@ -91,8 +91,51 @@ impl Default for Tables {
     }
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+/// A lo→hi lerp curve: value = lo + (hi - lo) * clamp(t, 0, 1).
+/// `lo` is the value at t=0 (low skill/instinct), `hi` at t=1 (max skill/instinct).
+#[derive(Deserialize, Debug, Clone, Copy)]
+pub struct LerpCurve {
+    pub lo: f32,
+    pub hi: f32,
+}
+
+impl LerpCurve {
+    pub fn eval(&self, t: f32) -> f32 {
+        self.lo + (self.hi - self.lo) * t.clamp(0.0, 1.0)
+    }
+}
+
+/// Lerp-curve parameters for DifficultyProfile derived values.
+/// These replace the hardcoded endpoints inside difficulty.rs — the formulas
+/// are unchanged, only the constants are now data-driven via AiTuning.
+#[derive(Deserialize, Debug, Clone)]
 #[serde(default)]
 pub struct Difficulty {
-    // populated in step 2.6 (DifficultyProfile lerp curves).
+    /// Minimum pos_eval improvement to keep a Reposition candidate.
+    /// Keyed on survival_instinct. lo=easy (low instinct), hi=epic (max instinct).
+    pub reposition_min_improvement_curve: LerpCurve,
+    /// HP% threshold for the hard-override panic gate.
+    /// Low instinct → panics earlier (higher threshold).
+    pub survival_hp_curve: LerpCurve,
+    /// Danger threshold paired with the panic gate.
+    /// Low awareness → needs more obvious danger to trigger (higher threshold).
+    pub awareness_danger_curve: LerpCurve,
+}
+
+impl Default for LerpCurve {
+    fn default() -> Self {
+        // Defaults intentionally left as zeroes — each field in Difficulty
+        // provides its own meaningful default via Difficulty::default().
+        Self { lo: 0.0, hi: 0.0 }
+    }
+}
+
+impl Default for Difficulty {
+    fn default() -> Self {
+        Self {
+            reposition_min_improvement_curve: LerpCurve { lo: 0.30, hi: 0.12 },
+            survival_hp_curve: LerpCurve { lo: 0.35, hi: 0.20 },
+            awareness_danger_curve: LerpCurve { lo: 0.90, hi: 0.60 },
+        }
+    }
 }

@@ -101,7 +101,7 @@ impl PlanRanking {
         let hp_pct = ctx.active.hp_pct();
         let actor_danger = ctx.maps.danger.get(ctx.active.pos);
         let midpanic_hp = ctx.world.difficulty.midpanic_hp_threshold();
-        let panic_danger = ctx.world.difficulty.awareness_danger_threshold();
+        let panic_danger = ctx.world.difficulty.awareness_danger_threshold(ctx.world.tuning);
         let midpanic = hp_pct < midpanic_hp && actor_danger > panic_danger;
 
         // Compute (candidate intent, candidate reason) without mutating self.

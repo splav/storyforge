@@ -388,8 +388,8 @@ pub fn select_intent(
     // Hard override: critically wounded in high danger — survival is non-negotiable.
     // Thresholds shift with survival_instinct (HP) and awareness (danger gate):
     // a less-aware AI needs more obvious danger to even trigger the override.
-    let hp_panic = difficulty.survival_hp_threshold();
-    let danger_panic = difficulty.awareness_danger_threshold();
+    let hp_panic = difficulty.survival_hp_threshold(tuning);
+    let danger_panic = difficulty.awareness_danger_threshold(tuning);
     if hp_pct < hp_panic && danger > danger_panic {
         return IntentChoice {
             intent: TacticalIntent::ProtectSelf,
@@ -890,7 +890,7 @@ pub fn intent_score(
             let current = evaluate_position(active.pos, &active.role, step_ctx.world.tuning, maps);
             let new = evaluate_position(step.caster_tile(), &active.role, step_ctx.world.tuning, maps);
             let improvement = new - current;
-            let min_improv = difficulty.reposition_min_improvement();
+            let min_improv = difficulty.reposition_min_improvement(step_ctx.world.tuning);
             if improvement >= min_improv {
                 improvement.min(2.0)
             } else if improvement > 0.0 {

@@ -1608,7 +1608,7 @@ fn main() {
                 let hp_pct = active.hp_pct();
                 let actor_danger = maps.danger.get(active.pos);
                 let midpanic_hp = difficulty.midpanic_hp_threshold();
-                let panic_danger = difficulty.awareness_danger_threshold();
+                let panic_danger = difficulty.awareness_danger_threshold(world.tuning);
                 if hp_pct < midpanic_hp && actor_danger > panic_danger {
                     apply_protect_self_mask(&mut scores, &raw_factors, &modes, world.tuning.thresholds.self_survival_epsilon);
                     applied_mask = true;
@@ -1651,7 +1651,7 @@ fn main() {
                     let hp_pct = active.hp_pct();
                     let actor_danger = maps.danger.get(active.pos);
                     let midpanic_hp = difficulty.midpanic_hp_threshold();
-                    let panic_danger = difficulty.awareness_danger_threshold();
+                    let panic_danger = difficulty.awareness_danger_threshold(world.tuning);
                     if hp_pct < midpanic_hp && actor_danger > panic_danger {
                         apply_protect_self_mask(&mut proto_scores, &raw_factors, &modes, world.tuning.thresholds.self_survival_epsilon);
                     }
@@ -1819,7 +1819,7 @@ fn main() {
                     let hp_pct = active.hp_pct();
                     let actor_danger = maps.danger.get(active.pos);
                     let midpanic_hp = difficulty.midpanic_hp_threshold();
-                    let panic_danger = difficulty.awareness_danger_threshold();
+                    let panic_danger = difficulty.awareness_danger_threshold(world.tuning);
                     if hp_pct < midpanic_hp && actor_danger > panic_danger {
                         apply_protect_self_mask(&mut p2_scores, &raw_factors, &modes, world.tuning.thresholds.self_survival_epsilon);
                     }

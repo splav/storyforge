@@ -35,3 +35,13 @@ axis_position_weights = [
 ]
 
 [difficulty]
+# Lerp-curve endpoints for DifficultyProfile derived values.
+# Each curve: value = lo + (hi - lo) * clamp(t, 0, 1)
+# lo = value at t=0 (low instinct/awareness), hi = value at t=1 (max instinct/awareness).
+
+# Minimum pos_eval improvement to keep a Reposition candidate. Keyed on survival_instinct.
+reposition_min_improvement_curve = { lo = 0.30, hi = 0.12 }
+# HP% threshold for the hard-override panic gate. Keyed on survival_instinct.
+survival_hp_curve                 = { lo = 0.35, hi = 0.20 }
+# Danger threshold paired with the panic gate. Keyed on awareness.
+awareness_danger_curve            = { lo = 0.90, hi = 0.60 }
