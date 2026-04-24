@@ -18,7 +18,7 @@
 
 ## Сабшаги
 
-### 4.0. `ActionOutcomeEstimate` type + `PlanAnnotation` scaffolding (zero-filled)
+### 4.0. `ActionOutcomeEstimate` type + `PlanAnnotation` scaffolding (zero-filled) ✓ DONE
 
 **Scope.**
 - Новый `src/combat/ai/outcome.rs`: `ActionOutcomeEstimate { expected_damage, p_kill_now, p_kill_soon, deny_value, rescue_value, board_pressure, exposure_delta, geometry_gain, resource_swing }` — все `f32`, `Default` = zeros.
@@ -29,7 +29,7 @@
 
 **Gate.** `cargo test/clippy`, `ai_scenarios`, golden **0 / 131 diff**. Никто не читает, ничего не изменилось.
 
-**Эстимейт.** 0.5 дня. **Коммит:** `ai/outcome: шаг 4.0 — ActionOutcomeEstimate + PlanAnnotation scaffolding`.
+**Коммит:** `cb94250`. **Golden-replay:** 0 / 131 diff.
 
 ### 4.1. Sim заполняет `expected_damage`
 
@@ -91,14 +91,14 @@
 
 ## Итого
 
-| # | Шаг | Эстимейт | Golden-replay | Комментарий |
+| # | Шаг | Эстимейт | Golden-replay | Статус |
 |---|---|---|---|---|
-| 4.0 | scaffolding | 0.5 | 0 diff | пустая инфра |
-| 4.1 | expected_damage | 0.5 | 0 diff | 1 поле rewire |
-| 4.2 | full 9-field | 1.5 | 0 diff | producer complete |
-| 4.3 | offensive consumer | 1.5 | 0 diff | extraction 1:1 |
-| 4.4 | future_value + picker | 1.0 | ≤3 epsilons | semantic weighted sum |
-| 4.5 | cleanup + JSONL v18→v19 | 1.0 | 0 diff | score_action удалён, schema bump |
+| 4.0 | scaffolding | 0.5 | 0 diff | **DONE** (`cb94250`) |
+| 4.1 | expected_damage | 0.5 | 0 diff | pending |
+| 4.2 | full 9-field | 1.5 | 0 diff | pending |
+| 4.3 | offensive consumer | 1.5 | 0 diff | pending |
+| 4.4 | future_value + picker | 1.0 | ≤3 epsilons | pending |
+| 4.5 | cleanup + JSONL v18→v19 | 1.0 | 0 diff | pending |
 
 **Суммарно ~6 дней** (4.5 расширен: +0.5 дня friendly-fire рефактор, +0.3 дня schema bump).
 
