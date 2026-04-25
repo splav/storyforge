@@ -4,6 +4,7 @@ use crate::combat::ai::debug::AiDebugState;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::{AiMemory, PlanSnapshot, StoredPlan};
+use crate::combat::ai::repair::ContinuationSeverity;
 use crate::combat::ai::planning::types::PlanStep;
 use crate::combat::ai::snapshot::BattleSnapshot;
 use crate::combat::ai::log::AiLogger;
@@ -177,15 +178,17 @@ fn run_ai_turn(
     // `used_continuation` and `replan_reason` are tracked for divergence logs.
     let mut used_continuation = false;
     let mut replan_reason: Option<&'static str> = None;
+    let mut continuation_severity: Option<ContinuationSeverity> = None;
 
     let decision = if settings.ai_freeze_plan_after_move {
         if let Some(ref stored) = old_plan {
             let actor_snap = snap.unit(actor).unwrap(); // checked above
             let target_snap = stored.snapshot.target.and_then(|t| snap.unit(t));
-            let mismatch = stored.snapshot.mismatch(actor_snap, target_snap);
-            if let Some(reason) = mismatch {
+            let check = stored.snapshot.check_continuation(actor_snap, target_snap);
+            if let Some(ref ck) = check {
                 // State changed (AoO, status, target moved/dead) — replan.
-                replan_reason = Some(reason);
+                replan_reason = Some(ck.reason_code);
+                continuation_severity = Some(ck.severity);
                 fresh_decision
             } else {
                 // Snapshot is valid — try to continue the stored plan.
@@ -209,7 +212,7 @@ fn run_ai_turn(
 
     // Divergence log: emit whenever we had both a stored plan and a fresh plan.
     if let (Some(ref stored), Some(ref fresh)) = (&old_plan, &fresh_chosen) {
-        logger.write_plan_divergence(actor, stored, fresh, used_continuation, replan_reason);
+        logger.write_plan_divergence(actor, stored, fresh, used_continuation, replan_reason, continuation_severity);
     }
 
     // Store debug data: maps always (for overlay), snapshot for console log.

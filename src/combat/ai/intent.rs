@@ -1,3 +1,4 @@
+use crate::combat::ai::repair::{classify_mismatch, PlanContinuationCheck};
 use crate::content::content_view::ContentView;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::factors::{aoe_area, aoe_hits, compute_factors, PlanFactors};
@@ -157,6 +158,26 @@ impl PlanSnapshot {
             }
         }
         None
+    }
+
+    /// Structured alternative to `mismatch()` — returns a `PlanContinuationCheck`
+    /// with semantic severity instead of a raw reason code.
+    ///
+    /// Returns `None` when the snapshot still matches current world state (no
+    /// mismatch), or `Some(check)` with a classified severity and the original
+    /// reason code for telemetry.
+    ///
+    /// The original `mismatch()` is preserved unchanged for backward compatibility
+    /// with replay fixtures and tests.
+    pub fn check_continuation(
+        &self,
+        actor: &UnitSnapshot,
+        target: Option<&UnitSnapshot>,
+    ) -> Option<PlanContinuationCheck> {
+        self.mismatch(actor, target).map(|code| PlanContinuationCheck {
+            severity: classify_mismatch(code),
+            reason_code: code,
+        })
     }
 }
 

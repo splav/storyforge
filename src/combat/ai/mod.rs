@@ -1,6 +1,7 @@
 pub mod action_state;
 pub mod appraisal;
 pub mod log;
+pub mod repair;
 pub mod outcome;
 pub mod planning;
 pub mod replay;

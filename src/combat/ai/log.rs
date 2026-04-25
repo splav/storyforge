@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::intent::{AiMemory, IntentKind, IntentReason, StoredPlan, TacticalIntent};
+use crate::combat::ai::repair::ContinuationSeverity;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::{AdaptationReason, EvaluationMode, PlanStep, SanityHit, StepOutcome, TurnPlan};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -589,6 +590,12 @@ pub struct PlanDivergenceEntry {
     pub used_continuation: bool,
     /// Reason the stored plan was not used, if applicable.
     pub replan_reason: Option<&'static str>,
+    /// Semantic severity of the detected mismatch, if any.
+    /// `None` when there was no mismatch (continuation was clean or attempted).
+    /// Added in step 6.0; old logs without this field read as `None` via
+    /// `#[serde(default)]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation_severity: Option<ContinuationSeverity>,
     pub intent_changed: bool,
     pub ability_changed: bool,
     pub target_changed: bool,
@@ -759,6 +766,7 @@ impl AiLogger {
         fresh: &ChosenInfo,
         used_continuation: bool,
         replan_reason: Option<&'static str>,
+        continuation_severity: Option<ContinuationSeverity>,
     ) {
         if !self.is_enabled() {
             return;
@@ -800,6 +808,7 @@ impl AiLogger {
             },
             used_continuation,
             replan_reason,
+            continuation_severity,
             intent_changed: stored.intent != fresh_intent,
             ability_changed: stored.cast_ability.as_ref().map(|a| a.0.as_str())
                 != fresh_ability.map(|a| a.0.as_str()),
