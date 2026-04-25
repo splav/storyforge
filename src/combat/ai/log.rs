@@ -116,7 +116,13 @@ use crate::game::hex::Hex;
 ///   (`hp_ratio_at_last_turn`, `last_turn_was_defensive`, `turns_in_low_hp`)
 ///   for the appraisal / need layer (step 3.0). v19 logs deserialize via
 ///   `#[serde(default)]` on the new fields, preserving backward compatibility.
-pub const SCHEMA_VERSION: u32 = 20;
+/// - v20 → v21: `IntentReason::PanicOverride` fields renamed
+///   (`hp_pct` → `self_preserve`, `hp_threshold` → `self_preserve_threshold`);
+///   `IntentReason::Urgency` field renamed (`hp_pct` → `self_preserve`).
+///   Step 3.2 consumer wiring. Old v20 logs with `hp_pct`/`hp_threshold` fields
+///   in those variants will deserialize to 0.0 for the renamed fields (Serde
+///   unknown-field drop), which is acceptable for replay/analysis purposes.
+pub const SCHEMA_VERSION: u32 = 21;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can

@@ -412,7 +412,7 @@ mod tests {
         // Mask sends the second to -inf; reason stays untouched.
         let mut ranking = PlanRanking {
             intent: TacticalIntent::ProtectSelf,
-            intent_reason: IntentReason::Urgency { hp_pct: 0.3, danger: 0.8 },
+            intent_reason: IntentReason::Urgency { self_preserve: 0.7, danger: 0.8 },
             scored: vec![0.5, 0.7],
             raw_factors: vec![
                 PlanFactors { self_survival: 0.2, ..Default::default() }, // defensive

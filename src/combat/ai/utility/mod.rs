@@ -198,16 +198,16 @@ pub fn pick_action(
         world
     };
 
-    // ── Select tactical intent ──────────────────────────────────────────
-    let choice = select_intent(active, snap, maps, memory, world.difficulty, world.tuning);
-    update_memory(memory, active, &choice.intent, world.tuning);
-
-    // Compute need signals once per actor; downstream factors/sanity/intent
-    // read via ScoringCtx. Step 3.0: producer returns zeros (no consumer yet);
-    // steps 3.2–3.5 wire consumers.
+    // Compute need signals once per actor; consumed by select_intent (step 3.2)
+    // and downstream factors/sanity via ScoringCtx (steps 3.3–3.5).
+    // Must run before select_intent so the intent gate reads fresh signals.
     let need_signals = crate::combat::ai::appraisal::compute_need_signals(
         active, snap, maps, memory, world.tuning,
     );
+
+    // ── Select tactical intent ──────────────────────────────────────────
+    let choice = select_intent(active, snap, maps, memory, world.difficulty, world.tuning, &need_signals);
+    update_memory(memory, active, &choice.intent, world.tuning);
 
     // ── Generate plans (beam search over depths) ───────────────────────
     let plans = generate_plans(actor, world, snap, maps);

@@ -9,6 +9,7 @@ use crate::combat::ai::snapshot::{ActiveStatusView, AiTags, BattleSnapshot, Unit
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::factors::ScoredStep;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
@@ -232,8 +233,11 @@ pub struct AiMemory {
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum IntentReason {
-    PanicOverride { hp_pct: f32, hp_threshold: f32, danger: f32, danger_threshold: f32 },
-    Urgency { hp_pct: f32, danger: f32 },
+    /// Step 3.2: fields migrated from raw hp_pct/hp_threshold to
+    /// need_signals.self_preserve. Schema v20 → v21.
+    PanicOverride { self_preserve: f32, self_preserve_threshold: f32, danger: f32, danger_threshold: f32 },
+    /// Step 3.2: hp_pct field renamed to self_preserve. Schema v20 → v21.
+    Urgency { self_preserve: f32, danger: f32 },
     ProtectAlly { ally_hp_pct: f32, threshold: f32, heal_identity: f32 },
     TauntForced,
     TauntCc { dpr: f32 },
@@ -293,12 +297,12 @@ impl IntentReason {
 impl fmt::Display for IntentReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::PanicOverride { hp_pct, hp_threshold, danger, danger_threshold } => write!(
-                f, "panic: hp%={:.0}%<{:.0}% AND danger={:.2}>{:.2}",
-                hp_pct * 100.0, hp_threshold * 100.0, danger, danger_threshold,
+            Self::PanicOverride { self_preserve, self_preserve_threshold, danger, danger_threshold } => write!(
+                f, "panic: self_preserve={:.2}>={:.2} AND danger={:.2}>{:.2}",
+                self_preserve, self_preserve_threshold, danger, danger_threshold,
             ),
-            Self::Urgency { hp_pct, danger } => write!(
-                f, "hp%={:.0}%<40% × danger={:.2}", hp_pct * 100.0, danger,
+            Self::Urgency { self_preserve, danger } => write!(
+                f, "self_preserve={:.2} × danger={:.2}", self_preserve, danger,
             ),
             Self::ProtectAlly { ally_hp_pct, threshold, heal_identity } => write!(
                 f, "ally hp%={:.0}%<{:.0}% (healer support={:.2})",
@@ -371,6 +375,7 @@ pub fn select_intent(
     memory: &AiMemory,
     difficulty: &DifficultyProfile,
     tuning: &AiTuning,
+    need_signals: &NeedSignals,
 ) -> IntentChoice {
     let t = &tuning.thresholds;
     let mut best_score = f32::NEG_INFINITY;
@@ -395,20 +400,20 @@ pub fn select_intent(
         }
     };
 
-    let hp_pct = active.hp_pct();
     let danger = maps.danger.get(active.pos);
 
     // Hard override: critically wounded in high danger — survival is non-negotiable.
-    // Thresholds shift with survival_instinct (HP) and awareness (danger gate):
-    // a less-aware AI needs more obvious danger to even trigger the override.
-    let hp_panic = difficulty.survival_hp_threshold(tuning);
+    // Step 3.2: uses need_signals.self_preserve instead of raw hp_pct.
+    // Danger gate still scales with awareness (DifficultyProfile); the HP side
+    // now comes from the appraisal layer (logistic curve + recent damage).
     let danger_panic = difficulty.awareness_danger_threshold(tuning);
-    if hp_pct < hp_panic && danger > danger_panic {
+    let panic_threshold = t.panic_self_preserve_threshold;
+    if need_signals.self_preserve >= panic_threshold && danger > danger_panic {
         return IntentChoice {
             intent: TacticalIntent::ProtectSelf,
             reason: IntentReason::PanicOverride {
-                hp_pct,
-                hp_threshold: hp_panic,
+                self_preserve: need_signals.self_preserve,
+                self_preserve_threshold: panic_threshold,
                 danger,
                 danger_threshold: danger_panic,
             },
@@ -416,13 +421,14 @@ pub fn select_intent(
     }
 
     // ProtectSelf: score scales with urgency.
-    // danger is normalized [0, 1]; any non-zero danger + low HP triggers.
-    if hp_pct < 0.4 && danger > 0.0 {
-        let urgency = (1.0 - hp_pct) * danger;
+    // Step 3.2: gate and urgency weight use need_signals.self_preserve instead
+    // of raw hp_pct. The soft threshold is tunable via Thresholds.
+    if need_signals.self_preserve > t.soft_self_preserve_threshold && danger > 0.0 {
+        let urgency = need_signals.self_preserve * danger;
         consider(
             TacticalIntent::ProtectSelf,
             urgency,
-            IntentReason::Urgency { hp_pct, danger },
+            IntentReason::Urgency { self_preserve: need_signals.self_preserve, danger },
         );
     }
 
@@ -1562,7 +1568,8 @@ mod tests {
         let difficulty = DifficultyProfile::default();
 
         let tuning = AiTuning::default();
-        let choice = select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning);
+        let need_signals = crate::combat::ai::appraisal::NeedSignals::default();
+        let choice = select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &need_signals);
 
         assert!(
             !matches!(choice.reason, IntentReason::Killable { .. }),

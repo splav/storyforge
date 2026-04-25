@@ -114,6 +114,17 @@ pub struct Thresholds {
     /// Below this `hp_pct` an actor is considered "in low-HP zone" for memory
     /// tracking (see `AiMemory.turns_in_low_hp`). Used by the 3.1 producer.
     pub low_hp_zone_threshold: f32,
+    /// Threshold for the panic override gate. When `need_signals.self_preserve`
+    /// reaches this AND danger is above `awareness_danger_threshold`, the AI
+    /// bypasses scoring and forces `ProtectSelf`. Migrated from the old
+    /// `hp_pct < survival_hp_threshold` gate; calibrated so the old condition
+    /// (hp ≈ 0.20, danger ≈ 0.6) maps to the same trigger point on the new
+    /// logistic curve. Step 3.2 consumer.
+    pub panic_self_preserve_threshold: f32,
+    /// Soft floor for the ProtectSelf intent. Below this `self_preserve`
+    /// magnitude the soft branch doesn't even consider ProtectSelf.
+    /// Migrated from the old `hp_pct < 0.4` gate. Step 3.2 consumer.
+    pub soft_self_preserve_threshold: f32,
 }
 
 impl Default for Thresholds {
@@ -129,6 +140,8 @@ impl Default for Thresholds {
             target_stickiness_bonus: 0.15,
             max_committed_turns: 3,
             low_hp_zone_threshold: 0.4,
+            panic_self_preserve_threshold: 0.85,
+            soft_self_preserve_threshold: 0.2,
         }
     }
 }
@@ -255,6 +268,8 @@ pub struct ThresholdsOverride {
     #[serde(default)] pub stickiness_bonus: Option<f32>,
     #[serde(default)] pub target_stickiness_bonus: Option<f32>,
     #[serde(default)] pub max_committed_turns: Option<u8>,
+    #[serde(default)] pub panic_self_preserve_threshold: Option<f32>,
+    #[serde(default)] pub soft_self_preserve_threshold: Option<f32>,
 }
 
 impl AiTuning {
@@ -273,6 +288,8 @@ impl AiTuning {
             if let Some(v) = t.stickiness_bonus       { out.thresholds.stickiness_bonus = v; }
             if let Some(v) = t.target_stickiness_bonus { out.thresholds.target_stickiness_bonus = v; }
             if let Some(v) = t.max_committed_turns    { out.thresholds.max_committed_turns = v; }
+            if let Some(v) = t.panic_self_preserve_threshold { out.thresholds.panic_self_preserve_threshold = v; }
+            if let Some(v) = t.soft_self_preserve_threshold  { out.thresholds.soft_self_preserve_threshold = v; }
         }
         // hooks: difficulty and tables override would be applied here.
         out

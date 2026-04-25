@@ -13,6 +13,13 @@ target_stickiness_bonus = 0.15
 max_committed_turns = 3
 # Below this hp_pct an actor is in the "low-HP zone" for AiMemory.turns_in_low_hp tracking.
 low_hp_zone_threshold = 0.4
+# Step 3.2 consumers: self_preserve gates for select_intent.
+# Panic override: self_preserve >= this AND danger > awareness_danger_threshold → force ProtectSelf.
+# Calibrated so hp≈0.20 + no recent damage ≈ 0.85 on the logistic curve (maps old hp-gate).
+panic_self_preserve_threshold = 0.85
+# Soft ProtectSelf gate: self_preserve > this AND danger > 0 → consider ProtectSelf.
+# Calibrated to activate roughly where old hp_pct < 0.4 gate activated.
+soft_self_preserve_threshold = 0.2
 
 [tables]
 # Per-axis weights for the 10 utility factors.
