@@ -49,7 +49,7 @@
 
 ## Сабшаги
 
-### 3.0. Scaffolding: `ResponseCurve` + `appraisal/` + `AiMemory` v19→v20
+### 3.0. Scaffolding: `ResponseCurve` + `appraisal/` + `AiMemory` v19→v20 ✓ DONE
 
 **Scope.**
 
@@ -110,6 +110,13 @@
 **Gate.** `cargo test/clippy`, `ai_scenarios`, golden **0 / 131 diff**. Никто не читает, ничего не изменилось. Unit-тест `ResponseCurve::eval` на logistic/linear-clamped границах.
 
 **Эстимейт:** 1.0 день.
+
+**Изменения от плана при реализации:**
+- `AiMemory` расширен на **3** поля (не 4) — `damage_dealt_to_last_target` дропнут, поскольку `max_hp - hp` of `last_target` тривиально вычисляется в 3.1 producer'е напрямую из снапшота. Убрали dead-code поле.
+- `hp_ratio_at_last_turn: Option<f32>` (не `f32` с default 1.0) — `None` = первый ход, чтобы producer 3.1 мог различить «нет prior turn data» vs «было полное HP».
+- Добавлено `Thresholds.low_hp_zone_threshold: f32` (default 0.4) — порог для счётчика `turns_in_low_hp`.
+
+**Коммит:** `36c3d18`. **Golden-replay:** 0 / 131 diff.
 
 ### 3.1. Producer: `compute_need_signals` для всех 5 mineable
 
@@ -316,7 +323,7 @@ if need_signals.conserve_resource > 0.5 {
 
 | # | Шаг | Эстимейт | Gate | Статус |
 |---|---|---|---|---|
-| 3.0 | scaffolding (`ResponseCurve` + `appraisal/` + AiMemory v19→v20) | 1.0 | golden 0/131 | pending |
+| 3.0 | scaffolding (`ResponseCurve` + `appraisal/` + AiMemory v19→v20) | 1.0 | golden 0/131 | **DONE** (`36c3d18`) |
 | 3.1 | producer (5 mineable signals) | 1.5 | unit-tests + golden 0/131 | pending |
 | 3.2 | consumer self_preserve | 1.0 | per-entry golden review + scenario harness | pending |
 | 3.3 | consumer continue_commitment | 1.0 | per-entry golden review + monotone_focus | pending |
