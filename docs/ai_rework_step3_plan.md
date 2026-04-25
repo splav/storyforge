@@ -214,7 +214,7 @@ if need_signals.self_preserve > 0.2 && danger > 0.0 {
 
 **Коммит:** `272144d`. **Golden-replay:** 0 / 131 diff на baseline-корпусе. Это не означает «изменения нет» — на 131-entry baseline калибровка точно сохраняет поведение; реальный сдвиг должен проявиться на новых post-step-3 plays в 3.6 mining'е.
 
-### 3.3. Consumer: `continue_commitment` → stickiness в `select_intent::consider`
+### 3.3. Consumer: `continue_commitment` → stickiness в `select_intent::consider` ✓ DONE
 
 **Scope.**
 
@@ -244,6 +244,10 @@ if memory.turns_committed < t.max_committed_turns
 - Golden diff допустим, per-entry анализ как в 3.2.
 
 **Эстимейт:** 1.0 день.
+
+**Реализация:** выбран **вариант (c)** — explicit match по `intent.kind()` в `consider`: `FocusTarget | ApplyCC` модулируется через `need_signals.continue_commitment`, остальные intent'ы (`ProtectSelf`, `ProtectAlly`, `Reposition`, `SetupAOE`, `LastStand`) сохраняют flat stickiness (`stickiness_factor = 1.0`). Producer не правился — semantic чище: «commitment к конкретной цели» имеет смысл только для target-oriented intents.
+
+**Коммит:** `fcd5610`. **Golden-replay:** 0 / 131 diff на baseline-корпусе. `p019_dvoynik_monotone_focus` PASS. Реальный сдвиг P1 (7.3% FT→FT abandon) ожидается на post-step-3 plays.
 
 ### 3.4. Consumer: `reposition` → `select_intent::Reposition`
 
@@ -338,7 +342,7 @@ if need_signals.conserve_resource > 0.5 {
 | 3.0 | scaffolding (`ResponseCurve` + `appraisal/` + AiMemory v19→v20) | 1.0 | golden 0/131 | **DONE** (`36c3d18`) |
 | 3.1 | producer (5 mineable signals) | 1.5 | unit-tests + golden 0/131 | **DONE** (`052ac42`) |
 | 3.2 | consumer self_preserve | 1.0 | per-entry golden review + scenario harness | **DONE** (`272144d`) |
-| 3.3 | consumer continue_commitment | 1.0 | per-entry golden review + monotone_focus | pending |
+| 3.3 | consumer continue_commitment | 1.0 | per-entry golden review + monotone_focus | **DONE** (`fcd5610`) |
 | 3.4 | consumer reposition | 1.0 | per-entry golden review + 9 scenarios | pending |
 | 3.5 | consumer finish_target + conserve_resource | 1.0 | per-entry golden review | pending |
 | 3.6 | cleanup + повторный mining + rebaseline golden | 0.5 | mining-метрики достигают таргетов | pending |
