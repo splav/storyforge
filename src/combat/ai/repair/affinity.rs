@@ -137,6 +137,19 @@ fn goal_alignment(stored_kind: &GoalKind, fresh_intent: TacticalIntent) -> f32 {
         (GoalKind::Pressure { target: a }, TacticalIntent::ApplyCC { target: b }) if *a == b => {
             0.4
         }
+        // Step 6.8.B: target switch within the same intent (FocusTarget on a
+        // different enemy) — partial credit. Recognises that the actor is still
+        // "in attack mode" and provides a small commitment nudge against
+        // marginal target-hopping, without suppressing clearly-better switches
+        // (sd > 0.5 still wins easily).
+        (GoalKind::Finish { target: a }, TacticalIntent::FocusTarget { target: b }) if *a != b => {
+            0.3
+        }
+        (GoalKind::Pressure { target: a }, TacticalIntent::FocusTarget { target: b })
+            if *a != b =>
+        {
+            0.3
+        }
         // Any other combination — goal abandoned
         _ => 0.0,
     }
@@ -238,13 +251,42 @@ mod tests {
         assert!((affinity.goal_alignment - 1.0).abs() < 1e-6);
     }
 
+    /// Step 6.8.B: target switch within FocusTarget gets partial credit (0.3),
+    /// not zero — the actor is still in attack mode, just retargeting.
     #[test]
-    fn goal_alignment_zero_for_different_target() {
+    fn goal_alignment_partial_for_target_switch_within_focus_target() {
         let a = ent(1);
         let b = ent(2);
         let s = stored(GoalKind::Finish { target: a }, Hex::ZERO, 2, None);
         let affinity = compute_repair_affinity(
             TacticalIntent::FocusTarget { target: b },
+            &[],
+            Hex::ZERO,
+            &s,
+            None,
+            1,
+        );
+        assert!((affinity.goal_alignment - 0.3).abs() < 1e-6);
+        // Also the symmetric case from Pressure stored.
+        let s2 = stored(GoalKind::Pressure { target: a }, Hex::ZERO, 2, None);
+        let affinity2 = compute_repair_affinity(
+            TacticalIntent::FocusTarget { target: b },
+            &[],
+            Hex::ZERO,
+            &s2,
+            None,
+            1,
+        );
+        assert!((affinity2.goal_alignment - 0.3).abs() < 1e-6);
+    }
+
+    /// Genuine cross-intent abandon (Retreat → FocusTarget) still scores 0.
+    #[test]
+    fn goal_alignment_zero_for_cross_intent_abandon() {
+        let target = ent(1);
+        let s = stored(GoalKind::Retreat { region_anchor: Hex::ZERO }, Hex::ZERO, 2, None);
+        let affinity = compute_repair_affinity(
+            TacticalIntent::FocusTarget { target },
             &[],
             Hex::ZERO,
             &s,

@@ -224,7 +224,8 @@ pub fn classify_continuation_outcome(
 
 /// Returns `true` when the intent reason is an environmental/system override —
 /// i.e. the actor did not freely abandon their goal, but was forced by an
-/// external constraint (taunt, panic, viability fallback, finisher opportunity).
+/// external constraint (taunt, panic, viability fallback, finisher opportunity,
+/// ally rescue, urgent threat).
 fn is_reactive_reason(reason: &IntentReason) -> bool {
     matches!(
         reason.code(),
@@ -236,6 +237,11 @@ fn is_reactive_reason(reason: &IntentReason) -> bool {
             | "protect_self_no_defensive"
             | "expected_self_lethal"
             | "killable"
+            // Step 6.8.B: ally needing rescue is contractual abandon, not free choice.
+            | "protect_ally"
+            // Step 6.8.B: urgency fires when self_preserve × danger crosses threshold —
+            // a forced reaction to immediate threat, not a goal-driven decision.
+            | "urgency"
     )
 }
 
@@ -399,6 +405,42 @@ mod tests {
         assert_eq!(
             outcome,
             ContinuationOutcome::GoalAbandonedReactive { source: "taunt_forced".to_owned() }
+        );
+    }
+
+    /// Step 6.8.B: protect_ally is a contractual rescue, not free choice.
+    #[test]
+    fn classify_reactive_abandon_on_protect_ally() {
+        let stored = stored_finish(ent(1));
+        let outcome = classify_continuation_outcome(
+            Some(&stored),
+            TacticalIntent::ProtectAlly { ally: ent(3) },
+            FreshDecisionKind::Move,
+            &IntentReason::ProtectAlly { ally_hp_pct: 0.2, threshold: 0.4, heal_identity: 1.0 },
+            None,
+            0,
+        );
+        assert_eq!(
+            outcome,
+            ContinuationOutcome::GoalAbandonedReactive { source: "protect_ally".to_owned() }
+        );
+    }
+
+    /// Step 6.8.B: urgency fires under high self_preserve × danger — reactive.
+    #[test]
+    fn classify_reactive_abandon_on_urgency() {
+        let stored = stored_finish(ent(1));
+        let outcome = classify_continuation_outcome(
+            Some(&stored),
+            TacticalIntent::ProtectSelf,
+            FreshDecisionKind::Move,
+            &IntentReason::Urgency { self_preserve: 0.8, danger: 0.7 },
+            None,
+            0,
+        );
+        assert_eq!(
+            outcome,
+            ContinuationOutcome::GoalAbandonedReactive { source: "urgency".to_owned() }
         );
     }
 
