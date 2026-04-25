@@ -129,6 +129,14 @@ pub struct Thresholds {
     /// magnitude the branch doesn't even consider Reposition. Migrated from the
     /// old `pos_eval < awareness_reposition_threshold()` gate. Step 3.4 consumer.
     pub reposition_signal_floor: f32,
+    /// Step 3.5 consumer: above this `need_signals.conserve_resource`, cheap
+    /// intents (ProtectSelf and Reposition) get a score bonus to encourage
+    /// resource-saving behaviour. Below this — no bonus.
+    pub conserve_resource_threshold: f32,
+    /// Score bonus magnitude for cheap intents under conserve_resource pressure.
+    /// Final bonus = conserve_resource_bonus * need_signals.conserve_resource
+    /// (so it scales with severity). Step 3.5 consumer.
+    pub conserve_resource_bonus: f32,
 }
 
 impl Default for Thresholds {
@@ -147,6 +155,8 @@ impl Default for Thresholds {
             panic_self_preserve_threshold: 0.85,
             soft_self_preserve_threshold: 0.2,
             reposition_signal_floor: 0.1,
+            conserve_resource_threshold: 0.5,
+            conserve_resource_bonus: 0.15,
         }
     }
 }
@@ -276,6 +286,8 @@ pub struct ThresholdsOverride {
     #[serde(default)] pub panic_self_preserve_threshold: Option<f32>,
     #[serde(default)] pub soft_self_preserve_threshold: Option<f32>,
     #[serde(default)] pub reposition_signal_floor: Option<f32>,
+    #[serde(default)] pub conserve_resource_threshold: Option<f32>,
+    #[serde(default)] pub conserve_resource_bonus: Option<f32>,
 }
 
 impl AiTuning {
@@ -297,6 +309,8 @@ impl AiTuning {
             if let Some(v) = t.panic_self_preserve_threshold { out.thresholds.panic_self_preserve_threshold = v; }
             if let Some(v) = t.soft_self_preserve_threshold  { out.thresholds.soft_self_preserve_threshold = v; }
             if let Some(v) = t.reposition_signal_floor       { out.thresholds.reposition_signal_floor = v; }
+            if let Some(v) = t.conserve_resource_threshold   { out.thresholds.conserve_resource_threshold = v; }
+            if let Some(v) = t.conserve_resource_bonus       { out.thresholds.conserve_resource_bonus = v; }
         }
         // hooks: difficulty and tables override would be applied here.
         out

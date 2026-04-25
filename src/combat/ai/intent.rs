@@ -241,7 +241,8 @@ pub enum IntentReason {
     ProtectAlly { ally_hp_pct: f32, threshold: f32, heal_identity: f32 },
     TauntForced,
     TauntCc { dpr: f32 },
-    Killable { threat: f32, eff_hp: i32, reach_budget: u32 },
+    /// Step 3.5: added `finish_target` field for diagnostics (add-only, no schema bump needed).
+    Killable { threat: f32, eff_hp: i32, reach_budget: u32, #[serde(default)] finish_target: f32 },
     BestPriority { priority: f32 },
     ApplyCc { dpr: f32 },
     SetupAoe { clustered_pairs: usize },
@@ -312,9 +313,9 @@ impl fmt::Display for IntentReason {
             ),
             Self::TauntForced => write!(f, "forced by taunt (FORCES_TARGETING)"),
             Self::TauntCc { dpr } => write!(f, "CC the taunter (dpr={:.1})", dpr),
-            Self::Killable { threat, eff_hp, reach_budget } => write!(
-                f, "killable: threat={:.1}>=eff_hp={}, reach_budget={}",
-                threat, eff_hp, reach_budget,
+            Self::Killable { threat, eff_hp, reach_budget, finish_target } => write!(
+                f, "killable: threat={:.1}>=eff_hp={}, reach_budget={}, finish_target={:.2}",
+                threat, eff_hp, reach_budget, finish_target,
             ),
             Self::BestPriority { priority } => write!(f, "highest priority={:.2}", priority),
             Self::ApplyCc { dpr } => write!(f, "unstunned enemy dpr={:.1}", dpr),
@@ -412,6 +413,21 @@ pub fn select_intent(
                 }
             }
         }
+        // Step 3.5b: conserve_resource soft bonus for cheap intents.
+        // "Cheap" = ProtectSelf and Reposition (AP-only or pure movement, no mana cost).
+        // FocusTarget/ApplyCC/SetupAOE/ProtectAlly may involve expensive casts and
+        // are not boosted here. Hard budget-aware factor scoring is deferred to step 11
+        // (priority bands + scorecard).
+        if need_signals.conserve_resource > t.conserve_resource_threshold {
+            let cheap = matches!(
+                intent.kind(),
+                IntentKind::ProtectSelf | IntentKind::Reposition
+            );
+            if cheap {
+                s += t.conserve_resource_bonus * need_signals.conserve_resource;
+            }
+        }
+
         if s > best_score {
             best_score = s;
             best = Some(IntentChoice { intent, reason });
@@ -517,7 +533,12 @@ pub fn select_intent(
             .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
             .min_by_key(|e| e.eff_hp());
         if let Some(target) = killable {
-            let kill_score = 1.2 + (1.0 - target.hp_pct()) * 0.3;
+            // Step 3.5a: kill_score uses need_signals.finish_target (global max
+            // killability among all reachable killable enemies) instead of the
+            // per-target raw (1.0 - hp_pct). The producer filters the same set
+            // (action_points > 0, threat >= eff_hp, dist <= reach_budget), so
+            // finish_target reflects the best killable opportunity overall.
+            let kill_score = 1.2 + need_signals.finish_target * 0.3;
             consider(
                 TacticalIntent::FocusTarget { target: target.entity },
                 kill_score,
@@ -525,6 +546,7 @@ pub fn select_intent(
                     threat: active.threat,
                     eff_hp: target.eff_hp(),
                     reach_budget,
+                    finish_target: need_signals.finish_target,
                 },
             );
         } else if let Some(target) = highest_priority_enemy(active, snap) {

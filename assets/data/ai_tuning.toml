@@ -23,6 +23,10 @@ soft_self_preserve_threshold = 0.2
 # Step 3.4 consumer: floor for Reposition intent.
 # Below this need_signals.reposition magnitude select_intent doesn't consider Reposition.
 reposition_signal_floor = 0.1
+# Step 3.5 consumer: conserve_resource bonus to cheap intents.
+# Above threshold, ProtectSelf and Reposition get score += conserve_resource_bonus * signal.
+conserve_resource_threshold = 0.5
+conserve_resource_bonus = 0.15
 
 [tables]
 # Per-axis weights for the 10 utility factors.
