@@ -53,7 +53,7 @@ pub struct PlanRanking {
 impl PlanRanking {
     /// Score the plan pool under `intent` and build the initial ranking.
     pub fn initial(
-        plans: &[TurnPlan],
+        plans: &mut [TurnPlan],
         intent: TacticalIntent,
         intent_reason: IntentReason,
         ctx: &ScoringCtx,
@@ -83,7 +83,7 @@ impl PlanRanking {
     /// `rescore_with_intent`; the other eight columns stay intact.
     pub fn apply_viability(
         &mut self,
-        plans: &[TurnPlan],
+        plans: &mut [TurnPlan],
         actor_pos: Hex,
         ctx: &ScoringCtx,
     ) {
@@ -155,7 +155,7 @@ impl PlanRanking {
     /// catch (low-HP through AoO corridors, self-AoE, LOS blindspots,
     /// retreat traps). Runs on all plans so low-ranked terrible ones can't
     /// sneak up via noise.
-    pub fn apply_sanity(&mut self, plans: &[TurnPlan], ctx: &ScoringCtx) {
+    pub fn apply_sanity(&mut self, plans: &mut [TurnPlan], ctx: &ScoringCtx) {
         self.sanity_breakdown = sanity_adjust_plans(&mut self.scored, plans, ctx);
     }
 
@@ -163,7 +163,7 @@ impl PlanRanking {
     /// discovered after measurement+correction. See `planning::adaptation`
     /// for invariants. Stores the resulting per-plan mode map on `self`
     /// so the downstream contract mask and the picker can consult it.
-    pub fn apply_adaptation(&mut self, plans: &[TurnPlan], ctx: &ScoringCtx) {
+    pub fn apply_adaptation(&mut self, plans: &mut [TurnPlan], ctx: &ScoringCtx) {
         self.adaptation = apply_adaptation(
             plans, &mut self.raw_factors, &mut self.scored, &self.intent, ctx,
         );
@@ -206,7 +206,7 @@ impl PlanRanking {
     /// Caller guards with `matches!(self.intent, FocusTarget { .. })`; the
     /// guard is load-bearing — `ProtectSelf` and `FocusTarget` are mutually
     /// exclusive intents, so the gate must not run under `ProtectSelf`.
-    pub fn apply_killable_gate(&mut self, plans: &[TurnPlan], ctx: &ScoringCtx) {
+    pub fn apply_killable_gate(&mut self, plans: &mut [TurnPlan], ctx: &ScoringCtx) {
         self.gate_stats = apply_killable_gate(
             plans,
             &self.raw_factors,
@@ -288,7 +288,7 @@ mod tests {
     fn apply_viability_above_threshold_is_noop() {
         // Reposition threshold is 0.01. intent_factor=0.5 ≫ threshold → no
         // fallback path is taken; ranking stays untouched.
-        let (plans, mut ranking) = single_plan_ranking(
+        let (mut plans, mut ranking) = single_plan_ranking(
             TacticalIntent::Reposition,
             IntentReason::NoRuleDefault,
             0.5,
@@ -302,7 +302,7 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, need_signals: Default::default(), active: &active };
 
-        ranking.apply_viability(&plans, active.pos, &ctx);
+        ranking.apply_viability(&mut plans, active.pos, &ctx);
 
         assert!(matches!(ranking.intent, TacticalIntent::Reposition));
         assert!(matches!(ranking.intent_reason, IntentReason::NoRuleDefault));
@@ -312,7 +312,7 @@ mod tests {
     fn apply_viability_midpanic_swaps_to_protect_self() {
         // Low HP + high danger on the actor's tile. Intent factor 0.0 <
         // Reposition threshold 0.01 → fallback path enters midpanic branch.
-        let (plans, mut ranking) = single_plan_ranking(
+        let (mut plans, mut ranking) = single_plan_ranking(
             TacticalIntent::Reposition,
             IntentReason::NoRuleDefault,
             0.0,
@@ -331,7 +331,7 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, need_signals: Default::default(), active: &active };
 
-        ranking.apply_viability(&plans, active.pos, &ctx);
+        ranking.apply_viability(&mut plans, active.pos, &ctx);
 
         assert!(matches!(ranking.intent, TacticalIntent::ProtectSelf));
         assert!(
@@ -345,7 +345,7 @@ mod tests {
         // Healthy actor in safe tile; Reposition intent has zero alignment.
         // `default_focus_target` falls through to "any enemy by priority" and
         // returns the single live enemy.
-        let (plans, mut ranking) = single_plan_ranking(
+        let (mut plans, mut ranking) = single_plan_ranking(
             TacticalIntent::Reposition,
             IntentReason::NoRuleDefault,
             0.0,
@@ -366,7 +366,7 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, need_signals: Default::default(), active: &active };
 
-        ranking.apply_viability(&plans, active.pos, &ctx);
+        ranking.apply_viability(&mut plans, active.pos, &ctx);
 
         match ranking.intent {
             TacticalIntent::FocusTarget { target } => assert_eq!(target, enemy_id),
@@ -382,7 +382,7 @@ mod tests {
     fn apply_viability_no_enemies_keeps_intent() {
         // Low intent alignment but no live enemy for the fallback to pick —
         // ranking must stay put (no FocusTarget on a nonexistent target).
-        let (plans, mut ranking) = single_plan_ranking(
+        let (mut plans, mut ranking) = single_plan_ranking(
             TacticalIntent::Reposition,
             IntentReason::NoRuleDefault,
             0.0,
@@ -398,7 +398,7 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, need_signals: Default::default(), active: &active };
 
-        ranking.apply_viability(&plans, active.pos, &ctx);
+        ranking.apply_viability(&mut plans, active.pos, &ctx);
 
         assert!(matches!(ranking.intent, TacticalIntent::Reposition));
         assert!(matches!(ranking.intent_reason, IntentReason::NoRuleDefault));

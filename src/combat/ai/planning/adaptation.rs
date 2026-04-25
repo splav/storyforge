@@ -256,7 +256,7 @@ impl Adaptation {
 /// - does not consult contract masks and does not prevent them from
 ///   running afterwards → **CONTRACT-NEUTRAL**
 pub fn apply_adaptation(
-    plans: &[TurnPlan],
+    plans: &mut [TurnPlan],
     raw: &mut [PlanFactors],
     scored: &mut Vec<f32>,
     intent: &TacticalIntent,
@@ -430,7 +430,7 @@ mod tests {
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
             .aoo(5.0, 1)
             .build();
-        let plans = vec![move_plan(vec![hex_from_offset(-1, 0)])];
+        let mut plans = vec![move_plan(vec![hex_from_offset(-1, 0)])];
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -442,7 +442,7 @@ mod tests {
         let mut raw = vec![PlanFactors::default()];
         let mut scored = vec![0.5];
         let intent = TacticalIntent::Reposition;
-        let adaptation = apply_adaptation(&plans, &mut raw, &mut scored, &intent, &ctx);
+        let adaptation = apply_adaptation(&mut plans, &mut raw, &mut scored, &intent, &ctx);
 
         assert!(matches!(adaptation.modes[0], EvaluationMode::LastStand));
         assert!(matches!(
@@ -475,7 +475,7 @@ mod tests {
             annotation: Default::default(),
         };
         let lethal_move = move_plan(vec![hex_from_offset(-1, 0)]);
-        let plans = vec![empty_defensive, lethal_move];
+        let mut plans = vec![empty_defensive, lethal_move];
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -492,7 +492,7 @@ mod tests {
         ];
         let mut scored = vec![0.5, 0.5];
         let adaptation = apply_adaptation(
-            &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+            &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
         );
 
         assert!(
@@ -513,7 +513,7 @@ mod tests {
         let pos = hex_from_offset(0, 0);
         let danger_tile = hex_from_offset(3, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(5).build();
-        let plans = vec![move_plan(vec![danger_tile])];
+        let mut plans = vec![move_plan(vec![danger_tile])];
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let mut maps = empty_maps();
         maps.danger.add(danger_tile, 2.0);
@@ -526,7 +526,7 @@ mod tests {
         let mut raw = vec![PlanFactors::default()];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
-            &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+            &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
         );
 
         assert!(matches!(adaptation.modes[0], EvaluationMode::LastStand));
@@ -647,7 +647,7 @@ mod tests {
             dot_per_tick: 4,
         });
 
-        let plans = vec![skip_plan(actor_with_dot.pos)];
+        let mut plans = vec![skip_plan(actor_with_dot.pos)];
         let snap = BattleSnapshot::new(vec![actor_with_dot.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -661,7 +661,7 @@ mod tests {
         let mut raw = vec![PlanFactors { self_survival: 0.2, ..Default::default() }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
-            &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+            &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
         );
 
         assert!(matches!(adaptation.modes[0], EvaluationMode::LastStand));
@@ -695,7 +695,7 @@ mod tests {
         let mut actor_healed = actor_doomed.clone();
         actor_healed.hp = 12;
 
-        let plans = vec![rescue_plan(actor_healed)];
+        let mut plans = vec![rescue_plan(actor_healed)];
         let snap = BattleSnapshot::new(vec![actor_doomed.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -711,7 +711,7 @@ mod tests {
         let mut raw = vec![PlanFactors { self_survival: 0.2, ..Default::default() }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
-            &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+            &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
         );
 
         assert!(
@@ -739,7 +739,7 @@ mod tests {
         let mut actor_cleansed = actor_doomed.clone();
         actor_cleansed.statuses.clear();
 
-        let plans = vec![rescue_plan(actor_cleansed)];
+        let mut plans = vec![rescue_plan(actor_cleansed)];
         let snap = BattleSnapshot::new(vec![actor_doomed.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -755,7 +755,7 @@ mod tests {
         let mut raw = vec![PlanFactors { self_survival: 0.2, ..Default::default() }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
-            &plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
+            &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
         );
 
         assert!(
@@ -801,7 +801,7 @@ mod tests {
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
             .aoo(5.0, 1)
             .build();
-        let plans = vec![move_plan(vec![hex_from_offset(-1, 0)])];
+        let mut plans = vec![move_plan(vec![hex_from_offset(-1, 0)])];
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -814,11 +814,11 @@ mod tests {
         let mut scored = vec![0.5];
         let intent = TacticalIntent::Reposition;
 
-        let _ = apply_adaptation(&plans, &mut raw, &mut scored, &intent, &ctx);
+        let _ = apply_adaptation(&mut plans, &mut raw, &mut scored, &intent, &ctx);
         let after_first = scored.clone();
         let raw_after_first = raw.clone();
 
-        let _ = apply_adaptation(&plans, &mut raw, &mut scored, &intent, &ctx);
+        let _ = apply_adaptation(&mut plans, &mut raw, &mut scored, &intent, &ctx);
 
         assert_eq!(after_first, scored, "scored stable across a second call");
         assert_eq!(
@@ -835,7 +835,7 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .hp(20)
             .build();
-        let plans = vec![move_plan(vec![hex_from_offset(1, 1)])];
+        let mut plans = vec![move_plan(vec![hex_from_offset(1, 1)])];
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -848,7 +848,7 @@ mod tests {
         let scored_before = vec![0.5];
         let mut scored = scored_before.clone();
         let adaptation = apply_adaptation(
-            &plans, &mut raw, &mut scored, &TacticalIntent::Reposition, &ctx,
+            &mut plans, &mut raw, &mut scored, &TacticalIntent::Reposition, &ctx,
         );
 
         assert!(matches!(adaptation.modes[0], EvaluationMode::Default));

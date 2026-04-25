@@ -385,7 +385,7 @@ pub fn reconstruct_decision(
         need_signals: Default::default(),
     };
 
-    let plans: Vec<TurnPlan> = entry
+    let mut plans: Vec<TurnPlan> = entry
         .plans
         .iter()
         .map(|p| TurnPlan {
@@ -419,7 +419,7 @@ pub fn reconstruct_decision(
         })
         .collect();
 
-    let mut scores = finalize_scores(&plans, &raw_factors, &scoring_ctx);
+    let mut scores = finalize_scores(&mut plans, &raw_factors, &scoring_ctx);
     let _ = sanity_adjust_plans(&mut scores, &plans, &scoring_ctx);
     if matches!(entry.intent.intent, TacticalIntent::ProtectSelf) {
         apply_protect_self_mask(&mut scores, &raw_factors, &modes, world.tuning.thresholds.self_survival_epsilon);

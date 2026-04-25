@@ -1514,7 +1514,7 @@ fn main() {
             };
 
             // Reconstruct TurnPlan[] from log + raw factor matrix.
-            let plans: Vec<TurnPlan> = entry
+            let mut plans: Vec<TurnPlan> = entry
                 .plans
                 .iter()
                 .map(|p| TurnPlan {
@@ -1560,7 +1560,7 @@ fn main() {
             // hash-based noise, and batch normalisation all match the live
             // pipeline bit-for-bit. Invariant: replay's pre-sanity score equals
             // what production produced given the same raw factors.
-            let mut scores = finalize_scores(&plans, &raw_factors, &scoring_ctx);
+            let mut scores = finalize_scores(&mut plans, &raw_factors, &scoring_ctx);
             let pre_scores = scores.clone();
 
             let _ = sanity_adjust_plans(&mut scores, &plans, &scoring_ctx);
@@ -1812,7 +1812,7 @@ fn main() {
                 p2.total_entries += 1;
 
                 // Scalar scores: same baseline pipeline as production.
-                let mut p2_scores = finalize_scores(&plans, &raw_factors, &scoring_ctx);
+                let mut p2_scores = finalize_scores(&mut plans, &raw_factors, &scoring_ctx);
                 let _ = sanity_adjust_plans(&mut p2_scores, &plans, &scoring_ctx);
                 if matches!(
                     entry.intent.intent,

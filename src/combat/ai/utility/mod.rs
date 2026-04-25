@@ -210,7 +210,7 @@ pub fn pick_action(
     update_memory(memory, active, &choice.intent, world.tuning);
 
     // ── Generate plans (beam search over depths) ───────────────────────
-    let plans = generate_plans(actor, world, snap, maps);
+    let mut plans = generate_plans(actor, world, snap, maps);
 
     if plans.is_empty() {
         let decision = fallback::fallback_move(active, snap, maps);
@@ -240,20 +240,20 @@ pub fn pick_action(
     // phase method mutates them coherently. The pick_action body reads as
     // a linear sequence of phases — behavior-sensitive logic lives in the
     // methods and is unit-tested there.
-    let mut ranking = PlanRanking::initial(&plans, choice.intent, choice.reason, &scoring_ctx);
-    ranking.apply_viability(&plans, actor_pos, &scoring_ctx);
-    ranking.apply_sanity(&plans, &scoring_ctx);
+    let mut ranking = PlanRanking::initial(&mut plans, choice.intent, choice.reason, &scoring_ctx);
+    ranking.apply_viability(&mut plans, actor_pos, &scoring_ctx);
+    ranking.apply_sanity(&mut plans, &scoring_ctx);
     // Snapshot post-sanity scores as the "base" — the value each plan had
     // immediately before adaptation rescored any of them. The log stores
     // both numbers per plan (v6 schema) so offline diagnostics can tell
     // "did adaptation move this rank?" without rerunning the pipeline.
     let base_scored = ranking.scored.clone();
-    ranking.apply_adaptation(&plans, &scoring_ctx);
+    ranking.apply_adaptation(&mut plans, &scoring_ctx);
     if matches!(ranking.intent, TacticalIntent::ProtectSelf) {
         ranking.apply_protect_self(world.tuning.thresholds.self_survival_epsilon);
     }
     if matches!(ranking.intent, TacticalIntent::FocusTarget { .. }) {
-        ranking.apply_killable_gate(&plans, &scoring_ctx);
+        ranking.apply_killable_gate(&mut plans, &scoring_ctx);
     }
 
     let (best_idx, mech) = ranking.pick(world, rng);

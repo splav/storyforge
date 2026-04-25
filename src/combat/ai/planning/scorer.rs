@@ -42,6 +42,7 @@ use crate::combat::ai::factors::{
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{cc_reach, intent_score, pursuit_move_score, TacticalIntent};
 use crate::combat::ai::planning::adaptation::EvaluationMode;
+use crate::combat::ai::planning::terminal::terminal_state_score;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::estimate_st_damage;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -79,7 +80,7 @@ pub fn worst_path_danger(plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
 /// pre-normalization factor matrix (so log writers / offline tools can
 /// recalibrate weights without rerunning sim).
 pub fn score_plans_with_raw(
-    plans: &[TurnPlan],
+    plans: &mut [TurnPlan],
     intent: &TacticalIntent,
     ctx: &ScoringCtx,
 ) -> (Vec<f32>, Vec<PlanFactors>) {
@@ -102,7 +103,7 @@ pub fn score_plans_with_raw(
 /// pipeline's viability-fallback branch — every plan rescored under the
 /// same intent.
 pub fn rescore_with_intent(
-    plans: &[TurnPlan],
+    plans: &mut [TurnPlan],
     raw: &mut [PlanFactors],
     intent: &TacticalIntent,
     ctx: &ScoringCtx,
@@ -129,7 +130,7 @@ pub fn rescore_with_intent(
 /// - `modes.len() == plans.len() == raw.len()`. Asserted in debug;
 ///   production fails soft by iterating the shorter of the two.
 pub fn rescore_with_per_plan_modes(
-    plans: &[TurnPlan],
+    plans: &mut [TurnPlan],
     raw: &mut [PlanFactors],
     modes: &[EvaluationMode],
     global: &TacticalIntent,
@@ -161,7 +162,7 @@ pub fn rescore_with_per_plan_modes(
 /// it stays proportional. The old absolute-amplitude scheme made noise "loud"
 /// when scores clustered and "quiet" when they spread.
 pub fn finalize_scores(
-    plans: &[TurnPlan],
+    plans: &mut [TurnPlan],
     raw: &[PlanFactors],
     ctx: &ScoringCtx,
 ) -> Vec<f32> {
@@ -235,6 +236,14 @@ pub fn finalize_scores(
             score
         })
         .collect();
+
+    // Terminal annotation pass: populate plan.annotation.terminal per plan.
+    // The aggregator does not yet read these values (axis_terminal_weights = 0
+    // until step 5.4), so this pass is diagnostic-only and does not affect
+    // the final scores. Written here so the AI log captures terminal axes.
+    for plan in plans.iter_mut() {
+        plan.annotation.terminal = terminal_state_score(plan, snap, ctx);
+    }
 
     // Pass 2: add deterministic, batch-scaled noise.
     if noise_amp > 0.0 && !scores.is_empty() {
@@ -978,15 +987,15 @@ mod tests {
             sim_snapshots: vec![snap.clone()],
             annotation: Default::default(),
         };
-        let plans = vec![mk_plan(&focus_a), mk_plan(&focus_b)];
+        let mut plans = vec![mk_plan(&focus_a), mk_plan(&focus_b)];
 
         let intent_a = TacticalIntent::FocusTarget { target: focus_a.entity };
         let intent_b = TacticalIntent::FocusTarget { target: focus_b.entity };
 
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
-        let (_, mut raw) = score_plans_with_raw(&plans, &intent_a, &scoring_ctx);
-        let rescored = rescore_with_intent(&plans, &mut raw, &intent_b, &scoring_ctx);
-        let (full, _) = score_plans_with_raw(&plans, &intent_b, &scoring_ctx);
+        let (_, mut raw) = score_plans_with_raw(&mut plans, &intent_a, &scoring_ctx);
+        let rescored = rescore_with_intent(&mut plans, &mut raw, &intent_b, &scoring_ctx);
+        let (full, _) = score_plans_with_raw(&mut plans, &intent_b, &scoring_ctx);
 
         // Noise is now deterministic per plan (not rng-driven), so rescore
         // and a fresh score under the same intent produce bitwise-equal
@@ -1048,8 +1057,8 @@ mod tests {
         let intent_sum = compute_plan_intent_sum(&deserialized_plan, &intent, &scoring_ctx);
         let _ = intent_sum;
 
-        let plans = vec![deserialized_plan];
-        let (scores, raw) = score_plans_with_raw(&plans, &intent, &scoring_ctx);
+        let mut plans = vec![deserialized_plan];
+        let (scores, raw) = score_plans_with_raw(&mut plans, &intent, &scoring_ctx);
         assert_eq!(scores.len(), 1);
         assert_eq!(raw.len(), 1);
         assert!(
@@ -1110,10 +1119,10 @@ mod tests {
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
 
         let (scores_ab, _) = score_plans_with_raw(
-            &[plan_a.clone(), plan_b.clone()], &intent, &scoring_ctx,
+            &mut [plan_a.clone(), plan_b.clone()], &intent, &scoring_ctx,
         );
         let (scores_ba, _) = score_plans_with_raw(
-            &[plan_b.clone(), plan_a.clone()], &intent, &scoring_ctx,
+            &mut [plan_b.clone(), plan_a.clone()], &intent, &scoring_ctx,
         );
 
         // scores_ab[0] is for plan_a; scores_ba[1] is also for plan_a.
@@ -1274,8 +1283,8 @@ mod tests {
         };
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
 
-        let plans = vec![plan_passive, plan_self_lethal];
-        let (scores, _) = score_plans_with_raw(&plans, &intent, &scoring_ctx);
+        let mut plans = vec![plan_passive, plan_self_lethal];
+        let (scores, _) = score_plans_with_raw(&mut plans, &intent, &scoring_ctx);
 
         assert!(
             scores[1] > scores[0],

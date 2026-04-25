@@ -306,14 +306,14 @@ pub fn score_plans_prototype(
     }
 
     // Build prefix plans and their factors in a single pass.
-    let prefix_plans: Vec<TurnPlan> = plans.iter().map(plan_prefix_only).collect();
+    let mut prefix_plans: Vec<TurnPlan> = plans.iter().map(plan_prefix_only).collect();
     let prefix_factors: Vec<_> = prefix_plans
         .iter()
         .map(|p| compute_plan_factors(p, intent, ctx))
         .collect();
 
     // Batch-normalize prefix factors (finalize_scores is batch-wise).
-    let prefix_scores = finalize_scores(&prefix_plans, &prefix_factors, ctx);
+    let prefix_scores = finalize_scores(&mut prefix_plans, &prefix_factors, ctx);
 
     // Add γ × FutureValue for each plan's committed position.
     prefix_scores
