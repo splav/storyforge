@@ -329,7 +329,7 @@ Per-entry breakdown 6/131:
 
 **Коммит:** `f9b59b2`. **Tests:** 405 lib + 1 ai_scenarios.
 
-### 5.5. Migration & dead-code cleanup
+### 5.5. Migration & dead-code cleanup ✓ DONE
 
 **Scope.**
 
@@ -361,6 +361,26 @@ Identify duplicate / overlapping logic:
 
 **Эстимейт:** 1.5 дня.
 
+**Реализация:**
+
+*Часть A — overlap analysis (все 3 пары keep both, документировано):*
+- `worst_path_danger` (path) vs `exposure_at_end` (end-pos) — разная семантика, doc-comment в `scorer.rs`.
+- `compute_plan_self_survival` (proactive: heals + armor + path danger) vs `next_turn_lethality` (reactive: enemy DPR на end_pos / actor_hp_at_end) — doc в `factors/survival.rs`.
+- `secure_kill` (flat plan rollup) vs `kill_now/kill_promised` factors (geometrically-discounted step sum) — doc в `terminal.rs::compute_secure_kill`.
+- `NeedSignals.{rescue_ally, apply_cc, setup_aoe}` — стабs (= 0.0) с inert multiplier'ами `(1+x) = 1.0`; активация требует step 9. Doc в `appraisal/mod.rs`.
+- `ActionOutcomeEstimate.exposure_delta` — записывается producer'ом, без consumer'ов; зарезервирован как structured telemetry для step 10 critics. Doc в `outcome.rs`.
+
+*Часть B — dead-code sweep:*
+- Removed: unused `AiTags` import + lint suppressor в `action_state.rs::tests` (-5 строк).
+- Added: `_touch_terminal()` lint-suppressor в `replay_ai_log.rs` для `AxisProfile::terminal_weights` (+5 строк).
+- Updated 6 stale `score_action` references в comments (sim.rs, picker.rs, generator.rs ×2, offensive.rs ×2, outcome.rs).
+- `replay.rs` поля (`timestamp_ms`, `actor_max_mp`, `plans_shown`): `pub` → private + doc-comment "not consumed by replay logic"; `#[allow(dead_code)]` сохранён (serde требует поля).
+- `#[allow(dead_code)]` reviewed: 12 instances, все корректны.
+
+*Net diff:* +78 −21 = +57 lines (вся дельта — документация и комментарии). Behaviour не изменилось.
+
+**Коммит:** `c4279cf`. **Tests:** 405/405. **Clippy:** clean. **Golden:** 6/131 (идентично pre-cleanup baseline).
+
 ### 5.6. Schema bump v22→v23 + rebaseline golden + sync docs
 
 **Scope.**
@@ -387,7 +407,7 @@ Identify duplicate / overlapping logic:
 | 5.2 | offensive cluster (secure_kill, ally_rescue, board_control_gain) | 1.5 | golden 0/131 | **DONE** (`3df2ac1`) |
 | 5.3 | geometric cluster (line_actionability, density_value, pressure_spacing_zone) | 1.0 | golden 0/131 | **DONE** (`4cd62f4`) |
 | 5.4 | consumer: NeedSignals-weighted aggregation в finalize_scores | 1.5 | per-entry golden review | **DONE** (`f9b59b2`) |
-| 5.5 | migration + dead-code cleanup | 1.5 | per-entry review + размер кода ↓ | pending |
+| 5.5 | migration + dead-code cleanup | 1.5 | per-entry review + размер кода ↓ | **DONE** (`c4279cf`) |
 | 5.6 | schema bump v22→v23 + rebaseline + sync docs | 0.5 | golden rebaseline | pending |
 
 **Суммарно ~8 дней.**
