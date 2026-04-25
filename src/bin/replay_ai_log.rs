@@ -1553,6 +1553,7 @@ fn main() {
                 reservations: &reservations,
                 snap: &entry.snapshot,
                 active: &active,
+                need_signals: Default::default(),
             };
 
             // Reuse the production `finalize_scores` so summon_bonus, trade_bonus,

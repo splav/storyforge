@@ -112,7 +112,11 @@ use crate::game::hex::Hex;
 /// - v18 → v19: `TurnPlan.annotation` (`PlanAnnotation` with `outcomes` vector)
 ///   serialized into `PlanLogEntry`. v18 logs deserialize via `#[serde(default)]`
 ///   → empty annotation, preserving backward compatibility.
-pub const SCHEMA_VERSION: u32 = 19;
+/// - v19 → v20: `AiMemorySnapshot` extended with 3 fields
+///   (`hp_ratio_at_last_turn`, `last_turn_was_defensive`, `turns_in_low_hp`)
+///   for the appraisal / need layer (step 3.0). v19 logs deserialize via
+///   `#[serde(default)]` on the new fields, preserving backward compatibility.
+pub const SCHEMA_VERSION: u32 = 20;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -682,6 +686,18 @@ pub struct AiMemorySnapshot {
     pub turns_committed: u8,
     /// Stored continuation plan, if any. Excludes sim_snapshots per StoredPlan design.
     pub last_plan: Option<StoredPlanSnapshot>,
+    /// v20+: HP ratio of the actor at the previous decision time.
+    /// `None` for fresh actors or pre-v20 logs.
+    #[serde(default)]
+    pub hp_ratio_at_last_turn: Option<f32>,
+    /// v20+: Whether the previous intent was defensive (`ProtectSelf` / `LastStand`).
+    /// Defaults to `false` for fresh actors or pre-v20 logs.
+    #[serde(default)]
+    pub last_turn_was_defensive: bool,
+    /// v20+: Consecutive turns the actor was in the low-HP zone before this decision.
+    /// Defaults to `0` for fresh actors or pre-v20 logs.
+    #[serde(default)]
+    pub turns_in_low_hp: u8,
 }
 
 impl AiMemorySnapshot {
@@ -691,6 +707,9 @@ impl AiMemorySnapshot {
     pub fn from_memory(m: &AiMemory) -> Option<Self> {
         if m.last_intent.is_none() && m.last_target.is_none()
             && m.turns_committed == 0 && m.last_plan.is_none()
+            && m.hp_ratio_at_last_turn.is_none()
+            && !m.last_turn_was_defensive
+            && m.turns_in_low_hp == 0
         {
             return None;
         }
@@ -699,6 +718,9 @@ impl AiMemorySnapshot {
             last_target: m.last_target.map(|e| e.to_bits()),
             turns_committed: m.turns_committed,
             last_plan: m.last_plan.as_ref().map(StoredPlanSnapshot::from),
+            hp_ratio_at_last_turn: m.hp_ratio_at_last_turn,
+            last_turn_was_defensive: m.last_turn_was_defensive,
+            turns_in_low_hp: m.turns_in_low_hp,
         })
     }
 }

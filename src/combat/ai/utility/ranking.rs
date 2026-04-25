@@ -300,7 +300,7 @@ mod tests {
         let content = empty_content();
         let difficulty = DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
+        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, need_signals: Default::default(), active: &active };
 
         ranking.apply_viability(&plans, active.pos, &ctx);
 
@@ -329,7 +329,7 @@ mod tests {
         let content = empty_content();
         let difficulty = DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
+        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, need_signals: Default::default(), active: &active };
 
         ranking.apply_viability(&plans, active.pos, &ctx);
 
@@ -364,7 +364,7 @@ mod tests {
         let content = empty_content();
         let difficulty = DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
+        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, need_signals: Default::default(), active: &active };
 
         ranking.apply_viability(&plans, active.pos, &ctx);
 
@@ -396,7 +396,7 @@ mod tests {
         let content = empty_content();
         let difficulty = DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, active: &active };
+        let ctx = ScoringCtx { world: &world, maps: &maps, reservations: &reservations, snap: &snap, need_signals: Default::default(), active: &active };
 
         ranking.apply_viability(&plans, active.pos, &ctx);
 

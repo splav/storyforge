@@ -4,12 +4,86 @@
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 
+// ── Response curves (step 3.0 appraisal layer) ───────────────────────────────
+
+/// A parameterised transfer function mapping a raw input scalar to a [0, 1]
+/// normalised "urgency" value. Used by `compute_need_signals` to convert
+/// tactical facts into need signals.
+///
+/// Two forms cover all current mining requirements (see `ai_need_signals.md:155`).
+/// Additional forms (e.g. power, exponential decay) can be added in future mining
+/// iterations per `ai_rework_plan.md:373`.
+#[derive(Deserialize, Debug, Clone, Copy)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ResponseCurve {
+    /// Sigmoid: `eval(x) = 1 / (1 + exp(-k * (x - mid)))`.
+    /// `k > 0`: ascending (low at x < mid, high at x > mid).
+    /// `k < 0`: descending (high at x < mid, low at x > mid).
+    Logistic { mid: f32, k: f32 },
+    /// Piecewise linear: 0 below `x_lo`, 1 above `x_hi`, linear interp between.
+    /// `x_lo == x_hi`: step function at that point.
+    LinearClamped { x_lo: f32, x_hi: f32 },
+}
+
+impl ResponseCurve {
+    pub fn eval(&self, x: f32) -> f32 {
+        match self {
+            ResponseCurve::Logistic { mid, k } => {
+                1.0 / (1.0 + (-k * (x - mid)).exp())
+            }
+            ResponseCurve::LinearClamped { x_lo, x_hi } => {
+                if (x_hi - x_lo).abs() < f32::EPSILON {
+                    if x >= *x_lo { 1.0 } else { 0.0 }
+                } else {
+                    ((x - x_lo) / (x_hi - x_lo)).clamp(0.0, 1.0)
+                }
+            }
+        }
+    }
+}
+
+/// Response-curve parameters for the appraisal / need layer (step 3).
+/// Each field describes how a raw tactical input maps to a [0, 1] urgency signal.
+/// Stub parameters — will be tuned by mining metrics in step 3.6.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(default)]
+pub struct Curves {
+    /// Logistic over `(1.0 - hp_pct)`. High at low HP. Used in 3.1 producer.
+    pub self_preserve_hp: ResponseCurve,
+    /// Scalar α: `self_preserve` gets multiplied by `(1 + α * recent_damage_taken)`.
+    pub self_preserve_dmg_alpha: f32,
+    /// Logistic over `last_target.hp_pct()` with `k < 0`. Plateau in mid-HP range,
+    /// drops at hp ≤ 0.25 (finisher) and at hp ≥ 0.85 (full target).
+    pub continue_commitment_hp: ResponseCurve,
+    /// Logistic over `(1.0 - target.hp_pct())`. High when killable target is low HP.
+    pub finish_target_kill: ResponseCurve,
+    /// LinearClamped over `best_position_improvement` (delta of `evaluate_position`).
+    pub reposition_pos_gain: ResponseCurve,
+    /// Logistic over `mana_ratio` with `k < 0`. High at low resources.
+    pub conserve_resource: ResponseCurve,
+}
+
+impl Default for Curves {
+    fn default() -> Self {
+        Self {
+            self_preserve_hp: ResponseCurve::Logistic { mid: 0.5, k: 8.0 },
+            self_preserve_dmg_alpha: 0.6,
+            continue_commitment_hp: ResponseCurve::Logistic { mid: 0.4, k: -10.0 },
+            finish_target_kill: ResponseCurve::Logistic { mid: 0.6, k: 6.0 },
+            reposition_pos_gain: ResponseCurve::LinearClamped { x_lo: 0.05, x_hi: 0.5 },
+            conserve_resource: ResponseCurve::Logistic { mid: 0.3, k: -10.0 },
+        }
+    }
+}
+
 #[derive(Resource, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
 pub struct AiTuning {
     pub thresholds: Thresholds,
     pub tables: Tables,
     pub difficulty: Difficulty,
+    /// Response curves for the appraisal / need layer (step 3.0).
+    pub curves: Curves,
 }
 
 /// Scalar thresholds used by the AI scoring/sanity pipeline.
@@ -35,6 +109,9 @@ pub struct Thresholds {
     pub target_stickiness_bonus: f32,
     /// Max turns an intent can receive stickiness bonus.
     pub max_committed_turns: u8,
+    /// Below this `hp_pct` an actor is considered "in low-HP zone" for memory
+    /// tracking (see `AiMemory.turns_in_low_hp`). Used by the 3.1 producer.
+    pub low_hp_zone_threshold: f32,
 }
 
 impl Default for Thresholds {
@@ -49,6 +126,7 @@ impl Default for Thresholds {
             stickiness_bonus: 0.25,
             target_stickiness_bonus: 0.15,
             max_committed_turns: 3,
+            low_hp_zone_threshold: 0.4,
         }
     }
 }
@@ -257,5 +335,82 @@ mod tests {
         assert_eq!(result.thresholds.survival_floor, 0.5);
         // Other thresholds unchanged
         assert_eq!(result.thresholds.aoo_risk_floor, Thresholds::default().aoo_risk_floor);
+    }
+
+    // ── ResponseCurve tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn response_curve_logistic_at_mid_returns_half() {
+        let c = ResponseCurve::Logistic { mid: 0.5, k: 8.0 };
+        let v = c.eval(0.5);
+        // At x == mid, logistic = 0.5 exactly.
+        assert!((v - 0.5).abs() < 1e-6, "expected 0.5, got {v}");
+    }
+
+    #[test]
+    fn response_curve_logistic_ascending_low_at_zero_high_at_one() {
+        // k > 0: low at x=0, high at x=1 (relative to mid=0.5).
+        let c = ResponseCurve::Logistic { mid: 0.5, k: 8.0 };
+        let low = c.eval(0.0);
+        let high = c.eval(1.0);
+        assert!(low < 0.1, "expected low < 0.1, got {low}");
+        assert!(high > 0.9, "expected high > 0.9, got {high}");
+    }
+
+    #[test]
+    fn response_curve_logistic_descending_inverted() {
+        // k < 0: high at x=0 (below mid), low at x=1 (above mid).
+        let c = ResponseCurve::Logistic { mid: 0.5, k: -8.0 };
+        let high = c.eval(0.0);
+        let low = c.eval(1.0);
+        assert!(high > 0.9, "expected high > 0.9, got {high}");
+        assert!(low < 0.1, "expected low < 0.1, got {low}");
+    }
+
+    #[test]
+    fn response_curve_linear_clamped_zero_below_lo_one_above_hi() {
+        let c = ResponseCurve::LinearClamped { x_lo: 0.1, x_hi: 0.8 };
+        assert_eq!(c.eval(0.0), 0.0);
+        assert_eq!(c.eval(0.05), 0.0);
+        assert_eq!(c.eval(1.0), 1.0);
+        assert_eq!(c.eval(0.9), 1.0);
+    }
+
+    #[test]
+    fn response_curve_linear_clamped_lerp_at_midpoint() {
+        let c = ResponseCurve::LinearClamped { x_lo: 0.0, x_hi: 1.0 };
+        let v = c.eval(0.5);
+        assert!((v - 0.5).abs() < 1e-6, "expected 0.5, got {v}");
+    }
+
+    #[test]
+    fn response_curve_linear_clamped_step_when_lo_eq_hi() {
+        let c = ResponseCurve::LinearClamped { x_lo: 0.5, x_hi: 0.5 };
+        // Below the step point → 0.
+        assert_eq!(c.eval(0.4), 0.0);
+        // At or above → 1.
+        assert_eq!(c.eval(0.5), 1.0);
+        assert_eq!(c.eval(0.6), 1.0);
+    }
+
+    #[test]
+    fn curves_default_loads_via_toml_roundtrip() {
+        // Empty [curves] section must deserialize to Curves::default() successfully,
+        // because AiTuning uses #[serde(default)] — the game reads defaults from
+        // Rust when the TOML key is absent, but this test verifies the path where
+        // the TOML section is present but empty.
+        let toml_src = "[curves]\n";
+        let tuning: AiTuning = toml::from_str(toml_src).expect("empty [curves] must parse");
+        let def = Curves::default();
+        // Spot-check a few fields match defaults.
+        assert_eq!(tuning.curves.self_preserve_dmg_alpha, def.self_preserve_dmg_alpha);
+        // Spot-check curve evals at mid return 0.5.
+        match (tuning.curves.self_preserve_hp, def.self_preserve_hp) {
+            (ResponseCurve::Logistic { mid: a, k: ka }, ResponseCurve::Logistic { mid: b, k: kb }) => {
+                assert_eq!(a, b);
+                assert_eq!(ka, kb);
+            }
+            _ => panic!("self_preserve_hp should be Logistic"),
+        }
     }
 }

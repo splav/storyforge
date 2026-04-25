@@ -382,6 +382,7 @@ pub fn reconstruct_decision(
         reservations: &reservations,
         snap: &entry.snapshot,
         active: &active,
+        need_signals: Default::default(),
     };
 
     let plans: Vec<TurnPlan> = entry

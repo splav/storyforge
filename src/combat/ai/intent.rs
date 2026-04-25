@@ -204,6 +204,18 @@ pub struct AiMemory {
     /// Stored plan from the previous MoveOnly tick, if any. Cleared when a
     /// non-Move decision fires (Cast, EndTurn) or when the snapshot is stale.
     pub last_plan: Option<StoredPlan>,
+    /// HP ratio of the actor at the time of the previous decision. `None` until
+    /// the actor takes its first turn — then read in step 3.1 producer to compute
+    /// `recent_damage_taken`.
+    pub hp_ratio_at_last_turn: Option<f32>,
+    /// True if the actor's previous intent was a defensive/survival one
+    /// (`ProtectSelf` or `LastStand`). Read in step 3.1 to dampen `self_preserve`
+    /// when no fresh damage came in.
+    pub last_turn_was_defensive: bool,
+    /// Number of consecutive turns the actor has been in the low-HP zone
+    /// (`hp_pct < tuning.thresholds.low_hp_zone_threshold`). Read in step 3.1
+    /// as a secondary input to `self_preserve`.
+    pub turns_in_low_hp: u8,
 }
 
 // ── Intent selection reason ────────────────────────────────────────────────
@@ -634,7 +646,15 @@ pub fn default_focus_target(
 }
 
 /// Update memory after intent is selected.
-pub fn update_memory(memory: &mut AiMemory, intent: &TacticalIntent) {
+///
+/// Step 3.0: also tracks `hp_ratio_at_last_turn`, `last_turn_was_defensive`,
+/// and `turns_in_low_hp` — inputs for the appraisal / need layer (step 3.1).
+pub fn update_memory(
+    memory: &mut AiMemory,
+    active: &UnitSnapshot,
+    intent: &TacticalIntent,
+    tuning: &AiTuning,
+) {
     let kind = intent.kind();
     let target = intent.target();
     if memory.last_intent == Some(kind) && memory.last_target == target {
@@ -644,6 +664,19 @@ pub fn update_memory(memory: &mut AiMemory, intent: &TacticalIntent) {
     }
     memory.last_intent = Some(kind);
     memory.last_target = target;
+
+    // Step 3.0: track inputs for need layer (read in step 3.1 producer).
+    let hp_pct = active.hp_pct();
+    memory.hp_ratio_at_last_turn = Some(hp_pct);
+    memory.last_turn_was_defensive = matches!(
+        kind,
+        IntentKind::ProtectSelf | IntentKind::LastStand
+    );
+    if hp_pct < tuning.thresholds.low_hp_zone_threshold {
+        memory.turns_in_low_hp = memory.turns_in_low_hp.saturating_add(1);
+    } else {
+        memory.turns_in_low_hp = 0;
+    }
 }
 
 // ── Pursuit (Move alignment under FocusTarget / ApplyCC) ───────────────────

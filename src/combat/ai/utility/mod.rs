@@ -127,6 +127,11 @@ pub struct ScoringCtx<'w, 'p> {
     pub reservations: &'w Reservations,
     pub snap: &'p BattleSnapshot,
     pub active: &'p UnitSnapshot,
+    /// Need signals computed once per actor in `pick_action`; carried through
+    /// scoring/factors/intent. Step 3.0 fills with zeros (`Default::default()`);
+    /// step 3.1 fills via `appraisal::compute_need_signals`. Owned (Copy) —
+    /// small struct (8 f32s), avoids lifetime gymnastics in test sites.
+    pub need_signals: crate::combat::ai::appraisal::NeedSignals,
 }
 
 impl<'w, 'p> ScoringCtx<'w, 'p> {
@@ -144,6 +149,7 @@ impl<'w, 'p> ScoringCtx<'w, 'p> {
             reservations: self.reservations,
             snap,
             active,
+            need_signals: self.need_signals,
         }
     }
 }
@@ -194,7 +200,14 @@ pub fn pick_action(
 
     // ── Select tactical intent ──────────────────────────────────────────
     let choice = select_intent(active, snap, maps, memory, world.difficulty, world.tuning);
-    update_memory(memory, &choice.intent);
+    update_memory(memory, active, &choice.intent, world.tuning);
+
+    // Compute need signals once per actor; downstream factors/sanity/intent
+    // read via ScoringCtx. Step 3.0: producer returns zeros (no consumer yet);
+    // steps 3.2–3.5 wire consumers.
+    let need_signals = crate::combat::ai::appraisal::compute_need_signals(
+        active, snap, maps, memory, world.tuning,
+    );
 
     // ── Generate plans (beam search over depths) ───────────────────────
     let plans = generate_plans(actor, world, snap, maps);
@@ -219,6 +232,7 @@ pub fn pick_action(
         reservations,
         snap,
         active,
+        need_signals,
     };
 
     // ── Phase pipeline ─────────────────────────────────────────────────

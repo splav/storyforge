@@ -45,7 +45,7 @@ pub(crate) fn make_scoring_ctx<'a>(
     reservations: &'a Reservations,
     active: &'a UnitSnapshot,
 ) -> ScoringCtx<'a, 'a> {
-    ScoringCtx { world, maps, reservations, snap, active }
+    ScoringCtx { world, maps, reservations, snap, active, need_signals: Default::default() }
 }
 
 // ── Unit snapshot builder ──────────────────────────────────────────────────

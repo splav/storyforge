@@ -11,6 +11,8 @@ mild_penalty = -0.3
 stickiness_bonus = 0.25
 target_stickiness_bonus = 0.15
 max_committed_turns = 3
+# Below this hp_pct an actor is in the "low-HP zone" for AiMemory.turns_in_low_hp tracking.
+low_hp_zone_threshold = 0.4
 
 [tables]
 # Per-axis weights for the 10 utility factors.
@@ -45,3 +47,15 @@ reposition_min_improvement_curve = { lo = 0.30, hi = 0.12 }
 survival_hp_curve                 = { lo = 0.35, hi = 0.20 }
 # Danger threshold paired with the panic gate. Keyed on awareness.
 awareness_danger_curve            = { lo = 0.90, hi = 0.60 }
+
+[curves]
+# Response curves for need signals (step 3 appraisal layer).
+# Each curve: { kind = "logistic", mid = ..., k = ... } or
+#             { kind = "linear_clamped", x_lo = ..., x_hi = ... }.
+# Stub parameters — will be tuned by mining metrics in step 3.6.
+self_preserve_hp        = { kind = "logistic",       mid = 0.5,  k = 8.0   }
+self_preserve_dmg_alpha = 0.6
+continue_commitment_hp  = { kind = "logistic",       mid = 0.4,  k = -10.0 }
+finish_target_kill      = { kind = "logistic",       mid = 0.6,  k = 6.0   }
+reposition_pos_gain     = { kind = "linear_clamped", x_lo = 0.05, x_hi = 0.5 }
+conserve_resource       = { kind = "logistic",       mid = 0.3,  k = -10.0 }

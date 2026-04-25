@@ -1,4 +1,5 @@
 pub mod action_state;
+pub mod appraisal;
 pub mod log;
 pub mod outcome;
 pub mod planning;
