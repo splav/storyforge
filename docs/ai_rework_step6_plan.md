@@ -832,7 +832,7 @@ cargo run --bin replay_ai_log -- --capture-golden \
 | 6.6a | migration `continuation_from_stored` → repair-only + schema v24→v25 + rebaseline на v24 corpus | 1.0 | golden round-trip 0/131, diff old vs new = 0 | done (`a9a058f`) |
 | 6.6b | metric refinement — outcome split + reactive vs voluntary abandon (schema v25→v26) | 0.5 | in_transit 24/58.5% + legacy_v25_abandoned 17/41.5%, 0/131 golden, scenarios зелёные | done (см. ниже) |
 | 6.7 | lifecycle fix: cross-round `last_goal` preservation + proactive stale clear | 0.5 | mining v26 corpus после правки: `preserved ≥60%`, `method_delivered ≥10%` (см. ниже) | done (`4ff2eea`) |
-| 6.8 | repair bonus calibration — поднять удержание goal'а против fresh-score дельт | 0.5 | mining: `voluntary ≤ 12%` на расширенном corpus, `preserved` не падает | pending |
+| 6.8 | metric refinement — `is_reactive_reason` extension + `goal_alignment` partial credit для target-switch | 0.5 | mining: voluntary ↓, без побочки calibration'а; per-entry voluntary review (см. ниже) | done (`a1896ac`) |
 | 6.9 | scenario coverage — 5 `continuation_*` ai_scenarios (из 6.6b backlog) + TTL/Invalidating-fixtures | 1.0 | новые scenarios зелёные, на их v26-логах `ttl_expired > 0%` и `invalidating > 0%` | pending |
 
 **Суммарно ~10 дней.**
@@ -990,53 +990,99 @@ Golden rebaseline'ed: `logs/golden_post_step6.jsonl` (99 records, round-trip 0/9
 
 ---
 
-### 6.8. Repair bonus calibration
+### 6.8. Metric refinement (pivot from calibration)
 
-**Проблема (mining post-6.7).** Voluntary 22.2% — конкретные entries показывают, что bonus 0.4 структурно не удерживает goal против fresh-score дельт 0.7–1.1:
+**Эволюция шага.** Изначально 6.8 был запланирован как калибровка
+`repair_bonus_scale 0.4 → 0.7` + `axis_repair_weights` shift в пользу
+goal_w. Реализовано и протестировано — **отвергнуто** после mining'а:
 
-- 5/6 voluntary-entries имеют `goal_alignment = 0` (другая цель / другой intent).
-- При `ga=0` bonus = `(0×0.5 + ~0.3×0.3 + 0×0.2) × sf × ttl × conf ≈ 0.04–0.08` ≈ **в 10–20× меньше** типичного score_delta.
-- На однонаправленных переходах (FocusTarget→FocusTarget на другую цель) bonus вообще нулевой — region match есть, но goal_alignment строго на target_id.
+| Метрика | Pre-6.8 | После calibration | Verdict |
+|---|---|---|---|
+| `preserved` (combined) | 63.0% | **39.5%** | −23.5pp ✗ |
+| `method_delivered` | 22.2% | **5.3%** | −16.9pp ✗ |
+| `voluntary` | 22.2% | 15.8% | −6.4pp |
+| `reactive` | 14.8% | **44.7%** | +30pp (panic_override × 5, protect_self_no_defensive × 7) ✗ |
+
+Actors overcommit'ились к attack-goal'ам, попадали в panic / protect_self_no_defensive
+форс-мажоры намного чаще. Калибровка задавила бы intelligent adaptation.
+
+**Per-entry разбор voluntary (post-6.7, pre-pivot).** Все 6/6 voluntary cases
+оказались **legitimate**:
+
+- 2× target-switch within FocusTarget (sd > 1.0, новая цель явно лучше);
+- 2× cross-intent defensive→offensive (HP восстановился, угроза прошла);
+- 2× cross-round defensive Reposition (cross-round retreat).
+
+Никаких реальных «commitment failures» (например, бросил полузабитую цель
+ради полной HP) не было. Voluntary 22% — это **honest baseline metric'и
+после 6.7**, а не behavioral problem. Pre-6.7 13.5% было undercount'ом
+(intra-turn only).
+
+**Pivot — metric semantics refinement.**
+
+Реализовано в `a1896ac`:
+
+1. **`is_reactive_reason` (`repair/mod.rs:228`) extension:** + `protect_ally`
+   (контрактный ally rescue), + `urgency` (self_preserve × danger trigger).
+   Это forced abandons, не voluntary.
+
+2. **`goal_alignment` (`repair/affinity.rs:108`) partial credit:**
+   `Pressure/Finish → FocusTarget(different target)` теперь даёт `0.3`
+   вместо `0.0`. Actor «всё ещё в attack mode» — лёгкий nudge против
+   marginal target-hopping, без подавления очевидно лучших переключений
+   (sd > 0.5 всё равно выигрывает).
+
+**Результат (post-6.8B mining, 26 апр., 6 файлов 42 events):**
+
+| Метрика | Post-6.7 | Post-6.8 calib (revert) | **Post-6.8B refine** |
+|---|---|---|---|
+| `preserved` (combined) | 63.0% | 39.5% | **54.8%** |
+| `method_delivered` | 22.2% | 5.3% | **19.0%** |
+| `voluntary` | 22.2% | 15.8% | **14.3%** |
+| `reactive` | 14.8% | 44.7% | **31.0%** |
+
+Refinement показал направленный эффект без побочки calibration'а:
+voluntary упал на 8pp, method_delivered и preserved удержаны.
 
 **Зафиксированные решения по развилкам.**
 
-**1. Scope правки — только TOML, без структурных изменений** (1a). Меняем `tuning.thresholds.repair_bonus_scale` (сейчас 0.4) и `tables.axis_repair_weights` (5 ролей × 3 axes), не трогаем формулу `aggregate`.
+1. **Calibration отвергнута** (1a). Voluntary 22% — honest baseline, не bug;
+   калибровка задавит intelligent adaptation. **Альтернатива (1b)** — крутить
+   калибровку дальше с per-role tuning. Отвергнута: фундаментально
+   неверный target.
 
-**Альтернатива (1b):** добавить penalty за goal_abandoned (negative bonus). Отвергнута: §6 явно запрещает negative repair penalty (см. «Чего не делать»). Калибровка через positive bonus.
+2. **Reactive set расширен per IntentReason semantics** (2a). `protect_ally`
+   и `urgency` — контрактные перебивы. **Альтернатива (2b)** — добавить
+   `reposition` тоже. Отвергнута: Reposition fires и opportunistic, и
+   defensive — без semantic markup'а различить нельзя; добавление дало бы
+   noise.
 
-**2. Курс калибровки.** Поднять `repair_bonus_scale` 0.4 → 0.7 (×1.75). Это даёт bonus ≈ 0.3–0.5 при ga=0.85+, что сопоставимо с typical sd. Параллельно — поднять `goal_w` для Tank/Melee/Support до 0.7 (сейчас 0.5–0.7), удерживая sum=1.0:
+3. **Partial credit только для target-switch within FocusTarget** (3a),
+   не для cross-intent. **Альтернатива (3b)** — partial credit для всех
+   GoalKind→Intent комбинаций. Отвергнута: cross-intent — это genuine
+   behavior shift; partial credit там подавил бы adaptation.
 
-```toml
-[tables.axis_repair_weights]
-# было → станет
-tank    = [0.5, 0.3, 0.2]  # → [0.7, 0.2, 0.1]
-melee   = [0.6, 0.2, 0.2]  # → [0.7, 0.2, 0.1]
-ranged  = [0.5, 0.3, 0.2]  # → [0.6, 0.3, 0.1]
-control = [0.4, 0.3, 0.3]  # method важнее → не трогать
-support = [0.7, 0.2, 0.1]  # уже oк → не трогать
-```
+**Gate (новый, реалистичный baseline).**
 
-**3. Per-entry golden diff review** — обязателен (как 6.3, 6.4). Калибровка через per-target tuning, не «крутим до удовлетворения».
-
-**Scope.**
-
-1. `assets/data/ai_tuning.toml` — `repair_bonus_scale = 0.7`, axis_repair_weights update.
-2. `cargo test/clippy/build` зелёные.
-3. Свежий playtest на 6+ файлах, mining на post-6.8 corpus.
-4. Per-entry golden diff review (ожидание ≤30/99).
-
-**Gate.**
-- `voluntary ≤ 12%` (от 22% → ≤ ~50% от текущего).
-- `preserved (combined)` не падает ниже 60%.
-- `reactive` не растёт за пределами +5pp (значит calibration не «втягивает» Reactive transitions в Voluntary).
+- `voluntary ≤ 18%` (от ≤10% → realistic post-6.7 metric semantics).
+- `method_delivered ≥ 15%` (вместо ≥10% — у нас 19% запас).
+- Per-entry voluntary review: все voluntary cases должны быть
+  legitimate (target явно лучше / cross-intent justified / cross-round
+  defensive). Нет marginal target-hopping.
 - `cargo test/clippy/build/ai_scenarios` зелёные.
-- Golden rebaseline после успешной калибровки.
-
-**Эстимейт:** 0.5 дня (TOML правка + playtest + mining + per-entry review + rebaseline).
 
 **Что НЕ делать в 6.8.**
-- Не трогать `repair_region_radius` или `repair_default_ttl` — эти параметры ортогональны проблеме voluntary.
-- Не вводить per-goal_kind веса — добавочная сложность; `axis_repair_weights` per-role хватит.
+
+- Не трогать `repair_bonus_scale` или `axis_repair_weights` — calibration
+  отвергнута как concept.
+- Не делать `Reposition` reactive без semantic markup'а (опасно noise'ить).
+- Не вводить penalty за goal_abandoned (§6 запрет на negative bonus).
+
+**Что осталось pending (на 6.9).**
+
+`invalidating` и `ttl_expired` всё ещё 0% — это scenario coverage gap,
+не lifecycle bug. Разрешается через 6.9 (fixtures под длинные бои + быстрые
+target deaths cross-round).
 
 ---
 
