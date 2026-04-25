@@ -823,11 +823,11 @@ cargo run --bin replay_ai_log -- --capture-golden \
 
 | # | Шаг | Эстимейт | Gate | Статус |
 |---|---|---|---|---|
-| 6.0 | scaffolding (`PlanContinuationCheck` + classify_mismatch + telemetry) | 0.5 | golden 0/131, no behavior change | pending |
-| 6.1 | goal extraction (`StoredGoalContext` + producer + AiMemory) | 1.0 | golden 0/131 | pending |
-| 6.2 | repair affinity computation (read-only) | 1.5 | golden 0/131 | pending |
-| 6.3 | consumer: repair affinity bonus в `finalize_scores` | 1.5 | per-entry golden review (≤20/131) | pending |
-| 6.4 | continuation evaluator (два набора role-axis весов) | 1.0 | per-entry, cumulative ≤25/131 | pending |
+| 6.0 | scaffolding (`PlanContinuationCheck` + classify_mismatch + telemetry) | 0.5 | golden 0/131, no behavior change | done (`e6b3fe3`) |
+| 6.1 | goal extraction (`StoredGoalContext` + producer + AiMemory) | 1.0 | golden 0/131 | done (`6424bdd`) |
+| 6.2 | repair affinity computation (read-only) | 1.5 | golden 0/131 | done (`8cafaae`) |
+| 6.3 | consumer: repair affinity bonus в `finalize_scores` | 1.5 | per-entry golden review (≤20/131) | done (`57b490c`) |
+| 6.4 | continuation evaluator (два набора role-axis весов) | 1.0 | per-entry, cumulative ≤25/131 | done (`4209935`) |
 | 6.5 | log overhaul + mining extension + schema v23→v24 | 1.0 | schema migration test, scenarios зелёные | pending |
 | 6.6 | migration `continuation_from_stored` → repair-only + rebaseline + 5 new scenarios + schema v24→v25 | 1.5 | golden rebaseline + mining таргеты | pending |
 
