@@ -381,7 +381,7 @@ Identify duplicate / overlapping logic:
 
 **Коммит:** `c4279cf`. **Tests:** 405/405. **Clippy:** clean. **Golden:** 6/131 (идентично pre-cleanup baseline).
 
-### 5.6. Schema bump v22→v23 + rebaseline golden + sync docs
+### 5.6. Schema bump v22→v23 + rebaseline golden + sync docs ✓ DONE
 
 **Scope.**
 
@@ -398,6 +398,14 @@ Identify duplicate / overlapping logic:
 
 **Эстимейт:** 0.5 дня.
 
+**Реализация:**
+- Schema v22→v23: `PlanAnnotation.terminal` `#[serde(skip)]` → `#[serde(default)]`. v22 logs deserialize в zero-filled TerminalScore.
+- Replay mirror: добавлены `LoggedPlanAnnotation` + `LoggedTerminalScore` в `replay.rs`; `PlanLog.annotation` с `#[serde(default)]`. Backward compat сохранён.
+- Sync docs: `ai_rework.md` §5 переписан под реальный API; `ai_rework_plan.md` Wave-1 = `5 ✓`; `ai.md` получил раздел Terminal eval.
+- Rebaseline: `logs/golden_post_step3.jsonl` → `logs/golden_post_step5.jsonl` (capture-golden 131 entries; round-trip 0/131).
+
+**Коммит:** `a7ebe80`. **Tests:** 405 lib + ai_scenarios 9/9 + replay_assert 9/9. **Step 5 закрыт.**
+
 ## Итого
 
 | # | Шаг | Эстимейт | Gate | Статус |
@@ -408,7 +416,7 @@ Identify duplicate / overlapping logic:
 | 5.3 | geometric cluster (line_actionability, density_value, pressure_spacing_zone) | 1.0 | golden 0/131 | **DONE** (`4cd62f4`) |
 | 5.4 | consumer: NeedSignals-weighted aggregation в finalize_scores | 1.5 | per-entry golden review | **DONE** (`f9b59b2`) |
 | 5.5 | migration + dead-code cleanup | 1.5 | per-entry review + размер кода ↓ | **DONE** (`c4279cf`) |
-| 5.6 | schema bump v22→v23 + rebaseline + sync docs | 0.5 | golden rebaseline | pending |
+| 5.6 | schema bump v22→v23 + rebaseline + sync docs | 0.5 | golden rebaseline | **DONE** (`a7ebe80`) |
 
 **Суммарно ~8 дней.**
 
