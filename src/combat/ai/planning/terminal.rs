@@ -18,12 +18,16 @@
 //! Step 5.2: offensive cluster — `secure_kill`, `ally_rescue`,
 //! `board_control_gain` implemented. Aggregator still inert.
 //!
+//! Step 5.3: geometric cluster — `line_actionability`, `density_value`,
+//! `pressure_spacing_zone` implemented. All 8 axes populated. Aggregator
+//! still inert (`axis_terminal_weights` = zeros).
+//!
 //! Decomposition: docs/ai_rework_step5_plan.md.
 
 use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::planning::types::TurnPlan;
-use crate::combat::ai::snapshot::BattleSnapshot;
+use crate::combat::ai::snapshot::{AiTags, BattleSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 
 /// Terminal-state evaluation per plan. Producer is `terminal_state_score`;
@@ -43,10 +47,9 @@ pub struct TerminalScore {
 
 /// Compute the terminal-state score for a plan from its final sim snapshot.
 ///
-/// Step 5.1: defensive cluster implemented — `exposure_at_end` and
-/// `next_turn_lethality`.
-/// Step 5.2: offensive cluster implemented — `secure_kill`, `ally_rescue`,
-/// `board_control_gain`. Remaining 3 axes return 0.0 for step 5.3.
+/// All 8 axes populated as of step 5.3. Consumed in `finalize_scores` (5.4)
+/// via `axis_terminal_weights` × `NeedSignals`; aggregator is still inert
+/// until that step.
 pub fn terminal_state_score(
     plan: &TurnPlan,
     initial_snap: &BattleSnapshot,
@@ -57,6 +60,9 @@ pub fn terminal_state_score(
     let secure_kill = compute_secure_kill(plan);
     let ally_rescue = compute_ally_rescue(plan, initial_snap, ctx);
     let board_control_gain = compute_board_control_gain(plan, ctx);
+    let line_actionability = compute_line_actionability(plan, initial_snap, ctx);
+    let density_value = compute_density_value(plan, initial_snap, ctx);
+    let pressure_spacing_zone = compute_pressure_spacing_zone(plan, ctx);
 
     TerminalScore {
         exposure_at_end,
@@ -64,10 +70,9 @@ pub fn terminal_state_score(
         secure_kill,
         ally_rescue,
         board_control_gain,
-        // TODO step 5.3: line_actionability, density_value, pressure_spacing_zone
-        line_actionability: 0.0,
-        density_value: 0.0,
-        pressure_spacing_zone: 0.0,
+        line_actionability,
+        density_value,
+        pressure_spacing_zone,
     }
 }
 
@@ -191,13 +196,114 @@ fn compute_next_turn_lethality(
     (dpr_sum / actor_hp_at_end as f32).clamp(0.0, 1.0)
 }
 
+// ── Step 5.3: geometric cluster ───────────────────────────────────────────────
+
+/// How many enemies are within max cast range from the actor's end position,
+/// normalised to [0, 1] (≥3 enemies → 1.0).
+///
+/// Uses the max range across all offensive and ground-targeted abilities (the
+/// same set used by `max_attack_range` in snapshot building). Returns 0.0 if
+/// the actor is dead at end of plan or has no abilities with range > 0.
+///
+/// "Actionability" measures how well the actor is positioned to act on the
+/// next turn without having to move first — a proxy for staying in the fight.
+///
+/// TODO(5.5): if abilities change during plan (e.g. summon expiry), re-derive
+/// from end_snap. For the current content set, abilities are static per turn.
+fn compute_line_actionability(
+    plan: &TurnPlan,
+    initial_snap: &BattleSnapshot,
+    ctx: &ScoringCtx,
+) -> f32 {
+    let end_snap = plan.sim_snapshots.last().unwrap_or(initial_snap);
+
+    // Bail out if actor is dead at end of plan.
+    let actor_at_end = match end_snap.unit(ctx.active.entity) {
+        Some(u) if u.hp > 0 => u,
+        _ => return 0.0,
+    };
+
+    // Max range across all abilities (mirrors snapshot build_snapshot logic,
+    // but over all target types — we want "can I reach and hit anything?").
+    let max_range: u32 = actor_at_end
+        .abilities
+        .iter()
+        .filter_map(|id| ctx.world.content.abilities.get(id))
+        .map(|def| def.range.max)
+        .max()
+        .unwrap_or(0);
+
+    if max_range == 0 {
+        return 0.0;
+    }
+
+    let reachable_enemies = end_snap
+        .enemies_of(ctx.active.team)
+        .filter(|e| e.hp > 0)
+        .filter(|e| plan.final_pos.unsigned_distance_to(e.pos) <= max_range)
+        .count();
+
+    // Normalize: 0 = no targets in range, 1.0 = ≥3 targets.
+    (reachable_enemies as f32 / 3.0).clamp(0.0, 1.0)
+}
+
+/// Count of living enemies within AoE-typical radius of the actor's end
+/// position, normalised to [0, 1] (≥3 enemies → 1.0).
+///
+/// Only meaningful for actors tagged `HAS_AOE` — others return 0.0 because
+/// cluster density is irrelevant without area coverage. Radius 2 is the
+/// conservative baseline for the current AoE content (most cluster spells
+/// use radius 1–2).
+///
+/// TODO(5.5/5.6): derive radius from the actor's actual AoE abilities rather
+/// than the fixed constant once we have a reliable way to enumerate AoE
+/// shapes from `AbilityDef.aoe`.
+fn compute_density_value(
+    plan: &TurnPlan,
+    initial_snap: &BattleSnapshot,
+    ctx: &ScoringCtx,
+) -> f32 {
+    // Density matters only for actors with AoE abilities.
+    if !ctx.active.tags.contains(AiTags::HAS_AOE) {
+        return 0.0;
+    }
+
+    let end_snap = plan.sim_snapshots.last().unwrap_or(initial_snap);
+
+    // Conservative AoE radius baseline for existing content.
+    let radius: u32 = 2;
+    let count = end_snap
+        .enemies_of(ctx.active.team)
+        .filter(|e| e.hp > 0)
+        .filter(|e| plan.final_pos.unsigned_distance_to(e.pos) <= radius)
+        .count();
+
+    // Normalize: 0 = no enemies in cluster range, 1.0 = ≥3 enemies.
+    (count as f32 / 3.0).clamp(0.0, 1.0)
+}
+
+/// Signed change in ally-support map value between the actor's start and final
+/// position, clamped to [−1, 1].
+///
+/// Positive → moved toward ally support (better tactical cohesion); negative →
+/// moved away (isolation). Used to reward Support actors that reposition closer
+/// to allies in need and to penalise Ranged actors drifting away from the line.
+///
+/// Signed axis — unlike the strictly-positive axes, this can contribute a
+/// penalty in the aggregator if the weight is positive and the actor retreated.
+fn compute_pressure_spacing_zone(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
+    let support_at_end = ctx.maps.ally_support.get(plan.final_pos);
+    let support_at_start = ctx.maps.ally_support.get(ctx.active.pos);
+    (support_at_end - support_at_start).clamp(-1.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use crate::combat::ai::planning::types::TurnPlan;
     use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot};
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
@@ -655,5 +761,263 @@ mod tests {
         };
         let score = compute_board_control_gain(&plan, &ctx);
         assert!(score < 0.0, "expected negative gain when moving to worse tile, got {score}");
+    }
+
+    // ── line_actionability ────────────────────────────────────────────────
+
+    #[test]
+    fn line_actionability_zero_when_no_abilities() {
+        // Actor with empty abilities vec → max_range = 0 → score = 0.
+        let actor_pos = hex_from_offset(0, 0);
+        let enemy_pos = hex_from_offset(1, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build(); // abilities=[]
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let plan = idle_plan(actor_pos, snap.clone());
+        let score = compute_line_actionability(&plan, &snap, &ctx);
+        assert_eq!(score, 0.0, "no abilities → no actionability");
+    }
+
+    #[test]
+    fn line_actionability_zero_when_actor_dead_at_end() {
+        // Actor has abilities but is dead in end_snap → score = 0.
+        let actor_pos = hex_from_offset(0, 0);
+        let enemy_pos = hex_from_offset(1, 0);
+        let actor_dead = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .hp(0)
+            .ability_names(&["melee_attack"])
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
+        let end_snap = BattleSnapshot::new(vec![actor_dead, enemy], 1);
+        let actor_initial = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ability_names(&["melee_attack"])
+            .build();
+        let initial_snap = BattleSnapshot::new(vec![actor_initial.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &initial_snap, &maps, &reservations, &actor_initial);
+
+        let plan = idle_plan(actor_pos, end_snap);
+        let score = compute_line_actionability(&plan, &initial_snap, &ctx);
+        assert_eq!(score, 0.0, "dead actor → no actionability");
+    }
+
+    #[test]
+    fn line_actionability_zero_when_no_enemies_in_range() {
+        // Actor has melee_attack (range=1); enemy is 5 tiles away → out of range.
+        let actor_pos = hex_from_offset(0, 0);
+        let far_enemy_pos = hex_from_offset(5, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ability_names(&["melee_attack"]) // range=1
+            .build();
+        let far_enemy = UnitBuilder::new(2, Team::Player, far_enemy_pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), far_enemy], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let plan = idle_plan(actor_pos, snap.clone());
+        let score = compute_line_actionability(&plan, &snap, &ctx);
+        assert_eq!(score, 0.0, "enemy too far → no actionability");
+    }
+
+    #[test]
+    fn line_actionability_proportional_to_targets_in_range() {
+        // Actor at (0,0) with fireball (range=5). Place 1 and then 3 enemies
+        // within range to check proportional normalization.
+        let actor_pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ability_names(&["fireball"]) // range=5
+            .build();
+        let e1 = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
+        let e2 = UnitBuilder::new(3, Team::Player, hex_from_offset(2, 0)).build();
+        let e3 = UnitBuilder::new(4, Team::Player, hex_from_offset(3, 0)).build();
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+
+        // 1 enemy in range → ~0.33
+        let snap1 = BattleSnapshot::new(vec![actor.clone(), e1.clone()], 1);
+        let ctx1 = make_scoring_ctx(&world, &snap1, &maps, &reservations, &actor);
+        let plan1 = idle_plan(actor_pos, snap1.clone());
+        let score1 = compute_line_actionability(&plan1, &snap1, &ctx1);
+        assert!(
+            (score1 - 1.0 / 3.0).abs() < 0.01,
+            "1 enemy in range → expected ~0.33, got {score1}"
+        );
+
+        // 3 enemies in range → 1.0 (clamped)
+        let snap3 = BattleSnapshot::new(vec![actor.clone(), e1, e2, e3], 1);
+        let ctx3 = make_scoring_ctx(&world, &snap3, &maps, &reservations, &actor);
+        let plan3 = idle_plan(actor_pos, snap3.clone());
+        let score3 = compute_line_actionability(&plan3, &snap3, &ctx3);
+        assert_eq!(score3, 1.0, "3 enemies in range → expected 1.0, got {score3}");
+    }
+
+    // ── density_value ──────────────────────────────────────────────────────
+
+    #[test]
+    fn density_value_zero_for_non_aoe_actor() {
+        // Actor without HAS_AOE tag → density_value = 0 regardless of enemies.
+        let actor_pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build(); // tags=empty
+        let e1 = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
+        let e2 = UnitBuilder::new(3, Team::Player, hex_from_offset(0, 1)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), e1, e2], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let plan = idle_plan(actor_pos, snap.clone());
+        let score = compute_density_value(&plan, &snap, &ctx);
+        assert_eq!(score, 0.0, "non-AoE actor → density_value = 0");
+    }
+
+    #[test]
+    fn density_value_zero_when_no_cluster() {
+        // AoE actor but all enemies are >2 tiles away → density_value = 0.
+        let actor_pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .tags(AiTags::HAS_AOE)
+            .build();
+        let far_enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(5, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), far_enemy], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let plan = idle_plan(actor_pos, snap.clone());
+        let score = compute_density_value(&plan, &snap, &ctx);
+        assert_eq!(score, 0.0, "no enemies in AoE radius → density_value = 0");
+    }
+
+    #[test]
+    fn density_value_high_when_3_enemies_in_radius() {
+        // AoE actor; 3 enemies within radius=2 → density_value = 1.0.
+        let actor_pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .tags(AiTags::HAS_AOE)
+            .build();
+        let e1 = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
+        let e2 = UnitBuilder::new(3, Team::Player, hex_from_offset(0, 1)).build();
+        let e3 = UnitBuilder::new(4, Team::Player, hex_from_offset(2, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), e1, e2, e3], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let plan = idle_plan(actor_pos, snap.clone());
+        let score = compute_density_value(&plan, &snap, &ctx);
+        assert_eq!(score, 1.0, "3 enemies in AoE radius → density_value = 1.0");
+    }
+
+    // ── pressure_spacing_zone ─────────────────────────────────────────────
+
+    #[test]
+    fn pressure_spacing_zero_when_pos_unchanged() {
+        // final_pos == start_pos, ally_support is uniform → delta = 0.
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let maps = empty_maps(); // ally_support all zeros
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let plan = idle_plan(pos, snap.clone()); // final_pos == actor start pos
+        let score = compute_pressure_spacing_zone(&plan, &ctx);
+        assert_eq!(score, 0.0, "no movement → spacing zone delta = 0");
+    }
+
+    #[test]
+    fn pressure_spacing_positive_when_moved_into_support() {
+        // Actor moves from (0,0) to (1,0); ally_support is higher at (1,0).
+        let start_pos = hex_from_offset(0, 0);
+        let end_pos = hex_from_offset(1, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, start_pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let mut maps = empty_maps();
+        maps.ally_support.add(end_pos, 0.6); // higher support at destination
+        let reservations = Reservations::default();
+        let snap_for_ctx = snap.clone();
+        let ctx = make_scoring_ctx(&world, &snap_for_ctx, &maps, &reservations, &actor);
+
+        let plan = TurnPlan {
+            steps: vec![],
+            final_pos: end_pos,
+            residual_ap: 1,
+            residual_mp: 3,
+            outcomes: vec![],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap],
+            annotation: Default::default(),
+        };
+        let score = compute_pressure_spacing_zone(&plan, &ctx);
+        assert!(
+            score > 0.0,
+            "moved into ally support → positive pressure_spacing_zone, got {score}"
+        );
+    }
+
+    #[test]
+    fn pressure_spacing_negative_when_moved_away() {
+        // Actor moves from (0,0) to (1,0); ally_support is higher at start (0,0).
+        let start_pos = hex_from_offset(0, 0);
+        let end_pos = hex_from_offset(1, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, start_pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let mut maps = empty_maps();
+        maps.ally_support.add(start_pos, 0.7); // higher support at origin
+        let reservations = Reservations::default();
+        let snap_for_ctx = snap.clone();
+        let ctx = make_scoring_ctx(&world, &snap_for_ctx, &maps, &reservations, &actor);
+
+        let plan = TurnPlan {
+            steps: vec![],
+            final_pos: end_pos,
+            residual_ap: 1,
+            residual_mp: 3,
+            outcomes: vec![],
+            partial_score: 0.0,
+            sim_snapshots: vec![snap],
+            annotation: Default::default(),
+        };
+        let score = compute_pressure_spacing_zone(&plan, &ctx);
+        assert!(
+            score < 0.0,
+            "moved away from ally support → negative pressure_spacing_zone, got {score}"
+        );
     }
 }
