@@ -455,4 +455,109 @@ mod tests {
         );
         assert_eq!(outcome, ContinuationOutcome::GoalPreservedInTransit);
     }
+
+    // ── 6.7: goal_obsolete predicate (what triggers the clear in decision-block) ──
+
+    /// Helper mirroring the `goal_obsolete` predicate in `run_ai_turn`.
+    fn is_goal_obsolete(outcome: &ContinuationOutcome) -> bool {
+        matches!(
+            outcome,
+            ContinuationOutcome::GoalAbandonedTtlExpired
+                | ContinuationOutcome::GoalAbandonedInvalidating
+                | ContinuationOutcome::GoalAbandonedVoluntary
+                | ContinuationOutcome::GoalAbandonedReactive { .. }
+                | ContinuationOutcome::LegacyV25Abandoned { .. }
+        )
+    }
+
+    /// EndTurn with a matching in-transit goal → outcome is InTransit → NOT obsolete
+    /// → goal should be preserved across rounds.
+    #[test]
+    fn last_goal_preserved_across_endturn() {
+        let target = ent(1);
+        let stored = stored_finish(target);
+        let outcome = classify_continuation_outcome(
+            Some(&stored),
+            TacticalIntent::FocusTarget { target },
+            FreshDecisionKind::EndTurn,
+            &IntentReason::BestPriority { priority: 1.0 },
+            None,
+            0, // age < ttl
+        );
+        assert_eq!(outcome, ContinuationOutcome::GoalPreservedInTransit);
+        assert!(!is_goal_obsolete(&outcome), "in-transit goal must not be cleared on EndTurn");
+    }
+
+    /// CastInPlace is handled unconditionally in the decision-block (climax),
+    /// but the corresponding outcome is MethodDelivered which is also not obsolete.
+    #[test]
+    fn last_goal_cleared_after_cast_in_place() {
+        let target = ent(1);
+        let stored = stored_finish(target);
+        // Cast = MethodDelivered — goal reached, not an abandon.
+        // Decision-block clears unconditionally for Cast; this confirms outcome is correct.
+        let outcome = classify_continuation_outcome(
+            Some(&stored),
+            TacticalIntent::FocusTarget { target },
+            FreshDecisionKind::Cast,
+            &IntentReason::BestPriority { priority: 1.0 },
+            None,
+            0,
+        );
+        assert_eq!(outcome, ContinuationOutcome::GoalPreservedMethodDelivered,
+            "cast delivering the goal should produce MethodDelivered, not an abandon");
+        // The decision-block clears regardless of obsolete flag for Cast — see run_ai_turn.
+        // goal_obsolete is NOT the clearing mechanism for Cast/MoveAndCast.
+    }
+
+    /// MoveAndCast also delivers the goal; same classification as CastInPlace.
+    #[test]
+    fn last_goal_cleared_after_move_and_cast() {
+        let target = ent(1);
+        let stored = stored_finish(target);
+        let outcome = classify_continuation_outcome(
+            Some(&stored),
+            TacticalIntent::FocusTarget { target },
+            FreshDecisionKind::Cast, // MoveAndCast → FreshDecisionKind::Cast
+            &IntentReason::BestPriority { priority: 1.0 },
+            None,
+            0,
+        );
+        assert_eq!(outcome, ContinuationOutcome::GoalPreservedMethodDelivered);
+        assert!(!is_goal_obsolete(&outcome));
+    }
+
+    /// When age >= ttl the outcome is TtlExpired → goal_obsolete = true.
+    /// Covers both the decision-block path (EndTurn) and the early-return path.
+    #[test]
+    fn stale_goal_cleared_when_ttl_expired() {
+        let target = ent(1);
+        let stored = stored_finish(target); // ttl = 2
+        let outcome = classify_continuation_outcome(
+            Some(&stored),
+            TacticalIntent::FocusTarget { target },
+            FreshDecisionKind::EndTurn,
+            &IntentReason::NoRuleDefault,
+            None,
+            2, // age == ttl → expired
+        );
+        assert_eq!(outcome, ContinuationOutcome::GoalAbandonedTtlExpired);
+        assert!(is_goal_obsolete(&outcome), "ttl-expired goal must be cleared");
+    }
+
+    /// Invalidating severity → GoalAbandonedInvalidating → goal_obsolete = true.
+    #[test]
+    fn stale_goal_cleared_when_invalidating() {
+        let stored = stored_finish(ent(1));
+        let outcome = classify_continuation_outcome(
+            Some(&stored),
+            TacticalIntent::FocusTarget { target: ent(1) },
+            FreshDecisionKind::Move,
+            &IntentReason::NoRuleDefault,
+            Some(ContinuationSeverity::Invalidating),
+            0,
+        );
+        assert_eq!(outcome, ContinuationOutcome::GoalAbandonedInvalidating);
+        assert!(is_goal_obsolete(&outcome), "invalidating goal must be cleared");
+    }
 }

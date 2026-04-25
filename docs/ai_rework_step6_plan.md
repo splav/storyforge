@@ -831,8 +831,9 @@ cargo run --bin replay_ai_log -- --capture-golden \
 | 6.5 | log overhaul + mining extension + schema v23→v24 | 1.0 | schema migration test, scenarios зелёные | done (`4f64b80`) |
 | 6.6a | migration `continuation_from_stored` → repair-only + schema v24→v25 + rebaseline на v24 corpus | 1.0 | golden round-trip 0/131, diff old vs new = 0 | done (`a9a058f`) |
 | 6.6b | metric refinement — outcome split + reactive vs voluntary abandon (schema v25→v26) | 0.5 | in_transit 24/58.5% + legacy_v25_abandoned 17/41.5%, 0/131 golden, scenarios зелёные | done (см. ниже) |
+| 6.7 | lifecycle fix: cross-round `last_goal` preservation + proactive stale clear | 0.5 | mining v26 corpus после правки: `ttl_expired` > 0%, `invalidating` > 0%, voluntary не растёт | pending |
 
-**Суммарно ~8 дней.**
+**Суммарно ~8.5 дней.**
 
 ## Зафиксированные решения
 
@@ -894,6 +895,78 @@ cargo run --bin replay_ai_log -- --capture-golden \
 **Gate (v26 corpus):** full breakdown с voluntary/reactive split — следующий playtest.
 
 **Примечание:** 5 новых ai_scenarios (из исходного 6.6b плана) остаются pending — нет подходящего corpus для них без нового playtest'а.
+
+---
+
+### 6.7. Lifecycle fix: cross-round `last_goal` preservation
+
+**Проблема (обнаружена в mining свежего v26 corpus, 26 апр. 2026).**
+
+Mining `goal_abandoned|ttl_expired = 0%` и `goal_abandoned|invalidating = 0%` — структурно недостижимы при текущем lifecycle. Расследование показало:
+
+В `enemy_turn.rs:259–263` ветка `else { last_goal = None }` очищает goal на **CastInPlace / MoveAndCast / EndTurn**. То есть goal живёт только в пределах одного хода (Move → Cast/EndTurn). На следующем ходу актёра `last_goal = None` — TTL-decay и cross-turn `target_dead` не наблюдаются.
+
+В корпусе 7/37 divergence-событий имеют `ttl_factor=0.5` (age=1) — это случайная преcервация через **early-return** в `enemy_turn.rs:103–106` (когда AP=0 и MP=0, return до store/clear). Но age=2 невозможен.
+
+Это противоречит §6.1 («когда `last_goal` восстанавливается на следующем tick'е, делаем `ttl -= 1` если `round > created_round`») — план задумывал кросс-раундовую персистентность.
+
+**Scope.**
+
+1. **`enemy_turn.rs:242–263` — refine decision-handling.**
+
+   ```rust
+   match decision {
+       AiDecision::Move { ref path, .. } => {
+           // store new goal — как сейчас
+       }
+       AiDecision::CastInPlace { .. } | AiDecision::MoveAndCast { .. } => {
+           // climax executed → goal achieved, clear
+           memory_ref.last_goal = None;
+       }
+       AiDecision::EndTurn => {
+           // preserve across rounds; TTL handles expiration
+           // (исключая случаи когда outcome уже abandoned — см. п.2)
+       }
+   }
+   ```
+
+2. **Proactive stale clear.** Чтобы expired/invalidating goal не «висел» бесконечно (порождая повторные `ttl_expired` events каждый ход), clear'ить когда `continuation_outcome` ∈ { `GoalAbandonedTtlExpired`, `GoalAbandonedInvalidating`, `GoalAbandonedVoluntary`, `GoalAbandonedReactive`, `LegacyV25Abandoned` }. Реализуется в decision-block — устанавливается флаг `goal_obsolete` после divergence-log, EndTurn-ветка очищает условно.
+
+3. **Early-return path (`enemy_turn.rs:103–106`).** Минимальный proactive clear — без divergence-log'а (нет fresh decision):
+
+   ```rust
+   // FIXME(step 7): этот path обходит divergence-log; в PlanStage pipeline
+   // start-of-turn stage напишет goal-state event и сделает TTL decay
+   // централизованно. Сейчас — только cheap proactive clear.
+   if c.ap.action_points <= 0 && !c.ap.can_move() {
+       if let Some(g) = &memory_ref.last_goal {
+           let age = combat_ctx.round.saturating_sub(g.created_round);
+           if age >= g.ttl as u32 {
+               memory_ref.last_goal = None;
+           }
+       }
+       msgs.end_turn.write(EndTurn { actor });
+       return;
+   }
+   ```
+
+   Полноценное логирование на этом пути (отдельный event-type «tick_skipped») — backlog для step 7 (PlanStage pipeline формализует start/end-of-turn telemetry; см. carry-over note в `docs/ai_rework.md` §7).
+
+**Юнит-тесты в `enemy_turn.rs::tests` или integration:**
+- `last_goal_preserved_across_endturn` — Move на ходу N, EndTurn → следующий ход актёра видит stored goal с age=1.
+- `last_goal_cleared_after_cast_in_place` — Cast = climax → next tick last_goal = None.
+- `last_goal_cleared_after_move_and_cast` — same.
+- `stale_goal_cleared_when_ttl_expired` — age >= ttl → clear (как через decision-block, так и через early-return path).
+- `stale_goal_cleared_when_invalidating` — outcome = Invalidating → clear regardless of decision.
+
+**Schema.** Не bump'аем — wire format не меняется, только runtime lifecycle.
+
+**Gate.**
+- `cargo test/clippy/build` зелёные.
+- Свежий v26 playtest + mining: `ttl_expired > 0%` (ожидание 2–5%), `invalidating > 0%` (ожидание 5–10%), `voluntary` не растёт (или падает — часть voluntary'ев теперь корректно классифицируются как ttl_expired).
+- Golden может сдвинуться (preserved goal'ы влияют на repair affinity на первом tick'е следующего хода). Per-entry review; rebaseline допустим.
+
+**Эстимейт:** 0.5 дня (правка локальная, тесты, mining-перепрогон).
 
 ## Что откладывается
 

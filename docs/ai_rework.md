@@ -225,6 +225,8 @@ v26 mining gate (full voluntary/reactive split) — следующий playtest 
 - JSONL — `#[derive(Serialize)]` над annotation. Schema bump реже, миграции через `#[serde(default)]`.
 - Побочно: adaptation перестаёт быть «особенной» — становится одной из стадий.
 
+**Carry-over из 6.7:** ранний `return` в `enemy_turn.rs:103–106` (нет AP/MP → EndTurn) сейчас не пишет divergence-log и обходит decision-block. Внутри 6.7 туда поставлен минимальный proactive-clear stale `last_goal`, но без telemetry. В рамках pipeline это решается естественно: start-of-turn stage пишет goal-state (если `last_goal` есть), декрементит TTL, выбрасывает event при abandon. Затем pipeline обрывается, если actor не может действовать. Найди в `enemy_turn.rs` метку `FIXME(step 7)` — там же.
+
 ---
 
 ### 8. `StepFactor` / `PlanFactor` / `TerminalFactor` + `PlanModifier` (объединены)
