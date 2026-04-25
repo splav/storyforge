@@ -137,6 +137,16 @@ pub struct Thresholds {
     /// Final bonus = conserve_resource_bonus * need_signals.conserve_resource
     /// (so it scales with severity). Step 3.5 consumer.
     pub conserve_resource_bonus: f32,
+    // ── Step 6.1: goal-preserving repair ─────────────────────────────────────
+    /// Hex radius within which a fresh plan's final position is considered
+    /// "on-goal" (inside the stored goal's region). Step 6.2 consumer.
+    pub repair_region_radius: u32,
+    /// Rounds before a stored `StoredGoalContext` expires via TTL decay.
+    /// Decremented per turn; at 0 the goal is invalidated. Step 6.1–6.2.
+    pub repair_default_ttl: u8,
+    /// `p_kill_now` threshold that promotes a `FocusTarget` goal from
+    /// `Pressure` to `Finish`. Step 6.1 producer.
+    pub goal_finish_p_kill: f32,
 }
 
 impl Default for Thresholds {
@@ -157,6 +167,9 @@ impl Default for Thresholds {
             reposition_signal_floor: 0.1,
             conserve_resource_threshold: 0.5,
             conserve_resource_bonus: 0.15,
+            repair_region_radius: 2,
+            repair_default_ttl: 2,
+            goal_finish_p_kill: 0.6,
         }
     }
 }
@@ -305,6 +318,9 @@ pub struct ThresholdsOverride {
     #[serde(default)] pub reposition_signal_floor: Option<f32>,
     #[serde(default)] pub conserve_resource_threshold: Option<f32>,
     #[serde(default)] pub conserve_resource_bonus: Option<f32>,
+    #[serde(default)] pub repair_region_radius: Option<u32>,
+    #[serde(default)] pub repair_default_ttl: Option<u8>,
+    #[serde(default)] pub goal_finish_p_kill: Option<f32>,
 }
 
 impl AiTuning {
@@ -328,6 +344,9 @@ impl AiTuning {
             if let Some(v) = t.reposition_signal_floor       { out.thresholds.reposition_signal_floor = v; }
             if let Some(v) = t.conserve_resource_threshold   { out.thresholds.conserve_resource_threshold = v; }
             if let Some(v) = t.conserve_resource_bonus       { out.thresholds.conserve_resource_bonus = v; }
+            if let Some(v) = t.repair_region_radius          { out.thresholds.repair_region_radius = v; }
+            if let Some(v) = t.repair_default_ttl            { out.thresholds.repair_default_ttl = v; }
+            if let Some(v) = t.goal_finish_p_kill            { out.thresholds.goal_finish_p_kill = v; }
         }
         // hooks: difficulty and tables override would be applied here.
         out

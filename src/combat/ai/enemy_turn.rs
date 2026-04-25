@@ -4,7 +4,7 @@ use crate::combat::ai::debug::AiDebugState;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::{AiMemory, PlanSnapshot, StoredPlan};
-use crate::combat::ai::repair::ContinuationSeverity;
+use crate::combat::ai::repair::{ContinuationSeverity, extract_goal_context};
 use crate::combat::ai::planning::types::PlanStep;
 use crate::combat::ai::snapshot::BattleSnapshot;
 use crate::combat::ai::log::AiLogger;
@@ -253,6 +253,22 @@ fn run_ai_turn(
                 }
                 _ => (None, None),
             };
+            // Step 6.1: extract goal context in parallel with storing the plan.
+            // pool_max_score sanity: use chosen.score.max(1.0) as fallback when the
+            // true pool max is not threaded here (it cancels to confidence=1.0 for
+            // the winning plan, which is a safe upper bound).
+            let pool_max_score = chosen.score.max(1.0);
+            memory_ref.last_goal = extract_goal_context(
+                chosen.intent,
+                &chosen.plan.steps,
+                &chosen.plan.annotation.outcomes,
+                chosen.plan.final_pos,
+                chosen.score,
+                pool_max_score,
+                &snap,
+                combat_ctx.round,
+                world.tuning,
+            );
             memory_ref.last_plan = Some(StoredPlan {
                 steps: chosen.plan.steps,
                 step_index: 1,
@@ -263,6 +279,10 @@ fn run_ai_turn(
                 score: chosen.score,
             });
         }
+    } else {
+        // Cast / MoveAndCast / EndTurn: the goal has been executed or abandoned.
+        // Clear so the next tick starts without a stale stored goal.
+        memory_ref.last_goal = None;
     }
 
     // Execute decision.

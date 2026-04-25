@@ -226,6 +226,11 @@ pub struct AiMemory {
     /// Stored plan from the previous MoveOnly tick, if any. Cleared when a
     /// non-Move decision fires (Cast, EndTurn) or when the snapshot is stale.
     pub last_plan: Option<StoredPlan>,
+    /// Step 6.1: goal context extracted from the last chosen plan.
+    /// Set in parallel with `last_plan` after a Move decision; cleared on
+    /// Cast / EndTurn.  Used by repair affinity (6.2) to bonus fresh plans
+    /// that preserve the same goal on the next tick.
+    pub last_goal: Option<crate::combat::ai::repair::StoredGoalContext>,
     /// HP ratio of the actor at the time of the previous decision. `None` until
     /// the actor takes its first turn — then read in step 3.1 producer to compute
     /// `recent_damage_taken`.

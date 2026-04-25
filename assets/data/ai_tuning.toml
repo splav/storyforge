@@ -27,6 +27,15 @@ reposition_signal_floor = 0.1
 # Above threshold, ProtectSelf and Reposition get score += conserve_resource_bonus * signal.
 conserve_resource_threshold = 0.5
 conserve_resource_bonus = 0.15
+# Step 6.1: goal-preserving repair thresholds.
+# repair_region_radius — hex distance within which a fresh plan's final_pos is
+#   considered "on-goal" relative to the stored goal's region_anchor.
+# repair_default_ttl — rounds before a stored goal expires via TTL decay.
+# goal_finish_p_kill — p_kill_now threshold: FocusTarget is Finish when
+#   p_kill_now >= this, otherwise Pressure (unless target hp_pct < 0.30).
+repair_region_radius = 2
+repair_default_ttl = 2
+goal_finish_p_kill = 0.6
 
 [tables]
 # Per-axis weights for the 10 utility factors.

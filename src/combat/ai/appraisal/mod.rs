@@ -253,6 +253,7 @@ mod tests {
             last_target: None,
             turns_committed: 0,
             last_plan: None,
+            last_goal: None,
             hp_ratio_at_last_turn: None,
             last_turn_was_defensive: false,
             turns_in_low_hp: 0,
