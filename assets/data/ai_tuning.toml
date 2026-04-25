@@ -75,6 +75,19 @@ axis_terminal_weights = [
     [-0.05, -0.06, 0.05, 0.03, 0.0, 0.0, 0.0, 0.0],  # Control
     [-0.09, -0.09, 0.03, 0.13, 0.0, 0.0, 0.0, 0.0],  # Support
 ]
+# Step 6.2: repair-affinity axis weights per role.
+# Rows: [Tank, Melee, Ranged, Control, Support].
+# Cols: [goal_w, region_w, method_w].
+# goal_w: weight on goal_kind+target alignment.
+# region_w: weight on final-pos proximity to stored region_anchor.
+# method_w: weight on ability match (method_preserved).
+axis_repair_weights = [
+    [0.5, 0.3, 0.2],  # Tank
+    [0.6, 0.2, 0.2],  # Melee
+    [0.5, 0.3, 0.2],  # Ranged
+    [0.4, 0.3, 0.3],  # Control — method matters more for setup
+    [0.7, 0.2, 0.1],  # Support — goal_alignment is nearly everything
+]
 
 [difficulty]
 # Lerp-curve endpoints for DifficultyProfile derived values.

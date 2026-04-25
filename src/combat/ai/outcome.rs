@@ -59,6 +59,12 @@ pub struct PlanAnnotation {
     /// preserving backward compatibility.
     #[serde(default)]
     pub terminal: crate::combat::ai::planning::terminal::TerminalScore,
+    /// Step 6.2: repair affinity of this plan against the stored goal context.
+    /// Populated in `pick_action` when `AiMemory.last_goal` is present.
+    /// Default zero-filled when no stored goal exists. Consumed by the
+    /// repair bonus aggregation in 6.3 (not read into score in 6.2).
+    #[serde(default)]
+    pub repair_affinity: crate::combat::ai::repair::RepairAffinity,
 }
 
 // ---------------------------------------------------------------------------

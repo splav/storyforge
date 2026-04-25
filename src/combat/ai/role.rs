@@ -1,3 +1,4 @@
+use crate::combat::ai::repair::affinity::RepairWeights;
 use crate::combat::ai::tuning::AiTuning;
 use crate::content::abilities::{AoEShape, EffectDef, TargetType};
 use crate::content::content_view::ContentView;
@@ -115,6 +116,24 @@ impl AxisProfile {
             }
         }
         out
+    }
+
+    /// Composed repair-affinity weights (goal, region, method).
+    ///
+    /// Per-axis rows live in `tuning.tables.axis_repair_weights`. Columns:
+    /// [goal_w, region_w, method_w].
+    /// Used by `RepairAffinity::aggregate` (6.3) to produce the role-mixed
+    /// repair bonus.
+    pub fn repair_weights(&self, tuning: &AiTuning) -> RepairWeights {
+        let mix = self.biased_normalized();
+        let table = &tuning.tables.axis_repair_weights;
+        let mut w = [0.0f32; 3];
+        for axis in 0..5 {
+            for j in 0..3 {
+                w[j] += mix[axis] * table[axis][j];
+            }
+        }
+        RepairWeights { goal_w: w[0], region_w: w[1], method_w: w[2] }
     }
 
     /// Composite "how valuable is this target to eliminate" scalar in 0..1.

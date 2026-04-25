@@ -1,4 +1,5 @@
-/// Goal-preserving plan repair — scaffolding (step 6.0) + goal extraction (6.1).
+/// Goal-preserving plan repair — scaffolding (step 6.0) + goal extraction (6.1)
+/// + repair affinity computation (6.2).
 ///
 /// This module classifies mismatch codes produced by `PlanSnapshot::mismatch()`
 /// into semantic severity levels, enabling downstream logic (6.3+) to reason
@@ -6,6 +7,9 @@
 /// state change as a reason to replan from scratch.
 pub mod goal;
 pub use goal::{GoalKind, StoredGoalContext, extract_goal_context};
+
+pub mod affinity;
+pub use affinity::{RepairAffinity, RepairWeights, compute_repair_affinity};
 
 use serde::{Deserialize, Serialize};
 

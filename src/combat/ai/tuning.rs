@@ -194,6 +194,12 @@ pub struct Tables {
     /// Step 5.4: calibrated best-guess values. Tank tolerates exposure;
     /// Ranged punishes it most (-0.8). Support ally_rescue weight = 0.8.
     pub axis_terminal_weights: [[f32; 8]; 5],
+    /// Per-axis weights for the 3 repair-affinity axes.
+    /// Rows: [Tank, Melee, Ranged, Control, Support].
+    /// Cols: [goal_w, region_w, method_w].
+    /// Step 6.2: used by `AxisProfile::repair_weights` to produce
+    /// role-mixed `RepairWeights` for `RepairAffinity::aggregate` (6.3).
+    pub axis_repair_weights: [[f32; 3]; 5],
 }
 
 impl Default for Tables {
@@ -224,6 +230,15 @@ impl Default for Tables {
                 [  -0.08, -0.09,  0.06,  0.03,  0.0,   0.0,   0.0,   0.0  ], // Ranged
                 [  -0.05, -0.06,  0.05,  0.03,  0.0,   0.0,   0.0,   0.0  ], // Control
                 [  -0.09, -0.09,  0.03,  0.13,  0.0,   0.0,   0.0,   0.0  ], // Support
+            ],
+            #[rustfmt::skip]
+            axis_repair_weights: [
+                //  goal   region  method
+                [   0.5,   0.3,    0.2 ], // Tank
+                [   0.6,   0.2,    0.2 ], // Melee
+                [   0.5,   0.3,    0.2 ], // Ranged
+                [   0.4,   0.3,    0.3 ], // Control
+                [   0.7,   0.2,    0.1 ], // Support
             ],
         }
     }

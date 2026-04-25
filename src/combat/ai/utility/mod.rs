@@ -15,6 +15,7 @@ mod ranking;
 
 pub use crate::combat::ai::planning::PickMechanics;
 
+use crate::combat::ai::repair::compute_repair_affinity;
 use crate::content::content_view::ContentView;
 use crate::combat::ai::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
 use crate::combat::ai::difficulty::DifficultyProfile;
@@ -254,6 +255,24 @@ pub fn pick_action(
     }
     if matches!(ranking.intent, TacticalIntent::FocusTarget { .. }) {
         ranking.apply_killable_gate(&mut plans, &scoring_ctx);
+    }
+
+    // Step 6.2: populate repair_affinity on each plan's annotation.
+    // Severity is None (placeholder) — 6.3 will wire classify_mismatch properly.
+    // Consumer (reading repair_affinity into score) is deferred to 6.3.
+    if let Some(stored_goal) = &memory.last_goal {
+        let current_round = snap.round;
+        let severity = None; // 6.2 placeholder; wired in 6.3
+        for plan in plans.iter_mut() {
+            plan.annotation.repair_affinity = compute_repair_affinity(
+                ranking.intent,
+                &plan.steps,
+                plan.final_pos,
+                stored_goal,
+                severity,
+                current_round,
+            );
+        }
     }
 
     let (best_idx, mech) = ranking.pick(world, rng);
