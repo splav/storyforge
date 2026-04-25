@@ -1554,6 +1554,7 @@ fn main() {
                 snap: &entry.snapshot,
                 active: &active,
                 need_signals: Default::default(),
+                last_goal: None, // replay: no stored goal context available from JSONL v23
             };
 
             // Reuse the production `finalize_scores` so summon_bonus, trade_bonus,

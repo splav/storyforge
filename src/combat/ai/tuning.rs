@@ -147,6 +147,10 @@ pub struct Thresholds {
     /// `p_kill_now` threshold that promotes a `FocusTarget` goal from
     /// `Pressure` to `Finish`. Step 6.1 producer.
     pub goal_finish_p_kill: f32,
+    /// Step 6.3: additive repair-affinity bonus scale. Applied in
+    /// `finalize_scores` to each plan's `repair_affinity.aggregate()` output.
+    /// Starting calibration 0.4; tune via golden per-entry diff review.
+    pub repair_bonus_scale: f32,
 }
 
 impl Default for Thresholds {
@@ -170,6 +174,7 @@ impl Default for Thresholds {
             repair_region_radius: 2,
             repair_default_ttl: 2,
             goal_finish_p_kill: 0.6,
+            repair_bonus_scale: 0.4,
         }
     }
 }
@@ -336,6 +341,7 @@ pub struct ThresholdsOverride {
     #[serde(default)] pub repair_region_radius: Option<u32>,
     #[serde(default)] pub repair_default_ttl: Option<u8>,
     #[serde(default)] pub goal_finish_p_kill: Option<f32>,
+    #[serde(default)] pub repair_bonus_scale: Option<f32>,
 }
 
 impl AiTuning {
@@ -362,6 +368,7 @@ impl AiTuning {
             if let Some(v) = t.repair_region_radius          { out.thresholds.repair_region_radius = v; }
             if let Some(v) = t.repair_default_ttl            { out.thresholds.repair_default_ttl = v; }
             if let Some(v) = t.goal_finish_p_kill            { out.thresholds.goal_finish_p_kill = v; }
+            if let Some(v) = t.repair_bonus_scale            { out.thresholds.repair_bonus_scale = v; }
         }
         // hooks: difficulty and tables override would be applied here.
         out

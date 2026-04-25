@@ -424,6 +424,7 @@ pub fn reconstruct_decision(
         snap: &entry.snapshot,
         active: &active,
         need_signals: Default::default(),
+        last_goal: None, // replay: no stored goal context available from JSONL v23
     };
 
     let mut plans: Vec<TurnPlan> = entry

@@ -133,6 +133,11 @@ pub struct ScoringCtx<'w, 'p> {
     /// step 3.1 fills via `appraisal::compute_need_signals`. Owned (Copy) —
     /// small struct (8 f32s), avoids lifetime gymnastics in test sites.
     pub need_signals: crate::combat::ai::appraisal::NeedSignals,
+    /// Step 6.3: stored goal context for repair-affinity consumer in
+    /// `finalize_scores`. `None` when the actor has no stored goal (first
+    /// tick or after Cast/EndTurn). Reference borrowed from `AiMemory.last_goal`
+    /// for the duration of `pick_action`.
+    pub last_goal: Option<&'p crate::combat::ai::repair::StoredGoalContext>,
 }
 
 impl<'w, 'p> ScoringCtx<'w, 'p> {
@@ -151,6 +156,7 @@ impl<'w, 'p> ScoringCtx<'w, 'p> {
             snap,
             active,
             need_signals: self.need_signals,
+            last_goal: None, // perspective-shifted ctx is always a sub-step — no goal needed
         }
     }
 }
@@ -234,6 +240,7 @@ pub fn pick_action(
         snap,
         active,
         need_signals,
+        last_goal: memory.last_goal.as_ref(),
     };
 
     // ── Phase pipeline ─────────────────────────────────────────────────
@@ -257,12 +264,20 @@ pub fn pick_action(
         ranking.apply_killable_gate(&mut plans, &scoring_ctx);
     }
 
-    // Step 6.2: populate repair_affinity on each plan's annotation.
-    // Severity is None (placeholder) — 6.3 will wire classify_mismatch properly.
-    // Consumer (reading repair_affinity into score) is deferred to 6.3.
+    // Step 6.2/6.3: populate repair_affinity on each plan's annotation.
+    // Severity is classified from last_plan.snapshot.check_continuation (variant 1
+    // from 6.3 spec): producer classifies inside pick_action using AiMemory.last_plan.
+    // None when no stored plan exists → severity_factor = 1.0 (no mismatch penalty).
     if let Some(stored_goal) = &memory.last_goal {
         let current_round = snap.round;
-        let severity = None; // 6.2 placeholder; wired in 6.3
+        // Classify severity from stored plan's snapshot (if any). check_continuation
+        // compares the stored snapshot against current actor + target state.
+        let severity = memory.last_plan.as_ref().and_then(|stored_plan| {
+            let actor_snap = active; // active == snap.unit(actor), already resolved above
+            let target_snap = stored_plan.snapshot.target.and_then(|t| snap.unit(t));
+            stored_plan.snapshot.check_continuation(actor_snap, target_snap)
+                .map(|c| c.severity)
+        });
         for plan in plans.iter_mut() {
             plan.annotation.repair_affinity = compute_repair_affinity(
                 ranking.intent,
