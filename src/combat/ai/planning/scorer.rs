@@ -238,11 +238,38 @@ pub fn finalize_scores(
         .collect();
 
     // Terminal annotation pass: populate plan.annotation.terminal per plan.
-    // The aggregator does not yet read these values (axis_terminal_weights = 0
-    // until step 5.4), so this pass is diagnostic-only and does not affect
-    // the final scores. Written here so the AI log captures terminal axes.
     for plan in plans.iter_mut() {
         plan.annotation.terminal = terminal_state_score(plan, snap, ctx);
+    }
+
+    // Terminal aggregation (step 5.4): add terminal-state contribution to
+    // each plan's score. Each axis weighted by:
+    //   1. Role-mixed axis weight via `AxisProfile::terminal_weights`.
+    //   2. NeedSignals modulation: signal-relevant axes are amplified by
+    //      `(1 + need_signals.<signal>)` — signal in [0, 1] → multiplier
+    //      in [1, 2]. Negative-weight axes (exposure/lethality) carry w < 0;
+    //      their (1 + self_preserve) multiplier amplifies the penalty when
+    //      the actor is under threat.
+    //
+    // Cols: [exposure_at_end, next_turn_lethality, secure_kill, ally_rescue,
+    //        board_control_gain, line_actionability, density_value,
+    //        pressure_spacing_zone].
+    {
+        let tw = active.role.terminal_weights(world.tuning);
+        let needs = ctx.need_signals;
+        for (plan, score) in plans.iter().zip(scores.iter_mut()) {
+            let t = &plan.annotation.terminal;
+            let terminal_sum =
+                t.exposure_at_end       * tw[0] * (1.0 + needs.self_preserve)
+              + t.next_turn_lethality   * tw[1] * (1.0 + needs.self_preserve)
+              + t.secure_kill           * tw[2] * (1.0 + needs.finish_target)
+              + t.ally_rescue           * tw[3] * (1.0 + needs.rescue_ally)
+              + t.board_control_gain    * tw[4] * (1.0 + needs.reposition)
+              + t.line_actionability    * tw[5]
+              + t.density_value         * tw[6] * (1.0 + needs.setup_aoe)
+              + t.pressure_spacing_zone * tw[7];
+            *score += terminal_sum;
+        }
     }
 
     // Pass 2: add deterministic, batch-scaled noise.
@@ -2033,5 +2060,138 @@ mod tests {
 
         let b = plan_trade_bonus(&plan, &actor, &snap, &ctx, actor_val);
         assert_eq!(b, 0.0);
+    }
+
+    // ── Terminal aggregator tests (step 5.4) ──────────────────────────────────
+
+    /// Minimal inert plan at `final_pos` with empty annotation.
+    fn inert_plan(final_pos: Hex) -> TurnPlan {
+        TurnPlan {
+            steps: vec![],
+            final_pos,
+            residual_ap: 0,
+            residual_mp: 0,
+            outcomes: vec![],
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+            annotation: PlanAnnotation::default(),
+        }
+    }
+
+    /// When all terminal axes compute to zero (empty danger map, no enemies,
+    /// no kills), the terminal aggregation contributes nothing to the score.
+    #[test]
+    fn terminal_aggregator_zero_when_all_axes_zero() {
+        use crate::combat::ai::test_helpers::empty_maps;
+
+        let content = crate::combat::ai::test_helpers::empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = test_ctx(&content, &difficulty);
+        let maps = empty_maps(); // all-zero danger/support/opportunity
+        let reservations = Reservations::default();
+
+        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+
+        let raw = vec![PlanFactors::default()];
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let scores = finalize_scores(&mut [inert_plan(actor.pos)], &raw, &ctx);
+
+        // Empty maps → all axes zero → terminal contribution = 0.
+        assert!(
+            scores[0].abs() < 1e-4,
+            "empty maps must yield zero terminal contribution, got {}", scores[0]
+        );
+    }
+
+    /// High danger at the final tile + high self_preserve amplifies the
+    /// exposure penalty more than zero self_preserve. Validates
+    /// `(1 + needs.self_preserve)` modulation on the defensive axes.
+    #[test]
+    fn terminal_aggregator_amplified_by_self_preserve() {
+        use crate::combat::ai::appraisal::NeedSignals;
+        use crate::combat::ai::test_helpers::empty_maps;
+
+        let content = crate::combat::ai::test_helpers::empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+
+        let final_pos = hex_from_offset(0, 0);
+        let actor = unit(1, Team::Enemy, final_pos);
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+
+        // Danger map: final tile = 1.0 → exposure_at_end = 1.0.
+        let mut maps = empty_maps();
+        maps.danger.add(final_pos, 1.0);
+
+        // Score without self_preserve signal.
+        let raw = vec![PlanFactors::default()];
+        let mut ctx_a = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        ctx_a.need_signals = NeedSignals::default();
+        let score_no_preserve = finalize_scores(&mut [inert_plan(final_pos)], &raw, &ctx_a)[0];
+
+        // Score with maximum self_preserve.
+        let raw2 = vec![PlanFactors::default()];
+        let mut ctx_b = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        ctx_b.need_signals = NeedSignals { self_preserve: 1.0, ..Default::default() };
+        let score_high_preserve = finalize_scores(&mut [inert_plan(final_pos)], &raw2, &ctx_b)[0];
+
+        // Exposure weight < 0. High self_preserve → multiplier 2.0 vs 1.0 →
+        // deeper negative. score_high_preserve must be strictly less.
+        assert!(
+            score_high_preserve < score_no_preserve,
+            "high self_preserve must deepen exposure penalty: \
+             no_preserve={score_no_preserve} high_preserve={score_high_preserve}"
+        );
+        // Both should be negative (punished for being in dangerous tile).
+        assert!(
+            score_no_preserve < 0.0,
+            "exposure on dangerous tile must yield negative score, got {score_no_preserve}"
+        );
+    }
+
+    /// Same final tile danger, different role profiles (Tank vs Ranged) yield
+    /// different exposure penalties. Ranged weight = -0.8 vs Tank weight = -0.4,
+    /// so Ranged scores strictly lower for the same exposure.
+    #[test]
+    fn terminal_aggregator_role_weighted_distinguishes_tank_vs_ranged() {
+        use crate::combat::ai::role::AxisProfile;
+        use crate::combat::ai::test_helpers::{UnitBuilder, empty_maps};
+
+        let content = crate::combat::ai::test_helpers::empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+
+        let final_pos = hex_from_offset(0, 0);
+
+        let tank = UnitBuilder::new(1, Team::Enemy, final_pos)
+            .role(AxisProfile { tank: 1.0, melee: 0.0, ranged: 0.0, control: 0.0, support: 0.0 })
+            .build();
+        let ranged = UnitBuilder::new(2, Team::Enemy, final_pos)
+            .role(AxisProfile { tank: 0.0, melee: 0.0, ranged: 1.0, control: 0.0, support: 0.0 })
+            .build();
+
+        // Danger map: final tile = 1.0 → exposure_at_end = 1.0.
+        let mut maps = empty_maps();
+        maps.danger.add(final_pos, 1.0);
+
+        let snap_tank = BattleSnapshot::new(vec![tank.clone()], 1);
+        let raw_tank = vec![PlanFactors::default()];
+        let ctx_tank = make_scoring_ctx(&world, &snap_tank, &maps, &reservations, &tank);
+        let score_tank = finalize_scores(&mut [inert_plan(final_pos)], &raw_tank, &ctx_tank)[0];
+
+        let snap_ranged = BattleSnapshot::new(vec![ranged.clone()], 1);
+        let raw_ranged = vec![PlanFactors::default()];
+        let ctx_ranged = make_scoring_ctx(&world, &snap_ranged, &maps, &reservations, &ranged);
+        let score_ranged = finalize_scores(&mut [inert_plan(final_pos)], &raw_ranged, &ctx_ranged)[0];
+
+        // Tank exposure weight = -0.4; Ranged = -0.8 → Ranged more negative.
+        assert!(
+            score_ranged < score_tank,
+            "Ranged must be penalised more for exposure than Tank: \
+             tank={score_tank} ranged={score_ranged}"
+        );
     }
 }

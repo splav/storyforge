@@ -82,6 +82,25 @@ impl AxisProfile {
         out
     }
 
+    /// Composed terminal-state weights (8 axes). Mirrors `factor_weights` but
+    /// reads `tuning.tables.axis_terminal_weights`. Columns:
+    /// [exposure_at_end, next_turn_lethality, secure_kill, ally_rescue,
+    ///  board_control_gain, line_actionability, density_value,
+    ///  pressure_spacing_zone].
+    /// Used by `finalize_scores` (5.4) to score plans by their terminal sim
+    /// state in parallel with step-summed PlanFactors.
+    pub fn terminal_weights(&self, tuning: &AiTuning) -> [f32; 8] {
+        let mix = self.biased_normalized();
+        let table = &tuning.tables.axis_terminal_weights;
+        let mut out = [0.0f32; 8];
+        for axis in 0..5 {
+            for k in 0..8 {
+                out[k] += mix[axis] * table[axis][k];
+            }
+        }
+        out
+    }
+
     /// Composed position-eval weights (danger, ally_support, opportunity).
     ///
     /// Per-axis rows live in `tuning.tables.axis_position_weights`. Columns:

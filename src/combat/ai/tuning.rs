@@ -178,8 +178,8 @@ pub struct Tables {
     /// Cols: [exposure_at_end, next_turn_lethality, secure_kill, ally_rescue,
     ///        board_control_gain, line_actionability, density_value,
     ///        pressure_spacing_zone].
-    /// Step 5.0: all zeros — aggregator (5.4) does not read this yet.
-    /// Real values land in 5.4 calibration.
+    /// Step 5.4: calibrated best-guess values. Tank tolerates exposure;
+    /// Ranged punishes it most (-0.8). Support ally_rescue weight = 0.8.
     pub axis_terminal_weights: [[f32; 8]; 5],
 }
 
@@ -203,7 +203,15 @@ impl Default for Tables {
                 [   -1.5,   0.8,   0.8 ], // Control
                 [   -2.5,   1.3,   0.5 ], // Support
             ],
-            axis_terminal_weights: [[0.0; 8]; 5],
+            #[rustfmt::skip]
+            axis_terminal_weights: [
+                //  exp     ntl    sk     ar     bcg    la     dv     psz
+                [  -0.04, -0.06,  0.05,  0.07,  0.0,   0.0,   0.0,   0.0  ], // Tank
+                [  -0.06, -0.07,  0.08,  0.03,  0.0,   0.0,   0.0,   0.0  ], // Melee
+                [  -0.08, -0.09,  0.06,  0.03,  0.0,   0.0,   0.0,   0.0  ], // Ranged
+                [  -0.05, -0.06,  0.05,  0.03,  0.0,   0.0,   0.0,   0.0  ], // Control
+                [  -0.09, -0.09,  0.03,  0.13,  0.0,   0.0,   0.0,   0.0  ], // Support
+            ],
         }
     }
 }
@@ -443,15 +451,24 @@ mod tests {
     }
 
     #[test]
-    fn tables_axis_terminal_weights_defaults_to_zeros() {
-        // Empty [tables] section must parse and default axis_terminal_weights to all-zeros.
-        // Tests both the #[serde(default)] path (key absent) and an explicit zeros value.
+    fn tables_axis_terminal_weights_parses_and_defaults() {
+        // Step 5.4: default values are calibrated (non-zero) weights.
+        // An empty [tables] section falls back to Tables::default() via #[serde(default)],
+        // which now carries the calibrated 5.4 weights.
         let toml_src = "[tables]\n";
         let tuning: AiTuning =
             toml::from_str(toml_src).expect("empty [tables] must parse via serde(default)");
-        assert_eq!(tuning.tables.axis_terminal_weights, [[0.0f32; 8]; 5]);
+        let w = &tuning.tables.axis_terminal_weights;
+        // Tank (row 0): exposure=-0.04, lethality=-0.06, ally_rescue=+0.07
+        assert!((w[0][0] - (-0.04)).abs() < 1e-5, "Tank exposure weight");
+        assert!((w[0][1] - (-0.06)).abs() < 1e-5, "Tank lethality weight");
+        assert!((w[0][3] - 0.07).abs() < 1e-5, "Tank ally_rescue weight");
+        // Support (row 4): ally_rescue=+0.13 (highest across all roles)
+        assert!((w[4][3] - 0.13).abs() < 1e-5, "Support ally_rescue weight");
+        // Ranged (row 2): most punished for exposure (-0.08 vs Tank -0.04)
+        assert!((w[2][0] - (-0.08)).abs() < 1e-5, "Ranged exposure weight");
 
-        // Explicit zeros — same result.
+        // Explicit explicit TOML parse with custom values overrides default.
         let toml_explicit = "[tables]\naxis_terminal_weights = [\
             [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],\
             [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],\
