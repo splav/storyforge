@@ -5,7 +5,7 @@ use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::repair::{
-    classify_continuation_outcome, ContinuationSeverity, extract_goal_context,
+    classify_continuation_outcome, ContinuationSeverity, FreshDecisionKind, extract_goal_context,
 };
 use crate::combat::ai::log::AiLogger;
 use crate::combat::ai::reservations::Reservations;
@@ -178,12 +178,20 @@ fn run_ai_turn(
     // Divergence log: emit whenever we have both a stored goal and a fresh plan.
     // The `stored` side is synthesised from last_goal (step 6.6 — StoredPlan removed).
     if let (Some(ref stored_goal), Some(ref fresh)) = (&memory_ref.last_goal, &fresh_chosen) {
-        let fresh_step1 = fresh.plan.steps.get(1);
+        let fresh_decision_kind = match decision {
+            AiDecision::CastInPlace { .. } | AiDecision::MoveAndCast { .. } => {
+                FreshDecisionKind::Cast
+            }
+            AiDecision::Move { .. } => FreshDecisionKind::Move,
+            AiDecision::EndTurn => FreshDecisionKind::EndTurn,
+        };
+        let fresh_reason = &fresh.reason;
         let age = combat_ctx.round.saturating_sub(stored_goal.created_round);
         let continuation_outcome = classify_continuation_outcome(
             Some(stored_goal),
             fresh.intent,
-            fresh_step1,
+            fresh_decision_kind,
+            fresh_reason,
             continuation_severity,
             age,
         );

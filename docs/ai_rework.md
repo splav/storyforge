@@ -163,7 +163,7 @@
 
 ---
 
-### 6. Goal-preserving plan repair ✓ DONE (6.6a; 6.6b pending v25 playtest)
+### 6. Goal-preserving plan repair ✓ DONE (6.6b)
 
 **Сложность:** 3
 **Польза:** 5
@@ -175,7 +175,7 @@
 **Как реализовано** (декомпозиция: `docs/ai_rework_step6_plan.md`, сабшаги 6.0–6.6a):
 
 - Модуль `src/combat/ai/repair/` с тремя файлами:
-  - `mod.rs` — `ContinuationSeverity { Cosmetic, Relevant, Invalidating }`, `PlanContinuationCheck`, `classify_mismatch`, `ContinuationOutcome { GoalPreservedMethodPreserved, GoalPreservedMethodChanged, GoalAbandoned { reason: AbandonReason }, NoStoredGoal }`, `classify_continuation_outcome`.
+  - `mod.rs` — `ContinuationSeverity { Cosmetic, Relevant, Invalidating }`, `PlanContinuationCheck`, `classify_mismatch`, `ContinuationOutcome` (7 variant'ов: `GoalPreservedMethodDelivered`, `GoalPreservedInTransit`, `GoalAbandonedReactive { source }`, `GoalAbandonedVoluntary`, `GoalAbandonedInvalidating`, `GoalAbandonedTtlExpired`, `NoStoredGoal`; + `LegacyV25Abandoned { reason }` для backward-compat), `FreshDecisionKind { Cast, Move, EndTurn }`, `classify_continuation_outcome` (6 args, включая `fresh_decision_kind` + `fresh_reason` для reactive/voluntary discrimination).
   - `goal.rs` — `GoalKind` (7 вариантов: `Finish` / `Pressure` / `DisableEnemy` / `HealAlly` / `Retreat` / `SetupAOE` / `Reposition`), `StoredGoalContext` (поля: kind, region_anchor, region_radius, planned_ability, ttl, confidence, created_round + severity-поля expected_actor_pos, actor_hp_at_store, actor_rage_at_store, actor_status_hash, target_hp_at_store, target_pos_at_store), `extract_goal_context` producer + `StoredGoalContext::check_continuation` (заменил `PlanSnapshot::mismatch` для goal-уровня).
   - `affinity.rs` — `RepairAffinity` (6 axes: goal_alignment, region_alignment, method_alignment, severity_factor, ttl_factor, confidence) + `RepairWeights` + `compute_repair_affinity` + `aggregate(weights)`.
 
@@ -193,17 +193,18 @@
 
 - `continuation_from_stored` (exact-continuation path) удалён в 6.6a. Решение всегда строится из fresh plans + repair-affinity bonus. `used_continuation` поле в `PlanDivergenceEntry` оставлено как deprecated (всегда false) для backward compat v24 logs.
 
-- Schema bumps: v22→v23 (terminal eval, ещё в step 5), v23→v24 (`PlanDivergenceEntry` extension в 6.5), v24→v25 (`AiMemorySnapshot.last_plan` → `last_goal: Option<StoredGoalContextSnapshot>` в 6.6a).
+- Schema bumps: v22→v23 (terminal eval, ещё в step 5), v23→v24 (`PlanDivergenceEntry` extension в 6.5), v24→v25 (`AiMemorySnapshot.last_plan` → `last_goal: Option<StoredGoalContextSnapshot>` в 6.6a), v25→v26 (7-variant `ContinuationOutcome` split + `FreshDecisionKind` в 6.6b).
 
 - Логирование `mine_ai_logs.rs` секция C6 `=== Continuation analysis ===` показывает разбивку по `goal_preserved | method_*`, `goal_abandoned | reason`, severity distribution, goal_kind distribution.
 
-**Что отложено в 6.6b:**
-- 5 новых ai_scenarios (`continuation_target_dies_replan`, `continuation_cosmetic_rage_tick_no_replan`, `continuation_actor_hp_drop_relevant`, `continuation_setup_aoe_two_ticks`, `continuation_ttl_expires`) — требуют v25 playtest logs с реально установленным last_goal в decision moment.
-- Post-step-6 mining: подтверждение mining-таргетов (`goal_preserved|method_preserved ≥ 60%`, `cosmetic_mismatch = 0%`) на свежих v25 playtest'ах.
+**Что ещё отложено (из 6.6b backlog):**
+- 5 новых ai_scenarios (`continuation_target_dies_replan`, `continuation_cosmetic_rage_tick_no_replan`, `continuation_actor_hp_drop_relevant`, `continuation_setup_aoe_two_ticks`, `continuation_ttl_expires`) — pending.
 - Калибровка `repair_bonus_scale` через playtest mining (старт `0.4`).
-- `goal_preserved|method_preserved` вместо binary continuation в overlay-assertion'ах для существующих 9 scenarios.
 
-**Gate-результаты 6.6a:** golden round-trip `golden_post_step6.jsonl` 0/131; diff golden_post_step5 vs golden_post_step6 = 0 (replay-пайплайн неизменен на v24 corpus, поскольку last_goal=None в JSONL до v25 и repair bonus неактивен в replay path). Real-world сдвиг — через mining post-playtest'ов.
+**Gate-результаты 6.6b:** `in_transit: 24 (58.5%)`, `legacy_v25_abandoned: 17 (41.5%)` на v25 corpus (6 файлов 20260425T17); 0/131 golden; 443 lib tests + 1 ai_scenarios + 6 mine tests зелёные.
+v26 mining gate (full voluntary/reactive split) — следующий playtest corpus.
+
+**Gate-результаты 6.6a:** golden round-trip `golden_post_step6.jsonl` 0/131; diff golden_post_step5 vs golden_post_step6 = 0.
 
 ---
 

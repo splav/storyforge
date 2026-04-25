@@ -307,15 +307,26 @@ if ctx.last_goal.is_some() {
 
 Sanity-mask и `apply_protect_self_mask` contract нетронуты — continuation меняет только axis weights в aggregator'е.
 
-**`ContinuationOutcome`** для логов (`PlanDivergenceEntry.continuation_outcome`):
-- `GoalPreservedMethodPreserved` — same goal + same planned_ability.
-- `GoalPreservedMethodChanged` — same goal, другой method.
-- `GoalAbandoned { reason: InvalidatingMismatch | TtlExpired | IntentDiverged }`.
+**`ContinuationOutcome`** для логов (`PlanDivergenceEntry.continuation_outcome`, schema v26+):
+- `GoalPreservedMethodDelivered` — same goal, fresh = Cast/MoveAndCast → actor delivered the arc.
+- `GoalPreservedInTransit` — same goal, fresh = Move-only → actor walking toward it.
+- `GoalAbandonedReactive { source }` — forced by environment (taunt, panic, viability fallback).
+- `GoalAbandonedVoluntary` — actor freely picked another intent (the real commitment-failure signal).
+- `GoalAbandonedInvalidating` — target dead / position mismatch (hard invalidation).
+- `GoalAbandonedTtlExpired` — goal age ≥ ttl.
 - `NoStoredGoal` — первый тик / после Cast/EndTurn.
+- `LegacyV25Abandoned { reason }` — pre-v26 entry с нераздельным `goal_abandoned`; voluntary/reactive split неизвестен.
 
-`mine_ai_logs` секция «`=== Continuation analysis ===`» агрегирует распределение по этим outcome'ам — целевые таргеты: `goal_preserved|method_preserved ≥ 60%`, `cosmetic_mismatch = 0%`.
+`mine_ai_logs` секция **C6** агрегирует распределение — целевые таргеты (v26+ corpus):
+`goal_preserved (combined) ≥ 60%`, `goal_abandoned|voluntary ≤ 10%`, `method_delivered ≥ 10%`.
 
-Schema versions: `last_goal` появилось в JSONL в v25 (step 6.6a); `continuation_outcome` + `repair_affinity` — в v24 (step 6.5). v22-v24 logs deserialize через `#[serde(default)]` без потерь.
+**Примечание по mining на v25 логах:** v25 corpus показывает только partial breakdown через alias;
+full breakdown (voluntary/reactive split) — на v26+ playtest'ах.
+v25 пример: `in_transit: 24 (58.5%)`, `legacy_v25_abandoned: 17 (41.5%)`.
+
+Schema versions: `continuation_outcome` (v25 shape: `{kind,reason}`) появилось в v25 (step 6.6a);
+рефинировано до 7-variant split в v26 (step 6.6b). v25 aliases + `LegacyV25Abandoned` обеспечивают
+backward-compat десериализацию без потерь. v22-v24 logs — `#[serde(default)]` → `NoStoredGoal`.
 
 Полная декомпозиция: `docs/ai_rework_step6_plan.md`.
 

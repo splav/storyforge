@@ -26,7 +26,9 @@
 
 **Замечание.** Не делать `continue_commitment` жёстким приоритетом — он должен проигрывать явно лучшему ходу (новая цель умирает этим ходом, старая укрылась за AoO-цепью). Logistic с плавным плато 0.6–0.8 в середине, а не step function.
 
-**Status post-step-6.** P1 closed на архитектурном уровне через **repair affinity** (`docs/ai_rework_step6_plan.md`). `continue_commitment` модулирует stickiness в `select_intent` (step 3.3) и масштабирует repair-bonus в `finalize_scores` (step 6.3). Goal-уровень commitment'а реализован через `StoredGoalContext` + `RepairAffinity` — fresh plans, сохраняющие исходный goal/target/method, получают score-bonus, который multiplied на `(1 + continue_commitment)`. Quantitative подтверждение целевой ≤ 2.5% FocusTarget-switches с живой целью ≥50% HP — ожидается через mining post-step-6 на v25 playtest logs (6.6b).
+**Status post-step-6 (6.6b).** P1 closed на архитектурном уровне через **repair affinity** (`docs/ai_rework_step6_plan.md`). `continue_commitment` модулирует stickiness в `select_intent` (step 3.3) и масштабирует repair-bonus в `finalize_scores` (step 6.3). Goal-уровень commitment'а реализован через `StoredGoalContext` + `RepairAffinity` — fresh plans, сохраняющие исходный goal/target/method, получают score-bonus, который multiplied на `(1 + continue_commitment)`.
+
+Mining gate post-6.6b (v25 corpus): `in_transit: 24 (58.5%)`, `legacy_v25_abandoned: 17 (41.5%)` — v25 corpus не содержит voluntary/reactive breakdown (записывался до schema v26). Quantitative подтверждение целевой ≤ 2.5% FocusTarget-switches + full voluntary/reactive split — **v26 mining gate: следующий playtest corpus** (ожидается ~58.5% combined preserved ≥ 60%, voluntary ≤ 10%).
 
 ---
 

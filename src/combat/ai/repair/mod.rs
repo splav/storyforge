@@ -1,5 +1,5 @@
 /// Goal-preserving plan repair — scaffolding (step 6.0) + goal extraction (6.1)
-/// + repair affinity computation (6.2) + continuation outcome (6.5).
+/// + repair affinity computation (6.2) + continuation outcome (6.5/6.6b).
 ///
 /// This module classifies mismatch codes produced by `PlanSnapshot::mismatch()`
 /// into semantic severity levels, enabling downstream logic (6.3+) to reason
@@ -11,8 +11,7 @@ pub use goal::{GoalKind, StoredGoalContext, extract_goal_context};
 pub mod affinity;
 pub use affinity::{RepairAffinity, RepairWeights, compute_repair_affinity};
 
-use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::planning::types::PlanStep;
+use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use serde::{Deserialize, Serialize};
 
 /// Semantic severity of a detected state mismatch between a stored plan
@@ -86,60 +85,100 @@ pub fn classify_mismatch(code: &'static str) -> ContinuationSeverity {
     }
 }
 
-// ── ContinuationOutcome (step 6.5) ───────────────────────────────────────────
-
-/// Reason why a stored goal was abandoned on the current tick.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AbandonReason {
-    /// The plan-snapshot mismatch was `Invalidating` (target dead/gone, actor
-    /// displaced, etc.) — the goal cannot be continued at all.
-    InvalidatingMismatch,
-    /// The goal's TTL has elapsed (current_round - created_round >= ttl).
-    TtlExpired,
-    /// The fresh plan's intent does not match the stored goal's kind/target.
-    IntentDiverged,
-}
+// ── ContinuationOutcome (step 6.5, refined in 6.6b) ──────────────────────────
 
 /// High-level outcome of the goal-preservation check on each tick.
 ///
 /// Produced by `classify_continuation_outcome` and written into
-/// `PlanDivergenceEntry.continuation_outcome` (schema v24, step 6.5).
+/// `PlanDivergenceEntry.continuation_outcome` (schema v26, step 6.6b).
 ///
-/// Default = `NoStoredGoal` via `serde(default)` for backward compat with v23
-/// logs that lack the field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+/// ## Backward-compat aliases (v25 logs)
+/// - `goal_preserved_method_preserved` → `GoalPreservedMethodDelivered`
+/// - `goal_preserved_method_changed`   → `GoalPreservedInTransit`
+/// - old `goal_abandoned { reason }` (v25 write-time shape) → `LegacyV25Abandoned`
+///   explicit bucket; voluntary/reactive split was not recorded at write-time.
+///
+/// Default = `NoStoredGoal` via `#[serde(default)]` for backward compat with
+/// v23/v24 logs that lack the field.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ContinuationOutcome {
-    /// Stored goal preserved; fresh plan uses the same ability on the same
-    /// entity as stored — method unchanged.
-    GoalPreservedMethodPreserved,
-    /// Stored goal preserved (intent/target match), but fresh plan uses a
-    /// different ability or no Cast step at index 1.
-    GoalPreservedMethodChanged,
-    /// Stored goal explicitly abandoned for the given reason.
-    GoalAbandoned { reason: AbandonReason },
-    /// No stored goal — first tick after Cast/EndTurn, or memory cleared.
+    /// First tick or after Cast/EndTurn — no stored goal to compare.
     #[default]
+    #[serde(alias = "no_stored_goal")]
     NoStoredGoal,
+
+    /// Fresh decision is Cast or MoveAndCast on same target/ally as stored goal —
+    /// actor reached the climax of the planned arc this tick.
+    #[serde(alias = "goal_preserved_method_preserved")]
+    GoalPreservedMethodDelivered,
+
+    /// Fresh decision is Move-only (no Cast) but fresh intent matches stored
+    /// goal — actor is still committed and walking toward it.
+    #[serde(alias = "goal_preserved_method_changed")]
+    GoalPreservedInTransit,
+
+    /// Goal abandoned because environment/system forced it (taunt, panic,
+    /// adaptation, finisher opportunity, viability fallback).
+    /// `source` is the `IntentReason::code()` of the fresh decision —
+    /// kept as `String` for forward compat with new selection_kind codes.
+    GoalAbandonedReactive { source: String },
+
+    /// Goal abandoned because actor freely picked another target/intent
+    /// (selection_kind ∈ best_priority / reposition / setup_aoe / protect_ally /
+    ///  apply_cc / no_rule_default / urgency / adapted-with-non-reactive-prior).
+    /// This is the real "weak commitment" signal — the metric to minimize.
+    GoalAbandonedVoluntary,
+
+    /// Severity = Invalidating (target dead, actor pos mismatch).
+    GoalAbandonedInvalidating,
+
+    /// Stored goal age >= ttl.
+    GoalAbandonedTtlExpired,
+
+    /// Legacy v25 log entry: old `goal_abandoned { reason }` shape written before
+    /// the voluntary/reactive split was introduced in schema v26.
+    /// Preserved as an explicit bucket so v25 entries do not silently inflate
+    /// `NoStoredGoal` and distort post-v26 analysis.
+    #[serde(rename = "goal_abandoned")]
+    LegacyV25Abandoned { reason: String },
 }
 
 impl ContinuationOutcome {
-    /// Serde `default` helper: used as the backward-compat default for v23
-    /// log entries that predate schema v24.
+    /// Serde `default` helper: used as the backward-compat default for v23/v24
+    /// log entries that predate schema v24/v25.
     pub fn no_stored_goal() -> Self {
         Self::NoStoredGoal
     }
 }
 
-// ── Outcome classifier (step 6.5) ─────────────────────────────────────────────
+// ── FreshDecisionKind (step 6.6b) ─────────────────────────────────────────────
+
+/// Whether the fresh AI decision involves an ability cast this tick,
+/// a move-only step, or passing.
+///
+/// Used in `classify_continuation_outcome` to distinguish
+/// `GoalPreservedMethodDelivered` (Cast) from `GoalPreservedInTransit` (Move).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FreshDecisionKind {
+    /// Fresh = CastInPlace or MoveAndCast — actual ability use this tick.
+    Cast,
+    /// Fresh = Move only — actor walking, no ability cast.
+    Move,
+    /// Fresh = EndTurn — pass.
+    EndTurn,
+}
+
+// ── Outcome classifier (step 6.5, refined in 6.6b) ────────────────────────────
 
 /// Classify the continuation outcome for a single AI tick.
 ///
 /// Inputs:
 /// - `stored` — the goal context from the previous tick (`None` = first tick).
 /// - `fresh_intent` — intent of the fresh plan selected this tick.
-/// - `fresh_step1` — `fresh_plan.steps.get(1)` (the Cast step, if any).
+/// - `fresh_decision_kind` — whether the fresh decision casts, moves, or passes.
+/// - `fresh_reason` — `IntentReason` of the fresh chosen plan; used to
+///   discriminate reactive vs voluntary abandons.
 /// - `severity` — mismatch severity from `check_continuation`, if any.
 /// - `age` — `current_round.saturating_sub(stored.created_round)`.
 ///
@@ -147,37 +186,57 @@ impl ContinuationOutcome {
 pub fn classify_continuation_outcome(
     stored: Option<&StoredGoalContext>,
     fresh_intent: TacticalIntent,
-    fresh_step1: Option<&PlanStep>,
+    fresh_decision_kind: FreshDecisionKind,
+    fresh_reason: &IntentReason,
     severity: Option<ContinuationSeverity>,
     age: u32,
 ) -> ContinuationOutcome {
     let Some(stored) = stored else {
         return ContinuationOutcome::NoStoredGoal;
     };
+
+    // Order: hard invalidation first, then preservation, then abandon classification.
     if matches!(severity, Some(ContinuationSeverity::Invalidating)) {
-        return ContinuationOutcome::GoalAbandoned {
-            reason: AbandonReason::InvalidatingMismatch,
-        };
+        return ContinuationOutcome::GoalAbandonedInvalidating;
     }
     if age >= stored.ttl as u32 {
-        return ContinuationOutcome::GoalAbandoned {
-            reason: AbandonReason::TtlExpired,
+        return ContinuationOutcome::GoalAbandonedTtlExpired;
+    }
+
+    if goal_kind_matches_intent(&stored.kind, fresh_intent) {
+        return match fresh_decision_kind {
+            FreshDecisionKind::Cast => ContinuationOutcome::GoalPreservedMethodDelivered,
+            FreshDecisionKind::Move | FreshDecisionKind::EndTurn => {
+                ContinuationOutcome::GoalPreservedInTransit
+            }
         };
     }
-    if !goal_kind_matches_intent(&stored.kind, fresh_intent) {
-        return ContinuationOutcome::GoalAbandoned {
-            reason: AbandonReason::IntentDiverged,
-        };
-    }
-    let method_match = match (&stored.planned_ability, fresh_step1) {
-        (Some(stored_ab), Some(PlanStep::Cast { ability, .. })) => stored_ab == ability,
-        _ => false,
-    };
-    if method_match {
-        ContinuationOutcome::GoalPreservedMethodPreserved
+
+    // Goal abandoned — distinguish reactive vs voluntary by fresh_reason.code().
+    if is_reactive_reason(fresh_reason) {
+        ContinuationOutcome::GoalAbandonedReactive {
+            source: fresh_reason.code().to_owned(),
+        }
     } else {
-        ContinuationOutcome::GoalPreservedMethodChanged
+        ContinuationOutcome::GoalAbandonedVoluntary
     }
+}
+
+/// Returns `true` when the intent reason is an environmental/system override —
+/// i.e. the actor did not freely abandon their goal, but was forced by an
+/// external constraint (taunt, panic, viability fallback, finisher opportunity).
+fn is_reactive_reason(reason: &IntentReason) -> bool {
+    matches!(
+        reason.code(),
+        "taunt_forced"
+            | "taunt_cc"
+            | "panic_override"
+            | "viability_fallback"
+            | "midpanic_fallback"
+            | "protect_self_no_defensive"
+            | "expected_self_lethal"
+            | "killable"
+    )
 }
 
 /// Returns `true` when `kind` and `intent` describe the same goal on the
@@ -244,7 +303,7 @@ mod tests {
         );
     }
 
-    // ── classify_continuation_outcome tests (step 6.5) ──────────────────────
+    // ── classify_continuation_outcome tests (step 6.5, updated in 6.6b) ────────
 
     fn ent(bits: u64) -> bevy::prelude::Entity {
         bevy::prelude::Entity::from_bits(bits)
@@ -274,7 +333,8 @@ mod tests {
         let outcome = classify_continuation_outcome(
             None,
             TacticalIntent::FocusTarget { target: ent(1) },
-            None,
+            FreshDecisionKind::Move,
+            &IntentReason::NoRuleDefault,
             None,
             0,
         );
@@ -282,19 +342,17 @@ mod tests {
     }
 
     #[test]
-    fn classify_invalidating_severity_yields_abandoned() {
+    fn classify_invalidating_severity_yields_abandoned_invalidating() {
         let stored = stored_finish(ent(1));
         let outcome = classify_continuation_outcome(
             Some(&stored),
             TacticalIntent::FocusTarget { target: ent(1) },
-            None,
+            FreshDecisionKind::Move,
+            &IntentReason::NoRuleDefault,
             Some(ContinuationSeverity::Invalidating),
             0,
         );
-        assert_eq!(
-            outcome,
-            ContinuationOutcome::GoalAbandoned { reason: AbandonReason::InvalidatingMismatch }
-        );
+        assert_eq!(outcome, ContinuationOutcome::GoalAbandonedInvalidating);
     }
 
     #[test]
@@ -303,70 +361,98 @@ mod tests {
         let outcome = classify_continuation_outcome(
             Some(&stored),
             TacticalIntent::FocusTarget { target: ent(1) },
-            None,
+            FreshDecisionKind::Move,
+            &IntentReason::NoRuleDefault,
             None,
             2, // age == ttl → expired
         );
-        assert_eq!(
-            outcome,
-            ContinuationOutcome::GoalAbandoned { reason: AbandonReason::TtlExpired }
-        );
+        assert_eq!(outcome, ContinuationOutcome::GoalAbandonedTtlExpired);
     }
 
     #[test]
-    fn classify_intent_diverged() {
-        // stored: Finish on ent(1), fresh: FocusTarget on ent(2)
+    fn classify_voluntary_abandon_on_intent_diverged() {
+        // stored: Finish on ent(1), fresh: FocusTarget on ent(2), non-reactive reason
         let stored = stored_finish(ent(1));
         let outcome = classify_continuation_outcome(
             Some(&stored),
             TacticalIntent::FocusTarget { target: ent(2) },
+            FreshDecisionKind::Move,
+            &IntentReason::BestPriority { priority: 1.0 },
             None,
+            0,
+        );
+        assert_eq!(outcome, ContinuationOutcome::GoalAbandonedVoluntary);
+    }
+
+    #[test]
+    fn classify_reactive_abandon_on_taunt() {
+        // stored: Finish on ent(1), fresh: different intent, reason = TauntForced
+        let stored = stored_finish(ent(1));
+        let outcome = classify_continuation_outcome(
+            Some(&stored),
+            TacticalIntent::FocusTarget { target: ent(2) },
+            FreshDecisionKind::Move,
+            &IntentReason::TauntForced,
             None,
             0,
         );
         assert_eq!(
             outcome,
-            ContinuationOutcome::GoalAbandoned { reason: AbandonReason::IntentDiverged }
+            ContinuationOutcome::GoalAbandonedReactive { source: "taunt_forced".to_owned() }
         );
     }
 
     #[test]
-    fn classify_method_preserved() {
-        let target = ent(1);
-        let ab = crate::core::AbilityId("slash".into());
-        let stored = stored_finish(target); // planned_ability = "slash"
-        let step1 = PlanStep::Cast {
-            ability: ab.clone(),
-            target,
-            target_pos: crate::game::hex::Hex::new(1, 0),
-        };
+    fn classify_reactive_abandon_on_killable() {
+        let stored = stored_finish(ent(1));
         let outcome = classify_continuation_outcome(
             Some(&stored),
-            TacticalIntent::FocusTarget { target },
-            Some(&step1),
+            TacticalIntent::FocusTarget { target: ent(2) },
+            FreshDecisionKind::Cast,
+            &IntentReason::Killable {
+                threat: 0.9,
+                eff_hp: 10,
+                reach_budget: 1,
+                finish_target: 0.8,
+            },
             None,
             0,
         );
-        assert_eq!(outcome, ContinuationOutcome::GoalPreservedMethodPreserved);
+        assert_eq!(
+            outcome,
+            ContinuationOutcome::GoalAbandonedReactive { source: "killable".to_owned() }
+        );
     }
 
     #[test]
-    fn classify_method_changed() {
+    fn classify_goal_preserved_cast_yields_method_delivered() {
         let target = ent(1);
-        let stored = stored_finish(target); // planned_ability = "slash"
-        // fresh uses a different ability
-        let step1 = PlanStep::Cast {
-            ability: crate::core::AbilityId("fireball".into()),
-            target,
-            target_pos: crate::game::hex::Hex::new(1, 0),
-        };
+        let stored = stored_finish(target);
+        // Cast decision on matching target → GoalPreservedMethodDelivered
         let outcome = classify_continuation_outcome(
             Some(&stored),
             TacticalIntent::FocusTarget { target },
-            Some(&step1),
+            FreshDecisionKind::Cast,
+            &IntentReason::BestPriority { priority: 1.0 },
             None,
             0,
         );
-        assert_eq!(outcome, ContinuationOutcome::GoalPreservedMethodChanged);
+        assert_eq!(outcome, ContinuationOutcome::GoalPreservedMethodDelivered);
+    }
+
+    #[test]
+    fn classify_goal_preserved_move_yields_in_transit() {
+        let target = ent(1);
+        let stored = stored_finish(target);
+        // Move-only decision, matching intent → GoalPreservedInTransit
+        let outcome = classify_continuation_outcome(
+            Some(&stored),
+            TacticalIntent::FocusTarget { target },
+            FreshDecisionKind::Move,
+            &IntentReason::BestPriority { priority: 1.0 },
+            None,
+            0,
+        );
+        assert_eq!(outcome, ContinuationOutcome::GoalPreservedInTransit);
     }
 }

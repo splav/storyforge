@@ -830,7 +830,7 @@ cargo run --bin replay_ai_log -- --capture-golden \
 | 6.4 | continuation evaluator (два набора role-axis весов) | 1.0 | per-entry, cumulative ≤25/131 | done (`4209935`) |
 | 6.5 | log overhaul + mining extension + schema v23→v24 | 1.0 | schema migration test, scenarios зелёные | done (`4f64b80`) |
 | 6.6a | migration `continuation_from_stored` → repair-only + schema v24→v25 + rebaseline на v24 corpus | 1.0 | golden round-trip 0/131, diff old vs new = 0 | done (`a9a058f`) |
-| 6.6b | 5 new ai_scenarios + post-step-6 mining + sync docs | 0.5 | mining-таргеты подтверждены, scenarios зелёные | pending — требует v25 playtest logs |
+| 6.6b | metric refinement — outcome split + reactive vs voluntary abandon (schema v25→v26) | 0.5 | in_transit 24/58.5% + legacy_v25_abandoned 17/41.5%, 0/131 golden, scenarios зелёные | done (см. ниже) |
 
 **Суммарно ~8 дней.**
 
@@ -877,6 +877,23 @@ cargo run --bin replay_ai_log -- --capture-golden \
 | Stable monotone_focus через 5+ ticks | (testing-only сейчас) | yes (новый scenario) |
 
 Качественно — **меньше oscillation в commitment'е** на live-плейтестах: actors доводят goal до конца либо явно abandon'ят с структурированной reason'ой.
+
+### 6.6b. Metric refinement — done
+
+**Что сделано:**
+- `ContinuationOutcome` рефинирован: 3 abandon-варианта → 4 отдельных variant'а
+  (`GoalAbandonedReactive { source }`, `GoalAbandonedVoluntary`, `GoalAbandonedInvalidating`, `GoalAbandonedTtlExpired`).
+- `GoalPreservedMethodPreserved` / `GoalPreservedMethodChanged` → `GoalPreservedMethodDelivered` / `GoalPreservedInTransit`.
+- Reactive vs voluntary discrimination через `IntentReason::code()` в `classify_continuation_outcome`.
+- Schema bump v25→v26 (новые variant names + wire shape).
+- `FreshDecisionKind` enum — Cast vs Move различение в classify.
+- Backward-compat: `#[serde(alias)]` для v25 preservation entries; `LegacyV25Abandoned { reason }` explicit bucket для v25 abandoned entries.
+- `mine_ai_logs` C6 секция: новые buckets + `legacy_v25_abandoned` bucket с note.
+
+**Gate (v25 corpus — 6 файлов 20260425T17):** `in_transit: 24 (58.5%)`, `legacy_v25_abandoned: 17 (41.5%)`, нет паники.
+**Gate (v26 corpus):** full breakdown с voluntary/reactive split — следующий playtest.
+
+**Примечание:** 5 новых ai_scenarios (из исходного 6.6b плана) остаются pending — нет подходящего corpus для них без нового playtest'а.
 
 ## Что откладывается
 

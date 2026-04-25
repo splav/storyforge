@@ -54,24 +54,30 @@ struct Entry {
     goal_kind: Option<String>,
 }
 
-/// Mirror of `ContinuationOutcome` for deserialization in the miner.
-/// Uses the tagged-enum wire format produced by the game.
+/// Mirror of `ContinuationOutcome` for deserialization in the miner (schema v26+).
+///
+/// Aliases cover v25 wire names:
+/// - `goal_preserved_method_preserved` → `GoalPreservedMethodDelivered`
+/// - `goal_preserved_method_changed`   → `GoalPreservedInTransit`
+/// - old `goal_abandoned { reason }` (v25) → `LegacyV25Abandoned` (explicit bucket,
+///   voluntary/reactive split was not recorded at v25 write-time).
 #[derive(Deserialize, Debug)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum ContinuationOutcomeEntry {
-    GoalPreservedMethodPreserved,
-    GoalPreservedMethodChanged,
-    GoalAbandoned { reason: AbandonReasonEntry },
+    #[serde(alias = "goal_preserved_method_preserved")]
+    GoalPreservedMethodDelivered,
+    #[serde(alias = "goal_preserved_method_changed")]
+    GoalPreservedInTransit,
+    GoalAbandonedReactive { source: String },
+    GoalAbandonedVoluntary,
+    GoalAbandonedInvalidating,
+    GoalAbandonedTtlExpired,
+    /// Explicit bucket for v25 entries written as `{"kind":"goal_abandoned","reason":"..."}`.
+    /// Shown separately in C6 printout with a note that voluntary/reactive split is unknown.
+    #[serde(rename = "goal_abandoned")]
+    LegacyV25Abandoned { reason: String },
+    #[serde(other)]
     NoStoredGoal,
-}
-
-/// Mirror of `AbandonReason` for deserialization.
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "snake_case")]
-enum AbandonReasonEntry {
-    InvalidatingMismatch,
-    TtlExpired,
-    IntentDiverged,
 }
 
 #[derive(Deserialize)]
@@ -118,13 +124,17 @@ struct Aggregate {
     replan_reason_counts: BTreeMap<String, usize>,
     total_divergences: usize,
 
-    // C6: continuation analysis (step 6.5 — v24+ logs)
+    // C6: continuation analysis (step 6.6b — v26+ logs; v25 aliases supported)
     cont_no_stored: usize,
-    cont_method_preserved: usize,
-    cont_method_changed: usize,
+    cont_method_delivered: usize,
+    cont_in_transit: usize,
+    cont_abandoned_reactive: BTreeMap<String, usize>,
+    cont_abandoned_voluntary: usize,
     cont_abandoned_invalidating: usize,
-    cont_abandoned_ttl: usize,
-    cont_abandoned_intent_diverged: usize,
+    cont_abandoned_ttl_expired: usize,
+    /// v25 legacy bucket: old `goal_abandoned { reason }` shape, voluntary/reactive
+    /// split unknown — shown separately so it doesn't inflate `no_stored_goal`.
+    cont_legacy_v25_abandoned: BTreeMap<String, usize>,
     cont_severity_counts: BTreeMap<String, usize>,
     cont_goal_kind_counts: BTreeMap<String, usize>,
     total_divergences_with_outcome: usize,
@@ -184,23 +194,33 @@ impl Aggregate {
         };
         *self.replan_reason_counts.entry(reason).or_default() += 1;
 
-        // C6: continuation outcome (v24+ only; v23 entries have None → counted as no_stored)
+        // C6: continuation outcome (v26+ shape; v25 aliases deserialized via serde)
         self.total_divergences_with_outcome += 1;
         match &entry.continuation_outcome {
             None | Some(ContinuationOutcomeEntry::NoStoredGoal) => {
                 self.cont_no_stored += 1;
             }
-            Some(ContinuationOutcomeEntry::GoalPreservedMethodPreserved) => {
-                self.cont_method_preserved += 1;
+            Some(ContinuationOutcomeEntry::GoalPreservedMethodDelivered) => {
+                self.cont_method_delivered += 1;
             }
-            Some(ContinuationOutcomeEntry::GoalPreservedMethodChanged) => {
-                self.cont_method_changed += 1;
+            Some(ContinuationOutcomeEntry::GoalPreservedInTransit) => {
+                self.cont_in_transit += 1;
             }
-            Some(ContinuationOutcomeEntry::GoalAbandoned { reason }) => match reason {
-                AbandonReasonEntry::InvalidatingMismatch => self.cont_abandoned_invalidating += 1,
-                AbandonReasonEntry::TtlExpired => self.cont_abandoned_ttl += 1,
-                AbandonReasonEntry::IntentDiverged => self.cont_abandoned_intent_diverged += 1,
-            },
+            Some(ContinuationOutcomeEntry::GoalAbandonedReactive { source }) => {
+                *self.cont_abandoned_reactive.entry(source.clone()).or_default() += 1;
+            }
+            Some(ContinuationOutcomeEntry::GoalAbandonedVoluntary) => {
+                self.cont_abandoned_voluntary += 1;
+            }
+            Some(ContinuationOutcomeEntry::GoalAbandonedInvalidating) => {
+                self.cont_abandoned_invalidating += 1;
+            }
+            Some(ContinuationOutcomeEntry::GoalAbandonedTtlExpired) => {
+                self.cont_abandoned_ttl_expired += 1;
+            }
+            Some(ContinuationOutcomeEntry::LegacyV25Abandoned { reason }) => {
+                *self.cont_legacy_v25_abandoned.entry(reason.clone()).or_default() += 1;
+            }
         }
 
         if let Some(sev) = &entry.continuation_severity {
@@ -443,23 +463,52 @@ fn main() {
     }
     println!();
 
-    // C6: Continuation analysis (v24+ logs)
-    println!("## C6. Continuation analysis (plan_divergence entries, schema v24+)");
+    // C6: Continuation analysis (v26+ shape; v25 aliases supported)
+    println!("## C6. Continuation analysis (plan_divergence entries, schema v26+)");
     println!();
     let n = agg.total_divergences_with_outcome;
-    println!("Total plan_divergence entries: {n}");
-    println!("  (v23 logs: all entries count as no_stored_goal via serde default)");
+    // Derived totals for combined line
+    let cont_preserved_combined = agg.cont_method_delivered + agg.cont_in_transit;
+    let cont_abandoned_reactive_total: usize = agg.cont_abandoned_reactive.values().sum();
+    println!("Total plan_divergence entries with outcome: {n}");
+    println!("  (v23/v24 logs: all entries count as no_stored_goal via serde default)");
+    println!("  (v25 logs: goal_preserved aliases parsed; goal_abandoned → no_stored via #[serde(other)])");
     println!();
     if n == 0 {
         println!("  (no plan_divergence entries found)");
     } else {
         println!(
-            "  goal_preserved | method_preserved : {:>6.1}%  ({})  [target: ≥60%]",
-            pct(agg.cont_method_preserved, n), agg.cont_method_preserved,
+            "  goal_preserved | method_delivered : {:>6.1}%  ({})  [target: ≥10%]",
+            pct(agg.cont_method_delivered, n), agg.cont_method_delivered,
         );
         println!(
-            "  goal_preserved | method_changed   : {:>6.1}%  ({})",
-            pct(agg.cont_method_changed, n), agg.cont_method_changed,
+            "  goal_preserved | in_transit       : {:>6.1}%  ({})",
+            pct(agg.cont_in_transit, n), agg.cont_in_transit,
+        );
+        println!(
+            "  goal_preserved (combined)         : {:>6.1}%  ({})  [target: ≥60%]",
+            pct(cont_preserved_combined, n), cont_preserved_combined,
+        );
+        println!();
+        println!(
+            "  goal_abandoned | reactive         : {:>6.1}%  ({})",
+            pct(cont_abandoned_reactive_total, n), cont_abandoned_reactive_total,
+        );
+        // Print reactive breakdown sorted by count descending.
+        {
+            let mut reactive_rows: Vec<(&str, usize)> = agg
+                .cont_abandoned_reactive
+                .iter()
+                .map(|(k, v)| (k.as_str(), *v))
+                .collect();
+            reactive_rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+            for (src, count) in &reactive_rows {
+                println!("    {:<34} {:>4}  ({:5.1}%)", src, count, pct(*count, n));
+            }
+        }
+        println!(
+            "  goal_abandoned | voluntary        : {:>6.1}%  ({})  [target: ≤10%, REAL commitment failure]",
+            pct(agg.cont_abandoned_voluntary, n), agg.cont_abandoned_voluntary,
         );
         println!(
             "  goal_abandoned | invalidating     : {:>6.1}%  ({})",
@@ -467,16 +516,28 @@ fn main() {
         );
         println!(
             "  goal_abandoned | ttl_expired      : {:>6.1}%  ({})",
-            pct(agg.cont_abandoned_ttl, n), agg.cont_abandoned_ttl,
-        );
-        println!(
-            "  goal_abandoned | intent_diverged  : {:>6.1}%  ({})",
-            pct(agg.cont_abandoned_intent_diverged, n), agg.cont_abandoned_intent_diverged,
+            pct(agg.cont_abandoned_ttl_expired, n), agg.cont_abandoned_ttl_expired,
         );
         println!(
             "  no_stored_goal                    : {:>6.1}%  ({})",
             pct(agg.cont_no_stored, n), agg.cont_no_stored,
         );
+        if !agg.cont_legacy_v25_abandoned.is_empty() {
+            let legacy_total: usize = agg.cont_legacy_v25_abandoned.values().sum();
+            println!(
+                "  legacy_v25_abandoned              : {:>6.1}%  ({})  [pre-v26 entries, voluntary/reactive split unknown]",
+                pct(legacy_total, n), legacy_total,
+            );
+            let mut rows: Vec<(&str, usize)> = agg
+                .cont_legacy_v25_abandoned
+                .iter()
+                .map(|(k, v)| (k.as_str(), *v))
+                .collect();
+            rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+            for (reason, count) in &rows {
+                println!("    {:<34} {:>4}  ({:5.1}%)", reason, count, pct(*count, n));
+            }
+        }
         if !agg.cont_severity_counts.is_empty() {
             println!();
             println!("  severity distribution:");
@@ -629,5 +690,52 @@ mod tests {
     fn pct_zero_denominator_returns_zero() {
         assert_eq!(pct(5, 0), 0.0);
         assert!((pct(1, 4) - 25.0).abs() < 1e-9);
+    }
+
+    fn div_entry(outcome: Option<ContinuationOutcomeEntry>) -> Entry {
+        Entry {
+            event_type: Some("plan_divergence".to_owned()),
+            plan_id: 0,
+            actor_id: 1,
+            intent: None,
+            plans: vec![],
+            replan_reason: None,
+            used_continuation: false,
+            continuation_outcome: outcome,
+            continuation_severity: None,
+            goal_kind: None,
+        }
+    }
+
+    #[test]
+    fn continuation_outcomes_counted_correctly() {
+        let mut agg = make_agg();
+        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalPreservedMethodDelivered)));
+        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalPreservedMethodDelivered)));
+        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalPreservedInTransit)));
+        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalAbandonedVoluntary)));
+        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalAbandonedReactive {
+            source: "taunt_forced".to_owned(),
+        })));
+        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalAbandonedReactive {
+            source: "killable".to_owned(),
+        })));
+        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalAbandonedInvalidating)));
+        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalAbandonedTtlExpired)));
+        agg.process_plan_divergence(&div_entry(None)); // no_stored_goal
+        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::LegacyV25Abandoned {
+            reason: "intent_diverged".to_owned(),
+        })));
+
+        assert_eq!(agg.total_divergences_with_outcome, 10);
+        assert_eq!(agg.cont_method_delivered, 2);
+        assert_eq!(agg.cont_in_transit, 1);
+        assert_eq!(agg.cont_abandoned_voluntary, 1);
+        assert_eq!(*agg.cont_abandoned_reactive.get("taunt_forced").unwrap(), 1);
+        assert_eq!(*agg.cont_abandoned_reactive.get("killable").unwrap(), 1);
+        assert_eq!(agg.cont_abandoned_invalidating, 1);
+        assert_eq!(agg.cont_abandoned_ttl_expired, 1);
+        assert_eq!(agg.cont_no_stored, 1);
+        assert_eq!(*agg.cont_legacy_v25_abandoned.get("intent_diverged").unwrap(), 1);
     }
 }

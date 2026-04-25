@@ -75,6 +75,10 @@ pub struct ChosenInfo {
     pub score: f32,
     /// Tactical intent that was active when the plan was scored.
     pub intent: TacticalIntent,
+    /// Reason for the intent selection (post-adaptation). Used by
+    /// `classify_continuation_outcome` to distinguish reactive vs voluntary
+    /// goal abandons (step 6.6b).
+    pub reason: IntentReason,
 }
 
 /// Source of a `Move` decision. See `AiDecision::Move`.
@@ -353,6 +357,7 @@ pub fn pick_action(
         plan: chosen_plan,
         score: best_score,
         intent: ranking.intent,
+        reason: ranking.intent_reason.clone(),
     });
 
     (decision, debug_snapshot, chosen)

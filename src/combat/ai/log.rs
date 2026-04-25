@@ -142,7 +142,17 @@ use crate::game::hex::Hex;
 ///   `StoredPlanSnapshot` struct removed. `PlanDivergenceEntry.used_continuation`
 ///   kept for backward compat (always `false` — exact-continuation removed).
 ///   v24 logs deserialize with `last_goal = None` via `#[serde(default)]`.
-pub const SCHEMA_VERSION: u32 = 25;
+/// - v25 → v26 (step 6.6b metric refinement): `ContinuationOutcome` variants
+///   renamed and split. `GoalPreservedMethodPreserved` → `GoalPreservedMethodDelivered`
+///   (alias preserved). `GoalPreservedMethodChanged` → `GoalPreservedInTransit`
+///   (alias preserved). `GoalAbandoned { reason }` split into four variants:
+///   `GoalAbandonedReactive { source }`, `GoalAbandonedVoluntary`,
+///   `GoalAbandonedInvalidating`, `GoalAbandonedTtlExpired`. Old `goal_abandoned`
+///   kind in v25 logs does not match the new tagged shape; falls through serde
+///   to `NoStoredGoal` via `#[serde(other)]` (acceptable for analysis — v25
+///   abandoned entries are not split granularly anyway). `AbandonReason` enum
+///   removed (merged into outcome variants above).
+pub const SCHEMA_VERSION: u32 = 26;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -1060,8 +1070,6 @@ mod tests {
         goal_kind: Option<String>,
     ) -> PlanDivergenceEntry {
         use crate::combat::ai::intent::IntentKind;
-        use crate::combat::ai::repair::AbandonReason;
-        let _ = AbandonReason::IntentDiverged; // ensure enum is accessible
         PlanDivergenceEntry {
             event_type: "plan_divergence",
             schema_version: SCHEMA_VERSION,
@@ -1094,9 +1102,9 @@ mod tests {
     }
 
     #[test]
-    fn plan_divergence_entry_v24_roundtrip() {
+    fn plan_divergence_entry_v26_roundtrip() {
         let entry = make_divergence_entry(
-            ContinuationOutcome::GoalPreservedMethodPreserved,
+            ContinuationOutcome::GoalPreservedMethodDelivered,
             Some(crate::combat::ai::repair::RepairAffinity {
                 goal_alignment: 1.0,
                 region_alignment: 0.8,
@@ -1110,12 +1118,26 @@ mod tests {
         let json = serde_json::to_string(&entry).expect("serialize");
         let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
 
-        assert_eq!(v["schema_version"], 25, "schema must be 25 (updated in step 6.6)");
-        // continuation_outcome is tagged: {"kind": "goal_preserved_method_preserved"}
-        assert_eq!(v["continuation_outcome"]["kind"], "goal_preserved_method_preserved");
+        assert_eq!(v["schema_version"], 26, "schema must be 26 (updated in step 6.6b)");
+        // continuation_outcome is tagged: {"kind": "goal_preserved_method_delivered"}
+        assert_eq!(v["continuation_outcome"]["kind"], "goal_preserved_method_delivered");
         assert!(v["repair_affinity"].is_object(), "repair_affinity present");
         assert!((v["repair_bonus"].as_f64().unwrap() - 0.25).abs() < 1e-5);
         assert_eq!(v["goal_kind"], "finish");
+    }
+
+    #[test]
+    fn plan_divergence_entry_v26_reactive_roundtrip() {
+        // GoalAbandonedReactive serialises with source field.
+        let entry = make_divergence_entry(
+            ContinuationOutcome::GoalAbandonedReactive { source: "taunt_forced".to_owned() },
+            None,
+            Some("finish".into()),
+        );
+        let json = serde_json::to_string(&entry).expect("serialize");
+        let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        assert_eq!(v["continuation_outcome"]["kind"], "goal_abandoned_reactive");
+        assert_eq!(v["continuation_outcome"]["source"], "taunt_forced");
     }
 
     #[test]
