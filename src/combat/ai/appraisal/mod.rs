@@ -55,6 +55,10 @@ pub fn compute_need_signals(
 
     // rescue_ally / apply_cc / setup_aoe — stay 0.0 until the second mining
     // iteration; see docs/ai_need_signals.md:166.
+    // Step 5.5 note: these stubs feed into terminal-axis NeedSignals multipliers
+    // via `(1 + needs.rescue_ally)`, `(1 + needs.apply_cc)`, `(1 + needs.setup_aoe)`
+    // in `finalize_scores`. With 0.0 stub values the multipliers are exactly 1.0
+    // (inert). Activation requires step 9 (semantic AI tags / appraisal rules).
     let rescue_ally = 0.0;
     let apply_cc = 0.0;
     let setup_aoe = 0.0;

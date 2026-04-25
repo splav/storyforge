@@ -1,7 +1,7 @@
 //! Pure simulation of plan steps against a cloned battle snapshot.
 //!
 //! Mirrors `combat/resolution.rs` effects in expected-value HP: dice rolls
-//! collapse to their mean, armor/vulnerability apply as in `scoring::score_action`,
+//! collapse to their mean, armor/vulnerability apply as in `outcome::compute_score_core`,
 //! targets whose HP drops to 0 are removed so subsequent steps see them gone.
 //! Does **not** run the real Bevy message pipeline — this is a deterministic
 //! offline predictor used by the planner for scoring candidate sequences.

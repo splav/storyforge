@@ -90,7 +90,7 @@ impl ActionState for SnapshotActionState<'_> {
 mod tests {
     use super::*;
     use crate::combat::actions::{check_legality, IllegalReason, ProposedAction};
-    use crate::combat::ai::snapshot::{ActiveStatusView, AiTags, UnitSnapshot};
+    use crate::combat::ai::snapshot::{ActiveStatusView, UnitSnapshot};
     use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, TargetType,
@@ -384,8 +384,4 @@ mod tests {
         );
     }
 
-    // Minor unused import suppression — `AiTags` kept in scope in case a
-    // future case needs to construct a status-flagged unit that reads tags.
-    #[allow(dead_code)]
-    const _: fn(AiTags) = |_| {};
 }

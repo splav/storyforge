@@ -2,8 +2,9 @@
 //!
 //! Step 4.3: `compute_offensive` reads pre-computed values from
 //! `ActionOutcomeEstimate` (annotated by the generator) instead of re-deriving
-//! them. AoE friendly-fire penalty still uses `score_action` directly because it
-//! operates on ally units that are not captured in the outcome vector.
+//! them. AoE friendly-fire penalty uses `compute_score_core` (the inlined
+//! former `score_action`, deleted in step 4.5) because ally units are not
+//! captured in the outcome vector.
 
 use super::aoe_hits::{aoe_hits, AoeHits};
 use super::{crit_fail_adjusted, OffensiveFactors};
@@ -153,7 +154,7 @@ mod tests {
     ///
     /// We inject a synthetic outcome with known values and assert the returned
     /// `OffensiveFactors` mirrors them exactly. If any field were re-derived from
-    /// snapshot/score_action the values would differ.
+    /// the snapshot or via `compute_score_core` the values would differ.
     #[test]
     fn compute_offensive_reads_outcome_not_score_action() {
         use crate::combat::ai::difficulty::DifficultyProfile;

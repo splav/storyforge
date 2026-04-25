@@ -2111,11 +2111,20 @@ fn print_plan(label: &str, p: &PlanLog, pre: f32, post: f32) {
                      // `None` = plan was pruned pre-scoring in the live run.
 }
 
-/// Silences dead_code lints on `AxisProfile::factor_weights` when only
-/// referenced via deser chain.
+/// Silences dead_code lints on `AxisProfile::factor_weights` and
+/// `AxisProfile::terminal_weights` when only referenced via deser chain.
+/// Both functions are called indirectly through deserialization + scoring;
+/// the linter can't see the indirect reference so we touch them explicitly.
+/// Added terminal_weights touch in step 5.5 (alongside `axis_terminal_weights`
+/// table added in step 5.0).
 #[allow(dead_code)]
 fn _touch_axis(p: &AxisProfile, tuning: &storyforge::combat::ai::tuning::AiTuning) -> [f32; 10] {
     p.factor_weights(tuning)
+}
+
+#[allow(dead_code)]
+fn _touch_terminal(p: &AxisProfile, tuning: &storyforge::combat::ai::tuning::AiTuning) -> [f32; 8] {
+    p.terminal_weights(tuning)
 }
 
 #[cfg(test)]

@@ -22,6 +22,15 @@
 //! `pressure_spacing_zone` implemented. All 8 axes populated. Aggregator
 //! still inert (`axis_terminal_weights` = zeros).
 //!
+//! Step 5.4: consumer wired — aggregator in `finalize_scores` reads terminal
+//! axes weighted by `axis_terminal_weights` × `NeedSignals` modulation.
+//! Geometric axes oblong to zeros pending 5.6 mining calibration; defensive +
+//! offensive axes active.
+//!
+//! Step 5.5: migration analysis — overlap with existing factors documented,
+//! dead-code sweep. See `worst_path_danger` and `compute_plan_self_survival`
+//! doc-comments for distinction notes.
+//!
 //! Decomposition: docs/ai_rework_step5_plan.md.
 
 use serde::{Deserialize, Serialize};
@@ -92,6 +101,19 @@ fn compute_exposure_at_end(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
 /// `p_kill_now` — confirmed kill from sim; `p_kill_soon` — DoT finishes it
 /// next round. Half-weight on `p_kill_soon` reflects lower certainty.
 /// Multiple kills can push the raw sum above 1.0, hence the `.min(1.0)`.
+///
+/// # Overlap note (5.5)
+/// The `factors::offensive` step factors also read `p_kill_now`/`p_kill_soon`
+/// and contribute `kill_now`/`kill_promised` to the per-step discounted sum
+/// in `PlanFactors`. This creates a logical overlap: both pathways credit the
+/// same kills. The distinction is *aggregation*: step factors apply a depth
+/// discount (`base^k`), so kills on steps 2-3 are underweighted relative to
+/// kills on step 1. `secure_kill` is a flat roll-up over the whole plan —
+/// it treats every kill equally regardless of step depth, making it sensitive
+/// to multi-step kill combos that the discounted step sum undervalues.
+/// Keep both — they measure related but different things. Double-counting risk
+/// is mitigated by the separate weight tables (`axis_factor_weights` vs
+/// `axis_terminal_weights`) which are tuned independently.
 fn compute_secure_kill(plan: &TurnPlan) -> f32 {
     plan.annotation
         .outcomes

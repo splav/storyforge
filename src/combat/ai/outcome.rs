@@ -26,6 +26,9 @@ use serde::{Deserialize, Serialize};
 ///   step 3 (need layer) will split urgency into NeedSignals.rescue_ally.
 /// - `board_pressure`: 0.0 placeholder, filled in step 5 (terminal eval).
 /// - `exposure_delta`: Δdanger from step (worst_path_danger for Move, 0 for Cast).
+///   Populated in the generator; currently no consumer reads it — terminal eval
+///   uses `ctx.maps.danger.get(plan.final_pos)` directly. Kept as structured
+///   telemetry; will feed step-level critics in step 10.
 /// - `geometry_gain`: 0.0 placeholder, filled in step 17 (geometry awareness).
 /// - `resource_swing`: signed resource cost (negative = spent).
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -283,10 +286,9 @@ fn crit_fail_adjusted_rescue(
 
 /// Core HP-equivalent score for a single (ability, target) pair.
 ///
-/// Exact copy of `scoring::score_action` body — extracted here so
-/// `score_action` can be deleted (step 4.5). All callers that previously
-/// used `score_action` now call this instead. Formulas are bit-identical;
-/// any divergence would break the golden-replay gate.
+/// Inlined from the former `scoring::score_action` (deleted in step 4.5).
+/// All callers that previously used `score_action` now call this instead;
+/// formulas are bit-identical, verified by the golden-replay gate.
 ///
 /// `danger_at_target` is only consumed by the heal branch (urgency weighting);
 /// callers on the damage path pass `0.0`.

@@ -55,8 +55,9 @@ use crate::game::hex::Hex;
 pub struct LogEntry {
     pub schema_version: u32,
     pub plan_id: u64,
+    /// Deserialized from JSONL for schema completeness; not consumed by replay logic.
     #[allow(dead_code)]
-    pub timestamp_ms: u128,
+    timestamp_ms: u128,
     pub decision_time_ms: u64,
     pub round: u32,
     pub actor_id: u64,
@@ -64,11 +65,13 @@ pub struct LogEntry {
     pub actor_ap: i32,
     pub actor_max_ap: i32,
     pub actor_mp: i32,
+    /// Deserialized from JSONL for schema completeness; not consumed by replay logic.
     #[allow(dead_code)]
-    pub actor_max_mp: i32,
+    actor_max_mp: i32,
     pub plans_evaluated: usize,
+    /// Deserialized from JSONL for schema completeness; not consumed by replay logic.
     #[allow(dead_code)]
-    pub plans_shown: usize,
+    plans_shown: usize,
     pub snapshot: BattleSnapshot,
     pub intent: IntentBlock,
     pub plans: Vec<PlanLog>,

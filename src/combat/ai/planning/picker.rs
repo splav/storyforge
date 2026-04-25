@@ -218,7 +218,7 @@ pub fn record_committed_reservations(
                 if def.target_type != TargetType::SingleAlly {
                     // Use the sim-populated expected_damage from PlanAnnotation —
                     // it reflects the actual projected damage for this step and
-                    // avoids re-calling score_action for reservation bookkeeping.
+                    // avoids re-deriving via compute_score_core for reservation bookkeeping.
                     let dmg = plan.annotation.outcomes.get(idx).map_or(0.0, |o| o.expected_damage);
                     if dmg > 0.0 {
                         reservations.reserve_damage(ent, dmg);

@@ -61,6 +61,16 @@ use std::hash::{Hash, Hasher};
 /// because it tracks `current_danger` (the start) through a separate
 /// signal. Single source of truth for "how exposed does this plan get
 /// while traversing".
+///
+/// # Overlap note (5.5)
+/// `worst_path_danger` ≠ `terminal::exposure_at_end`: this function returns
+/// `max(danger[all_path_tiles ∪ final_pos])` — the worst exposure *along the
+/// entire route*. `exposure_at_end` returns only `danger[final_pos]`. A plan
+/// can cross a dangerous tile and land safely; `worst_path_danger` catches
+/// the transit risk while `exposure_at_end` ignores it. Both are used: sanity
+/// uses `worst_path_danger` to penalise risky traversal for low-HP actors;
+/// the terminal aggregator uses `exposure_at_end` to penalise unsafe resting
+/// positions. Keep both — they answer different questions.
 pub fn worst_path_danger(plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
     let mut max_d = maps.danger.get(plan.final_pos);
     for step in &plan.steps {

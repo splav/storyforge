@@ -268,7 +268,7 @@ fn build_step_outcome_estimate(
             };
 
             // expected_damage: scorer-compatible damage estimate for single-target
-            // enemy casts (= score_action + crit_fail_adjusted). For AoE, keep
+            // enemy casts (= compute_score_core + crit_fail_adjusted). For AoE, keep
             // sim-derived step_damage as a reference value — the scorer uses
             // compute_aoe_damage directly for AoE damage anyway.
             let expected_damage = if def.aoe == AoEShape::None {
@@ -867,7 +867,7 @@ mod tests {
     #[test]
     fn annotation_expected_damage_matches_estimate_expected_damage() {
         // Step 4.3: `annotation.expected_damage` stores the scorer-compatible
-        // expected damage (= score_action() output via estimate_expected_damage),
+        // expected damage (= compute_score_core() output via estimate_expected_damage),
         // NOT the sim's actual rolled damage in `outcome.damage`.
         // This test verifies that generator fills `annotation.expected_damage`
         // with the same value `estimate_expected_damage` would return.
