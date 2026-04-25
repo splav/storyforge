@@ -144,7 +144,7 @@ Real gate шага — **прохождение step 1 ai_scenarios** + **отс
 
 **Реализация:** Plumbing вариант (A) — `finalize_scores` и весь sub-pipeline переведены на `&mut [TurnPlan]` (scorer.rs, ranking.rs, adaptation.rs, future_value.rs, replay.rs, replay_ai_log.rs). 7 unit-тестов в `terminal::tests`. **Коммит:** `6e80f0c`. **Golden:** 0/131.
 
-### 5.2. Offensive cluster: `secure_kill` + `ally_rescue` + `board_control_gain`
+### 5.2. Offensive cluster: `secure_kill` + `ally_rescue` + `board_control_gain` ✓ DONE
 
 **Scope.**
 
@@ -199,6 +199,8 @@ Real gate шага — **прохождение step 1 ai_scenarios** + **отс
 **Gate.** `cargo test/clippy`, `ai_scenarios`, golden **0 / 131 diff** (всё ещё никто не читает).
 
 **Эстимейт:** 1.5 дня (ally_rescue имеет несколько edge cases с death/spawn between snapshots).
+
+**Реализация:** 11 unit-тестов добавлено (4 secure_kill, 4 ally_rescue, 3 board_control_gain). **Коммит:** `3df2ac1`. **Golden:** 0/131.
 
 ### 5.3. Geometric cluster: `line_actionability` + `density_value` + `pressure_spacing_zone`
 
@@ -367,7 +369,7 @@ Identify duplicate / overlapping logic:
 |---|---|---|---|---|
 | 5.0 | scaffolding (`TerminalScore` + plumbing + zero weights) | 1.0 | golden 0/131 | **DONE** (`cacab83`) |
 | 5.1 | defensive cluster (exposure_at_end, next_turn_lethality) | 1.0 | golden 0/131 | **DONE** (`6e80f0c`) |
-| 5.2 | offensive cluster (secure_kill, ally_rescue, board_control_gain) | 1.5 | golden 0/131 | pending |
+| 5.2 | offensive cluster (secure_kill, ally_rescue, board_control_gain) | 1.5 | golden 0/131 | **DONE** (`3df2ac1`) |
 | 5.3 | geometric cluster (line_actionability, density_value, pressure_spacing_zone) | 1.0 | golden 0/131 | pending |
 | 5.4 | consumer: NeedSignals-weighted aggregation в finalize_scores | 1.5 | per-entry golden review | pending |
 | 5.5 | migration + dead-code cleanup | 1.5 | per-entry review + размер кода ↓ | pending |
