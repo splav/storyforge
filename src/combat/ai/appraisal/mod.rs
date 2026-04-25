@@ -2,8 +2,11 @@
 //!
 //! Aggregates raw tactical facts (`BattleSnapshot` + `InfluenceMaps` + `AiMemory`)
 //! into normalised "urgency" signals consumed by `select_intent` and downstream
-//! scoring layers. Producer is `compute_need_signals`; consumers are wired in
-//! steps 3.2–3.5. Until then the producer returns `Default::default()` (zeros).
+//! scoring layers. `compute_need_signals` populates 5 mineable signals
+//! (`self_preserve`, `continue_commitment`, `finish_target`, `reposition`,
+//! `conserve_resource`); the remaining 3 (`rescue_ally`, `apply_cc`, `setup_aoe`)
+//! stay at 0.0 until the second mining iteration delivers concrete inputs
+//! (`docs/ai_need_signals.md:166`).
 //!
 //! Spec: `docs/ai_need_signals.md` (mining-driven taxonomy + curve params).
 //! Decomposition: `docs/ai_rework_step3_plan.md`.

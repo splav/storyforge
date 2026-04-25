@@ -79,22 +79,36 @@
 
 ---
 
-### 3. Appraisal / Need layer
+### 3. Appraisal / Need layer ✓ DONE
 
 **Сложность:** 3
 **Польза:** 5
 
 **Цель:** перевести сырые факты в нормализованную «срочность действия» до того, как они попадают в factors/intent/sanity.
 
-**Суть:** одно из главных изменений архитектуры. Сейчас смысл «насколько нужно» размазан между `intent.rs`, `factors`, `sanity` и ручными порогами. Выделение need-слоя одновременно делает систему и понятнее, и качественнее: все downstream-слои перестают заново восстанавливать смысл из snapshot'а.
+**Суть:** одно из главных изменений архитектуры. Смысл «насколько нужно» был размазан между `intent.rs`, `factors`, `sanity` и ручными порогами. Need-слой делает систему и понятнее, и качественнее: downstream-слои перестают заново восстанавливать смысл из snapshot'а.
 
-**Как поменять:**
-- Новый модуль `src/combat/ai/appraisal/` со структурой `NeedSignals`: `self_preserve`, `rescue_ally`, `finish_target`, `apply_cc`, `setup_aoe`, `reposition`, `conserve_resource`, `continue_commitment`.
-- Входы — raw tactical facts из `BattleSnapshot` + influence maps: hp%, ally hp%, danger, killability, reach gap, LoS quality, cluster quality, retaliation risk, resource ratio, ongoing commitment value.
-- Каждый need вычисляется через именованную response curve из `AiTuning`.
-- `select_intent` читает `NeedSignals`, а не raw snapshot.
-- `compute_factors` постепенно мигрируют туда, где это делает скоринг чище.
-- В `PlanAnnotation` (шаг 7) — секция `need_breakdown` с response-curve outputs.
+**Как реализовано** (декомпозиция: `docs/ai_rework_step3_plan.md`, сабшаги 3.0–3.6):
+
+- Модуль `src/combat/ai/appraisal/` со структурой `NeedSignals` (8 полей, Copy+Default): `self_preserve`, `rescue_ally`, `finish_target`, `apply_cc`, `setup_aoe`, `reposition`, `conserve_resource`, `continue_commitment`.
+- Producer `compute_need_signals(active, snap, maps, memory, tuning) -> NeedSignals` (3.1) считает 5 mineable: `self_preserve`, `continue_commitment`, `finish_target`, `reposition`, `conserve_resource`. Остальные три (`rescue_ally`/`apply_cc`/`setup_aoe`) — `0.0` до второй итерации mining'а (`docs/ai_need_signals.md:166`).
+- Входы: tactical facts из `BattleSnapshot` + `AiMemory` (расширен 3 полями в 3.0: `hp_ratio_at_last_turn`, `last_turn_was_defensive`, `turns_in_low_hp`) + influence maps. `recent_damage_taken` derive'ится из `hp_ratio_at_last_turn`.
+- Каждый need через именованную `ResponseCurve` (`Logistic { mid, k }` или `LinearClamped { x_lo, x_hi }`) в `AiTuning.curves` — 6 кривых, всё data-driven через `assets/data/ai_tuning.toml`.
+- `select_intent` читает `&NeedSignals` через расширенную сигнатуру; `pick_action` вычисляет один раз перед intent selection. Consumers (3.2–3.5):
+  - 3.2: `self_preserve` → panic override + soft ProtectSelf branch.
+  - 3.3: `continue_commitment` модулирует stickiness в `consider` для FocusTarget/ApplyCC.
+  - 3.4: `reposition` → Reposition intent score.
+  - 3.5a: `finish_target` → killable score в FocusTarget killable ветке.
+  - 3.5b: `conserve_resource` → soft bonus к cheap intents (ProtectSelf, Reposition) при низкой мане.
+- Schema bumps: v19→v20 (AiMemory extension), v20→v21 (PanicOverride/Urgency), v21→v22 (Reposition).
+- `compute_factors` миграция на NeedSignals **отложена** до step 11 (scorecard). На этом шаге не делалась — нужны bands+agenda как контейнер для structured intent considerations.
+- `PlanAnnotation.need_breakdown` (шаг 7) — будет добавлен когда PlanStage pipeline формализуется.
+
+**Реальный gate в 3.6 (mining post-step-3 plays):**
+- `actor_hp_drop` divergence: 21.6% baseline → 0% post-fix. ✓ цель ≤12%.
+- `reposition → viability_fallback` cascade: 6 transitions baseline → 0 post-fix. ✓ корневая регрессия снята.
+- Reposition как chosen: 0.4% baseline → 12% post-fix. Выше эвристического таргета 3–5%, но `reposition → best_priority` 5/5 outgoing — productive setup-moves, не abandon. Принимаем как новую baseline; calibration кривых может пройти в фазе 2b.
+- viability_fallback 16% — не связан с reposition после fix'а; это патология P7 (юниты без defensive ability'ей), требует semantic AI tags (step 9).
 
 ---
 

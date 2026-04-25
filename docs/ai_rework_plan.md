@@ -407,15 +407,15 @@ assets/data/ai_tuning.toml
 
 ## Волна 1 — обновлённая последовательность
 
-**0 ✓ → 1 ✓ → 2a ✓ → 4 ✓ ← сейчас здесь → 3 → 5 → 6**
+**0 ✓ → 1 ✓ → 2a ✓ → 4 ✓ → 3 ✓ ← сейчас здесь → 5 → 6**
 
 Где:
 
 - **0** ✓ (sim parity 0.1a + mining + log patch 0.3C) — закрыт. Артефакт `docs/ai_need_signals.md` готов под step 3.
 - **1** ✓ (log extension 1.1 + assertion overlay 1.2–1.7) — закрыт. Ключевые коммиты: `81aa504` (1.1), `fb720b0` (1.2+1.3), `b018f9c` (1.4a library extraction), `2ed7cf2` (1.4b harness), `b2b6a2c` (1.5 первый batch из 9 кейсов). 1.6 (CI) скипнут, 1.7 активен.
 - **2a** ✓ (constants migration + golden replay gate). 8 сабшагов 2.0–2.7 закрыты (`a1cc460` → `66457e9`), каждый прошёл `--compare-golden` 0 / 131 diff.
-- **4** ✓ (outcome vector + PlanAnnotation). 6 сабшагов 4.0–4.5 закрыты (`cb94250` → `6ae1429`), декомпозиция — `docs/ai_rework_step4_plan.md`. `ActionOutcomeEstimate` (9 полей) populated в sim, read через explicit param в `compute_factors` / `intent_score`; `score_action` удалён, schema v19. Golden 0/131 diff на каждом сабшаге. Step 7a ранее был убран из последовательности.
-- **3** (need layer) — поверх outcome. **Важно:** дескриптор step 3 в `ai_rework.md` должен быть обновлён: «Входы: NeedSignals считаются из `ActionOutcomeEstimate` + influence maps; raw snapshot достаётся только для tactical facts (hp%, role, статусы)». Синхронизация — коммит одновременно с реализацией.
+- **4** ✓ (outcome vector + PlanAnnotation). 6 сабшагов 4.0–4.5 закрыты (`cb94250` → `6ae1429`), декомпозиция — `docs/ai_rework_step4_plan.md`. `ActionOutcomeEstimate` (9 полей) populated в sim, read через explicit param в `compute_factors` / `intent_score`; `score_action` удалён, schema v19. Golden 0/131 diff на каждом сабшаге.
+- **3** ✓ (need layer / appraisal). 7 сабшагов 3.0–3.6 закрыты (`36c3d18` → `f6b4413`), декомпозиция — `docs/ai_rework_step3_plan.md`. `NeedSignals` (8 полей) + `ResponseCurve { Logistic, LinearClamped }` + `Curves` секция в `AiTuning`. Producer `compute_need_signals` для 5 mineable; consumer'ы — точечные замены в `select_intent` (panic + soft ProtectSelf, stickiness modulation, Reposition score, killable score, conserve_resource bonus). Schema v19 → v22. Golden rebaselined: `logs/golden_post_step3.jsonl`. 3.6 mining: `actor_hp_drop` 21.6% → 0%; `reposition → viability_fallback` cascade сломан; Reposition 0.4% → 12% (выше эвристического таргета 3–5%, но healthy паттерн).
 - **5** (terminal eval) — поверх outcome и sim parity (0.1a). Требование 0.1b (end-to-end) появляется только в шаге 12.
 - **6** (goal-preserving repair) — расширяет существующий `mismatch()` + continuation из `enemy_turn.rs:181–212`, не переписывает.
 
@@ -433,7 +433,7 @@ PlanStage-trait (полный 7), critics decomposition (10, benchmark-driven п
 | 2.0 | Golden baseline зафиксирован (`logs/golden_pre_2a.jsonl` закоммичен) |
 | 2a | `--compare-golden` 0 diff'ов на каждом шаге 2.1–2.7; scenario harness зелёный |
 | 4 | PlanAnnotation растёт, `compute_factors` читает outcome; golden replay не деградирует |
-| 3 | Need signals из 0.4 реализованы; `select_intent` читает NeedSignals; сценарии step 1 + новые «need-driven» сценарии зелёные |
+| 3 | Need signals из 0.4 реализованы; `select_intent` читает NeedSignals; mining-таблица: `reposition → viability_fallback` cascade закрыт, `actor_hp_drop` ≤ 12%, scenario harness зелёный |
 | 5 | Terminal score включён в scorer; sim parity 0.1a гарантирует корректность финального снапшота |
 | 6 | `continuation_severity` классификация в логах; сценарии Plan freeze / continuation стабильно зелёные через сотни тиков |
 

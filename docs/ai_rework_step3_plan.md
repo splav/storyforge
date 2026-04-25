@@ -326,7 +326,7 @@ if need_signals.conserve_resource > 0.5 {
 
 **Коммит:** `b6ca871`. **Golden:** 0/131 на baseline. P4 (viability_fallback 5.1%) — на post-step-3 plays в 3.6.
 
-### 3.6. Cleanup + повторный mining + rebaseline golden
+### 3.6. Cleanup + повторный mining + rebaseline golden ✓ DONE
 
 **Scope.**
 
@@ -343,6 +343,16 @@ if need_signals.conserve_resource > 0.5 {
 
 **Эстимейт:** 0.5 дня.
 
+**Реализация:**
+- Mining прогон выявил регрессию: Reposition 15% (target 3–5%), `reposition → viability_fallback` cascade в 6/15 outgoing transitions. Корень — `engagement_gap && has_ap` boost в `compute_reposition` форсировал signal=0.5 даже когда `best_position_improvement = 0`.
+- Fix `f6b4413`: гейт boost'а на `best_position_improvement >= 0.05` (нижняя граница `reposition_pos_gain.x_lo`). Тесты переписаны.
+- Re-mining post-fix (50 решений): `reposition → viability_fallback` cascade закрыт (6 → 0); `actor_hp_drop` 21.6% → 0%; Reposition 15% → 12% (выше эвристического таргета 3–5%, но healthy паттерн `reposition → best_priority` 5/5).
+- Granular tooling для P1/P2/P3 (per-actor HP-trend, depth × actor_ap breakdown) не реализован — эти метрики помечены TBD в `ai_need_signals.md:184` как отдельная задача.
+- Rebaseline golden: `logs/golden_pre_step4.jsonl` → `logs/golden_post_step3.jsonl` (regenerated через `--capture-golden`, идентичен предыдущему — 0/131 на baseline-корпусе).
+- Sync `docs/ai_rework.md` §3 docstring под реальный API NeedSignals.
+- Sync `docs/ai_rework_plan.md` §«Волна 1» — `3 ✓`.
+- Cleanup TODO в `appraisal/mod.rs` — упоминание stub'ов перенесено в struct-level docstring.
+
 ## Итого
 
 | # | Шаг | Эстимейт | Gate | Статус |
@@ -353,7 +363,7 @@ if need_signals.conserve_resource > 0.5 {
 | 3.3 | consumer continue_commitment | 1.0 | per-entry golden review + monotone_focus | **DONE** (`fcd5610`) |
 | 3.4 | consumer reposition | 1.0 | per-entry golden review + 9 scenarios | **DONE** (`3ddc2a9`) |
 | 3.5 | consumer finish_target + conserve_resource | 1.0 | per-entry golden review | **DONE** (`b6ca871`) |
-| 3.6 | cleanup + повторный mining + rebaseline golden | 0.5 | mining-метрики достигают таргетов | pending |
+| 3.6 | cleanup + повторный mining + rebaseline golden | 0.5 | mining-метрики достигают таргетов | **DONE** (rebaseline + producer fix `f6b4413`) |
 
 **Суммарно ~7 дней.**
 

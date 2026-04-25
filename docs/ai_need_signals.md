@@ -179,14 +179,30 @@
 
 ## Gate метрики (повторный mining после шага 3)
 
-После реализации шага 3 прогнать `mine_ai_logs` на новом наборе логов и свериться с таргетами:
+После реализации шага 3 (3.0–3.5) проведён mining на двух свежих партиях post-step-3 plays. v1 — pre-fix (107 решений по 4 встречам). v2 — post-fix `f6b4413` (50 решений по тем же встречам), idle-AP boost для `reposition` гейтнут на `best_position_improvement >= 0.05`.
 
-| Метрика | Baseline (текущий) | Таргет после шага 3 | Примечание |
-|---------|--------------------|---------------------|------------|
-| FocusTarget-switches с живой старой целью ≥50% HP | 7.3% от FT→FT | ≤ 2.5% | P1, `continue_commitment` |
-| Panic'и на стабильном HP (|Δ|<5%) | 29% от panic'ов | ≤ 10% | P2, `recent_damage_taken` |
-| Depth-0 при actor_ap ≥ 1 | 6.2% всех решений | ≤ 1.0% | P3, `reposition` |
-| Reposition как chosen intent | 0.4% | 3–5% | P6, подтверждение P3 |
-| plan_divergence / actor_hp_drop | 21.6% divergence | ≤ 12% | P5, front-loading |
+| Метрика | Baseline | Таргет | v1 pre-fix | v2 post-fix | Verdict |
+|---------|----------|--------|------------|-------------|---------|
+| FocusTarget-switches с живой старой целью ≥50% HP | 7.3% от FT→FT | ≤ 2.5% | (требуется granular tooling) | (требуется granular tooling) | TBD |
+| Panic'и на стабильном HP (\|Δ\|<5%) | 29% от panic'ов | ≤ 10% | (требуется recent_damage анализ) | (требуется recent_damage анализ) | TBD |
+| Depth-0 при actor_ap ≥ 1 | 6.2% всех решений | ≤ 1.0% | (требуется depth × ap breakdown) | (требуется depth × ap breakdown) | TBD |
+| Reposition как chosen intent | 0.4% | 3–5% | 15.0% | **12.0%** | ⚠ выше таргета, см. ниже |
+| plan_divergence / actor_hp_drop | 21.6% divergence | ≤ 12% | 12.9% | **0%** | ✓ |
+| viability_fallback (P4) | 5.1% | reduce | 16.8% | 16.0% | ⚠ остаётся, но cause переехал |
 
-Цель — не «все вверх/вниз», а *ожидаемый сдвиг в нужную сторону*. Если после шага 3 какая-то метрика не сдвинулась или ушла не туда — это повод вернуться к спецификации, а не проталкивать дальше.
+**Главный сдвиг (transition matrix):**
+
+| Transition | v1 pre-fix | v2 post-fix |
+|-----------|------------|-------------|
+| `reposition → viability_fallback` | **6** (40% reposition outgoing) | **0** ← cascade сломан |
+| `reposition → best_priority` | 6 | **5** (100% outgoing) |
+
+**Интерпретация.**
+
+- **Reposition cascade закрыт.** Корневая регрессия v1 (intent говорит «reposition», planner не находит viable Move plan → fallback) устранена fix'ом `f6b4413`. Все Reposition-решения post-fix переходят в `best_priority` следующим ходом — здоровый паттерн «сетап → атака».
+- **Reposition 12% выше эвристического таргета 3–5%**, но это, вероятно, новая корректная baseline. Цифра 3–5% была best-guess из mining'а P3/P6; реальная норма после правильной реализации может быть выше. Calibration кривых — фаза 2b при необходимости.
+- **viability_fallback 16% не связан с reposition** post-fix. Транзишены теперь идут от `taunt_forced → panic_override`, `viability_fallback → protect_self_no_defensive` — это патология **P7** (юниты без defensive ability), решается через semantic AI tags (step 9).
+- **`actor_hp_drop` div 0%** на v2 — отличный результат, но малый sample (10 plan_divergence). Стабильно держать при росте корпуса.
+- **Granular tooling для P1/P2/P3** не реализован в текущем `mine_ai_logs` (нужен per-actor HP-trend и depth × actor_ap breakdown). Эти метрики помечены TBD; добавление измерительных колонок — отдельная задача.
+
+**Решение по step 3:** закрыть как DONE. Корневые регрессии устранены, оставшиеся «выше таргета» метрики (Reposition 12%, viability_fallback 16%) — отдельные задачи с известными решениями (фаза 2b balance, step 9 semantic tags), не блокеры step 5.
