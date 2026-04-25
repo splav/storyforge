@@ -39,7 +39,7 @@ Real gate шага — **прохождение step 1 ai_scenarios** + **отс
 
 ## Сабшаги
 
-### 5.0. Scaffolding: `TerminalScore` struct + stub + plumbing
+### 5.0. Scaffolding: `TerminalScore` struct + stub + plumbing ✓ DONE
 
 **Scope.**
 
@@ -91,6 +91,10 @@ Real gate шага — **прохождение step 1 ai_scenarios** + **отс
 **Gate.** `cargo test/clippy`, `ai_scenarios`, golden **0 / 131 diff**. Никто не читает.
 
 **Эстимейт:** 1.0 день.
+
+**Deviation от плана:** `terminal_state_score` НЕ вызывается из `finalize_scores` в 5.0 — только определения типов и поля. Producer-вызов добавится в 5.1 вместе с первой реальной формулой (`exposure_at_end`). Это убирает unused-variable warning без `#[allow]` и держит scaffolding строго inert.
+
+**Коммит:** `cacab83`. **Golden:** 0 / 131 diff.
 
 ### 5.1. Defensive cluster: `exposure_at_end` + `next_turn_lethality`
 
@@ -359,7 +363,7 @@ Identify duplicate / overlapping logic:
 
 | # | Шаг | Эстимейт | Gate | Статус |
 |---|---|---|---|---|
-| 5.0 | scaffolding (`TerminalScore` + plumbing + zero weights) | 1.0 | golden 0/131 | pending |
+| 5.0 | scaffolding (`TerminalScore` + plumbing + zero weights) | 1.0 | golden 0/131 | **DONE** (`cacab83`) |
 | 5.1 | defensive cluster (exposure_at_end, next_turn_lethality) | 1.0 | golden 0/131 | pending |
 | 5.2 | offensive cluster (secure_kill, ally_rescue, board_control_gain) | 1.5 | golden 0/131 | pending |
 | 5.3 | geometric cluster (line_actionability, density_value, pressure_spacing_zone) | 1.0 | golden 0/131 | pending |
