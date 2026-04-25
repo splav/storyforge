@@ -96,6 +96,15 @@ pub struct Expectation {
     /// Excluded end positions — actual end_pos must NOT be in this list.
     #[serde(default)]
     pub not_end_position: Vec<[i32; 2]>,
+    // ── v24 fields (step 6.5) — parsed but assertions deferred to 6.6 ────────
+    /// Expected continuation_outcome code, e.g. `"goal_preserved_method_preserved"`.
+    /// TODO(6.6): wire into `match_variant` once 5 new scenarios are added.
+    #[serde(default)]
+    pub continuation_outcome: Option<String>,
+    /// Expected goal_kind code, e.g. `"finish"`, `"pressure"`.
+    /// TODO(6.6): wire into `match_variant` once 5 new scenarios are added.
+    #[serde(default)]
+    pub goal_kind: Option<String>,
 }
 
 // ── Parsed actual decision ─────────────────────────────────────────────────────

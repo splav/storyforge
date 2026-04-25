@@ -44,6 +44,34 @@ struct Entry {
     replan_reason: Option<String>,
     #[serde(default)]
     used_continuation: bool,
+
+    // plan_divergence v24 fields (step 6.5)
+    #[serde(default)]
+    continuation_outcome: Option<ContinuationOutcomeEntry>,
+    #[serde(default)]
+    continuation_severity: Option<String>,
+    #[serde(default)]
+    goal_kind: Option<String>,
+}
+
+/// Mirror of `ContinuationOutcome` for deserialization in the miner.
+/// Uses the tagged-enum wire format produced by the game.
+#[derive(Deserialize, Debug)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ContinuationOutcomeEntry {
+    GoalPreservedMethodPreserved,
+    GoalPreservedMethodChanged,
+    GoalAbandoned { reason: AbandonReasonEntry },
+    NoStoredGoal,
+}
+
+/// Mirror of `AbandonReason` for deserialization.
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+enum AbandonReasonEntry {
+    InvalidatingMismatch,
+    TtlExpired,
+    IntentDiverged,
 }
 
 #[derive(Deserialize)]
@@ -89,6 +117,17 @@ struct Aggregate {
     // A4: replan_reason from plan_divergence entries
     replan_reason_counts: BTreeMap<String, usize>,
     total_divergences: usize,
+
+    // C6: continuation analysis (step 6.5 — v24+ logs)
+    cont_no_stored: usize,
+    cont_method_preserved: usize,
+    cont_method_changed: usize,
+    cont_abandoned_invalidating: usize,
+    cont_abandoned_ttl: usize,
+    cont_abandoned_intent_diverged: usize,
+    cont_severity_counts: BTreeMap<String, usize>,
+    cont_goal_kind_counts: BTreeMap<String, usize>,
+    total_divergences_with_outcome: usize,
 
     // B5: per-(session, actor) ordered list of (plan_id, selection_kind)
     // Stored as Vec keyed by (session, actor) — built in load pass, consumed in B5.
@@ -144,6 +183,32 @@ impl Aggregate {
             }
         };
         *self.replan_reason_counts.entry(reason).or_default() += 1;
+
+        // C6: continuation outcome (v24+ only; v23 entries have None → counted as no_stored)
+        self.total_divergences_with_outcome += 1;
+        match &entry.continuation_outcome {
+            None | Some(ContinuationOutcomeEntry::NoStoredGoal) => {
+                self.cont_no_stored += 1;
+            }
+            Some(ContinuationOutcomeEntry::GoalPreservedMethodPreserved) => {
+                self.cont_method_preserved += 1;
+            }
+            Some(ContinuationOutcomeEntry::GoalPreservedMethodChanged) => {
+                self.cont_method_changed += 1;
+            }
+            Some(ContinuationOutcomeEntry::GoalAbandoned { reason }) => match reason {
+                AbandonReasonEntry::InvalidatingMismatch => self.cont_abandoned_invalidating += 1,
+                AbandonReasonEntry::TtlExpired => self.cont_abandoned_ttl += 1,
+                AbandonReasonEntry::IntentDiverged => self.cont_abandoned_intent_diverged += 1,
+            },
+        }
+
+        if let Some(sev) = &entry.continuation_severity {
+            *self.cont_severity_counts.entry(sev.clone()).or_default() += 1;
+        }
+        if let Some(gk) = &entry.goal_kind {
+            *self.cont_goal_kind_counts.entry(gk.clone()).or_default() += 1;
+        }
     }
 }
 
@@ -378,6 +443,53 @@ fn main() {
     }
     println!();
 
+    // C6: Continuation analysis (v24+ logs)
+    println!("## C6. Continuation analysis (plan_divergence entries, schema v24+)");
+    println!();
+    let n = agg.total_divergences_with_outcome;
+    println!("Total plan_divergence entries: {n}");
+    println!("  (v23 logs: all entries count as no_stored_goal via serde default)");
+    println!();
+    if n == 0 {
+        println!("  (no plan_divergence entries found)");
+    } else {
+        println!(
+            "  goal_preserved | method_preserved : {:>6.1}%  ({})  [target: ≥60%]",
+            pct(agg.cont_method_preserved, n), agg.cont_method_preserved,
+        );
+        println!(
+            "  goal_preserved | method_changed   : {:>6.1}%  ({})",
+            pct(agg.cont_method_changed, n), agg.cont_method_changed,
+        );
+        println!(
+            "  goal_abandoned | invalidating     : {:>6.1}%  ({})",
+            pct(agg.cont_abandoned_invalidating, n), agg.cont_abandoned_invalidating,
+        );
+        println!(
+            "  goal_abandoned | ttl_expired      : {:>6.1}%  ({})",
+            pct(agg.cont_abandoned_ttl, n), agg.cont_abandoned_ttl,
+        );
+        println!(
+            "  goal_abandoned | intent_diverged  : {:>6.1}%  ({})",
+            pct(agg.cont_abandoned_intent_diverged, n), agg.cont_abandoned_intent_diverged,
+        );
+        println!(
+            "  no_stored_goal                    : {:>6.1}%  ({})",
+            pct(agg.cont_no_stored, n), agg.cont_no_stored,
+        );
+        if !agg.cont_severity_counts.is_empty() {
+            println!();
+            println!("  severity distribution:");
+            print_freq_table(&agg.cont_severity_counts, agg.total_divergences);
+        }
+        if !agg.cont_goal_kind_counts.is_empty() {
+            println!();
+            println!("  goal_kind distribution:");
+            print_freq_table(&agg.cont_goal_kind_counts, n);
+        }
+    }
+    println!();
+
     // B5: Intent transition matrix
     println!("## B5. Intent transition stability matrix");
     println!();
@@ -417,6 +529,9 @@ mod tests {
             ],
             replan_reason: None,
             used_continuation: false,
+            continuation_outcome: None,
+            continuation_severity: None,
+            goal_kind: None,
         };
         agg.process_pick_action("f.jsonl", &entry);
         assert_eq!(agg.total_plans, 2);
@@ -442,6 +557,9 @@ mod tests {
             ],
             replan_reason: None,
             used_continuation: false,
+            continuation_outcome: None,
+            continuation_severity: None,
+            goal_kind: None,
         };
         agg.process_pick_action("f.jsonl", &entry);
         assert_eq!(*agg.depth_counts.get(&2).unwrap(), 1, "chosen plan has 2 steps");
@@ -459,6 +577,9 @@ mod tests {
             plans: vec![],
             replan_reason: Some("actor_hp_drop".to_owned()),
             used_continuation: false,
+            continuation_outcome: None,
+            continuation_severity: None,
+            goal_kind: None,
         };
         agg.process_plan_divergence(&entry);
         assert_eq!(agg.total_divergences, 1);
@@ -483,6 +604,9 @@ mod tests {
                 plans: vec![PlanLog { chosen: true, steps: vec![], adaptation_reason: None }],
                 replan_reason: None,
                 used_continuation: false,
+                continuation_outcome: None,
+                continuation_severity: None,
+                goal_kind: None,
             };
             agg.process_pick_action(session, &entry);
         }

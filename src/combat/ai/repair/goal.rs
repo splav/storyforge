@@ -106,6 +106,21 @@ pub struct StoredGoalContext {
     pub created_round: u32,
 }
 
+impl GoalKind {
+    /// Short ASCII code for telemetry / log fields. Stable across refactors.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Finish { .. } => "finish",
+            Self::Pressure { .. } => "pressure",
+            Self::DisableEnemy { .. } => "disable_enemy",
+            Self::HealAlly { .. } => "heal_ally",
+            Self::Retreat { .. } => "retreat",
+            Self::SetupAOE { .. } => "setup_aoe",
+            Self::Reposition { .. } => "reposition",
+        }
+    }
+}
+
 // ── Producer ─────────────────────────────────────────────────────────────────
 
 /// Extract a `StoredGoalContext` from the fields of the chosen plan.

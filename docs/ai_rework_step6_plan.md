@@ -828,7 +828,7 @@ cargo run --bin replay_ai_log -- --capture-golden \
 | 6.2 | repair affinity computation (read-only) | 1.5 | golden 0/131 | done (`8cafaae`) |
 | 6.3 | consumer: repair affinity bonus в `finalize_scores` | 1.5 | per-entry golden review (≤20/131) | done (`57b490c`) |
 | 6.4 | continuation evaluator (два набора role-axis весов) | 1.0 | per-entry, cumulative ≤25/131 | done (`4209935`) |
-| 6.5 | log overhaul + mining extension + schema v23→v24 | 1.0 | schema migration test, scenarios зелёные | pending |
+| 6.5 | log overhaul + mining extension + schema v23→v24 | 1.0 | schema migration test, scenarios зелёные | done |
 | 6.6 | migration `continuation_from_stored` → repair-only + rebaseline + 5 new scenarios + schema v24→v25 | 1.5 | golden rebaseline + mining таргеты | pending |
 
 **Суммарно ~8 дней.**

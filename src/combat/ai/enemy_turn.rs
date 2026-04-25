@@ -4,7 +4,9 @@ use crate::combat::ai::debug::AiDebugState;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::{AiMemory, PlanSnapshot, StoredPlan};
-use crate::combat::ai::repair::{ContinuationSeverity, extract_goal_context};
+use crate::combat::ai::repair::{
+    classify_continuation_outcome, ContinuationSeverity, extract_goal_context,
+};
 use crate::combat::ai::planning::types::PlanStep;
 use crate::combat::ai::snapshot::BattleSnapshot;
 use crate::combat::ai::log::AiLogger;
@@ -212,7 +214,32 @@ fn run_ai_turn(
 
     // Divergence log: emit whenever we had both a stored plan and a fresh plan.
     if let (Some(ref stored), Some(ref fresh)) = (&old_plan, &fresh_chosen) {
-        logger.write_plan_divergence(actor, stored, fresh, used_continuation, replan_reason, continuation_severity);
+        // Classify goal-preservation outcome (step 6.5).
+        let stored_goal = memory_ref.last_goal.as_ref();
+        let fresh_step1 = fresh.plan.steps.get(1);
+        let age = stored_goal
+            .map(|g| combat_ctx.round.saturating_sub(g.created_round))
+            .unwrap_or(0);
+        let continuation_outcome = classify_continuation_outcome(
+            stored_goal,
+            fresh.intent,
+            fresh_step1,
+            continuation_severity,
+            age,
+        );
+        let fresh_repair_affinity = stored_goal.map(|_| fresh.plan.annotation.repair_affinity);
+        logger.write_plan_divergence(
+            actor,
+            stored,
+            fresh,
+            used_continuation,
+            replan_reason,
+            continuation_severity,
+            continuation_outcome,
+            fresh_repair_affinity,
+            None, // repair_bonus: not readily available here without re-computing
+            stored_goal,
+        );
     }
 
     // Store debug data: maps always (for overlay), snapshot for console log.
