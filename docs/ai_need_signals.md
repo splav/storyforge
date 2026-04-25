@@ -26,6 +26,8 @@
 
 **Замечание.** Не делать `continue_commitment` жёстким приоритетом — он должен проигрывать явно лучшему ходу (новая цель умирает этим ходом, старая укрылась за AoO-цепью). Logistic с плавным плато 0.6–0.8 в середине, а не step function.
 
+**Status post-step-6.** P1 closed на архитектурном уровне через **repair affinity** (`docs/ai_rework_step6_plan.md`). `continue_commitment` модулирует stickiness в `select_intent` (step 3.3) и масштабирует repair-bonus в `finalize_scores` (step 6.3). Goal-уровень commitment'а реализован через `StoredGoalContext` + `RepairAffinity` — fresh plans, сохраняющие исходный goal/target/method, получают score-bonus, который multiplied на `(1 + continue_commitment)`. Quantitative подтверждение целевой ≤ 2.5% FocusTarget-switches с живой целью ≥50% HP — ожидается через mining post-step-6 на v25 playtest logs (6.6b).
+
 ---
 
 ## P2. Panic override повторно стреляет на стабильном HP

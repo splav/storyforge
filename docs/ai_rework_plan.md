@@ -407,7 +407,7 @@ assets/data/ai_tuning.toml
 
 ## Волна 1 — обновлённая последовательность
 
-**0 ✓ → 1 ✓ → 2a ✓ → 4 ✓ → 3 ✓ → 5 ✓ ← сейчас здесь → 6**
+**0 ✓ → 1 ✓ → 2a ✓ → 4 ✓ → 3 ✓ → 5 ✓ → 6 (6.0–6.6a ✓, 6.6b pending)**
 
 Где:
 
@@ -417,7 +417,7 @@ assets/data/ai_tuning.toml
 - **4** ✓ (outcome vector + PlanAnnotation). 6 сабшагов 4.0–4.5 закрыты (`cb94250` → `6ae1429`), декомпозиция — `docs/ai_rework_step4_plan.md`. `ActionOutcomeEstimate` (9 полей) populated в sim, read через explicit param в `compute_factors` / `intent_score`; `score_action` удалён, schema v19. Golden 0/131 diff на каждом сабшаге.
 - **3** ✓ (need layer / appraisal). 7 сабшагов 3.0–3.6 закрыты (`36c3d18` → `f6b4413`), декомпозиция — `docs/ai_rework_step3_plan.md`. `NeedSignals` (8 полей) + `ResponseCurve { Logistic, LinearClamped }` + `Curves` секция в `AiTuning`. Producer `compute_need_signals` для 5 mineable; consumer'ы — точечные замены в `select_intent` (panic + soft ProtectSelf, stickiness modulation, Reposition score, killable score, conserve_resource bonus). Schema v19 → v22. Golden rebaselined: `logs/golden_post_step3.jsonl`. 3.6 mining: `actor_hp_drop` 21.6% → 0%; `reposition → viability_fallback` cascade сломан; Reposition 0.4% → 12% (выше эвристического таргета 3–5%, но healthy паттерн).
 - **5** ✓ (terminal eval + axis aggregator). 7 сабшагов 5.0–5.6 закрыты (`cacab83` → current), декомпозиция — `docs/ai_rework_step5_plan.md`. `TerminalScore` (8 полей) + 3 cluster producer'а + `axis_terminal_weights` table + `AxisProfile::terminal_weights` symmetric API. NeedSignals modulation в `finalize_scores`. Defensive + offensive активны; geometric обнулены до фазы 2b. Schema v22 → v23. Golden rebaselined: `logs/golden_post_step5.jsonl`.
-- **6** (goal-preserving repair) — расширяет существующий `mismatch()` + continuation из `enemy_turn.rs:181–212`, не переписывает.
+- **6** (goal-preserving repair) — техническая часть закрыта (6.0–6.6a). 7 сабшагов: scaffolding (`e6b3fe3`), goal extraction (`6424bdd`), repair affinity (`8cafaae`), consumer bonus (`57b490c`), continuation evaluator (`4209935`), log overhaul + schema v23→v24 (`4f64b80`), миграция repair-only + schema v24→v25 + rebaseline (`a9a058f`). Декомпозиция — `docs/ai_rework_step6_plan.md`. `StoredGoalContext` (7 GoalKind вариантов + severity-поля), `RepairAffinity` (6 axes), `ContinuationOutcome` enum для логов, два набора role-axis весов (discovery / continuation). `continuation_from_stored` + `AiMemory.last_plan` удалены — план репэрится через repair-affinity bonus, не exact-replay. Golden rebaselined: `logs/golden_post_step6.jsonl` (0 diff vs post_step5 на v24 corpus, поскольку last_goal=None в JSONL до v25). **6.6b pending:** 5 новых ai_scenarios (требуют v25 playtest logs) + post-step-6 mining (подтверждение `goal_preserved|method_preserved ≥ 60%`, `cosmetic_mismatch = 0%`).
 
 PlanStage-trait (полный 7), critics decomposition (10, benchmark-driven после step 0.3C histograma), bands+agenda+scorecard (11, разрезанный на bands-first) — фаза 2 или позже.
 
@@ -435,6 +435,7 @@ PlanStage-trait (полный 7), critics decomposition (10, benchmark-driven п
 | 4 | PlanAnnotation растёт, `compute_factors` читает outcome; golden replay не деградирует |
 | 3 | Need signals из 0.4 реализованы; `select_intent` читает NeedSignals; mining-таблица: `reposition → viability_fallback` cascade закрыт, `actor_hp_drop` ≤ 12%, scenario harness зелёный |
 | 5 | Terminal score включён в scorer; aggregator активен; 9 ai_scenarios зелёные; golden ≤ 15/131 diff post-step-3 baseline |
-| 6 | `continuation_severity` классификация в логах; сценарии Plan freeze / continuation стабильно зелёные через сотни тиков |
+| 6.6a | `continuation_severity` + `continuation_outcome` классификация в логах; schema v25 в JSONL; golden round-trip 0/131 |
+| 6.6b | 5 continuation_* scenarios зелёные через сотни тиков; mining-таргеты подтверждены |
 
 Без gate — не идём дальше. Gate провален → возвращаемся к предыдущему шагу.

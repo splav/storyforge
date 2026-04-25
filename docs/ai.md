@@ -259,6 +259,66 @@ pub enum ScoredStep<'a> {
 
 Полная декомпозиция: `docs/ai_rework_step5_plan.md`.
 
+### Goal-preserving repair (combat/ai/repair/)
+
+Заменяет binary plan freeze (exact-continuation либо replan-from-zero) на **goal context + repair affinity bonus**: на каждом тике строится свежий план, но планы, сохраняющие сохранённый замысел, получают скоринговый bonus.
+
+**`StoredGoalContext`** (хранится в `AiMemory.last_goal`, пишется при Move-decision в `run_ai_turn`, очищается на Cast/EndTurn):
+
+```rust
+pub enum GoalKind {
+    Finish { target },        // FocusTarget kill (p_kill_now ≥ 0.6 или target hp < 30%)
+    Pressure { target },      // FocusTarget damage без kill
+    DisableEnemy { target },  // ApplyCC
+    HealAlly { ally },        // ProtectAlly heal
+    Retreat { region_anchor }, // ProtectSelf, LastStand
+    SetupAOE { region_center, planned_ability },
+    Reposition { region_center },
+}
+```
+
+Поля: `kind`, `region_anchor` + `region_radius`, `planned_ability` (step[1] cast если был), `ttl` (default 2 rounds), `confidence` (`chosen.score / pool_max_score` в момент store), `created_round`, плюс severity-snapshot полей actor/target.
+
+**`StoredGoalContext::check_continuation(actor, target)`** возвращает `Option<PlanContinuationCheck>` с `ContinuationSeverity`:
+
+- **`Cosmetic`** — изменение не влияет на goal (rage tick).
+- **`Relevant`** — goal достижим, метод может смениться (target moved, hp drop, status changed).
+- **`Invalidating`** — goal недостижим (target dead/gone, actor pos mismatch).
+
+**`RepairAffinity`** — 6 axes (`goal_alignment`, `region_alignment`, `method_alignment`, `severity_factor`, `ttl_factor`, `confidence`), aggregate'ятся в bonus через role-weighted `RepairWeights = AxisProfile::repair_weights(tuning)` (table `axis_repair_weights[5][3]`).
+
+**Consumer в `finalize_scores`:**
+
+```rust
+if ctx.last_goal.is_some() {
+    score += affinity.aggregate(weights) * (1.0 + need_signals.continue_commitment) * tuning.thresholds.repair_bonus_scale;
+}
+```
+
+`repair_bonus_scale = 0.4` default, additive, всегда ≥ 0.
+
+**Continuation evaluator** — два набора role-axis весов в `AiTuning.tables`:
+- `axis_factor_weights` (discovery) / `axis_factor_weights_continuation` — переключаются по `ctx.last_goal.is_some()`.
+- `axis_terminal_weights` (discovery) / `axis_terminal_weights_continuation` — то же для terminal axes.
+
+Множители continuation от discovery:
+- factors: `kill_now ×1.2`, `kill_promised ×1.2`, `tempo_gain ×1.15`, `self_survival ×0.7`, остальные ×1.0.
+- terminal: `exposure_at_end ×0.8`, `next_turn_lethality ×0.6`, `secure_kill ×1.3`, `board_control_gain ×1.3`, остальные ×1.0.
+
+Sanity-mask и `apply_protect_self_mask` contract нетронуты — continuation меняет только axis weights в aggregator'е.
+
+**`ContinuationOutcome`** для логов (`PlanDivergenceEntry.continuation_outcome`):
+- `GoalPreservedMethodPreserved` — same goal + same planned_ability.
+- `GoalPreservedMethodChanged` — same goal, другой method.
+- `GoalAbandoned { reason: InvalidatingMismatch | TtlExpired | IntentDiverged }`.
+- `NoStoredGoal` — первый тик / после Cast/EndTurn.
+
+`mine_ai_logs` секция «`=== Continuation analysis ===`» агрегирует распределение по этим outcome'ам — целевые таргеты: `goal_preserved|method_preserved ≥ 60%`, `cosmetic_mismatch = 0%`.
+
+Schema versions: `last_goal` появилось в JSONL в v25 (step 6.6a); `continuation_outcome` + `repair_affinity` — в v24 (step 6.5). v22-v24 logs deserialize через `#[serde(default)]` без потерь.
+
+Полная декомпозиция: `docs/ai_rework_step6_plan.md`.
+
 ### Весовые таблицы по осям (AxisProfile)
 
 Roles emergent — вектор весов по 5 осям (Tank/Melee/Ranged/Control/Support). Таблицы живут в `AiTuning.tables.axis_factor_weights` и `AiTuning.tables.axis_position_weights` (`assets/data/ai_tuning.toml`, step 2.4/2.5) — data-driven, редактируются без перекомпиляции.

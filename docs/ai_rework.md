@@ -163,22 +163,47 @@
 
 ---
 
-### 6. Goal-preserving plan repair (объединяет бывшие #2, #3, #4)
+### 6. Goal-preserving plan repair ✓ DONE (6.6a; 6.6b pending v25 playtest)
 
 **Сложность:** 3
 **Польза:** 5
 
 **Цель:** устойчивость поведения без хрупкости exact continuation.
 
-**Суть:** замена plan freeze на содержательный механизм. Три шага из исходного списка схлопываю в один: goal context, continuation evaluator и семантический check — это три грани одного изменения, имеет смысл делать за один подход.
+**Суть:** замена plan freeze на содержательный механизм. Три шага из исходного списка схлопывались в один: goal context, repair affinity, continuation evaluator + semantic check.
 
-**Как поменять:**
-- `StoredPlan` → `StoredGoalContext`: `goal_kind`, `primary_target`, `region/corridor`, `setup_marker`, `ttl`, `confidence`.
-- На следующем тике: всегда строить fresh plans, считать `repair_affinity` к прошлому замыслу, давать continuation bonus за сохранение goal / позиции в коридоре / подготовленного setup / уже совершённого commitment.
-- Exact continuation — дополнительный bonus, если всё ещё валиден и почти не хуже лучшей repair-альтернативы.
-- Два evaluator'а: `discovery_evaluator` и `continuation_evaluator`. Continuation сильнее учитывает commitment value, already paid cost, setup preservation, path stability.
-- `PlanContinuationCheck` с классами `cosmetic` / `relevant` / `invalidating` — семантическая проверка, не snapshot equality. Пороги: мелкие HP/resource delta, важные статусы, потеря range/reach/LoS, смена позиции цели, lethal threat, потеря planned target.
-- Логи: `goal_preserved|method_preserved`, `goal_preserved|method_changed`, `goal_abandoned|reason`, `continuation_severity`, `repair_possible`.
+**Как реализовано** (декомпозиция: `docs/ai_rework_step6_plan.md`, сабшаги 6.0–6.6a):
+
+- Модуль `src/combat/ai/repair/` с тремя файлами:
+  - `mod.rs` — `ContinuationSeverity { Cosmetic, Relevant, Invalidating }`, `PlanContinuationCheck`, `classify_mismatch`, `ContinuationOutcome { GoalPreservedMethodPreserved, GoalPreservedMethodChanged, GoalAbandoned { reason: AbandonReason }, NoStoredGoal }`, `classify_continuation_outcome`.
+  - `goal.rs` — `GoalKind` (7 вариантов: `Finish` / `Pressure` / `DisableEnemy` / `HealAlly` / `Retreat` / `SetupAOE` / `Reposition`), `StoredGoalContext` (поля: kind, region_anchor, region_radius, planned_ability, ttl, confidence, created_round + severity-поля expected_actor_pos, actor_hp_at_store, actor_rage_at_store, actor_status_hash, target_hp_at_store, target_pos_at_store), `extract_goal_context` producer + `StoredGoalContext::check_continuation` (заменил `PlanSnapshot::mismatch` для goal-уровня).
+  - `affinity.rs` — `RepairAffinity` (6 axes: goal_alignment, region_alignment, method_alignment, severity_factor, ttl_factor, confidence) + `RepairWeights` + `compute_repair_affinity` + `aggregate(weights)`.
+
+- `AiMemory.last_goal: Option<StoredGoalContext>` — пишется в `run_ai_turn` после Move-decision, очищается на Cast/EndTurn. `last_plan` + `StoredPlan` удалены.
+
+- Producer affinity в `pick_action` (`utility/mod.rs`): для каждого fresh plan'а в пуле компонует `RepairAffinity` и кладёт в `plan.annotation.repair_affinity`. Severity берётся из `last_goal.check_continuation(actor, target)`.
+
+- Consumer в `finalize_scores` (`scorer.rs`): когда `ctx.last_goal.is_some()`, к финальному score'у каждого finite-плана прибавляется `affinity.aggregate(weights) * (1 + need_signals.continue_commitment) * tuning.thresholds.repair_bonus_scale`. Bonus всегда ≥ 0 — никаких negative penalty.
+
+- Continuation evaluator: два набора role-axis весов в `AiTuning.tables`:
+  - `axis_factor_weights` / `axis_factor_weights_continuation` — discovery vs continuation для 10 факторов.
+  - `axis_terminal_weights` / `axis_terminal_weights_continuation` — то же для 8 terminal axes.
+  - Множители (от discovery): factors — `kill_now ×1.2`, `kill_promised ×1.2`, `tempo_gain ×1.15`, `self_survival ×0.7`, остальные ×1.0; terminal — `exposure_at_end ×0.8`, `next_turn_lethality ×0.6`, `secure_kill ×1.3`, `board_control_gain ×1.3`, остальные ×1.0.
+  - Sanity-mask и `apply_protect_self_mask` contract нетронуты — continuation меняет только axis weights в aggregator'е, не EvaluationMode.
+
+- `continuation_from_stored` (exact-continuation path) удалён в 6.6a. Решение всегда строится из fresh plans + repair-affinity bonus. `used_continuation` поле в `PlanDivergenceEntry` оставлено как deprecated (всегда false) для backward compat v24 logs.
+
+- Schema bumps: v22→v23 (terminal eval, ещё в step 5), v23→v24 (`PlanDivergenceEntry` extension в 6.5), v24→v25 (`AiMemorySnapshot.last_plan` → `last_goal: Option<StoredGoalContextSnapshot>` в 6.6a).
+
+- Логирование `mine_ai_logs.rs` секция C6 `=== Continuation analysis ===` показывает разбивку по `goal_preserved | method_*`, `goal_abandoned | reason`, severity distribution, goal_kind distribution.
+
+**Что отложено в 6.6b:**
+- 5 новых ai_scenarios (`continuation_target_dies_replan`, `continuation_cosmetic_rage_tick_no_replan`, `continuation_actor_hp_drop_relevant`, `continuation_setup_aoe_two_ticks`, `continuation_ttl_expires`) — требуют v25 playtest logs с реально установленным last_goal в decision moment.
+- Post-step-6 mining: подтверждение mining-таргетов (`goal_preserved|method_preserved ≥ 60%`, `cosmetic_mismatch = 0%`) на свежих v25 playtest'ах.
+- Калибровка `repair_bonus_scale` через playtest mining (старт `0.4`).
+- `goal_preserved|method_preserved` вместо binary continuation в overlay-assertion'ах для существующих 9 scenarios.
+
+**Gate-результаты 6.6a:** golden round-trip `golden_post_step6.jsonl` 0/131; diff golden_post_step5 vs golden_post_step6 = 0 (replay-пайплайн неизменен на v24 corpus, поскольку last_goal=None в JSONL до v25 и repair bonus неактивен в replay path). Real-world сдвиг — через mining post-playtest'ов.
 
 ---
 
