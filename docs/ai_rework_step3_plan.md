@@ -167,7 +167,7 @@
 
 **Эстимейт:** 1.5 дня.
 
-### 3.2. Consumer: `self_preserve` → `select_intent::ProtectSelf`
+### 3.2. Consumer: `self_preserve` → `select_intent::ProtectSelf` ✓ DONE
 
 **Scope.**
 
@@ -209,6 +209,10 @@ if need_signals.self_preserve > 0.2 && danger > 0.0 {
 - Если diff > ~15% от 131 → tunes curves в `ai_tuning.toml`, не код.
 
 **Эстимейт:** 1.0 день.
+
+**Реализация:** schema bump v20→v21 (`PanicOverride.hp_pct/hp_threshold → self_preserve/self_preserve_threshold`; `Urgency.hp_pct → self_preserve`). `panic_self_preserve_threshold = 0.85`, `soft_self_preserve_threshold = 0.2` (default'ы из плана, не пришлось тюнить). `select_intent` получает `&NeedSignals`, `pick_action` вычисляет `compute_need_signals` ДО `select_intent`.
+
+**Коммит:** `272144d`. **Golden-replay:** 0 / 131 diff на baseline-корпусе. Это не означает «изменения нет» — на 131-entry baseline калибровка точно сохраняет поведение; реальный сдвиг должен проявиться на новых post-step-3 plays в 3.6 mining'е.
 
 ### 3.3. Consumer: `continue_commitment` → stickiness в `select_intent::consider`
 
@@ -333,7 +337,7 @@ if need_signals.conserve_resource > 0.5 {
 |---|---|---|---|---|
 | 3.0 | scaffolding (`ResponseCurve` + `appraisal/` + AiMemory v19→v20) | 1.0 | golden 0/131 | **DONE** (`36c3d18`) |
 | 3.1 | producer (5 mineable signals) | 1.5 | unit-tests + golden 0/131 | **DONE** (`052ac42`) |
-| 3.2 | consumer self_preserve | 1.0 | per-entry golden review + scenario harness | pending |
+| 3.2 | consumer self_preserve | 1.0 | per-entry golden review + scenario harness | **DONE** (`272144d`) |
 | 3.3 | consumer continue_commitment | 1.0 | per-entry golden review + monotone_focus | pending |
 | 3.4 | consumer reposition | 1.0 | per-entry golden review + 9 scenarios | pending |
 | 3.5 | consumer finish_target + conserve_resource | 1.0 | per-entry golden review | pending |
