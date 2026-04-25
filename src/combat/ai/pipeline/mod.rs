@@ -6,8 +6,9 @@
 //! - `PlanStage` — trait every stage implements.
 //! - `Pipeline` — ordered composer that runs stages sequentially.
 //!
-//! No stages are implemented here; no existing code is wired to this module.
-//! Consumers arrive in step 7.1+.
+//! Step 7.1 adds concrete stages under `stages/`.
+
+pub mod stages;
 
 use crate::combat::ai::factors::PlanFactors;
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};

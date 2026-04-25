@@ -14,6 +14,7 @@ use crate::combat::ai::factors::PlanFactors;
 use crate::combat::ai::intent::{
     default_focus_target, intent_viability_threshold, IntentReason, TacticalIntent,
 };
+use crate::combat::ai::pipeline::ScoredPool;
 use crate::combat::ai::planning::{
     apply_adaptation, apply_killable_gate, apply_protect_self_mask, pick_best_plan,
     rescore_with_intent, sanity_adjust_plans, score_plans_with_raw, Adaptation, GateStats,
@@ -52,6 +53,9 @@ pub struct PlanRanking {
 
 impl PlanRanking {
     /// Score the plan pool under `intent` and build the initial ranking.
+    ///
+    /// Superseded by the pipeline init in step 7.1. Kept until step 7.4.
+    #[allow(dead_code)]
     pub fn initial(
         plans: &mut [TurnPlan],
         intent: TacticalIntent,
@@ -71,6 +75,37 @@ impl PlanRanking {
         }
     }
 
+    /// Reconstruct a `PlanRanking` from a `ScoredPool` after the pipeline
+    /// has run `ViabilityStage` + `SanityStage`. Transfers scores, factors,
+    /// and sanity breakdown from the pool back into ranking's parallel vecs.
+    ///
+    /// This is a transitional shim (step 7.1–7.3) that lets the legacy
+    /// `apply_adaptation` / `apply_protect_self` / `apply_killable_gate` /
+    /// `pick` methods continue to operate on their existing data layout until
+    /// step 7.4 removes `PlanRanking` entirely.
+    pub fn from_pool(
+        pool: &ScoredPool,
+        intent: TacticalIntent,
+        intent_reason: IntentReason,
+    ) -> Self {
+        // Transfer per-plan sanity breakdown from annotations back into the
+        // PlanRanking parallel vec that downstream methods (log) still read.
+        let sanity_breakdown = pool
+            .annotations
+            .iter()
+            .map(|ann| ann.sanity.clone())
+            .collect();
+        Self {
+            intent,
+            intent_reason,
+            scored: pool.scored.clone(),
+            raw_factors: pool.raw_factors.clone(),
+            adaptation: Adaptation::empty(pool.len()),
+            gate_stats: GateStats::default(),
+            sanity_breakdown,
+        }
+    }
+
     /// Intent viability guard. If no plan achieves the current intent's
     /// signal (max intent-factor < threshold), swap to a fallback:
     ///   - midpanic: HP below midpanic threshold AND standing in danger →
@@ -81,6 +116,9 @@ impl PlanRanking {
     /// Plan generation is intent-agnostic, so rescoring against the same
     /// pool is enough. Only factor[7] (the intent column) is rewritten by
     /// `rescore_with_intent`; the other eight columns stay intact.
+    ///
+    /// Superseded by `ViabilityStage` in step 7.1. Kept until step 7.4.
+    #[allow(dead_code)]
     pub fn apply_viability(
         &mut self,
         plans: &mut [TurnPlan],
@@ -155,6 +193,9 @@ impl PlanRanking {
     /// catch (low-HP through AoO corridors, self-AoE, LOS blindspots,
     /// retreat traps). Runs on all plans so low-ranked terrible ones can't
     /// sneak up via noise.
+    ///
+    /// Superseded by `SanityStage` in step 7.1. Kept until step 7.4.
+    #[allow(dead_code)]
     pub fn apply_sanity(&mut self, plans: &mut [TurnPlan], ctx: &ScoringCtx) {
         self.sanity_breakdown = sanity_adjust_plans(&mut self.scored, plans, ctx);
     }

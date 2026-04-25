@@ -44,6 +44,26 @@ pub struct ActionOutcomeEstimate {
     pub resource_swing: f32,
 }
 
+/// Result of the viability-gate pass for one plan (step 7.1).
+///
+/// `passed = true` means the intent signal for this plan met the threshold and
+/// no swap was triggered (or no threshold applies). `adjusted_score` is the
+/// final score after any intent-column rewrite that viability triggered; it
+/// equals the pre-viability score when no swap occurred.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ViabilityResult {
+    /// Whether the viability gate passed without triggering a fallback swap.
+    pub passed: bool,
+    /// Score after viability rewrite (equals pre-viability score when passed).
+    pub adjusted_score: f32,
+}
+
+impl Default for ViabilityResult {
+    fn default() -> Self {
+        Self { passed: true, adjusted_score: 0.0 }
+    }
+}
+
 /// Per-plan annotation bundle. Grows as pipeline stages accrue data
 /// (outcome in wave 1; critics / band / agenda in later waves).
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -65,6 +85,15 @@ pub struct PlanAnnotation {
     /// repair bonus aggregation in 6.3 (not read into score in 6.2).
     #[serde(default)]
     pub repair_affinity: crate::combat::ai::repair::RepairAffinity,
+    /// Step 7.1: viability gate result for this plan.
+    /// Default (passed=true, adjusted_score=0.0) when ViabilityStage has not
+    /// run yet or the gate did not apply to this intent.
+    #[serde(default)]
+    pub viability: ViabilityResult,
+    /// Step 7.1: sanity hits applied to this plan (rule + multiplier pairs).
+    /// Empty until SanityStage runs or when no rules fired.
+    #[serde(default)]
+    pub sanity: Vec<crate::combat::ai::planning::sanity::SanityHit>,
 }
 
 // ---------------------------------------------------------------------------

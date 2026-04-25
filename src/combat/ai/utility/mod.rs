@@ -15,6 +15,10 @@ mod ranking;
 
 pub use crate::combat::ai::planning::PickMechanics;
 
+use crate::combat::ai::pipeline::{
+    stages::{sanity::SanityStage, viability::ViabilityStage},
+    Pipeline, ScoredPool, StageCtx,
+};
 use crate::combat::ai::repair::compute_repair_affinity;
 use crate::content::content_view::ContentView;
 use crate::combat::ai::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
@@ -248,13 +252,39 @@ pub fn pick_action(
     };
 
     // ── Phase pipeline ─────────────────────────────────────────────────
-    // `PlanRanking` owns (intent, reason, scored, raw_factors) and each
-    // phase method mutates them coherently. The pick_action body reads as
-    // a linear sequence of phases — behavior-sensitive logic lives in the
-    // methods and is unit-tested there.
-    let mut ranking = PlanRanking::initial(&mut plans, choice.intent, choice.reason, &scoring_ctx);
-    ranking.apply_viability(&mut plans, actor_pos, &scoring_ctx);
-    ranking.apply_sanity(&mut plans, &scoring_ctx);
+    // Step 7.1: ViabilityStage + SanityStage run through the typed pipeline.
+    // `PlanRanking::initial` computes the initial scored/raw_factors; the
+    // pool is seeded from those values so both representations agree.
+    let initial_scored;
+    let initial_raw;
+    {
+        // Scope limiting the &mut borrow of plans for initial scoring.
+        let (s, r) = crate::combat::ai::planning::score_plans_with_raw(
+            &mut plans, &choice.intent, &scoring_ctx,
+        );
+        initial_scored = s;
+        initial_raw = r;
+    }
+    let mut pool = ScoredPool::new(plans);
+    pool.scored = initial_scored;
+    pool.raw_factors = initial_raw;
+
+    let mut stage_ctx = StageCtx::new(
+        &scoring_ctx,
+        choice.intent,
+        choice.reason,
+        actor_pos,
+        rng,
+    );
+    let viability_sanity = Pipeline::new()
+        .add(Box::new(ViabilityStage))
+        .add(Box::new(SanityStage));
+    viability_sanity.run(&mut pool, &mut stage_ctx);
+
+    // Unpack pool back into plans + ranking for the legacy pipeline tail.
+    // from_pool must happen before pool is destructured (it borrows pool).
+    let mut ranking = PlanRanking::from_pool(&pool, stage_ctx.intent, stage_ctx.intent_reason);
+    plans = pool.plans;
     // Snapshot post-sanity scores as the "base" — the value each plan had
     // immediately before adaptation rescored any of them. The log stores
     // both numbers per plan (v6 schema) so offline diagnostics can tell
