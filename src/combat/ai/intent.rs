@@ -383,14 +383,30 @@ pub fn select_intent(
 
     let mut consider = |intent: TacticalIntent, score: f32, reason: IntentReason| {
         let mut s = score;
-        // Stickiness: bonus for continuing the same intent.
+        // Stickiness: bonus for continuing the same intent, modulated by
+        // need_signals.continue_commitment for target-oriented intents.
+        // When the prior target is alive, healthy, and reachable,
+        // continue_commitment is high (~0.7+) and stickiness works near full.
+        // When the target is dead/unreachable/in finisher zone (hp ≤ 0.25),
+        // commitment ≈ 0 and stickiness collapses — the AI can freely switch
+        // without the flat abandon-penalty noise (mining P1).
+        //
+        // Non-target intents (ProtectSelf, ProtectAlly, SetupAOE, LastStand)
+        // use a flat factor of 1.0 — their stickiness is unrelated to target
+        // commitment and should behave as before (step 3.3, variant c).
         if memory.turns_committed < t.max_committed_turns
             && memory.last_intent == Some(intent.kind())
         {
-            s += t.stickiness_bonus;
+            let stickiness_factor = match intent.kind() {
+                IntentKind::FocusTarget | IntentKind::ApplyCC => {
+                    need_signals.continue_commitment
+                }
+                _ => 1.0,
+            };
+            s += t.stickiness_bonus * stickiness_factor;
             if let (Some(prev), Some(cur)) = (memory.last_target, intent.target()) {
                 if prev == cur {
-                    s += t.target_stickiness_bonus;
+                    s += t.target_stickiness_bonus * stickiness_factor;
                 }
             }
         }
@@ -1027,6 +1043,7 @@ pub fn intent_score(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::influence::InfluenceMaps;
     use crate::combat::ai::outcome::ActionOutcomeEstimate;
@@ -1035,6 +1052,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
+    use crate::combat::ai::tuning::AiTuning;
     use crate::core::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
@@ -1580,6 +1598,86 @@ mod tests {
             matches!(choice.reason, IntentReason::BestPriority { .. }),
             "AP=0 should fall through to BestPriority; got {:?}",
             choice.reason,
+        );
+    }
+
+    /// Step 3.3: `continue_commitment` modulates FocusTarget stickiness.
+    ///
+    /// Setup: actor with last_intent=FocusTarget, last_target=E1 (dead — not in
+    /// snapshot).  E2 is the only live enemy (BestPriority, score ≈ 0.65).
+    /// danger > 0 and self_preserve is high enough that ProtectSelf urgency
+    /// (≈ 0.80) slightly beats the raw FocusTarget score.
+    ///
+    /// - `continue_commitment = 1.0`: stickiness bonus (+0.25) tips FocusTarget
+    ///   above ProtectSelf → AI keeps attacking.
+    /// - `continue_commitment = 0.0`: no bonus → ProtectSelf wins → AI retreats.
+    #[test]
+    fn stickiness_modulated_by_continue_commitment() {
+        let actor_pos = hex_from_offset(0, 0);
+        // E2 is the only live enemy, at moderate distance.
+        let e2_pos = hex_from_offset(3, 0); // dist=3, not immediately killable
+
+        // actor: ap=1, speed=1, threat=2 (cannot kill e2 which has eff_hp=10),
+        // max_attack_range=1 so reach_budget=2 < dist=3 → not killable.
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ap(1)
+            .speed(1)
+            .max_attack_range(1)
+            .threat(2.0)
+            .build();
+
+        // E2: full HP 10, so eff_hp=10 > actor threat=2 → not killable.
+        let e2 = UnitBuilder::new(2, Team::Player, e2_pos).full_hp(10).build();
+        let e2_entity = e2.entity;
+
+        let snap = BattleSnapshot::new(vec![actor.clone(), e2], 1);
+
+        // Danger on actor tile so ProtectSelf urgency = self_preserve * danger.
+        let mut maps = empty_maps();
+        maps.danger.add(actor_pos, 1.0);
+
+        // Memory: was attacking E1 (now dead — absent from snapshot).
+        let dead_entity = bevy::prelude::Entity::from_raw_u32(999).expect("valid");
+        let memory = AiMemory {
+            last_intent: Some(IntentKind::FocusTarget),
+            last_target: Some(dead_entity),
+            turns_committed: 0,
+            ..Default::default()
+        };
+
+        let difficulty = DifficultyProfile::default();
+        let tuning = AiTuning::default();
+        // stickiness_bonus = 0.25 (default); soft_self_preserve_threshold = 0.2
+
+        // With commitment = 1.0: FocusTarget stickiness bonus fully applied.
+        // FocusTarget BestPriority score ≈ 0.65, + 0.25 stickiness = 0.90
+        // ProtectSelf urgency = 0.80 * 1.0 = 0.80   → FocusTarget wins.
+        let ns_high = NeedSignals {
+            continue_commitment: 1.0,
+            self_preserve: 0.80, // above soft threshold (0.2)
+            ..NeedSignals::default()
+        };
+        let choice_high =
+            select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &ns_high);
+        assert!(
+            matches!(choice_high.intent, TacticalIntent::FocusTarget { target } if target == e2_entity),
+            "commitment=1.0 → stickiness tips FocusTarget above ProtectSelf; got {:?}",
+            choice_high.intent,
+        );
+
+        // With commitment = 0.0: stickiness collapses for FocusTarget.
+        // FocusTarget score ≈ 0.65 < ProtectSelf urgency 0.80 → ProtectSelf wins.
+        let ns_low = NeedSignals {
+            continue_commitment: 0.0,
+            self_preserve: 0.80,
+            ..NeedSignals::default()
+        };
+        let choice_low =
+            select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &ns_low);
+        assert!(
+            matches!(choice_low.intent, TacticalIntent::ProtectSelf),
+            "commitment=0.0 → no stickiness, ProtectSelf beats FocusTarget; got {:?}",
+            choice_low.intent,
         );
     }
 }
