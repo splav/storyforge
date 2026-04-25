@@ -20,6 +20,9 @@ panic_self_preserve_threshold = 0.85
 # Soft ProtectSelf gate: self_preserve > this AND danger > 0 → consider ProtectSelf.
 # Calibrated to activate roughly where old hp_pct < 0.4 gate activated.
 soft_self_preserve_threshold = 0.2
+# Step 3.4 consumer: floor for Reposition intent.
+# Below this need_signals.reposition magnitude select_intent doesn't consider Reposition.
+reposition_signal_floor = 0.1
 
 [tables]
 # Per-axis weights for the 10 utility factors.

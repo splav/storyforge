@@ -122,7 +122,11 @@ use crate::game::hex::Hex;
 ///   Step 3.2 consumer wiring. Old v20 logs with `hp_pct`/`hp_threshold` fields
 ///   in those variants will deserialize to 0.0 for the renamed fields (Serde
 ///   unknown-field drop), which is acceptable for replay/analysis purposes.
-pub const SCHEMA_VERSION: u32 = 21;
+/// - v21 → v22: `IntentReason::Reposition` fields renamed
+///   (`pos_eval`/`threshold` → `reposition`/`floor`) when select_intent migrated
+///   to need_signals (step 3.4). Old v21 logs deserialize via Serde default for
+///   unknown fields; the renamed fields get 0.0.
+pub const SCHEMA_VERSION: u32 = 22;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can

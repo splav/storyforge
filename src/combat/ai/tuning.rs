@@ -125,6 +125,10 @@ pub struct Thresholds {
     /// magnitude the soft branch doesn't even consider ProtectSelf.
     /// Migrated from the old `hp_pct < 0.4` gate. Step 3.2 consumer.
     pub soft_self_preserve_threshold: f32,
+    /// Soft floor for the Reposition intent. Below this `need_signals.reposition`
+    /// magnitude the branch doesn't even consider Reposition. Migrated from the
+    /// old `pos_eval < awareness_reposition_threshold()` gate. Step 3.4 consumer.
+    pub reposition_signal_floor: f32,
 }
 
 impl Default for Thresholds {
@@ -142,6 +146,7 @@ impl Default for Thresholds {
             low_hp_zone_threshold: 0.4,
             panic_self_preserve_threshold: 0.85,
             soft_self_preserve_threshold: 0.2,
+            reposition_signal_floor: 0.1,
         }
     }
 }
@@ -270,6 +275,7 @@ pub struct ThresholdsOverride {
     #[serde(default)] pub max_committed_turns: Option<u8>,
     #[serde(default)] pub panic_self_preserve_threshold: Option<f32>,
     #[serde(default)] pub soft_self_preserve_threshold: Option<f32>,
+    #[serde(default)] pub reposition_signal_floor: Option<f32>,
 }
 
 impl AiTuning {
@@ -290,6 +296,7 @@ impl AiTuning {
             if let Some(v) = t.max_committed_turns    { out.thresholds.max_committed_turns = v; }
             if let Some(v) = t.panic_self_preserve_threshold { out.thresholds.panic_self_preserve_threshold = v; }
             if let Some(v) = t.soft_self_preserve_threshold  { out.thresholds.soft_self_preserve_threshold = v; }
+            if let Some(v) = t.reposition_signal_floor       { out.thresholds.reposition_signal_floor = v; }
         }
         // hooks: difficulty and tables override would be applied here.
         out

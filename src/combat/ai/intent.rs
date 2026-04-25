@@ -245,7 +245,9 @@ pub enum IntentReason {
     BestPriority { priority: f32 },
     ApplyCc { dpr: f32 },
     SetupAoe { clustered_pairs: usize },
-    Reposition { pos_eval: f32, threshold: f32 },
+    /// Step 3.4: fields migrated from raw pos_eval/threshold to
+    /// need_signals.reposition/floor. Schema v21 → v22.
+    Reposition { reposition: f32, floor: f32 },
     NoRuleDefault,
     MidpanicFallback {
         hp_pct: f32,
@@ -319,8 +321,8 @@ impl fmt::Display for IntentReason {
             Self::SetupAoe { clustered_pairs } => write!(
                 f, "{} clustered enemy pair(s) within dist≤2", clustered_pairs,
             ),
-            Self::Reposition { pos_eval, threshold } => write!(
-                f, "pos_eval={:.2} < awareness_threshold={:.2}", pos_eval, threshold,
+            Self::Reposition { reposition, floor } => write!(
+                f, "reposition_signal={:.2} > floor={:.2}", reposition, floor,
             ),
             Self::NoRuleDefault => write!(f, "no rule matched — default reposition"),
             Self::MidpanicFallback {
@@ -578,16 +580,21 @@ pub fn select_intent(
         }
     }
 
-    // Reposition: current position is significantly bad. awareness controls
-    // how early the AI notices a bad tile (low = only truly terrible tiles).
-    let pos_eval = evaluate_position(active.pos, &active.role, tuning, maps);
-    let repo_threshold = difficulty.awareness_reposition_threshold();
-    if pos_eval < repo_threshold {
-        let repo_score = 0.3 + (repo_threshold - pos_eval).min(1.5) * 0.4;
+    // Reposition: drive intent score from need_signals.reposition (computed by
+    // the appraisal layer from best_position_improvement, engagement_gap,
+    // has_ap). Old gate `pos_eval < awareness_reposition_threshold` was a rough
+    // proxy for these inputs — now consolidated in compute_need_signals (3.1
+    // producer). Step 3.4 consumer.
+    let repo_floor = t.reposition_signal_floor;
+    if need_signals.reposition > repo_floor {
+        let repo_score = 0.3 + need_signals.reposition * 0.7;
         consider(
             TacticalIntent::Reposition,
             repo_score,
-            IntentReason::Reposition { pos_eval, threshold: repo_threshold },
+            IntentReason::Reposition {
+                reposition: need_signals.reposition,
+                floor: repo_floor,
+            },
         );
     }
 
