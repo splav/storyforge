@@ -249,7 +249,7 @@ if memory.turns_committed < t.max_committed_turns
 
 **Коммит:** `fcd5610`. **Golden-replay:** 0 / 131 diff на baseline-корпусе. `p019_dvoynik_monotone_focus` PASS. Реальный сдвиг P1 (7.3% FT→FT abandon) ожидается на post-step-3 plays.
 
-### 3.4. Consumer: `reposition` → `select_intent::Reposition`
+### 3.4. Consumer: `reposition` → `select_intent::Reposition` ✓ DONE
 
 **Scope.**
 
@@ -274,6 +274,8 @@ if need_signals.reposition > 0.1 {
 **Ожидаемый сдвиг:** depth-0 при `actor_ap ≥ 1` падает с 6.2% к ≤1.0% (P3). Reposition вырастает с 0.4% до 3–5% (P6).
 
 **Риск:** Reposition может начать «забивать» ProtectSelf в low-HP сценариях, потому что при low HP + engagement_gap оба сигнала высокие. Защита через `IntentReason::Urgency` приоритет — survival_quadratic в sanity всё ещё гасит non-defensive ProtectSelf при low HP.
+
+**Реализация:** schema bump v21 → v22 (`Reposition.pos_eval/threshold → reposition/floor`). Добавлен `Thresholds.reposition_signal_floor = 0.1`. `repo_score = 0.3 + need_signals.reposition * 0.7` — калибровка чтобы при сигнале 1.0 итог = 1.0. **Коммит:** `3ddc2a9`. **Golden:** 0/131 на baseline-корпусе (4 v17-лога — активная фаза боёв с `engagement_gap = false` для большинства entries; целевые P3/P4/P6 проявятся на post-step-3 plays в 3.6 mining'е).
 
 **Gate.**
 - Все 9 текущих сценариев `ai_scenarios` зелёные.
@@ -343,7 +345,7 @@ if need_signals.conserve_resource > 0.5 {
 | 3.1 | producer (5 mineable signals) | 1.5 | unit-tests + golden 0/131 | **DONE** (`052ac42`) |
 | 3.2 | consumer self_preserve | 1.0 | per-entry golden review + scenario harness | **DONE** (`272144d`) |
 | 3.3 | consumer continue_commitment | 1.0 | per-entry golden review + monotone_focus | **DONE** (`fcd5610`) |
-| 3.4 | consumer reposition | 1.0 | per-entry golden review + 9 scenarios | pending |
+| 3.4 | consumer reposition | 1.0 | per-entry golden review + 9 scenarios | **DONE** (`3ddc2a9`) |
 | 3.5 | consumer finish_target + conserve_resource | 1.0 | per-entry golden review | pending |
 | 3.6 | cleanup + повторный mining + rebaseline golden | 0.5 | mining-метрики достигают таргетов | pending |
 
