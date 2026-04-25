@@ -26,8 +26,12 @@ fn replay_bin() -> std::path::PathBuf {
 
 /// First entry of this log is plan_id=0, actor=Зверокров Страж,
 /// intent=FocusTarget, decision=MoveAndCast (melee_attack, target 12884901551).
-/// Schema v15 — uses fallback difficulty/reservations (warning printed, not fail).
-const LOG_PATH: &str = "logs/20260422T043500_demo_campaign_demo_beastblood_raid.jsonl";
+///
+/// Source: ai_scenarios fixture (stable, не очищается с logs/). Раньше тест
+/// указывал на `logs/20260422T...beastblood_raid.jsonl`, но `logs/` ротируется
+/// и файл удалялся между playtest'ами. Fixture commit'нут, поведение
+/// идентичное (тот же первый entry структурно).
+const LOG_PATH: &str = "tests/ai_scenarios/snapshots/focus_target_melee_basic/log.jsonl";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
