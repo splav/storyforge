@@ -227,6 +227,8 @@ v26 mining gate (full voluntary/reactive split) — следующий playtest 
 
 **Carry-over из 6.7:** ранний `return` в `enemy_turn.rs:103–106` (нет AP/MP → EndTurn) сейчас не пишет divergence-log и обходит decision-block. Внутри 6.7 туда поставлен минимальный proactive-clear stale `last_goal`, но без telemetry. В рамках pipeline это решается естественно: start-of-turn stage пишет goal-state (если `last_goal` есть), декрементит TTL, выбрасывает event при abandon. Затем pipeline обрывается, если actor не может действовать. Найди в `enemy_turn.rs` метку `FIXME(step 7)` — там же.
 
+**Carry-over из 6.9 (paused 1/5):** 4 из 5 `continuation_*` fixture'ов отложены потому что текущий `ai_scenarios` runner не snapshot'ит runtime `AiMemory.last_goal`. Replay всегда запускается с `last_goal = None`, поэтому cross-round preservation fixture'ы прямо не тестируются (high-margin случаи проходят, low-margin флипают). Pipeline даёт возможность инъекцировать AiMemory-state в start-of-turn stage как часть scenario setup — это перепроектирует runner так, чтобы continuation fixture'ы работали детерминированно. Список pending fixtures (`target_dies_replan`, `cosmetic_rage_tick_no_replan`, `setup_aoe_two_ticks`, `ttl_expires`) — в `docs/ai_rework_step6_plan.md` §6.9 «Статус».
+
 ---
 
 ### 8. `StepFactor` / `PlanFactor` / `TerminalFactor` + `PlanModifier` (объединены)

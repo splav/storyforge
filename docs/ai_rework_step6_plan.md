@@ -832,10 +832,10 @@ cargo run --bin replay_ai_log -- --capture-golden \
 | 6.6a | migration `continuation_from_stored` → repair-only + schema v24→v25 + rebaseline на v24 corpus | 1.0 | golden round-trip 0/131, diff old vs new = 0 | done (`a9a058f`) |
 | 6.6b | metric refinement — outcome split + reactive vs voluntary abandon (schema v25→v26) | 0.5 | in_transit 24/58.5% + legacy_v25_abandoned 17/41.5%, 0/131 golden, scenarios зелёные | done (см. ниже) |
 | 6.7 | lifecycle fix: cross-round `last_goal` preservation + proactive stale clear | 0.5 | mining v26 corpus после правки: `preserved ≥60%`, `method_delivered ≥10%` (см. ниже) | done (`4ff2eea`) |
-| 6.8 | metric refinement — `is_reactive_reason` extension + `goal_alignment` partial credit для target-switch | 0.5 | mining: voluntary ↓, без побочки calibration'а; per-entry voluntary review (см. ниже) | done (`a1896ac`) |
-| 6.9 | scenario coverage — 5 `continuation_*` ai_scenarios (из 6.6b backlog) + TTL/Invalidating-fixtures | 1.0 | новые scenarios зелёные, на их v26-логах `ttl_expired > 0%` и `invalidating > 0%` | pending |
+| 6.8 | metric refinement — `is_reactive_reason` extension + `goal_alignment` partial credit для target-switch | 0.5 | mining: voluntary ↓, без побочки calibration'а; per-entry voluntary review (см. ниже) | done (`a1896ac`, `2197b0d`) |
+| 6.9 | scenario coverage — 5 `continuation_*` ai_scenarios (из 6.6b backlog) + TTL/Invalidating-fixtures | 1.0 | новые scenarios зелёные | **paused 1/5** (см. ниже) |
 
-**Суммарно ~10 дней.**
+**Суммарно ~9.5 дней (с paused 6.9).**
 
 ## Зафиксированные решения
 
@@ -1133,6 +1133,39 @@ target deaths cross-round).
 **Что НЕ делать в 6.9.**
 - Не модифицировать lifecycle code — 6.7 уже корректен, 6.9 — только coverage.
 - Не дублировать существующие 9 ai_scenarios — каждый continuation_* fixture уникален по outcome.
+
+**Статус (paused 1/5, 26 апр. 2026, `e54ed66`).**
+
+Сделано:
+- ✓ `continuation_relevant_preserved` — Морочник Морок (twisted_grove p020,
+  intra-turn Relevant preservation, score 3.39, выбран как high-margin
+  чтобы выдержать AiMemory-less replay).
+
+Inherent ограничение фреймворка обнаружено: `ai_scenarios` runner
+не snapshot'ит runtime `AiMemory.last_goal`, поэтому replay всегда
+запускается с `last_goal = None`. Это значит:
+
+- **Cross-round preservation fixture'ы прямо не тестируются** — first
+  кандидат glassworks p006 (score 2.72, cross-round) flipнул в replay
+  на `taunt+self` вместо `melee_attack+target`. Это подтверждает что
+  6.7 lifecycle реально влияет на decisions, но также показывает что
+  ai_scenarios не подходит для тестирования continuation semantics.
+- Fixture'ы могут только покрывать **observable стабильность decision'а**
+  на high-margin случаях.
+
+Pending 4/5 fixtures отложены — все требуют новых целевых playtest'ов:
+
+| Fixture | Что нужно от playtest'а |
+|---|---|
+| `target_dies_replan` | Cross-round target death (быстрый kill между ходами) |
+| `cosmetic_rage_tick_no_replan` | Move triggers AoO ticks rage between Move и Cast same turn |
+| `setup_aoe_two_ticks` | Control class actor (Aldric?) с многоходовым AoE setup |
+| `ttl_expires` | Actor commitment-status сохраняется через 2+ rounds (`age >= 2`) |
+
+Эти 4 могут быть пере-формулированы или ассимилированы в **step 7**
+(PlanStage pipeline формализует lifecycle и потенциально позволяет
+сделать ai_scenarios-style тесты на multi-tick поведение через явное
+state injection в start-of-turn stage).
 
 ## Что откладывается
 
