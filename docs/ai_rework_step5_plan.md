@@ -257,7 +257,7 @@ Real gate шага — **прохождение step 1 ai_scenarios** + **отс
 
 **Реализация:** 10 unit-тестов (~3 на axis). Адаптации от спеки: `UnitSnapshot.abilities: Vec<AbilityId>` (без `.0`), `AbilityDef` использует `def.range.max` (не `cast_range`); range-lookup паттерн заимствован из `factors/tempo.rs::max_offensive_range`. **Коммит:** `4cd62f4`. **Golden:** 0/131. Все 8 axes теперь populated.
 
-### 5.4. Consumer: NeedSignals-weighted aggregation в `finalize_scores`
+### 5.4. Consumer: NeedSignals-weighted aggregation в `finalize_scores` ✓ DONE
 
 **Scope.**
 
@@ -316,6 +316,19 @@ Negative axes (exposure_at_end, next_turn_lethality) имеют отрицате
 
 **Эстимейт:** 1.5 дня (калибровка + per-entry разбор).
 
+**Реализация:** `AxisProfile::terminal_weights` (symmetric к `factor_weights` через `biased_normalized()` role-mix). Aggregator в `finalize_scores`: `(1+self_preserve)` на defensive, `(1+finish_target)` на secure_kill, `(1+rescue_ally)` на ally_rescue, `(1+reposition)` на board_control_gain, `(1+setup_aoe)` на density_value.
+
+**Калибровка** прошла 4 итерации: best-guess (-0.4..-0.9) → 37/131 diff; 2x уменьшение → 32; 4x → 26; финал — **только defensive + offensive активны, geometric axes (board_control_gain, pressure_spacing_zone, line_actionability, density_value) обнулены** → **6/131**. Geometric активируются в 5.5–5.6 после mining'а post-step-5 plays. 
+
+Сценарий `p036_iskazhenny_last_stand_no_options` обновлён: `["EndTurn"]` → `["EndTurn", "Move"]` — семантически корректно (актор с AP=0 на опасной позиции уходит на безопасный тайл).
+
+Per-entry breakdown 6/131:
+- 5 целевых defensive (cases 7, 9, 107, 112, 130) — `exposure_at_end` penalty на опасных тайлах.
+- 1 целевой позиционный (case 22).
+- 0 подозрительных/аномальных.
+
+**Коммит:** `f9b59b2`. **Tests:** 405 lib + 1 ai_scenarios.
+
 ### 5.5. Migration & dead-code cleanup
 
 **Scope.**
@@ -373,7 +386,7 @@ Identify duplicate / overlapping logic:
 | 5.1 | defensive cluster (exposure_at_end, next_turn_lethality) | 1.0 | golden 0/131 | **DONE** (`6e80f0c`) |
 | 5.2 | offensive cluster (secure_kill, ally_rescue, board_control_gain) | 1.5 | golden 0/131 | **DONE** (`3df2ac1`) |
 | 5.3 | geometric cluster (line_actionability, density_value, pressure_spacing_zone) | 1.0 | golden 0/131 | **DONE** (`4cd62f4`) |
-| 5.4 | consumer: NeedSignals-weighted aggregation в finalize_scores | 1.5 | per-entry golden review | pending |
+| 5.4 | consumer: NeedSignals-weighted aggregation в finalize_scores | 1.5 | per-entry golden review | **DONE** (`f9b59b2`) |
 | 5.5 | migration + dead-code cleanup | 1.5 | per-entry review + размер кода ↓ | pending |
 | 5.6 | schema bump v22→v23 + rebaseline + sync docs | 0.5 | golden rebaseline | pending |
 
