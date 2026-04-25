@@ -753,7 +753,7 @@ mod tests {
                 PlanStep::Move { .. } => ActionOutcomeEstimate::default(),
             }
         }).collect();
-        plan.annotation = PlanAnnotation { outcomes };
+        plan.annotation = PlanAnnotation { outcomes, terminal: Default::default() };
     }
 
     /// Pins the `intent` factor aggregation across single- and multi-cast plans

@@ -13,6 +13,7 @@ pub mod reach;
 pub mod sanity;
 pub mod scorer;
 pub mod sim;
+pub mod terminal;
 pub mod types;
 #[cfg(test)]
 mod parity_tests;

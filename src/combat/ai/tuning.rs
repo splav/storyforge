@@ -173,6 +173,14 @@ pub struct Tables {
     /// Per-axis weights for the 3 influence maps used in position evaluation.
     /// Columns: [danger, ally_support, opportunity].
     pub axis_position_weights: [[f32; 3]; 5],
+    /// Per-axis weights for the 8 terminal-state axes.
+    /// Rows: [Tank, Melee, Ranged, Control, Support].
+    /// Cols: [exposure_at_end, next_turn_lethality, secure_kill, ally_rescue,
+    ///        board_control_gain, line_actionability, density_value,
+    ///        pressure_spacing_zone].
+    /// Step 5.0: all zeros — aggregator (5.4) does not read this yet.
+    /// Real values land in 5.4 calibration.
+    pub axis_terminal_weights: [[f32; 8]; 5],
 }
 
 impl Default for Tables {
@@ -195,6 +203,7 @@ impl Default for Tables {
                 [   -1.5,   0.8,   0.8 ], // Control
                 [   -2.5,   1.3,   0.5 ], // Support
             ],
+            axis_terminal_weights: [[0.0; 8]; 5],
         }
     }
 }
@@ -431,6 +440,28 @@ mod tests {
         // At or above → 1.
         assert_eq!(c.eval(0.5), 1.0);
         assert_eq!(c.eval(0.6), 1.0);
+    }
+
+    #[test]
+    fn tables_axis_terminal_weights_defaults_to_zeros() {
+        // Empty [tables] section must parse and default axis_terminal_weights to all-zeros.
+        // Tests both the #[serde(default)] path (key absent) and an explicit zeros value.
+        let toml_src = "[tables]\n";
+        let tuning: AiTuning =
+            toml::from_str(toml_src).expect("empty [tables] must parse via serde(default)");
+        assert_eq!(tuning.tables.axis_terminal_weights, [[0.0f32; 8]; 5]);
+
+        // Explicit zeros — same result.
+        let toml_explicit = "[tables]\naxis_terminal_weights = [\
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],\
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],\
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],\
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],\
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],\
+        ]\n";
+        let tuning2: AiTuning =
+            toml::from_str(toml_explicit).expect("explicit zeros must parse");
+        assert_eq!(tuning2.tables.axis_terminal_weights, [[0.0f32; 8]; 5]);
     }
 
     #[test]

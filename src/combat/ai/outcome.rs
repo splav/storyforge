@@ -49,6 +49,11 @@ pub struct PlanAnnotation {
     /// and TurnPlan.outcomes.
     #[serde(default)]
     pub outcomes: Vec<ActionOutcomeEstimate>,
+    /// One-shot terminal-state evaluation. Populated by `terminal_state_score`
+    /// in `finalize_scores`; consumed by aggregation in 5.4. Currently
+    /// runtime-only (`#[serde(skip)]`); JSONL serialization in 5.6.
+    #[serde(skip)]
+    pub terminal: crate::combat::ai::planning::terminal::TerminalScore,
 }
 
 // ---------------------------------------------------------------------------
