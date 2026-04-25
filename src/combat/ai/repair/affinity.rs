@@ -206,6 +206,13 @@ mod tests {
             ttl: 2,
             confidence: 1.0,
             created_round: 1,
+            // Severity-check fields zeroed — affinity tests don't exercise check_continuation.
+            expected_actor_pos: anchor,
+            actor_hp_at_store: 0,
+            actor_rage_at_store: 0,
+            actor_status_hash: 0,
+            target_hp_at_store: 0,
+            target_pos_at_store: Hex::ZERO,
         }
     }
 
@@ -384,15 +391,7 @@ mod tests {
     fn ttl_factor_zero_when_age_exceeds_ttl() {
         // created_round=1, ttl=2, current_round=3 → age=2 >= ttl=2 → 0.0
         let target = ent(1);
-        let s = StoredGoalContext {
-            kind: GoalKind::Finish { target },
-            region_anchor: Hex::ZERO,
-            region_radius: 2,
-            planned_ability: None,
-            ttl: 2,
-            confidence: 1.0,
-            created_round: 1,
-        };
+        let s = stored(GoalKind::Finish { target }, Hex::ZERO, 2, None);
         let affinity = compute_repair_affinity(
             TacticalIntent::FocusTarget { target },
             &[],
@@ -408,15 +407,7 @@ mod tests {
     fn ttl_factor_decays_linearly() {
         // created_round=1, ttl=2, current_round=2 → age=1, factor = 1 - 1/2 = 0.5
         let target = ent(1);
-        let s = StoredGoalContext {
-            kind: GoalKind::Finish { target },
-            region_anchor: Hex::ZERO,
-            region_radius: 2,
-            planned_ability: None,
-            ttl: 2,
-            confidence: 1.0,
-            created_round: 1,
-        };
+        let s = stored(GoalKind::Finish { target }, Hex::ZERO, 2, None);
         let affinity = compute_repair_affinity(
             TacticalIntent::FocusTarget { target },
             &[],

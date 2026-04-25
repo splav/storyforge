@@ -259,6 +259,13 @@ mod tests {
             ttl: 2,
             confidence: 1.0,
             created_round: 1,
+            // Severity-check fields zeroed — outcome tests don't exercise check_continuation.
+            expected_actor_pos: crate::game::hex::Hex::new(0, 0),
+            actor_hp_at_store: 0,
+            actor_rage_at_store: 0,
+            actor_status_hash: 0,
+            target_hp_at_store: 0,
+            target_pos_at_store: crate::game::hex::Hex::new(0, 0),
         }
     }
 

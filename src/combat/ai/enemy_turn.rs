@@ -3,12 +3,10 @@ use crate::content::content_view::{ActiveContent, ContentView};
 use crate::combat::ai::debug::AiDebugState;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
-use crate::combat::ai::intent::{AiMemory, PlanSnapshot, StoredPlan};
+use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::repair::{
     classify_continuation_outcome, ContinuationSeverity, extract_goal_context,
 };
-use crate::combat::ai::planning::types::PlanStep;
-use crate::combat::ai::snapshot::BattleSnapshot;
 use crate::combat::ai::log::AiLogger;
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
@@ -160,85 +158,47 @@ fn run_ai_turn(
         Err(_) => &mut fallback_memory,
     };
 
-    // Always build the fresh plan — needed for (a) normal use when no stored
-    // plan exists, (b) shadow comparison for divergence diagnostics, and (c)
-    // fallback when the stored plan is invalidated.
-    let (fresh_decision, debug_snapshot, fresh_chosen) = pick_action(
+    // Step 6.6: exact-continuation (continuation_from_stored) removed.
+    // pick_action applies repair-affinity bonus internally via AiMemory.last_goal,
+    // so the fresh plan already reflects goal-preservation preferences.
+    let (decision, debug_snapshot, fresh_chosen) = pick_action(
         actor, actor_pos, &world, &snap, &maps, rng,
         memory_ref, reservations, logger, debug, &debug_names,
     );
 
-    // Take the stored plan out of memory (clears it unconditionally; we
-    // re-insert it below only when emitting another Move this tick).
-    let old_plan = memory_ref.last_plan.take();
-
-    // Freeze: if the previous tick was a MoveOnly and the plan is still valid,
-    // continue from step[step_index] instead of following the fresh plan.
-    // This suppresses "forward-then-backward" oscillation caused by a scorer
-    // that is non-monotonic under partial plan execution.
-    //
-    // `used_continuation` and `replan_reason` are tracked for divergence logs.
-    let mut used_continuation = false;
-    let mut replan_reason: Option<&'static str> = None;
-    let mut continuation_severity: Option<ContinuationSeverity> = None;
-
-    let decision = if settings.ai_freeze_plan_after_move {
-        if let Some(ref stored) = old_plan {
+    // Compute severity from last_goal for divergence logging (step 6.6).
+    // None when no stored goal exists — equivalent to old "no mismatch" path.
+    let continuation_severity: Option<ContinuationSeverity> = memory_ref.last_goal.as_ref()
+        .and_then(|g| {
             let actor_snap = snap.unit(actor).unwrap(); // checked above
-            let target_snap = stored.snapshot.target.and_then(|t| snap.unit(t));
-            let check = stored.snapshot.check_continuation(actor_snap, target_snap);
-            if let Some(ref ck) = check {
-                // State changed (AoO, status, target moved/dead) — replan.
-                replan_reason = Some(ck.reason_code);
-                continuation_severity = Some(ck.severity);
-                fresh_decision
-            } else {
-                // Snapshot is valid — try to continue the stored plan.
-                match continuation_from_stored(stored, actor_snap, &snap, content) {
-                    Some(cont) => {
-                        used_continuation = true;
-                        cont
-                    }
-                    None => {
-                        replan_reason = Some("continuation_invalid");
-                        fresh_decision
-                    }
-                }
-            }
-        } else {
-            fresh_decision
-        }
-    } else {
-        fresh_decision
-    };
+            let target_snap = g.target_entity().and_then(|t| snap.unit(t));
+            g.check_continuation(actor_snap, target_snap).map(|c| c.severity)
+        });
 
-    // Divergence log: emit whenever we had both a stored plan and a fresh plan.
-    if let (Some(ref stored), Some(ref fresh)) = (&old_plan, &fresh_chosen) {
-        // Classify goal-preservation outcome (step 6.5).
-        let stored_goal = memory_ref.last_goal.as_ref();
+    // Divergence log: emit whenever we have both a stored goal and a fresh plan.
+    // The `stored` side is synthesised from last_goal (step 6.6 — StoredPlan removed).
+    if let (Some(ref stored_goal), Some(ref fresh)) = (&memory_ref.last_goal, &fresh_chosen) {
         let fresh_step1 = fresh.plan.steps.get(1);
-        let age = stored_goal
-            .map(|g| combat_ctx.round.saturating_sub(g.created_round))
-            .unwrap_or(0);
+        let age = combat_ctx.round.saturating_sub(stored_goal.created_round);
         let continuation_outcome = classify_continuation_outcome(
-            stored_goal,
+            Some(stored_goal),
             fresh.intent,
             fresh_step1,
             continuation_severity,
             age,
         );
-        let fresh_repair_affinity = stored_goal.map(|_| fresh.plan.annotation.repair_affinity);
+        let fresh_repair_affinity = Some(fresh.plan.annotation.repair_affinity);
         logger.write_plan_divergence(
             actor,
-            stored,
+            stored_goal,
             fresh,
-            used_continuation,
-            replan_reason,
+            // used_continuation always false — exact-continuation removed in 6.6.
+            false,
+            None, // replan_reason: no longer applicable (no stored plan steps to validate)
             continuation_severity,
             continuation_outcome,
             fresh_repair_affinity,
             None, // repair_bonus: not readily available here without re-computing
-            stored_goal,
         );
     }
 
@@ -267,47 +227,29 @@ fn run_ai_turn(
         }
     }
 
-    // After a Move decision, store the plan so the next tick can continue it.
-    // For all other decisions the plan is already cleared (last_plan was taken).
+    // Step 6.6: after a Move decision, store the goal context for the next tick.
+    // StoredPlan (exact-continuation) removed — only last_goal is retained.
+    // pool_max_score sanity: use chosen.score.max(1.0) as fallback; cancels to
+    // confidence=1.0 for the winning plan, which is a safe upper bound.
     if let AiDecision::Move { ref path, .. } = decision {
         if let (Some(chosen), Some(dest)) = (fresh_chosen, path.last().copied()) {
             let actor_snap = snap.unit(actor).unwrap();
-            let intent_target = chosen.intent.target().and_then(|t| snap.unit(t));
-            let snapshot = PlanSnapshot::capture(actor_snap, intent_target, dest);
-            let (cast_ability, cast_target) = match chosen.plan.steps.get(1) {
-                Some(PlanStep::Cast { ability, target, .. }) => {
-                    (Some(ability.clone()), Some(*target))
-                }
-                _ => (None, None),
-            };
-            // Step 6.1: extract goal context in parallel with storing the plan.
-            // pool_max_score sanity: use chosen.score.max(1.0) as fallback when the
-            // true pool max is not threaded here (it cancels to confidence=1.0 for
-            // the winning plan, which is a safe upper bound).
             let pool_max_score = chosen.score.max(1.0);
             memory_ref.last_goal = extract_goal_context(
                 chosen.intent,
                 &chosen.plan.steps,
                 &chosen.plan.annotation.outcomes,
-                chosen.plan.final_pos,
+                dest,
                 chosen.score,
                 pool_max_score,
                 &snap,
+                actor_snap,
                 combat_ctx.round,
                 world.tuning,
             );
-            memory_ref.last_plan = Some(StoredPlan {
-                steps: chosen.plan.steps,
-                step_index: 1,
-                snapshot,
-                intent: chosen.intent.kind(),
-                cast_ability,
-                cast_target,
-                score: chosen.score,
-            });
         }
     } else {
-        // Cast / MoveAndCast / EndTurn: the goal has been executed or abandoned.
+        // Cast / MoveAndCast / EndTurn: goal executed or abandoned.
         // Clear so the next tick starts without a stale stored goal.
         memory_ref.last_goal = None;
     }
@@ -330,66 +272,6 @@ fn run_ai_turn(
             msgs.end_turn.write(EndTurn { actor });
         }
     }
-}
-
-// ── Plan continuation ──────────────────────────────────────────────────────
-
-/// Attempt to produce a decision by executing step[`stored.step_index`] from
-/// the stored plan. Returns `None` when:
-/// - There is no step at that index (plan exhausted → EndTurn is left to the
-///   AP-empty guard at the top of `run_ai_turn`).
-/// - The next step is a Move (multi-move plans aren't continued — rare and
-///   handled cleanly by falling back to the fresh plan).
-/// - The Cast step fails validation (target dead, out of range, no resources).
-fn continuation_from_stored(
-    stored: &StoredPlan,
-    actor: &crate::combat::ai::snapshot::UnitSnapshot,
-    snap: &BattleSnapshot,
-    content: &crate::content::content_view::ContentView,
-) -> Option<AiDecision> {
-    use crate::core::ResourceKind;
-
-    let next = stored.steps.get(stored.step_index)?;
-    let PlanStep::Cast { ability, target, target_pos } = next else {
-        return None; // Move steps: fall back to fresh plan
-    };
-
-    let def = content.abilities.get(ability)?;
-
-    // Target must still be alive in the snapshot.
-    let target_snap = snap.unit(*target)?;
-
-    // Range check (same logic as validate_action_system).
-    if def.range.max > 0 {
-        let dist = actor.pos.unsigned_distance_to(target_snap.pos);
-        if dist > def.range.max {
-            return None;
-        }
-    }
-
-    // AP check.
-    if actor.action_points < def.cost_ap {
-        return None;
-    }
-
-    // Resource checks.
-    for cost in &def.costs {
-        let available = match cost.resource {
-            ResourceKind::Mana   => actor.mana.map(|(v, _)| v).unwrap_or(0),
-            ResourceKind::Rage   => actor.rage.map(|(v, _)| v).unwrap_or(0),
-            ResourceKind::Energy => actor.energy.map(|(v, _)| v).unwrap_or(0),
-            ResourceKind::Hp     => actor.hp,
-        };
-        if available < cost.amount {
-            return None;
-        }
-    }
-
-    Some(AiDecision::CastInPlace {
-        ability: ability.clone(),
-        target: *target,
-        target_pos: *target_pos,
-    })
 }
 
 // ── Pact AI: AI controls hero under pact_control status ───────────────────
@@ -430,92 +312,3 @@ pub fn pact_ai_system(
     );
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::combat::ai::intent::{IntentKind, PlanSnapshot, StoredPlan};
-    use crate::combat::ai::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::UnitBuilder;
-    use crate::content::content_view::ContentView;
-    use crate::core::AbilityId;
-    use crate::game::components::Team;
-    use crate::game::hex::hex_from_offset;
-
-    fn ent(id: u32) -> Entity { Entity::from_raw_u32(id).expect("valid") }
-
-    /// Minimal `StoredPlan` with a Cast at step index 1.
-    fn stored_with_cast(ability: &str, target: Entity, target_pos: crate::game::hex::Hex) -> StoredPlan {
-        let dummy_pos = hex_from_offset(0, 0);
-        StoredPlan {
-            steps: vec![
-                PlanStep::Move { path: vec![dummy_pos] },
-                PlanStep::Cast { ability: AbilityId::from(ability), target, target_pos },
-            ],
-            step_index: 1,
-            snapshot: PlanSnapshot::capture(
-                &UnitBuilder::new(1, Team::Enemy, dummy_pos).build(),
-                None,
-                dummy_pos,
-            ),
-            intent: IntentKind::FocusTarget,
-            cast_ability: Some(AbilityId::from(ability)),
-            cast_target: Some(target),
-            score: 1.0,
-        }
-    }
-
-    #[test]
-    fn continuation_succeeds_valid_melee_cast() {
-        let content = ContentView::load_global_for_tests();
-        let actor_pos = hex_from_offset(1, 0);
-        let target_pos = hex_from_offset(2, 0); // adjacent — dist=1, melee range=1
-        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).ap(1).build();
-        let target = UnitBuilder::new(2, Team::Player, target_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
-        let stored = stored_with_cast("melee_attack", ent(2), target_pos);
-
-        let result = continuation_from_stored(&stored, &actor, &snap, &content);
-        assert!(
-            matches!(result, Some(AiDecision::CastInPlace { .. })),
-            "valid adjacent cast should produce CastInPlace",
-        );
-    }
-
-    #[test]
-    fn continuation_rejects_out_of_range_target() {
-        let content = ContentView::load_global_for_tests();
-        let actor_pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(5, 0); // dist=5 > melee range=1
-        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).ap(1).build();
-        let target = UnitBuilder::new(2, Team::Player, target_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
-        let stored = stored_with_cast("melee_attack", ent(2), target_pos);
-
-        assert!(continuation_from_stored(&stored, &actor, &snap, &content).is_none());
-    }
-
-    #[test]
-    fn continuation_rejects_zero_ap() {
-        let content = ContentView::load_global_for_tests();
-        let actor_pos = hex_from_offset(1, 0);
-        let target_pos = hex_from_offset(2, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).ap(0).build();
-        let target = UnitBuilder::new(2, Team::Player, target_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
-        let stored = stored_with_cast("melee_attack", ent(2), target_pos);
-
-        assert!(continuation_from_stored(&stored, &actor, &snap, &content).is_none());
-    }
-
-    #[test]
-    fn continuation_rejects_dead_target() {
-        let content = ContentView::load_global_for_tests();
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).ap(1).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1); // target not in snap
-        let stored = stored_with_cast("melee_attack", ent(2), hex_from_offset(2, 0));
-
-        assert!(continuation_from_stored(&stored, &actor, &snap, &content).is_none());
-    }
-}

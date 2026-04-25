@@ -35,10 +35,11 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::difficulty::DifficultyProfile;
-use crate::combat::ai::intent::{AiMemory, IntentKind, IntentReason, StoredPlan, TacticalIntent};
+use crate::combat::ai::intent::{AiMemory, IntentKind, IntentReason, TacticalIntent};
 use crate::combat::ai::repair::{
     ContinuationOutcome, ContinuationSeverity, RepairAffinity, StoredGoalContext,
 };
+use crate::combat::ai::repair::goal::GoalKind;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::{AdaptationReason, EvaluationMode, PlanStep, SanityHit, StepOutcome, TurnPlan};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -136,7 +137,12 @@ use crate::game::hex::Hex;
 ///   `repair_bonus`, `goal_kind` to `PlanDivergenceEntry`. All fields are
 ///   `Option` or have `#[serde(default)]` — backward-compat with v23 logs
 ///   (missing fields → `NoStoredGoal` / `None`).
-pub const SCHEMA_VERSION: u32 = 24;
+/// - v24 → v25 (step 6.6): `AiMemorySnapshot.last_plan` (`StoredPlanSnapshot`)
+///   replaced by `last_goal` (`Option<StoredGoalContextSnapshot>`).
+///   `StoredPlanSnapshot` struct removed. `PlanDivergenceEntry.used_continuation`
+///   kept for backward compat (always `false` — exact-continuation removed).
+///   v24 logs deserialize with `last_goal = None` via `#[serde(default)]`.
+pub const SCHEMA_VERSION: u32 = 25;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -679,43 +685,51 @@ impl From<&DifficultyProfileSnapshot> for DifficultyProfile {
     }
 }
 
-/// Trimmed `StoredPlan` for log wire format. Excludes `sim_snapshots` (not
-/// stored in `StoredPlan` itself) and flattens `PlanSnapshot` to primitives
-/// so no non-serializable types leak into the log schema.
+/// Wire format for `StoredGoalContext` in JSONL logs (step 6.6, schema v25).
+///
+/// Replaces the removed `StoredPlanSnapshot` in `AiMemorySnapshot`. Flattens
+/// `Hex` to `[q, r]` arrays and `Entity` to u64 bits so no non-serializable
+/// types leak into the log schema.
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct StoredPlanSnapshot {
-    pub steps: Vec<PlanStep>,
-    pub step_index: usize,
-    // PlanSnapshot fields flattened — Hex as [x, y], Entity as u64 bits.
-    pub snap_actor_hp: i32,
-    pub snap_actor_rage: i32,
-    pub snap_actor_status_hash: u64,
-    pub snap_expected_actor_pos: [i32; 2],
-    pub snap_target: Option<u64>,
-    pub snap_target_hp: i32,
-    pub snap_target_pos: [i32; 2],
-    pub intent: IntentKind,
-    pub cast_ability: Option<AbilityId>,
-    pub cast_target: Option<u64>,
-    pub score: f32,
+pub struct StoredGoalContextSnapshot {
+    /// Short code from `GoalKind::code()` (e.g. `"finish"`, `"pressure"`).
+    pub kind: String,
+    /// Entity bits of the target, if applicable.
+    pub target_id: Option<u64>,
+    /// Region anchor as `[q, r]`.
+    pub region_anchor: [i32; 2],
+    pub region_radius: u32,
+    /// Ability id string of the planned ability, if any.
+    pub planned_ability: Option<String>,
+    pub ttl: u8,
+    pub confidence: f32,
+    pub created_round: u32,
+    // Severity-check fields (for replay parity — step 6.6).
+    pub expected_actor_pos: [i32; 2],
+    pub actor_hp_at_store: i32,
+    pub actor_rage_at_store: i32,
+    pub actor_status_hash: u64,
+    pub target_hp_at_store: i32,
+    pub target_pos_at_store: [i32; 2],
 }
 
-impl From<&StoredPlan> for StoredPlanSnapshot {
-    fn from(p: &StoredPlan) -> Self {
+impl From<&StoredGoalContext> for StoredGoalContextSnapshot {
+    fn from(g: &StoredGoalContext) -> Self {
         Self {
-            steps: p.steps.clone(),
-            step_index: p.step_index,
-            snap_actor_hp: p.snapshot.actor_hp,
-            snap_actor_rage: p.snapshot.actor_rage,
-            snap_actor_status_hash: p.snapshot.actor_status_hash,
-            snap_expected_actor_pos: [p.snapshot.expected_actor_pos.x, p.snapshot.expected_actor_pos.y],
-            snap_target: p.snapshot.target.map(|e| e.to_bits()),
-            snap_target_hp: p.snapshot.target_hp,
-            snap_target_pos: [p.snapshot.target_pos.x, p.snapshot.target_pos.y],
-            intent: p.intent,
-            cast_ability: p.cast_ability.clone(),
-            cast_target: p.cast_target.map(|e| e.to_bits()),
-            score: p.score,
+            kind: g.kind.code().to_owned(),
+            target_id: g.kind.target_entity().map(|e| e.to_bits()),
+            region_anchor: [g.region_anchor.x, g.region_anchor.y],
+            region_radius: g.region_radius,
+            planned_ability: g.planned_ability.as_ref().map(|a| a.0.clone()),
+            ttl: g.ttl,
+            confidence: g.confidence,
+            created_round: g.created_round,
+            expected_actor_pos: [g.expected_actor_pos.x, g.expected_actor_pos.y],
+            actor_hp_at_store: g.actor_hp_at_store,
+            actor_rage_at_store: g.actor_rage_at_store,
+            actor_status_hash: g.actor_status_hash,
+            target_hp_at_store: g.target_hp_at_store,
+            target_pos_at_store: [g.target_pos_at_store.x, g.target_pos_at_store.y],
         }
     }
 }
@@ -727,8 +741,17 @@ pub struct AiMemorySnapshot {
     /// `last_target` entity serialized as u64 bits; `None` when no target.
     pub last_target: Option<u64>,
     pub turns_committed: u8,
-    /// Stored continuation plan, if any. Excludes sim_snapshots per StoredPlan design.
-    pub last_plan: Option<StoredPlanSnapshot>,
+    /// v25+: stored goal context from the previous Move decision.
+    /// Replaces `last_plan` (`StoredPlanSnapshot`) removed in step 6.6.
+    /// `None` for fresh actors, after Cast/EndTurn, or in pre-v25 logs
+    /// (backward-compat via `#[serde(default)]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_goal: Option<StoredGoalContextSnapshot>,
+    /// v24 legacy: `last_plan` kept as an ignored field so v24 logs
+    /// deserialize without errors. Always `None` on v25+ logs.
+    /// The field is not re-emitted (skip_serializing_if).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_plan: Option<serde_json::Value>,
     /// v20+: HP ratio of the actor at the previous decision time.
     /// `None` for fresh actors or pre-v20 logs.
     #[serde(default)]
@@ -749,7 +772,7 @@ impl AiMemorySnapshot {
     /// semantics in `AiLogEntry` — keeps the JSON compact for fresh actors.
     pub fn from_memory(m: &AiMemory) -> Option<Self> {
         if m.last_intent.is_none() && m.last_target.is_none()
-            && m.turns_committed == 0 && m.last_plan.is_none()
+            && m.turns_committed == 0 && m.last_goal.is_none()
             && m.hp_ratio_at_last_turn.is_none()
             && !m.last_turn_was_defensive
             && m.turns_in_low_hp == 0
@@ -760,7 +783,8 @@ impl AiMemorySnapshot {
             last_intent: m.last_intent,
             last_target: m.last_target.map(|e| e.to_bits()),
             turns_committed: m.turns_committed,
-            last_plan: m.last_plan.as_ref().map(StoredPlanSnapshot::from),
+            last_goal: m.last_goal.as_ref().map(StoredGoalContextSnapshot::from),
+            last_plan: None, // always None on v25+ — field kept for backward compat read of v24 logs
             hp_ratio_at_last_turn: m.hp_ratio_at_last_turn,
             last_turn_was_defensive: m.last_turn_was_defensive,
             turns_in_low_hp: m.turns_in_low_hp,
@@ -780,13 +804,17 @@ pub struct ReservationsSnapshot {
 }
 
 impl AiLogger {
-    /// Emit a `plan_divergence` entry. Called from `run_ai_turn` when the
-    /// freeze logic had both a stored plan and a fresh plan to compare.
+    /// Emit a `plan_divergence` entry. Called from `run_ai_turn` when a stored
+    /// goal exists from the previous tick alongside a fresh plan.
+    ///
+    /// Step 6.6: `stored` parameter changed from `&StoredPlan` to
+    /// `&StoredGoalContext` — the `stored` side of `DivergenceSide` is now
+    /// synthesised from the goal kind rather than the literal step sequence.
     #[allow(clippy::too_many_arguments)]
     pub fn write_plan_divergence(
         &mut self,
         actor: bevy::prelude::Entity,
-        stored: &StoredPlan,
+        stored_goal: &StoredGoalContext,
         fresh: &ChosenInfo,
         used_continuation: bool,
         replan_reason: Option<&'static str>,
@@ -794,7 +822,6 @@ impl AiLogger {
         continuation_outcome: ContinuationOutcome,
         fresh_repair_affinity: Option<RepairAffinity>,
         repair_bonus: Option<f32>,
-        stored_goal: Option<&StoredGoalContext>,
     ) {
         if !self.is_enabled() {
             return;
@@ -815,8 +842,16 @@ impl AiLogger {
         }
 
         let fresh_intent = fresh.intent.kind();
-        let score_delta = fresh.score - stored.score;
-        let goal_kind = stored_goal.map(|g| g.kind.code().to_owned());
+        let goal_kind = stored_goal.kind.code().to_owned();
+
+        // Synthesise the stored side from goal context.
+        // intent is derived from GoalKind; ability / target from planned_ability + target_entity.
+        let stored_intent = goal_kind_to_intent_kind(&stored_goal.kind);
+        let stored_ability = stored_goal.planned_ability.as_ref().map(|a| a.0.clone());
+        let stored_target_id = stored_goal.kind.target_entity().map(|e| e.to_bits());
+        // Use confidence as a proxy for score (confidence = score/pool_max at store time).
+        let stored_score = stored_goal.confidence;
+        let score_delta = fresh.score - stored_score;
 
         let entry = PlanDivergenceEntry {
             event_type: "plan_divergence",
@@ -824,10 +859,10 @@ impl AiLogger {
             timestamp_ms: now_ms(),
             actor_id: actor.to_bits(),
             stored: DivergenceSide {
-                intent: stored.intent,
-                ability: stored.cast_ability.as_ref().map(|a| a.0.clone()),
-                target_id: stored.cast_target.map(|e| e.to_bits()),
-                score: stored.score,
+                intent: stored_intent,
+                ability: stored_ability.clone(),
+                target_id: stored_target_id,
+                score: stored_score,
             },
             fresh: DivergenceSide {
                 intent: fresh_intent,
@@ -838,19 +873,31 @@ impl AiLogger {
             used_continuation,
             replan_reason,
             continuation_severity,
-            intent_changed: stored.intent != fresh_intent,
-            ability_changed: stored.cast_ability.as_ref().map(|a| a.0.as_str())
-                != fresh_ability.map(|a| a.0.as_str()),
-            target_changed: stored.cast_target != fresh_target,
+            intent_changed: stored_intent != fresh_intent,
+            ability_changed: stored_ability.as_deref() != fresh_ability.map(|a| a.0.as_str()),
+            target_changed: stored_target_id != fresh_target.map(|e| e.to_bits()),
             score_delta,
             continuation_outcome,
             repair_affinity: fresh_repair_affinity,
             repair_bonus,
-            goal_kind,
+            goal_kind: Some(goal_kind),
         };
         if let Err(e) = self.write_entry(&entry) {
             warn!("AI divergence log write failed: {}", e);
         }
+    }
+}
+
+/// Map a `GoalKind` to the closest `IntentKind` for divergence log compat.
+/// Used to populate `DivergenceSide.intent` when `StoredPlan` is unavailable.
+fn goal_kind_to_intent_kind(kind: &GoalKind) -> IntentKind {
+    match kind {
+        GoalKind::Finish { .. } | GoalKind::Pressure { .. } => IntentKind::FocusTarget,
+        GoalKind::DisableEnemy { .. } => IntentKind::ApplyCC,
+        GoalKind::HealAlly { .. } => IntentKind::ProtectAlly,
+        GoalKind::Retreat { .. } => IntentKind::ProtectSelf,
+        GoalKind::SetupAOE { .. } => IntentKind::SetupAOE,
+        GoalKind::Reposition { .. } => IntentKind::Reposition,
     }
 }
 
@@ -1063,7 +1110,7 @@ mod tests {
         let json = serde_json::to_string(&entry).expect("serialize");
         let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
 
-        assert_eq!(v["schema_version"], 24, "schema must be 24");
+        assert_eq!(v["schema_version"], 25, "schema must be 25 (updated in step 6.6)");
         // continuation_outcome is tagged: {"kind": "goal_preserved_method_preserved"}
         assert_eq!(v["continuation_outcome"]["kind"], "goal_preserved_method_preserved");
         assert!(v["repair_affinity"].is_object(), "repair_affinity present");

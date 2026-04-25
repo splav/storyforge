@@ -2125,6 +2125,32 @@ mod tests {
         }
     }
 
+    /// Minimal `StoredGoalContext` with the new severity-check fields zeroed.
+    /// Used in scorer tests that only care about repair affinity / weights.
+    fn make_stored_goal(
+        target_entity: bevy::prelude::Entity,
+        pos: Hex,
+    ) -> crate::combat::ai::repair::StoredGoalContext {
+        use crate::combat::ai::repair::StoredGoalContext;
+        use crate::combat::ai::repair::goal::GoalKind;
+        StoredGoalContext {
+            kind: GoalKind::Finish { target: target_entity },
+            region_anchor: pos,
+            region_radius: 2,
+            planned_ability: None,
+            ttl: 2,
+            confidence: 1.0,
+            created_round: 1,
+            // Severity-check fields zeroed — tests don't exercise check_continuation.
+            expected_actor_pos: pos,
+            actor_hp_at_store: 0,
+            actor_rage_at_store: 0,
+            actor_status_hash: 0,
+            target_hp_at_store: 0,
+            target_pos_at_store: Hex::ZERO,
+        }
+    }
+
     /// When all terminal axes compute to zero (empty danger map, no enemies,
     /// no kills), the terminal aggregation contributes nothing to the score.
     #[test]
@@ -2291,8 +2317,8 @@ mod tests {
     /// Severity Invalidating → severity_factor = 0 → aggregate = 0 → bonus = 0.
     #[test]
     fn repair_bonus_zero_when_severity_invalidating() {
-        use crate::combat::ai::repair::{RepairAffinity, StoredGoalContext};
-        use crate::combat::ai::repair::goal::GoalKind;
+        use crate::combat::ai::repair::RepairAffinity;
+        
         use crate::combat::ai::test_helpers::{UnitBuilder, empty_maps};
 
         let content = crate::combat::ai::test_helpers::empty_content();
@@ -2307,15 +2333,7 @@ mod tests {
 
         // A stored goal that would give full alignment without severity gate
         let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
-        let stored_goal = StoredGoalContext {
-            kind: GoalKind::Finish { target: target_entity },
-            region_anchor: pos,
-            region_radius: 2,
-            planned_ability: None,
-            ttl: 2,
-            confidence: 1.0,
-            created_round: 1,
-        };
+        let stored_goal = make_stored_goal(target_entity, pos);
 
         let raw = vec![PlanFactors::default()];
         let mut ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
@@ -2348,8 +2366,8 @@ mod tests {
     /// Higher continue_commitment → larger repair bonus (2× at commitment=1.0 vs 0.0).
     #[test]
     fn repair_bonus_modulated_by_continue_commitment() {
-        use crate::combat::ai::repair::{RepairAffinity, StoredGoalContext};
-        use crate::combat::ai::repair::goal::GoalKind;
+        use crate::combat::ai::repair::RepairAffinity;
+        
         use crate::combat::ai::test_helpers::{UnitBuilder, empty_maps};
 
         let content = crate::combat::ai::test_helpers::empty_content();
@@ -2363,15 +2381,7 @@ mod tests {
         let maps = empty_maps();
 
         let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
-        let stored_goal = StoredGoalContext {
-            kind: GoalKind::Finish { target: target_entity },
-            region_anchor: pos,
-            region_radius: 2,
-            planned_ability: None,
-            ttl: 2,
-            confidence: 1.0,
-            created_round: 1,
-        };
+        let stored_goal = make_stored_goal(target_entity, pos);
 
         let affinity = RepairAffinity {
             goal_alignment: 1.0,
@@ -2427,8 +2437,8 @@ mod tests {
     /// repair_bonus_scale = 0 → bonus = 0; scale = 0.4 → bonus = aggregate * 1.4 * 0.4.
     #[test]
     fn repair_bonus_scaled_by_threshold() {
-        use crate::combat::ai::repair::{RepairAffinity, StoredGoalContext};
-        use crate::combat::ai::repair::goal::GoalKind;
+        use crate::combat::ai::repair::RepairAffinity;
+        
         use crate::combat::ai::test_helpers::{UnitBuilder, empty_maps};
         use crate::combat::ai::tuning::AiTuning;
 
@@ -2442,15 +2452,7 @@ mod tests {
         let reservations = Reservations::default();
 
         let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
-        let stored_goal = StoredGoalContext {
-            kind: GoalKind::Finish { target: target_entity },
-            region_anchor: pos,
-            region_radius: 2,
-            planned_ability: None,
-            ttl: 2,
-            confidence: 1.0,
-            created_round: 1,
-        };
+        let stored_goal = make_stored_goal(target_entity, pos);
 
         let affinity = RepairAffinity {
             goal_alignment: 1.0,
@@ -2539,8 +2541,8 @@ mod tests {
     /// different weights in discovery vs continuation).
     #[test]
     fn factor_weights_continuation_used_when_last_goal_present() {
-        use crate::combat::ai::repair::StoredGoalContext;
-        use crate::combat::ai::repair::goal::GoalKind;
+        
+        
         use crate::combat::ai::test_helpers::{UnitBuilder, empty_maps};
 
         let content = crate::combat::ai::test_helpers::empty_content();
@@ -2560,15 +2562,7 @@ mod tests {
         let maps = empty_maps();
 
         let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
-        let stored_goal = StoredGoalContext {
-            kind: GoalKind::Finish { target: target_entity },
-            region_anchor: pos,
-            region_radius: 2,
-            planned_ability: None,
-            ttl: 2,
-            confidence: 1.0,
-            created_round: 1,
-        };
+        let stored_goal = make_stored_goal(target_entity, pos);
 
         // Non-zero kill_now factor so the weight difference is visible.
         let raw_slice = vec![PlanFactors { kill_now: 1.0, ..Default::default() }];
@@ -2648,8 +2642,8 @@ mod tests {
     /// `finalize_scores` explicitly skips non-finite scores in the repair pass.
     #[test]
     fn continuation_doesnt_break_protect_self_mask() {
-        use crate::combat::ai::repair::{RepairAffinity, StoredGoalContext};
-        use crate::combat::ai::repair::goal::GoalKind;
+        use crate::combat::ai::repair::RepairAffinity;
+        
         use crate::combat::ai::test_helpers::{UnitBuilder, empty_maps};
 
         let content = crate::combat::ai::test_helpers::empty_content();
@@ -2663,15 +2657,7 @@ mod tests {
         let maps = empty_maps();
 
         let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
-        let stored_goal = StoredGoalContext {
-            kind: GoalKind::Finish { target: target_entity },
-            region_anchor: pos,
-            region_radius: 2,
-            planned_ability: None,
-            ttl: 2,
-            confidence: 1.0,
-            created_round: 1,
-        };
+        let stored_goal = make_stored_goal(target_entity, pos);
 
         // Two plans: plan_a has a perfect repair affinity, plan_b is identical
         // but its score is pre-set to NEG_INFINITY (simulates a sanity mask).

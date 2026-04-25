@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::planning::types::PlanStep;
-use crate::combat::ai::snapshot::BattleSnapshot;
+use crate::combat::ai::repair::{PlanContinuationCheck, classify_mismatch};
+use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::core::AbilityId;
@@ -76,8 +77,8 @@ pub enum GoalKind {
 /// Stored in `AiMemory.last_goal`; consumed by repair affinity (6.2) to bonus
 /// fresh plans that preserve the same goal on the actor's next tick.
 ///
-/// Lifetime: created alongside `last_plan` after a Move decision; cleared
-/// on Cast / EndTurn.  TTL decay (6.2 / 6.6) decrements `ttl` once per round.
+/// Step 6.6: extended with severity-check fields (previously in `PlanSnapshot`),
+/// so continuation severity can be computed without `AiMemory.last_plan`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredGoalContext {
     /// Semantic goal kind and its primary entity / position anchor.
@@ -104,6 +105,23 @@ pub struct StoredGoalContext {
     pub confidence: f32,
     /// Combat round when the goal was created — used for TTL decay and telemetry.
     pub created_round: u32,
+    // ── Severity-check fields (step 6.6) ────────────────────────────────────
+    // These replicate the fields from `PlanSnapshot` so that `check_continuation`
+    // can be called on `StoredGoalContext` after `AiMemory.last_plan` is removed.
+    /// Where the actor should be on the next tick (destination of the Move).
+    #[serde(with = "crate::combat::ai::serde_helpers::hex")]
+    pub expected_actor_pos: Hex,
+    /// Actor HP at the time of store.
+    pub actor_hp_at_store: i32,
+    /// Actor rage at the time of store (0 when no rage resource).
+    pub actor_rage_at_store: i32,
+    /// Stable hash over actor status ids + remaining durations at store time.
+    pub actor_status_hash: u64,
+    /// Target HP at the time of store (0 when no target).
+    pub target_hp_at_store: i32,
+    /// Target position at the time of store (Hex::ZERO when no target).
+    #[serde(with = "crate::combat::ai::serde_helpers::hex")]
+    pub target_pos_at_store: Hex,
 }
 
 impl GoalKind {
@@ -118,6 +136,100 @@ impl GoalKind {
             Self::SetupAOE { .. } => "setup_aoe",
             Self::Reposition { .. } => "reposition",
         }
+    }
+
+    /// Returns the entity this goal targets, if applicable.
+    pub fn target_entity(&self) -> Option<Entity> {
+        match self {
+            Self::Finish { target } | Self::Pressure { target } | Self::DisableEnemy { target } => {
+                Some(*target)
+            }
+            Self::HealAlly { ally } => Some(*ally),
+            Self::Retreat { .. } | Self::SetupAOE { .. } | Self::Reposition { .. } => None,
+        }
+    }
+}
+
+impl StoredGoalContext {
+    /// Returns the entity this goal targets, if applicable.
+    pub fn target_entity(&self) -> Option<Entity> {
+        self.kind.target_entity()
+    }
+
+    /// Severity check — mirrors `PlanSnapshot::mismatch` + `classify_mismatch`
+    /// but operates on `StoredGoalContext`'s own snapshot fields.
+    ///
+    /// Returns `None` when the world state still matches (no mismatch), or
+    /// `Some(check)` with a classified severity and reason code.
+    ///
+    /// This replaces the old path that read severity from `AiMemory.last_plan`
+    /// (removed in step 6.6).
+    pub fn check_continuation(
+        &self,
+        actor: &UnitSnapshot,
+        target: Option<&UnitSnapshot>,
+    ) -> Option<PlanContinuationCheck> {
+        // 1. Actor position mismatch — topology broken.
+        if actor.pos != self.expected_actor_pos {
+            return Some(PlanContinuationCheck {
+                severity: classify_mismatch("actor_pos_mismatch"),
+                reason_code: "actor_pos_mismatch",
+            });
+        }
+        // 2. Actor HP dropped — self-preserve re-eval needed, goal alive.
+        if actor.hp < self.actor_hp_at_store {
+            return Some(PlanContinuationCheck {
+                severity: classify_mismatch("actor_hp_drop"),
+                reason_code: "actor_hp_drop",
+            });
+        }
+        // 3. Actor rage changed — cosmetic side-effect of AoO / round mechanics.
+        if actor.rage.map(|(r, _)| r).unwrap_or(0) != self.actor_rage_at_store {
+            return Some(PlanContinuationCheck {
+                severity: classify_mismatch("actor_rage_changed"),
+                reason_code: "actor_rage_changed",
+            });
+        }
+        // 4. Actor status set changed — may indicate CC application.
+        if crate::combat::ai::intent::status_hash(&actor.statuses) != self.actor_status_hash {
+            return Some(PlanContinuationCheck {
+                severity: classify_mismatch("actor_status_changed"),
+                reason_code: "actor_status_changed",
+            });
+        }
+        // 5. Target checks — only when goal has an entity target.
+        if self.target_entity().is_some() {
+            match target {
+                None => {
+                    return Some(PlanContinuationCheck {
+                        severity: classify_mismatch("target_gone"),
+                        reason_code: "target_gone",
+                    });
+                }
+                Some(t) => {
+                    if Some(t.entity) != self.target_entity() {
+                        return Some(PlanContinuationCheck {
+                            severity: classify_mismatch("target_entity_changed"),
+                            reason_code: "target_entity_changed",
+                        });
+                    }
+                    if t.hp < self.target_hp_at_store {
+                        return Some(PlanContinuationCheck {
+                            severity: classify_mismatch("target_hp_drop"),
+                            reason_code: "target_hp_drop",
+                        });
+                    }
+                    if t.pos != self.target_pos_at_store {
+                        return Some(PlanContinuationCheck {
+                            severity: classify_mismatch("target_moved"),
+                            reason_code: "target_moved",
+                        });
+                    }
+                }
+            }
+        }
+        // No mismatch detected.
+        None
     }
 }
 
@@ -142,6 +254,7 @@ impl GoalKind {
 ///   normalisation).  Pass `chosen_score.max(1.0)` as a sanity fallback when
 ///   the true pool maximum is unavailable.
 /// - `snap` — current battle snapshot (for target position look-up).
+/// - `actor` — the actor's current snapshot (for severity-check fields; step 6.6).
 /// - `round` — current combat round (`CombatContext.round`).
 /// - `tuning` — per-actor tuning (thresholds read at store time).
 #[allow(clippy::too_many_arguments)]
@@ -153,6 +266,7 @@ pub fn extract_goal_context(
     chosen_score: f32,
     pool_max_score: f32,
     snap: &BattleSnapshot,
+    actor: &UnitSnapshot,
     round: u32,
     tuning: &AiTuning,
 ) -> Option<StoredGoalContext> {
@@ -168,6 +282,14 @@ pub fn extract_goal_context(
 
     let confidence = (chosen_score / pool_max_score.max(1e-6)).clamp(0.0, 1.0);
 
+    // Capture severity-check fields from the actor snapshot (step 6.6).
+    // target_snap is looked up from the goal kind so the same entity used for
+    // region_anchor is also captured for the target severity checks.
+    let target_entity = kind.target_entity();
+    let target_snap = target_entity.and_then(|e| snap.unit(e));
+    let actor_rage_at_store = actor.rage.map(|(r, _)| r).unwrap_or(0);
+    let actor_status_hash = crate::combat::ai::intent::status_hash(&actor.statuses);
+
     Some(StoredGoalContext {
         kind,
         region_anchor,
@@ -176,6 +298,12 @@ pub fn extract_goal_context(
         ttl: tuning.thresholds.repair_default_ttl,
         confidence,
         created_round: round,
+        expected_actor_pos: chosen_final_pos,
+        actor_hp_at_store: actor.hp,
+        actor_rage_at_store,
+        actor_status_hash,
+        target_hp_at_store: target_snap.map(|t| t.hp).unwrap_or(0),
+        target_pos_at_store: target_snap.map(|t| t.pos).unwrap_or_default(),
     })
 }
 
@@ -278,6 +406,11 @@ mod tests {
         vec![]
     }
 
+    // Dummy actor snapshot for tests that don't care about severity-check fields.
+    fn dummy_actor() -> crate::combat::ai::snapshot::UnitSnapshot {
+        UnitBuilder::new(1, Team::Enemy, Hex::ZERO).build()
+    }
+
     // A Cast step for use in plan steps.
     fn cast_step(ability: &str) -> PlanStep {
         PlanStep::Cast {
@@ -313,6 +446,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
+            &dummy_actor(),
             1,
             &tuning,
         );
@@ -342,6 +476,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
+            &dummy_actor(),
             1,
             &tuning,
         );
@@ -372,6 +507,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
+            &dummy_actor(),
             1,
             &tuning,
         );
@@ -397,6 +533,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
+            &dummy_actor(),
             1,
             &tuning,
         );
@@ -429,6 +566,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
+            &dummy_actor(),
             1,
             &tuning,
         );
@@ -451,6 +589,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
+            &dummy_actor(),
             1,
             &tuning,
         );
@@ -475,6 +614,7 @@ mod tests {
             2.0, // chosen_score
             1.0, // pool_max_score
             &snap,
+            &dummy_actor(),
             1,
             &tuning,
         )
@@ -490,6 +630,7 @@ mod tests {
             0.5, // chosen_score
             1.0, // pool_max_score
             &snap,
+            &dummy_actor(),
             1,
             &tuning,
         )
@@ -511,6 +652,7 @@ mod tests {
             0.5, // chosen_score
             0.0, // pool_max_score (degenerate)
             &snap,
+            &dummy_actor(),
             1,
             &tuning,
         )

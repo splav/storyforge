@@ -9,12 +9,11 @@ use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{ActiveStatusView, AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::factors::ScoredStep;
-use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
-use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
 use std::fmt;
@@ -181,7 +180,10 @@ impl PlanSnapshot {
     }
 }
 
-fn status_hash(statuses: &[ActiveStatusView]) -> u64 {
+/// Stable hash over active status ids + remaining durations.
+/// Changes when a status is applied, removed, or ticked down.
+/// Public for use by `StoredGoalContext::check_continuation` (step 6.6).
+pub fn status_hash(statuses: &[ActiveStatusView]) -> u64 {
     use std::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
     let mut h = DefaultHasher::new();
@@ -195,27 +197,6 @@ fn status_hash(statuses: &[ActiveStatusView]) -> u64 {
     h.finish()
 }
 
-/// Trimmed plan persisted across ticks during a MoveOnly commitment. Holds the
-/// steps and enough context to (a) continue the plan without replanning and (b)
-/// compare against the shadow fresh plan for divergence diagnostics.
-///
-/// `sim_snapshots` are intentionally excluded — they're heavy and only needed
-/// during the scoring pass that already completed.
-#[derive(Debug, Clone)]
-pub struct StoredPlan {
-    pub steps: Vec<PlanStep>,
-    /// Index of the next step to execute (1 after the first Move committed).
-    pub step_index: usize,
-    pub snapshot: PlanSnapshot,
-    pub intent: IntentKind,
-    /// Ability from step[step_index] if it's a Cast, for divergence reporting.
-    pub cast_ability: Option<AbilityId>,
-    /// Target from step[step_index] if it's a Cast.
-    pub cast_target: Option<Entity>,
-    /// Final score of the plan at construction time (pre-continuation).
-    pub score: f32,
-}
-
 // ── Persistent AI memory ───────────────────────────────────────────────────
 
 #[derive(Component, Default)]
@@ -223,13 +204,12 @@ pub struct AiMemory {
     pub last_intent: Option<IntentKind>,
     pub last_target: Option<Entity>,
     pub turns_committed: u8,
-    /// Stored plan from the previous MoveOnly tick, if any. Cleared when a
-    /// non-Move decision fires (Cast, EndTurn) or when the snapshot is stale.
-    pub last_plan: Option<StoredPlan>,
-    /// Step 6.1: goal context extracted from the last chosen plan.
-    /// Set in parallel with `last_plan` after a Move decision; cleared on
-    /// Cast / EndTurn.  Used by repair affinity (6.2) to bonus fresh plans
-    /// that preserve the same goal on the next tick.
+    /// Step 6.1/6.6: goal context extracted from the last chosen plan.
+    /// Set after a Move decision; cleared on Cast / EndTurn.
+    /// Used by repair affinity (6.2+) to bonus fresh plans that preserve
+    /// the same goal on the next tick.
+    ///
+    /// Replaces the removed `last_plan: Option<StoredPlan>` (step 6.6).
     pub last_goal: Option<crate::combat::ai::repair::StoredGoalContext>,
     /// HP ratio of the actor at the time of the previous decision. `None` until
     /// the actor takes its first turn — then read in step 3.1 producer to compute

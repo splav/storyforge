@@ -264,20 +264,17 @@ pub fn pick_action(
         ranking.apply_killable_gate(&mut plans, &scoring_ctx);
     }
 
-    // Step 6.2/6.3: populate repair_affinity on each plan's annotation.
-    // Severity is classified from last_plan.snapshot.check_continuation (variant 1
-    // from 6.3 spec): producer classifies inside pick_action using AiMemory.last_plan.
-    // None when no stored plan exists → severity_factor = 1.0 (no mismatch penalty).
+    // Step 6.2/6.3/6.6: populate repair_affinity on each plan's annotation.
+    // Severity is now classified from last_goal.check_continuation (step 6.6 —
+    // last_plan removed). None when no stored goal exists → severity_factor = 1.0.
     if let Some(stored_goal) = &memory.last_goal {
         let current_round = snap.round;
-        // Classify severity from stored plan's snapshot (if any). check_continuation
-        // compares the stored snapshot against current actor + target state.
-        let severity = memory.last_plan.as_ref().and_then(|stored_plan| {
+        // Classify severity from stored goal's own snapshot fields (step 6.6).
+        let severity = {
             let actor_snap = active; // active == snap.unit(actor), already resolved above
-            let target_snap = stored_plan.snapshot.target.and_then(|t| snap.unit(t));
-            stored_plan.snapshot.check_continuation(actor_snap, target_snap)
-                .map(|c| c.severity)
-        });
+            let target_snap = stored_goal.target_entity().and_then(|t| snap.unit(t));
+            stored_goal.check_continuation(actor_snap, target_snap).map(|c| c.severity)
+        };
         for plan in plans.iter_mut() {
             plan.annotation.repair_affinity = compute_repair_affinity(
                 ranking.intent,
