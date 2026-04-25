@@ -283,7 +283,7 @@ if need_signals.reposition > 0.1 {
 
 **Эстимейт:** 1.0 день.
 
-### 3.5. Consumer: `finish_target` + `conserve_resource`
+### 3.5. Consumer: `finish_target` + `conserve_resource` ✓ DONE
 
 **Scope.**
 
@@ -320,6 +320,12 @@ if need_signals.conserve_resource > 0.5 {
 
 **Эстимейт:** 1.0 день.
 
+**Реализация:**
+- 3.5a: `kill_score = 1.2 + need_signals.finish_target * 0.3`. `IntentReason::Killable` + поле `finish_target` (add only, без schema bump). Filter'ы producer'а и consumer'а совпадают.
+- 3.5b: В `consider` closure — bonus для `ProtectSelf | Reposition` (cheap whitelist, `CAN_CHEAP_ATTACK` тага не существует) когда `conserve_resource > conserve_resource_threshold (0.5)`. Bonus = `conserve_resource_bonus (0.15) * signal`.
+
+**Коммит:** `b6ca871`. **Golden:** 0/131 на baseline. P4 (viability_fallback 5.1%) — на post-step-3 plays в 3.6.
+
 ### 3.6. Cleanup + повторный mining + rebaseline golden
 
 **Scope.**
@@ -346,7 +352,7 @@ if need_signals.conserve_resource > 0.5 {
 | 3.2 | consumer self_preserve | 1.0 | per-entry golden review + scenario harness | **DONE** (`272144d`) |
 | 3.3 | consumer continue_commitment | 1.0 | per-entry golden review + monotone_focus | **DONE** (`fcd5610`) |
 | 3.4 | consumer reposition | 1.0 | per-entry golden review + 9 scenarios | **DONE** (`3ddc2a9`) |
-| 3.5 | consumer finish_target + conserve_resource | 1.0 | per-entry golden review | pending |
+| 3.5 | consumer finish_target + conserve_resource | 1.0 | per-entry golden review | **DONE** (`b6ca871`) |
 | 3.6 | cleanup + повторный mining + rebaseline golden | 0.5 | mining-метрики достигают таргетов | pending |
 
 **Суммарно ~7 дней.**
