@@ -118,7 +118,7 @@
 
 **Коммит:** `36c3d18`. **Golden-replay:** 0 / 131 diff.
 
-### 3.1. Producer: `compute_need_signals` для всех 5 mineable
+### 3.1. Producer: `compute_need_signals` для всех 5 mineable ✓ DONE
 
 **Scope.**
 
@@ -145,6 +145,14 @@
 **conserve_resource.** `mana_ratio = active.mana as f32 / active.max_mana.max(1) as f32`. `signals.conserve_resource = curve(conserve_resource).eval(mana_ratio)` — logistic `k<0`, высокий при low mana.
 
 **Stub'ы для нереализованных** (`rescue_ally`, `apply_cc`, `setup_aoe`): `// TODO step 3 v2 — нужны input'ы из team blackboard / outcome vector` + `0.0`.
+
+**Изменения от плана при реализации:**
+- BFS reuse: `crate::combat::ai::planning::reach::reach_from(snap, actor)` — тот же helper, что использует planner.
+- `UnitSnapshot.mana: Option<(current, max)>` (не отдельные поля `mana`/`max_mana`) — в `conserve_resource` это даёт `None`-case, который трактуется как «нет манабара → нет pressure → 1.0».
+- `finish_target` использует `reduce(f32::max).unwrap_or(0.0)` (не `fold(0.0, f32::max)`) — даёт строгий `0.0` при отсутствии killable, без baseline-смещения logistic.
+- **Найден баг в плане**: `continue_commitment_hp` был с `k = -10.0` и комментарием «k<0 → высокий при hp ≥ mid». Это математически неверно: `Logistic{mid, k<0}` высокий при `x < mid`. Для commitment нужен **k > 0** (высокий при healthy target HP). Исправлено follow-up коммитом 3.1+: `Logistic{mid: 0.4, k: 10.0}`. Assertion `continue_commitment_high_when_alive_50pct_reachable` восстановлен до `> 0.6`.
+
+**Коммит:** `052ac42` (producer) + follow-up fix curve params (см. историю). **Golden-replay:** 0 / 131 diff.
 
 **Где звать.** В `pick_action` (`utility/mod.rs`) — после построения `world`/`memory` контекста, перед `select_intent`. Результат прокидывается через `ScoringCtx.need_signals: &NeedSignals` (по той же модели, что `tuning: &AiTuning`).
 
@@ -324,7 +332,7 @@ if need_signals.conserve_resource > 0.5 {
 | # | Шаг | Эстимейт | Gate | Статус |
 |---|---|---|---|---|
 | 3.0 | scaffolding (`ResponseCurve` + `appraisal/` + AiMemory v19→v20) | 1.0 | golden 0/131 | **DONE** (`36c3d18`) |
-| 3.1 | producer (5 mineable signals) | 1.5 | unit-tests + golden 0/131 | pending |
+| 3.1 | producer (5 mineable signals) | 1.5 | unit-tests + golden 0/131 | **DONE** (`052ac42`) |
 | 3.2 | consumer self_preserve | 1.0 | per-entry golden review + scenario harness | pending |
 | 3.3 | consumer continue_commitment | 1.0 | per-entry golden review + monotone_focus | pending |
 | 3.4 | consumer reposition | 1.0 | per-entry golden review + 9 scenarios | pending |

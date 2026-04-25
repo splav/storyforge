@@ -416,10 +416,9 @@ mod tests {
 
     #[test]
     fn continue_commitment_high_when_alive_50pct_reachable() {
-        // With default curve (Logistic { mid: 0.4, k: -10 }):
-        //   eval(0.5) = 1/(1+exp(10*(0.5-0.4))) ≈ 0.27 — the descending logistic
-        //   places the plateau below 0.4. The important invariant is that all
-        //   pre-conditions pass and the result is clearly positive (> 0).
+        // With default curve (Logistic { mid: 0.4, k: 10 }):
+        //   eval(0.5) = 1/(1+exp(-10*(0.5-0.4))) ≈ 0.73.
+        // Ascending logistic: high while target is healthy, drops near finisher zone.
         let actor_pos = hex_from_offset(3, 3);
         let target_pos = hex_from_offset(4, 3);
         let active = UnitBuilder::new(1, Team::Enemy, actor_pos)
@@ -438,7 +437,7 @@ mod tests {
         let tuning = AiTuning::default();
         let s = snap(vec![active.clone(), target]);
         let signal = compute_continue_commitment(&active, &s, &memory, &tuning);
-        assert!(signal > 0.0, "should be positive for reachable 50% HP target, got {signal}");
+        assert!(signal > 0.6, "should be > 0.6 for reachable 50% HP target, got {signal}");
     }
 
     // ── finish_target ─────────────────────────────────────────────────────

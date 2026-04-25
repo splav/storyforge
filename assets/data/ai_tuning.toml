@@ -55,7 +55,7 @@ awareness_danger_curve            = { lo = 0.90, hi = 0.60 }
 # Stub parameters — will be tuned by mining metrics in step 3.6.
 self_preserve_hp        = { kind = "logistic",       mid = 0.5,  k = 8.0   }
 self_preserve_dmg_alpha = 0.6
-continue_commitment_hp  = { kind = "logistic",       mid = 0.4,  k = -10.0 }
+continue_commitment_hp  = { kind = "logistic",       mid = 0.4,  k = 10.0  }
 finish_target_kill      = { kind = "logistic",       mid = 0.6,  k = 6.0   }
 reposition_pos_gain     = { kind = "linear_clamped", x_lo = 0.05, x_hi = 0.5 }
 conserve_resource       = { kind = "logistic",       mid = 0.3,  k = -10.0 }

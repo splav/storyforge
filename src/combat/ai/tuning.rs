@@ -52,8 +52,10 @@ pub struct Curves {
     pub self_preserve_hp: ResponseCurve,
     /// Scalar α: `self_preserve` gets multiplied by `(1 + α * recent_damage_taken)`.
     pub self_preserve_dmg_alpha: f32,
-    /// Logistic over `last_target.hp_pct()` with `k < 0`. Plateau in mid-HP range,
-    /// drops at hp ≤ 0.25 (finisher) and at hp ≥ 0.85 (full target).
+    /// Logistic over `last_target.hp_pct()` with `k > 0`. High while the target
+    /// is alive and healthy (≥ ~0.5 hp), drops as it nears the finisher zone.
+    /// The hp ≤ 0.25 finisher cutoff is enforced by an explicit gate in
+    /// `compute_need_signals` before this curve is evaluated.
     pub continue_commitment_hp: ResponseCurve,
     /// Logistic over `(1.0 - target.hp_pct())`. High when killable target is low HP.
     pub finish_target_kill: ResponseCurve,
@@ -68,7 +70,7 @@ impl Default for Curves {
         Self {
             self_preserve_hp: ResponseCurve::Logistic { mid: 0.5, k: 8.0 },
             self_preserve_dmg_alpha: 0.6,
-            continue_commitment_hp: ResponseCurve::Logistic { mid: 0.4, k: -10.0 },
+            continue_commitment_hp: ResponseCurve::Logistic { mid: 0.4, k: 10.0 },
             finish_target_kill: ResponseCurve::Logistic { mid: 0.6, k: 6.0 },
             reposition_pos_gain: ResponseCurve::LinearClamped { x_lo: 0.05, x_hi: 0.5 },
             conserve_resource: ResponseCurve::Logistic { mid: 0.3, k: -10.0 },
