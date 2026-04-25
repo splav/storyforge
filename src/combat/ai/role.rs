@@ -118,6 +118,40 @@ impl AxisProfile {
         out
     }
 
+    /// Composed factor weights — continuation evaluator (step 6.4).
+    ///
+    /// Reads `tuning.tables.axis_factor_weights_continuation` instead of
+    /// `axis_factor_weights`. Applied when `AiMemory.last_goal` is `Some`.
+    /// Mirrors `factor_weights` exactly — only the table differs.
+    pub fn factor_weights_continuation(&self, tuning: &AiTuning) -> [f32; 10] {
+        let mix = self.biased_normalized();
+        let table = &tuning.tables.axis_factor_weights_continuation;
+        let mut out = [0.0f32; 10];
+        for axis in 0..5 {
+            for f in 0..10 {
+                out[f] += mix[axis] * table[axis][f];
+            }
+        }
+        out
+    }
+
+    /// Composed terminal-state weights — continuation evaluator (step 6.4).
+    ///
+    /// Reads `tuning.tables.axis_terminal_weights_continuation` instead of
+    /// `axis_terminal_weights`. Applied when `AiMemory.last_goal` is `Some`.
+    /// Mirrors `terminal_weights` exactly — only the table differs.
+    pub fn terminal_weights_continuation(&self, tuning: &AiTuning) -> [f32; 8] {
+        let mix = self.biased_normalized();
+        let table = &tuning.tables.axis_terminal_weights_continuation;
+        let mut out = [0.0f32; 8];
+        for axis in 0..5 {
+            for k in 0..8 {
+                out[k] += mix[axis] * table[axis][k];
+            }
+        }
+        out
+    }
+
     /// Composed repair-affinity weights (goal, region, method).
     ///
     /// Per-axis rows live in `tuning.tables.axis_repair_weights`. Columns:

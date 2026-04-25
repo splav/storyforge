@@ -205,6 +205,23 @@ pub struct Tables {
     /// Step 6.2: used by `AxisProfile::repair_weights` to produce
     /// role-mixed `RepairWeights` for `RepairAffinity::aggregate` (6.3).
     pub axis_repair_weights: [[f32; 3]; 5],
+    /// Per-axis weights for the 10 utility factors — continuation evaluator.
+    /// Applied when `AiMemory.last_goal` is `Some` (actor has a stored goal).
+    /// Cols: [damage, kill_now, kill_promised, cc, heal, intent,
+    ///        scarcity, tempo_gain, saturation, self_survival].
+    /// Sдвиги от discovery: kill_now ×1.2, kill_promised ×1.2, tempo_gain ×1.15,
+    /// self_survival ×0.7; остальные ×1.0.
+    /// Step 6.4: continuation evaluator — tighter kill commitment, looser self-preserve.
+    pub axis_factor_weights_continuation: [[f32; 10]; 5],
+    /// Per-axis weights for the 8 terminal-state axes — continuation evaluator.
+    /// Applied when `AiMemory.last_goal` is `Some`.
+    /// Cols: [exposure_at_end, next_turn_lethality, secure_kill, ally_rescue,
+    ///        board_control_gain, line_actionability, density_value,
+    ///        pressure_spacing_zone].
+    /// Сдвиги от discovery: exposure_at_end ×0.8, next_turn_lethality ×0.6,
+    /// secure_kill ×1.3, board_control_gain ×1.3; остальные ×1.0.
+    /// Step 6.4: continuation evaluator — committed kill ценнее, self-expose меньше пугает.
+    pub axis_terminal_weights_continuation: [[f32; 8]; 5],
 }
 
 impl Default for Tables {
@@ -244,6 +261,38 @@ impl Default for Tables {
                 [   0.5,   0.3,    0.2 ], // Ranged
                 [   0.4,   0.3,    0.3 ], // Control
                 [   0.7,   0.2,    0.1 ], // Support
+            ],
+            // Continuation evaluator — factor weights.
+            // Сдвиги от discovery:
+            //   kill_now      (idx 1): ×1.2  — committed kill bonus
+            //   kill_promised (idx 2): ×1.2  — committed kill bonus
+            //   tempo_gain    (idx 7): ×1.15 — reward forward momentum
+            //   self_survival (idx 9): ×0.7  — loosen self-preserve floor under commitment
+            //   остальные axes:        ×1.0
+            #[rustfmt::skip]
+            axis_factor_weights_continuation: [
+                //  dmg   kn    kp    cc    heal  intent scarc tempo  sat   surv
+                [   0.4,  0.72, 0.36, 0.5,  0.2,  1.0,  0.4,  0.92, 1.0,  0.70 ], // Tank
+                [   1.3,  1.92, 0.96, 0.2,  0.0,  1.0,  0.3,  1.15, 1.0,  0.56 ], // Melee
+                [   1.3,  1.56, 0.78, 0.3,  0.0,  1.0,  0.5,  1.38, 1.0,  0.56 ], // Ranged
+                [   0.4,  0.60, 0.48, 1.6,  0.0,  1.0,  1.2,  1.15, 1.0,  0.56 ], // Control
+                [   0.2,  0.36, 0.18, 0.6,  2.0,  1.0,  0.8,  0.92, 1.0,  0.84 ], // Support
+            ],
+            // Continuation evaluator — terminal weights.
+            // Сдвиги от discovery:
+            //   exposure_at_end     (idx 0): ×0.8  — в commitment зоне exposure чуть менее страшен
+            //   next_turn_lethality (idx 1): ×0.6  — не бросаем cast ради защиты от гипотетической угрозы
+            //   secure_kill         (idx 2): ×1.3  — committed kill ценнее
+            //   board_control_gain  (idx 4): ×1.3  — committed reposition реализуется
+            //   остальные axes:               ×1.0
+            #[rustfmt::skip]
+            axis_terminal_weights_continuation: [
+                //  exp      ntl      sk      ar      bcg     la     dv     psz
+                [  -0.032, -0.036,  0.065,  0.07,   0.0,    0.0,   0.0,   0.0  ], // Tank
+                [  -0.048, -0.042,  0.104,  0.03,   0.0,    0.0,   0.0,   0.0  ], // Melee
+                [  -0.064, -0.054,  0.078,  0.03,   0.0,    0.0,   0.0,   0.0  ], // Ranged
+                [  -0.040, -0.036,  0.065,  0.03,   0.0,    0.0,   0.0,   0.0  ], // Control
+                [  -0.072, -0.054,  0.039,  0.13,   0.0,    0.0,   0.0,   0.0  ], // Support
             ],
         }
     }
