@@ -1,0 +1,28 @@
+# Continuation / Relevant-mismatch preserved: Морочник Морок
+# (actor 30064770716), r2, intra-turn after Move (plan_id=18) then Cast
+# tick (plan_id=20). Stored goal from p18 had Relevant severity mismatch
+# (target moved or hp dropped between Move and Cast).
+#
+# Despite the mismatch — actor preserves the goal, casts melee_attack on
+# the same target (25769803434). Locks in the 6.7 + 6.8 contract:
+# Relevant severity does NOT, by itself, abandon a goal — only need_signals
+# (panic / viability / taunt / etc.) override commitment.
+#
+# Source: twisted_grove playtest 2026-04-26, plan_id=20.
+# Mining tag: continuation_outcome = goal_preserved_method_delivered,
+#             severity = Relevant, ttl_factor = 1.0 (intra-turn), score 3.39.
+#
+# Note: replay-side `last_goal` is None (AiMemory not snapshotted), so this
+# asserts the *observable* decision is stable on this target+method even
+# without continuation context. High score margin (3.39) makes the choice
+# robust against the missing repair-affinity bonus.
+
+[scope]
+plan_id = 20
+
+[[expectations]]
+decision_kind = ["CastInPlace", "MoveAndCast"]
+cast_ability = ["melee_attack"]
+cast_target = [25769803434]
+intent_kind = ["FocusTarget"]
+primary_effect = ["Damage"]
