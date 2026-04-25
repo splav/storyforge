@@ -2176,6 +2176,7 @@ mod tests {
             adaptation_reason: None,
             trade: LoggedTradeBlock::default(),
             sanity_breakdown: Vec::new(),
+            annotation: storyforge::combat::ai::replay::LoggedPlanAnnotation::default(),
         }
     }
 

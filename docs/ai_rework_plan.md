@@ -407,7 +407,7 @@ assets/data/ai_tuning.toml
 
 ## Волна 1 — обновлённая последовательность
 
-**0 ✓ → 1 ✓ → 2a ✓ → 4 ✓ → 3 ✓ ← сейчас здесь → 5 → 6**
+**0 ✓ → 1 ✓ → 2a ✓ → 4 ✓ → 3 ✓ → 5 ✓ ← сейчас здесь → 6**
 
 Где:
 
@@ -416,7 +416,7 @@ assets/data/ai_tuning.toml
 - **2a** ✓ (constants migration + golden replay gate). 8 сабшагов 2.0–2.7 закрыты (`a1cc460` → `66457e9`), каждый прошёл `--compare-golden` 0 / 131 diff.
 - **4** ✓ (outcome vector + PlanAnnotation). 6 сабшагов 4.0–4.5 закрыты (`cb94250` → `6ae1429`), декомпозиция — `docs/ai_rework_step4_plan.md`. `ActionOutcomeEstimate` (9 полей) populated в sim, read через explicit param в `compute_factors` / `intent_score`; `score_action` удалён, schema v19. Golden 0/131 diff на каждом сабшаге.
 - **3** ✓ (need layer / appraisal). 7 сабшагов 3.0–3.6 закрыты (`36c3d18` → `f6b4413`), декомпозиция — `docs/ai_rework_step3_plan.md`. `NeedSignals` (8 полей) + `ResponseCurve { Logistic, LinearClamped }` + `Curves` секция в `AiTuning`. Producer `compute_need_signals` для 5 mineable; consumer'ы — точечные замены в `select_intent` (panic + soft ProtectSelf, stickiness modulation, Reposition score, killable score, conserve_resource bonus). Schema v19 → v22. Golden rebaselined: `logs/golden_post_step3.jsonl`. 3.6 mining: `actor_hp_drop` 21.6% → 0%; `reposition → viability_fallback` cascade сломан; Reposition 0.4% → 12% (выше эвристического таргета 3–5%, но healthy паттерн).
-- **5** (terminal eval) — поверх outcome и sim parity (0.1a). Требование 0.1b (end-to-end) появляется только в шаге 12.
+- **5** ✓ (terminal eval + axis aggregator). 7 сабшагов 5.0–5.6 закрыты (`cacab83` → current), декомпозиция — `docs/ai_rework_step5_plan.md`. `TerminalScore` (8 полей) + 3 cluster producer'а + `axis_terminal_weights` table + `AxisProfile::terminal_weights` symmetric API. NeedSignals modulation в `finalize_scores`. Defensive + offensive активны; geometric обнулены до фазы 2b. Schema v22 → v23. Golden rebaselined: `logs/golden_post_step5.jsonl`.
 - **6** (goal-preserving repair) — расширяет существующий `mismatch()` + continuation из `enemy_turn.rs:181–212`, не переписывает.
 
 PlanStage-trait (полный 7), critics decomposition (10, benchmark-driven после step 0.3C histograma), bands+agenda+scorecard (11, разрезанный на bands-first) — фаза 2 или позже.
@@ -434,7 +434,7 @@ PlanStage-trait (полный 7), critics decomposition (10, benchmark-driven п
 | 2a | `--compare-golden` 0 diff'ов на каждом шаге 2.1–2.7; scenario harness зелёный |
 | 4 | PlanAnnotation растёт, `compute_factors` читает outcome; golden replay не деградирует |
 | 3 | Need signals из 0.4 реализованы; `select_intent` читает NeedSignals; mining-таблица: `reposition → viability_fallback` cascade закрыт, `actor_hp_drop` ≤ 12%, scenario harness зелёный |
-| 5 | Terminal score включён в scorer; sim parity 0.1a гарантирует корректность финального снапшота |
+| 5 | Terminal score включён в scorer; aggregator активен; 9 ai_scenarios зелёные; golden ≤ 15/131 diff post-step-3 baseline |
 | 6 | `continuation_severity` классификация в логах; сценарии Plan freeze / continuation стабильно зелёные через сотни тиков |
 
 Без gate — не идём дальше. Gate провален → возвращаемся к предыдущему шагу.

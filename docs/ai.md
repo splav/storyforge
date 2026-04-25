@@ -225,6 +225,40 @@ pub enum ScoredStep<'a> {
 
 **JSONL schema v19+** сериализует `annotation` внутри `PlanLogEntry` — old v18 логи читаются через `#[serde(default)]` с пустым annotation (generate_plans перестраивает при replay).
 
+**Schema v23+** (step 5.6): `annotation.terminal` (`TerminalScore`, 8 axes) сериализуется в JSONL. v22 логи читаются через `#[serde(default)]` → zero-filled `TerminalScore`.
+
+### Terminal state evaluation (planning/terminal.rs)
+
+`TerminalScore` — оценка плана по состоянию **доски после финального шага**, параллельная step-sum факторам. Populated в `terminal_state_score(plan, initial_snap, ctx)`, вызывается в `finalize_scores`. Хранится в `plan.annotation.terminal`.
+
+8 осей в 3 кластерах:
+
+| Ось | Кластер | Семантика |
+|-----|---------|-----------|
+| `exposure_at_end` | Defensive | Danger-map penalty финальной позиции (чем ниже, тем лучше) |
+| `next_turn_lethality` | Defensive | Вероятность гибели актора от всех врагов на следующем ходу |
+| `secure_kill` | Offensive | Гарантированное убийство цели планом |
+| `ally_rescue` | Offensive | Выход союзника из danger-зоны после хила |
+| `board_control_gain` | Offensive | Улучшение контроля доски (threat × доступность цели) |
+| `line_actionability` | Geometric | Число AoE-линий, открытых с финальной позиции |
+| `density_value` | Geometric | Ценность кластеров врагов в reach |
+| `pressure_spacing_zone` | Geometric | Тактическое расстояние до враждебных юнитов |
+
+**Агрегация** в `finalize_scores`: `dot(terminal_weights, terminal_score_vec)` суммируется в финальный скор плана. `terminal_weights = AxisProfile::terminal_weights(tuning)` — symmetric к `factor_weights`, sourced из `AiTuning.tables.axis_terminal_weights[5][8]` (`assets/data/ai_tuning.toml`). Каждая ось модулируется сигналом из `NeedSignals`:
+
+| Ось | NeedSignal модулятор |
+|-----|---------------------|
+| `exposure_at_end`, `next_turn_lethality` | `× (1 + self_preserve)` |
+| `secure_kill` | `× (1 + finish_target)` |
+| `ally_rescue` | `× (1 + rescue_ally)` |
+| `board_control_gain` | `× (1 + reposition)` |
+| `density_value` | `× (1 + setup_aoe)` |
+| `line_actionability`, `pressure_spacing_zone` | без модуляции |
+
+**Калибровочное состояние**: defensive + offensive кластеры активны; geometric (`line_actionability`, `density_value`, `pressure_spacing_zone`) обнулены до фазы 2b mining-калибровки — ненулевые веса требуют corpus replay-данных для корректного баланса.
+
+Полная декомпозиция: `docs/ai_rework_step5_plan.md`.
+
 ### Весовые таблицы по осям (AxisProfile)
 
 Roles emergent — вектор весов по 5 осям (Tank/Melee/Ranged/Control/Support). Таблицы живут в `AiTuning.tables.axis_factor_weights` и `AiTuning.tables.axis_position_weights` (`assets/data/ai_tuning.toml`, step 2.4/2.5) — data-driven, редактируются без перекомпиляции.

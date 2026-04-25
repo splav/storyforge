@@ -134,6 +134,44 @@ pub struct PlanLog {
     /// v16+: per-rule sanity breakdown. v15 and earlier default to empty.
     #[serde(default)]
     pub sanity_breakdown: Vec<SanityHit>,
+    /// v23+: per-plan annotation including terminal-state evaluation.
+    /// v22 and earlier logs default to empty annotation (zero-filled
+    /// `TerminalScore`). Not consumed by scoring reconstruction — diagnostic
+    /// only.
+    #[serde(default)]
+    pub annotation: LoggedPlanAnnotation,
+}
+
+/// Deserializable mirror of `combat::ai::outcome::PlanAnnotation`.
+/// Only terminal-state data is exposed here; `outcomes` vec is not mirrored
+/// (already covered by `PlanLog.outcomes`).
+#[derive(Deserialize, Default)]
+pub struct LoggedPlanAnnotation {
+    /// v23+: terminal-state evaluation for this plan.
+    /// Zero-filled for v22 and earlier logs.
+    #[serde(default)]
+    pub terminal: LoggedTerminalScore,
+}
+
+/// Deserializable mirror of `planning::terminal::TerminalScore`.
+#[derive(Deserialize, Default, Clone, Copy, Debug)]
+pub struct LoggedTerminalScore {
+    #[serde(default)]
+    pub exposure_at_end: f32,
+    #[serde(default)]
+    pub next_turn_lethality: f32,
+    #[serde(default)]
+    pub secure_kill: f32,
+    #[serde(default)]
+    pub ally_rescue: f32,
+    #[serde(default)]
+    pub board_control_gain: f32,
+    #[serde(default)]
+    pub line_actionability: f32,
+    #[serde(default)]
+    pub density_value: f32,
+    #[serde(default)]
+    pub pressure_spacing_zone: f32,
 }
 
 /// Mirrors `log::TradeBlock`. Verbose-only rendering; not consumed by the

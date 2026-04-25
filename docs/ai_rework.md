@@ -130,7 +130,7 @@
 
 ---
 
-### 5. Terminal state evaluation
+### 5. Terminal state evaluation ✓ DONE
 
 **Сложность:** 4
 **Польза:** 5
@@ -139,12 +139,27 @@
 
 **Суть:** у вас уже есть sim — естественный следующий шаг. Для short-horizon planning качество terminal evaluation часто важнее, чем ещё одна эвристика наверху. Особенно важно для reposition, setup, bait, rescue, zoning и для «почти гарантированно умру на ответе».
 
-**Как поменять:**
-- В `planning/scorer.rs` — функция `terminal_state_score(end_snapshot, actor, goal, ctx) -> f32`.
-- Читает `end_snapshot` (финальный sim-снимок плана) и считает: exposure, next-turn lethality, secure kill, ally rescue, board control, line-actionability, density value, pressure/spacing/zone leverage.
-- Использует `ActionOutcomeEstimate` по финальной позиции и `NeedSignals` для веса каждой оси.
-- Интегрируется в scorer как отдельный compositional input, параллельно step-sum факторам.
-- Часть `tempo_gain`, части `sanity` и будущие critics постепенно мигрируют сюда, step-based scoring ослабляется в доминировании, но не удаляется.
+**Как реализовано** (декомпозиция: `docs/ai_rework_step5_plan.md`, сабшаги 5.0–5.6):
+
+- Модуль `src/combat/ai/planning/terminal.rs` со структурой `TerminalScore` (8 полей, Copy+Default+Serialize+Deserialize): `exposure_at_end`, `next_turn_lethality`, `secure_kill`, `ally_rescue`, `board_control_gain`, `line_actionability`, `density_value`, `pressure_spacing_zone`.
+- 3 cluster-сабшага:
+  - **Defensive** (5.1): `exposure_at_end` — danger-map penalty в финальной позиции; `next_turn_lethality` — вероятность смерти от всех врагов на следующем ходу.
+  - **Offensive** (5.2): `secure_kill` — гарантированное убийство цели; `ally_rescue` — выход союзника из danger после хила; `board_control_gain` — улучшение контроля доски.
+  - **Geometric** (5.3): `line_actionability` — AoE-линии открытые с финальной позиции; `density_value` — ценность кластеров в reach; `pressure_spacing_zone` — тактическое расстояние до врагов.
+- Producer `terminal_state_score(plan, initial_snap, ctx) -> TerminalScore` вызывается в `finalize_scores`, заполняет `plan.annotation.terminal`.
+- Consumer (5.4): aggregator в `finalize_scores` через `AxisProfile::terminal_weights(tuning)` (symmetric к `factor_weights`) + `(1 + need_signals.X)` modulation:
+  - `self_preserve` на `exposure_at_end` + `next_turn_lethality` (defensive cluster)
+  - `finish_target` на `secure_kill`
+  - `rescue_ally` на `ally_rescue`
+  - `reposition` на `board_control_gain`
+  - `setup_aoe` на `density_value`
+- Калибровка `axis_terminal_weights[5][8]` в `assets/data/ai_tuning.toml`. Defensive + offensive кластеры активны; geometric обнулены до фазы 2b mining-калибровки.
+- Schema bump v22 → v23: `PlanAnnotation.terminal` сериализуется в `PlanLogEntry`; v22-логи читаются через `#[serde(default)]` → zero-filled `TerminalScore`.
+- Migration: `worst_path_danger` / `compute_plan_self_survival` / `offensive::kill_now` / `secure_kill` — оставлены обе реализации, разная семантика. Cleanup в 5.5: 6 stale `score_action` references обновлено, +57 lines net (документация).
+
+**Реальные gate-результаты:**
+- 5.4 golden 6/131 (5 целевых defensive — exposure_at_end penalty на dangerous tiles + 1 позиционный, 0 подозрительных).
+- 5.5 cleanup: 6 stale `score_action` references обновлено, +57 lines net (документация).
 
 ---
 

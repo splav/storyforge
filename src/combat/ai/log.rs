@@ -126,7 +126,10 @@ use crate::game::hex::Hex;
 ///   (`pos_eval`/`threshold` → `reposition`/`floor`) when select_intent migrated
 ///   to need_signals (step 3.4). Old v21 logs deserialize via Serde default for
 ///   unknown fields; the renamed fields get 0.0.
-pub const SCHEMA_VERSION: u32 = 22;
+/// - v22 → v23: `PlanAnnotation.terminal` (`TerminalScore`, 8 axes) serialized
+///   into `PlanLogEntry`. v22 logs deserialize via `#[serde(default)]` →
+///   zero-filled `TerminalScore`, preserving backward compatibility.
+pub const SCHEMA_VERSION: u32 = 23;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
