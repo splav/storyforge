@@ -201,8 +201,16 @@ fn compute_reposition(
 
     let mut reposition = tuning.curves.reposition_pos_gain.eval(best_position_improvement);
 
-    // Idle AP boost: no enemies in attack range and we have AP → nudge to move.
-    if engagement_gap && has_ap {
+    // Idle AP boost: no enemies in attack range, we have AP, AND there is a
+    // real positional improvement to take. Without the improvement gate, the
+    // boost forced reposition to fire even when no useful tile existed —
+    // post-step-3 mining (3.6) showed this drove Reposition to 15% chosen
+    // intent (target 3–5%) and inflated viability_fallback (5.1% → 16.8%)
+    // because intent fired without a viable Move plan to back it. Tying the
+    // boost to `best_position_improvement >= reposition_pos_gain.x_lo` keeps
+    // the idle nudge but only when the curve already says there is somewhere
+    // worth going.
+    if engagement_gap && has_ap && best_position_improvement >= 0.05 {
         reposition = reposition.max(0.5);
     }
 
@@ -502,8 +510,32 @@ mod tests {
     // ── reposition ────────────────────────────────────────────────────────
 
     #[test]
-    fn reposition_high_when_engagement_gap_and_ap() {
-        // No enemies at all → engagement_gap=true, has_ap=true → idle boost ≥ 0.5.
+    fn reposition_high_when_engagement_gap_with_real_improvement() {
+        // No enemies + has AP + a reachable tile with meaningful pos_eval gain
+        // → idle boost ≥ 0.5. Map is built so a neighbouring tile reads as
+        // strictly better via the opportunity influence channel (Tank role
+        // weights opportunity at +0.9 — see tuning.tables.axis_position_weights).
+        let actor_pos = hex_from_offset(3, 3);
+        let better_tile = hex_from_offset(4, 3);
+        let active = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ap(1)
+            .speed(3)
+            .build();
+        let tuning = AiTuning::default();
+        let mut maps = empty_maps();
+        maps.opportunity.add(better_tile, 1.0);
+        let s = snap(vec![active.clone()]);
+        let signal = compute_reposition(&active, &s, &maps, &tuning);
+        assert!(signal >= 0.5, "idle AP boost should push reposition ≥ 0.5, got {signal}");
+    }
+
+    #[test]
+    fn reposition_no_boost_when_engagement_gap_but_no_improvement() {
+        // No enemies + has AP but flat map (no tile is better than current).
+        // Idle boost is gated on real best_position_improvement, so signal
+        // collapses to curve.eval(0) ≈ 0. This is the post-step-3 fix:
+        // boosting reposition without a viable destination drove
+        // viability_fallback up to 16.8% (3x baseline).
         let actor_pos = hex_from_offset(3, 3);
         let active = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .ap(1)
@@ -513,7 +545,7 @@ mod tests {
         let maps = empty_maps();
         let s = snap(vec![active.clone()]);
         let signal = compute_reposition(&active, &s, &maps, &tuning);
-        assert!(signal >= 0.5, "idle AP boost should push reposition ≥ 0.5, got {signal}");
+        assert!(signal < 0.1, "no improvement → no boost, got {signal}");
     }
 
     #[test]
