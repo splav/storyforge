@@ -1,14 +1,16 @@
 # Offensive positional: Человек Контрабандист r1, hp=10/10, ap=1/1,
-# FocusTarget на 17179868832. Обладает позиционной способностью backstab,
+# FocusTarget на 17179868830. Обладает позиционной способностью backstab,
 # цель в досягаемости. Ожидание: AI использует свою сильную offensive
 # способность на damage — не пустой Move/EndTurn.
 #
 # Свобода варианта: melee_attack допустим как fallback, если AI оценит
 # backstab как менее выгодный в конкретной геометрии; primary_effect
 # остаётся Damage.
+#
+# Source: rebuilt из v27 logs 20260426 (glassworks). v27: plan_id = actor_id.
 
 [scope]
-plan_id = 1
+plan_id = 17179868833
 
 [[expectations]]
 decision_kind = ["MoveAndCast", "CastInPlace"]

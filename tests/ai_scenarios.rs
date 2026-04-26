@@ -10,7 +10,7 @@
 //! Harness walks `snapshots/` and requires every subdirectory to contain
 //! exactly one `*.jsonl` (the group source) plus at least one
 //! `*.expected.toml`. Unlike [`tests/replay_assert.rs`] (which spawns the
-//! `replay_ai_log` binary), this harness calls [`assert_log_file`]
+//! `replay_ai_log` binary), this harness calls [`assert_v27_log_file`]
 //! directly — one process, one content load — so 10–15 scenarios finish
 //! in well under a second.
 //!
@@ -20,7 +20,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use storyforge::combat::ai::influence::InfluenceConfig;
-use storyforge::combat::ai::replay::assert_log_file;
+use storyforge::combat::ai::replay::assert_v27_log_file;
 use storyforge::combat::ai::replay_assertion::AssertResult;
 use storyforge::content::content_view::ContentView;
 
@@ -124,7 +124,7 @@ fn all_ai_scenarios_pass() {
     eprintln!("discovered {} ai scenario case(s)", pairs.len());
     let mut failures: Vec<String> = Vec::new();
     for (jsonl, overlay, case_name) in &pairs {
-        let outcome = match assert_log_file(jsonl, overlay, &content, &inf_cfg) {
+        let outcome = match assert_v27_log_file(jsonl, overlay, &content, &inf_cfg) {
             Ok(o) => o,
             Err(e) => {
                 failures.push(format!(

@@ -1,13 +1,14 @@
-# Support priority: Человек Настоятель Мерон r1, hp=12/18, ap=1/1,
-# intent=FocusTarget (на 20/20 противника). Допустимая цель для heal —
-# ally hp=6/12 (107374182051, союзник). Ожидание: AI-поддержка коммитит
-# heal на раненого союзника, не идёт в атаку, несмотря на FocusTarget.
+# Support priority: Человек Настоятель Мерон r1, hp=10/18, ap=1/1,
+# intent=FocusTarget. Союзник 34359738023 (hp=8/12) ранен — цель для heal.
+# Ожидание: AI-поддержка коммитит heal на раненого союзника, не идёт в атаку.
 #
 # Это тест того, что support-роль корректно оценивает value лечения
 # против атаки при наличии раненного ally.
+#
+# Source: rebuilt из v27 logs 20260426 (bell_crypt). v27: plan_id = actor_id.
 
 [scope]
-plan_id = 3
+plan_id = 34359738017
 
 [[expectations]]
 cast_ability = ["heal"]

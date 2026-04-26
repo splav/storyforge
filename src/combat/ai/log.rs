@@ -36,14 +36,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::intent::{AiMemory, IntentKind, IntentReason, TacticalIntent};
-use crate::combat::ai::repair::{
-    ContinuationOutcome, ContinuationSeverity, RepairAffinity, StoredGoalContext,
-};
+use crate::combat::ai::repair::{ContinuationSeverity, StoredGoalContext};
 use crate::combat::ai::repair::goal::GoalKind;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::{AdaptationReason, EvaluationMode, PlanStep, SanityHit, StepOutcome, TurnPlan};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::{AiDecision, ChosenInfo};
+use crate::combat::ai::utility::AiDecision;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 
@@ -584,62 +582,8 @@ pub fn build_entry<'a>(
     }
 }
 
-// ── Plan divergence log ────────────────────────────────────────────────────
-
-/// Snapshot of one side (stored or fresh) in a divergence comparison.
-#[derive(Serialize)]
-pub struct DivergenceSide {
-    pub intent: IntentKind,
-    pub ability: Option<String>,
-    pub target_id: Option<u64>,
-    pub score: f32,
-}
-
-/// Logged when the freeze-after-move logic has both a stored plan (from the
-/// previous MoveOnly tick) and a fresh plan to compare. Written as a separate
-/// JSON object alongside regular `pick_action` entries; `event_type` lets
-/// analyzers filter without checking every line.
-#[derive(Serialize)]
-pub struct PlanDivergenceEntry {
-    pub event_type: &'static str,
-    pub schema_version: u32,
-    pub timestamp_ms: u128,
-    pub actor_id: u64,
-    pub stored: DivergenceSide,
-    pub fresh: DivergenceSide,
-    /// Whether the stored plan's continuation was used (`true`) or the fresh
-    /// plan was used instead (`false`).
-    pub used_continuation: bool,
-    /// Reason the stored plan was not used, if applicable.
-    pub replan_reason: Option<&'static str>,
-    /// Semantic severity of the detected mismatch, if any.
-    /// `None` when there was no mismatch (continuation was clean or attempted).
-    /// Added in step 6.0; old logs without this field read as `None` via
-    /// `#[serde(default)]`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub continuation_severity: Option<ContinuationSeverity>,
-    pub intent_changed: bool,
-    pub ability_changed: bool,
-    pub target_changed: bool,
-    pub score_delta: f32,
-    // ── v24 fields (step 6.5) ────────────────────────────────────────────────
-    /// High-level goal-preservation outcome for this tick.
-    /// Defaults to `NoStoredGoal` for v23 logs without this field.
-    #[serde(default = "ContinuationOutcome::no_stored_goal")]
-    pub continuation_outcome: ContinuationOutcome,
-    /// Repair affinity of the fresh chosen plan, if a stored goal was present.
-    /// `None` when no stored goal existed or repair affinity was not computed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repair_affinity: Option<RepairAffinity>,
-    /// Pre-scaled repair bonus actually added to the fresh plan's score.
-    /// `None` when no stored goal existed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repair_bonus: Option<f32>,
-    /// Short code for the stored goal kind (e.g. `"finish"`, `"pressure"`).
-    /// `None` when no stored goal existed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub goal_kind: Option<String>,
-}
+// (Plan divergence log types removed in v27 clean-break — divergence data
+// now lives inside `ActorTickEvent.continuation` per tick.)
 
 // ── Replay snapshot wire types (v17+) ─────────────────────────────────────
 
@@ -870,104 +814,6 @@ pub struct ReservationsSnapshot {
     pub cc: std::collections::HashSet<u64>,
     /// Tiles claimed by earlier actors this round (as `[x, y]`).
     pub tiles: std::collections::HashSet<[i32; 2]>,
-}
-
-impl AiLogger {
-    /// Emit a `plan_divergence` entry. Called from `run_ai_turn` when a stored
-    /// goal exists from the previous tick alongside a fresh plan.
-    ///
-    /// Step 6.6: `stored` parameter changed from `&StoredPlan` to
-    /// `&StoredGoalContext` — the `stored` side of `DivergenceSide` is now
-    /// synthesised from the goal kind rather than the literal step sequence.
-    #[allow(clippy::too_many_arguments)]
-    pub fn write_plan_divergence(
-        &mut self,
-        actor: bevy::prelude::Entity,
-        stored_goal: &StoredGoalContext,
-        fresh: &ChosenInfo,
-        used_continuation: bool,
-        replan_reason: Option<&'static str>,
-        continuation_severity: Option<ContinuationSeverity>,
-        continuation_outcome: ContinuationOutcome,
-        fresh_repair_affinity: Option<RepairAffinity>,
-        repair_bonus: Option<f32>,
-    ) {
-        if !self.is_enabled() {
-            return;
-        }
-        // Extract committed action from the fresh plan.
-        let fresh_ability: Option<&AbilityId>;
-        let fresh_target: Option<bevy::prelude::Entity>;
-        match fresh.plan.committed_prefix() {
-            crate::combat::ai::planning::CommittedPrefix::Cast { ability, target, .. }
-            | crate::combat::ai::planning::CommittedPrefix::MoveThenCast { ability, target, .. } => {
-                fresh_ability = Some(ability);
-                fresh_target = Some(target);
-            }
-            _ => {
-                fresh_ability = None;
-                fresh_target = None;
-            }
-        }
-
-        let fresh_intent = fresh.intent.kind();
-        let goal_kind = stored_goal.kind.code().to_owned();
-
-        // Synthesise the stored side from goal context.
-        // intent is derived from GoalKind; ability / target from planned_ability + target_entity.
-        let stored_intent = goal_kind_to_intent_kind(&stored_goal.kind);
-        let stored_ability = stored_goal.planned_ability.as_ref().map(|a| a.0.clone());
-        let stored_target_id = stored_goal.kind.target_entity().map(|e| e.to_bits());
-        // Use confidence as a proxy for score (confidence = score/pool_max at store time).
-        let stored_score = stored_goal.confidence;
-        let score_delta = fresh.score - stored_score;
-
-        let entry = PlanDivergenceEntry {
-            event_type: "plan_divergence",
-            schema_version: SCHEMA_VERSION,
-            timestamp_ms: now_ms(),
-            actor_id: actor.to_bits(),
-            stored: DivergenceSide {
-                intent: stored_intent,
-                ability: stored_ability.clone(),
-                target_id: stored_target_id,
-                score: stored_score,
-            },
-            fresh: DivergenceSide {
-                intent: fresh_intent,
-                ability: fresh_ability.map(|a| a.0.clone()),
-                target_id: fresh_target.map(|e| e.to_bits()),
-                score: fresh.score,
-            },
-            used_continuation,
-            replan_reason,
-            continuation_severity,
-            intent_changed: stored_intent != fresh_intent,
-            ability_changed: stored_ability.as_deref() != fresh_ability.map(|a| a.0.as_str()),
-            target_changed: stored_target_id != fresh_target.map(|e| e.to_bits()),
-            score_delta,
-            continuation_outcome,
-            repair_affinity: fresh_repair_affinity,
-            repair_bonus,
-            goal_kind: Some(goal_kind),
-        };
-        if let Err(e) = self.write_entry(&entry) {
-            warn!("AI divergence log write failed: {}", e);
-        }
-    }
-}
-
-/// Map a `GoalKind` to the closest `IntentKind` for divergence log compat.
-/// Used to populate `DivergenceSide.intent` when `StoredPlan` is unavailable.
-fn goal_kind_to_intent_kind(kind: &GoalKind) -> IntentKind {
-    match kind {
-        GoalKind::Finish { .. } | GoalKind::Pressure { .. } => IntentKind::FocusTarget,
-        GoalKind::DisableEnemy { .. } => IntentKind::ApplyCC,
-        GoalKind::HealAlly { .. } => IntentKind::ProtectAlly,
-        GoalKind::Retreat { .. } => IntentKind::ProtectSelf,
-        GoalKind::SetupAOE { .. } => IntentKind::SetupAOE,
-        GoalKind::Reposition { .. } => IntentKind::Reposition,
-    }
 }
 
 // ── Schema v27: unified actor_tick event ──────────────────────────────────
@@ -1329,116 +1175,6 @@ mod tests {
         assert_eq!(restored.reserved_damage(e), 15.5);
         assert!(restored.has_reserved_cc(e));
         assert!(restored.is_tile_reserved(Hex::new(3, -1)));
-    }
-
-    // ── PlanDivergenceEntry v24 schema tests (step 6.5) ────────────────────────
-
-    fn make_divergence_entry(
-        outcome: ContinuationOutcome,
-        repair_affinity: Option<crate::combat::ai::repair::RepairAffinity>,
-        goal_kind: Option<String>,
-    ) -> PlanDivergenceEntry {
-        use crate::combat::ai::intent::IntentKind;
-        PlanDivergenceEntry {
-            event_type: "plan_divergence",
-            schema_version: SCHEMA_VERSION,
-            timestamp_ms: 0,
-            actor_id: 42,
-            stored: DivergenceSide {
-                intent: IntentKind::FocusTarget,
-                ability: Some("slash".into()),
-                target_id: Some(1),
-                score: 1.0,
-            },
-            fresh: DivergenceSide {
-                intent: IntentKind::FocusTarget,
-                ability: Some("slash".into()),
-                target_id: Some(1),
-                score: 1.1,
-            },
-            used_continuation: false,
-            replan_reason: None,
-            continuation_severity: None,
-            intent_changed: false,
-            ability_changed: false,
-            target_changed: false,
-            score_delta: 0.1,
-            continuation_outcome: outcome,
-            repair_affinity,
-            repair_bonus: Some(0.25),
-            goal_kind,
-        }
-    }
-
-    #[test]
-    fn plan_divergence_entry_v26_roundtrip() {
-        let entry = make_divergence_entry(
-            ContinuationOutcome::GoalPreservedMethodDelivered,
-            Some(crate::combat::ai::repair::RepairAffinity {
-                goal_alignment: 1.0,
-                region_alignment: 0.8,
-                method_alignment: 1.0,
-                severity_factor: 1.0,
-                ttl_factor: 0.9,
-                confidence: 0.85,
-            }),
-            Some("finish".into()),
-        );
-        let json = serde_json::to_string(&entry).expect("serialize");
-        let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
-
-        assert_eq!(v["schema_version"], SCHEMA_VERSION, "schema_version must match SCHEMA_VERSION");
-        // continuation_outcome is tagged: {"kind": "goal_preserved_method_delivered"}
-        assert_eq!(v["continuation_outcome"]["kind"], "goal_preserved_method_delivered");
-        assert!(v["repair_affinity"].is_object(), "repair_affinity present");
-        assert!((v["repair_bonus"].as_f64().unwrap() - 0.25).abs() < 1e-5);
-        assert_eq!(v["goal_kind"], "finish");
-    }
-
-    #[test]
-    fn plan_divergence_entry_v26_reactive_roundtrip() {
-        // GoalAbandonedReactive serialises with source field.
-        let entry = make_divergence_entry(
-            ContinuationOutcome::GoalAbandonedReactive { source: "taunt_forced".to_owned() },
-            None,
-            Some("finish".into()),
-        );
-        let json = serde_json::to_string(&entry).expect("serialize");
-        let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
-        assert_eq!(v["continuation_outcome"]["kind"], "goal_abandoned_reactive");
-        assert_eq!(v["continuation_outcome"]["source"], "taunt_forced");
-    }
-
-    #[test]
-    fn plan_divergence_entry_reads_v23_with_defaults() {
-        // A v23 entry: no continuation_outcome / repair_affinity / goal_kind.
-        let v23_json = r#"{
-            "event_type": "plan_divergence",
-            "schema_version": 23,
-            "timestamp_ms": 0,
-            "actor_id": 1,
-            "stored": {"intent": "FocusTarget", "ability": null, "target_id": null, "score": 1.0},
-            "fresh": {"intent": "FocusTarget", "ability": null, "target_id": null, "score": 1.2},
-            "used_continuation": false,
-            "replan_reason": "actor_hp_drop",
-            "intent_changed": false,
-            "ability_changed": false,
-            "target_changed": false,
-            "score_delta": 0.2
-        }"#;
-        // We can't Deserialize PlanDivergenceEntry (has &'static str fields),
-        // so verify via Value that the new fields are absent (serde default kicks in).
-        let v: serde_json::Value = serde_json::from_str(v23_json).expect("parse");
-        // v23 log must not have continuation_outcome — absence = backward compat ok
-        assert!(
-            v.get("continuation_outcome").is_none(),
-            "v23 log has no continuation_outcome field"
-        );
-        // When we decode ContinuationOutcome with default, we get NoStoredGoal.
-        // Verify by deserializing just the outcome field from empty input:
-        let no_field: ContinuationOutcome =
-            serde_json::from_str("null").unwrap_or_else(|_| ContinuationOutcome::no_stored_goal());
-        assert_eq!(no_field, ContinuationOutcome::NoStoredGoal);
     }
 
     #[test]

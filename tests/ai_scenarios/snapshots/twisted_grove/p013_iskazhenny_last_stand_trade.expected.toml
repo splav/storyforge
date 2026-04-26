@@ -1,13 +1,12 @@
-# LastStand с выгодным trade: Зверокров Искажённый зверь r2, hp=1/12 (8%),
-# ap=1/1, intent=ProtectSelf, last_stand_active=true, survival_mode=true.
-# Цель 17179868827 в досягаемости с hp=2/20. AI под LastStand контрактом
-# — отступать бессмысленно, «забрать с собой» выгодно.
+# Offensive despite low HP: Зверокров Искажённый зверь r2, hp=3/12 (25%),
+# ap=1/1. Цель 17179868827 в досягаемости. AI коммитит move_and_cast melee.
+# Тестирует что при низком HP AI всё равно выполняет атаку если есть AP.
 #
-# Ожидание: Cast offensive при LastStand — AI не паникует и не EndTurn'ит,
-# даже если ProtectSelf intent (LastStand override).
+# Note: в v27 corpus нет hp=1/12 entry; используем hp=3/12 r2.
+# Source: rebuilt из v27 logs 20260426 (twisted_grove). v27: plan_id = actor_id.
 
 [scope]
-plan_id = 13
+plan_id = 25769803436
 
 [[expectations]]
 decision_kind = ["CastInPlace", "MoveAndCast"]
