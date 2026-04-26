@@ -660,12 +660,16 @@ fn pick_top_move_tiles(
     maps: &InfluenceMaps,
     from: Hex,
 ) -> Vec<Hex> {
-    let destinations: Vec<Hex> = reach
+    let mut destinations: Vec<Hex> = reach
         .destinations
         .iter()
         .copied()
         .filter(|&t| t != from)
         .collect();
+    // Deterministic order: HashSet iteration is randomized per-process; without
+    // sorting, downstream stable sort_by(score) preserves random tie order
+    // → different chosen tile per process → non-deterministic decisions.
+    destinations.sort_by(|a, b| (a.x, a.y).cmp(&(b.x, b.y)));
     if destinations.is_empty() {
         return Vec::new();
     }

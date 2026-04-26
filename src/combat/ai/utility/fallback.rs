@@ -26,6 +26,8 @@ pub(super) fn fallback_move(
 
     // LOW_HP: retreat to the tile with lowest danger.
     if active.tags.contains(AiTags::LOW_HP) {
+        // Hex tiebreak: HashSet iteration is randomized per-process; without
+        // a deterministic secondary sort, ties in danger flip across processes.
         let safest = reach
             .destinations
             .iter()
@@ -34,6 +36,7 @@ pub(super) fn fallback_move(
                     .get(**a)
                     .partial_cmp(&maps.danger.get(**b))
                     .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| (a.x, a.y).cmp(&(b.x, b.y)))
             })
             .copied();
         if let Some(dest) = safest {
@@ -47,8 +50,13 @@ pub(super) fn fallback_move(
     }
 
     // Normal: find reachable tile closest to any enemy.
+    // Sort destinations first — HashSet iteration is randomized per-process,
+    // and `dist < bd` (strict less-than) keeps the FIRST seen tile on ties,
+    // so randomized order would pick different tile per process.
+    let mut sorted_dests: Vec<Hex> = reach.destinations.iter().copied().collect();
+    sorted_dests.sort_by(|a, b| (a.x, a.y).cmp(&(b.x, b.y)));
     let mut best: Option<(Hex, u32)> = None;
-    for &cell in &reach.destinations {
+    for cell in sorted_dests {
         for enemy in &enemies {
             let dist = cell.unsigned_distance_to(enemy.pos);
             if best.is_none_or(|(_, bd)| dist < bd) {
