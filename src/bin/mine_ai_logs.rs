@@ -71,6 +71,26 @@ struct Aggregate {
     actor_timelines: HashMap<SessionActorKey, Vec<(u64, String)>>,
     // Counter per session-actor for ordering ticks (monotonically increasing).
     actor_tick_counters: HashMap<SessionActorKey, u64>,
+
+    // D1: outcome fact distributions — collected from chosen plan steps (non-zero only).
+    d1_enemy_damage: Vec<f32>,
+    d1_ally_damage: Vec<f32>,
+    d1_self_damage: Vec<f32>,
+    d1_hp_restored: Vec<f32>,
+    d1_cc_turns_applied: Vec<f32>,
+    d1_vulnerability_applied: Vec<f32>,
+    d1_armor_shred_applied: Vec<f32>,
+    // Kill binary facts: counts of Cast steps where flag == 1.0.
+    d1_p_kill_now_count: usize,
+    d1_p_kill_soon_count: usize,
+    // Total Cast steps from chosen plans (denominator for kill rates).
+    d1_total_cast_steps: usize,
+
+    // D2: AoE per-entity damage breakdown.
+    // Each entry = number of entities hit in one AoE Cast step.
+    d2_entities_hit_per_cast: Vec<usize>,
+    // All per-entity damage values across all AoE Cast steps (for avg/max).
+    d2_per_entity_damage: Vec<f32>,
 }
 
 impl Aggregate {
@@ -113,10 +133,34 @@ impl Aggregate {
             *self.adaptation_counts.entry(reason_key).or_default() += 1;
         }
 
-        // A3: chosen plan depth
+        // A3: chosen plan depth + D1/D2: outcome fact distributions
         if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
             self.total_chosen += 1;
             *self.depth_counts.entry(chosen.steps.len()).or_default() += 1;
+
+            // D1 + D2: collect from all steps of the chosen plan.
+            for outcome in &chosen.annotation.outcomes {
+                self.d1_total_cast_steps += 1;
+
+                if outcome.enemy_damage > 0.0 { self.d1_enemy_damage.push(outcome.enemy_damage); }
+                if outcome.ally_damage > 0.0 { self.d1_ally_damage.push(outcome.ally_damage); }
+                if outcome.self_damage > 0.0 { self.d1_self_damage.push(outcome.self_damage); }
+                if outcome.hp_restored > 0.0 { self.d1_hp_restored.push(outcome.hp_restored); }
+                if outcome.cc_turns_applied > 0.0 { self.d1_cc_turns_applied.push(outcome.cc_turns_applied); }
+                if outcome.vulnerability_applied > 0.0 { self.d1_vulnerability_applied.push(outcome.vulnerability_applied); }
+                if outcome.armor_shred_applied > 0.0 { self.d1_armor_shred_applied.push(outcome.armor_shred_applied); }
+
+                if outcome.p_kill_now >= 1.0 { self.d1_p_kill_now_count += 1; }
+                if outcome.p_kill_soon >= 1.0 { self.d1_p_kill_soon_count += 1; }
+
+                // D2: AoE breakdown.
+                if !outcome.enemy_damage_per_entity.is_empty() {
+                    self.d2_entities_hit_per_cast.push(outcome.enemy_damage_per_entity.len());
+                    for &(_, dmg) in &outcome.enemy_damage_per_entity {
+                        self.d2_per_entity_damage.push(dmg);
+                    }
+                }
+            }
         }
 
         // B5
@@ -374,6 +418,44 @@ fn print_transition_matrix(actor_timelines: &HashMap<SessionActorKey, Vec<(u64, 
     );
 }
 
+// ── D1/D2 printing helpers ────────────────────────────────────────────────────
+
+/// Compute percentile of a sorted slice (linear interpolation, index clamped).
+/// `values` MUST be sorted ascending before calling.
+fn percentile_sorted(sorted: &[f32], p: f64) -> f32 {
+    if sorted.is_empty() { return 0.0; }
+    let idx = (p / 100.0 * (sorted.len() - 1) as f64).round() as usize;
+    sorted[idx.min(sorted.len() - 1)]
+}
+
+/// Print stats for a numeric fact field (non-zero values only).
+/// `label` — display name. `values` — already filtered to non-zero. `total_steps` — denominator.
+fn print_fact_field(label: &str, values: &mut [f32], total_steps: usize) {
+    let count = values.len();
+    if count == 0 {
+        println!("  {:<28}  count=0  (never non-zero in corpus)", label);
+        return;
+    }
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mean = values.iter().sum::<f32>() / count as f32;
+    let max = values.last().copied().unwrap_or(0.0);
+    let p50 = percentile_sorted(values, 50.0);
+    let p90 = percentile_sorted(values, 90.0);
+    let p99 = percentile_sorted(values, 99.0);
+    println!(
+        "  {:<28}  count={:>4} ({:5.1}%)  mean={:7.1}  p50={:7.1}  p90={:8.1}  p99={:8.1}  max={:8.1}",
+        label, count, pct(count, total_steps), mean, p50, p90, p99, max
+    );
+}
+
+/// Print kill binary rate: how many Cast steps had flag == 1.0.
+fn print_kill_rate(label: &str, count: usize, total_steps: usize) {
+    println!(
+        "  {:<28}  count={:>4} ({:5.1}%)",
+        label, count, pct(count, total_steps)
+    );
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 fn main() {
@@ -585,6 +667,65 @@ fn main() {
     );
     println!();
     print_transition_matrix(&agg.actor_timelines);
+    println!();
+
+    // D1: Outcome fact distributions
+    println!("## D1. Outcome fact distributions (per chosen-plan step)");
+    println!();
+    println!("Total chosen-plan steps: {}", agg.d1_total_cast_steps);
+    println!("(stats over non-zero values; count% = fraction of all steps where field > 0)");
+    println!();
+    println!("  {:<28}  {:>27}  {:>14}  {:>14}  {:>14}  {:>14}",
+        "field", "count (freq%)", "mean", "p50", "p90/p99", "max");
+    println!("  {}", "-".repeat(105));
+
+    let total = agg.d1_total_cast_steps;
+    print_fact_field("enemy_damage",          &mut agg.d1_enemy_damage,          total);
+    print_fact_field("ally_damage",           &mut agg.d1_ally_damage,           total);
+    print_fact_field("self_damage",           &mut agg.d1_self_damage,           total);
+    print_fact_field("hp_restored",           &mut agg.d1_hp_restored,           total);
+    print_fact_field("cc_turns_applied",      &mut agg.d1_cc_turns_applied,      total);
+    print_fact_field("vulnerability_applied", &mut agg.d1_vulnerability_applied, total);
+    print_fact_field("armor_shred_applied",   &mut agg.d1_armor_shred_applied,   total);
+    println!();
+    println!("  Kill binary facts (rate = % of all chosen-plan steps):");
+    print_kill_rate("p_kill_now",  agg.d1_p_kill_now_count,  total);
+    print_kill_rate("p_kill_soon", agg.d1_p_kill_soon_count, total);
+    println!();
+
+    // D2: AoE per-entity damage breakdown
+    let total_aoe = agg.d2_entities_hit_per_cast.len();
+    println!("## D2. AoE per-entity damage breakdown");
+    println!();
+    println!("Total AoE Cast steps (enemy_damage_per_entity non-empty): {total_aoe}");
+    if total_aoe == 0 {
+        println!("  (no AoE casts in corpus)");
+    } else {
+        println!();
+        println!("  Entities hit per AoE Cast distribution:");
+        let mut hit_counts: BTreeMap<usize, usize> = BTreeMap::new();
+        for &n in &agg.d2_entities_hit_per_cast {
+            let bucket = if n >= 4 { 4 } else { n };
+            *hit_counts.entry(bucket).or_default() += 1;
+        }
+        for (bucket, count) in &hit_counts {
+            let label = if *bucket >= 4 { "4+".to_owned() } else { bucket.to_string() };
+            println!("    {} entities: {:>4}  ({:5.1}%)", label, count, pct(*count, total_aoe));
+        }
+        println!();
+        if !agg.d2_per_entity_damage.is_empty() {
+            agg.d2_per_entity_damage.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let vals = &agg.d2_per_entity_damage;
+            let mean = vals.iter().sum::<f32>() / vals.len() as f32;
+            let p50 = percentile_sorted(vals, 50.0);
+            let p90 = percentile_sorted(vals, 90.0);
+            let max = vals.last().copied().unwrap_or(0.0);
+            println!(
+                "  Per-entity damage (n={}):  mean={:.1}  p50={:.1}  p90={:.1}  max={:.1}",
+                vals.len(), mean, p50, p90, max
+            );
+        }
+    }
     println!();
 }
 
