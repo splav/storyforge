@@ -846,7 +846,7 @@ Pre-condition: corpus с подходящими playtest'ами уже есть 
 | 7.0 | Scaffolding (`PlanStage`, `ScoredPool`, `StageCtx`) | 0.5 | golden 0/N, no behavior | done (`3ed749a`) |
 | 7.1 | Scoring stages (Viability + Sanity) | 1.0 | golden 0/N | done (`2a3dbe0`) |
 | 7.2 | Contract stages (Adaptation + ProtectSelfMask + KillableGate) | 1.0 | golden 0/116 | done (`79e7371`) |
-| 7.3 | RepairAffinityStage + goal_lifecycle module | 0.5 | golden 0/N, lifecycle централизован | pending |
+| 7.3 | RepairAffinityStage + goal_lifecycle module | 0.5 | golden 0/116, lifecycle централизован | done (`f5a0f2f`) |
 | 7.4 | Pipeline assembly + architectural converge (drop Pipeline struct, score/raw_factors INTO annotation, PickBestStage, pure pick_action, single orchestrator) | 1.5 | per-entry golden ≤10/N | pending |
 | 7.5 | Schema v27 unified `actor_tick` + clean break (closes 6.7 carry-over fully) | 2.0 | v27 round-trip 0/N, mining baseline воспроизводится | pending |
 | 7.6 | ai_scenarios state injection (closes 6.9 carry-over) | 1.0 | 4 pending continuation_* fixtures green на v27 формате | pending |
