@@ -831,6 +831,7 @@ mod tests {
             plans: vec![],
             decision: LoggedDecision::Skip { reason: "no_ap_no_mp".to_owned() },
             continuation: None,
+            intent_reason: None,
         }
     }
 

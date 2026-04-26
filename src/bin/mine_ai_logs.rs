@@ -145,20 +145,16 @@ impl Aggregate {
         // Approximate the fresh TacticalIntent from decision + stored goal context.
         let fresh_intent = approximate_fresh_intent(&event.decision, &cont.stored_goal);
 
-        // fresh_reason: we approximate from decision kind (no full IntentReason in log).
-        // For outcome classification, what matters is the IntentReason::code()
-        // to distinguish reactive vs voluntary. We use a synthetic NoRuleDefault
-        // reason for non-reactive cases — this is a known approximation since
-        // the v27 log does not store the full IntentReason.
-        // The reactive sources (taunt, adaptation) would need richer data to separate.
-        // For now, use NoRuleDefault which classifies as voluntary when goal abandoned.
-        let synthetic_reason = storyforge::combat::ai::intent::IntentReason::NoRuleDefault;
+        // fresh_reason: read from event.intent_reason (full structured reason).
+        // None on skip-path; classify as NoRuleDefault (voluntary if goal abandoned).
+        let fallback_reason = storyforge::combat::ai::intent::IntentReason::NoRuleDefault;
+        let fresh_reason = event.intent_reason.as_ref().unwrap_or(&fallback_reason);
 
         let outcome = classify_continuation_outcome(
             Some(&stored_goal),
             fresh_intent,
             fdk,
-            &synthetic_reason,
+            fresh_reason,
             cont.severity,
             cont.age,
         );
@@ -229,11 +225,10 @@ fn fresh_decision_kind(d: &LoggedDecision) -> FreshDecisionKind {
 /// - Move → `Reposition` (best approximation; could be FocusTarget-walk, but we can't know).
 /// - EndTurn/Skip → `Reposition` (pass, no meaningful intent to infer).
 ///
-/// This heuristic is sufficient for the miner's `preserved` vs `abandoned` split,
-/// though reactive-vs-voluntary classification for `GoalAbandonedReactive` requires
-/// the real `IntentReason.code()` which is not in the log. The synthetic `NoRuleDefault`
-/// reason causes all abandoned-not-invalidating-not-ttl cases to be classified as
-/// `GoalAbandonedVoluntary` in the miner output.
+/// This heuristic is sufficient for the miner's `preserved` vs `abandoned` split.
+/// Reactive-vs-voluntary classification reads `event.intent_reason` directly
+/// (full structured `IntentReason`), so the miner correctly distinguishes
+/// `GoalAbandonedReactive { source: ... }` from `GoalAbandonedVoluntary`.
 fn approximate_fresh_intent(
     decision: &LoggedDecision,
     stored_goal: &StoredGoalContextSnapshot,
@@ -521,8 +516,7 @@ fn main() {
     let cont_abandoned_reactive_total: usize = agg.cont_abandoned_reactive.values().sum();
     println!("Total ticks analysed: {n}");
     println!("  (outcome derived from raw log data — no pre-classified strings)");
-    println!("  NOTE: reactive vs voluntary classification uses synthetic NoRuleDefault reason;");
-    println!("        full accuracy requires stored IntentReason (planned for v28+).");
+    println!("  (reactive vs voluntary derived from event.intent_reason — full structured.)");
     println!();
     if n == 0 {
         println!("  (no ticks found)");
@@ -624,6 +618,7 @@ mod tests {
             plans,
             decision,
             continuation,
+            intent_reason: None,
         }
     }
 

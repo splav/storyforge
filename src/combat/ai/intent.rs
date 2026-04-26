@@ -236,7 +236,7 @@ pub struct AiMemory {
 /// Add a new rule by adding a variant here and emitting it at the rule site.
 /// Classification (`selection_kind` in the log) is compiler-checked via
 /// `code()` — there is no string-prefix table to keep in sync.
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum IntentReason {
     /// Step 3.2: fields migrated from raw hp_pct/hp_threshold to

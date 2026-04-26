@@ -1039,8 +1039,13 @@ pub struct ActorTickEvent {
     pub plans: Vec<LoggedPlan>,
     pub decision: LoggedDecision,
     /// Present when a stored goal existed at tick start (before pre_tick ran).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// `None` on first tick of an actor's turn or after a Cast/Move&Cast cleared
+    /// the stored goal.
     pub continuation: Option<ContinuationLogSection>,
+    /// `IntentReason` of the chosen plan — full structured reason (panic_override,
+    /// taunt_forced, killable, etc.). `None` on skip-path. Required by mining
+    /// to distinguish reactive vs voluntary abandons via `IntentReason::code()`.
+    pub intent_reason: Option<crate::combat::ai::intent::IntentReason>,
 }
 
 // ── ActorTickInput + build helpers ────────────────────────────────────────
@@ -1059,6 +1064,9 @@ pub struct ActorTickInput<'a> {
     pub skip_reason: Option<&'static str>,
     /// Scored pool from `pick_action`; `None` on skip-path.
     pub pool: Option<&'a crate::combat::ai::pipeline::ScoredPool>,
+    /// `IntentReason` of the chosen plan from `pick_action`; `None` on skip-path.
+    /// Threaded into `ActorTickEvent.intent_reason` for mining tools.
+    pub intent_reason: Option<&'a crate::combat::ai::intent::IntentReason>,
     pub debug_names: &'a std::collections::HashMap<Entity, String>,
 }
 
@@ -1112,6 +1120,7 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
         snapshot: input.snapshot.clone(),
         plans,
         decision,
+        intent_reason: input.intent_reason.cloned(),
         continuation,
     }
 }
@@ -1467,6 +1476,7 @@ mod tests {
             decision: &AiDecision::EndTurn,
             skip_reason: Some("no_ap_no_mp"),
             pool: None,
+            intent_reason: None,
             debug_names,
         }
     }
@@ -1522,6 +1532,7 @@ mod tests {
         let debug_names = std::collections::HashMap::new();
         let actor = Entity::from_bits(3);
         let decision = AiDecision::EndTurn;
+        let test_reason = crate::combat::ai::intent::IntentReason::NoRuleDefault;
         let input = ActorTickInput {
             round: 2,
             actor,
@@ -1531,6 +1542,7 @@ mod tests {
             decision: &decision,
             skip_reason: None,
             pool: Some(&pool),
+            intent_reason: Some(&test_reason),
             debug_names: &debug_names,
         };
         let event = build_actor_tick_event(input);

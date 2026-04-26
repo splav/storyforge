@@ -169,6 +169,7 @@ fn run_ai_turn(
                 decision: &AiDecision::EndTurn,
                 skip_reason: Some("no_ap_no_mp"),
                 pool: None,
+                intent_reason: None,
                 debug_names: &debug_names_skip,
             });
         }
@@ -246,6 +247,7 @@ fn run_ai_turn(
             decision: &decision,
             skip_reason: None,
             pool: Some(&result.pool),
+            intent_reason: Some(&result.intent_reason),
             debug_names: &debug_names,
         });
     }
