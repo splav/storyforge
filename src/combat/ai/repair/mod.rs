@@ -11,6 +11,8 @@ pub use goal::{GoalKind, StoredGoalContext, extract_goal_context};
 pub mod affinity;
 pub use affinity::{RepairAffinity, RepairWeights, compute_repair_affinity};
 
+pub mod lifecycle;
+
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use serde::{Deserialize, Serialize};
 
@@ -261,6 +263,19 @@ fn goal_kind_matches_intent(kind: &GoalKind, intent: TacticalIntent) -> bool {
         (GoalKind::Reposition { .. }, TacticalIntent::Reposition) => true,
         _ => false,
     }
+}
+
+/// Returns `true` when `outcome` indicates the stored goal should be cleared
+/// from `AiMemory.last_goal`. Used by `goal_lifecycle::post_tick` and tests.
+pub fn is_abandoned_outcome(outcome: &ContinuationOutcome) -> bool {
+    matches!(
+        outcome,
+        ContinuationOutcome::GoalAbandonedTtlExpired
+            | ContinuationOutcome::GoalAbandonedInvalidating
+            | ContinuationOutcome::GoalAbandonedVoluntary
+            | ContinuationOutcome::GoalAbandonedReactive { .. }
+            | ContinuationOutcome::LegacyV25Abandoned { .. }
+    )
 }
 
 #[cfg(test)]

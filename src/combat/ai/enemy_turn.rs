@@ -5,9 +5,10 @@ use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::repair::{
-    classify_continuation_outcome, ContinuationOutcome, ContinuationSeverity,
-    FreshDecisionKind, extract_goal_context,
+    classify_continuation_outcome, ContinuationSeverity,
+    FreshDecisionKind,
 };
+use crate::combat::ai::repair::lifecycle as goal_lifecycle;
 use crate::combat::ai::log::AiLogger;
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
@@ -101,33 +102,50 @@ fn run_ai_turn(
     let inf_cfg = &env.inf_cfg;
     let positions = &env.positions;
     let combat_ctx = &env.combat_ctx;
-    if c.ap.action_points <= 0 && !c.ap.can_move() {
-        // FIXME(step 7): this path bypasses the divergence log. In the PlanStage
-        // pipeline, a start-of-turn stage will write a goal-state event and perform
-        // TTL decay centrally. For now — only a cheap proactive stale clear.
-        if let Ok(mut mem) = memories.get_mut(actor) {
-            if let Some(g) = &mem.last_goal {
-                let age = combat_ctx.round.saturating_sub(g.created_round);
-                if age >= g.ttl as u32 {
-                    mem.last_goal = None;
-                }
-            }
-        }
-        msgs.end_turn.write(EndTurn { actor });
-        return;
-    }
-
     let Some(actor_pos) = positions.get(&actor) else {
         warn!("AI: actor {:?} has no position, ending turn", actor);
         msgs.end_turn.write(EndTurn { actor });
         return;
     };
 
-    // Build snapshot and influence maps.
+    // Build snapshot early — needed for goal_lifecycle::pre_tick before the
+    // no-AP/MP early-return path. Minor cost: snapshot built even for actors
+    // that will pass immediately. Semantics are correct: TTL decay and
+    // invalidating-clear must run before any early-return.
     let actor_team = c.faction.0;
     let snap = build_snapshot(
         combat_ctx.round, combatants, statuses, positions, roles, content, difficulty,
     );
+
+    if snap.unit(actor).is_none() {
+        msgs.end_turn.write(EndTurn { actor });
+        return;
+    }
+    // SAFETY: checked immediately above.
+    let actor_snap = snap.unit(actor).unwrap();
+
+    // Borrow the actor's persistent `AiMemory` directly from the query —
+    // writes land in place, no take/put dance. Actors without the component
+    // get a short-lived default; mutations to it are discarded when the
+    // function returns (matches the previous behaviour, where the write-back
+    // branch also silently dropped the memory).
+    let mut fallback_memory = AiMemory::default();
+    let memory_ref: &mut AiMemory = match memories.get_mut(actor) {
+        Ok(m) => m.into_inner(),
+        Err(_) => &mut fallback_memory,
+    };
+
+    // Step 7.3: centralised goal lifecycle — TTL decay + invalidating clear.
+    // Replaces the inline FIXME(step 7) TTL clear on the early-return path.
+    goal_lifecycle::pre_tick(memory_ref, &snap, actor_snap);
+
+    if c.ap.action_points <= 0 && !c.ap.can_move() {
+        // tick_skipped log will be written here in 7.5; for now just end turn.
+        msgs.end_turn.write(EndTurn { actor });
+        return;
+    }
+
+    // Build influence maps (requires snap, runs only on full path).
     let maps = build_influence_maps(&snap, actor, actor_team, inf_cfg);
 
     // World-scope context. Per-actor caster/crit-fail-effect/abilities now
@@ -154,22 +172,6 @@ fn run_ai_turn(
         HashMap::new()
     };
 
-    if snap.unit(actor).is_none() {
-        msgs.end_turn.write(EndTurn { actor });
-        return;
-    }
-
-    // Borrow the actor's persistent `AiMemory` directly from the query —
-    // writes land in place, no take/put dance. Actors without the component
-    // get a short-lived default; mutations to it are discarded when the
-    // function returns (matches the previous behaviour, where the write-back
-    // branch also silently dropped the memory).
-    let mut fallback_memory = AiMemory::default();
-    let memory_ref: &mut AiMemory = match memories.get_mut(actor) {
-        Ok(m) => m.into_inner(),
-        Err(_) => &mut fallback_memory,
-    };
-
     // Step 6.6: exact-continuation (continuation_from_stored) removed.
     // pick_action applies repair-affinity bonus internally via AiMemory.last_goal,
     // so the fresh plan already reflects goal-preservation preferences.
@@ -190,9 +192,8 @@ fn run_ai_turn(
     // Divergence log: emit whenever we have both a stored goal and a fresh plan.
     // The `stored` side is synthesised from last_goal (step 6.6 — StoredPlan removed).
     //
-    // `goal_obsolete` is set here (from continuation_outcome) and consumed
-    // in the decision-block below to drive proactive stale-goal clearing.
-    let mut goal_obsolete = false;
+    // `goal_obsolete` computation stays here for logging purposes; goal-clearing
+    // is now handled by goal_lifecycle::post_tick (step 7.3, below).
     if let (Some(ref stored_goal), Some(ref fresh)) = (&memory_ref.last_goal, &fresh_chosen) {
         let fresh_decision_kind = match decision {
             AiDecision::CastInPlace { .. } | AiDecision::MoveAndCast { .. } => {
@@ -210,14 +211,6 @@ fn run_ai_turn(
             fresh_reason,
             continuation_severity,
             age,
-        );
-        goal_obsolete = matches!(
-            continuation_outcome,
-            ContinuationOutcome::GoalAbandonedTtlExpired
-                | ContinuationOutcome::GoalAbandonedInvalidating
-                | ContinuationOutcome::GoalAbandonedVoluntary
-                | ContinuationOutcome::GoalAbandonedReactive { .. }
-                | ContinuationOutcome::LegacyV25Abandoned { .. }
         );
         let fresh_repair_affinity = Some(fresh.plan.annotation.repair_affinity);
         logger.write_plan_divergence(
@@ -259,44 +252,18 @@ fn run_ai_turn(
         }
     }
 
-    // Step 6.6 / 6.7: manage last_goal lifecycle per decision type.
-    // pool_max_score sanity: use chosen.score.max(1.0) as fallback; cancels to
-    // confidence=1.0 for the winning plan, which is a safe upper bound.
-    match decision {
-        AiDecision::Move { ref path, .. } => {
-            // Store (or overwrite) goal for the next tick — actor is still en route.
-            if let (Some(chosen), Some(dest)) = (fresh_chosen, path.last().copied()) {
-                let actor_snap = snap.unit(actor).unwrap();
-                let pool_max_score = chosen.score.max(1.0);
-                memory_ref.last_goal = extract_goal_context(
-                    chosen.intent,
-                    &chosen.plan.steps,
-                    &chosen.plan.annotation.outcomes,
-                    dest,
-                    chosen.score,
-                    pool_max_score,
-                    &snap,
-                    actor_snap,
-                    combat_ctx.round,
-                    world.tuning,
-                );
-            }
-        }
-        AiDecision::CastInPlace { .. } | AiDecision::MoveAndCast { .. } => {
-            // Climax executed — goal achieved or consumed; clear unconditionally.
-            memory_ref.last_goal = None;
-        }
-        AiDecision::EndTurn => {
-            // Preserve the goal across rounds so TTL-decay and cross-round
-            // invalidation (target_dead, ttl_expired) become observable.
-            // Clear only when continuation_outcome already marks it obsolete.
-            if goal_obsolete {
-                memory_ref.last_goal = None;
-            }
-            // Otherwise last_goal survives to the next round; TTL will expire it
-            // naturally (via divergence-log classify or early-return clear above).
-        }
-    }
+    // Step 7.3: centralised goal lifecycle post-tick — store/clear last_goal.
+    // Replaces the inline decision-match block from step 6.6/6.7.
+    // Divergence-log block above (goal_obsolete) remains untouched until 7.5.
+    goal_lifecycle::post_tick(
+        memory_ref,
+        &decision,
+        fresh_chosen.as_ref(),
+        &snap,
+        actor_snap,
+        combat_ctx.round,
+        world.tuning,
+    );
 
     // Execute decision.
     match decision {

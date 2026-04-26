@@ -20,12 +20,12 @@ use crate::combat::ai::pipeline::{
         adaptation::AdaptationStage,
         killable_gate::KillableGateStage,
         protect_self::ProtectSelfMaskStage,
+        repair_affinity::RepairAffinityStage,
         sanity::SanityStage,
         viability::ViabilityStage,
     },
     Pipeline, ScoredPool, StageCtx,
 };
-use crate::combat::ai::repair::compute_repair_affinity;
 use crate::content::content_view::ContentView;
 use crate::combat::ai::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
 use crate::combat::ai::difficulty::DifficultyProfile;
@@ -294,10 +294,12 @@ pub fn pick_action(
 
     // Contract stages (7.2): stages carry internal predicates and self-skip
     // when their conditions don't apply, so no `if matches!` guards needed.
+    // RepairAffinityStage (7.3): populates annotation.repair_affinity per plan.
     let contract_pipeline = Pipeline::new()
         .add(Box::new(AdaptationStage))
         .add(Box::new(ProtectSelfMaskStage))
-        .add(Box::new(KillableGateStage));
+        .add(Box::new(KillableGateStage))
+        .add(Box::new(RepairAffinityStage));
     contract_pipeline.run(&mut pool, &mut stage_ctx);
 
     // Sync pool back into PlanRanking for the legacy pipeline tail (pick,
@@ -305,29 +307,6 @@ pub fn pick_action(
     // pick_action; we pass pool by reference where possible.
     let mut ranking = PlanRanking::from_pool(&pool, stage_ctx.intent, stage_ctx.intent_reason);
     plans = pool.plans;
-
-    // Step 6.2/6.3/6.6: populate repair_affinity on each plan's annotation.
-    // Severity is now classified from last_goal.check_continuation (step 6.6 —
-    // last_plan removed). None when no stored goal exists → severity_factor = 1.0.
-    if let Some(stored_goal) = &memory.last_goal {
-        let current_round = snap.round;
-        // Classify severity from stored goal's own snapshot fields (step 6.6).
-        let severity = {
-            let actor_snap = active; // active == snap.unit(actor), already resolved above
-            let target_snap = stored_goal.target_entity().and_then(|t| snap.unit(t));
-            stored_goal.check_continuation(actor_snap, target_snap).map(|c| c.severity)
-        };
-        for plan in plans.iter_mut() {
-            plan.annotation.repair_affinity = compute_repair_affinity(
-                ranking.intent,
-                &plan.steps,
-                plan.final_pos,
-                stored_goal,
-                severity,
-                current_round,
-            );
-        }
-    }
 
     let (best_idx, mech) = ranking.pick(world, rng);
 
