@@ -1,237 +1,262 @@
-//! ActionOutcomeEstimate — structured outcome vector shared across factors,
-//! intent, critics, and terminal eval. Populated in SimState::apply_step
-//! call chain; consumers migrate onto it incrementally (steps 4.1–4.5).
+//! Outcome builder — constructs `ActionOutcomeEstimate` from sim steps or
+//! hypothetical (def + target) inputs.
 //!
-//! Step 4.0 ships the type + PlanAnnotation container zero-filled — no
-//! consumers yet. See docs/ai_rework_step4_plan.md.
-//! Step 4.8 adds new fact fields alongside legacy fields. Legacy fields are
-//! deprecated and will be removed in 4.12 after consumer migration.
+//! Two primary entry points:
+//! - [`from_sim_step`] — used by `generator`'s beam search after each
+//!   `apply_step`; has access to sim result + pre-step snapshot.
+//! - [`hypothetical`] — used by `future_value::λ_attack` and
+//!   `picker::record_committed_reservations` where no sim step has been
+//!   executed; derives outcome from ability def + target alone.
+//!
+//! All private helpers live here; `outcome::mod.rs` re-exports the public API.
 
-use crate::combat::ai::factors::PlanFactors;
 use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::planning::types::PlanStep;
 use crate::combat::ai::scoring::{status_applications, stun_denial_value};
-use crate::combat::ai::snapshot::UnitSnapshot;
-use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, TargetType};
+use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::utility::AiWorld;
+use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;
 use crate::core::ResourceKind;
 use bevy::prelude::Entity;
-use serde::{Deserialize, Serialize};
 
-/// Structured estimate of a single plan step's consequences.
+// ---------------------------------------------------------------------------
+// Primary public API
+// ---------------------------------------------------------------------------
+
+/// Builds `ActionOutcomeEstimate` from a sim step result.
 ///
-/// As of step 4.8, contains two layers:
+/// Used by generator's beam search after each `apply_step`. Fills both new
+/// fact fields and legacy (deprecated) fields. Consumers still read legacy
+/// fields; migration happens in 4.10–4.11.
 ///
-/// **Fact fields (new, step 4.8)** — raw, policy-free measurements derived from
-/// the sim step or the ability def. Consumers apply policy formulas from
-/// `combat::ai::policy::*` to derive HP-equivalent scores.
+/// Uses the pre-step snapshot for target reads so killed targets (hp→0 in
+/// `outcome.killed`) are still visible via their pre-death stats.
 ///
-/// **Legacy fields (deprecated)** — policy-baked values from wave 1 (steps
-/// 4.0–4.5). Consumers still read these; migration to fact fields happens in
-/// 4.10–4.11. All legacy fields drop in 4.12 together with the schema bump
-/// v27 → v28.
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct ActionOutcomeEstimate {
-    // ── Damage facts (raw, populated by sim walk or hypothetical) ──
+/// `caster_tile` is the actor's position before this step — needed to compute
+/// the AoE blast area for multi-target deny_value and p_kill_soon aggregation.
+#[allow(clippy::too_many_arguments)]
+#[allow(deprecated)]
+pub fn from_sim_step(
+    step: &PlanStep,
+    outcome: &crate::combat::ai::planning::types::StepOutcome,
+    step_damage: f32,
+    pre_snap: &BattleSnapshot,
+    caster: &CasterContext,
+    crit_fail_effect: &CritFailEffect,
+    ctx: &AiWorld,
+    maps: &InfluenceMaps,
+    caster_tile: crate::game::hex::Hex,
+    actor_unit_team: crate::game::components::Team,
+    actor_entity: Entity,
+) -> ActionOutcomeEstimate {
+    match step {
+        PlanStep::Cast { ability, target, target_pos } => {
+            let content = ctx.content;
+            let Some(def) = content.abilities.get(ability) else {
+                return ActionOutcomeEstimate {
+                    expected_damage: step_damage,
+                    enemy_damage: step_damage,
+                    ..Default::default()
+                };
+            };
+            let target_unit = pre_snap.unit(*target);
 
-    /// Raw damage dealt to all enemies (sum over AoE area); 0 for Move steps.
-    pub enemy_damage: f32,
-    /// Per-entity enemy damage breakdown. Empty for single-target casts (use
-    /// `enemy_damage`); populated for AoE casts. Enables step-10 critics.
-    #[serde(default)]
-    pub enemy_damage_per_entity: Vec<(Entity, f32)>,
-    /// Raw damage to allies (AoE friendly fire); 0 for single-target / Move.
-    pub ally_damage: f32,
-    /// Per-entity ally damage breakdown. Empty for single-target / Move.
-    #[serde(default)]
-    pub ally_damage_per_entity: Vec<(Entity, f32)>,
-    /// Raw damage to the actor (AoE self-hit, lifesteal cost); 0 otherwise.
-    pub self_damage: f32,
+            // ── Kill facts ──
+            let p_kill_now = if outcome.killed.is_empty() { 0.0 } else { 1.0 };
 
-    // ── Kill facts ──
+            // ── Legacy: p_kill_soon + deny_value (AoE or single) ──
+            // For AoE: aggregate deny_value and p_kill_soon over all enemy hits,
+            // matching what compute_offensive does at scoring time.
+            let (p_kill_soon, deny_value) = if def.aoe == AoEShape::None {
+                let ks = target_unit.map_or(0.0, |t| estimate_kill_soon(def, t, caster, content));
+                let dv = target_unit.map_or(0.0, |t| estimate_deny_value(def, t, content));
+                (ks, dv)
+            } else {
+                let area = crate::combat::ai::factors::aoe_area(def, *target_pos, caster_tile);
+                let actor_team = actor_unit_team;
+                let enemies_in_area: Vec<&UnitSnapshot> = pre_snap.units.iter()
+                    .filter(|u| u.is_alive() && area.contains(&u.pos) && u.team != actor_team)
+                    .collect();
+                let ks = if enemies_in_area.iter().any(|e| estimate_kill_soon(def, e, caster, content) > 0.0) {
+                    1.0
+                } else {
+                    0.0
+                };
+                let dv: f32 = enemies_in_area.iter()
+                    .map(|e| estimate_deny_value(def, e, content))
+                    .sum();
+                (ks, dv)
+            };
 
-    /// 1.0 if this step killed ≥1 enemy this turn, else 0.0.
-    /// Float reserved for forward-compat (probabilistic AI with dice variance).
-    pub p_kill_now: f32,
-    /// 1.0 if direct + DoT will kill within the damage horizon, else 0.0.
-    pub p_kill_soon: f32,
+            // ── Legacy: expected_damage ──
+            let expected_damage = if def.aoe == AoEShape::None {
+                target_unit.map_or(0.0, |t| {
+                    estimate_expected_damage(def, t, caster, content, crit_fail_effect, ctx.crit_fail_chance)
+                })
+            } else {
+                step_damage
+            };
 
-    // ── Status / control facts (aggregated; per-status breakdown — backlog) ──
+            // ── Legacy: rescue_value ──
+            let danger_at_target = maps.danger.get(*target_pos);
+            let rescue_value = target_unit.map_or(0.0, |t| {
+                estimate_rescue_value(
+                    def, t, caster, content, danger_at_target,
+                    crit_fail_effect, ctx.crit_fail_chance,
+                )
+            });
 
-    /// Σ (skips_turn × duration_rounds) over enemies hit by this step.
-    pub cc_turns_applied: f32,
-    /// Σ (damage_taken_bonus × duration_rounds) over enemies hit.
-    pub vulnerability_applied: f32,
-    /// Σ (armor_bonus × duration_rounds) over enemies hit (negative = shred).
-    pub armor_shred_applied: f32,
+            // ── Legacy: resource_swing ──
+            let resource_swing = -(def.cost_ap as f32)
+                - def.costs.iter().map(|c| c.amount as f32).sum::<f32>();
 
-    // ── Support facts ──
+            // ── New fact: damage breakdown ──
+            let dmg_facts = build_damage_facts(
+                def, *target_pos, *target, caster_tile,
+                actor_unit_team, actor_entity, pre_snap, caster, step_damage,
+            );
 
-    /// Raw HP restored, clamped to the target's missing HP; 0 for non-heal.
-    pub hp_restored: f32,
+            // ── New fact: p_kill_soon for AoE (using new helper) ──
+            let new_p_kill_soon = if def.aoe != AoEShape::None {
+                aoe_p_kill_soon(def, *target_pos, caster_tile, actor_unit_team, pre_snap, caster, content)
+            } else {
+                p_kill_soon
+            };
 
-    // ── Movement facts (Move steps; 0 for Cast) ──
+            // ── New fact: status facts ──
+            let status_facts = build_status_facts(
+                def, *target, *target_pos, caster_tile,
+                actor_unit_team, pre_snap, content,
+            );
 
-    /// Worst danger value along the Move path (max over path tiles).
-    pub path_max_danger: f32,
-    /// Movement points consumed by this Move step.
-    pub mp_spent: i32,
+            // ── New fact: hp_restored ──
+            let hp_restored = target_unit.map_or(0.0, |t| estimate_hp_restored(def, t, caster));
 
-    // ── Resource facts ──
+            // ── New fact: resource costs split ──
+            let res_facts = split_resource_costs(def);
 
-    /// Action points spent by this step.
-    pub ap_spent: i32,
-    /// Mana spent by this step.
-    pub mana_spent: i32,
-    /// Rage spent by this step.
-    pub rage_spent: i32,
-    /// Other resource costs (Energy and any future kinds).
-    pub other_resource_spent: i32,
+            ActionOutcomeEstimate {
+                // New fact fields
+                enemy_damage: dmg_facts.enemy_damage,
+                enemy_damage_per_entity: dmg_facts.enemy_damage_per_entity,
+                ally_damage: dmg_facts.ally_damage,
+                ally_damage_per_entity: dmg_facts.ally_damage_per_entity,
+                self_damage: dmg_facts.self_damage,
+                p_kill_now,
+                p_kill_soon: new_p_kill_soon,
+                cc_turns_applied: status_facts.cc_turns_applied,
+                vulnerability_applied: status_facts.vulnerability_applied,
+                armor_shred_applied: status_facts.armor_shred_applied,
+                hp_restored,
+                path_max_danger: 0.0,
+                mp_spent: 0,
+                ap_spent: res_facts.ap_spent,
+                mana_spent: res_facts.mana_spent,
+                rage_spent: res_facts.rage_spent,
+                other_resource_spent: res_facts.other_resource_spent,
+                // Legacy fields (deprecated, kept 1:1 with pre-4.8 behavior)
+                expected_damage,
+                deny_value,
+                rescue_value,
+                board_pressure: 0.0,
+                exposure_delta: 0.0,
+                geometry_gain: 0.0,
+                resource_swing,
+            }
+        }
+        PlanStep::Move { path } => {
+            // ── New fact: path danger + mp_spent ──
+            let path_max_danger = step_path_danger(step, maps);
+            let mp_spent = path.len() as i32;
+            // ── Legacy: resource_swing (Move costs 1 MP per tile) ──
+            let resource_swing = -(path.len() as f32);
+            let exposure_delta = path_max_danger;
 
-    // ── LEGACY (drop in 4.12 after consumer migration to fact fields) ──
-
-    /// HP-equivalent damage score (policy-baked). Use `enemy_damage` /
-    /// `ally_damage` / `hp_restored` + policy functions instead. Drop in 4.12.
-    #[deprecated(note = "Use enemy_damage / ally_damage / hp_restored + policy::*. Drop in 4.12.")]
-    pub expected_damage: f32,
-    /// CC / armor-debuff / vuln denial value (policy-baked). Use
-    /// `cc_turns_applied`, `vulnerability_applied`, `armor_shred_applied` +
-    /// `policy::cc::value(...)` instead. Drop in 4.12.
-    #[deprecated(note = "Use cc_turns_applied / vulnerability_applied / armor_shred_applied + policy::cc::value. Drop in 4.12.")]
-    pub deny_value: f32,
-    /// Heal value with urgency baked-in. Use `hp_restored` + `policy::heal::value(...)` instead.
-    /// Drop in 4.12.
-    #[deprecated(note = "Use hp_restored + policy::heal::value. Drop in 4.12.")]
-    pub rescue_value: f32,
-    /// Dead placeholder — never filled since step 5 used TerminalScore instead.
-    /// Drop in 4.12.
-    #[deprecated(note = "Dead placeholder (never populated). Drop in 4.12.")]
-    pub board_pressure: f32,
-    /// Reserved for step 17 (geometry awareness); will be added when needed.
-    /// Drop in 4.12.
-    #[deprecated(note = "Reserved for step 17 geometry; add when needed. Drop in 4.12.")]
-    pub geometry_gain: f32,
-    /// Δdanger from Move step (worst path danger). Replaced by `path_max_danger`.
-    /// Drop in 4.12.
-    #[deprecated(note = "Replaced by path_max_danger. Drop in 4.12.")]
-    pub exposure_delta: f32,
-    /// Signed resource cost (negative = spent). Replaced by `ap_spent` /
-    /// `mana_spent` / `rage_spent` / `other_resource_spent`. Drop in 4.12.
-    #[deprecated(note = "Replaced by ap_spent / mana_spent / rage_spent / other_resource_spent. Drop in 4.12.")]
-    pub resource_swing: f32,
-}
-
-/// Result of the viability-gate pass for one plan (step 7.1).
-///
-/// `passed = true` means the intent signal for this plan met the threshold and
-/// no swap was triggered (or no threshold applies). `adjusted_score` is the
-/// final score after any intent-column rewrite that viability triggered; it
-/// equals the pre-viability score when no swap occurred.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ViabilityResult {
-    /// Whether the viability gate passed without triggering a fallback swap.
-    pub passed: bool,
-    /// Score after viability rewrite (equals pre-viability score when passed).
-    pub adjusted_score: f32,
-}
-
-impl Default for ViabilityResult {
-    fn default() -> Self {
-        Self { passed: true, adjusted_score: 0.0 }
+            ActionOutcomeEstimate {
+                // New fact fields
+                enemy_damage: 0.0,
+                enemy_damage_per_entity: vec![],
+                ally_damage: 0.0,
+                ally_damage_per_entity: vec![],
+                self_damage: 0.0,
+                p_kill_now: 0.0,
+                p_kill_soon: 0.0,
+                cc_turns_applied: 0.0,
+                vulnerability_applied: 0.0,
+                armor_shred_applied: 0.0,
+                hp_restored: 0.0,
+                path_max_danger,
+                mp_spent,
+                ap_spent: 0,
+                mana_spent: 0,
+                rage_spent: 0,
+                other_resource_spent: 0,
+                // Legacy fields (deprecated, kept 1:1 with pre-4.8 behavior)
+                expected_damage: 0.0,
+                deny_value: 0.0,
+                rescue_value: 0.0,
+                board_pressure: 0.0,
+                exposure_delta,
+                geometry_gain: 0.0,
+                resource_swing,
+            }
+        }
     }
 }
 
-/// Per-plan annotation bundle. Grows as pipeline stages accrue data
-/// (outcome in wave 1; critics / band / agenda in later waves).
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct PlanAnnotation {
-    /// One ActionOutcomeEstimate per plan step, same length as TurnPlan.steps
-    /// and TurnPlan.outcomes.
-    #[serde(default)]
-    pub outcomes: Vec<ActionOutcomeEstimate>,
-    /// One-shot terminal-state evaluation. Populated by `terminal_state_score`
-    /// in `finalize_scores`; consumed by aggregation in 5.4.
-    /// Serialized into JSONL as of schema v23 (step 5.6). Old v22 logs
-    /// deserialize via `#[serde(default)]` → zero-filled `TerminalScore`,
-    /// preserving backward compatibility.
-    #[serde(default)]
-    pub terminal: crate::combat::ai::planning::terminal::TerminalScore,
-    /// Step 6.2: repair affinity of this plan against the stored goal context.
-    /// Populated in `pick_action` when `AiMemory.last_goal` is present.
-    /// Default zero-filled when no stored goal exists. Consumed by the
-    /// repair bonus aggregation in 6.3 (not read into score in 6.2).
-    #[serde(default)]
-    pub repair_affinity: crate::combat::ai::repair::RepairAffinity,
-    /// Step 7.1: viability gate result for this plan.
-    /// Default (passed=true, adjusted_score=0.0) when ViabilityStage has not
-    /// run yet or the gate did not apply to this intent.
-    #[serde(default)]
-    pub viability: ViabilityResult,
-    /// Step 7.1: sanity hits applied to this plan (rule + multiplier pairs).
-    /// Empty until SanityStage runs or when no rules fired.
-    #[serde(default)]
-    pub sanity: Vec<crate::combat::ai::planning::sanity::SanityHit>,
-    /// Step 7.2: adaptation decision for this plan (was PlanRanking.adaptation.reasons[i]).
-    /// `None` when no adaptation trigger fired for this plan.
-    #[serde(default)]
-    pub adaptation: Option<AdaptationData>,
-    /// Step 7.2: contract mask applied to this plan (ProtectSelf or KillableGate masking).
-    /// `None` when no mask applied.
-    #[serde(default)]
-    pub contract: Option<ContractMaskHit>,
-    /// Step 7.4: final aggregated score for this plan after all pipeline stages.
-    /// Default 0.0. Written by scoring stages (replaces ScoredPool.scored).
-    ///
-    /// Serde wrapped because contract masks (ProtectSelf, KillableGate) set
-    /// score = `f32::NEG_INFINITY` to sentinel-mask plans. JSON cannot represent
-    /// non-finite floats; serde_json writes them as `null` and then fails to
-    /// read back. The `f32_finite` adapter maps NEG_INFINITY → `f32::MIN`
-    /// (-3.4e38) on write; on read accepts both finite numbers and `null`
-    /// (decoded as `f32::MIN`). Production semantics preserved — runtime never
-    /// round-trips score through JSON.
-    #[serde(default, with = "crate::combat::ai::serde_helpers::f32_finite")]
-    pub score: f32,
-    /// Step 7.4: raw factor decomposition for this plan.
-    /// Written by the initial scoring pass. Default PlanFactors::default().
-    #[serde(default)]
-    pub raw_factors: PlanFactors,
-    /// Step 7.4: whether this plan was chosen as the winning plan.
-    /// Set to `true` by `PickBestStage`. Default false.
-    #[serde(default)]
-    pub chosen: bool,
-    /// Step 7.4: pick mechanics info for the chosen plan.
-    /// `None` for non-chosen plans. Set by `PickBestStage`.
-    #[serde(default)]
-    pub pick: Option<PickInfo>,
-}
+/// Builds `ActionOutcomeEstimate` without sim — for consumers without sim context
+/// (`future_value::λ_attack`, `picker::record_committed_reservations`).
+///
+/// First-class parallel API to [`from_sim_step`]. Same outcome shape; precision
+/// is hypothetical (no sim verification — all fields derived from ability def +
+/// target).
+///
+/// `expected_damage` is set to the full `compute_score_core` result (damage +
+/// status contribution), which makes `λ_attack = 0.5 * expected_damage` identical
+/// to the legacy `0.5 * score_action(...)` in HP-equivalent units.
+///
+/// `danger_at_target` is passed straight to the heal-urgency formula;
+/// callers that don't have a danger map pass `0.0` (as before).
+#[allow(deprecated)]
+pub fn hypothetical(
+    def: &AbilityDef,
+    target: &UnitSnapshot,
+    caster: &CasterContext,
+    content: &ContentView,
+    danger_at_target: f32,
+) -> ActionOutcomeEstimate {
+    // Full HP-equivalent score — mirrors what score_action returned without
+    // the crit_fail adjustment (future_value never had crit_fail).
+    let score = compute_score_core(def, target, caster, content, danger_at_target);
 
-/// Adaptation reason + original (pre-adaptation) score for a single plan.
-/// Written by `AdaptationStage`; consumed by the finalizer to build
-/// `IntentReason::Adapted` for the winning plan.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AdaptationData {
-    pub reason: crate::combat::ai::planning::AdaptationReason,
-    /// Score this plan had immediately before adaptation rescored it.
-    pub original_score: f32,
-}
+    // Kill detection: if net damage (same formula as scoring) >= hp, kill_now.
+    let p_kill_now = {
+        let killed = if let Some(calc) = def.effect.calc(caster) {
+            let armor = if calc.pierces_armor { 0.0 } else { (target.armor + target.armor_bonus) as f32 };
+            let net = (calc.expected() - armor + target.damage_taken_bonus as f32).max(0.0);
+            net >= target.hp as f32
+        } else {
+            false
+        };
+        if killed { 1.0f32 } else { 0.0f32 }
+    };
+    let p_kill_soon = if p_kill_now == 0.0 {
+        estimate_kill_soon(def, target, caster, content)
+    } else {
+        0.0
+    };
+    let deny_value = estimate_deny_value(def, target, content);
 
-/// Record of a contract mask hit (ProtectSelf or KillableGate).
-/// Written by `ProtectSelfMaskStage` / `KillableGateStage`.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ContractMaskHit {
-    /// Which mask applied: `"protect_self"` or `"killable_gate"`.
-    pub mask: String,
-    /// Score this plan had immediately before the mask set it to -∞.
-    pub original_score: f32,
-}
-
-/// Pick diagnostics for the winning plan.
-/// Written by `PickBestStage`; `None` on all non-chosen plans.
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct PickInfo {
-    /// Top-K window, mercy flag, chosen position in the ranked pool.
-    pub mechanics: crate::combat::ai::planning::PickMechanics,
+    ActionOutcomeEstimate {
+        expected_damage: score,
+        p_kill_now,
+        p_kill_soon,
+        deny_value,
+        ..Default::default()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -337,57 +362,6 @@ pub fn estimate_expected_damage(
     }
     let raw = compute_score_core(def, target, caster, content, 0.0);
     crit_fail_adjusted_rescue(raw, def, crit_fail_effect, crit_fail_chance)
-}
-
-/// Hypothetical (without sim) outcome estimate for a single (ability, target) pair.
-///
-/// Used by `future_value::λ_attack` and `picker::record_committed_reservations`
-/// where no sim step has been executed — we need an HP-equivalent value from
-/// first principles.
-///
-/// `expected_damage` is set to the full `compute_score_core` result (damage +
-/// status contribution), which makes `λ_attack = 0.5 * expected_damage` identical
-/// to the legacy `0.5 * score_action(...)` in HP-equivalent units.
-///
-/// `danger_at_target` is passed straight to the heal-urgency formula;
-/// callers that don't have a danger map pass `0.0` (as before).
-#[allow(deprecated)]
-pub fn estimate_hypothetical(
-    def: &AbilityDef,
-    target: &UnitSnapshot,
-    caster: &CasterContext,
-    content: &ContentView,
-    danger_at_target: f32,
-) -> ActionOutcomeEstimate {
-    // Full HP-equivalent score — mirrors what score_action returned without
-    // the crit_fail adjustment (future_value never had crit_fail).
-    let score = compute_score_core(def, target, caster, content, danger_at_target);
-
-    // Kill detection: if net damage (same formula as scoring) >= hp, kill_now.
-    let p_kill_now = {
-        let killed = if let Some(calc) = def.effect.calc(caster) {
-            let armor = if calc.pierces_armor { 0.0 } else { (target.armor + target.armor_bonus) as f32 };
-            let net = (calc.expected() - armor + target.damage_taken_bonus as f32).max(0.0);
-            net >= target.hp as f32
-        } else {
-            false
-        };
-        if killed { 1.0f32 } else { 0.0f32 }
-    };
-    let p_kill_soon = if p_kill_now == 0.0 {
-        estimate_kill_soon(def, target, caster, content)
-    } else {
-        0.0
-    };
-    let deny_value = estimate_deny_value(def, target, content);
-
-    ActionOutcomeEstimate {
-        expected_damage: score,
-        p_kill_now,
-        p_kill_soon,
-        deny_value,
-        ..Default::default()
-    }
 }
 
 /// Max danger value along the path tiles of a single Move step.
@@ -510,7 +484,6 @@ pub(crate) fn compute_score_core(
 
 // ---------------------------------------------------------------------------
 // Step-4.8 fact-vector helpers
-// (Will move to outcome::builder in step 4.9.)
 // ---------------------------------------------------------------------------
 
 /// Damage facts split by relation to the actor (enemy / ally / self).
@@ -545,7 +518,7 @@ pub(crate) fn build_damage_facts(
     caster_tile: crate::game::hex::Hex,
     actor_team: crate::game::components::Team,
     actor_entity: Entity,
-    pre_snap: &crate::combat::ai::snapshot::BattleSnapshot,
+    pre_snap: &BattleSnapshot,
     caster: &CasterContext,
     sim_damage: f32,
 ) -> DamageFacts {
@@ -629,7 +602,7 @@ pub(crate) fn aoe_p_kill_soon(
     target_pos: crate::game::hex::Hex,
     caster_tile: crate::game::hex::Hex,
     actor_team: crate::game::components::Team,
-    pre_snap: &crate::combat::ai::snapshot::BattleSnapshot,
+    pre_snap: &BattleSnapshot,
     caster: &CasterContext,
     content: &ContentView,
 ) -> f32 {
@@ -660,7 +633,7 @@ pub(crate) fn build_status_facts(
     target_pos: crate::game::hex::Hex,
     caster_tile: crate::game::hex::Hex,
     actor_team: crate::game::components::Team,
-    pre_snap: &crate::combat::ai::snapshot::BattleSnapshot,
+    pre_snap: &BattleSnapshot,
     content: &ContentView,
 ) -> StatusFacts {
     use crate::combat::ai::factors::aoe_area;
@@ -775,27 +748,6 @@ mod tests {
 
     fn melee_caster(str_mod: i32) -> CasterContext {
         CasterContext { str_mod, ..Default::default() }
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn default_outcome_is_zero() {
-        let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.expected_damage, 0.0);
-        assert_eq!(o.p_kill_now, 0.0);
-        assert_eq!(o.p_kill_soon, 0.0);
-        assert_eq!(o.deny_value, 0.0);
-        assert_eq!(o.rescue_value, 0.0);
-        assert_eq!(o.board_pressure, 0.0);
-        assert_eq!(o.exposure_delta, 0.0);
-        assert_eq!(o.geometry_gain, 0.0);
-        assert_eq!(o.resource_swing, 0.0);
-    }
-
-    #[test]
-    fn default_annotation_is_empty() {
-        let a = PlanAnnotation::default();
-        assert!(a.outcomes.is_empty());
     }
 
     // --- estimate_kill_soon ---
@@ -968,22 +920,22 @@ mod tests {
         assert_eq!(step_path_danger(&step, &maps), 7.0);
     }
 
-    // --- estimate_hypothetical ---
+    // --- hypothetical ---
 
-    /// `estimate_hypothetical(...).expected_damage` equals `compute_score_core(...)`
+    /// `hypothetical(...).expected_damage` equals `compute_score_core(...)`
     /// for a damage ability — pins the contract that the outcome's HP-equivalent
     /// value is produced by the same formula as the sim-derived `expected_damage`.
     /// `future_value::attack_component_intent` relies on this for λ_attack.
     #[test]
     #[allow(deprecated)]
-    fn estimate_hypothetical_expected_damage_matches_compute_score_core() {
+    fn hypothetical_expected_damage_matches_compute_score_core() {
         let content = db();
         let def = get_def(&content, "melee_attack");
         let caster = melee_caster(2);
         let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build();
 
         let expected = compute_score_core(def, &target, &caster, &content, 0.0);
-        let est = estimate_hypothetical(def, &target, &caster, &content, 0.0);
+        let est = hypothetical(def, &target, &caster, &content, 0.0);
 
         assert!(
             (est.expected_damage - expected).abs() < 1e-6,
@@ -994,13 +946,13 @@ mod tests {
 
     /// `p_kill_now = 1.0` when net damage >= target.hp.
     #[test]
-    fn estimate_hypothetical_kill_now_when_damage_exceeds_hp() {
+    fn hypothetical_kill_now_when_damage_exceeds_hp() {
         let content = db();
         let def = get_def(&content, "melee_attack");
         let caster = melee_caster(5); // high str_mod for guaranteed kill
         let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).hp(1).build();
 
-        let est = estimate_hypothetical(def, &target, &caster, &content, 0.0);
+        let est = hypothetical(def, &target, &caster, &content, 0.0);
         assert_eq!(est.p_kill_now, 1.0, "should detect kill when net_dmg >= hp");
         assert_eq!(est.p_kill_soon, 0.0, "p_kill_soon must be 0 when p_kill_now=1");
     }
@@ -1008,12 +960,12 @@ mod tests {
     /// `deny_value` for a no-CC damage ability is 0.
     #[test]
     #[allow(deprecated)]
-    fn estimate_hypothetical_deny_zero_for_melee_attack() {
+    fn hypothetical_deny_zero_for_melee_attack() {
         let content = db();
         let def = get_def(&content, "melee_attack");
         let caster = melee_caster(0);
         let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build();
-        let est = estimate_hypothetical(def, &target, &caster, &content, 0.0);
+        let est = hypothetical(def, &target, &caster, &content, 0.0);
         assert_eq!(est.deny_value, 0.0, "melee_attack has no CC -> deny_value=0");
     }
 
@@ -1270,7 +1222,7 @@ mod tests {
     #[test]
     fn mp_spent_equals_path_length_via_outcome() {
         // Test the Move branch in the outcome shape directly.
-        // path_max_danger and mp_spent are calculated in build_step_outcome_estimate;
+        // path_max_danger and mp_spent are calculated in from_sim_step;
         // here we verify the step_path_danger helper, which is already covered.
         // We verify mp_spent computation logic is correct: path.len() as i32.
         let path = [
@@ -1298,47 +1250,5 @@ mod tests {
         assert_eq!(facts.mana_spent, 3);
         assert_eq!(facts.rage_spent, 0);
         assert_eq!(facts.other_resource_spent, 0);
-    }
-
-    // ── Legacy parity tests ───────────────────────────────────────────────
-
-    /// Legacy `expected_damage` default is 0 (parity with pre-4.8 Default::default()).
-    #[test]
-    #[allow(deprecated)]
-    fn legacy_expected_damage_default_is_zero() {
-        let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.expected_damage, 0.0);
-    }
-
-    /// Legacy `deny_value` default is 0 (parity).
-    #[test]
-    #[allow(deprecated)]
-    fn legacy_deny_value_default_is_zero() {
-        let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.deny_value, 0.0);
-    }
-
-    /// Legacy `rescue_value` default is 0 (parity).
-    #[test]
-    #[allow(deprecated)]
-    fn legacy_rescue_value_default_is_zero() {
-        let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.rescue_value, 0.0);
-    }
-
-    /// Legacy `resource_swing` default is 0 (parity).
-    #[test]
-    #[allow(deprecated)]
-    fn legacy_resource_swing_default_is_zero() {
-        let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.resource_swing, 0.0);
-    }
-
-    /// Legacy `exposure_delta` default is 0 (parity).
-    #[test]
-    #[allow(deprecated)]
-    fn legacy_exposure_delta_default_is_zero() {
-        let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.exposure_delta, 0.0);
     }
 }
