@@ -52,17 +52,23 @@ let (best_idx, mech) = ranking.pick(world, rng);
 
 ### Что закрывает step 7
 
-**1. Trait `PlanStage` + типизированный `ScoredPool`.** Stages становятся объектами, pool — типизированной парой `(plans, annotations)` с invariant'ами на len.
+**1. Trait `PlanStage` + типизированный `ScoredPool`.** Stages становятся объектами; `ScoredPool { plans, annotations }` — типизированная пара. **Все per-plan данные** (`score`, `raw_factors`, viability/sanity/adaptation/contract/repair_affinity/outcomes/terminal/chosen/pick) — внутри `PlanAnnotation`. Один parallel array вместо четырёх.
 
-**2. Все производные данные в `PlanAnnotation`.** Sanity hits, adaptation reasons, contract masks, pick info — каждое попадает в свою section. JSONL serialize'ит annotation как единое целое; миграции через `#[serde(default)]`.
+**2. Adaptation становится регулярной stage.** `IntentReason::Adapted` wrap в pick_action убирается — finalizer читает `annotation.adaptation` и собирает reason из section. Реализовано в 7.2.
 
-**3. Adaptation становится регулярной stage.** `IntentReason::Adapted` wrap в pick_action убирается — finalizer читает `annotation.adaptation` и собирает reason из section.
+**3. `pick_action` — pure function** возвращает `PickResult { decision, chosen, pool, debug_snapshot }`. Не принимает `&mut logger` или `&mut reservations`. Все side effects — в orchestrator (7.4).
 
-**4. Pipeline assembly.** `pick_action` body становится `pipeline.run(&mut pool, &ctx)` + setup + finalize. ~30 строк вместо 200.
+**4. `enemy_turn.rs` — единственный orchestrator.** Lifecycle (`goal_lifecycle::pre_tick`/`post_tick`), logging (`write_actor_tick_log`), reservations — всё из одного места (7.4).
 
-**5. Закрытие 6.7 carry-over.** Start-of-turn `GoalRepairStage` в pipeline пишет divergence-log + decay TTL + clear stale. Early-return path в `enemy_turn.rs` упрощается до bare `EndTurn` (без custom telemetry).
+**5. Pipeline assembly.** `Pipeline` struct (7.0) удаляется в 7.4 — заменяется free function `run_pool_pipeline`. Stages вызываются по именам, compile-time order, zero indirection. `pick_action` body становится setup + run_pool_pipeline + return — ~25 строк вместо 200.
 
-**6. Закрытие 6.9 carry-over.** Расширение `ai_scenarios` fixture format'а: `[ai_memory]` секция позволяет инъекцировать `last_goal` (и при необходимости другие memory fields) в runner до pipeline.run. 4 pending `continuation_*` fixtures становятся reachable.
+**6. `PickBestStage` — pick тоже stage.** `chosen: bool` + `pick: Option<PickInfo>` пишутся в annotation. Уход от free function `pick_best_plan` (7.4).
+
+**7. Закрытие 6.7 carry-over (полностью).** `goal_lifecycle::pre_tick` (7.3) централизует TTL decay + clear stale. `tick_skipped` log записывается на early-return path через `write_actor_tick_log` с `decision: Skip` (7.5). FIXME(step 7) исчезает.
+
+**8. Schema v27 — clean break.** Единый `actor_tick` event объединяет `actor_turn` + `plan_divergence` + skip case. Raw data only (outcome derive'ится mining tool'ом). v26 logs не читаются (явно одобрено пользователем). Tools (`mine_ai_logs`, `replay_ai_log`) переписываются под v27 only.
+
+**9. Закрытие 6.9 carry-over.** Расширение `ai_scenarios` fixture format'а: `[ai_memory]` секция позволяет инъекцировать `last_goal` (и др. memory fields) в runner до pick_action. 4 pending `continuation_*` fixtures становятся reachable (в v27 формате, 7.6).
 
 ### Что НЕ в scope шага 7
 
@@ -104,10 +110,10 @@ Runner extension натурально опирается на новые stage i
 
 В отличие от step 6 (gate'ы на behavioral metrics), step 7 — refactor с инвариантом «behavior unchanged». Gate'ы:
 
-- **7.0–7.5** — golden 0/N (no behavior change), `cargo test/clippy/build/ai_scenarios` зелёные.
+- **7.0–7.4** — golden 0/N (no behavior change), `cargo test/clippy --all-targets/build/ai_scenarios` зелёные.
 - **7.4** — pipeline assembly — самый рискованный сабшаг; per-entry golden review (≤10/N допустимо для tie-breaking flakiness'а в edge cases, не больше).
-- **7.5** — schema bump v26→v27, replay roundtrip 0/N + schema migration test для v26 logs.
-- **7.6** — 4 pending continuation_* fixtures (`target_dies_replan`, `cosmetic_rage_tick_no_replan`, `setup_aoe_two_ticks`, `ttl_expires`) green.
+- **7.5** — schema clean break v27, v27 round-trip 0/N, mining baseline (post-6.8B) воспроизводится на свежем v27 corpus.
+- **7.6** — 4 pending continuation_* fixtures (`target_dies_replan`, `cosmetic_rage_tick_no_replan`, `setup_aoe_two_ticks`, `ttl_expires`) green в v27 формате.
 
 ## Сабшаги
 
@@ -312,11 +318,13 @@ let final_intent_reason = if let Some(adapt) = &pool.annotations[best_idx].adapt
 
 ---
 
-### 7.3. `RepairAffinityStage` + start-of-turn `GoalRepairStage` (carry-over из 6.7)
+### 7.3. `RepairAffinityStage` + `goal_lifecycle` module
 
-**Scope.**
+**Scope (refined после Q1/Q2/Q3 review).**
 
-**`RepairAffinityStage`** — bonus computation вынесен из inline-цикла `pick_action:274–292` в stage:
+Изначальный план §7.3 описывал GoalRepairStage как pre-stage в pipeline с side-channel для divergence-log на early-return path. После архитектурного критика (см. «Refined architecture decisions» ниже) убрали `is_pre_stage()` / `run_pre_stages_only()` усложнения. Lifecycle = explicit module, не stage.
+
+**1. `RepairAffinityStage`** — bonus computation вынесен из inline-цикла `pick_action` в stage:
 
 ```rust
 pub struct RepairAffinityStage;
@@ -337,231 +345,431 @@ impl PlanStage for RepairAffinityStage {
 
 Bonus apply (текущий код в `finalize_scores`) **остаётся** там же — RepairAffinityStage только populates annotation, как было до.
 
-**`GoalRepairStage`** — НОВАЯ pre-stage (запускается в самом начале pipeline, **до** scoring stages):
+**2. `goal_lifecycle` module** (`src/combat/ai/repair/lifecycle.rs` или подобное) — pre/post-tick helpers:
 
 ```rust
-pub struct GoalRepairStage;
-impl PlanStage for GoalRepairStage {
-    fn name(&self) -> &'static str { "goal_repair" }
-    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
-        let Some(stored_goal) = ctx.scoring.last_goal else { return };
-        // Decay TTL, classify continuation, write divergence-log event.
-        // Clear stale goals (TTL expired / Invalidating severity).
-        // The clear is mediated through StageCtx::memory mut access.
+/// Pre-tick: TTL decay + clear stale goals (TTL expired / Invalidating severity).
+/// Called by orchestrator BEFORE pick_action. Idempotent on stale memory.
+pub fn pre_tick(memory: &mut AiMemory, snap: &BattleSnapshot, actor: &UnitSnapshot) {
+    let Some(g) = &memory.last_goal else { return };
+    let age = snap.round.saturating_sub(g.created_round);
+    if age >= g.ttl as u32 {
+        memory.last_goal = None;
+        return;
+    }
+    let target = g.target_entity().and_then(|t| snap.unit(t));
+    if matches!(g.check_continuation(actor, target), Some(check) if check.severity == ContinuationSeverity::Invalidating) {
+        memory.last_goal = None;
+    }
+}
+
+/// Post-tick: store new goal after Move, clear after Cast/MoveAndCast.
+/// EndTurn preserves goal across rounds (covered by pre_tick TTL/clear).
+pub fn post_tick(
+    memory: &mut AiMemory, decision: &AiDecision, chosen: Option<&ChosenInfo>,
+    snap: &BattleSnapshot, actor: &UnitSnapshot, round: u32, tuning: &AiTuning,
+) {
+    match decision {
+        AiDecision::Move { path, .. } => {
+            if let (Some(c), Some(dest)) = (chosen, path.last().copied()) {
+                memory.last_goal = extract_goal_context(c, snap, actor, dest, round, tuning);
+            }
+        }
+        AiDecision::CastInPlace { .. } | AiDecision::MoveAndCast { .. } => {
+            memory.last_goal = None;
+        }
+        AiDecision::EndTurn => {
+            // Preserve — pre_tick will handle TTL on next call.
+        }
     }
 }
 ```
 
-**Lifecycle перенос из `enemy_turn.rs`.**
+**3. `enemy_turn.rs` упрощается.**
 
-Текущий `enemy_turn.rs:180–235` (divergence-log + outcome classification) **уезжает** в `GoalRepairStage`. После step 7:
+Сейчас (после 6.7):
+- `enemy_turn.rs:103–118` — early-return inline TTL clear с `FIXME(step 7)`.
+- `enemy_turn.rs:262–299` — decision-block с `goal_obsolete` flag и conditional clear.
+
+После 7.3:
 
 ```rust
-// enemy_turn.rs (сильно упрощается):
 fn run_ai_turn(...) {
+    let actor_snap = build_actor_snapshot(...);  // нужен для goal_lifecycle::pre_tick
+    goal_lifecycle::pre_tick(memory, &snap, actor_snap);  // ← TTL decay + invalidating clear
+
     if c.ap.action_points <= 0 && !c.ap.can_move() {
-        // FIXME(step 7) был тут — теперь GoalRepairStage отрабатывает в pipeline
-        // даже на этом пути. Просто endturn:
+        // tick_skipped log переедет сюда в 7.5; пока без log'а.
         msgs.end_turn.write(EndTurn { actor });
         return;
     }
-    // ... snapshot build, name map ...
+
     let (decision, debug_snapshot, fresh_chosen) = pick_action(...);
-    // ... store/clear last_goal ...
+    // ... existing divergence-log block остаётся как есть до 7.5 ...
+
+    goal_lifecycle::post_tick(memory, &decision, fresh_chosen.as_ref(), &snap, actor_snap, round, tuning);
+    execute_decision(decision, msgs);
 }
 ```
 
-Wait — early-return path **НЕ запускает pick_action**, поэтому GoalRepairStage не отработает. Нужно либо:
-- (a) Вызывать `pipeline.run_pre_stages_only()` на early-return path.
-- (b) Вынести GoalRepair из pipeline в `enemy_turn.rs` как explicit pre-call.
+Inline TTL clear (lines 103–118) и decision-block (262–299) удаляются — заменены вызовами `goal_lifecycle::pre_tick` / `post_tick`. FIXME(step 7) проактивный clear исчезает (теперь в pre_tick централизован).
 
-**Решение 7.3 — (a):** `Pipeline::run_pre_stages_only()` метод, который запускает только stages с `is_pre_stage(&self) -> bool { true }`. GoalRepairStage возвращает true; остальные false.
-
-```rust
-pub trait PlanStage {
-    fn name(&self) -> &'static str;
-    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx);
-    /// Pre-stages run even when the actor cannot act this tick (no AP/MP).
-    /// Default false. Override true for telemetry/lifecycle stages that
-    /// need to fire regardless of whether decision-making proceeds.
-    fn is_pre_stage(&self) -> bool { false }
-}
-```
-
-`enemy_turn.rs` early-return path:
-
-```rust
-if c.ap.action_points <= 0 && !c.ap.can_move() {
-    let mut empty_pool = ScoredPool::empty();
-    let mut ctx = ctx_for_pre_stages(...);
-    pipeline.run_pre_stages_only(&mut empty_pool, &mut ctx);
-    msgs.end_turn.write(EndTurn { actor });
-    return;
-}
-```
-
-Это закрывает FIXME(step 7) полностью — divergence-log пишется на early-return path тоже.
-
-**Plumbing.**
-
-В `pick_action` body:
-
-```rust
-let pipeline = Pipeline::new()
-    .add(Box::new(GoalRepairStage))     // pre-stage: lifecycle/telemetry
-    .add(Box::new(ViabilityStage))
-    .add(Box::new(SanityStage))
-    .add(Box::new(AdaptationStage))
-    .add(Box::new(ProtectSelfMaskStage))
-    .add(Box::new(KillableGateStage))
-    .add(Box::new(RepairAffinityStage));
-```
+Divergence-log в full path **остаётся** в `enemy_turn.rs` без изменений до 7.5 — там его перенесут в `pick_action` финализатор и обогатят tick_skipped event'ом.
 
 **Юнит-тесты:**
-- `goal_repair_stage_decays_ttl` — last_goal с age=ttl after stage → cleared.
-- `goal_repair_stage_writes_divergence_log` — log entry создан.
-- `goal_repair_stage_runs_on_early_return_path` — pre-stage gate работает.
+- `pre_tick_clears_when_ttl_expired` — last_goal с age=ttl → None.
+- `pre_tick_clears_when_invalidating` — target_dead → None.
+- `pre_tick_preserves_when_relevant_or_cosmetic` — Relevant/Cosmetic не очищает.
+- `post_tick_stores_after_move` — Move → last_goal Some.
+- `post_tick_clears_after_cast` — CastInPlace/MoveAndCast → None.
+- `post_tick_preserves_after_endturn` — EndTurn не трогает.
 - `repair_affinity_stage_populates_annotation` — annotations[i].repair_affinity correct.
+- `repair_affinity_stage_no_stored_goal_is_noop` — без stored_goal stage не пишет.
 
 **Gate.**
-- Golden **0/N** (lifecycle уже корректен после 6.7; только перемещение в stage).
-- Divergence-log entries матчатся 1:1 с pre-step-7 entries (формат идентичен).
-- На early-return path появляются НОВЫЕ divergence-log entries — это новый сигнал, а не регрессия. Mining будет показывать дополнительные events типа `goal_abandoned_ttl_expired` на actors, которые раньше silently skipnли это logging.
+- `cargo test/clippy --all-targets/build/ai_scenarios` зелёные.
+- Golden **0/N** на post-6.8B corpus — поведение идентично (только refactor lifecycle).
+- Divergence-log в full path не меняется (заработает в 7.5).
 
-**Эстимейт:** 1.0 день.
+**Эстимейт:** 0.5 дня (small refactor).
 
 ---
 
-### 7.4. Pipeline assembly: `pick_action` body → `pipeline.run`
+### 7.4. Pipeline assembly + architectural converge
 
-**Scope.**
+**Scope (расширенный после refined architecture review).**
 
-Это самый рискованный сабшаг — финальная сборка. После 7.0–7.3 у нас есть все stages, но `pick_action` body всё ещё содержит legacy `PlanRanking` и inline glue. В 7.4:
+Самый рискованный сабшаг — финальная сборка с архитектурной конвергенцией. После 7.0–7.3 есть все stages + lifecycle module, но остались overengineered абстракции из 7.0 (Pipeline struct, parallel scored/raw_factors arrays). В 7.4:
 
-1. `PlanRanking` **удаляется**.
-2. `pick_action` body становится:
+**1. Drop `Pipeline` struct → free function.**
+
+`Pipeline { stages: Vec<Box<dyn PlanStage>> }` исчезает. Заменяется простой функцией:
 
 ```rust
+pub fn run_pool_pipeline(pool: &mut ScoredPool, ctx: &mut StageCtx) {
+    ViabilityStage.apply(pool, ctx);
+    SanityStage.apply(pool, ctx);
+    AdaptationStage.apply(pool, ctx);
+    ProtectSelfMaskStage.apply(pool, ctx);
+    KillableGateStage.apply(pool, ctx);
+    RepairAffinityStage.apply(pool, ctx);
+    PickBestStage.apply(pool, ctx);  // ← новый, см. п.3
+}
+```
+
+Compile-time order, zero indirection, читается линейно. `Pipeline::new`, `add`, `run` — все удаляются.
+
+**2. Move `score` + `raw_factors` INTO `PlanAnnotation`.**
+
+```rust
+// Было:
+pub struct ScoredPool {
+    pub plans: Vec<TurnPlan>,
+    pub annotations: Vec<PlanAnnotation>,
+    pub scored: Vec<f32>,         // ← удаляется
+    pub raw_factors: Vec<PlanFactors>,  // ← удаляется
+}
+
+// Стало:
+pub struct ScoredPool {
+    pub plans: Vec<TurnPlan>,
+    pub annotations: Vec<PlanAnnotation>,
+}
+
+pub struct PlanAnnotation {
+    pub score: f32,                    // ← переехал
+    pub raw_factors: PlanFactors,      // ← переехал
+    pub viability: ViabilityResult,
+    pub sanity: Vec<SanityHit>,
+    pub adaptation: Option<AdaptationData>,
+    pub contract: Option<ContractMaskHit>,
+    pub repair_affinity: RepairAffinity,
+    pub outcomes: Vec<ActionOutcomeEstimate>,
+    pub terminal: TerminalScore,
+    pub chosen: bool,                  // ← новый, set by PickBestStage
+    pub pick: Option<PickInfo>,        // ← новый, set by PickBestStage только для chosen plan
+}
+```
+
+Один parallel array вместо четырёх. Все per-plan данные = one source of truth.
+
+**3. `PickBestStage` — pick тоже stage.**
+
+```rust
+pub struct PickBestStage;
+impl PlanStage for PickBestStage {
+    fn name(&self) -> &'static str { "pick_best" }
+    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
+        let (best_idx, mech) = compute_best_idx(pool, ctx.rng, ...);
+        pool.annotations[best_idx].chosen = true;
+        pool.annotations[best_idx].pick = Some(PickInfo { mech, ... });
+    }
+}
+```
+
+`pick_best_plan` legacy free function исчезает. Логика — внутри stage.
+
+**4. `pick_action` становится pure function.**
+
+```rust
+pub struct PickResult {
+    pub decision: AiDecision,
+    pub chosen: Option<ChosenInfo>,  // derive'ится из pool.annotations[i].chosen
+    pub pool: ScoredPool,             // вернёт orchestrator'у для лога
+    pub debug_snapshot: Option<AiDebugSnapshot>,
+}
+
 pub fn pick_action(
     actor: Entity, actor_pos: Hex, world: &AiWorld, snap: &BattleSnapshot,
-    maps: &InfluenceMaps, rng: &mut DiceRng, memory: &mut AiMemory,
-    reservations: &mut Reservations, logger: &mut AiLogger, debug: bool,
-    debug_names: &HashMap<Entity, String>,
-) -> (AiDecision, Option<AiDebugSnapshot>, Option<ChosenInfo>) {
-    // 1. Setup (~10 lines): per-actor tuning, need_signals, intent select, plans.
-    let setup = setup_for_pick_action(actor, actor_pos, world, snap, maps, memory)?;
-
-    // 2. Run pipeline (~5 lines).
+    maps: &InfluenceMaps, rng: &mut DiceRng, memory: &AiMemory,  // ← &mut → &
+    reservations: &Reservations,                                   // ← &mut → &
+    debug: bool, debug_names: &HashMap<Entity, String>,
+) -> PickResult {                                                  // ← без logger param
+    let setup = setup_for_pick_action(...)?;
     let mut pool = ScoredPool::new(setup.plans);
     let mut ctx = StageCtx::new(&setup.scoring, setup.intent, setup.reason, actor_pos, rng);
-    PIPELINE.run(&mut pool, &mut ctx);
-
-    // 3. Pick + finalize (~15 lines).
-    let (best_idx, mech) = pick_best_plan(&pool, world, ctx.rng);
-    let (decision, consumed) = commit_plan(&pool.plans[best_idx], actor_pos);
-    let chosen = build_chosen_info(&pool, best_idx, &ctx);
+    run_pool_pipeline(&mut pool, &mut ctx);
+    let chosen_idx = pool.annotations.iter().position(|a| a.chosen);
+    let decision = if let Some(idx) = chosen_idx {
+        commit_plan(&pool.plans[idx], actor_pos).0
+    } else {
+        AiDecision::EndTurn  // fallback
+    };
+    let chosen = chosen_idx.map(|idx| build_chosen_info(&pool, idx, &ctx));
     let debug_snapshot = if debug { Some(build_debug_snapshot_from_pool(&pool, ...)) } else { None };
-    record_committed_reservations(&pool.plans[best_idx], consumed, ...);
-    if logger.is_enabled() { write_decision_log_from_pool(&pool, ...); }
-
-    (decision, debug_snapshot, chosen)
+    PickResult { decision, chosen, pool, debug_snapshot }
 }
 ```
 
-`PIPELINE: Lazy<Pipeline>` — глобальный singleton, инициализируется один раз.
+`pick_action` не знает про `logger` или `reservations` mut. Чистый decision-maker. Reservations записываются в orchestrator'е (`enemy_turn.rs`) после получения PickResult. Logger тоже там.
 
-3. Все callers `PlanRanking` обновляются (debug, log, ranking tests). `apply_*` методы PlanRanking удаляются — их функционал теперь в stages.
+**5. `enemy_turn.rs` = единственный orchestrator.**
 
-**Удаляются:**
-- `PlanRanking` struct + impl.
-- `ranking.rs::apply_viability/apply_sanity/apply_adaptation/apply_protect_self/apply_killable_gate`.
-- `ranking.rs::pick` → переезжает в utility/mod.rs::pick_best_plan (free function).
+```rust
+fn run_ai_turn(...) {
+    let memory_pre = memory.snapshot();  // capture pre-state for logging
+    goal_lifecycle::pre_tick(memory, &snap, actor_snap);
 
-**Сохраняются:**
-- `PlanRanking::initial` — заменяется на `ScoredPool::new`.
-- Тесты ranking.rs — переписываются под stages (если ещё не переписаны в 7.1–7.3).
+    if c.ap.action_points <= 0 && !c.ap.can_move() {
+        // skip-path log пишется здесь в 7.5; до тех пор просто endturn.
+        msgs.end_turn.write(EndTurn { actor });
+        return;
+    }
+
+    let result = pick_action(actor, actor_pos, &world, &snap, &maps, rng,
+                             memory, &reservations, debug, &debug_names);
+
+    // Log (объединённый actor_tick переедет сюда в 7.5; пока legacy формат).
+    if logger.is_enabled() {
+        write_legacy_decision_log(logger, ..., &result.pool, ...);
+    }
+
+    record_committed_reservations(&result, ..., reservations);
+    goal_lifecycle::post_tick(memory, &result.decision, result.chosen.as_ref(), ...);
+
+    execute_decision(result.decision, msgs);
+}
+```
+
+Single orchestrator → single point для logging, lifecycle, reservations. `pick_action` — pure black box.
+
+**6. Удаляются.**
+
+- `PlanRanking` struct + impl + tests (полностью).
+- `ranking.rs::apply_*` все методы.
+- `ranking.rs::pick` (логика в PickBestStage).
+- `Pipeline` struct, `Pipeline::new`, `add`, `run` (заменены free function'ой).
+- `ScoredPool::scored`, `ScoredPool::raw_factors` (переехали в annotation).
+- Параллельные `vec![PlanFactors::default(); n]` allocations в `ScoredPool::new` (теперь часть annotation).
 
 **Юнит-тесты:**
-- `pick_action_pipeline_runs_all_stages` — integration test что все stages запустились.
-- `pick_action_chosen_info_matches_pool` — chosen.score == pool.scored[best_idx].
+- `pick_action_returns_pickresult_with_pool` — chosen.score == pool.annotations[chosen_idx].score.
+- `pick_best_stage_marks_chosen` — exactly one annotation has chosen=true after stage.
+- `run_pool_pipeline_runs_all_stages` — integration test через side-effect annotations.
 
 **Gate.**
-- `cargo test/clippy/build/ai_scenarios` зелёные.
-- **Per-entry golden review (риск flakiness'а)** — допустимо ≤10/N diverged для tie-breaking edge cases. >10 — индикатор упущенной семантики, нужно расследовать перед merge'ем.
+- `cargo test/clippy --all-targets/build/ai_scenarios` зелёные.
+- **Per-entry golden review** — допустимо ≤10/N diverged для tie-breaking edge cases. >10 — расследовать.
 - Replay roundtrip 0/N.
 
-**Эстимейт:** 1.0 день (правка ~200 строк pick_action + 100 строк ranking + миграция тестов).
+**Эстимейт:** 1.5 дня (правка ~300 строк pick_action + 200 строк ranking + ScoredPool/annotation refactor + миграция тестов + cleanup).
 
 ---
 
-### 7.5. `PlanAnnotation` serialization + schema v26→v27 + log overhaul
+### 7.5. Schema v27 — unified `actor_tick` event + clean break
 
-**Scope.**
+**Scope (расширенный — clean break, без v26 backward read).**
 
-**`PlanAnnotation` сериализация.**
+Полностью переписываем формат логов. Без compat compromises (per явное согласие пользователя «нет задачи поддерживать текущий формат»).
 
-`PlanAnnotation` уже `Serialize/Deserialize` (outcome.rs:34, 50). Но в JSONL log сейчас annotation поля разнесены: `outcomes`, `terminal`, `repair_affinity` сериализуются как поля внутри `plan` записи; `sanity`, `adaptation`, `contract`, `viability`, `pick` сейчас на стороне `PlanRanking` и сериализуются параллельно.
+**1. Единственный event-type — `actor_tick`.**
 
-**Цель 7.5:** unified annotation per plan в logs.
+Объединяет старые `actor_turn` + `plan_divergence` + новый `tick_skipped` в один формат:
 
 ```jsonl
 {
-  "plans": [
+  "event_type": "actor_tick",
+  "schema_version": 27,
+  "round": 2,
+  "timestamp_ms": ...,
+  "actor_id": ...,
+  "actor_name": "...",
+  "snapshot": {...},                    // полный (raздутый, но self-contained)
+  "plans": [                             // [] на skip
     {
-      "rank": 1, "chosen": true, "steps": [...], "score": 2.7,
-      "annotation": {
+      "rank": 1,
+      "chosen": true,
+      "steps": [...],
+      "annotation": {                    // unified per-plan
+        "score": 2.7,
+        "raw_factors": {...},
         "outcomes": [...],
         "terminal": {...},
-        "repair_affinity": {...},
         "viability": {...},
         "sanity": [...],
-        "adaptation": {...},
-        "contract": {...},
-        "pick": {...}
+        "adaptation": {...} | null,
+        "contract": {...} | null,
+        "repair_affinity": {...},
+        "pick": {...} | null             // только для chosen
       }
     }
-  ]
+  ],
+  "decision": {
+    "kind": "MoveAndCast" | "CastInPlace" | "Move" | "EndTurn" | "Skip",
+    "reason": "no_ap_no_mp" | null,     // для Skip
+    "ability": "...",                    // для Cast/MoveAndCast
+    "target": ...,
+    "path": [...]
+  },
+  "continuation": {                      // null когда нет stored_goal at tick start
+    "stored_goal": {...},                // raw, не derived
+    "severity": "Relevant" | "Invalidating" | "Cosmetic" | null,
+    "age": 1
+    // outcome derive'ится mining tool'ом через classify_continuation_outcome —
+    // не пишется в лог (raw vs derived separation)
+  }
 }
 ```
 
-**Удаляются из top-level log entry:**
-- `sanity_breakdown` (per-pool array).
-- `adaptation` (per-pool array).
-- `gate_stats` (per-pool counts).
+Принципы:
+- **Self-contained per-tick** — каждая запись standalone (snapshot redundancy ок).
+- **Raw data only** — `outcome` строки (`goal_preserved_method_delivered` etc.) НЕ в логе. Mining derive'ит через `classify_continuation_outcome(stored, decision_kind, intent, reason, severity, age)`.
+- **Annotation per-plan nested** — не parallel array на top-level.
+- **Skip = degenerate `actor_tick`** — `decision.kind = "Skip"`, `plans = []`, snapshot минимальный (actor + units context).
 
-**Schema bump v26 → v27.**
+**2. `ActorTickInput` helper для composition.**
 
-Backward compat:
-- v26 logs читаются: `annotation` поле отсутствует → `serde(default)` populates с zero. `sanity_breakdown` в v26 → парсится в `PlanRanking`-style legacy поле, **не** мигрируется в annotation (replay стартует с zero annotation).
-- v27 → строгий формат.
+```rust
+pub struct ActorTickInput<'a> {
+    pub round: u32,
+    pub actor: Entity,
+    pub actor_name: &'a str,
+    pub snapshot: &'a BattleSnapshot,
+    pub memory_pre: &'a MemoryPreState,    // captured before goal_lifecycle::pre_tick
+    pub decision: &'a AiDecision,
+    pub pool: Option<&'a ScoredPool>,      // None on skip
+    pub debug_names: &'a HashMap<Entity, String>,
+}
 
-**Replay support.**
-- `replay_ai_log.rs` читает annotation per plan.
-- Pre-v27 logs: annotation = default; replay не сравнивает annotation поля для pre-v27.
-- Post-v27 logs: full annotation comparison.
+pub fn build_actor_tick_event(input: ActorTickInput) -> ActorTickEvent {
+    // Pure function: assembles ActorTickEvent from components.
+    // Used by both skip-path и full-path в enemy_turn.rs.
+}
 
-**Mining-tool overhaul.**
-- `mine_ai_logs.rs` extension: новые секции под annotation analysis (например, `C7. Per-plan adaptation rates`, `C8. Sanity hit distribution`).
-- Существующие секции (A1–C6) — без изменений.
+pub fn write_actor_tick_log(logger: &mut AiLogger, input: ActorTickInput) {
+    let event = build_actor_tick_event(input);
+    logger.write_event(&event);
+}
+```
 
-**Plumbing.**
+DRY: один shape, два call sites uniform. `build_actor_tick_event` pure → юнит-тестируется отдельно.
 
-- `write_decision_log` (`utility/mod.rs:370+`) — переписывается чтобы читать annotation из pool, а не из PlanRanking-side fields.
-- `LogEntry` struct — поля sanity_breakdown / adaptation / gate_stats → `#[serde(default, skip_serializing)]` для backward read, не пишется в новых logs.
+**3. `enemy_turn.rs` обновляется.**
+
+```rust
+fn run_ai_turn(...) {
+    let memory_pre = capture_memory_pre_state(memory);
+    goal_lifecycle::pre_tick(memory, ...);
+
+    if c.ap.action_points <= 0 && !c.ap.can_move() {
+        write_actor_tick_log(logger, ActorTickInput {
+            round, actor, actor_name, snapshot: &snap, memory_pre: &memory_pre,
+            decision: &AiDecision::EndTurn,  // skip
+            pool: None,
+            ...
+        });
+        msgs.end_turn.write(EndTurn { actor });
+        return;
+    }
+
+    let result = pick_action(...);
+
+    write_actor_tick_log(logger, ActorTickInput {
+        round, actor, actor_name, snapshot: &snap, memory_pre: &memory_pre,
+        decision: &result.decision,
+        pool: Some(&result.pool),
+        ...
+    });
+
+    record_committed_reservations(...);
+    goal_lifecycle::post_tick(memory, ...);
+    execute_decision(result.decision, msgs);
+}
+```
+
+Tick_skipped event закрывается **полностью** — закрывает carry-over из 6.7.
+
+**4. Schema v26 read — не поддерживается.**
+
+`replay_ai_log` и `mine_ai_logs` читают только v27. Pre-v27 logs — **error при загрузке**, понятная ошибка «schema v26 unsupported, v27+ required».
+
+**Что теряется:**
+- `logs/` historical — нечитаемо. Но они уже ротируются.
+- Golden `logs/golden_post_step6.jsonl` (post-6.8B) — пересобираем на свежем v27 playtest'е.
+- 1 existing fixture `tests/ai_scenarios/snapshots/continuation_relevant_preserved/` — пересобираем.
+
+**Что выигрываем:**
+- Mining/replay tools на ~30% проще (нет dual-format read).
+- Один event-type — нет cross-event correlation.
+- Shape стабилен (raw data, не привязан к classifier semantics).
+
+**5. `mine_ai_logs.rs` rewrite.**
+
+- Читает только `actor_tick` events (v27).
+- Continuation analysis (C6 + 6.6b refinements) теперь derive'ит outcome через `classify_continuation_outcome` на каждом event'е с continuation section.
+- Skip events дают новые метрики:
+  - "actor passed with stored goal" %.
+  - "ttl_expired on skip path" % (раньше invisible).
+- Existing секции A1–C6 переинтерпретируются под новый формат.
+
+**6. `replay_ai_log.rs` rewrite.**
+
+- Читает actor_tick events (v27).
+- На каждом не-skip event'е восстанавливает state и сравнивает re-pick decision с logged decision.
+- `--capture-golden` пишет golden in v27 формате.
+- `--compare-golden` сверяет per actor_tick.
+
+**7. Rebuild artifacts.**
+
+После 7.5 merge:
+- Свежий v27 playtest (6 файлов как сейчас).
+- `replay_ai_log --capture-golden` → новый `logs/golden_post_step7.jsonl`.
+- `continuation_relevant_preserved` fixture пересоздаётся из свежего v27 entry.
 
 **Юнит-тесты:**
-- `v26_log_reads_with_default_annotation` — pre-v27 log → annotation = zero.
-- `v27_log_round_trip_preserves_annotation` — write → read → equal.
-- `mine_v26_log_does_not_panic_on_missing_annotation` — backward compat в miner.
+- `actor_tick_event_round_trips` — write → read → equal.
+- `build_actor_tick_event_skip_has_no_pool` — pool=None → plans=[].
+- `build_actor_tick_event_full_has_chosen_annotation` — annotation.chosen exactly one.
+- `mine_classifies_continuation_via_classifier_function` — outcome derive consistent.
+- `replay_v27_round_trip_zero_diff` — capture + compare = 0/N.
 
 **Gate.**
-- `cargo test/clippy/build/ai_scenarios` зелёные.
-- Replay v26 corpus (golden_post_step6.jsonl): roundtrip 0/N (pre-v27 read OK).
-- Schema migration test: v26 entries deserialize без panic.
-- New golden capture на v27 logs.
-- `mine_ai_logs --dir <v27_corpus>` отрабатывает без panic.
+- `cargo test/clippy --all-targets/build/ai_scenarios` зелёные.
+- v27 golden capture на свежем playtest'е → round-trip 0/N.
+- v26 logs дают clean error при попытке load (не panic).
+- Mining v27 corpus отрабатывает, secретs из C6 (post-6.8B baseline) воспроизводятся: preserved ≈55%, voluntary ≈14%, reactive ≈31%.
 
-**Эстимейт:** 1.0 день.
+**Эстимейт:** 2.0 дня (формат с нуля + двух tools rewrite + rebuild golden + fixture).
 
 ---
 
@@ -638,33 +846,63 @@ Pre-condition: corpus с подходящими playtest'ами уже есть 
 | 7.0 | Scaffolding (`PlanStage`, `ScoredPool`, `StageCtx`) | 0.5 | golden 0/N, no behavior | done (`3ed749a`) |
 | 7.1 | Scoring stages (Viability + Sanity) | 1.0 | golden 0/N | done (`2a3dbe0`) |
 | 7.2 | Contract stages (Adaptation + ProtectSelfMask + KillableGate) | 1.0 | golden 0/116 | done (`79e7371`) |
-| 7.3 | RepairAffinity + GoalRepair stages (closes 6.7 carry-over) | 1.0 | divergence-log переехал, формат идентичен | pending |
-| 7.4 | Pipeline assembly (`pick_action` body refactor) | 1.0 | per-entry golden ≤10/N | pending |
-| 7.5 | Annotation serialization + schema v26→v27 + log overhaul | 1.0 | replay roundtrip 0/N, v26 read OK | pending |
-| 7.6 | ai_scenarios state injection (closes 6.9 carry-over) | 1.0 | 4 pending continuation_* fixtures green | pending |
+| 7.3 | RepairAffinityStage + goal_lifecycle module | 0.5 | golden 0/N, lifecycle централизован | pending |
+| 7.4 | Pipeline assembly + architectural converge (drop Pipeline struct, score/raw_factors INTO annotation, PickBestStage, pure pick_action, single orchestrator) | 1.5 | per-entry golden ≤10/N | pending |
+| 7.5 | Schema v27 unified `actor_tick` + clean break (closes 6.7 carry-over fully) | 2.0 | v27 round-trip 0/N, mining baseline воспроизводится | pending |
+| 7.6 | ai_scenarios state injection (closes 6.9 carry-over) | 1.0 | 4 pending continuation_* fixtures green на v27 формате | pending |
 
-**Суммарно ~6.5 дней.**
+**Суммарно ~7 дней** (0.5 + 1.0 + 1.0 + 0.5 + 1.5 + 2.0 + 1.0 = 7.5; 7.0–7.2 done — оставшиеся 4.5 дня).
 
 ## Зафиксированные решения
 
-1. **Все stage-данные в `PlanAnnotation` per-stage section** — `viability`, `sanity`, `adaptation`, `contract`, `pick`. Каждая stage пишет в строго одну.
-2. **Schema v26→v27 атомарно с pipeline в 7.5**, не разносить.
-3. **`RepairAffinityStage` отдельно от `GoalRepairStage`** — разные фазы pipeline (pre-stage vs mid-pipeline).
-4. **`ai_scenarios` state injection в scope step 7 как 7.6** — закрывает 6.9 carry-over в одном PR с pipeline.
-5. **`PlanStage::is_pre_stage()` predicate** — `GoalRepairStage` возвращает true; запускается на early-return path в `enemy_turn.rs` через `pipeline.run_pre_stages_only()`. Закрывает FIXME(step 7).
-6. **`PlanRanking` удаляется в 7.4** — после миграции всех `apply_*` методов в stages. До этого live дублируется (legacy + pool).
-7. **Adaptation перестаёт быть «особенной»** — `IntentReason::Adapted` wrap читает `pool.annotations[best_idx].adaptation` в финализаторе.
+### Architectural foundations (фиксированные в 7.0–7.2)
+
+1. **Все per-plan данные в `PlanAnnotation`** — `score`, `raw_factors`, `viability`, `sanity`, `adaptation`, `contract`, `repair_affinity`, `outcomes`, `terminal`, `chosen`, `pick`. Один source of truth per plan.
+2. **`PlanRanking` удаляется в 7.4** — после миграции всех `apply_*` методов в stages. До 7.4 live дублируется (legacy + pool).
+3. **Adaptation перестаёт быть «особенной»** — `IntentReason::Adapted` wrap читает `pool.annotations[best_idx].adaptation` в финализаторе. Реализовано в 7.2.
+
+### Refined architecture decisions (после critique в 7.3 review)
+
+4. **`Pipeline` struct → free function `run_pool_pipeline`** (в 7.4). Убирает overengineered abstraction; compile-time order, zero indirection.
+5. **`GoalLifecycle` = explicit module, НЕ stage** (в 7.3). `pre_tick` + `post_tick` вызываются orchestrator'ом (`enemy_turn.rs`) напрямую. Никакого `is_pre_stage()` predicate, никакого `Pipeline::run_pre_stages_only()`.
+6. **`PickBestStage` — pick тоже stage** (в 7.4). `chosen: bool` + `pick: Option<PickInfo>` → annotation. Уход от free function.
+7. **`pick_action` — pure function** (в 7.4). Возвращает `PickResult { decision, chosen, pool, debug_snapshot }`. Не принимает `&mut logger`. Side effects (logging, reservations, lifecycle) — в orchestrator.
+8. **`enemy_turn.rs` — единственный orchestrator** (в 7.4). Все side effects (lifecycle, logging, reservations) централизованы.
+
+### Log format decisions (для 7.5)
+
+9. **Single `actor_tick` event** — объединяет старые `actor_turn` + `plan_divergence` + новый skip case. Self-contained per tick (snapshot redundancy ок).
+10. **Schema v27 = clean break** — без v26 backward read. v26 logs дают понятный error при load. Trade-off обсуждён, явно одобрен.
+11. **Raw data only в логах** — `outcome` строки derive'ятся mining tool'ом через `classify_continuation_outcome`. Логи стабильны across classifier evolution.
+12. **`ActorTickInput` helper для composition** — DRY между skip и full path в `enemy_turn.rs`. `build_actor_tick_event` pure → юнит-тестируется отдельно.
+
+### Scope decisions
+
+13. **`ai_scenarios` state injection в scope step 7 как 7.6** — закрывает 6.9 carry-over в одном PR с pipeline. Fixture format расширяется `[ai_memory]` секцией.
+
+### Отвергнутые альтернативы
+
+- **Schema v26 backward read** — отвергнуто (явный clean break per согласию пользователя).
+- **`is_pre_stage()` trait predicate** — overengineering для одного use case; goal_lifecycle module проще.
+- **Pre-classified `outcome` в логах** — отвергнуто (raw vs derived separation, mining derives).
+- **`round_snapshot` separation** — отвергнуто (mid-round state changes ломают round-level snapshot; redundancy ок, gzip жмёт).
+- **EvaluationMode::Continuation как 3-й режим** — отвергнуто ещё в step 6.
+- **Repair bonus calibration через `repair_bonus_scale`** — отвергнуто в step 6.8 (см. step6_plan §6.8 pivot).
 
 ## Критические файлы
 
-- `src/combat/ai/pipeline/mod.rs` — новый модуль (`PlanStage`, `ScoredPool`, `StageCtx`, `Pipeline`).
-- `src/combat/ai/pipeline/stages/` — каталог под stages: `viability.rs`, `sanity.rs`, `adaptation.rs`, `protect_self.rs`, `killable_gate.rs`, `repair_affinity.rs`, `goal_repair.rs`.
-- `src/combat/ai/utility/mod.rs` — `pick_action` body упрощается в 7.4.
-- `src/combat/ai/utility/ranking.rs` — удаляется в 7.4.
-- `src/combat/ai/outcome.rs` — `PlanAnnotation` extension (`viability`, `sanity`, `adaptation`, `contract`, `pick`).
-- `src/combat/ai/enemy_turn.rs` — early-return path упрощается в 7.3 (FIXME(step 7) убран).
-- `src/combat/ai/log.rs` — `LogEntry` annotation refactor в 7.5; SCHEMA_VERSION v26→v27.
-- `src/bin/replay_ai_log.rs` — read v26 + v27 в 7.5.
+- `src/combat/ai/pipeline/mod.rs` — `PlanStage` trait + `ScoredPool` + `StageCtx`. **`Pipeline` struct удаляется в 7.4** — заменяется free function `run_pool_pipeline`.
+- `src/combat/ai/pipeline/stages/` — stages: `viability.rs`, `sanity.rs`, `adaptation.rs`, `protect_self.rs`, `killable_gate.rs`, `repair_affinity.rs` (7.3), `pick_best.rs` (7.4).
+- `src/combat/ai/repair/lifecycle.rs` (новый в 7.3) — `pre_tick` / `post_tick` free functions.
+- `src/combat/ai/utility/mod.rs` — `pick_action` становится pure в 7.4 (returns `PickResult`).
+- `src/combat/ai/utility/ranking.rs` — удаляется в 7.4 (полностью).
+- `src/combat/ai/outcome.rs` — `PlanAnnotation` всё per-plan; в 7.4 принимает `score`/`raw_factors`/`chosen`/`pick`.
+- `src/combat/ai/enemy_turn.rs` — единственный orchestrator после 7.4. Логика lifecycle через `goal_lifecycle::pre_tick`/`post_tick` (7.3); единое logging через `write_actor_tick_log` (7.5).
+- `src/combat/ai/log.rs` — переписывается в 7.5 под `actor_tick` event + `ActorTickInput` helper. SCHEMA_VERSION v26→v27, **clean break (no v26 read)**.
+- `src/bin/replay_ai_log.rs` — rewrite в 7.5 под v27 only.
+- `src/bin/mine_ai_logs.rs` — rewrite в 7.5 под v27 only; outcome derive через `classify_continuation_outcome`.
+- `tests/ai_scenarios.rs` — `[ai_memory]` injection в 7.6.
+- `tests/ai_scenarios/snapshots/continuation_*` — пересборка в v27 формате (1 existing + 4 новых в 7.6).
 - `src/bin/mine_ai_logs.rs` — annotation analysis sections в 7.5.
 - `tests/ai_scenarios.rs` — `[ai_memory]` injection в 7.6.
 - `tests/ai_scenarios/snapshots/continuation_*` — 4 новых fixtures в 7.6.
