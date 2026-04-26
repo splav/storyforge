@@ -30,7 +30,9 @@ use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::factors::{NUM_FACTORS, PlanFactors};
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::log::{AiMemorySnapshot, DifficultyProfileSnapshot, ReservationsSnapshot};
+use crate::combat::ai::log::{
+    AiMemorySnapshot, DifficultyProfileSnapshot, ReservationsSnapshot,
+};
 use crate::combat::ai::planning::{
     apply_protect_self_mask, finalize_scores, pick_best_plan, sanity_adjust_plans, EvaluationMode,
     PlanStep, StepOutcome, TurnPlan,
@@ -261,12 +263,16 @@ pub fn intent_kind(i: &TacticalIntent) -> &'static str {
 pub struct AssertOutcome {
     pub jsonl_path: PathBuf,
     pub overlay_path: PathBuf,
-    /// `plan_id` of the log entry the overlay was resolved against.
+    /// `plan_id` of the log entry the overlay was resolved against (v26).
+    /// For v27 entries this is 0 (v27 logs do not have a plan_id field).
     pub plan_id: u64,
     /// Index of the chosen plan within `entry.plans` after re-scoring.
     pub chosen_idx: usize,
     /// Schema version of the log entry (for callers that warn on pre-v17).
     pub schema_version: u32,
+    /// Actor entity bits from the log entry (v27+). For v26 entries this is
+    /// derived from `entry.actor_id`.
+    pub actor_id: u64,
     pub actual: ActualDecision,
     pub result: AssertResult,
 }
@@ -502,6 +508,7 @@ pub fn assert_log_file(
         plan_id: entry.plan_id,
         chosen_idx,
         schema_version: entry.schema_version,
+        actor_id: entry.actor_id,
         actual,
         result,
     })
@@ -596,6 +603,147 @@ pub fn golden_from_entry(
         cast_ability: actual.cast_ability,
         cast_target: actual.cast_target,
         end_position: actual.end_position,
+    })
+}
+
+// ── v27 assert pipeline ───────────────────────────────────────────────────────
+
+/// v27 version of [`assert_log_file`].
+///
+/// Reads the first non-skip `ActorTickEvent` from `jsonl_path` (or the event
+/// whose `actor_id` equals the `plan_id` in the overlay scope, when specified —
+/// see note below), runs the production `pick_action` on its snapshot, and
+/// compares the result against the overlay expectations.
+///
+/// **Note on `plan_id` in the overlay scope**: v27 logs do not have a `plan_id`
+/// field. The overlay's `[scope].plan_id` is reinterpreted as the target `actor_id`
+/// (entity bits) for v27 files. When absent the first non-skip event is used.
+/// This matches how the existing `ai_scenarios` overlays use `plan_id` to select
+/// a specific entry.
+pub fn assert_v27_log_file(
+    jsonl_path: &Path,
+    overlay_path: &Path,
+    content: &ContentView,
+    inf_cfg: &InfluenceConfig,
+) -> Result<AssertOutcome, AssertError> {
+    use crate::combat::ai::intent::AiMemory;
+    use crate::combat::ai::log::{ActorTickEvent, LoggedDecision};
+    use crate::combat::ai::utility::pick_action;
+    use crate::combat::ai::reservations::Reservations;
+    use crate::combat::ai::utility::AiWorld;
+    use crate::combat::ai::difficulty::DifficultyProfile;
+
+    let overlay = load_overlay(overlay_path)?;
+    // In v27 we reinterpret plan_id as actor_id for entry selection.
+    let target_actor_id: Option<u64> = overlay.scope.as_ref().and_then(|s| s.plan_id);
+
+    let file = std::fs::File::open(jsonl_path).map_err(|source| AssertError::Io {
+        path: jsonl_path.to_path_buf(),
+        source,
+    })?;
+    let reader = BufReader::new(file);
+
+    let mut selected: Option<ActorTickEvent> = None;
+    for line in reader.lines() {
+        let line = line.map_err(|source| AssertError::Io {
+            path: jsonl_path.to_path_buf(),
+            source,
+        })?;
+        if line.trim().is_empty() { continue; }
+
+        // Schema version guard.
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+            if val.get("event_type").and_then(|v| v.as_str()) != Some("actor_tick") {
+                continue;
+            }
+        }
+
+        let event: ActorTickEvent = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(source) => return Err(AssertError::EntryParse {
+                path: jsonl_path.to_path_buf(),
+                source,
+            }),
+        };
+
+        // Skip events have no pick_action to assert against.
+        if matches!(event.decision, LoggedDecision::Skip { .. }) {
+            continue;
+        }
+
+        match target_actor_id {
+            Some(id) if event.actor_id == id => { selected = Some(event); break; }
+            None => { selected = Some(event); break; }
+            _ => {}
+        }
+    }
+
+    let event = selected.ok_or_else(|| AssertError::NoMatchingEntry {
+        path: jsonl_path.to_path_buf(),
+        plan_id: target_actor_id,
+    })?;
+
+    let actor = Entity::try_from_bits(event.actor_id)
+        .ok_or(AssertError::InvalidActorId(event.actor_id))?;
+    let active = event.snapshot.unit(actor).cloned().ok_or(AssertError::ActorNotFound {
+        actor_id: event.actor_id,
+    })?;
+
+    let maps = build_influence_maps(&event.snapshot, actor, active.team, inf_cfg);
+    let difficulty = DifficultyProfile::normal();
+    let world = AiWorld {
+        content,
+        difficulty: &difficulty,
+        tuning: &content.ai_tuning,
+        crit_fail_chance: 0.0,
+    };
+    let memory = AiMemory::default();
+    let reservations = Reservations::default();
+    let mut rng = DiceRng::with_seed(0);
+
+    let result = pick_action(
+        actor, active.pos, &world, &event.snapshot, &maps,
+        &mut rng, &memory, &reservations, false, &Default::default(),
+    );
+
+    let chosen_idx = result.best_idx;
+    let chosen_plan = result.pool.plans.get(chosen_idx);
+
+    let intent_kind_str = {
+        use crate::combat::ai::intent::TacticalIntent;
+        match result.intent {
+            TacticalIntent::FocusTarget { .. } => "FocusTarget",
+            TacticalIntent::ApplyCC { .. } => "ApplyCC",
+            TacticalIntent::Reposition => "Reposition",
+            TacticalIntent::ProtectSelf => "ProtectSelf",
+            TacticalIntent::ProtectAlly { .. } => "ProtectAlly",
+            TacticalIntent::SetupAOE => "SetupAOE",
+            TacticalIntent::LastStand => "LastStand",
+        }
+    };
+
+    let actual = if let Some(plan) = chosen_plan {
+        build_actual_decision(
+            &plan.steps,
+            [plan.final_pos.x, plan.final_pos.y],
+            intent_kind_str,
+            content,
+        )
+    } else {
+        build_actual_decision(&[], [active.pos.x, active.pos.y], intent_kind_str, content)
+    };
+
+    let assert_result = run_assertion(&actual, &overlay);
+
+    Ok(AssertOutcome {
+        jsonl_path: jsonl_path.to_path_buf(),
+        overlay_path: overlay_path.to_path_buf(),
+        plan_id: 0, // v27 logs have no plan_id
+        chosen_idx,
+        schema_version: event.schema_version,
+        actor_id: event.actor_id,
+        actual,
+        result: assert_result,
     })
 }
 

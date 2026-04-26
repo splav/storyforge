@@ -744,6 +744,65 @@ impl From<&StoredGoalContext> for StoredGoalContextSnapshot {
     }
 }
 
+impl From<&StoredGoalContextSnapshot> for StoredGoalContext {
+    /// Reconstruct a `StoredGoalContext` from a log snapshot.
+    ///
+    /// Used by offline tools (miner, replay) to call `classify_continuation_outcome`
+    /// on logged data. The `GoalKind` is reconstructed from the `kind` string and
+    /// `target_id`; for kinds requiring an entity (`finish`, `pressure`, `disable_enemy`,
+    /// `heal_ally`) a missing or invalid `target_id` falls back to `GoalKind::Reposition`.
+    fn from(s: &StoredGoalContextSnapshot) -> Self {
+        let anchor = Hex::new(s.region_anchor[0], s.region_anchor[1]);
+        let target_entity = s.target_id.and_then(Entity::try_from_bits);
+
+        let kind = match s.kind.as_str() {
+            "finish" => target_entity
+                .map(|t| GoalKind::Finish { target: t })
+                .unwrap_or(GoalKind::Reposition { region_center: anchor }),
+            "pressure" => target_entity
+                .map(|t| GoalKind::Pressure { target: t })
+                .unwrap_or(GoalKind::Reposition { region_center: anchor }),
+            "disable_enemy" => target_entity
+                .map(|t| GoalKind::DisableEnemy { target: t })
+                .unwrap_or(GoalKind::Reposition { region_center: anchor }),
+            "heal_ally" => target_entity
+                .map(|t| GoalKind::HealAlly { ally: t })
+                .unwrap_or(GoalKind::Reposition { region_center: anchor }),
+            "retreat" => GoalKind::Retreat { region_anchor: anchor },
+            "setup_aoe" => {
+                if let Some(ability_str) = &s.planned_ability {
+                    GoalKind::SetupAOE {
+                        region_center: anchor,
+                        planned_ability: AbilityId(ability_str.clone()),
+                    }
+                } else {
+                    GoalKind::Reposition { region_center: anchor }
+                }
+            }
+            _ => GoalKind::Reposition { region_center: anchor },
+        };
+
+        StoredGoalContext {
+            kind,
+            region_anchor: anchor,
+            region_radius: s.region_radius,
+            planned_ability: s
+                .planned_ability
+                .as_ref()
+                .map(|a| AbilityId(a.clone())),
+            ttl: s.ttl,
+            confidence: s.confidence,
+            created_round: s.created_round,
+            expected_actor_pos: Hex::new(s.expected_actor_pos[0], s.expected_actor_pos[1]),
+            actor_hp_at_store: s.actor_hp_at_store,
+            actor_rage_at_store: s.actor_rage_at_store,
+            actor_status_hash: s.actor_status_hash,
+            target_hp_at_store: s.target_hp_at_store,
+            target_pos_at_store: Hex::new(s.target_pos_at_store[0], s.target_pos_at_store[1]),
+        }
+    }
+}
+
 /// Persistent actor memory captured immediately before pick_action.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AiMemorySnapshot {

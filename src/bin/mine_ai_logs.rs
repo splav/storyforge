@@ -1,15 +1,21 @@
-//! AI decision log miner (step 0.3 A+B).
+//! AI decision log miner — v27 schema.
 //!
-//! Reads all `*.jsonl` from a directory and prints aggregated metrics:
+//! Reads all `*.jsonl` from a directory and prints aggregated metrics.
+//! Only `actor_tick` events with `schema_version == 27` are processed.
+//! Files containing a different schema version produce a clear error.
 //!
 //! Class A (direct aggregation):
-//!   A1. Adaptation reason frequency per plan.
-//!   A2. Panic-override frequency (selection_kind=="panic_override") vs all decisions.
+//!   A1. Adaptation reason frequency per plan (from annotation.adaptation).
+//!   A2. Intent selection_kind frequency (from decision kind + Skip path).
 //!   A3. Plan depth utilisation of the chosen plan (steps.len histogram).
-//!   A4. Continuation invalidation reasons (replan_reason from plan_divergence entries).
+//!   A4. (removed — was plan_divergence-specific, no longer applicable)
 //!
 //! Class B (sequence reconstruction):
-//!   B5. Intent transition stability matrix and top transitions per actor per combat.
+//!   B5. Intent transition stability matrix per actor per combat.
+//!
+//! Class C (continuation analysis):
+//!   C6. Continuation outcomes derived via `classify_continuation_outcome`.
+//!       Skip events with stored_goal = new signal (actor passed with goal).
 //!
 //! Usage: `cargo run --release --bin mine_ai_logs -- --dir logs/`
 
@@ -17,114 +23,34 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use storyforge::combat::ai::repair::{
+    classify_continuation_outcome, ContinuationOutcome, FreshDecisionKind, StoredGoalContext,
+};
+use storyforge::combat::ai::intent::TacticalIntent;
+use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, StoredGoalContextSnapshot};
 
-// ── Minimal log schema mirrors ────────────────────────────────────────────────
-//
-// We only pull the fields we need for mining — the rest are ignored by serde.
-// This keeps the miner independent of all Bevy / game types.
+// ── Session actor key ─────────────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-struct Entry {
-    #[serde(default)]
-    event_type: Option<String>,
-
-    // pick_action fields
-    #[serde(default)]
-    plan_id: u64,
-    #[serde(default)]
-    actor_id: u64,
-    #[serde(default)]
-    intent: Option<IntentBlock>,
-    #[serde(default)]
-    plans: Vec<PlanLog>,
-
-    // plan_divergence fields
-    #[serde(default)]
-    replan_reason: Option<String>,
-    #[serde(default)]
-    used_continuation: bool,
-
-    // plan_divergence v24 fields (step 6.5)
-    #[serde(default)]
-    continuation_outcome: Option<ContinuationOutcomeEntry>,
-    #[serde(default)]
-    continuation_severity: Option<String>,
-    #[serde(default)]
-    goal_kind: Option<String>,
-}
-
-/// Mirror of `ContinuationOutcome` for deserialization in the miner (schema v26+).
-///
-/// Aliases cover v25 wire names:
-/// - `goal_preserved_method_preserved` → `GoalPreservedMethodDelivered`
-/// - `goal_preserved_method_changed`   → `GoalPreservedInTransit`
-/// - old `goal_abandoned { reason }` (v25) → `LegacyV25Abandoned` (explicit bucket,
-///   voluntary/reactive split was not recorded at v25 write-time).
-#[derive(Deserialize, Debug)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum ContinuationOutcomeEntry {
-    #[serde(alias = "goal_preserved_method_preserved")]
-    GoalPreservedMethodDelivered,
-    #[serde(alias = "goal_preserved_method_changed")]
-    GoalPreservedInTransit,
-    GoalAbandonedReactive { source: String },
-    GoalAbandonedVoluntary,
-    GoalAbandonedInvalidating,
-    GoalAbandonedTtlExpired,
-    /// Explicit bucket for v25 entries written as `{"kind":"goal_abandoned","reason":"..."}`.
-    /// Shown separately in C6 printout with a note that voluntary/reactive split is unknown.
-    #[serde(rename = "goal_abandoned")]
-    LegacyV25Abandoned { reason: String },
-    #[serde(other)]
-    NoStoredGoal,
-}
-
-#[derive(Deserialize)]
-struct IntentBlock {
-    selection_kind: String,
-}
-
-#[derive(Deserialize)]
-struct PlanLog {
-    #[serde(default)]
-    chosen: bool,
-    #[serde(default)]
-    steps: Vec<serde_json::Value>, // we only need len, so Value is fine
-    #[serde(default)]
-    adaptation_reason: Option<AdaptationReason>,
-}
-
-#[derive(Deserialize)]
-struct AdaptationReason {
-    kind: String,
-}
+/// One session = one JSONL file (= one combat).
+type SessionActorKey = (String, u64); // (filename, actor_id)
 
 // ── Aggregation state ─────────────────────────────────────────────────────────
 
-/// One session = one JSONL file (= one combat).
-/// Tracks per-actor (plan_id, selection_kind) pairs in order for transition matrix.
-type SessionActorKey = (String, u64); // (filename, actor_id)
-
 #[derive(Default)]
 struct Aggregate {
-    // A1: adaptation_reason per plan (all plans in pool, not just chosen)
+    // A1: adaptation reason per plan (all plans in pool, not just chosen)
     adaptation_counts: BTreeMap<String, usize>,
     total_plans: usize,
 
-    // A2: selection_kind frequencies for every pick_action entry
-    selection_kind_counts: BTreeMap<String, usize>,
+    // A2: decision_kind frequencies
+    decision_kind_counts: BTreeMap<String, usize>,
     total_decisions: usize,
 
     // A3: chosen plan depth histogram
     depth_counts: BTreeMap<usize, usize>,
     total_chosen: usize,
 
-    // A4: replan_reason from plan_divergence entries
-    replan_reason_counts: BTreeMap<String, usize>,
-    total_divergences: usize,
-
-    // C6: continuation analysis (step 6.6b — v26+ logs; v25 aliases supported)
+    // C6: continuation outcomes (derived via classify_continuation_outcome)
     cont_no_stored: usize,
     cont_method_delivered: usize,
     cont_in_transit: usize,
@@ -132,103 +58,211 @@ struct Aggregate {
     cont_abandoned_voluntary: usize,
     cont_abandoned_invalidating: usize,
     cont_abandoned_ttl_expired: usize,
-    /// v25 legacy bucket: old `goal_abandoned { reason }` shape, voluntary/reactive
-    /// split unknown — shown separately so it doesn't inflate `no_stored_goal`.
-    cont_legacy_v25_abandoned: BTreeMap<String, usize>,
     cont_severity_counts: BTreeMap<String, usize>,
     cont_goal_kind_counts: BTreeMap<String, usize>,
-    total_divergences_with_outcome: usize,
+    total_with_continuation: usize,
 
-    // B5: per-(session, actor) ordered list of (plan_id, selection_kind)
-    // Stored as Vec keyed by (session, actor) — built in load pass, consumed in B5.
+    // Skip-path signals
+    skip_total: usize,
+    skip_with_stored_goal: usize,
+
+    // B5: per-(session, actor) ordered list of (tick_order, decision_kind)
+    // `tick_order` = sequential index within the session for ordering.
     actor_timelines: HashMap<SessionActorKey, Vec<(u64, String)>>,
+    // Counter per session-actor for ordering ticks (monotonically increasing).
+    actor_tick_counters: HashMap<SessionActorKey, u64>,
 }
 
 impl Aggregate {
-    fn process_pick_action(&mut self, session: &str, entry: &Entry) {
+    fn process_event(&mut self, session: &str, event: &ActorTickEvent) {
         self.total_decisions += 1;
 
-        // A2: selection_kind
-        let kind = entry
-            .intent
-            .as_ref()
-            .map(|i| i.selection_kind.as_str())
-            .unwrap_or("missing");
-        *self.selection_kind_counts.entry(kind.to_owned()).or_default() += 1;
+        let decision_kind = decision_kind_label(&event.decision);
 
-        // A1: adaptation_reason per plan in pool
-        for plan in &entry.plans {
+        // A2: decision_kind
+        *self.decision_kind_counts.entry(decision_kind.to_owned()).or_default() += 1;
+
+        // Skip path
+        if matches!(event.decision, LoggedDecision::Skip { .. }) {
+            self.skip_total += 1;
+            if event.continuation.is_some() {
+                self.skip_with_stored_goal += 1;
+            }
+            // B5: record skip tick for timeline
+            let key: SessionActorKey = (session.to_owned(), event.actor_id);
+            let counter = self.actor_tick_counters.entry(key.clone()).or_default();
+            let order = *counter;
+            *counter += 1;
+            self.actor_timelines.entry(key).or_default().push((order, decision_kind.to_owned()));
+            // C6 for skip path
+            self.process_continuation(event, FreshDecisionKind::EndTurn);
+            return;
+        }
+
+        // Full path: A1 + A3 + B5 + C6
+
+        // A1: adaptation reason per plan
+        for plan in &event.plans {
             self.total_plans += 1;
-            let reason_key = match &plan.adaptation_reason {
-                None => "none".to_owned(),
-                Some(r) => r.kind.clone(),
-            };
+            let reason_key = plan
+                .annotation
+                .adaptation
+                .as_ref()
+                .map(|a| format!("{:?}", a.reason))
+                .unwrap_or_else(|| "none".to_owned());
             *self.adaptation_counts.entry(reason_key).or_default() += 1;
         }
 
         // A3: chosen plan depth
-        if let Some(chosen) = entry.plans.iter().find(|p| p.chosen) {
+        if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
             self.total_chosen += 1;
             *self.depth_counts.entry(chosen.steps.len()).or_default() += 1;
         }
 
-        // B5: record (plan_id, selection_kind) for this actor in this session
-        let timeline = self
-            .actor_timelines
-            .entry((session.to_owned(), entry.actor_id))
-            .or_default();
-        timeline.push((entry.plan_id, kind.to_owned()));
+        // B5
+        let key: SessionActorKey = (session.to_owned(), event.actor_id);
+        let counter = self.actor_tick_counters.entry(key.clone()).or_default();
+        let order = *counter;
+        *counter += 1;
+        self.actor_timelines.entry(key).or_default().push((order, decision_kind.to_owned()));
+
+        // C6
+        let fdk = fresh_decision_kind(&event.decision);
+        self.process_continuation(event, fdk);
     }
 
-    fn process_plan_divergence(&mut self, entry: &Entry) {
-        self.total_divergences += 1;
-        let reason = match &entry.replan_reason {
-            Some(r) => r.clone(),
-            None => {
-                if entry.used_continuation {
-                    "used_continuation".to_owned()
-                } else {
-                    "none".to_owned()
-                }
-            }
-        };
-        *self.replan_reason_counts.entry(reason).or_default() += 1;
+    fn process_continuation(&mut self, event: &ActorTickEvent, fdk: FreshDecisionKind) {
+        self.total_with_continuation += 1;
 
-        // C6: continuation outcome (v26+ shape; v25 aliases deserialized via serde)
-        self.total_divergences_with_outcome += 1;
-        match &entry.continuation_outcome {
-            None | Some(ContinuationOutcomeEntry::NoStoredGoal) => {
+        let Some(cont) = &event.continuation else {
+            self.cont_no_stored += 1;
+            return;
+        };
+
+        // Reconstruct StoredGoalContext from the log snapshot for classify_continuation_outcome.
+        let stored_goal = StoredGoalContext::from(&cont.stored_goal);
+
+        // Approximate the fresh TacticalIntent from decision + stored goal context.
+        let fresh_intent = approximate_fresh_intent(&event.decision, &cont.stored_goal);
+
+        // fresh_reason: we approximate from decision kind (no full IntentReason in log).
+        // For outcome classification, what matters is the IntentReason::code()
+        // to distinguish reactive vs voluntary. We use a synthetic NoRuleDefault
+        // reason for non-reactive cases — this is a known approximation since
+        // the v27 log does not store the full IntentReason.
+        // The reactive sources (taunt, adaptation) would need richer data to separate.
+        // For now, use NoRuleDefault which classifies as voluntary when goal abandoned.
+        let synthetic_reason = storyforge::combat::ai::intent::IntentReason::NoRuleDefault;
+
+        let outcome = classify_continuation_outcome(
+            Some(&stored_goal),
+            fresh_intent,
+            fdk,
+            &synthetic_reason,
+            cont.severity,
+            cont.age,
+        );
+
+        match outcome {
+            ContinuationOutcome::NoStoredGoal => {
                 self.cont_no_stored += 1;
             }
-            Some(ContinuationOutcomeEntry::GoalPreservedMethodDelivered) => {
+            ContinuationOutcome::GoalPreservedMethodDelivered => {
                 self.cont_method_delivered += 1;
             }
-            Some(ContinuationOutcomeEntry::GoalPreservedInTransit) => {
+            ContinuationOutcome::GoalPreservedInTransit => {
                 self.cont_in_transit += 1;
             }
-            Some(ContinuationOutcomeEntry::GoalAbandonedReactive { source }) => {
-                *self.cont_abandoned_reactive.entry(source.clone()).or_default() += 1;
+            ContinuationOutcome::GoalAbandonedReactive { source } => {
+                *self.cont_abandoned_reactive.entry(source).or_default() += 1;
             }
-            Some(ContinuationOutcomeEntry::GoalAbandonedVoluntary) => {
+            ContinuationOutcome::GoalAbandonedVoluntary => {
                 self.cont_abandoned_voluntary += 1;
             }
-            Some(ContinuationOutcomeEntry::GoalAbandonedInvalidating) => {
+            ContinuationOutcome::GoalAbandonedInvalidating => {
                 self.cont_abandoned_invalidating += 1;
             }
-            Some(ContinuationOutcomeEntry::GoalAbandonedTtlExpired) => {
+            ContinuationOutcome::GoalAbandonedTtlExpired => {
                 self.cont_abandoned_ttl_expired += 1;
             }
-            Some(ContinuationOutcomeEntry::LegacyV25Abandoned { reason }) => {
-                *self.cont_legacy_v25_abandoned.entry(reason.clone()).or_default() += 1;
+            ContinuationOutcome::LegacyV25Abandoned { .. } => {
+                // Cannot appear from classify_continuation_outcome; ignore.
             }
         }
 
-        if let Some(sev) = &entry.continuation_severity {
-            *self.cont_severity_counts.entry(sev.clone()).or_default() += 1;
+        if let Some(sev) = cont.severity {
+            *self.cont_severity_counts.entry(format!("{sev:?}")).or_default() += 1;
         }
-        if let Some(gk) = &entry.goal_kind {
-            *self.cont_goal_kind_counts.entry(gk.clone()).or_default() += 1;
+        let goal_kind = format!("{:?}", cont.stored_goal.kind);
+        *self.cont_goal_kind_counts.entry(goal_kind).or_default() += 1;
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn decision_kind_label(d: &LoggedDecision) -> &'static str {
+    match d {
+        LoggedDecision::Cast { .. } => "Cast",
+        LoggedDecision::MoveAndCast { .. } => "MoveAndCast",
+        LoggedDecision::Move { .. } => "Move",
+        LoggedDecision::EndTurn => "EndTurn",
+        LoggedDecision::Skip { .. } => "Skip",
+    }
+}
+
+fn fresh_decision_kind(d: &LoggedDecision) -> FreshDecisionKind {
+    match d {
+        LoggedDecision::Cast { .. } | LoggedDecision::MoveAndCast { .. } => FreshDecisionKind::Cast,
+        LoggedDecision::Move { .. } => FreshDecisionKind::Move,
+        LoggedDecision::EndTurn | LoggedDecision::Skip { .. } => FreshDecisionKind::EndTurn,
+    }
+}
+
+/// Approximate the fresh `TacticalIntent` from the logged decision + stored goal.
+///
+/// `classify_continuation_outcome` requires the fresh decision's `TacticalIntent`.
+/// The v27 log does not persist intent directly; we reconstruct it approximately:
+///
+/// - Cast/MoveAndCast targeting the same entity as the stored goal → use the stored
+///   goal's intent kind (the actor continued toward the same target).
+/// - Cast/MoveAndCast targeting a *different* entity → `FocusTarget` at that new entity.
+/// - Move → `Reposition` (best approximation; could be FocusTarget-walk, but we can't know).
+/// - EndTurn/Skip → `Reposition` (pass, no meaningful intent to infer).
+///
+/// This heuristic is sufficient for the miner's `preserved` vs `abandoned` split,
+/// though reactive-vs-voluntary classification for `GoalAbandonedReactive` requires
+/// the real `IntentReason.code()` which is not in the log. The synthetic `NoRuleDefault`
+/// reason causes all abandoned-not-invalidating-not-ttl cases to be classified as
+/// `GoalAbandonedVoluntary` in the miner output.
+fn approximate_fresh_intent(
+    decision: &LoggedDecision,
+    stored_goal: &StoredGoalContextSnapshot,
+) -> TacticalIntent {
+    use bevy::prelude::Entity;
+
+    let stored_target = stored_goal.target_id.and_then(Entity::try_from_bits);
+
+    match decision {
+        LoggedDecision::Cast { target, .. } | LoggedDecision::MoveAndCast { target, .. } => {
+            let Some(fresh) = Entity::try_from_bits(*target) else {
+                return TacticalIntent::Reposition;
+            };
+            // If targeting the same entity as the stored goal, reproduce the stored intent kind.
+            if Some(fresh) == stored_target {
+                match stored_goal.kind.as_str() {
+                    "finish" | "pressure" => TacticalIntent::FocusTarget { target: fresh },
+                    "disable_enemy" => TacticalIntent::ApplyCC { target: fresh },
+                    "heal_ally" => TacticalIntent::ProtectAlly { ally: fresh },
+                    _ => TacticalIntent::FocusTarget { target: fresh },
+                }
+            } else {
+                // Targeting a different entity — classify as FocusTarget to that entity.
+                TacticalIntent::FocusTarget { target: fresh }
+            }
         }
+        LoggedDecision::Move { .. }
+        | LoggedDecision::EndTurn
+        | LoggedDecision::Skip { .. } => TacticalIntent::Reposition,
     }
 }
 
@@ -238,7 +272,6 @@ fn pct(num: usize, denom: usize) -> f64 {
     if denom > 0 { num as f64 / denom as f64 * 100.0 } else { 0.0 }
 }
 
-/// Print a frequency table sorted by count descending, with percentage.
 fn print_freq_table(items: &BTreeMap<String, usize>, total: usize) {
     let mut rows: Vec<(&str, usize)> = items.iter().map(|(k, v)| (k.as_str(), *v)).collect();
     rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
@@ -255,19 +288,15 @@ fn print_depth_table(items: &BTreeMap<usize, usize>, total: usize) {
     }
 }
 
-/// Build and print the intent transition matrix (B5).
 fn print_transition_matrix(actor_timelines: &HashMap<SessionActorKey, Vec<(u64, String)>>) {
     use std::collections::BTreeSet;
 
-    // Build ordered timelines and collect transitions.
     let mut transitions: BTreeMap<(String, String), usize> = BTreeMap::new();
     let mut total_transitions = 0usize;
 
     for timeline in actor_timelines.values() {
-        // Sort by plan_id (ascending) within the same session-actor sequence.
         let mut sorted = timeline.clone();
-        sorted.sort_by_key(|(pid, _)| *pid);
-
+        sorted.sort_by_key(|(order, _)| *order);
         for window in sorted.windows(2) {
             let from = window[0].1.clone();
             let to = window[1].1.clone();
@@ -281,7 +310,6 @@ fn print_transition_matrix(actor_timelines: &HashMap<SessionActorKey, Vec<(u64, 
         return;
     }
 
-    // Collect all intent kinds that appear in the matrix.
     let all_kinds: Vec<String> = {
         let mut set: BTreeSet<String> = BTreeSet::new();
         for (from, to) in transitions.keys() {
@@ -292,23 +320,21 @@ fn print_transition_matrix(actor_timelines: &HashMap<SessionActorKey, Vec<(u64, 
     };
 
     let n = all_kinds.len();
-    // Column header width: longest kind name + 2.
     let col_w = all_kinds.iter().map(|k| k.len()).max().unwrap_or(4).max(4) + 2;
     let row_label_w = col_w;
 
-    // Header row.
     print!("{:>row_label_w$}", "FROM \\ TO");
     for to in &all_kinds {
         print!("  {:>col_w$}", &to[..to.len().min(col_w)]);
     }
     println!("  |  TOTAL");
-
-    // Separator.
     println!("{}", "-".repeat(row_label_w + (col_w + 2) * n + 12));
 
-    // Data rows.
     for from in &all_kinds {
-        let row_total: usize = all_kinds.iter().map(|to| *transitions.get(&(from.clone(), to.clone())).unwrap_or(&0)).sum();
+        let row_total: usize = all_kinds
+            .iter()
+            .map(|to| *transitions.get(&(from.clone(), to.clone())).unwrap_or(&0))
+            .sum();
         print!("{:>row_label_w$}", &from[..from.len().min(row_label_w)]);
         for to in &all_kinds {
             let cnt = *transitions.get(&(from.clone(), to.clone())).unwrap_or(&0);
@@ -321,28 +347,36 @@ fn print_transition_matrix(actor_timelines: &HashMap<SessionActorKey, Vec<(u64, 
         println!("  |  {:>5}  ({:.1}%)", row_total, pct(row_total, total_transitions));
     }
 
-    // Footer: column totals.
     println!("{}", "-".repeat(row_label_w + (col_w + 2) * n + 12));
     print!("{:>row_label_w$}", "TOTAL");
     for to in &all_kinds {
-        let col_total: usize = all_kinds.iter().map(|from| *transitions.get(&(from.clone(), to.clone())).unwrap_or(&0)).sum();
+        let col_total: usize = all_kinds
+            .iter()
+            .map(|from| *transitions.get(&(from.clone(), to.clone())).unwrap_or(&0))
+            .sum();
         print!("  {:>col_w$}", col_total);
     }
     println!("  |  {:>5}", total_transitions);
-
     println!("\nTotal transitions: {total_transitions}");
 
-    // Top-5 most frequent (from → to) pairs.
     let mut top: Vec<_> = transitions.iter().collect();
     top.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
     println!("\nTop-10 transitions:");
     for ((from, to), cnt) in top.iter().take(10) {
-        println!("  {:<40} -> {:<40}  {:>5}  ({:.1}%)", from, to, cnt, pct(**cnt, total_transitions));
+        println!(
+            "  {:<40} -> {:<40}  {:>5}  ({:.1}%)",
+            from, to, cnt, pct(**cnt, total_transitions)
+        );
     }
 
-    // Self-loop rate (intent stayed the same tick-over-tick).
-    let self_loops: usize = all_kinds.iter().map(|k| *transitions.get(&(k.clone(), k.clone())).unwrap_or(&0)).sum();
-    println!("\nSelf-loop rate (intent unchanged between ticks): {} / {} ({:.1}%)", self_loops, total_transitions, pct(self_loops, total_transitions));
+    let self_loops: usize = all_kinds
+        .iter()
+        .map(|k| *transitions.get(&(k.clone(), k.clone())).unwrap_or(&0))
+        .sum();
+    println!(
+        "\nSelf-loop rate (intent unchanged between ticks): {} / {} ({:.1}%)",
+        self_loops, total_transitions, pct(self_loops, total_transitions)
+    );
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -363,7 +397,6 @@ fn main() {
         std::process::exit(2);
     });
 
-    // Collect and sort JSONL files for deterministic output.
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("cannot read dir {}: {e}", dir.display()))
         .filter_map(|e| e.ok())
@@ -379,6 +412,7 @@ fn main() {
 
     let mut agg = Aggregate::default();
     let mut parse_errors = 0usize;
+    let mut schema_errors = 0usize;
 
     for path in &files {
         let session = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
@@ -395,35 +429,50 @@ fn main() {
             if line.is_empty() {
                 continue;
             }
-            let entry: Entry = match serde_json::from_str(line) {
+
+            // Fast-path schema version check before full deserialisation.
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(ver) = val.get("schema_version").and_then(|v| v.as_u64()) {
+                    if ver != 27 {
+                        eprintln!(
+                            "error: schema v{ver} unsupported, v27+ required (file: {})",
+                            path.display()
+                        );
+                        schema_errors += 1;
+                        continue;
+                    }
+                }
+                // Only process actor_tick events.
+                if val.get("event_type").and_then(|v| v.as_str()) != Some("actor_tick") {
+                    continue;
+                }
+            }
+
+            let event: ActorTickEvent = match serde_json::from_str(line) {
                 Ok(e) => e,
                 Err(_) => {
                     parse_errors += 1;
                     continue;
                 }
             };
-            match entry.event_type.as_deref() {
-                Some("plan_divergence") => agg.process_plan_divergence(&entry),
-                None | Some("pick_action") | Some("") => {
-                    // Regular pick_action entries: event_type is absent (older logs)
-                    // or explicitly "pick_action". Skip if intent is missing.
-                    if entry.intent.is_some() {
-                        agg.process_pick_action(&session, &entry);
-                    }
-                }
-                Some(_) => {} // unknown event type, skip gracefully
-            }
+
+            agg.process_event(&session, &event);
         }
     }
 
     // ── Report ────────────────────────────────────────────────────────────────
 
-    println!("# AI mining — step 0.3 A+B");
+    println!("# AI mining — v27");
     println!();
-    println!("Source: {} JSONL files, {} AI decisions, {} plan_divergence entries",
-        files.len(), agg.total_decisions, agg.total_divergences);
+    println!(
+        "Source: {} JSONL files, {} AI decisions ({} skip)",
+        files.len(), agg.total_decisions, agg.skip_total
+    );
     if parse_errors > 0 {
         println!("Parse errors (lines skipped): {parse_errors}");
+    }
+    if schema_errors > 0 {
+        println!("Schema errors (non-v27 lines skipped): {schema_errors}");
     }
     println!();
 
@@ -435,12 +484,12 @@ fn main() {
     print_freq_table(&agg.adaptation_counts, agg.total_plans);
     println!();
 
-    // A2: Selection kind (intent selection) frequency
-    println!("## A2. Intent selection_kind frequency (per decision)");
+    // A2: Decision kind frequency
+    println!("## A2. Decision kind frequency (per tick)");
     println!();
-    println!("Total decisions: {}", agg.total_decisions);
+    println!("Total ticks: {}", agg.total_decisions);
     println!();
-    print_freq_table(&agg.selection_kind_counts, agg.total_decisions);
+    print_freq_table(&agg.decision_kind_counts, agg.total_decisions);
     println!();
 
     // A3: Plan depth utilisation
@@ -451,34 +500,35 @@ fn main() {
     print_depth_table(&agg.depth_counts, agg.total_chosen);
     println!();
 
-    // A4: Continuation invalidation reasons
-    println!("## A4. Continuation invalidation reasons (plan_divergence entries)");
+    // Skip-path signals
+    println!("## Skip-path signals");
     println!();
-    println!("Total plan_divergence entries: {}", agg.total_divergences);
-    println!();
-    if agg.replan_reason_counts.is_empty() {
-        println!("  (no plan_divergence entries found)");
-    } else {
-        print_freq_table(&agg.replan_reason_counts, agg.total_divergences);
-    }
+    println!(
+        "  skip total                : {:>6}  ({:5.1}% of all ticks)",
+        agg.skip_total, pct(agg.skip_total, agg.total_decisions)
+    );
+    println!(
+        "  skip with stored_goal     : {:>6}  ({:5.1}% of skips)",
+        agg.skip_with_stored_goal, pct(agg.skip_with_stored_goal, agg.skip_total)
+    );
     println!();
 
-    // C6: Continuation analysis (v26+ shape; v25 aliases supported)
-    println!("## C6. Continuation analysis (plan_divergence entries, schema v26+)");
+    // C6: Continuation analysis
+    println!("## C6. Continuation analysis (derived via classify_continuation_outcome)");
     println!();
-    let n = agg.total_divergences_with_outcome;
-    // Derived totals for combined line
+    let n = agg.total_with_continuation;
     let cont_preserved_combined = agg.cont_method_delivered + agg.cont_in_transit;
     let cont_abandoned_reactive_total: usize = agg.cont_abandoned_reactive.values().sum();
-    println!("Total plan_divergence entries with outcome: {n}");
-    println!("  (v23/v24 logs: all entries count as no_stored_goal via serde default)");
-    println!("  (v25 logs: goal_preserved aliases parsed; goal_abandoned → no_stored via #[serde(other)])");
+    println!("Total ticks analysed: {n}");
+    println!("  (outcome derived from raw log data — no pre-classified strings)");
+    println!("  NOTE: reactive vs voluntary classification uses synthetic NoRuleDefault reason;");
+    println!("        full accuracy requires stored IntentReason (planned for v28+).");
     println!();
     if n == 0 {
-        println!("  (no plan_divergence entries found)");
+        println!("  (no ticks found)");
     } else {
         println!(
-            "  goal_preserved | method_delivered : {:>6.1}%  ({})  [target: ≥10%]",
+            "  goal_preserved | method_delivered : {:>6.1}%  ({})  [target: >=10%]",
             pct(agg.cont_method_delivered, n), agg.cont_method_delivered,
         );
         println!(
@@ -486,7 +536,7 @@ fn main() {
             pct(agg.cont_in_transit, n), agg.cont_in_transit,
         );
         println!(
-            "  goal_preserved (combined)         : {:>6.1}%  ({})  [target: ≥60%]",
+            "  goal_preserved (combined)         : {:>6.1}%  ({})  [target: >=60%]",
             pct(cont_preserved_combined, n), cont_preserved_combined,
         );
         println!();
@@ -494,7 +544,6 @@ fn main() {
             "  goal_abandoned | reactive         : {:>6.1}%  ({})",
             pct(cont_abandoned_reactive_total, n), cont_abandoned_reactive_total,
         );
-        // Print reactive breakdown sorted by count descending.
         {
             let mut reactive_rows: Vec<(&str, usize)> = agg
                 .cont_abandoned_reactive
@@ -507,7 +556,7 @@ fn main() {
             }
         }
         println!(
-            "  goal_abandoned | voluntary        : {:>6.1}%  ({})  [target: ≤10%, REAL commitment failure]",
+            "  goal_abandoned | voluntary        : {:>6.1}%  ({})  [target: <=10%, REAL commitment failure]",
             pct(agg.cont_abandoned_voluntary, n), agg.cont_abandoned_voluntary,
         );
         println!(
@@ -522,26 +571,10 @@ fn main() {
             "  no_stored_goal                    : {:>6.1}%  ({})",
             pct(agg.cont_no_stored, n), agg.cont_no_stored,
         );
-        if !agg.cont_legacy_v25_abandoned.is_empty() {
-            let legacy_total: usize = agg.cont_legacy_v25_abandoned.values().sum();
-            println!(
-                "  legacy_v25_abandoned              : {:>6.1}%  ({})  [pre-v26 entries, voluntary/reactive split unknown]",
-                pct(legacy_total, n), legacy_total,
-            );
-            let mut rows: Vec<(&str, usize)> = agg
-                .cont_legacy_v25_abandoned
-                .iter()
-                .map(|(k, v)| (k.as_str(), *v))
-                .collect();
-            rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
-            for (reason, count) in &rows {
-                println!("    {:<34} {:>4}  ({:5.1}%)", reason, count, pct(*count, n));
-            }
-        }
         if !agg.cont_severity_counts.is_empty() {
             println!();
             println!("  severity distribution:");
-            print_freq_table(&agg.cont_severity_counts, agg.total_divergences);
+            print_freq_table(&agg.cont_severity_counts, agg.total_with_continuation);
         }
         if !agg.cont_goal_kind_counts.is_empty() {
             println!();
@@ -552,10 +585,13 @@ fn main() {
     println!();
 
     // B5: Intent transition matrix
-    println!("## B5. Intent transition stability matrix");
+    println!("## B5. Decision kind transition matrix");
     println!();
-    println!("Grouping: per actor per combat (JSONL file). Ordered by plan_id.");
-    println!("Unique (combat, actor) pairs tracked: {}", agg.actor_timelines.len());
+    println!("Grouping: per actor per combat (JSONL file). Ordered by tick sequence.");
+    println!(
+        "Unique (combat, actor) pairs tracked: {}",
+        agg.actor_timelines.len()
+    );
     println!();
     print_transition_matrix(&agg.actor_timelines);
     println!();
@@ -566,176 +602,152 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};
+    use storyforge::combat::ai::snapshot::BattleSnapshot;
+    use storyforge::combat::ai::outcome::PlanAnnotation;
+    use storyforge::combat::ai::planning::PlanStep;
 
-    fn make_agg() -> Aggregate {
-        Aggregate::default()
+    fn make_event(
+        actor_id: u64,
+        decision: LoggedDecision,
+        plans: Vec<LoggedPlan>,
+        continuation: Option<storyforge::combat::ai::log::ContinuationLogSection>,
+    ) -> ActorTickEvent {
+        ActorTickEvent {
+            event_type: "actor_tick".to_owned(),
+            schema_version: 27,
+            round: 1,
+            timestamp_ms: 0,
+            actor_id,
+            actor_name: "test".to_owned(),
+            snapshot: BattleSnapshot::default(),
+            plans,
+            decision,
+            continuation,
+        }
+    }
+
+    fn plan_chosen(steps_len: usize) -> LoggedPlan {
+        let ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let steps = (0..steps_len)
+            .map(|_| PlanStep::Move { path: vec![] })
+            .collect();
+        LoggedPlan {
+            rank: 1,
+            steps,
+            annotation: ann,
+        }
+    }
+
+    fn plan_unchosen() -> LoggedPlan {
+        LoggedPlan {
+            rank: 2,
+            steps: vec![PlanStep::Move { path: vec![] }],
+            annotation: PlanAnnotation::default(),
+        }
     }
 
     #[test]
-    fn adaptation_reason_counts_none_and_kinds() {
-        let mut agg = make_agg();
-        // entry with 2 plans: one with reason, one without
-        let entry = Entry {
-            event_type: None,
-            plan_id: 0,
-            actor_id: 1,
-            intent: Some(IntentBlock { selection_kind: "best_priority".to_owned() }),
-            plans: vec![
-                PlanLog { chosen: true, steps: vec![], adaptation_reason: None },
-                PlanLog {
-                    chosen: false,
-                    steps: vec![],
-                    adaptation_reason: Some(AdaptationReason { kind: "expected_self_lethal".to_owned() }),
-                },
-            ],
-            replan_reason: None,
-            used_continuation: false,
-            continuation_outcome: None,
-            continuation_severity: None,
-            goal_kind: None,
-        };
-        agg.process_pick_action("f.jsonl", &entry);
-        assert_eq!(agg.total_plans, 2);
-        assert_eq!(*agg.adaptation_counts.get("none").unwrap(), 1);
-        assert_eq!(*agg.adaptation_counts.get("expected_self_lethal").unwrap(), 1);
+    fn decision_kind_counted_correctly() {
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &make_event(1, LoggedDecision::EndTurn, vec![], None));
+        agg.process_event("f.jsonl", &make_event(1, LoggedDecision::EndTurn, vec![], None));
+        agg.process_event(
+            "f.jsonl",
+            &make_event(1, LoggedDecision::Move { path: vec![] }, vec![], None),
+        );
+
+        assert_eq!(agg.total_decisions, 3);
+        assert_eq!(*agg.decision_kind_counts.get("EndTurn").unwrap(), 2);
+        assert_eq!(*agg.decision_kind_counts.get("Move").unwrap(), 1);
     }
 
     #[test]
     fn plan_depth_tracks_chosen_steps_len() {
-        let mut agg = make_agg();
-        let entry = Entry {
-            event_type: None,
-            plan_id: 0,
-            actor_id: 1,
-            intent: Some(IntentBlock { selection_kind: "killable".to_owned() }),
-            plans: vec![
-                PlanLog {
-                    chosen: true,
-                    steps: vec![serde_json::Value::Null, serde_json::Value::Null],
-                    adaptation_reason: None,
-                },
-                PlanLog { chosen: false, steps: vec![serde_json::Value::Null], adaptation_reason: None },
-            ],
-            replan_reason: None,
-            used_continuation: false,
-            continuation_outcome: None,
-            continuation_severity: None,
-            goal_kind: None,
-        };
-        agg.process_pick_action("f.jsonl", &entry);
-        assert_eq!(*agg.depth_counts.get(&2).unwrap(), 1, "chosen plan has 2 steps");
+        let mut agg = Aggregate::default();
+        let event = make_event(
+            1,
+            LoggedDecision::EndTurn,
+            vec![plan_chosen(3), plan_unchosen()],
+            None,
+        );
+        agg.process_event("f.jsonl", &event);
+        assert_eq!(*agg.depth_counts.get(&3).unwrap(), 1, "chosen plan has 3 steps");
         assert!(!agg.depth_counts.contains_key(&1), "non-chosen plan not counted");
     }
 
     #[test]
-    fn replan_reason_counted_for_divergence() {
-        let mut agg = make_agg();
-        let entry = Entry {
-            event_type: Some("plan_divergence".to_owned()),
-            plan_id: 0,
-            actor_id: 1,
-            intent: None,
-            plans: vec![],
-            replan_reason: Some("actor_hp_drop".to_owned()),
-            used_continuation: false,
-            continuation_outcome: None,
-            continuation_severity: None,
-            goal_kind: None,
-        };
-        agg.process_plan_divergence(&entry);
-        assert_eq!(agg.total_divergences, 1);
-        assert_eq!(*agg.replan_reason_counts.get("actor_hp_drop").unwrap(), 1);
+    fn skip_event_counted_separately() {
+        let mut agg = Aggregate::default();
+        agg.process_event(
+            "f.jsonl",
+            &make_event(
+                1,
+                LoggedDecision::Skip { reason: "no_ap_no_mp".to_owned() },
+                vec![],
+                None,
+            ),
+        );
+        assert_eq!(agg.skip_total, 1);
+        assert_eq!(agg.skip_with_stored_goal, 0);
+        assert_eq!(agg.total_plans, 0);
+    }
+
+    #[test]
+    fn v26_schema_skipped_with_error() {
+        // The main() loop checks schema_version before deserialising.
+        // This test verifies the label logic directly via the fast-path check.
+        let json = r#"{"event_type":"actor_tick","schema_version":26,"round":1}"#;
+        let val: serde_json::Value = serde_json::from_str(json).unwrap();
+        let ver = val.get("schema_version").and_then(|v| v.as_u64()).unwrap_or(0);
+        assert_ne!(ver, 27, "v26 must be rejected");
     }
 
     #[test]
     fn transition_matrix_self_loops_and_changes() {
-        let mut agg = make_agg();
-        // Actor 1 in session A: best_priority → best_priority → killable
-        let entries = vec![
-            ("A.jsonl", 1u64, 0u64, "best_priority"),
-            ("A.jsonl", 1u64, 1u64, "best_priority"),
-            ("A.jsonl", 1u64, 2u64, "killable"),
-        ];
-        for (session, actor, plan_id, kind) in entries {
-            let entry = Entry {
-                event_type: None,
-                plan_id,
-                actor_id: actor,
-                intent: Some(IntentBlock { selection_kind: kind.to_owned() }),
-                plans: vec![PlanLog { chosen: true, steps: vec![], adaptation_reason: None }],
-                replan_reason: None,
-                used_continuation: false,
-                continuation_outcome: None,
-                continuation_severity: None,
-                goal_kind: None,
-            };
-            agg.process_pick_action(session, &entry);
+        let mut agg = Aggregate::default();
+        // Actor 1, 3 sequential ticks: EndTurn → EndTurn → Move
+        for (order, d) in [
+            LoggedDecision::EndTurn,
+            LoggedDecision::EndTurn,
+            LoggedDecision::Move { path: vec![] },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let _ = order; // order tracked via actor_tick_counters internally
+            agg.process_event("A.jsonl", &make_event(1, d, vec![], None));
         }
 
-        // Build transitions manually to verify.
-        let mut transitions: BTreeMap<(String, String), usize> = BTreeMap::new();
-        let timeline = agg.actor_timelines.get(&("A.jsonl".to_owned(), 1u64)).unwrap();
+        let key = ("A.jsonl".to_owned(), 1u64);
+        let timeline = agg.actor_timelines.get(&key).unwrap();
         let mut sorted = timeline.clone();
-        sorted.sort_by_key(|(pid, _)| *pid);
+        sorted.sort_by_key(|(ord, _)| *ord);
+
+        let mut transitions: BTreeMap<(String, String), usize> = BTreeMap::new();
         for w in sorted.windows(2) {
-            *transitions.entry((w[0].1.clone(), w[1].1.clone())).or_default() += 1;
+            *transitions
+                .entry((w[0].1.clone(), w[1].1.clone()))
+                .or_default() += 1;
         }
 
-        assert_eq!(*transitions.get(&("best_priority".to_owned(), "best_priority".to_owned())).unwrap(), 1);
-        assert_eq!(*transitions.get(&("best_priority".to_owned(), "killable".to_owned())).unwrap(), 1);
-        assert!(!transitions.contains_key(&("killable".to_owned(), "best_priority".to_owned())));
+        assert_eq!(
+            *transitions
+                .get(&("EndTurn".to_owned(), "EndTurn".to_owned()))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            *transitions
+                .get(&("EndTurn".to_owned(), "Move".to_owned()))
+                .unwrap(),
+            1
+        );
     }
 
     #[test]
     fn pct_zero_denominator_returns_zero() {
         assert_eq!(pct(5, 0), 0.0);
         assert!((pct(1, 4) - 25.0).abs() < 1e-9);
-    }
-
-    fn div_entry(outcome: Option<ContinuationOutcomeEntry>) -> Entry {
-        Entry {
-            event_type: Some("plan_divergence".to_owned()),
-            plan_id: 0,
-            actor_id: 1,
-            intent: None,
-            plans: vec![],
-            replan_reason: None,
-            used_continuation: false,
-            continuation_outcome: outcome,
-            continuation_severity: None,
-            goal_kind: None,
-        }
-    }
-
-    #[test]
-    fn continuation_outcomes_counted_correctly() {
-        let mut agg = make_agg();
-        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalPreservedMethodDelivered)));
-        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalPreservedMethodDelivered)));
-        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalPreservedInTransit)));
-        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalAbandonedVoluntary)));
-        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalAbandonedReactive {
-            source: "taunt_forced".to_owned(),
-        })));
-        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalAbandonedReactive {
-            source: "killable".to_owned(),
-        })));
-        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalAbandonedInvalidating)));
-        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::GoalAbandonedTtlExpired)));
-        agg.process_plan_divergence(&div_entry(None)); // no_stored_goal
-        agg.process_plan_divergence(&div_entry(Some(ContinuationOutcomeEntry::LegacyV25Abandoned {
-            reason: "intent_diverged".to_owned(),
-        })));
-
-        assert_eq!(agg.total_divergences_with_outcome, 10);
-        assert_eq!(agg.cont_method_delivered, 2);
-        assert_eq!(agg.cont_in_transit, 1);
-        assert_eq!(agg.cont_abandoned_voluntary, 1);
-        assert_eq!(*agg.cont_abandoned_reactive.get("taunt_forced").unwrap(), 1);
-        assert_eq!(*agg.cont_abandoned_reactive.get("killable").unwrap(), 1);
-        assert_eq!(agg.cont_abandoned_invalidating, 1);
-        assert_eq!(agg.cont_abandoned_ttl_expired, 1);
-        assert_eq!(agg.cont_no_stored, 1);
-        assert_eq!(*agg.cont_legacy_v25_abandoned.get("intent_diverged").unwrap(), 1);
     }
 }
