@@ -2,42 +2,28 @@
 //!
 //! Layout:
 //! - `fallback` — moves used when no plan candidates survive beam search.
-//! - `ranking`  — `PlanRanking` state + phase methods (viability, sanity,
-//!   protect-self, pick) that `pick_action` walks in sequence.
 //!
-//! Plan generation, scoring, sanity adjustment and final pick live in
-//! `combat::ai::planning`. This module wires them together.
+//! Scoring stages and plan selection live in `combat::ai::pipeline`.
+//! Plan generation, scoring formulas, and sanity live in `combat::ai::planning`.
 
 #![allow(clippy::too_many_arguments)]
 
 mod fallback;
-mod ranking;
 
 pub use crate::combat::ai::planning::PickMechanics;
 
-use crate::combat::ai::pipeline::{
-    stages::{
-        adaptation::AdaptationStage,
-        killable_gate::KillableGateStage,
-        protect_self::ProtectSelfMaskStage,
-        repair_affinity::RepairAffinityStage,
-        sanity::SanityStage,
-        viability::ViabilityStage,
-    },
-    Pipeline, ScoredPool, StageCtx,
-};
+use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
 use crate::content::content_view::ContentView;
 use crate::combat::ai::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::intent::{
-    select_intent, update_memory, AiMemory, IntentReason, TacticalIntent,
+    select_intent, AiMemory, IntentReason, TacticalIntent,
 };
 use crate::combat::ai::log::{self, AiLogger, IntentBlock, TradeBlock};
-use crate::combat::ai::factors::PlanFactors;
 use crate::combat::ai::planning::{
-    commit_plan, generate_plans, record_committed_reservations, TurnPlan,
+    commit_plan, generate_plans, TurnPlan,
 };
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
@@ -46,10 +32,10 @@ use crate::game::hex::Hex;
 use bevy::prelude::*;
 use std::collections::HashMap;
 
-use ranking::PlanRanking;
 
 // ── Public types ────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub enum AiDecision {
     CastInPlace {
         ability: AbilityId,
@@ -89,6 +75,28 @@ pub struct ChosenInfo {
     /// `classify_continuation_outcome` to distinguish reactive vs voluntary
     /// goal abandons (step 6.6b).
     pub reason: IntentReason,
+}
+
+/// Result returned by `pick_action`. The orchestrator (`enemy_turn.rs`)
+/// extracts what it needs: decision, debug snapshot, chosen plan info, and
+/// the full pool for logging.
+pub struct PickResult {
+    /// The AI decision to execute this tick.
+    pub decision: AiDecision,
+    /// Index of the winning plan in `pool`.
+    pub best_idx: usize,
+    /// The scored pool with all annotations populated (including `chosen`/`pick`
+    /// fields set by `PickBestStage`).
+    pub pool: ScoredPool,
+    /// Debug snapshot — `Some` when `debug=true`, `None` otherwise.
+    pub debug_snapshot: Option<AiDebugSnapshot>,
+    /// Intent selected for this turn (possibly updated by ViabilityStage).
+    pub intent: TacticalIntent,
+    /// Reason for intent selection.
+    pub intent_reason: IntentReason,
+    /// Pre-adaptation (post-sanity) scores — used by the log to show
+    /// pre/post-adaptation deltas. Same length as `pool`.
+    pub base_scored: Vec<f32>,
 }
 
 /// Source of a `Move` decision. See `AiDecision::Move`.
@@ -177,10 +185,12 @@ impl<'w, 'p> ScoringCtx<'w, 'p> {
 
 // ── Main entry point ────────────────────────────────────────────────────────
 
-/// Top-level decision function. Replaces evaluate_targets + plan_movement.
-/// When `debug` is true, returns an `AiDebugSnapshot` alongside the decision.
-/// Always returns a `ChosenInfo` on the normal path (None only for the
-/// no-plans fallback) so callers can store the winning plan in `AiMemory`.
+/// Top-level decision function. Pure function: no side effects on `memory`,
+/// `reservations`, or logging. The orchestrator (`enemy_turn.rs`) handles
+/// those after receiving the `PickResult`.
+///
+/// Returns a `PickResult` with the decision, the annotated pool, and
+/// diagnostics. On empty-plans path, `pool` is empty and `best_idx = 0`.
 pub fn pick_action(
     actor: Entity,
     actor_pos: Hex,
@@ -188,25 +198,24 @@ pub fn pick_action(
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     rng: &mut DiceRng,
-    memory: &mut AiMemory,
-    reservations: &mut Reservations,
-    logger: &mut AiLogger,
+    memory: &AiMemory,
+    reservations: &Reservations,
     debug: bool,
     debug_names: &HashMap<Entity, String>,
-) -> (AiDecision, Option<AiDebugSnapshot>, Option<ChosenInfo>) {
-    let log_on = logger.is_enabled();
-    let t0 = if log_on { Some(std::time::Instant::now()) } else { None };
-
+) -> PickResult {
     let Some(active) = snap.unit(actor) else {
-        return (AiDecision::EndTurn, None, None);
+        return PickResult {
+            decision: AiDecision::EndTurn,
+            best_idx: 0,
+            pool: ScoredPool::empty(),
+            debug_snapshot: None,
+            intent: TacticalIntent::Reposition,
+            intent_reason: IntentReason::NoRuleDefault,
+            base_scored: vec![],
+        };
     };
 
-    // Apply per-actor AiTuning override if present. The swap is local to
-    // pick_action — every downstream call (intent, plans, ranking, ScoringCtx)
-    // sees the per-actor tuning through `world.tuning` without API changes.
-    // In current content no unit declares `ai_tuning_override`, so this branch
-    // is inert; scaffolding is here to support quirks (see step 2.7 of
-    // docs/ai_rework_plan.md).
+    // Apply per-actor AiTuning override if present.
     let per_actor_tuning = active
         .ai_tuning_override
         .as_ref()
@@ -219,16 +228,13 @@ pub fn pick_action(
         world
     };
 
-    // Compute need signals once per actor; consumed by select_intent (step 3.2)
-    // and downstream factors/sanity via ScoringCtx (steps 3.3–3.5).
-    // Must run before select_intent so the intent gate reads fresh signals.
+    // Compute need signals once per actor.
     let need_signals = crate::combat::ai::appraisal::compute_need_signals(
         active, snap, maps, memory, world.tuning,
     );
 
     // ── Select tactical intent ──────────────────────────────────────────
     let choice = select_intent(active, snap, maps, memory, world.difficulty, world.tuning, &need_signals);
-    update_memory(memory, active, &choice.intent, world.tuning);
 
     // ── Generate plans (beam search over depths) ───────────────────────
     let mut plans = generate_plans(actor, world, snap, maps);
@@ -241,12 +247,18 @@ pub fn pick_action(
                 "no plans generated", snap, world.tuning, maps, debug_names,
             ))
         } else { None };
-        return (decision, ds, None);
+        return PickResult {
+            decision,
+            best_idx: 0,
+            pool: ScoredPool::empty(),
+            debug_snapshot: ds,
+            intent: choice.intent,
+            intent_reason: choice.reason,
+            base_scored: vec![],
+        };
     }
 
-    // Bundle the read-only scoring inputs once. Threaded as `&ScoringCtx`
-    // through scorer + factors + sanity instead of the old 5-7 individual
-    // refs per call.
+    // Bundle the read-only scoring inputs once.
     let scoring_ctx = ScoringCtx {
         world,
         maps,
@@ -258,22 +270,16 @@ pub fn pick_action(
     };
 
     // ── Phase pipeline ─────────────────────────────────────────────────
-    // Step 7.1: ViabilityStage + SanityStage run through the typed pipeline.
-    // `PlanRanking::initial` computes the initial scored/raw_factors; the
-    // pool is seeded from those values so both representations agree.
-    let initial_scored;
-    let initial_raw;
-    {
-        // Scope limiting the &mut borrow of plans for initial scoring.
-        let (s, r) = crate::combat::ai::planning::score_plans_with_raw(
+    let (initial_scored, initial_raw) = {
+        crate::combat::ai::planning::score_plans_with_raw(
             &mut plans, &choice.intent, &scoring_ctx,
-        );
-        initial_scored = s;
-        initial_raw = r;
-    }
+        )
+    };
     let mut pool = ScoredPool::new(plans);
-    pool.scored = initial_scored;
-    pool.raw_factors = initial_raw;
+    for (ann, (score, raw)) in pool.annotations.iter_mut().zip(initial_scored.into_iter().zip(initial_raw.into_iter())) {
+        ann.score = score;
+        ann.raw_factors = raw;
+    }
 
     let mut stage_ctx = StageCtx::new(
         &scoring_ctx,
@@ -282,141 +288,126 @@ pub fn pick_action(
         actor_pos,
         rng,
     );
-    let scoring_pipeline = Pipeline::new()
-        .add(Box::new(ViabilityStage))
-        .add(Box::new(SanityStage));
-    scoring_pipeline.run(&mut pool, &mut stage_ctx);
 
-    // Snapshot post-sanity scores before adaptation rescores any plan.
-    // The log stores both numbers per plan so offline diagnostics can tell
-    // "did adaptation move this rank?" without rerunning the pipeline.
-    let base_scored = pool.scored.clone();
+    use crate::combat::ai::pipeline::stages::{
+        adaptation::AdaptationStage,
+        killable_gate::KillableGateStage,
+        pick_best::PickBestStage,
+        protect_self::ProtectSelfMaskStage,
+        repair_affinity::RepairAffinityStage,
+        sanity::SanityStage,
+        viability::ViabilityStage,
+    };
+    use crate::combat::ai::pipeline::PlanStage;
+    ViabilityStage.apply(&mut pool, &mut stage_ctx);
+    SanityStage.apply(&mut pool, &mut stage_ctx);
 
-    // Contract stages (7.2): stages carry internal predicates and self-skip
-    // when their conditions don't apply, so no `if matches!` guards needed.
-    // RepairAffinityStage (7.3): populates annotation.repair_affinity per plan.
-    let contract_pipeline = Pipeline::new()
-        .add(Box::new(AdaptationStage))
-        .add(Box::new(ProtectSelfMaskStage))
-        .add(Box::new(KillableGateStage))
-        .add(Box::new(RepairAffinityStage));
-    contract_pipeline.run(&mut pool, &mut stage_ctx);
+    // Snapshot post-sanity scores (before adaptation rescoring).
+    let base_scored: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
 
-    // Sync pool back into PlanRanking for the legacy pipeline tail (pick,
-    // log, debug). pool.plans/annotations remain alive until the end of
-    // pick_action; we pass pool by reference where possible.
-    let mut ranking = PlanRanking::from_pool(&pool, stage_ctx.intent, stage_ctx.intent_reason);
-    plans = pool.plans;
+    AdaptationStage.apply(&mut pool, &mut stage_ctx);
+    ProtectSelfMaskStage.apply(&mut pool, &mut stage_ctx);
+    KillableGateStage.apply(&mut pool, &mut stage_ctx);
+    RepairAffinityStage.apply(&mut pool, &mut stage_ctx);
+    PickBestStage.apply(&mut pool, &mut stage_ctx);
 
-    let (best_idx, mech) = ranking.pick(world, rng);
+    // Find winning plan index from PickBestStage annotation.
+    let best_idx = pool.annotations.iter().position(|a| a.chosen).unwrap_or(0);
 
-    // Step 7.2: if adaptation switched the chosen plan's evaluation regime,
-    // wrap the intent reason so logs/debug see the full chain
-    // (prior_intent_reason → adapted_via X). Now reads from pool.annotations
-    // written by AdaptationStage instead of ranking.adaptation.reasons.
+    // Compute the final intent/reason (possibly updated by ViabilityStage/AdaptationStage).
+    let final_intent = stage_ctx.intent;
+    let mut final_reason = stage_ctx.intent_reason;
+
+    // If adaptation switched the chosen plan's evaluation regime, wrap reason.
     if let Some(adapt_data) = pool.annotations.get(best_idx).and_then(|a| a.adaptation.as_ref()) {
-        let prior = std::mem::replace(&mut ranking.intent_reason, IntentReason::NoRuleDefault);
-        ranking.intent_reason = IntentReason::Adapted {
+        let prior = std::mem::replace(&mut final_reason, IntentReason::NoRuleDefault);
+        final_reason = IntentReason::Adapted {
             prior: Box::new(prior),
             reason: adapt_data.reason.clone(),
         };
     }
-    let pick_mech = debug.then_some(mech);
 
-    let best_plan = &plans[best_idx];
-    let best_score = ranking.scored[best_idx];
-    let (decision, consumed) = commit_plan(best_plan, actor_pos);
+    let best_plan = &pool.plans[best_idx];
+    let (decision, _consumed) = commit_plan(best_plan, actor_pos);
 
-    // Debug formatter walks the plans directly — one `ScoredStep` per plan
-    // representing the committed first-tick action.
+    // Build debug snapshot (reads scores/raw_factors from annotations).
+    let scored: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
+    let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.raw_factors).collect();
+    let pick_mech = debug.then(|| {
+        pool.annotations[best_idx]
+            .pick
+            .as_ref()
+            .map(|p| p.mechanics.clone())
+    }).flatten();
     let debug_snapshot = if debug {
         Some(build_debug_snapshot(
-            active, actor_pos, &ranking.intent, &ranking.intent_reason, &plans,
-            &ranking.scored, &ranking.raw_factors, &decision, snap, world.tuning, maps,
+            active, actor_pos, &final_intent, &final_reason, &pool.plans,
+            &scored, &raw_factors, &decision, snap, world.tuning, maps,
             debug_names, pick_mech.as_ref(),
         ))
     } else {
         None
     };
 
-    // Capture reservation state before this actor writes its own — the log
-    // entry reflects what prior actors have reserved, not this actor's output.
-    let reservations_snap = if log_on { reservations.to_snapshot() } else {
-        crate::combat::ai::log::ReservationsSnapshot::default()
-    };
-
-    // Reserve only the prefix that will actually execute this tick — every
-    // subsequent tick re-plans from scratch, so reserving the full plan
-    // would leave ghost reservations on actions that never happen.
-    record_committed_reservations(
-        best_plan, consumed, active, world, snap, reservations, actor_pos,
-    );
-
-    if log_on {
-        let decision_time_ms = t0.map_or(0, |t| t.elapsed().as_millis() as u64);
-        write_decision_log(
-            logger, decision_time_ms, actor, active, snap, world.content,
-            &ranking.intent, &ranking.intent_reason, &plans, &base_scored,
-            &ranking.scored, &ranking.raw_factors, &ranking.adaptation,
-            &ranking.sanity_breakdown,
-            ranking.gate_stats.applied, ranking.gate_stats.pruned_count,
-            best_idx, &decision, debug_names,
-            world.difficulty, memory, reservations_snap,
-        );
+    PickResult {
+        decision,
+        best_idx,
+        pool,
+        debug_snapshot,
+        intent: final_intent,
+        intent_reason: final_reason,
+        base_scored,
     }
-
-    // Build ChosenInfo for plan-freeze continuation. Clear sim_snapshots to
-    // avoid carrying heavy simulation data across ticks.
-    let mut chosen_plan = best_plan.clone();
-    chosen_plan.sim_snapshots.clear();
-    let chosen = Some(ChosenInfo {
-        plan: chosen_plan,
-        score: best_score,
-        intent: ranking.intent,
-        reason: ranking.intent_reason.clone(),
-    });
-
-    (decision, debug_snapshot, chosen)
 }
 
-/// Write one JSONL entry for the decision that `pick_action` just produced.
-/// Kept out of `pick_action` so the hot path stays focused on decisioning;
-/// the top-K sort and string formatting only run when logging is enabled.
-#[allow(clippy::too_many_arguments)]
-fn write_decision_log(
+/// Write one JSONL decision log entry from a `PickResult`.
+///
+/// Reads scores, raw_factors, adaptation, and sanity data directly from
+/// `result.pool.annotations` rather than from separate parallel vecs.
+/// Called by the orchestrator (`enemy_turn.rs`) after `pick_action` returns.
+pub fn write_decision_log_from_result(
     logger: &mut AiLogger,
     decision_time_ms: u64,
     actor: Entity,
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
     content: &ContentView,
-    intent: &TacticalIntent,
-    intent_reason: &IntentReason,
-    plans: &[TurnPlan],
-    base_scored: &[f32],
-    scored: &[f32],
-    raw_factors: &[PlanFactors],
-    adaptation: &crate::combat::ai::planning::Adaptation,
-    sanity_breakdown: &[Vec<crate::combat::ai::planning::SanityHit>],
-    gate_applied: bool,
-    gate_pruned_count: usize,
-    best_idx: usize,
-    decision: &AiDecision,
+    result: &PickResult,
     debug_names: &HashMap<Entity, String>,
     difficulty: &DifficultyProfile,
     memory: &AiMemory,
     reservations_snap: crate::combat::ai::log::ReservationsSnapshot,
 ) {
-    let plan_id = logger.next_plan_id();
+    use crate::combat::ai::planning::EvaluationMode;
 
-    // Cache once — actor's own value is plan-independent. Same
-    // denominator the scorer used for its trade bonus, so the `score`
-    // column the log reports matches the increment the scorer applied.
+    let plan_id = logger.next_plan_id();
+    let pool = &result.pool;
+    let plans = &pool.plans;
+    let best_idx = result.best_idx;
+
     let actor_value = crate::combat::ai::trade::unit_value(active, content);
 
     // Rank plans by final (adapted) score, keep top-10 for size budget.
-    let mut indexed: Vec<(usize, f32)> =
-        scored.iter().copied().enumerate().collect();
+    // Pre-compute evaluation modes (owned) so plan_to_log_entry borrows them
+    // with the same lifetime as pool.annotations.
+    let evaluation_modes: Vec<EvaluationMode> = pool
+        .annotations
+        .iter()
+        .map(|ann| {
+            if ann.adaptation.is_some() {
+                EvaluationMode::LastStand
+            } else {
+                EvaluationMode::Default
+            }
+        })
+        .collect();
+
+    let mut indexed: Vec<(usize, f32)> = pool
+        .annotations
+        .iter()
+        .enumerate()
+        .map(|(i, a)| (i, a.score))
+        .collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     let shown = indexed.len().min(10);
     let plan_entries: Vec<_> = indexed
@@ -424,6 +415,7 @@ fn write_decision_log(
         .take(shown)
         .enumerate()
         .map(|(rank, &(idx, score))| {
+            let ann = &pool.annotations[idx];
             let br = crate::combat::ai::trade::trade_delta(
                 &plans[idx], active, snap, content,
             );
@@ -435,18 +427,19 @@ fn write_decision_log(
                 self_lethal: br.self_lethal,
                 score: crate::combat::ai::trade::trade_score(&br, actor_value),
             };
-            let plan_sanity = sanity_breakdown.get(idx).map(|v| v.as_slice()).unwrap_or(&[]);
+            let adaptation_reason = ann.adaptation.as_ref().map(|d| &d.reason);
+            let base_score = result.base_scored.get(idx).copied().unwrap_or(score);
             log::plan_to_log_entry(
                 &plans[idx],
                 rank + 1,
                 idx == best_idx,
-                raw_factors[idx].as_array(),
-                base_scored[idx],
+                ann.raw_factors.as_array(),
+                base_score,
                 score,
-                &adaptation.modes[idx],
-                adaptation.reasons[idx].as_ref(),
+                &evaluation_modes[idx],
+                adaptation_reason,
                 trade,
-                plan_sanity,
+                &ann.sanity,
             )
         })
         .collect();
@@ -455,16 +448,26 @@ fn write_decision_log(
         .get(&actor)
         .map(|s| s.as_str())
         .unwrap_or("<unknown>");
-    let reason_text = intent_reason.to_string();
+    let reason_text = result.intent_reason.to_string();
     let intent_block = IntentBlock {
-        intent,
-        selection_kind: intent_reason.code(),
+        intent: &result.intent,
+        selection_kind: result.intent_reason.code(),
         reason_text: &reason_text,
-        reason: intent_reason,
+        reason: &result.intent_reason,
     };
+
+    // gate_stats: KillableGateStage writes contract annotations but doesn't
+    // directly expose applied/pruned_count. Derive from annotations.
+    let gate_applied = pool.annotations.iter().any(|a| {
+        a.contract.as_ref().map(|c| c.mask == "killable_gate").unwrap_or(false)
+    });
+    let gate_pruned_count = pool.annotations.iter().filter(|a| {
+        a.contract.as_ref().map(|c| c.mask == "killable_gate").unwrap_or(false)
+    }).count();
+
     let entry = log::build_entry(
         plan_id, decision_time_ms, active, actor_name, snap, intent_block,
-        plans.len(), shown, plan_entries, decision,
+        plans.len(), shown, plan_entries, &result.decision,
         gate_applied,
         gate_pruned_count,
         difficulty,

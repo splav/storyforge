@@ -23,21 +23,21 @@ impl PlanStage for ViabilityStage {
         let Some(threshold) = intent_viability_threshold(&ctx.intent) else {
             // No threshold for this intent — all plans trivially pass.
             for ann in pool.annotations.iter_mut() {
-                ann.viability = ViabilityResult { passed: true, adjusted_score: 0.0 };
+                ann.viability = ViabilityResult { passed: true, adjusted_score: ann.score };
             }
             return;
         };
 
         let max_align = pool
-            .raw_factors
+            .annotations
             .iter()
-            .map(|f| f.intent)
+            .map(|a| a.raw_factors.intent)
             .fold(f32::NEG_INFINITY, f32::max);
 
         if max_align >= threshold {
             // Gate passes — record current scores as adjusted scores.
-            for (ann, &score) in pool.annotations.iter_mut().zip(pool.scored.iter()) {
-                ann.viability = ViabilityResult { passed: true, adjusted_score: score };
+            for ann in pool.annotations.iter_mut() {
+                ann.viability = ViabilityResult { passed: true, adjusted_score: ann.score };
             }
             return;
         }
@@ -87,12 +87,18 @@ impl PlanStage for ViabilityStage {
             {
                 ctx.intent = new_intent;
                 ctx.intent_reason = new_reason;
-                pool.scored = rescore_with_intent(
+                // Extract raw_factors as a mut slice for rescore_with_intent.
+                let mut raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.raw_factors).collect();
+                let new_scores = rescore_with_intent(
                     &mut pool.plans,
-                    &mut pool.raw_factors,
+                    &mut raw_factors,
                     &ctx.intent,
                     scoring,
                 );
+                for (ann, (new_score, new_raw)) in pool.annotations.iter_mut().zip(new_scores.into_iter().zip(raw_factors.into_iter())) {
+                    ann.score = new_score;
+                    ann.raw_factors = new_raw;
+                }
                 true
             } else {
                 false
@@ -102,8 +108,8 @@ impl PlanStage for ViabilityStage {
         };
 
         // Write per-plan viability result (passed=false means a swap occurred).
-        for (ann, &score) in pool.annotations.iter_mut().zip(pool.scored.iter()) {
-            ann.viability = ViabilityResult { passed: !swapped, adjusted_score: score };
+        for ann in pool.annotations.iter_mut() {
+            ann.viability = ViabilityResult { passed: !swapped, adjusted_score: ann.score };
         }
     }
 }
@@ -128,8 +134,8 @@ mod tests {
     fn pool_with_intent_factor(factor: f32) -> ScoredPool {
         let plan = TurnPlan::default();
         let mut pool = ScoredPool::new(vec![plan]);
-        pool.raw_factors[0] = PlanFactors { intent: factor, ..PlanFactors::default() };
-        pool.scored[0] = 0.5;
+        pool.annotations[0].raw_factors = PlanFactors { intent: factor, ..PlanFactors::default() };
+        pool.annotations[0].score = 0.5;
         pool
     }
 

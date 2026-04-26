@@ -177,7 +177,7 @@ pub const SIGNED_FACTOR: [bool; NUM_FACTORS] = [
 /// through `[f32; NUM_FACTORS]` views via `as_array()` / `from_array()`, so
 /// SIMD/loop-based math stays cheap. Log + debug writers convert to the
 /// stable `[f32; 10]` wire format at the boundary.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PlanFactors {
     pub damage: f32,
     pub kill_now: f32,

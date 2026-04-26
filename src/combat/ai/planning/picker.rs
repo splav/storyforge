@@ -5,6 +5,7 @@
 
 /// Raw mechanics output from `pick_best_plan`. The outer layer converts pool
 /// indices into human-readable labels for debug output.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct PickMechanics {
     pub top_k: usize,
     pub window: f32,

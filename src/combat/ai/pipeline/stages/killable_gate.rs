@@ -27,7 +27,7 @@ impl PlanStage for KillableGateStage {
         }
 
         // Snapshot scores before the gate mutates them.
-        let pre_scores: Vec<f32> = pool.scored.clone();
+        let pre_scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
 
         // Build modes slice from annotations (same logic as ProtectSelfMaskStage).
         let modes: Vec<_> = pool
@@ -41,23 +41,26 @@ impl PlanStage for KillableGateStage {
             })
             .collect();
 
+        let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.raw_factors).collect();
+        let mut scores: Vec<f32> = pre_scores.clone();
         apply_killable_gate(
             &pool.plans,
-            &pool.raw_factors,
-            &mut pool.scored,
+            &raw_factors,
+            &mut scores,
             &modes,
             &ctx.intent,
             ctx.scoring.snap,
         );
 
-        // Write contract annotation for plans newly masked to -∞.
-        for (i, &pre) in pre_scores.iter().enumerate() {
-            if pool.scored[i] == f32::NEG_INFINITY && pre.is_finite() {
-                pool.annotations[i].contract = Some(ContractMaskHit {
+        // Write back updated scores and contract annotations.
+        for (i, (ann, new_score)) in pool.annotations.iter_mut().zip(scores.into_iter()).enumerate() {
+            if new_score == f32::NEG_INFINITY && pre_scores[i].is_finite() {
+                ann.contract = Some(ContractMaskHit {
                     mask: "killable_gate".into(),
-                    original_score: pre,
+                    original_score: pre_scores[i],
                 });
             }
+            ann.score = new_score;
         }
     }
 }
@@ -104,8 +107,10 @@ mod tests {
             &mut rng,
         );
         let mut pool = ScoredPool::new(plans);
-        pool.scored = scores;
-        pool.raw_factors = raw;
+        for (ann, (score, raw_f)) in pool.annotations.iter_mut().zip(scores.into_iter().zip(raw.into_iter())) {
+            ann.score = score;
+            ann.raw_factors = raw_f;
+        }
         KillableGateStage.apply(&mut pool, &mut ctx);
         pool
     }
@@ -125,7 +130,7 @@ mod tests {
 
         let pool = run_stage(plans, scores, raw, TacticalIntent::Reposition, &snap, &actor);
 
-        assert_eq!(pool.scored[0], 0.5, "score should be untouched for non-FocusTarget intent");
+        assert_eq!(pool.annotations[0].score, 0.5, "score should be untouched for non-FocusTarget intent");
         assert!(pool.annotations[0].contract.is_none(), "no contract annotation expected");
     }
 
@@ -174,14 +179,14 @@ mod tests {
         );
 
         // plan 1 should be masked and annotated
-        assert_eq!(pool.scored[1], f32::NEG_INFINITY, "non-offensive plan should be gated");
+        assert_eq!(pool.annotations[1].score, f32::NEG_INFINITY, "non-offensive plan should be gated");
         let contract = pool.annotations[1].contract.as_ref()
             .expect("expected contract annotation for gated plan");
         assert_eq!(contract.mask, "killable_gate".to_string());
         assert_eq!(contract.original_score, 0.6_f32);
 
         // plan 0 should be untouched
-        assert!(pool.scored[0].is_finite(), "offensive plan should survive gate");
+        assert!(pool.annotations[0].score.is_finite(), "offensive plan should survive gate");
         assert!(pool.annotations[0].contract.is_none(), "no contract annotation for offensive plan");
     }
 

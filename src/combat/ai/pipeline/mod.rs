@@ -1,16 +1,15 @@
-//! `PlanStage` pipeline scaffolding — step 7.0.
+//! `PlanStage` pipeline scaffolding — step 7.0/7.4.
 //!
-//! Introduces three foundational types:
-//! - `StageCtx` — read-only context threaded through every stage.
-//! - `ScoredPool` — typed pool of plans + annotations + scores + raw factors.
+//! Foundational types:
+//! - `StageCtx` — context threaded through every stage.
+//! - `ScoredPool` — typed pool of plans + annotations (`score` and
+//!   `raw_factors` are fields of `PlanAnnotation`).
 //! - `PlanStage` — trait every stage implements.
-//! - `Pipeline` — ordered composer that runs stages sequentially.
 //!
-//! Step 7.1 adds concrete stages under `stages/`.
+//! Step 7.4: `Pipeline` struct removed; all stages run via `run_pool_pipeline`.
 
 pub mod stages;
 
-use crate::combat::ai::factors::PlanFactors;
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::types::TurnPlan;
@@ -20,7 +19,7 @@ use crate::game::hex::Hex;
 
 // ── StageCtx ────────────────────────────────────────────────────────────────
 
-/// Context threaded read-only through every pipeline stage.
+/// Context threaded through every pipeline stage.
 ///
 /// Lifetimes mirror `ScoringCtx<'w, 'p>`:
 /// - `'w` — borrow of world/map/reservations references inside `ScoringCtx`.
@@ -54,28 +53,26 @@ impl<'w, 's> StageCtx<'w, 's> {
 
 // ── ScoredPool ──────────────────────────────────────────────────────────────
 
-/// Typed pool of plans together with their per-plan annotation, scores, and
-/// raw factor decompositions.
+/// Typed pool of plans together with their per-plan annotations.
 ///
-/// **Invariant:** `plans.len() == annotations.len() == scored.len() ==
-/// raw_factors.len()` at all times. Constructors uphold this; stages must
-/// preserve it.
+/// **Invariant:** `plans.len() == annotations.len()` at all times.
+/// Constructors uphold this; stages must preserve it.
+///
+/// Step 7.4: `score` and `raw_factors` live inside `PlanAnnotation` rather
+/// than in separate parallel vecs. Callers read/write `annotations[i].score`
+/// and `annotations[i].raw_factors` directly.
 pub struct ScoredPool {
     pub plans: Vec<TurnPlan>,
     pub annotations: Vec<PlanAnnotation>,
-    pub scored: Vec<f32>,
-    pub raw_factors: Vec<PlanFactors>,
 }
 
 impl ScoredPool {
-    /// Build a pool from a plan list, zero-filling annotation/score/factors.
+    /// Build a pool from a plan list, zero-filling annotations.
     pub fn new(plans: Vec<TurnPlan>) -> Self {
         let n = plans.len();
         Self {
             plans,
             annotations: vec![PlanAnnotation::default(); n],
-            scored: vec![0.0; n],
-            raw_factors: vec![PlanFactors::default(); n],
         }
     }
 
@@ -84,8 +81,6 @@ impl ScoredPool {
         Self {
             plans: vec![],
             annotations: vec![],
-            scored: vec![],
-            raw_factors: vec![],
         }
     }
 
@@ -104,8 +99,7 @@ impl ScoredPool {
         self.plans
             .iter()
             .zip(self.annotations.iter())
-            .zip(self.scored.iter().copied())
-            .map(|((plan, ann), score)| (plan, ann, score))
+            .map(|(plan, ann)| (plan, ann, ann.score))
     }
 }
 
@@ -118,37 +112,33 @@ pub trait PlanStage {
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx);
 }
 
-// ── Pipeline ─────────────────────────────────────────────────────────────────
+// ── run_pool_pipeline ────────────────────────────────────────────────────────
 
-/// Ordered sequence of stages. Runs each stage in insertion order.
-pub struct Pipeline {
-    stages: Vec<Box<dyn PlanStage>>,
-}
-
-impl Pipeline {
-    pub fn new() -> Self {
-        Self { stages: vec![] }
-    }
-
-    /// Add a stage at the end of the pipeline (builder pattern).
-    #[allow(clippy::should_implement_trait)]
-    pub fn add(mut self, stage: Box<dyn PlanStage>) -> Self {
-        self.stages.push(stage);
-        self
-    }
-
-    /// Run all stages in order against `pool` and `ctx`.
-    pub fn run(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
-        for stage in &self.stages {
-            stage.apply(pool, ctx);
-        }
-    }
-}
-
-impl Default for Pipeline {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Run all scoring and selection stages in order.
+///
+/// Compile-time stage order, zero trait-object indirection:
+/// Viability → Sanity → Adaptation → ProtectSelfMask → KillableGate →
+/// RepairAffinity → PickBest.
+///
+/// After this returns, exactly one annotation has `chosen = true` and its
+/// `pick` field populated (unless the pool is empty).
+pub fn run_pool_pipeline(pool: &mut ScoredPool, ctx: &mut StageCtx) {
+    use stages::{
+        adaptation::AdaptationStage,
+        killable_gate::KillableGateStage,
+        pick_best::PickBestStage,
+        protect_self::ProtectSelfMaskStage,
+        repair_affinity::RepairAffinityStage,
+        sanity::SanityStage,
+        viability::ViabilityStage,
+    };
+    ViabilityStage.apply(pool, ctx);
+    SanityStage.apply(pool, ctx);
+    AdaptationStage.apply(pool, ctx);
+    ProtectSelfMaskStage.apply(pool, ctx);
+    KillableGateStage.apply(pool, ctx);
+    RepairAffinityStage.apply(pool, ctx);
+    PickBestStage.apply(pool, ctx);
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -156,33 +146,18 @@ impl Default for Pipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::intent::IntentReason;
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{
-        UnitBuilder, empty_content, empty_maps, make_scoring_ctx, make_test_ctx,
-    };
-    use crate::game::components::Team;
-    use crate::game::hex::hex_from_offset;
-    use std::cell::RefCell;
-
-    // ── helpers ──────────────────────────────────────────────────────────────
+    use crate::combat::ai::planning::types::TurnPlan;
 
     fn dummy_pool(n: usize) -> ScoredPool {
         let plans = vec![TurnPlan::default(); n];
         ScoredPool::new(plans)
     }
 
-    // ── ScoredPool invariant ─────────────────────────────────────────────────
-
     #[test]
     fn scored_pool_invariant_holds_after_construct() {
         let pool = dummy_pool(2);
         assert_eq!(pool.plans.len(), 2);
         assert_eq!(pool.annotations.len(), 2);
-        assert_eq!(pool.scored.len(), 2);
-        assert_eq!(pool.raw_factors.len(), 2);
     }
 
     #[test]
@@ -190,75 +165,5 @@ mod tests {
         let pool = ScoredPool::empty();
         assert!(pool.is_empty());
         assert_eq!(pool.len(), 0);
-    }
-
-    // ── Pipeline ordering ────────────────────────────────────────────────────
-
-    thread_local! {
-        static CALL_LOG: RefCell<Vec<&'static str>> = const { RefCell::new(vec![]) };
-    }
-
-    struct LoggingStage(&'static str);
-
-    impl PlanStage for LoggingStage {
-        fn name(&self) -> &'static str {
-            self.0
-        }
-        fn apply(&self, _pool: &mut ScoredPool, _ctx: &mut StageCtx) {
-            CALL_LOG.with(|log| log.borrow_mut().push(self.0));
-        }
-    }
-
-    /// Build a minimal `StageCtx` for tests that only need the pipeline
-    /// machinery without caring about scoring values.
-    fn with_dummy_ctx<F: FnOnce(StageCtx)>(f: F) {
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            hex_from_offset(0, 0),
-            &mut rng,
-        );
-        f(ctx);
-    }
-
-    #[test]
-    fn pipeline_runs_stages_in_order() {
-        CALL_LOG.with(|log| log.borrow_mut().clear());
-
-        let pipeline = Pipeline::new()
-            .add(Box::new(LoggingStage("first")))
-            .add(Box::new(LoggingStage("second")));
-
-        let mut pool = dummy_pool(1);
-        with_dummy_ctx(|mut ctx| {
-            pipeline.run(&mut pool, &mut ctx);
-        });
-
-        let order = CALL_LOG.with(|log| log.borrow().clone());
-        assert_eq!(order, vec!["first", "second"]);
-    }
-
-    #[test]
-    fn pipeline_empty_is_noop() {
-        let pipeline = Pipeline::new();
-        let mut pool = dummy_pool(2);
-
-        with_dummy_ctx(|mut ctx| {
-            pipeline.run(&mut pool, &mut ctx);
-        });
-
-        // pool unchanged — all zeros
-        assert!(pool.scored.iter().all(|&s| s == 0.0));
-        assert_eq!(pool.len(), 2);
     }
 }

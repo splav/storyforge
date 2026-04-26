@@ -17,21 +17,32 @@ impl PlanStage for AdaptationStage {
     }
 
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
-        // Snapshot pre-adaptation scores before apply_adaptation mutates pool.scored.
-        let pre_scores: Vec<f32> = pool.scored.clone();
+        // Snapshot pre-adaptation scores.
+        let pre_scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
+
+        // Extract scores and raw_factors for apply_adaptation.
+        let mut scores: Vec<f32> = pre_scores.clone();
+        let mut raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.raw_factors).collect();
 
         let adaptation = apply_adaptation(
             &mut pool.plans,
-            &mut pool.raw_factors,
-            &mut pool.scored,
+            &mut raw_factors,
+            &mut scores,
             &ctx.intent,
             ctx.scoring,
         );
 
-        // Write annotation for each plan that had an adaptation reason.
-        for (i, reason) in adaptation.reasons.iter().enumerate() {
-            if let Some(r) = reason {
-                pool.annotations[i].adaptation = Some(AdaptationData {
+        // Write back updated scores and raw_factors, and adaptation annotations.
+        for (i, (ann, (new_score, new_raw))) in pool
+            .annotations
+            .iter_mut()
+            .zip(scores.into_iter().zip(raw_factors.into_iter()))
+            .enumerate()
+        {
+            ann.score = new_score;
+            ann.raw_factors = new_raw;
+            if let Some(r) = adaptation.reasons.get(i).and_then(|r| r.as_ref()) {
+                ann.adaptation = Some(AdaptationData {
                     reason: r.clone(),
                     original_score: pre_scores[i],
                 });
@@ -96,8 +107,10 @@ mod tests {
             &mut rng,
         );
         let mut pool = ScoredPool::new(plans);
-        pool.scored = scores;
-        pool.raw_factors = raw;
+        for (ann, (score, raw_f)) in pool.annotations.iter_mut().zip(scores.into_iter().zip(raw.into_iter())) {
+            ann.score = score;
+            ann.raw_factors = raw_f;
+        }
         AdaptationStage.apply(&mut pool, &mut ctx);
         pool
     }

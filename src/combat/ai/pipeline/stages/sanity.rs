@@ -15,8 +15,10 @@ impl PlanStage for SanityStage {
     }
 
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
-        let breakdown = sanity_adjust_plans(&mut pool.scored, &pool.plans, ctx.scoring);
-        for (ann, hits) in pool.annotations.iter_mut().zip(breakdown.into_iter()) {
+        let mut scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
+        let breakdown = sanity_adjust_plans(&mut scores, &pool.plans, ctx.scoring);
+        for (ann, (new_score, hits)) in pool.annotations.iter_mut().zip(scores.into_iter().zip(breakdown.into_iter())) {
+            ann.score = new_score;
             ann.sanity = hits;
         }
     }
@@ -79,8 +81,9 @@ mod tests {
         );
 
         let mut pool = ScoredPool::new(plans);
-        pool.scored = scores;
-        // raw_factors zeroed — sanity doesn't need them
+        for (ann, score) in pool.annotations.iter_mut().zip(scores.into_iter()) {
+            ann.score = score;
+        }
         SanityStage.apply(&mut pool, &mut ctx);
         pool
     }

@@ -5,6 +5,7 @@
 //! Step 4.0 ships the type + PlanAnnotation container zero-filled — no
 //! consumers yet. See docs/ai_rework_step4_plan.md.
 
+use crate::combat::ai::factors::PlanFactors;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::types::PlanStep;
 use crate::combat::ai::scoring::{status_applications, stun_denial_value};
@@ -102,6 +103,22 @@ pub struct PlanAnnotation {
     /// `None` when no mask applied.
     #[serde(default)]
     pub contract: Option<ContractMaskHit>,
+    /// Step 7.4: final aggregated score for this plan after all pipeline stages.
+    /// Default 0.0. Written by scoring stages (replaces ScoredPool.scored).
+    #[serde(default)]
+    pub score: f32,
+    /// Step 7.4: raw factor decomposition for this plan.
+    /// Written by the initial scoring pass. Default PlanFactors::default().
+    #[serde(default)]
+    pub raw_factors: PlanFactors,
+    /// Step 7.4: whether this plan was chosen as the winning plan.
+    /// Set to `true` by `PickBestStage`. Default false.
+    #[serde(default)]
+    pub chosen: bool,
+    /// Step 7.4: pick mechanics info for the chosen plan.
+    /// `None` for non-chosen plans. Set by `PickBestStage`.
+    #[serde(default)]
+    pub pick: Option<PickInfo>,
 }
 
 /// Adaptation reason + original (pre-adaptation) score for a single plan.
@@ -122,6 +139,14 @@ pub struct ContractMaskHit {
     pub mask: String,
     /// Score this plan had immediately before the mask set it to -∞.
     pub original_score: f32,
+}
+
+/// Pick diagnostics for the winning plan.
+/// Written by `PickBestStage`; `None` on all non-chosen plans.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct PickInfo {
+    /// Top-K window, mercy flag, chosen position in the ranked pool.
+    pub mechanics: crate::combat::ai::planning::PickMechanics,
 }
 
 // ---------------------------------------------------------------------------

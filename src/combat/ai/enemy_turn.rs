@@ -13,7 +13,11 @@ use crate::combat::ai::log::AiLogger;
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::build_snapshot;
-use crate::combat::ai::utility::{pick_action, AiDecision, AiWorld};
+use crate::combat::ai::intent::update_memory;
+use crate::combat::ai::planning::record_committed_reservations;
+use crate::combat::ai::utility::{
+    pick_action, write_decision_log_from_result, AiDecision, AiWorld, ChosenInfo,
+};
 use crate::content::settings::GameSettings;
 use crate::core::DiceRng;
 use crate::game::components::{
@@ -172,13 +176,55 @@ fn run_ai_turn(
         HashMap::new()
     };
 
-    // Step 6.6: exact-continuation (continuation_from_stored) removed.
-    // pick_action applies repair-affinity bonus internally via AiMemory.last_goal,
-    // so the fresh plan already reflects goal-preservation preferences.
-    let (decision, debug_snapshot, fresh_chosen) = pick_action(
+    // Step 7.4: pick_action is now a pure function (does not mutate memory).
+    // update_memory runs AFTER pick_action so that select_intent inside
+    // pick_action reads the pre-tick memory state (matching original semantics).
+    let t0 = if logger.is_enabled() { Some(std::time::Instant::now()) } else { None };
+    let result = pick_action(
         actor, actor_pos, &world, &snap, &maps, rng,
-        memory_ref, reservations, logger, debug, &debug_names,
+        memory_ref, reservations, debug, &debug_names,
     );
+
+    // Update memory with the intent chosen this tick. Must run after pick_action
+    // so select_intent inside it saw the pre-tick memory state.
+    update_memory(memory_ref, actor_snap, &result.intent, &content.ai_tuning);
+
+    let decision = result.decision.clone();
+    let best_idx = result.best_idx;
+
+    // Build ChosenInfo from PickResult for divergence log + goal_lifecycle.
+    let fresh_chosen: Option<ChosenInfo> = if result.pool.is_empty() {
+        None
+    } else {
+        let ann = &result.pool.annotations[best_idx];
+        let mut chosen_plan = result.pool.plans[best_idx].clone();
+        chosen_plan.sim_snapshots.clear();
+        Some(ChosenInfo {
+            plan: chosen_plan,
+            score: ann.score,
+            intent: result.intent,
+            reason: result.intent_reason.clone(),
+        })
+    };
+
+    // Logging — orchestrator receives PickResult and writes the decision log.
+    if logger.is_enabled() {
+        let decision_time_ms = t0.map_or(0, |t| t.elapsed().as_millis() as u64);
+        let reservations_snap = reservations.to_snapshot();
+        write_decision_log_from_result(
+            logger, decision_time_ms, actor, actor_snap, &snap, content,
+            &result, &debug_names, &env.difficulty, memory_ref, reservations_snap,
+        );
+    }
+
+    // Reservations — record committed prefix for this tick.
+    if !result.pool.is_empty() {
+        let best_plan = &result.pool.plans[best_idx];
+        let (_, consumed) = crate::combat::ai::planning::commit_plan(best_plan, actor_pos);
+        record_committed_reservations(
+            best_plan, consumed, actor_snap, &world, &snap, reservations, actor_pos,
+        );
+    }
 
     // Compute severity from last_goal for divergence logging (step 6.6).
     // None when no stored goal exists — equivalent to old "no mismatch" path.
@@ -189,11 +235,7 @@ fn run_ai_turn(
             g.check_continuation(actor_snap, target_snap).map(|c| c.severity)
         });
 
-    // Divergence log: emit whenever we have both a stored goal and a fresh plan.
-    // The `stored` side is synthesised from last_goal (step 6.6 — StoredPlan removed).
-    //
-    // `goal_obsolete` computation stays here for logging purposes; goal-clearing
-    // is now handled by goal_lifecycle::post_tick (step 7.3, below).
+    // Divergence log block (step 6.6). Remains untouched until 7.5.
     if let (Some(ref stored_goal), Some(ref fresh)) = (&memory_ref.last_goal, &fresh_chosen) {
         let fresh_decision_kind = match decision {
             AiDecision::CastInPlace { .. } | AiDecision::MoveAndCast { .. } => {
@@ -217,27 +259,19 @@ fn run_ai_turn(
             actor,
             stored_goal,
             fresh,
-            // used_continuation always false — exact-continuation removed in 6.6.
             false,
-            None, // replan_reason: no longer applicable (no stored plan steps to validate)
+            None,
             continuation_severity,
             continuation_outcome,
             fresh_repair_affinity,
-            None, // repair_bonus: not readily available here without re-computing
+            None,
         );
     }
 
-    // Store debug data: maps always (for overlay), snapshot for console log.
-    //
-    // `plan_index` counts AI ticks within a single actor's turn. Same actor
-    // on the next tick → continuation (re-plan after a Move), so increment.
-    // Different actor → new turn elsewhere, reset to 1. EndTurn clears
-    // `last_actor` after storing, so the next round this same actor starts
-    // at 1 again (without this, a solo AI unit — no other AI actors between
-    // its turns to flip `last_actor` — would keep incrementing forever).
+    // Debug overlay — maps + snapshot.
     if debug {
         debug_state.influence_maps = Some(maps.clone());
-        if let Some(mut ds) = debug_snapshot {
+        if let Some(mut ds) = result.debug_snapshot {
             if debug_state.last_actor == Some(actor) {
                 debug_state.plan_index = debug_state.plan_index.saturating_add(1);
             } else {
@@ -252,9 +286,7 @@ fn run_ai_turn(
         }
     }
 
-    // Step 7.3: centralised goal lifecycle post-tick — store/clear last_goal.
-    // Replaces the inline decision-match block from step 6.6/6.7.
-    // Divergence-log block above (goal_obsolete) remains untouched until 7.5.
+    // Step 7.3: centralised goal lifecycle post-tick.
     goal_lifecycle::post_tick(
         memory_ref,
         &decision,
@@ -275,8 +307,6 @@ fn run_ai_turn(
             msgs.use_ability.write(UseAbility { actor, ability, target, target_pos });
         }
         AiDecision::Move { path, .. } => {
-            // No EndTurn here: the next AI tick will continue the stored plan
-            // (if freeze is on) or re-plan from scratch (if freeze is off).
             msgs.move_unit.write(MoveUnit { actor, path });
         }
         AiDecision::EndTurn => {

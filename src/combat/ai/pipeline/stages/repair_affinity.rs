@@ -51,7 +51,6 @@ impl PlanStage for RepairAffinityStage {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::PlanFactors;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
@@ -105,10 +104,10 @@ mod tests {
             actor.pos,
             &mut rng,
         );
-        let n = plans.len();
         let mut pool = ScoredPool::new(plans);
-        pool.scored = vec![0.5; n];
-        pool.raw_factors = vec![PlanFactors::default(); n];
+        for ann in pool.annotations.iter_mut() {
+            ann.score = 0.5;
+        }
         RepairAffinityStage.apply(&mut pool, &mut ctx);
         pool
     }
