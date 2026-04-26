@@ -88,7 +88,7 @@ impl EvaluationMode {
 /// Fact-based reason an individual plan's evaluation regime was switched.
 /// Carries enough numeric context for debug/log to explain the switch —
 /// no post-score values, only snapshot facts (see invariant #2).
-#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AdaptationReason {
     /// Plan's expected AoO damage on its move transitions reaches or

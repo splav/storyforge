@@ -204,6 +204,7 @@ impl PlanRanking {
     /// discovered after measurement+correction. See `planning::adaptation`
     /// for invariants. Stores the resulting per-plan mode map on `self`
     /// so the downstream contract mask and the picker can consult it.
+    #[allow(dead_code)]
     pub fn apply_adaptation(&mut self, plans: &mut [TurnPlan], ctx: &ScoringCtx) {
         self.adaptation = apply_adaptation(
             plans, &mut self.raw_factors, &mut self.scored, &self.intent, ctx,
@@ -228,6 +229,7 @@ impl PlanRanking {
     /// this unconditionally is a no-op on non-ProtectSelf intents only
     /// incidentally (the mask would strip nothing), so the guard is load-
     /// bearing.
+    #[allow(dead_code)]
     pub fn apply_protect_self(&mut self, epsilon: f32) {
         apply_protect_self_mask(
             &mut self.scored,
@@ -247,6 +249,7 @@ impl PlanRanking {
     /// Caller guards with `matches!(self.intent, FocusTarget { .. })`; the
     /// guard is load-bearing — `ProtectSelf` and `FocusTarget` are mutually
     /// exclusive intents, so the gate must not run under `ProtectSelf`.
+    #[allow(dead_code)]
     pub fn apply_killable_gate(&mut self, plans: &mut [TurnPlan], ctx: &ScoringCtx) {
         self.gate_stats = apply_killable_gate(
             plans,

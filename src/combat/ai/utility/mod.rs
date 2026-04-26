@@ -16,7 +16,13 @@ mod ranking;
 pub use crate::combat::ai::planning::PickMechanics;
 
 use crate::combat::ai::pipeline::{
-    stages::{sanity::SanityStage, viability::ViabilityStage},
+    stages::{
+        adaptation::AdaptationStage,
+        killable_gate::KillableGateStage,
+        protect_self::ProtectSelfMaskStage,
+        sanity::SanityStage,
+        viability::ViabilityStage,
+    },
     Pipeline, ScoredPool, StageCtx,
 };
 use crate::combat::ai::repair::compute_repair_affinity;
@@ -276,27 +282,29 @@ pub fn pick_action(
         actor_pos,
         rng,
     );
-    let viability_sanity = Pipeline::new()
+    let scoring_pipeline = Pipeline::new()
         .add(Box::new(ViabilityStage))
         .add(Box::new(SanityStage));
-    viability_sanity.run(&mut pool, &mut stage_ctx);
+    scoring_pipeline.run(&mut pool, &mut stage_ctx);
 
-    // Unpack pool back into plans + ranking for the legacy pipeline tail.
-    // from_pool must happen before pool is destructured (it borrows pool).
+    // Snapshot post-sanity scores before adaptation rescores any plan.
+    // The log stores both numbers per plan so offline diagnostics can tell
+    // "did adaptation move this rank?" without rerunning the pipeline.
+    let base_scored = pool.scored.clone();
+
+    // Contract stages (7.2): stages carry internal predicates and self-skip
+    // when their conditions don't apply, so no `if matches!` guards needed.
+    let contract_pipeline = Pipeline::new()
+        .add(Box::new(AdaptationStage))
+        .add(Box::new(ProtectSelfMaskStage))
+        .add(Box::new(KillableGateStage));
+    contract_pipeline.run(&mut pool, &mut stage_ctx);
+
+    // Sync pool back into PlanRanking for the legacy pipeline tail (pick,
+    // log, debug). pool.plans/annotations remain alive until the end of
+    // pick_action; we pass pool by reference where possible.
     let mut ranking = PlanRanking::from_pool(&pool, stage_ctx.intent, stage_ctx.intent_reason);
     plans = pool.plans;
-    // Snapshot post-sanity scores as the "base" — the value each plan had
-    // immediately before adaptation rescored any of them. The log stores
-    // both numbers per plan (v6 schema) so offline diagnostics can tell
-    // "did adaptation move this rank?" without rerunning the pipeline.
-    let base_scored = ranking.scored.clone();
-    ranking.apply_adaptation(&mut plans, &scoring_ctx);
-    if matches!(ranking.intent, TacticalIntent::ProtectSelf) {
-        ranking.apply_protect_self(world.tuning.thresholds.self_survival_epsilon);
-    }
-    if matches!(ranking.intent, TacticalIntent::FocusTarget { .. }) {
-        ranking.apply_killable_gate(&mut plans, &scoring_ctx);
-    }
 
     // Step 6.2/6.3/6.6: populate repair_affinity on each plan's annotation.
     // Severity is now classified from last_goal.check_continuation (step 6.6 —
@@ -323,16 +331,15 @@ pub fn pick_action(
 
     let (best_idx, mech) = ranking.pick(world, rng);
 
-    // If adaptation switched the chosen plan's evaluation regime, wrap
-    // the intent reason so logs/debug see the full chain
-    // (prior_intent_reason → adapted_via X). The global intent itself is
-    // left intact — the plan that won may not be the actor's "tactical
-    // wish", and conflating the two confuses debug output.
-    if let Some(adapt_reason) = ranking.adaptation.reasons.get(best_idx).and_then(|r| r.clone()) {
+    // Step 7.2: if adaptation switched the chosen plan's evaluation regime,
+    // wrap the intent reason so logs/debug see the full chain
+    // (prior_intent_reason → adapted_via X). Now reads from pool.annotations
+    // written by AdaptationStage instead of ranking.adaptation.reasons.
+    if let Some(adapt_data) = pool.annotations.get(best_idx).and_then(|a| a.adaptation.as_ref()) {
         let prior = std::mem::replace(&mut ranking.intent_reason, IntentReason::NoRuleDefault);
         ranking.intent_reason = IntentReason::Adapted {
             prior: Box::new(prior),
-            reason: adapt_reason,
+            reason: adapt_data.reason.clone(),
         };
     }
     let pick_mech = debug.then_some(mech);

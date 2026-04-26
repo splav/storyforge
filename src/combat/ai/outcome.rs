@@ -94,6 +94,34 @@ pub struct PlanAnnotation {
     /// Empty until SanityStage runs or when no rules fired.
     #[serde(default)]
     pub sanity: Vec<crate::combat::ai::planning::sanity::SanityHit>,
+    /// Step 7.2: adaptation decision for this plan (was PlanRanking.adaptation.reasons[i]).
+    /// `None` when no adaptation trigger fired for this plan.
+    #[serde(default)]
+    pub adaptation: Option<AdaptationData>,
+    /// Step 7.2: contract mask applied to this plan (ProtectSelf or KillableGate masking).
+    /// `None` when no mask applied.
+    #[serde(default)]
+    pub contract: Option<ContractMaskHit>,
+}
+
+/// Adaptation reason + original (pre-adaptation) score for a single plan.
+/// Written by `AdaptationStage`; consumed by the finalizer to build
+/// `IntentReason::Adapted` for the winning plan.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AdaptationData {
+    pub reason: crate::combat::ai::planning::AdaptationReason,
+    /// Score this plan had immediately before adaptation rescored it.
+    pub original_score: f32,
+}
+
+/// Record of a contract mask hit (ProtectSelf or KillableGate).
+/// Written by `ProtectSelfMaskStage` / `KillableGateStage`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ContractMaskHit {
+    /// Which mask applied: `"protect_self"` or `"killable_gate"`.
+    pub mask: String,
+    /// Score this plan had immediately before the mask set it to -∞.
+    pub original_score: f32,
 }
 
 // ---------------------------------------------------------------------------

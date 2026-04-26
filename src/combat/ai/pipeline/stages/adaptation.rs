@@ -1,0 +1,213 @@
+//! AdaptationStage — step 7.2.
+//!
+//! Replicates `PlanRanking::apply_adaptation` as a `PlanStage`. Calls
+//! `planning::apply_adaptation` on the pool and writes per-plan
+//! `annotation.adaptation` with the reason + original score for each plan
+//! whose evaluation mode was switched away from Default.
+
+use crate::combat::ai::outcome::AdaptationData;
+use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
+use crate::combat::ai::planning::apply_adaptation;
+
+pub struct AdaptationStage;
+
+impl PlanStage for AdaptationStage {
+    fn name(&self) -> &'static str {
+        "adaptation"
+    }
+
+    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
+        // Snapshot pre-adaptation scores before apply_adaptation mutates pool.scored.
+        let pre_scores: Vec<f32> = pool.scored.clone();
+
+        let adaptation = apply_adaptation(
+            &mut pool.plans,
+            &mut pool.raw_factors,
+            &mut pool.scored,
+            &ctx.intent,
+            ctx.scoring,
+        );
+
+        // Write annotation for each plan that had an adaptation reason.
+        for (i, reason) in adaptation.reasons.iter().enumerate() {
+            if let Some(r) = reason {
+                pool.annotations[i].adaptation = Some(AdaptationData {
+                    reason: r.clone(),
+                    original_score: pre_scores[i],
+                });
+            }
+        }
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::factors::PlanFactors;
+    use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+    use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
+    use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::reservations::Reservations;
+    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::test_helpers::{
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+    };
+    use crate::game::components::Team;
+    use crate::game::hex::hex_from_offset;
+    use crate::core::DiceRng;
+
+    /// Minimal plan with a move path (for AoO exposure) — no steps → no AoO.
+    fn empty_plan() -> TurnPlan {
+        TurnPlan::default()
+    }
+
+    fn move_plan(dest: crate::game::hex::Hex) -> TurnPlan {
+        TurnPlan {
+            steps: vec![PlanStep::Move { path: vec![dest] }],
+            final_pos: dest,
+            ..TurnPlan::default()
+        }
+    }
+
+    /// Run AdaptationStage on a pool with the given actor and return the pool.
+    fn run_adaptation(
+        plans: Vec<TurnPlan>,
+        scores: Vec<f32>,
+        raw: Vec<PlanFactors>,
+        actor: &crate::combat::ai::snapshot::UnitSnapshot,
+        snap: &BattleSnapshot,
+        intent: TacticalIntent,
+    ) -> ScoredPool {
+        let maps = empty_maps();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let scoring = make_scoring_ctx(&world, snap, &maps, &reservations, actor);
+        let mut rng = DiceRng::default();
+        let mut ctx = StageCtx::new(
+            &scoring,
+            intent,
+            IntentReason::NoRuleDefault,
+            actor.pos,
+            &mut rng,
+        );
+        let mut pool = ScoredPool::new(plans);
+        pool.scored = scores;
+        pool.raw_factors = raw;
+        AdaptationStage.apply(&mut pool, &mut ctx);
+        pool
+    }
+
+    // ── adaptation triggers → annotation populated ─────────────────────────
+
+    #[test]
+    fn adaptation_stage_writes_annotation_when_triggered() {
+        // ProtectSelf with no defensive plan → ProtectSelfNoDefensive on all plans.
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        // Two plans, neither defensive (self_survival=0.0 < epsilon).
+        let plans = vec![empty_plan(), empty_plan()];
+        let scores = vec![0.5, 0.4];
+        let raw = vec![
+            PlanFactors { self_survival: 0.0, ..Default::default() },
+            PlanFactors { self_survival: 0.0, ..Default::default() },
+        ];
+
+        let pool = run_adaptation(plans, scores, raw, &actor, &snap, TacticalIntent::ProtectSelf);
+
+        for ann in &pool.annotations {
+            assert!(
+                ann.adaptation.is_some(),
+                "expected adaptation annotation for ProtectSelfNoDefensive",
+            );
+        }
+    }
+
+    #[test]
+    fn adaptation_stage_records_original_score() {
+        // Same setup as above; original_score must equal the pre-adaptation value.
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let plans = vec![empty_plan(), empty_plan()];
+        let pre_scores = vec![0.5_f32, 0.4_f32];
+        let raw = vec![
+            PlanFactors { self_survival: 0.0, ..Default::default() },
+            PlanFactors { self_survival: 0.0, ..Default::default() },
+        ];
+
+        let pool = run_adaptation(
+            plans, pre_scores.clone(), raw, &actor, &snap, TacticalIntent::ProtectSelf,
+        );
+
+        for (i, ann) in pool.annotations.iter().enumerate() {
+            let data = ann.adaptation.as_ref().expect("expected adaptation");
+            assert_eq!(
+                data.original_score, pre_scores[i],
+                "original_score[{}] should match pre-adaptation score", i,
+            );
+        }
+    }
+
+    #[test]
+    fn adaptation_stage_skips_when_no_trigger_fires() {
+        // Healthy actor, Reposition intent, no AoO threats → no adaptation.
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(20).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let plans = vec![move_plan(hex_from_offset(1, 0))];
+        let scores = vec![0.5];
+        let raw = vec![PlanFactors::default()];
+
+        let pool = run_adaptation(
+            plans, scores, raw, &actor, &snap, TacticalIntent::Reposition,
+        );
+
+        assert!(
+            pool.annotations[0].adaptation.is_none(),
+            "expected no adaptation annotation when no trigger fires",
+        );
+    }
+
+    #[test]
+    fn adaptation_data_round_trips_through_intent_reason() {
+        // Verify that building IntentReason::Adapted from the annotation
+        // produces a reason with the same AdaptationReason.
+        use crate::combat::ai::intent::IntentReason;
+
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let plans = vec![empty_plan(), empty_plan()];
+        let scores = vec![0.5, 0.4];
+        let raw = vec![
+            PlanFactors { self_survival: 0.0, ..Default::default() },
+            PlanFactors { self_survival: 0.0, ..Default::default() },
+        ];
+
+        let pool = run_adaptation(plans, scores, raw, &actor, &snap, TacticalIntent::ProtectSelf);
+
+        let adapt = pool.annotations[0].adaptation.as_ref().expect("expected adaptation");
+        let prior = IntentReason::NoRuleDefault;
+        let wrapped = IntentReason::Adapted {
+            prior: Box::new(prior),
+            reason: adapt.reason.clone(),
+        };
+
+        // The wrapped reason encodes ProtectSelfNoDefensive.
+        match wrapped {
+            IntentReason::Adapted { reason, .. } => {
+                assert!(
+                    matches!(reason, crate::combat::ai::planning::AdaptationReason::ProtectSelfNoDefensive),
+                    "expected ProtectSelfNoDefensive, got {:?}", reason,
+                );
+            }
+            _ => panic!("expected Adapted variant"),
+        }
+    }
+}
