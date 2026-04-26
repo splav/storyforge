@@ -24,8 +24,11 @@ pub use builder::{
     step_path_danger,
 };
 // Crate-internal API (was `pub(crate)` in old outcome.rs):
-// `compute_score_core` is re-exported for external callers in policy/tests.rs
-// and factors/offensive.rs that import it via `crate::combat::ai::outcome::compute_score_core`.
+// `compute_score_core` is re-exported for `policy/tests.rs` which imports it
+// via `crate::combat::ai::outcome::compute_score_core` in property tests.
+// Step 4.10 removed the non-test consumer (factors/offensive.rs), so this
+// re-export is test-only. Drops in 4.12 together with the function itself.
+#[cfg(test)]
 pub(crate) use builder::compute_score_core;
 
 use crate::combat::ai::factors::PlanFactors;

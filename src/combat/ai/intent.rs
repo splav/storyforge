@@ -1426,23 +1426,34 @@ mod tests {
             caster_tile: actor.pos,
         };
 
-        // Build outcomes so compute_offensive reads expected_damage from the
-        // annotation rather than re-deriving (step 4.3 contract).
+        // Build outcomes so compute_offensive reads enemy_damage (fact field)
+        // and expected_damage (legacy, still populated for other consumers).
         use crate::combat::ai::outcome::estimate_expected_damage;
         use crate::content::abilities::CasterContext;
         use crate::content::races::CritFailEffect;
         let crit_fail_effect = CritFailEffect::default();
         let caster_ctx = CasterContext::default();
+
+        // Raw pre-policy damage (armor=0, no damage_taken_bonus for default target).
+        let raw_damage = |def: &AbilityDef| -> f32 {
+            let Some(calc) = def.effect.calc(&caster_ctx) else { return 0.0; };
+            if calc.is_heal { return 0.0; }
+            let mitigation = if calc.pierces_armor { 0.0 } else { (target.armor + target.armor_bonus) as f32 };
+            (calc.expected() - mitigation + target.damage_taken_bonus as f32).max(0.0)
+        };
+
         let outcome_strong = ActionOutcomeEstimate {
             expected_damage: estimate_expected_damage(
                 &strong, &target, &caster_ctx, &content, &crit_fail_effect, 0.0,
             ),
+            enemy_damage: raw_damage(&strong),
             ..Default::default()
         };
         let outcome_weak = ActionOutcomeEstimate {
             expected_damage: estimate_expected_damage(
                 &weak, &target, &caster_ctx, &content, &crit_fail_effect, 0.0,
             ),
+            enemy_damage: raw_damage(&weak),
             ..Default::default()
         };
 

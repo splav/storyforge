@@ -1,19 +1,16 @@
 //! Offensive factors: damage / heal / kill / cc for single-target and AoE.
 //!
-//! Step 4.3: `compute_offensive` reads pre-computed values from
-//! `ActionOutcomeEstimate` (annotated by the generator) instead of re-deriving
-//! them. AoE friendly-fire penalty uses `compute_score_core` (the inlined
-//! former `score_action`, deleted in step 4.5) because ally units are not
-//! captured in the outcome vector.
+//! Step 4.10: `compute_offensive` is a pure outcome-facts reader + policy
+//! applier. AoE damage is computed via per-entity policy walk
+//! (`outcome.enemy_damage_per_entity`); friendly-fire penalty uses
+//! `outcome.ally_damage_per_entity` and `outcome.self_damage` directly.
+//! `compute_aoe_damage` and the local `friendly_fire_penalty` helper are gone.
 
-use super::aoe_hits::{aoe_hits, AoeHits};
 use super::{crit_fail_adjusted, OffensiveFactors};
-use crate::combat::ai::outcome::{compute_score_core, ActionOutcomeEstimate};
-use crate::combat::ai::snapshot::UnitSnapshot;
+use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::effects_math::aoe_cells;
-use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef};
-use crate::content::content_view::ContentView;
+use crate::content::abilities::{AbilityDef, EffectDef};
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
@@ -21,22 +18,19 @@ use std::collections::HashSet;
 
 /// Compute offensive factors for a single Cast step.
 ///
-/// Reads pre-annotated values from `outcome` (filled by the generator's
-/// `build_step_outcome_estimate`) rather than re-deriving them from scratch.
-/// This makes the scorer a pure reader of the annotation vector.
-///
-/// The only live computation remaining here is the **AoE friendly-fire** penalty
-/// via `compute_aoe_damage` — it operates on ally units which are not captured
-/// in `ActionOutcomeEstimate`, so it cannot be read from the outcome directly.
-#[allow(deprecated)]
+/// Pure outcome-facts reader + policy applier. All damage / heal / CC values
+/// are derived exclusively from `outcome` (the pre-annotated fact vector filled
+/// by the generator) and the policy module — no re-derivation from the snapshot.
 pub(super) fn compute_offensive(
     ability: &AbilityId,
-    target_pos: Hex,
-    _target: Entity,
-    caster_tile: Hex,
+    _target_pos: Hex,
+    target: Entity,
+    _caster_tile: Hex,
     ctx: &ScoringCtx,
     outcome: &ActionOutcomeEstimate,
 ) -> OffensiveFactors {
+    use crate::combat::ai::policy;
+
     let content = ctx.world.content;
     let Some(def) = content.abilities.get(ability) else {
         return OffensiveFactors::default();
@@ -48,35 +42,75 @@ pub(super) fn compute_offensive(
 
     let snap = ctx.snap;
     let active = ctx.active;
-    let caster = &active.caster_ctx;
-    let crit_fail_effect = &active.crit_fail_effect;
-    let crit_fail_chance = ctx.world.crit_fail_chance;
 
-    // Read kill signals and CC directly from the pre-annotated outcome.
+    // ── Damage: facts → policies ──
+    // Single-target: apply damage::value with target HP context.
+    // AoE: per-entity policy walk captures per-target progression semantics.
+    let enemy_damage_value = if outcome.enemy_damage_per_entity.is_empty() {
+        // Single-target path.
+        snap.unit(target).map_or(0.0, |t| {
+            let hp_pct = (outcome.enemy_damage / t.hp.max(1) as f32).min(1.0);
+            policy::damage::value(outcome.enemy_damage, hp_pct)
+        })
+    } else {
+        // AoE: per-entity policy application — captures per-target progression.
+        outcome
+            .enemy_damage_per_entity
+            .iter()
+            .map(|(e, dmg)| {
+                snap.unit(*e).map_or(0.0, |t| {
+                    let hp_pct = (*dmg / t.hp.max(1) as f32).min(1.0);
+                    policy::damage::value(*dmg, hp_pct)
+                })
+            })
+            .sum()
+    };
+
+    let ally_penalty: f32 = outcome
+        .ally_damage_per_entity
+        .iter()
+        .map(|(e, dmg)| {
+            snap.unit(*e)
+                .map_or(0.0, |t| policy::friendly_fire::penalty(*dmg, t.max_hp))
+        })
+        .sum();
+
+    let self_penalty = if outcome.self_damage > 0.0 {
+        policy::friendly_fire::penalty(outcome.self_damage, active.max_hp)
+    } else {
+        0.0
+    };
+
+    let damage_raw = enemy_damage_value - ally_penalty - self_penalty;
+    let damage = crit_fail_adjusted(
+        damage_raw,
+        def,
+        &active.crit_fail_effect,
+        ctx.world.crit_fail_chance,
+    );
+
+    // ── Heal: facts → policy ──
+    let heal = if outcome.hp_restored > 0.0 {
+        snap.unit(target).map_or(0.0, |t| {
+            let danger = ctx.maps.danger.get(t.pos);
+            let horizon_sum: f32 = t.damage_horizon.iter().sum::<f32>().max(t.threat);
+            let raw = policy::heal::value(outcome.hp_restored, t.max_hp, t.hp, danger, horizon_sum);
+            crit_fail_adjusted(raw, def, &active.crit_fail_effect, ctx.world.crit_fail_chance)
+        })
+    } else {
+        0.0
+    };
+
+    // ── CC: facts → policy ──
+    let cc = policy::cc::value(
+        outcome.cc_turns_applied,
+        outcome.vulnerability_applied,
+        outcome.armor_shred_applied,
+    );
+
+    // ── Kill signals: pure facts ──
     let kill_now = outcome.p_kill_now;
     let kill_promised = outcome.p_kill_soon;
-    let cc = outcome.deny_value;
-    let heal = outcome.rescue_value;
-
-    // For damage: outcome.expected_damage holds total damage (enemy hits minus
-    // friendly-fire, crit-fail-adjusted) for single-target casts. For AoE,
-    // outcome.expected_damage is sim-derived total damage, but we need to
-    // re-apply the friendly-fire penalty which is not captured in the outcome.
-    let damage = if def.aoe == AoEShape::None {
-        // Single-target: read directly from outcome.
-        outcome.expected_damage
-    } else {
-        // AoE: the sim's outcome.damage already includes friendly-fire netting
-        // (sim applies splash to allies too). Use expected_damage as-is — it
-        // matches what compute_aoe_damage would produce via the old path.
-        // The AoE friendly-fire branch below re-checks the ratio for the
-        // `adjustments` pass (reservation nerf), but damage itself reads outcome.
-        let area = aoe_area(def, target_pos, caster_tile);
-        let hits = aoe_hits(&area, active, snap);
-        // Re-derive AoE damage using the original helper, which accounts for
-        // friendly-fire splash correctly (ally hits are not in the outcome).
-        compute_aoe_damage(def, &hits, active, caster, content, crit_fail_effect, crit_fail_chance)
-    };
 
     OffensiveFactors { damage, heal, kill_now, kill_promised, cc }
 }
@@ -88,78 +122,25 @@ pub fn aoe_area(def: &AbilityDef, target_pos: Hex, caster_tile: Hex) -> HashSet<
     aoe_cells(def.aoe, caster_tile, target_pos).into_iter().collect()
 }
 
-/// `raw × (1 + raw/max_hp)` — punishes plans that chunk a non-enemy's HP%
-/// harder, so a fireball on a full-HP ally is worse than on a nicked one.
-fn friendly_fire_penalty(
-    def: &AbilityDef,
-    u: &UnitSnapshot,
-    caster: &CasterContext,
-    content: &ContentView,
-) -> f32 {
-    use crate::combat::ai::policy;
-    // Friendly-fire splash is a damage estimate; heal-urgency is irrelevant.
-    let raw = compute_score_core(def, u, caster, content, 0.0).abs();
-    policy::friendly_fire::penalty(raw, u.max_hp)
-}
-
-/// Net AoE damage = enemies hit minus friendly-fire splash, crit-fail-adjusted.
-///
-/// `hits.allies` excludes the actor — `self_hit` carries it separately — so
-/// chaining the two iterators penalises the caster at most once even when
-/// they stand in their own blast. Before this consolidation, iterating
-/// `allies_of(team)` (which includes self) plus an explicit self-branch
-/// subtracted self-damage twice.
-#[allow(clippy::too_many_arguments)]
-fn compute_aoe_damage(
-    def: &AbilityDef,
-    hits: &AoeHits,
-    active: &UnitSnapshot,
-    caster: &CasterContext,
-    content: &ContentView,
-    crit_fail_effect: &crate::content::races::CritFailEffect,
-    crit_fail_chance: f32,
-) -> f32 {
-    // AoE damage path never triggers heal urgency (not SingleAlly).
-    let enemy_damage: f32 = hits
-        .enemies
-        .iter()
-        .map(|e| compute_score_core(def, e, caster, content, 0.0))
-        .sum();
-    let splash: f32 = if def.friendly_fire {
-        hits.allies
-            .iter()
-            .copied()
-            .chain(hits.self_hit.then_some(active))
-            .map(|u| friendly_fire_penalty(def, u, caster, content))
-            .sum()
-    } else {
-        0.0
-    };
-    crit_fail_adjusted(enemy_damage - splash, def, crit_fail_effect, crit_fail_chance)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::combat::ai::test_helpers::UnitBuilder;
-    use crate::content::content_view::ContentView;
+    use crate::combat::ai::outcome::ActionOutcomeEstimate;
+    use crate::combat::ai::policy;
     use crate::core::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
-    fn db() -> ContentView {
-        ContentView::load_global_for_tests()
+    fn db() -> crate::content::content_view::ContentView {
+        crate::content::content_view::ContentView::load_global_for_tests()
     }
 
-    /// Step 4.3 contract: `compute_offensive` must read `outcome.expected_damage`,
-    /// `outcome.p_kill_soon`, and `outcome.deny_value` directly, not re-derive them.
-    ///
-    /// We inject a synthetic outcome with known values and assert the returned
-    /// `OffensiveFactors` mirrors them exactly. If any field were re-derived from
-    /// the snapshot or via `compute_score_core` the values would differ.
+    /// Step 4.10: `compute_offensive` reads new fact fields and applies
+    /// policy functions. Injects a synthetic outcome with known values and
+    /// asserts the returned `OffensiveFactors` correctly applies all policies.
     #[test]
-    #[allow(deprecated)]
-    fn compute_offensive_reads_outcome_not_score_action() {
+    fn compute_offensive_reads_facts_and_applies_policy() {
         use crate::combat::ai::difficulty::DifficultyProfile;
         use crate::combat::ai::reservations::Reservations;
         use crate::combat::ai::snapshot::BattleSnapshot;
@@ -171,30 +152,235 @@ mod tests {
 
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(1, 0);
-        // High-HP target so no kill_now from snapshot.
+
+        // Target at half HP so damage progression > 0.
         let actor = UnitBuilder::new(1, Team::Enemy, caster_pos).full_hp(100).build();
-        let target = UnitBuilder::new(2, Team::Player, target_pos).full_hp(100).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos)
+            .hp(50)
+            .max_hp(100)
+            .threat(20.0)
+            .build();
         let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        // Inject a synthetic outcome with known sentinel values.
+        // Synth outcome with all relevant fact fields set.
         let outcome = ActionOutcomeEstimate {
-            expected_damage: 100.0,
+            enemy_damage: 30.0,
             p_kill_now: 0.0,
             p_kill_soon: 1.0,
-            deny_value: 42.0,
-            rescue_value: 0.0,
+            cc_turns_applied: 5.0,
+            vulnerability_applied: 2.0,
+            armor_shred_applied: 1.0,
+            hp_restored: 0.0,
+            self_damage: 0.0,
             ..Default::default()
         };
 
         let ability = AbilityId::from("melee_attack");
-        let off = compute_offensive(&ability, target_pos, target.entity, caster_pos, &ctx, &outcome);
+        let off = compute_offensive(
+            &ability,
+            target_pos,
+            target.entity,
+            caster_pos,
+            &ctx,
+            &outcome,
+        );
 
-        assert_eq!(off.damage, 100.0, "damage must come from outcome.expected_damage");
-        assert_eq!(off.kill_promised, 1.0, "kill_promised must come from outcome.p_kill_soon");
-        assert_eq!(off.cc, 42.0, "cc must come from outcome.deny_value");
-        assert_eq!(off.kill_now, 0.0, "kill_now must come from outcome.p_kill_now");
+        // Damage: single-target path; hp_pct = min(30/50, 1.0) = 0.6.
+        let expected_dmg = policy::damage::value(30.0, 0.6);
+        assert!(
+            (off.damage - expected_dmg).abs() < 1e-5,
+            "damage={} expected≈{expected_dmg}",
+            off.damage
+        );
+
+        // CC: policy::cc::value(5.0, 2.0, 1.0) = 8.0.
+        let expected_cc = policy::cc::value(5.0, 2.0, 1.0);
+        assert!(
+            (off.cc - expected_cc).abs() < 1e-5,
+            "cc={} expected={expected_cc}",
+            off.cc
+        );
+
+        assert_eq!(off.kill_promised, 1.0, "kill_promised from p_kill_soon");
+        assert_eq!(off.kill_now, 0.0, "kill_now from p_kill_now");
+        assert_eq!(off.heal, 0.0, "no heal when hp_restored == 0");
+    }
+
+    /// AoE per-entity progression: damage policy applied per-target, not once
+    /// on the total. A high-HP target with the same raw damage is worth less
+    /// than an equivalent hit on a low-HP target.
+    #[test]
+    fn compute_offensive_aoe_per_entity_progression() {
+        use crate::combat::ai::difficulty::DifficultyProfile;
+        use crate::combat::ai::reservations::Reservations;
+        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::test_helpers::{ent, empty_maps, make_scoring_ctx, make_test_ctx};
+
+        let content = db();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+
+        let caster_pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(1, 0);
+
+        let actor = UnitBuilder::new(1, Team::Enemy, caster_pos).full_hp(100).build();
+        // low-HP target: 10 HP remaining (raw=10 hits hard — progress=1.0).
+        let low_hp = UnitBuilder::new(2, Team::Player, target_pos)
+            .hp(10)
+            .max_hp(100)
+            .build();
+        // high-HP target: 100 HP remaining (raw=10 is minor — progress=0.1).
+        let high_hp = UnitBuilder::new(3, Team::Player, hex_from_offset(2, 0))
+            .full_hp(100)
+            .build();
+
+        let snap = BattleSnapshot::new(
+            vec![actor.clone(), low_hp.clone(), high_hp.clone()],
+            1,
+        );
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        // AoE outcome: same raw damage (10) to both targets.
+        let raw = 10.0_f32;
+        let outcome_aoe = ActionOutcomeEstimate {
+            enemy_damage_per_entity: vec![(low_hp.entity, raw), (high_hp.entity, raw)],
+            enemy_damage: raw * 2.0,
+            ..Default::default()
+        };
+
+        // Single-target equivalent outcome hitting only the high-HP target.
+        let outcome_single_high = ActionOutcomeEstimate {
+            enemy_damage: raw,
+            ..Default::default()
+        };
+
+        let ability = AbilityId::from("melee_attack");
+        let off_aoe = compute_offensive(
+            &ability,
+            target_pos,
+            low_hp.entity,
+            caster_pos,
+            &ctx,
+            &outcome_aoe,
+        );
+        let off_single_high = compute_offensive(
+            &ability,
+            target_pos,
+            high_hp.entity,
+            caster_pos,
+            &ctx,
+            &outcome_single_high,
+        );
+
+        // The AoE value must exceed "same damage against the high-HP target only"
+        // because the low-HP hit is valued much higher (kills progression).
+        assert!(
+            off_aoe.damage > off_single_high.damage * 2.0,
+            "AoE with one near-death target ({}) should beat 2× single high-HP value ({})",
+            off_aoe.damage,
+            off_single_high.damage * 2.0
+        );
+
+        // Verify the low-HP progression is higher than high-HP progression.
+        let val_low = policy::damage::value(raw, (raw / 10.0_f32).min(1.0));
+        let val_high = policy::damage::value(raw, (raw / 100.0_f32).min(1.0));
+        assert!(
+            val_low > val_high,
+            "low-HP target value ({val_low}) > high-HP target value ({val_high})"
+        );
+
+        // Suppress unused-import warning for ent helper used in sibling tests.
+        let _ = ent(99);
+    }
+
+    /// Friendly-fire penalty is super-linear in raw_dmg/max_hp: doubling the
+    /// damage dealt to an ally produces more than double the penalty.
+    #[test]
+    fn compute_offensive_friendly_fire_super_linear() {
+        use crate::combat::ai::difficulty::DifficultyProfile;
+        use crate::combat::ai::reservations::Reservations;
+        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
+
+        let content = db();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+
+        let caster_pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(1, 0);
+
+        let actor = UnitBuilder::new(1, Team::Enemy, caster_pos).full_hp(100).build();
+        // Enemy target so we don't accidentally zero-out from missing snap.unit.
+        let enemy_target = UnitBuilder::new(2, Team::Player, target_pos)
+            .full_hp(100)
+            .build();
+        // Ally that takes friendly-fire splash.
+        let ally = UnitBuilder::new(3, Team::Enemy, hex_from_offset(0, 1))
+            .full_hp(100)
+            .build();
+
+        let snap = BattleSnapshot::new(
+            vec![actor.clone(), enemy_target.clone(), ally.clone()],
+            1,
+        );
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let ability = AbilityId::from("melee_attack");
+
+        // Low ally damage.
+        let outcome_low = ActionOutcomeEstimate {
+            enemy_damage: 50.0,
+            ally_damage_per_entity: vec![(ally.entity, 10.0)],
+            ally_damage: 10.0,
+            ..Default::default()
+        };
+        // Double ally damage.
+        let outcome_high = ActionOutcomeEstimate {
+            enemy_damage: 50.0,
+            ally_damage_per_entity: vec![(ally.entity, 20.0)],
+            ally_damage: 20.0,
+            ..Default::default()
+        };
+
+        let off_low = compute_offensive(
+            &ability,
+            target_pos,
+            enemy_target.entity,
+            caster_pos,
+            &ctx,
+            &outcome_low,
+        );
+        let off_high = compute_offensive(
+            &ability,
+            target_pos,
+            enemy_target.entity,
+            caster_pos,
+            &ctx,
+            &outcome_high,
+        );
+
+        // Doubling ally damage should produce a damage penalty reduction > 2×
+        // (because penalty is super-linear: raw × (1 + raw/max_hp)).
+        let penalty_low = policy::friendly_fire::penalty(10.0, 100);
+        let penalty_high = policy::friendly_fire::penalty(20.0, 100);
+        assert!(
+            penalty_high > 2.0 * penalty_low,
+            "penalty({penalty_high}) should be > 2×penalty({penalty_low})"
+        );
+
+        // The plan with higher ally damage should have lower net damage.
+        assert!(
+            off_high.damage < off_low.damage,
+            "higher ally damage ({}) should reduce net damage below low ally case ({})",
+            off_high.damage,
+            off_low.damage
+        );
     }
 }

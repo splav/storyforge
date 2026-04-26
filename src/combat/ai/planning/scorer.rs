@@ -827,12 +827,30 @@ mod tests {
                         return ActionOutcomeEstimate::default();
                     };
                     let target_unit = snap.unit(*target);
+                    // Legacy field: policy-baked expected damage (still read by
+                    // compute_score_core-based paths; drops in 4.12).
                     let expected_damage = target_unit.map_or(0.0, |t| {
                         estimate_expected_damage(
                             def, t, &caster_ctx, content, &crit_fail_effect, crit_fail_chance,
                         )
                     });
-                    ActionOutcomeEstimate { expected_damage, ..Default::default() }
+                    // Fact field: raw pre-policy damage consumed by compute_offensive
+                    // after step 4.10.
+                    let enemy_damage = target_unit.map_or(0.0, |t| {
+                        let Some(calc) = def.effect.calc(&caster_ctx) else {
+                            return 0.0;
+                        };
+                        if calc.is_heal {
+                            return 0.0;
+                        }
+                        let mitigation = if calc.pierces_armor {
+                            0.0
+                        } else {
+                            (t.armor + t.armor_bonus) as f32
+                        };
+                        (calc.expected() - mitigation + t.damage_taken_bonus as f32).max(0.0)
+                    });
+                    ActionOutcomeEstimate { expected_damage, enemy_damage, ..Default::default() }
                 }
                 PlanStep::Move { .. } => ActionOutcomeEstimate::default(),
             }
