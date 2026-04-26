@@ -150,7 +150,12 @@ use crate::game::hex::Hex;
 ///   to `NoStoredGoal` via `#[serde(other)]` (acceptable for analysis — v25
 ///   abandoned entries are not split granularly anyway). `AbandonReason` enum
 ///   removed (merged into outcome variants above).
-pub const SCHEMA_VERSION: u32 = 27;
+///
+/// v28 (step 4.12, 2026-04-26): `ActionOutcomeEstimate` legacy fields removed
+///   (`expected_damage`, `deny_value`, `rescue_value`, `board_pressure`,
+///   `geometry_gain`, `exposure_delta`, `resource_swing`). Outcomes now contain
+///   fact fields only. v27 logs are incompatible — clean break.
+pub const SCHEMA_VERSION: u32 = 28;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -1026,6 +1031,66 @@ pub fn write_actor_tick_log(logger: &mut AiLogger, input: ActorTickInput<'_>) {
     }
 }
 
+// ── Schema-versioned parsing ───────────────────────────────────────────────
+
+/// Error returned by [`parse_actor_tick`].
+#[derive(Debug)]
+pub enum LogError {
+    /// The log entry's `schema_version` is lower than `SCHEMA_VERSION`.
+    /// Clean break — use a newer playtest to generate v28+ logs.
+    UnsupportedSchema {
+        found: u32,
+        required: u32,
+        hint: &'static str,
+    },
+    /// JSON parse error.
+    Json(serde_json::Error),
+}
+
+impl std::fmt::Display for LogError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LogError::UnsupportedSchema { found, required, hint } => {
+                write!(f, "unsupported schema v{found} (required v{required}): {hint}")
+            }
+            LogError::Json(e) => write!(f, "JSON parse error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for LogError {}
+
+impl From<serde_json::Error> for LogError {
+    fn from(e: serde_json::Error) -> Self {
+        LogError::Json(e)
+    }
+}
+
+/// Minimal struct for reading `schema_version` before full parse.
+#[derive(Deserialize)]
+struct SchemaHeader {
+    #[serde(default)]
+    schema_version: u32,
+}
+
+/// Parse a single JSONL line as an [`ActorTickEvent`], rejecting old schemas
+/// with a clear error.
+///
+/// Returns `Err(LogError::UnsupportedSchema)` when the line carries a
+/// `schema_version` lower than [`SCHEMA_VERSION`]. Tools should show this
+/// error to the user and ask for a fresh v28+ playtest.
+pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
+    let header: SchemaHeader = serde_json::from_str(line)?;
+    if header.schema_version < SCHEMA_VERSION {
+        return Err(LogError::UnsupportedSchema {
+            found: header.schema_version,
+            required: SCHEMA_VERSION,
+            hint: "v27 outcome shape replaced in step 4.12; rebuild logs from v28+ playtest",
+        });
+    }
+    Ok(serde_json::from_str(line)?)
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1289,5 +1354,45 @@ mod tests {
         assert_eq!(chosen_count, 1, "exactly one plan has chosen=true");
         assert_eq!(event.plans[0].rank, 1, "rank 1 is highest score");
         assert!(event.plans[0].annotation.chosen, "rank 1 plan is the chosen one");
+    }
+
+    // ── parse_actor_tick schema version tests ─────────────────────────────────
+
+    /// v27 log line returns `UnsupportedSchema` error — clean break.
+    #[test]
+    fn parse_v27_returns_unsupported_schema_error() {
+        let json = r#"{"event_type":"actor_tick","schema_version":27}"#;
+        let result = parse_actor_tick(json);
+        assert!(
+            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 28, .. })),
+            "v27 must produce UnsupportedSchema(found=27, required=28), got: {result:?}",
+        );
+    }
+
+    /// v26 log line also returns `UnsupportedSchema` error.
+    #[test]
+    fn parse_v26_returns_unsupported_schema_error() {
+        let json = r#"{"event_type":"actor_tick","schema_version":26}"#;
+        let result = parse_actor_tick(json);
+        assert!(
+            matches!(result, Err(LogError::UnsupportedSchema { found: 26, .. })),
+            "v26 must produce UnsupportedSchema, got: {result:?}",
+        );
+    }
+
+    /// v28 minimal actor_tick round-trips through parse_actor_tick.
+    #[test]
+    fn actor_tick_v28_round_trips() {
+        let snap = BattleSnapshot::default();
+        let debug_names = std::collections::HashMap::new();
+        let actor = Entity::from_bits(1);
+        let input = make_tick_input_skip(actor, &snap, &debug_names);
+        let event = build_actor_tick_event(input);
+        assert_eq!(event.schema_version, SCHEMA_VERSION); // must be 28
+
+        let json = serde_json::to_string(&event).expect("serialize");
+        let parsed = parse_actor_tick(&json).expect("parse_actor_tick should succeed for v28");
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.actor_id, event.actor_id);
     }
 }

@@ -49,8 +49,8 @@ pub(super) fn compute_offensive(
     let enemy_damage_value = if outcome.enemy_damage_per_entity.is_empty() {
         // Single-target path.
         snap.unit(target).map_or(0.0, |t| {
-            let hp_pct = (outcome.enemy_damage / t.hp.max(1) as f32).min(1.0);
-            policy::damage::value(outcome.enemy_damage, hp_pct)
+            let damage_progress = (outcome.enemy_damage / t.hp.max(1) as f32).min(1.0);
+            policy::damage::value(outcome.enemy_damage, damage_progress)
         })
     } else {
         // AoE: per-entity policy application — captures per-target progression.
@@ -59,8 +59,8 @@ pub(super) fn compute_offensive(
             .iter()
             .map(|(e, dmg)| {
                 snap.unit(*e).map_or(0.0, |t| {
-                    let hp_pct = (*dmg / t.hp.max(1) as f32).min(1.0);
-                    policy::damage::value(*dmg, hp_pct)
+                    let damage_progress = (*dmg / t.hp.max(1) as f32).min(1.0);
+                    policy::damage::value(*dmg, damage_progress)
                 })
             })
             .sum()

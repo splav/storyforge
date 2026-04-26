@@ -801,24 +801,21 @@ mod tests {
         crate::combat::ai::test_helpers::make_test_ctx(content, difficulty)
     }
 
-    /// Populate `plan.annotation.outcomes` with scorer-compatible expected-damage
-    /// values for each Cast step, using the actor's `CasterContext` and the
-    /// provided pre-step snapshot.
+    /// Populate `plan.annotation.outcomes` with raw fact-field outcomes for each
+    /// Cast step, using the actor's `CasterContext` and the provided pre-step
+    /// snapshot.
     ///
     /// Required in scorer tests that build `TurnPlan` manually (with
     /// `annotation: Default::default()`) and then call `compute_plan_factors`.
-    /// Step 4.3 moved live scoring to read `outcome.expected_damage` — without
-    /// this helper, intent factors would be 0 for all manually-built plans.
-    #[allow(deprecated)]
+    /// `compute_offensive` reads `enemy_damage` — without this helper, offensive
+    /// factors would be 0 for all manually-built plans.
     fn annotate_plan(
         plan: &mut TurnPlan,
         actor: &UnitSnapshot,
         snap: &crate::combat::ai::snapshot::BattleSnapshot,
         content: &crate::content::content_view::ContentView,
-        crit_fail_chance: f32,
+        _crit_fail_chance: f32,
     ) {
-        use crate::combat::ai::outcome::estimate_expected_damage;
-        let crit_fail_effect = actor.crit_fail_effect.clone();
         let caster_ctx = actor.caster_ctx.clone();
         let outcomes: Vec<ActionOutcomeEstimate> = plan.steps.iter().map(|step| {
             match step {
@@ -827,15 +824,7 @@ mod tests {
                         return ActionOutcomeEstimate::default();
                     };
                     let target_unit = snap.unit(*target);
-                    // Legacy field: policy-baked expected damage (still read by
-                    // compute_score_core-based paths; drops in 4.12).
-                    let expected_damage = target_unit.map_or(0.0, |t| {
-                        estimate_expected_damage(
-                            def, t, &caster_ctx, content, &crit_fail_effect, crit_fail_chance,
-                        )
-                    });
-                    // Fact field: raw pre-policy damage consumed by compute_offensive
-                    // after step 4.10.
+                    // Raw pre-policy damage fact consumed by compute_offensive.
                     let enemy_damage = target_unit.map_or(0.0, |t| {
                         let Some(calc) = def.effect.calc(&caster_ctx) else {
                             return 0.0;
@@ -850,7 +839,7 @@ mod tests {
                         };
                         (calc.expected() - mitigation + t.damage_taken_bonus as f32).max(0.0)
                     });
-                    ActionOutcomeEstimate { expected_damage, enemy_damage, ..Default::default() }
+                    ActionOutcomeEstimate { enemy_damage, ..Default::default() }
                 }
                 PlanStep::Move { .. } => ActionOutcomeEstimate::default(),
             }

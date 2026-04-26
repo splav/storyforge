@@ -24,51 +24,33 @@
 //!    are 0 for Cast, vice versa.
 //! 4. New mechanics extend outcome by adding fact fields. Do not add policy fields.
 //!
-//! ## Consumers (authoritative list as of step 4.11)
+//! ## Consumers (authoritative list as of step 4.12)
 //!
 //! ### Active fact readers
 //! - `factors::offensive::compute_offensive` — primary scoring consumer (4.10).
 //! - `planning::terminal::compute_secure_kill` — reads `p_kill_now` / `p_kill_soon`.
 //! - `repair::goal::extract_goal_context` — reads `p_kill_now` for Finish/Pressure classification.
-//! - `planning::future_value::λ_attack` (`attack_component_intent`) — reads `expected_damage`
-//!   from hypothetical path; migrates to `policy::damage::value` in 4.12.
-//! - `planning::picker::record_committed_reservations` — reads `expected_damage`
-//!   from hypothetical path; migrates to `policy::damage::value` in 4.12.
+//! - `planning::future_value::λ_attack` (`attack_component_intent`) — reads `enemy_damage`
+//!   from hypothetical path; applies `policy::damage::value`.
+//! - `planning::picker::record_committed_reservations` — reads `enemy_damage`
+//!   (or `enemy_damage_per_entity` for AoE) from outcome for reservation bookkeeping.
 //!
 //! ### Non-consumers (NOT applicable, not a bug)
 //! - `trade::*` — actor valuation, not action outcome.
 //! - `terminal::compute_*` (except `secure_kill`) — end-state metrics from snapshot/maps.
 //! - `intent_score` non-Cast branches (Reposition / ProtectAlly / SetupAOE / LastStand) —
 //!   position/ability-type logic, outcome not applicable.
-//!
-//! ## Legacy fields
-//!
-//! Steps 4.8 added new fact fields alongside pre-4.8 policy-baked legacy fields.
-//! Legacy fields are `#[deprecated]` and drop in 4.12 together with the schema bump
-//! v27 → v28. See docs/ai_rework_step4_plan.md §4.12.
 
 pub mod builder;
 
 // Re-export builder items so existing callers can import them via
 // `crate::combat::ai::outcome::*` without changing their import paths.
-//
-// Public API (was `pub` in old outcome.rs):
 pub use builder::{
-    estimate_deny_value,
-    estimate_expected_damage,
     estimate_kill_soon,
-    estimate_rescue_value,
     from_sim_step,
     hypothetical,
     step_path_danger,
 };
-// Crate-internal API (was `pub(crate)` in old outcome.rs):
-// `compute_score_core` is re-exported for `policy/tests.rs` which imports it
-// via `crate::combat::ai::outcome::compute_score_core` in property tests.
-// Step 4.10 removed the non-test consumer (factors/offensive.rs), so this
-// re-export is test-only. Drops in 4.12 together with the function itself.
-#[cfg(test)]
-pub(crate) use builder::compute_score_core;
 
 use crate::combat::ai::factors::PlanFactors;
 use serde::{Deserialize, Serialize};
@@ -143,37 +125,6 @@ pub struct ActionOutcomeEstimate {
     /// Other resource costs (Energy and any future kinds).
     pub other_resource_spent: i32,
 
-    // ── LEGACY (drop in 4.12 after consumer migration to fact fields) ──
-
-    /// HP-equivalent damage score (policy-baked). Use `enemy_damage` /
-    /// `ally_damage` / `hp_restored` + policy functions instead. Drop in 4.12.
-    #[deprecated(note = "Use enemy_damage / ally_damage / hp_restored + policy::*. Drop in 4.12.")]
-    pub expected_damage: f32,
-    /// CC / armor-debuff / vuln denial value (policy-baked). Use
-    /// `cc_turns_applied`, `vulnerability_applied`, `armor_shred_applied` +
-    /// `policy::cc::value(...)` instead. Drop in 4.12.
-    #[deprecated(note = "Use cc_turns_applied / vulnerability_applied / armor_shred_applied + policy::cc::value. Drop in 4.12.")]
-    pub deny_value: f32,
-    /// Heal value with urgency baked-in. Use `hp_restored` + `policy::heal::value(...)` instead.
-    /// Drop in 4.12.
-    #[deprecated(note = "Use hp_restored + policy::heal::value. Drop in 4.12.")]
-    pub rescue_value: f32,
-    /// Dead placeholder — never filled since step 5 used TerminalScore instead.
-    /// Drop in 4.12.
-    #[deprecated(note = "Dead placeholder (never populated). Drop in 4.12.")]
-    pub board_pressure: f32,
-    /// Reserved for step 17 (geometry awareness); will be added when needed.
-    /// Drop in 4.12.
-    #[deprecated(note = "Reserved for step 17 geometry; add when needed. Drop in 4.12.")]
-    pub geometry_gain: f32,
-    /// Δdanger from Move step (worst path danger). Replaced by `path_max_danger`.
-    /// Drop in 4.12.
-    #[deprecated(note = "Replaced by path_max_danger. Drop in 4.12.")]
-    pub exposure_delta: f32,
-    /// Signed resource cost (negative = spent). Replaced by `ap_spent` /
-    /// `mana_spent` / `rage_spent` / `other_resource_spent`. Drop in 4.12.
-    #[deprecated(note = "Replaced by ap_spent / mana_spent / rage_spent / other_resource_spent. Drop in 4.12.")]
-    pub resource_swing: f32,
 }
 
 /// Result of the viability-gate pass for one plan (step 7.1).
@@ -292,66 +243,32 @@ pub struct PickInfo {
 mod tests {
     use super::*;
 
+    /// All 17 fact fields default to zero / empty.
     #[test]
-    #[allow(deprecated)]
     fn default_outcome_is_zero() {
         let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.expected_damage, 0.0);
+        assert_eq!(o.enemy_damage, 0.0);
+        assert!(o.enemy_damage_per_entity.is_empty());
+        assert_eq!(o.ally_damage, 0.0);
+        assert!(o.ally_damage_per_entity.is_empty());
+        assert_eq!(o.self_damage, 0.0);
         assert_eq!(o.p_kill_now, 0.0);
         assert_eq!(o.p_kill_soon, 0.0);
-        assert_eq!(o.deny_value, 0.0);
-        assert_eq!(o.rescue_value, 0.0);
-        assert_eq!(o.board_pressure, 0.0);
-        assert_eq!(o.exposure_delta, 0.0);
-        assert_eq!(o.geometry_gain, 0.0);
-        assert_eq!(o.resource_swing, 0.0);
+        assert_eq!(o.cc_turns_applied, 0.0);
+        assert_eq!(o.vulnerability_applied, 0.0);
+        assert_eq!(o.armor_shred_applied, 0.0);
+        assert_eq!(o.hp_restored, 0.0);
+        assert_eq!(o.path_max_danger, 0.0);
+        assert_eq!(o.mp_spent, 0);
+        assert_eq!(o.ap_spent, 0);
+        assert_eq!(o.mana_spent, 0);
+        assert_eq!(o.rage_spent, 0);
+        assert_eq!(o.other_resource_spent, 0);
     }
 
     #[test]
     fn default_annotation_is_empty() {
         let a = PlanAnnotation::default();
         assert!(a.outcomes.is_empty());
-    }
-
-    // ── Legacy parity tests ───────────────────────────────────────────────
-
-    /// Legacy `expected_damage` default is 0 (parity with pre-4.8 Default::default()).
-    #[test]
-    #[allow(deprecated)]
-    fn legacy_expected_damage_default_is_zero() {
-        let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.expected_damage, 0.0);
-    }
-
-    /// Legacy `deny_value` default is 0 (parity).
-    #[test]
-    #[allow(deprecated)]
-    fn legacy_deny_value_default_is_zero() {
-        let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.deny_value, 0.0);
-    }
-
-    /// Legacy `rescue_value` default is 0 (parity).
-    #[test]
-    #[allow(deprecated)]
-    fn legacy_rescue_value_default_is_zero() {
-        let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.rescue_value, 0.0);
-    }
-
-    /// Legacy `resource_swing` default is 0 (parity).
-    #[test]
-    #[allow(deprecated)]
-    fn legacy_resource_swing_default_is_zero() {
-        let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.resource_swing, 0.0);
-    }
-
-    /// Legacy `exposure_delta` default is 0 (parity).
-    #[test]
-    #[allow(deprecated)]
-    fn legacy_exposure_delta_default_is_zero() {
-        let o = ActionOutcomeEstimate::default();
-        assert_eq!(o.exposure_delta, 0.0);
     }
 }

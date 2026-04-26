@@ -425,26 +425,23 @@ fn main() {
                 continue;
             }
 
-            // Fast-path schema version check before full deserialisation.
+            // Only process actor_tick events.
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
-                if let Some(ver) = val.get("schema_version").and_then(|v| v.as_u64()) {
-                    if ver != 27 {
-                        eprintln!(
-                            "error: schema v{ver} unsupported, v27+ required (file: {})",
-                            path.display()
-                        );
-                        schema_errors += 1;
-                        continue;
-                    }
-                }
-                // Only process actor_tick events.
                 if val.get("event_type").and_then(|v| v.as_str()) != Some("actor_tick") {
                     continue;
                 }
             }
 
-            let event: ActorTickEvent = match serde_json::from_str(line) {
+            let event: ActorTickEvent = match storyforge::combat::ai::log::parse_actor_tick(line) {
                 Ok(e) => e,
+                Err(storyforge::combat::ai::log::LogError::UnsupportedSchema { found, required, .. }) => {
+                    eprintln!(
+                        "error: schema v{found} unsupported, v{required}+ required (file: {})",
+                        path.display()
+                    );
+                    schema_errors += 1;
+                    continue;
+                }
                 Err(_) => {
                     parse_errors += 1;
                     continue;
@@ -457,7 +454,7 @@ fn main() {
 
     // ── Report ────────────────────────────────────────────────────────────────
 
-    println!("# AI mining — v27");
+    println!("# AI mining — v28");
     println!();
     println!(
         "Source: {} JSONL files, {} AI decisions ({} skip)",
@@ -467,7 +464,7 @@ fn main() {
         println!("Parse errors (lines skipped): {parse_errors}");
     }
     if schema_errors > 0 {
-        println!("Schema errors (non-v27 lines skipped): {schema_errors}");
+        println!("Schema errors (non-v28 lines skipped): {schema_errors}");
     }
     println!();
 

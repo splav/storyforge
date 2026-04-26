@@ -1,8 +1,8 @@
-//! Replay an AI decision log (v27 JSONL) and compare current `pick_action`
+//! Replay an AI decision log (v28 JSONL) and compare current `pick_action`
 //! output against logged decisions.
 //!
 //! For every `actor_tick` event the tool:
-//! 1. Parses the event (`ActorTickEvent`, schema v27).
+//! 1. Parses the event (`ActorTickEvent`, schema v28).
 //! 2. Rebuilds `InfluenceMaps` from the embedded snapshot.
 //! 3. Calls the production `pick_action` with the logged snapshot.
 //! 4. Compares the re-picked decision with the logged decision.
@@ -32,7 +32,7 @@ use storyforge::combat::ai::intent::AiMemory;
 use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};
 use storyforge::combat::ai::planning::PlanStep;
 use storyforge::combat::ai::replay::{
-    assert_v27_log_file, default_overlay_path, GoldenRecord,
+    assert_v28_log_file, default_overlay_path, GoldenRecord,
 };
 use storyforge::combat::ai::replay_assertion::{print_assertion_failure, AssertResult};
 use storyforge::combat::ai::reservations::Reservations;
@@ -121,9 +121,9 @@ fn infer_content_dirs(path: &std::path::Path) -> Option<(PathBuf, PathBuf)> {
     }
 }
 
-// ── GoldenRecord helpers (v27) ──────────────────────────────────────────────
+// ── GoldenRecord helpers (v28) ──────────────────────────────────────────────
 
-fn golden_from_v27_event(
+fn golden_from_v28_event(
     event: &ActorTickEvent,
     log_path: &str,
     content: &ContentView,
@@ -207,7 +207,7 @@ fn decision_fields(
 
 // ── Plan shape helpers ──────────────────────────────────────────────────────
 
-fn plan_shape_v27(steps: &[PlanStep]) -> String {
+fn plan_shape_v28(steps: &[PlanStep]) -> String {
     let mut out = Vec::new();
     for s in steps {
         match s {
@@ -361,7 +361,7 @@ fn main() {
         let overlay_path =
             assert_overlay_path.unwrap_or_else(|| default_overlay_path(jsonl_path));
 
-        let outcome = match assert_v27_log_file(jsonl_path, &overlay_path, &content, &inf_cfg) {
+        let outcome = match assert_v28_log_file(jsonl_path, &overlay_path, &content, &inf_cfg) {
             Ok(o) => o,
             Err(e) => {
                 eprintln!("error: {e}");
@@ -403,7 +403,7 @@ fn main() {
 
         for path in &paths {
             let path_str = path.to_string_lossy();
-            let events = match read_v27_events(path) {
+            let events = match read_v28_events(path) {
                 Ok(v) => v,
                 Err(e) => {
                     eprintln!("error reading {}: {e}", path.display());
@@ -414,7 +414,7 @@ fn main() {
                 if matches!(event.decision, LoggedDecision::Skip { .. }) {
                     continue; // Skip events: no pick_action to replay
                 }
-                let rec = match golden_from_v27_event(event, &path_str, &content, &inf_cfg) {
+                let rec = match golden_from_v28_event(event, &path_str, &content, &inf_cfg) {
                     Ok(r) => r,
                     Err(e) => {
                         eprintln!("error on actor_id={} in {}: {e}", event.actor_id, path.display());
@@ -471,7 +471,7 @@ fn main() {
         let mut current: Vec<GoldenRecord> = Vec::new();
         for path in &paths {
             let path_str = path.to_string_lossy();
-            let events = match read_v27_events(path) {
+            let events = match read_v28_events(path) {
                 Ok(v) => v,
                 Err(e) => {
                     eprintln!("error reading {}: {e}", path.display());
@@ -482,7 +482,7 @@ fn main() {
                 if matches!(event.decision, LoggedDecision::Skip { .. }) {
                     continue;
                 }
-                let rec = match golden_from_v27_event(event, &path_str, &content, &inf_cfg) {
+                let rec = match golden_from_v28_event(event, &path_str, &content, &inf_cfg) {
                     Ok(r) => r,
                     Err(e) => {
                         eprintln!("error on actor_id={} in {}: {e}", event.actor_id, path.display());
@@ -670,8 +670,9 @@ fn main() {
 
 /// Read all `actor_tick` events (v27) from a JSONL file.
 /// Returns an error if any line has a different schema version.
-pub fn read_v27_events(path: &std::path::Path) -> Result<Vec<ActorTickEvent>, String> {
+pub fn read_v28_events(path: &std::path::Path) -> Result<Vec<ActorTickEvent>, String> {
     use std::io::BufRead;
+    use storyforge::combat::ai::log::parse_actor_tick;
 
     let file = std::fs::File::open(path)
         .map_err(|e| format!("cannot open {}: {e}", path.display()))?;
@@ -683,24 +684,15 @@ pub fn read_v27_events(path: &std::path::Path) -> Result<Vec<ActorTickEvent>, St
         let line = line.trim();
         if line.is_empty() { continue; }
 
-        let val: serde_json::Value = serde_json::from_str(line)
-            .map_err(|e| format!("JSON parse error: {e}"))?;
-
-        if let Some(ver) = val.get("schema_version").and_then(|v| v.as_u64()) {
-            if ver != 27 {
-                return Err(format!(
-                    "error: schema v{ver} unsupported, v27+ required (file: {})",
-                    path.display()
-                ));
+        // Skip non-actor_tick lines (e.g. other event types).
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            if val.get("event_type").and_then(|v| v.as_str()) != Some("actor_tick") {
+                continue;
             }
         }
 
-        if val.get("event_type").and_then(|v| v.as_str()) != Some("actor_tick") {
-            continue;
-        }
-
-        let event: ActorTickEvent = serde_json::from_str(line)
-            .map_err(|e| format!("event parse error: {e}"))?;
+        let event = parse_actor_tick(line)
+            .map_err(|e| format!("error in {}: {e}", path.display()))?;
         events.push(event);
     }
 
@@ -806,7 +798,7 @@ fn print_event_plans(event: &ActorTickEvent) {
             p.rank,
             if p.annotation.chosen { "*" } else { " " },
             p.annotation.score,
-            plan_shape_v27(&p.steps),
+            plan_shape_v28(&p.steps),
         );
     }
 }
@@ -862,12 +854,15 @@ mod tests {
     }
 
     #[test]
-    fn v26_schema_triggers_error() {
-        // Test that schema version check logic works: v26 is != 27.
-        let json = r#"{"event_type":"actor_tick","schema_version":26}"#;
-        let val: serde_json::Value = serde_json::from_str(json).unwrap();
-        let ver = val.get("schema_version").and_then(|v| v.as_u64()).unwrap_or(0);
-        assert_ne!(ver, 27u64);
+    fn v27_schema_triggers_unsupported_error() {
+        // Test that parse_actor_tick correctly rejects v27 logs with a clear error.
+        use storyforge::combat::ai::log::{parse_actor_tick, LogError};
+        let json = r#"{"event_type":"actor_tick","schema_version":27}"#;
+        let result = parse_actor_tick(json);
+        assert!(
+            matches!(result, Err(LogError::UnsupportedSchema { found: 27, .. })),
+            "v27 log should produce UnsupportedSchema error, got: {result:?}",
+        );
     }
 
     #[test]

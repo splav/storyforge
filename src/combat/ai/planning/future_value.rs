@@ -166,7 +166,6 @@ fn position_component(active: &UnitSnapshot, committed_pos: Hex, tuning: &AiTuni
 /// - All other intents: top-3 enemies by priority (original Phase 7 logic).
 ///
 /// Reachability filter: `distance(committed_pos, target.pos) <= speed + max_attack_range`.
-#[allow(deprecated)]
 fn attack_component_intent(
     active: &UnitSnapshot,
     committed_pos: Hex,
@@ -174,19 +173,26 @@ fn attack_component_intent(
     ctx: &ScoringCtx,
     intent: &TacticalIntent,
 ) -> f32 {
+    use crate::combat::ai::policy;
+
     let content = ctx.world.content;
-    let maps = ctx.maps;
     let reach_budget = active.speed.max(0) + active.max_attack_range as i32;
+
+    // Apply `policy::damage::value` to a hypothetical outcome for a single target.
+    let damage_value = |def: &crate::content::abilities::AbilityDef, target: &UnitSnapshot| -> f32 {
+        let h = estimate_hypothetical(def, target, &active.caster_ctx, content);
+        let damage_progress = (h.enemy_damage / target.hp.max(1) as f32).min(1.0);
+        policy::damage::value(h.enemy_damage, damage_progress)
+    };
 
     match intent {
         TacticalIntent::FocusTarget { target: target_entity } => {
             let Some(target) = snap.unit(*target_entity) else { return 0.0 };
             let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
             if dist > reach_budget { return 0.0; }
-            let danger = maps.danger.get(target.pos);
             let best = active.abilities.iter()
                 .filter_map(|id| content.abilities.get(id))
-                .map(|def| estimate_hypothetical(def, target, &active.caster_ctx, content, danger).expected_damage)
+                .map(|def| damage_value(def, target))
                 .fold(0.0f32, f32::max);
             0.5 * best
         }
@@ -195,11 +201,10 @@ fn attack_component_intent(
             let Some(target) = snap.unit(*target_entity) else { return 0.0 };
             let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
             if dist > reach_budget { return 0.0; }
-            let danger = maps.danger.get(target.pos);
             let best = active.abilities.iter()
                 .filter_map(|id| content.abilities.get(id))
                 .filter(|def| applies_cc(def, content))
-                .map(|def| estimate_hypothetical(def, target, &active.caster_ctx, content, danger).expected_damage)
+                .map(|def| damage_value(def, target))
                 .fold(0.0f32, f32::max);
             0.5 * best
         }
@@ -242,10 +247,9 @@ fn attack_component_intent(
             for target in top_enemies {
                 let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
                 if dist > reach_budget { continue; }
-                let danger = maps.danger.get(target.pos);
                 for ability_id in &active.abilities {
                     let Some(def) = content.abilities.get(ability_id) else { continue };
-                    let s = estimate_hypothetical(def, target, &active.caster_ctx, content, danger).expected_damage;
+                    let s = damage_value(def, target);
                     if s > best { best = s; }
                 }
             }

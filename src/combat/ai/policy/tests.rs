@@ -1,15 +1,14 @@
-//! Property tests for `combat::ai::policy` — verify that all policy functions
-//! produce bit-identical results to the legacy `compute_score_core` path that
-//! they extracted from.
+//! Property tests for `combat::ai::policy` — verify that policy functions
+//! satisfy key invariants (monotonicity, non-negativity, range bounds).
 //!
-//! Two levels:
-//! 1. **Scenario-based**: exercises each `(ability, target, caster)` triple
-//!    found in real `ai_scenarios` fixture logs — catches corner cases from
-//!    real battles.
-//! 2. **Random-input**: 1000 randomly-assembled triples with a deterministic
-//!    seed — safety net against formula drift on inputs not covered by fixtures.
+//! After step 4.12 `compute_score_core` is gone; these tests shift from
+//! bit-identical parity tests to **invariant** tests:
+//! 1. **Monotonicity**: higher raw damage → higher value (for same target HP).
+//! 2. **Non-negativity**: value ≥ 0 for any non-negative inputs.
+//! 3. **Range**: damage value ≤ raw (policy never amplifies beyond raw).
+//! 4. **Formula round-trips**: verify known-good formula derivations for
+//!    `damage::value`, `friendly_fire::penalty`.
 
-use crate::combat::ai::outcome::compute_score_core;
 use crate::combat::ai::policy;
 use crate::combat::ai::snapshot::UnitSnapshot;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectDef};
@@ -20,9 +19,7 @@ use crate::game::hex::hex_from_offset;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Compute the score for `(def, target)` via the new policy module directly,
-/// without going through `compute_score_core`. This is the "new path" we
-/// compare against the old delegator.
+/// Compute the policy score for `(def, target)` directly via policy functions.
 fn via_policy(
     def: &AbilityDef,
     target: &UnitSnapshot,
@@ -62,23 +59,10 @@ fn via_policy(
     dmg_score + policy::status::value(def, target, content)
 }
 
-fn assert_bit_identical(
-    legacy: f32,
-    new: f32,
-    label: &str,
-) {
-    assert!(
-        (legacy - new).abs() < 1e-6,
-        "{label}: legacy={legacy} new={new} diff={}",
-        (legacy - new).abs()
-    );
-}
-
-// ── Scenario-based property tests ─────────────────────────────────────────────
+// ── Scenario-based invariant tests ────────────────────────────────────────────
 
 /// Extract all `(ability_def, target_snapshot, caster_ctx)` triples from an
-/// `ActorTickEvent` JSONL line. Skips non-Cast steps and steps where target
-/// entity is not found in the snapshot.
+/// `ActorTickEvent` JSONL line.
 fn extract_cast_triples_from_line(
     line: &str,
     content: &ContentView,
@@ -139,8 +123,10 @@ fn collect_scenario_triples(content: &ContentView) -> Vec<(AbilityDef, UnitSnaps
     all_triples
 }
 
+/// Verify that `via_policy` gives non-negative, finite values for all triples
+/// from scenario fixtures.
 #[test]
-fn policy_matches_legacy_for_all_scenario_fixtures() {
+fn policy_non_negative_for_all_scenario_fixtures() {
     let content = ContentView::load_global_for_tests();
     let triples = collect_scenario_triples(&content);
 
@@ -148,27 +134,21 @@ fn policy_matches_legacy_for_all_scenario_fixtures() {
     assert!(n > 0, "no Cast triples found in ai_scenarios fixtures — check fixture paths");
 
     for (def, target, ctx) in &triples {
-        let legacy = compute_score_core(def, target, ctx, &content, 0.0);
-        let new = via_policy(def, target, ctx, &content, 0.0);
-        assert_bit_identical(
-            legacy,
-            new,
-            &format!("scenario fixture: ability={:?}", def.id),
+        let score = via_policy(def, target, ctx, &content, 0.0);
+        assert!(
+            score.is_finite() && score >= 0.0,
+            "policy score must be non-negative and finite for ability={:?}: got {score}",
+            def.id,
         );
     }
-
-    // Sanity: report coverage.
-    let _ = n;
 }
 
-// ── Random-input property tests ───────────────────────────────────────────────
+// ── Random-input invariant tests ──────────────────────────────────────────────
 
 /// Minimal deterministic LCG PRNG — avoids any external dependency.
-/// Not cryptographic; only used for deterministic test seeds.
 struct Lcg(u64);
 impl Lcg {
     fn next_u32(&mut self) -> u32 {
-        // LCG parameters from Numerical Recipes.
         self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         ((self.0 >> 33) ^ (self.0 >> 17)) as u32
     }
@@ -180,7 +160,6 @@ impl Lcg {
     }
 }
 
-/// Build a synthetic `UnitSnapshot` from deterministic random values.
 fn random_target(rng: &mut Lcg) -> UnitSnapshot {
     use crate::combat::ai::role::AxisProfile;
     use crate::combat::ai::snapshot::AiTags;
@@ -223,7 +202,6 @@ fn random_target(rng: &mut Lcg) -> UnitSnapshot {
     }
 }
 
-/// Build a synthetic `CasterContext` from deterministic random values.
 fn random_caster_ctx(rng: &mut Lcg) -> CasterContext {
     const SIDES: [u32; 4] = [4, 6, 8, 10];
     let has_weapon = rng.next_u32().is_multiple_of(2);
@@ -243,25 +221,20 @@ fn random_caster_ctx(rng: &mut Lcg) -> CasterContext {
     }
 }
 
+/// 1000 random triples: policy score is non-negative and finite.
 #[test]
-fn policy_matches_legacy_for_random_inputs() {
+fn policy_non_negative_for_random_inputs() {
     let content = ContentView::load_global_for_tests();
 
-    // Collect all abilities that have a `calc` (damage/heal) or statuses.
     let abilities: Vec<&AbilityDef> = content
         .abilities
         .values()
-        .filter(|def| {
-            // Only test abilities where compute_score_core does non-trivial work.
-            !matches!(def.effect, EffectDef::GrantMovement { .. })
-        })
+        .filter(|def| !matches!(def.effect, EffectDef::GrantMovement { .. }))
         .collect();
 
-    if abilities.is_empty() {
-        panic!("no abilities found in content — check ContentView::load_global_for_tests");
-    }
+    assert!(!abilities.is_empty(), "no abilities found — check ContentView::load_global_for_tests");
 
-    let mut rng = Lcg(42); // deterministic seed
+    let mut rng = Lcg(42);
     let n = 1000usize;
 
     for i in 0..n {
@@ -271,13 +244,36 @@ fn policy_matches_legacy_for_random_inputs() {
         let ctx = random_caster_ctx(&mut rng);
         let danger = rng.next_f32() * 50.0;
 
-        let legacy = compute_score_core(def, &target, &ctx, &content, danger);
-        let new = via_policy(def, &target, &ctx, &content, danger);
-        assert_bit_identical(
-            legacy,
-            new,
-            &format!("random triple {i}: ability={:?}", def.id),
+        let score = via_policy(def, &target, &ctx, &content, danger);
+        assert!(
+            score.is_finite() && score >= 0.0,
+            "random triple {i}: policy score must be non-negative and finite for ability={:?}: got {score}",
+            def.id,
         );
+    }
+}
+
+/// `damage::value` monotone in raw for fixed target HP.
+#[test]
+fn damage_value_monotone_in_raw() {
+    let target_hp = 20;
+    let raws = [0.0f32, 1.0, 5.0, 10.0, 20.0, 40.0];
+    let mut prev = f32::NEG_INFINITY;
+    for &raw in &raws {
+        let progress = (raw / target_hp.max(1) as f32).min(1.0);
+        let v = policy::damage::value(raw, progress);
+        assert!(v >= prev, "damage::value not monotone at raw={raw}: {v} < {prev}");
+        prev = v;
+    }
+}
+
+/// `damage::value` is non-negative for any non-negative raw / progress.
+#[test]
+fn damage_value_non_negative() {
+    let cases = [(0.0f32, 0.0f32), (0.0, 1.0), (10.0, 0.0), (10.0, 0.5), (10.0, 1.0)];
+    for (raw, progress) in cases {
+        let v = policy::damage::value(raw, progress);
+        assert!(v >= 0.0, "damage::value({raw}, {progress}) = {v} < 0");
     }
 }
 

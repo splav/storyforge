@@ -754,16 +754,12 @@ mod tests {
     // ── Annotation outcomes match sim outcomes ─────────────────────────────
 
     #[test]
-    #[allow(deprecated)]
-    fn annotation_expected_damage_matches_estimate_expected_damage() {
-        // Step 4.3: `annotation.expected_damage` stores the scorer-compatible
-        // expected damage (= compute_score_core() output via estimate_expected_damage),
-        // NOT the sim's actual rolled damage in `outcome.damage`.
-        // This test verifies that generator fills `annotation.expected_damage`
-        // with the same value `estimate_expected_damage` would return.
-        use crate::combat::ai::outcome::estimate_expected_damage;
+    fn annotation_enemy_damage_populated_for_cast_steps() {
+        // Step 4.12: generator fills `annotation.enemy_damage` via from_sim_step.
+        // The value is the sim-rolled damage (not the formula expected value) —
+        // so we check it is positive and within the ability's dice range,
+        // not bit-identical to calc.expected().
         use crate::content::abilities::CasterContext;
-        use crate::content::races::CritFailEffect;
 
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
         let target = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
@@ -782,29 +778,30 @@ mod tests {
 
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
-        let crit_fail_effect = CritFailEffect::default();
         let caster_ctx = CasterContext::default();
-        // Expected damage as the scorer would compute it for this def + target.
-        let ref_damage = estimate_expected_damage(
-            &def, &target, &caster_ctx, &content, &crit_fail_effect, 0.0,
-        );
+        // Max possible rolled damage for 1d1 (strike_def uses sides=1) = 1.
+        let calc = def.effect.calc(&caster_ctx).expect("strike has calc");
+        let max_raw = calc.expected(); // deterministic for 1d1
 
-        // Every Cast plan: annotation.expected_damage must equal the scorer's
-        // expected damage formula (strict f32 equality — same formula, no rounding).
+        // Every Cast plan: annotation.enemy_damage must be populated (>= 0)
+        // and within plausible range.
+        let mut found_cast = false;
         for plan in plans.iter().filter(|p| !p.steps.is_empty()) {
             for (i, ann) in plan.annotation.outcomes.iter().enumerate() {
                 if !matches!(plan.steps.get(i), Some(PlanStep::Cast { .. })) {
                     continue;
                 }
-                assert_eq!(
-                    ann.expected_damage,
-                    ref_damage,
-                    "plan step {i}: annotation.expected_damage ({}) != estimate_expected_damage ({})",
-                    ann.expected_damage,
-                    ref_damage
+                found_cast = true;
+                // sim-derived enemy_damage может включать str_mod / armor / damage_taken_bonus —
+                // не сравниваем bit-identical с calc.expected() (raw dice). Проверяем range.
+                assert!(
+                    ann.enemy_damage >= max_raw && ann.enemy_damage <= max_raw + 10.0,
+                    "plan step {i}: annotation.enemy_damage ({}) should be in plausible range around raw expected ({})",
+                    ann.enemy_damage, max_raw
                 );
             }
         }
+        assert!(found_cast, "should have found at least one Cast step in plans");
     }
 
     // ── Beam pruning respects width ────────────────────────────────────────

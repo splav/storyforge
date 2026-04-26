@@ -182,7 +182,6 @@ pub fn pick_best_plan(
 /// `consumed` comes from `steps_consumed_by_decision` and matches the match
 /// arm in `decision_from_steps` (1 for a solo cast/move, 2 for a Move→Cast
 /// bundle).
-#[allow(deprecated)]
 pub fn record_committed_reservations(
     plan: &TurnPlan,
     consumed: usize,
@@ -218,10 +217,20 @@ pub fn record_committed_reservations(
         for ent in hits {
             if let Some(_target_unit) = snap.unit(ent) {
                 if def.target_type != TargetType::SingleAlly {
-                    // Use the sim-populated expected_damage from PlanAnnotation —
-                    // it reflects the actual projected damage for this step and
-                    // avoids re-deriving via compute_score_core for reservation bookkeeping.
-                    let dmg = plan.annotation.outcomes.get(idx).map_or(0.0, |o| o.expected_damage);
+                    // Raw damage fact for reservation bookkeeping.
+                    // For AoE: use per-entity breakdown if available (avoids
+                    // over-reserving aggregated total per target). For single-target:
+                    // use enemy_damage directly.
+                    let dmg = plan.annotation.outcomes.get(idx).map_or(0.0, |o| {
+                        if o.enemy_damage_per_entity.is_empty() {
+                            o.enemy_damage
+                        } else {
+                            o.enemy_damage_per_entity
+                                .iter()
+                                .find(|(e, _)| *e == ent)
+                                .map_or(0.0, |(_, d)| *d)
+                        }
+                    });
                     if dmg > 0.0 {
                         reservations.reserve_damage(ent, dmg);
                     }

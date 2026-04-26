@@ -24,10 +24,10 @@ fn replay_bin() -> std::path::PathBuf {
     path
 }
 
-/// Single-entry v27 fixture. Actor = Зверокров Страж (id 51539607196),
+/// Single-entry v28 fixture. Actor = Зверокров Страж (id 51539607196),
 /// intent = FocusTarget, decision = MoveAndCast (melee_attack, target
-/// 42949672607). Rebuilt from beastblood_raid playtest 26 апр. 2026
-/// after schema v27 clean break.
+/// 42949672607). Rebuilt from beastblood_raid playtest 26 апр. 2026;
+/// schema bumped v27→v28 in step 4.12.
 const LOG_PATH: &str = "tests/ai_scenarios/snapshots/focus_target_melee_basic/log.jsonl";
 
 // ── helpers ──────────────────────────────────────────────────────────────────

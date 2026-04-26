@@ -1,14 +1,14 @@
 //! Offline replay pipeline — shared between the `replay_ai_log` binary and
 //! integration tests (`tests/ai_scenarios.rs`, `tests/replay_assert.rs`).
 //!
-//! - **Assertion pipeline** ([`assert_v27_log_file`]) reads a v27 `ActorTickEvent`
+//! - **Assertion pipeline** ([`assert_v28_log_file`]) reads a v28 `ActorTickEvent`
 //!   from a JSONL log, re-runs the production `pick_action` on its snapshot,
 //!   reconstructs the chosen decision via
 //!   [`replay_assertion::build_actual_decision`], and compares it against
 //!   an overlay loaded from `*.expected.toml`. Returns an [`AssertOutcome`]
 //!   with both the raw decision and the pass/fail verdict.
 //!
-//! Tests call [`assert_v27_log_file`] directly (no subprocess); the
+//! Tests call [`assert_v28_log_file`] directly (no subprocess); the
 //! `replay_ai_log` binary wraps it with CLI-level I/O and exit codes.
 
 use std::io::{BufRead, BufReader};
@@ -26,7 +26,7 @@ use crate::core::DiceRng;
 
 // ── Assert pipeline ──────────────────────────────────────────────────────────
 
-/// Outcome of running [`assert_v27_log_file`] — contains both the reconstructed
+/// Outcome of running [`assert_v28_log_file`] — contains both the reconstructed
 /// decision and the pass/fail verdict. Non-`Fail` does not imply the test
 /// logically passed; inspect [`AssertOutcome::result`].
 #[derive(Debug)]
@@ -113,7 +113,7 @@ pub fn default_overlay_path(jsonl: &Path) -> PathBuf {
 pub struct GoldenRecord {
     /// Source JSONL path (as provided on the CLI, for corpus matching).
     pub log_path: String,
-    /// Always 0 for v27 logs (preserved for JSON format stability).
+    /// Always 0 for v28 logs (preserved for JSON format stability).
     pub plan_id: u64,
     /// Actor entity bits from `ActorTickEvent.actor_id`.
     pub actor_id: u64,
@@ -127,7 +127,7 @@ pub struct GoldenRecord {
     pub end_position: [i32; 2],
 }
 
-// ── v27 assert pipeline ───────────────────────────────────────────────────────
+// ── v28 assert pipeline ───────────────────────────────────────────────────────
 
 /// Load overlay, locate the targeted `ActorTickEvent`, run the production
 /// `pick_action` pipeline, and compare the result against overlay expectations.
@@ -137,25 +137,28 @@ pub struct GoldenRecord {
 /// see note below), runs the production `pick_action` on its snapshot, and
 /// compares the result against the overlay expectations.
 ///
-/// **Note on `plan_id` in the overlay scope**: v27 logs do not have a `plan_id`
+/// **Note on `plan_id` in the overlay scope**: v28 logs do not have a `plan_id`
 /// field. The overlay's `[scope].plan_id` is reinterpreted as the target `actor_id`
-/// (entity bits) for v27 files. When absent the first non-skip event is used.
+/// (entity bits) for v28 files. When absent the first non-skip event is used.
 /// This matches how the existing `ai_scenarios` overlays use `plan_id` to select
 /// a specific entry.
-pub fn assert_v27_log_file(
+///
+/// Returns `AssertError::EntryParse` on schema version mismatch (v27 logs
+/// give a clear `UnsupportedSchema` message).
+pub fn assert_v28_log_file(
     jsonl_path: &Path,
     overlay_path: &Path,
     content: &ContentView,
     inf_cfg: &InfluenceConfig,
 ) -> Result<AssertOutcome, AssertError> {
-    use crate::combat::ai::log::{ActorTickEvent, LoggedDecision};
+    use crate::combat::ai::log::{parse_actor_tick, ActorTickEvent, LoggedDecision};
     use crate::combat::ai::utility::pick_action;
     use crate::combat::ai::reservations::Reservations;
     use crate::combat::ai::utility::AiWorld;
     use crate::combat::ai::difficulty::DifficultyProfile;
 
     let overlay = load_overlay(overlay_path)?;
-    // In v27 we reinterpret plan_id as actor_id for entry selection.
+    // In v28 we reinterpret plan_id as actor_id for entry selection.
     let target_actor_id: Option<u64> = overlay.scope.as_ref().and_then(|s| s.plan_id);
 
     let file = std::fs::File::open(jsonl_path).map_err(|source| AssertError::Io {
@@ -172,19 +175,26 @@ pub fn assert_v27_log_file(
         })?;
         if line.trim().is_empty() { continue; }
 
-        // Schema version guard.
+        // Skip non-actor_tick lines.
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
             if val.get("event_type").and_then(|v| v.as_str()) != Some("actor_tick") {
                 continue;
             }
         }
 
-        let event: ActorTickEvent = match serde_json::from_str(&line) {
+        // Use parse_actor_tick for schema-versioned parsing.
+        let event: ActorTickEvent = match parse_actor_tick(&line) {
             Ok(e) => e,
-            Err(source) => return Err(AssertError::EntryParse {
-                path: jsonl_path.to_path_buf(),
-                source,
-            }),
+            Err(e) => {
+                // Convert LogError to AssertError by wrapping as a serde error.
+                // For UnsupportedSchema, re-create a descriptive serde error string.
+                let msg = e.to_string();
+                return Err(AssertError::EntryParse {
+                    path: jsonl_path.to_path_buf(),
+                    source: serde_json::from_str::<serde_json::Value>(&format!("{msg:?}"))
+                        .unwrap_err(),
+                });
+            }
         };
 
         // Skip events have no pick_action to assert against.
@@ -259,7 +269,7 @@ pub fn assert_v27_log_file(
     Ok(AssertOutcome {
         jsonl_path: jsonl_path.to_path_buf(),
         overlay_path: overlay_path.to_path_buf(),
-        plan_id: 0, // v27 logs have no plan_id
+        plan_id: 0, // v28 logs have no plan_id
         chosen_idx,
         schema_version: event.schema_version,
         actor_id: event.actor_id,
