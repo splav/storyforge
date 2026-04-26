@@ -112,21 +112,27 @@
 
 ---
 
-### 4. `ActionOutcomeEstimate` — outcome vector до factors
+### 4. `ActionOutcomeEstimate` — outcome vector до factors ✓ DONE
 
 **Сложность:** 4
 **Польза:** 5
 
 **Цель:** сделать оценку эффекта шага структурированной и общей для всех потребителей.
 
-**Суть:** второе ключевое изменение. Сейчас `score_action` ранним схлопыванием в HP-equivalent теряет информацию, которую потом восстанавливают `compute_factors`, `intent_score`, trade, sanity — каждый по-своему. Outcome vector даёт общий словарь: сначала структурированная оценка последствий, потом каждый слой читает **свои** поля.
+**Суть:** второе ключевое изменение. `score_action` ранним схлопыванием в HP-equivalent теряла информацию, которую потом восстанавливали `compute_factors`, `intent_score`, trade, sanity — каждый по-своему. Outcome vector даёт общий словарь: сначала структурированная оценка последствий, потом каждый слой читает **свои** поля.
 
-**Как поменять:**
-- В `src/combat/ai/` — `ActionOutcomeEstimate`: `expected_damage`, `p_kill_now`, `p_kill_soon`, `deny_value`, `rescue_value`, `board_pressure`, `exposure_delta`, `geometry_gain`, `resource_swing`.
-- Вычисляется один раз на `(step, context)` внутри sim; кэшируется на план.
-- `compute_factors`, `intent_score`, critics, terminal evaluator читают outcome, а не пересчитывают похожее.
-- `score_action` становится deprecated-adapter над outcome → legacy HP-equivalent, на время миграции.
-- Новые механики расширяются добавлением новых outcome-полей, а не scattered conditionals.
+**Как реализовано** (декомпозиция: `docs/ai_rework_step4_plan.md`, сабшаги 4.0–4.13):
+
+- Модуль `src/combat/ai/outcome/` со структурой `ActionOutcomeEstimate` (17 fact-полей: damage, kill, status/control, support, movement, resource — все raw, policy-free). Populator — `outcome::builder::{from_sim_step, hypothetical}` (первый — после sim, второй — для consumers без sim context).
+- Policy module `src/combat/ai/policy/` top-level (5 sub-modules: `damage`, `heal`, `friendly_fire`, `status`, `cc`) — pure named functions `fn(facts, context) -> f32`, stateless, swappable. Единственный source of truth для «как мы оцениваем этот факт».
+- `score_action` удалён в 4.5. `compute_score_core` распределён в `policy::*` и удалён в 4.12.
+- Schema v27 → v28 (clean break в 4.12): outcome shape — fundamental; v27 logs дают `LogError::UnsupportedSchema`, не migration shim.
+- Mining D1/D2 baseline на v28 corpus: mean `enemy_damage` ≈ 5.0 HP/step, kill rate ≈ 3%.
+
+**Реальные gate-результаты:**
+- 523 lib tests pass, 0 clippy warnings.
+- 0/77 golden diverged на v28 corpus (поведение идентично post-7.5 baseline).
+- Mining baseline воспроизводится на new fact fields (`enemy_damage` / `ally_damage` / `cc_turns_applied` distributions).
 
 ---
 

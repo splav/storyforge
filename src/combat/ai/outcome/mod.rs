@@ -24,16 +24,17 @@
 //!    are 0 for Cast, vice versa.
 //! 4. New mechanics extend outcome by adding fact fields. Do not add policy fields.
 //!
-//! ## Consumers (authoritative list as of step 4.12)
+//! ## Consumers (authoritative list, finalised in step 4.13)
 //!
 //! ### Active fact readers
-//! - `factors::offensive::compute_offensive` — primary scoring consumer (4.10).
+//! - `factors::offensive::compute_offensive` — primary scoring consumer; applies all
+//!   damage / heal / cc policies to outcome facts.
 //! - `planning::terminal::compute_secure_kill` — reads `p_kill_now` / `p_kill_soon`.
 //! - `repair::goal::extract_goal_context` — reads `p_kill_now` for Finish/Pressure classification.
-//! - `planning::future_value::λ_attack` (`attack_component_intent`) — reads `enemy_damage`
-//!   from hypothetical path; applies `policy::damage::value`.
-//! - `planning::picker::record_committed_reservations` — reads `enemy_damage`
-//!   (or `enemy_damage_per_entity` for AoE) from outcome for reservation bookkeeping.
+//! - `planning::future_value::λ_attack` (`attack_component_intent`) — reads outcome from
+//!   hypothetical path; applies `policy::damage::value` for intent score.
+//! - `planning::picker::record_committed_reservations` — reads `outcome.enemy_damage`
+//!   directly (raw fact for reservation bookkeeping).
 //!
 //! ### Non-consumers (NOT applicable, not a bug)
 //! - `trade::*` — actor valuation, not action outcome.
@@ -57,16 +58,10 @@ use serde::{Deserialize, Serialize};
 
 /// Structured estimate of a single plan step's consequences.
 ///
-/// As of step 4.8, contains two layers:
-///
-/// **Fact fields (new, step 4.8)** — raw, policy-free measurements derived from
-/// the sim step or the ability def. Consumers apply policy formulas from
-/// `combat::ai::policy::*` to derive HP-equivalent scores.
-///
-/// **Legacy fields (deprecated)** — policy-baked values from wave 1 (steps
-/// 4.0–4.5). Consumers still read these; migration to fact fields happens in
-/// 4.10–4.11. All legacy fields drop in 4.12 together with the schema bump
-/// v27 → v28.
+/// Contains **facts only** — raw, policy-free measurements derived from the sim
+/// step or the ability def. Consumers apply policy formulas from
+/// `combat::ai::policy::*` to derive HP-equivalent scores. No policy weighting
+/// lives here; see module-level doc for the full contract and consumer list.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ActionOutcomeEstimate {
     // ── Damage facts (raw, populated by sim walk or hypothetical) ──

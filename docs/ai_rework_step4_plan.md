@@ -938,14 +938,14 @@ pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
 
 | # | Шаг | Эстимейт | Gate | Статус |
 |---|---|---|---|---|
-| 4.6 | Audit retrospective + sim alignment review + plan doc | 0.5 | doc reviewable | в работе |
-| 4.7 | Policy module scaffolding + property tests | 1.5 | property tests pass; golden 0/N | pending |
-| 4.8 | Outcome fact vector — additive | 1.0 | golden 0/N (additive) | pending |
-| 4.9 | Builder relocation: outcome::builder module | 0.5 | golden 0/N | pending |
-| 4.10 | Consumer migration — Cast scoring path | 1.5 | golden 0/N | pending |
-| 4.11 | Consumer migration — non-Cast paths + audit | 0.5 | golden 0/N (verification) | pending |
-| 4.12 | Drop legacy + schema clean break v27 → v28 | 1.5 | v28 round-trip 0/N; clean break | pending |
-| 4.13 | Documentation finalization | 0.5 | doc reviewable | pending |
+| 4.6 | Audit retrospective + sim alignment review + plan doc | 0.5 | doc reviewable | **DONE** (`d9e27d4`) |
+| 4.7 | Policy module scaffolding + property tests | 1.5 | property tests pass; golden 0/N | **DONE** (`f64e176`) |
+| 4.8 | Outcome fact vector — additive | 1.0 | golden 0/N (additive) | **DONE** (`74823d9`) |
+| 4.9 | Builder relocation: outcome::builder module | 0.5 | golden 0/N | **DONE** (`878e8f5`) |
+| 4.10 | Consumer migration — Cast scoring path | 1.5 | golden 0/N | **DONE** (`0b3d206`) |
+| 4.11 | Consumer migration — non-Cast paths + audit | 0.5 | golden 0/N (verification) | **DONE** (`b3df135`) |
+| 4.12 | Drop legacy + schema clean break v27 → v28 | 1.5 | v28 round-trip 0/N; clean break | **DONE** (`50a8336`); critical bug fix `dd9872a` + golden rebuild `bf96217` discovered and fixed in 4.13 |
+| 4.13 | Documentation finalization | 0.5 | doc reviewable | **DONE** (текущий коммит) |
 
 **Суммарно ~7.5 дней** (0.5 + 1.5 + 1.0 + 0.5 + 1.5 + 0.5 + 1.5 + 0.5).
 
@@ -1056,3 +1056,19 @@ pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
 - **Не делать parallel/async population** — outcome populates sync inside beam search; параллелизм после profiling.
 - **Не оптимизировать outcome shape для serialization size** — `Vec<(Entity, f32)>` для per-entity breakdown приемлемо; gzip жмёт. Optimization после profiling.
 - **Не пытаться поддержать v27 logs** — clean break, как в step 7.5. v27 logs дают `LogError::UnsupportedSchema`, не migration shim.
+
+---
+
+## Lessons learned
+
+### Silent regression: build_logged_plans bug (latent c step 7.5, visible c 4.10)
+
+**Что случилось.** После 4.12 (`50a8336`) обнаружен critical bug: `annotation.outcomes` записывались в лог-структуру до того, как генератор заканчивал их заполнять — последние шаги плана сериализовались как пустые (zero-filled). Баг присутствовал в коде с шага 7.5 (commit `8401501`), но стал visible только в 4.10 когда consumers переключились на чтение новых fact-полей из outcome. До 4.10 consumers читали legacy fields, которые заполнялись раньше в pipeline, — баг был masked.
+
+Фикс: `dd9872a` (annotation.outcomes loss between generator и log writing). Golden rebuild после фикса: `bf96217`.
+
+**Почему golden replay не поймал.** Replay re-pick тоже читает тот же snapshot с теми же пустыми outcomes → re-pick делает то же самое решение → consistency без correctness. Golden тест проверяет «решение не изменилось», а не «решение правильно вычислено». Property tests на formula equivalence (`4.7`) покрывают formula drift, но не pipeline ordering.
+
+**Вывод.** Для поиска подобных pipeline-ordering регрессий нужен отдельный тест: populate outcome → serialize → deserialize → assert fields non-zero для Cast шага с реальным damage. Этого теста не было. Кандидат для добавления в рамках step 8 (когда трогаем pipeline structure).
+
+**Вывод для архитектуры.** Populator и serializer должны быть на одном уровне pipeline или использовать явную передачу ownership (не mutation-at-a-distance). `builder::from_sim_step` возвращает owned value — это правильная форма, не in-place mutation через индекс. В будущих шагах: если outcome populates intra-pipeline, передавать как явный параметр, не через side-channel индекс.
