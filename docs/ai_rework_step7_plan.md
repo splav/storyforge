@@ -637,7 +637,7 @@ Pre-condition: corpus с подходящими playtest'ами уже есть 
 |---|---|---|---|---|
 | 7.0 | Scaffolding (`PlanStage`, `ScoredPool`, `StageCtx`) | 0.5 | golden 0/N, no behavior | done (`3ed749a`) |
 | 7.1 | Scoring stages (Viability + Sanity) | 1.0 | golden 0/N | done (`2a3dbe0`) |
-| 7.2 | Contract stages (Adaptation + ProtectSelfMask + KillableGate) | 1.0 | golden 0/116 | done |
+| 7.2 | Contract stages (Adaptation + ProtectSelfMask + KillableGate) | 1.0 | golden 0/116 | done (`79e7371`) |
 | 7.3 | RepairAffinity + GoalRepair stages (closes 6.7 carry-over) | 1.0 | divergence-log переехал, формат идентичен | pending |
 | 7.4 | Pipeline assembly (`pick_action` body refactor) | 1.0 | per-entry golden ≤10/N | pending |
 | 7.5 | Annotation serialization + schema v26→v27 + log overhaul | 1.0 | replay roundtrip 0/N, v26 read OK | pending |
