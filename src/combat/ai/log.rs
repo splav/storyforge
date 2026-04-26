@@ -1012,10 +1012,21 @@ fn build_logged_plans(pool: &crate::combat::ai::pipeline::ScoredPool) -> Vec<Log
     indexed
         .into_iter()
         .enumerate()
-        .map(|(rank_idx, (pool_idx, _score))| LoggedPlan {
-            rank: rank_idx + 1,
-            steps: pool.plans[pool_idx].steps.clone(),
-            annotation: pool.annotations[pool_idx].clone(),
+        .map(|(rank_idx, (pool_idx, _score))| {
+            // pool.annotations[pool_idx] holds all pipeline-stage data (score,
+            // sanity, adaptation, chosen, …) but was default-constructed in
+            // ScoredPool::new and therefore has outcomes = [].
+            // pool.plans[pool_idx].annotation.outcomes was populated during
+            // plan generation (generator.rs) and is the authoritative source.
+            // Merge: start from the pipeline annotation, then fill outcomes
+            // from the generator-side annotation so both halves are present.
+            let mut annotation = pool.annotations[pool_idx].clone();
+            annotation.outcomes = pool.plans[pool_idx].annotation.outcomes.clone();
+            LoggedPlan {
+                rank: rank_idx + 1,
+                steps: pool.plans[pool_idx].steps.clone(),
+                annotation,
+            }
         })
         .collect()
 }
@@ -1354,6 +1365,52 @@ mod tests {
         assert_eq!(chosen_count, 1, "exactly one plan has chosen=true");
         assert_eq!(event.plans[0].rank, 1, "rank 1 is highest score");
         assert!(event.plans[0].annotation.chosen, "rank 1 plan is the chosen one");
+    }
+
+    /// Regression guard: annotation.outcomes populated in the generator must survive
+    /// through build_logged_plans into the serialized ActorTickEvent.
+    ///
+    /// Root cause of the v28 playtest bug: ScoredPool::new zero-fills pool.annotations
+    /// (no outcomes), while outcomes live in pool.plans[i].annotation.outcomes.
+    /// build_logged_plans was cloning only pool.annotations — silently dropping outcomes.
+    #[test]
+    fn build_logged_plans_preserves_annotation_outcomes() {
+        use crate::combat::ai::outcome::ActionOutcomeEstimate;
+        use crate::combat::ai::pipeline::ScoredPool;
+        use crate::combat::ai::planning::types::TurnPlan;
+
+        // Build a plan whose generator-side annotation has one outcome entry.
+        let mut plan = TurnPlan::default();
+        plan.annotation.outcomes.push(ActionOutcomeEstimate::default());
+
+        let mut pool = ScoredPool::new(vec![plan]);
+        pool.annotations[0].score = 1.0;
+        pool.annotations[0].chosen = true;
+
+        let snap = BattleSnapshot::default();
+        let debug_names = std::collections::HashMap::new();
+        let actor = Entity::from_bits(7);
+        let decision = AiDecision::EndTurn;
+        let reason = crate::combat::ai::intent::IntentReason::NoRuleDefault;
+        let input = ActorTickInput {
+            round: 1,
+            actor,
+            actor_name: "Tester",
+            snapshot: &snap,
+            memory_pre: &None,
+            decision: &decision,
+            skip_reason: None,
+            pool: Some(&pool),
+            intent_reason: Some(&reason),
+            debug_names: &debug_names,
+        };
+        let event = build_actor_tick_event(input);
+
+        assert_eq!(event.plans.len(), 1);
+        assert_eq!(
+            event.plans[0].annotation.outcomes.len(), 1,
+            "annotation.outcomes must be preserved through build_logged_plans"
+        );
     }
 
     // ── parse_actor_tick schema version tests ─────────────────────────────────
