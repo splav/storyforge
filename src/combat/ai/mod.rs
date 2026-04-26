@@ -5,6 +5,7 @@ pub mod log;
 pub mod repair;
 pub mod outcome;
 pub mod planning;
+pub mod policy;
 pub mod replay;
 pub mod replay_assertion;
 pub mod serde_helpers;

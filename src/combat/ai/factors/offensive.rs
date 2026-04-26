@@ -95,9 +95,10 @@ fn friendly_fire_penalty(
     caster: &CasterContext,
     content: &ContentView,
 ) -> f32 {
+    use crate::combat::ai::policy;
     // Friendly-fire splash is a damage estimate; heal-urgency is irrelevant.
     let raw = compute_score_core(def, u, caster, content, 0.0).abs();
-    raw * (1.0 + raw / u.max_hp.max(1) as f32)
+    policy::friendly_fire::penalty(raw, u.max_hp)
 }
 
 /// Net AoE damage = enemies hit minus friendly-fire splash, crit-fail-adjusted.

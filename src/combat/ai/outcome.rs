@@ -397,12 +397,12 @@ pub(crate) fn compute_score_core(
     content: &ContentView,
     danger_at_target: f32,
 ) -> f32 {
-    use crate::combat::ai::scoring::status_score;
+    use crate::combat::ai::policy;
     let Some(calc) = def.effect.calc(ctx) else {
         return if matches!(def.effect, EffectDef::GrantMovement { .. }) {
             0.0
         } else {
-            status_score(def, target, content)
+            policy::status::value(def, target, content)
         };
     };
 
@@ -414,12 +414,8 @@ pub(crate) fn compute_score_core(
             return 0.0;
         }
         let effective = expected.min(missing);
-        let delta_pct = effective / target.max_hp.max(1) as f32;
         let horizon_sum: f32 = target.damage_horizon.iter().sum::<f32>().max(target.threat);
-        let hp_missing = 1.0 - target.hp_pct();
-        let incoming = (danger_at_target / target.hp.max(1) as f32).min(1.0);
-        let urgency = 1.0 + hp_missing.max(incoming).min(1.0);
-        delta_pct * horizon_sum * urgency
+        policy::heal::value(effective, target.max_hp, target.hp, danger_at_target, horizon_sum)
     } else {
         let mitigation = if calc.pierces_armor {
             0.0
@@ -428,10 +424,10 @@ pub(crate) fn compute_score_core(
         };
         let raw = (expected - mitigation + target.damage_taken_bonus as f32).max(0.0);
         let progress = (raw / target.hp.max(1) as f32).min(1.0);
-        raw * (0.5 + 0.5 * progress)
+        policy::damage::value(raw, progress)
     };
 
-    dmg_score + status_score(def, target, content)
+    dmg_score + policy::status::value(def, target, content)
 }
 
 #[cfg(test)]

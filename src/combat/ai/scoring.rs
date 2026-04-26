@@ -231,8 +231,10 @@ pub fn estimate_damage_horizon(
 // ── Internals ──────────────────────────────────────────────────────────────
 
 /// Aggregate HP-equivalent value of the statuses `def` applies to `target`.
-/// Crate-visible — consumed by `outcome::compute_score_core` (the central
-/// HP-equivalent formula).
+/// Crate-visible — delegated to by `policy::status::value` (step 4.7).
+/// Retained for parity tests in `policy/status.rs`; will be deleted in step 4.12
+/// once all consumers have migrated to `policy::status::value`.
+#[allow(dead_code)]
 pub(crate) fn status_score(
     def: &AbilityDef,
     target: &UnitSnapshot,
