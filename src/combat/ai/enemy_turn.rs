@@ -4,19 +4,15 @@ use crate::combat::ai::debug::AiDebugState;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::AiMemory;
-use crate::combat::ai::repair::{
-    classify_continuation_outcome, ContinuationSeverity,
-    FreshDecisionKind,
-};
 use crate::combat::ai::repair::lifecycle as goal_lifecycle;
-use crate::combat::ai::log::AiLogger;
+use crate::combat::ai::log::{AiLogger, ActorTickInput, write_actor_tick_log};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::build_snapshot;
 use crate::combat::ai::intent::update_memory;
 use crate::combat::ai::planning::record_committed_reservations;
 use crate::combat::ai::utility::{
-    pick_action, write_decision_log_from_result, AiDecision, AiWorld, ChosenInfo,
+    pick_action, AiDecision, AiWorld, ChosenInfo,
 };
 use crate::content::settings::GameSettings;
 use crate::core::DiceRng;
@@ -139,12 +135,43 @@ fn run_ai_turn(
         Err(_) => &mut fallback_memory,
     };
 
+    // Capture stored goal state before pre_tick mutates it — used in actor_tick log.
+    let memory_pre = memory_ref.last_goal.clone();
+
     // Step 7.3: centralised goal lifecycle — TTL decay + invalidating clear.
     // Replaces the inline FIXME(step 7) TTL clear on the early-return path.
     goal_lifecycle::pre_tick(memory_ref, &snap, actor_snap);
 
     if c.ap.action_points <= 0 && !c.ap.can_move() {
-        // tick_skipped log will be written here in 7.5; for now just end turn.
+        // Step 7.5: write actor_tick log for skip path (no AP/MP).
+        if logger.is_enabled() {
+            let actor_name = names
+                .get(actor)
+                .map(|n| n.as_str().to_owned())
+                .unwrap_or_else(|_| format!("{:?}", actor));
+            let debug_names_skip: HashMap<Entity, String> = snap
+                .units
+                .iter()
+                .map(|u| {
+                    let name = names
+                        .get(u.entity)
+                        .map(|n| n.as_str().to_owned())
+                        .unwrap_or_else(|_| format!("{:?}", u.entity));
+                    (u.entity, name)
+                })
+                .collect();
+            write_actor_tick_log(logger, ActorTickInput {
+                round: combat_ctx.round,
+                actor,
+                actor_name: &actor_name,
+                snapshot: &snap,
+                memory_pre: &memory_pre,
+                decision: &AiDecision::EndTurn,
+                skip_reason: Some("no_ap_no_mp"),
+                pool: None,
+                debug_names: &debug_names_skip,
+            });
+        }
         msgs.end_turn.write(EndTurn { actor });
         return;
     }
@@ -179,7 +206,6 @@ fn run_ai_turn(
     // Step 7.4: pick_action is now a pure function (does not mutate memory).
     // update_memory runs AFTER pick_action so that select_intent inside
     // pick_action reads the pre-tick memory state (matching original semantics).
-    let t0 = if logger.is_enabled() { Some(std::time::Instant::now()) } else { None };
     let result = pick_action(
         actor, actor_pos, &world, &snap, &maps, rng,
         memory_ref, reservations, debug, &debug_names,
@@ -192,7 +218,7 @@ fn run_ai_turn(
     let decision = result.decision.clone();
     let best_idx = result.best_idx;
 
-    // Build ChosenInfo from PickResult for divergence log + goal_lifecycle.
+    // Build ChosenInfo from PickResult for goal_lifecycle::post_tick.
     let fresh_chosen: Option<ChosenInfo> = if result.pool.is_empty() {
         None
     } else {
@@ -207,14 +233,21 @@ fn run_ai_turn(
         })
     };
 
-    // Logging — orchestrator receives PickResult and writes the decision log.
+    // Step 7.5: write unified actor_tick log (replaces write_decision_log_from_result
+    // and the divergence-log block). Divergence data now lives in the continuation
+    // section of the actor_tick event.
     if logger.is_enabled() {
-        let decision_time_ms = t0.map_or(0, |t| t.elapsed().as_millis() as u64);
-        let reservations_snap = reservations.to_snapshot();
-        write_decision_log_from_result(
-            logger, decision_time_ms, actor, actor_snap, &snap, content,
-            &result, &debug_names, &env.difficulty, memory_ref, reservations_snap,
-        );
+        write_actor_tick_log(logger, ActorTickInput {
+            round: combat_ctx.round,
+            actor,
+            actor_name: debug_names.get(&actor).map(|s| s.as_str()).unwrap_or("unknown"),
+            snapshot: &snap,
+            memory_pre: &memory_pre,
+            decision: &decision,
+            skip_reason: None,
+            pool: Some(&result.pool),
+            debug_names: &debug_names,
+        });
     }
 
     // Reservations — record committed prefix for this tick.
@@ -223,48 +256,6 @@ fn run_ai_turn(
         let (_, consumed) = crate::combat::ai::planning::commit_plan(best_plan, actor_pos);
         record_committed_reservations(
             best_plan, consumed, actor_snap, &world, &snap, reservations, actor_pos,
-        );
-    }
-
-    // Compute severity from last_goal for divergence logging (step 6.6).
-    // None when no stored goal exists — equivalent to old "no mismatch" path.
-    let continuation_severity: Option<ContinuationSeverity> = memory_ref.last_goal.as_ref()
-        .and_then(|g| {
-            let actor_snap = snap.unit(actor).unwrap(); // checked above
-            let target_snap = g.target_entity().and_then(|t| snap.unit(t));
-            g.check_continuation(actor_snap, target_snap).map(|c| c.severity)
-        });
-
-    // Divergence log block (step 6.6). Remains untouched until 7.5.
-    if let (Some(ref stored_goal), Some(ref fresh)) = (&memory_ref.last_goal, &fresh_chosen) {
-        let fresh_decision_kind = match decision {
-            AiDecision::CastInPlace { .. } | AiDecision::MoveAndCast { .. } => {
-                FreshDecisionKind::Cast
-            }
-            AiDecision::Move { .. } => FreshDecisionKind::Move,
-            AiDecision::EndTurn => FreshDecisionKind::EndTurn,
-        };
-        let fresh_reason = &fresh.reason;
-        let age = combat_ctx.round.saturating_sub(stored_goal.created_round);
-        let continuation_outcome = classify_continuation_outcome(
-            Some(stored_goal),
-            fresh.intent,
-            fresh_decision_kind,
-            fresh_reason,
-            continuation_severity,
-            age,
-        );
-        let fresh_repair_affinity = Some(fresh.plan.annotation.repair_affinity);
-        logger.write_plan_divergence(
-            actor,
-            stored_goal,
-            fresh,
-            false,
-            None,
-            continuation_severity,
-            continuation_outcome,
-            fresh_repair_affinity,
-            None,
         );
     }
 

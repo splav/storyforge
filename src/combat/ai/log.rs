@@ -152,7 +152,7 @@ use crate::game::hex::Hex;
 ///   to `NoStoredGoal` via `#[serde(other)]` (acceptable for analysis — v25
 ///   abandoned entries are not split granularly anyway). `AbandonReason` enum
 ///   removed (merged into outcome variants above).
-pub const SCHEMA_VERSION: u32 = 26;
+pub const SCHEMA_VERSION: u32 = 27;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -911,6 +911,207 @@ fn goal_kind_to_intent_kind(kind: &GoalKind) -> IntentKind {
     }
 }
 
+// ── Schema v27: unified actor_tick event ──────────────────────────────────
+
+/// Logged decision variant for `ActorTickEvent` (schema v27).
+///
+/// Mirrors `AiDecision` but uses plain serializable types (u64, [i32;2], Vec)
+/// instead of Bevy `Entity` / `Hex` / `AbilityId`. Includes `Skip` for the
+/// early-return path (no AP/MP) which `AiDecision` does not model.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LoggedDecision {
+    Cast {
+        ability: String,
+        target: u64,
+        target_pos: [i32; 2],
+    },
+    MoveAndCast {
+        path: Vec<[i32; 2]>,
+        ability: String,
+        target: u64,
+        target_pos: [i32; 2],
+    },
+    Move {
+        path: Vec<[i32; 2]>,
+    },
+    EndTurn,
+    Skip {
+        reason: String,
+    },
+}
+
+/// A single plan entry in `ActorTickEvent.plans` (schema v27).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LoggedPlan {
+    pub rank: usize,
+    pub steps: Vec<PlanStep>,
+    pub annotation: PlanAnnotation,
+}
+
+/// Continuation section of `ActorTickEvent` — present when a stored goal
+/// existed at the start of the tick (before `goal_lifecycle::pre_tick`).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ContinuationLogSection {
+    pub stored_goal: StoredGoalContextSnapshot,
+    /// Severity of the mismatch between the stored goal and current state.
+    /// `None` when the world still matches (no mismatch detected).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub severity: Option<ContinuationSeverity>,
+    /// Age of the stored goal in rounds: `current_round - stored.created_round`.
+    pub age: u32,
+}
+
+/// Unified per-tick AI decision event (schema v27).
+///
+/// Replaces the old `actor_turn` + `plan_divergence` + implicit skip-path.
+/// Self-contained: each record carries the full snapshot so tools can work
+/// on individual entries without cross-record correlation.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ActorTickEvent {
+    pub event_type: String,
+    pub schema_version: u32,
+    pub round: u32,
+    pub timestamp_ms: u64,
+    pub actor_id: u64,
+    pub actor_name: String,
+    pub snapshot: BattleSnapshot,
+    /// Sorted by rank (1 = best). Empty on skip-path.
+    pub plans: Vec<LoggedPlan>,
+    pub decision: LoggedDecision,
+    /// Present when a stored goal existed at tick start (before pre_tick ran).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<ContinuationLogSection>,
+}
+
+// ── ActorTickInput + build helpers ────────────────────────────────────────
+
+/// All inputs needed to assemble an `ActorTickEvent`.
+pub struct ActorTickInput<'a> {
+    pub round: u32,
+    pub actor: Entity,
+    pub actor_name: &'a str,
+    pub snapshot: &'a BattleSnapshot,
+    /// Stored goal captured **before** `goal_lifecycle::pre_tick` ran.
+    pub memory_pre: &'a Option<StoredGoalContext>,
+    /// The committed AI decision for this tick.
+    pub decision: &'a AiDecision,
+    /// Non-`None` for the early-return (no AP/MP) path; `None` for the full path.
+    pub skip_reason: Option<&'static str>,
+    /// Scored pool from `pick_action`; `None` on skip-path.
+    pub pool: Option<&'a crate::combat::ai::pipeline::ScoredPool>,
+    pub debug_names: &'a std::collections::HashMap<Entity, String>,
+}
+
+/// Build an `ActorTickEvent` from the given inputs. Pure function.
+///
+/// - On skip-path (`skip_reason.is_some()`): `plans = []`, `decision = Skip`.
+/// - On full path: plans from pool sorted by score desc, decision from `AiDecision`.
+/// - `continuation` populated when `memory_pre` is `Some`.
+pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
+    let actor_id = input.actor.to_bits();
+
+    // Build LoggedDecision.
+    let decision = if let Some(reason) = input.skip_reason {
+        LoggedDecision::Skip { reason: reason.to_owned() }
+    } else {
+        logged_decision_from_ai(input.decision)
+    };
+
+    // Build plans list (empty on skip-path).
+    let plans = if input.skip_reason.is_some() {
+        vec![]
+    } else if let Some(pool) = input.pool {
+        build_logged_plans(pool)
+    } else {
+        vec![]
+    };
+
+    // Build continuation section.
+    let continuation = input.memory_pre.as_ref().map(|stored| {
+        let actor_snap = input.snapshot.unit(input.actor);
+        let target_snap = stored.target_entity().and_then(|t| input.snapshot.unit(t));
+        let severity = stored.check_continuation(
+            actor_snap.unwrap_or_else(|| input.snapshot.units.first().expect("non-empty snap")),
+            target_snap,
+        ).map(|c| c.severity);
+        let age = input.round.saturating_sub(stored.created_round);
+        ContinuationLogSection {
+            stored_goal: StoredGoalContextSnapshot::from(stored),
+            severity,
+            age,
+        }
+    });
+
+    ActorTickEvent {
+        event_type: "actor_tick".to_owned(),
+        schema_version: SCHEMA_VERSION,
+        round: input.round,
+        timestamp_ms: now_ms() as u64,
+        actor_id,
+        actor_name: input.actor_name.to_owned(),
+        snapshot: input.snapshot.clone(),
+        plans,
+        decision,
+        continuation,
+    }
+}
+
+/// Convert an `AiDecision` to a `LoggedDecision`. Panics if called with a
+/// decision that has no direct mapping (there are none currently).
+fn logged_decision_from_ai(decision: &AiDecision) -> LoggedDecision {
+    match decision {
+        AiDecision::CastInPlace { ability, target, target_pos } => LoggedDecision::Cast {
+            ability: ability.0.clone(),
+            target: target.to_bits(),
+            target_pos: [target_pos.x, target_pos.y],
+        },
+        AiDecision::MoveAndCast { path, ability, target, target_pos } => {
+            LoggedDecision::MoveAndCast {
+                path: path.iter().map(|h| [h.x, h.y]).collect(),
+                ability: ability.0.clone(),
+                target: target.to_bits(),
+                target_pos: [target_pos.x, target_pos.y],
+            }
+        }
+        AiDecision::Move { path, .. } => LoggedDecision::Move {
+            path: path.iter().map(|h| [h.x, h.y]).collect(),
+        },
+        AiDecision::EndTurn => LoggedDecision::EndTurn,
+    }
+}
+
+/// Sort pool plans by score descending and convert to `LoggedPlan` list.
+fn build_logged_plans(pool: &crate::combat::ai::pipeline::ScoredPool) -> Vec<LoggedPlan> {
+    let mut indexed: Vec<(usize, f32)> = pool
+        .annotations
+        .iter()
+        .enumerate()
+        .map(|(i, a)| (i, a.score))
+        .collect();
+    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    indexed
+        .into_iter()
+        .enumerate()
+        .map(|(rank_idx, (pool_idx, _score))| LoggedPlan {
+            rank: rank_idx + 1,
+            steps: pool.plans[pool_idx].steps.clone(),
+            annotation: pool.annotations[pool_idx].clone(),
+        })
+        .collect()
+}
+
+/// Serialize `ActorTickEvent` as a JSONL line and write to logger.
+pub fn write_actor_tick_log(logger: &mut AiLogger, input: ActorTickInput<'_>) {
+    if !logger.is_enabled() {
+        return;
+    }
+    let event = build_actor_tick_event(input);
+    if let Err(e) = logger.write_entry(&event) {
+        warn!("AI actor_tick log write failed: {}", e);
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1118,7 +1319,7 @@ mod tests {
         let json = serde_json::to_string(&entry).expect("serialize");
         let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
 
-        assert_eq!(v["schema_version"], 26, "schema must be 26 (updated in step 6.6b)");
+        assert_eq!(v["schema_version"], SCHEMA_VERSION, "schema_version must match SCHEMA_VERSION");
         // continuation_outcome is tagged: {"kind": "goal_preserved_method_delivered"}
         assert_eq!(v["continuation_outcome"]["kind"], "goal_preserved_method_delivered");
         assert!(v["repair_affinity"].is_object(), "repair_affinity present");
@@ -1189,5 +1390,97 @@ mod tests {
         // Cleanup.
         let _ = std::fs::remove_file(&p1);
         let _ = std::fs::remove_file(&p2);
+    }
+
+    // ── actor_tick event (schema v27) ─────────────────────────────────────────
+
+    fn make_tick_input_skip<'a>(
+        actor: Entity,
+        snap: &'a BattleSnapshot,
+        debug_names: &'a std::collections::HashMap<Entity, String>,
+    ) -> ActorTickInput<'a> {
+        ActorTickInput {
+            round: 1,
+            actor,
+            actor_name: "TestEnemy",
+            snapshot: snap,
+            memory_pre: &None,
+            decision: &AiDecision::EndTurn,
+            skip_reason: Some("no_ap_no_mp"),
+            pool: None,
+            debug_names,
+        }
+    }
+
+    #[test]
+    fn actor_tick_event_round_trips() {
+        use crate::combat::ai::snapshot::BattleSnapshot;
+        let snap = BattleSnapshot::default();
+        let debug_names = std::collections::HashMap::new();
+        let actor = Entity::from_bits(1);
+        let input = make_tick_input_skip(actor, &snap, &debug_names);
+        let event = build_actor_tick_event(input);
+        let json = serde_json::to_string(&event).expect("serialize");
+        let restored: ActorTickEvent = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(event.event_type, restored.event_type);
+        assert_eq!(event.schema_version, restored.schema_version);
+        assert_eq!(event.round, restored.round);
+        assert_eq!(event.actor_id, restored.actor_id);
+        assert_eq!(event.actor_name, restored.actor_name);
+        assert_eq!(event.plans.len(), restored.plans.len());
+        assert_eq!(event.decision, restored.decision);
+        assert_eq!(event.continuation.is_none(), restored.continuation.is_none());
+    }
+
+    #[test]
+    fn build_actor_tick_event_skip_uses_skip_decision_kind() {
+        let snap = BattleSnapshot::default();
+        let debug_names = std::collections::HashMap::new();
+        let actor = Entity::from_bits(2);
+        let input = make_tick_input_skip(actor, &snap, &debug_names);
+        let event = build_actor_tick_event(input);
+        assert!(
+            matches!(event.decision, LoggedDecision::Skip { .. }),
+            "expected Skip, got {:?}", event.decision
+        );
+        assert_eq!(event.plans.len(), 0, "skip path must have empty plans");
+        assert_eq!(event.schema_version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn build_actor_tick_event_full_has_chosen_annotation() {
+        use crate::combat::ai::pipeline::ScoredPool;
+        use crate::combat::ai::planning::types::TurnPlan;
+
+        // Build a minimal pool with two plans; second plan is chosen.
+        let plans = vec![TurnPlan::default(), TurnPlan::default()];
+        let mut pool = ScoredPool::new(plans);
+        pool.annotations[0].score = 1.0;
+        pool.annotations[1].score = 2.0;
+        pool.annotations[1].chosen = true;
+
+        let snap = BattleSnapshot::default();
+        let debug_names = std::collections::HashMap::new();
+        let actor = Entity::from_bits(3);
+        let decision = AiDecision::EndTurn;
+        let input = ActorTickInput {
+            round: 2,
+            actor,
+            actor_name: "Boss",
+            snapshot: &snap,
+            memory_pre: &None,
+            decision: &decision,
+            skip_reason: None,
+            pool: Some(&pool),
+            debug_names: &debug_names,
+        };
+        let event = build_actor_tick_event(input);
+
+        // Plans sorted by score desc: rank 1 = score 2.0 (chosen), rank 2 = score 1.0.
+        assert_eq!(event.plans.len(), 2, "two plans in pool");
+        let chosen_count = event.plans.iter().filter(|p| p.annotation.chosen).count();
+        assert_eq!(chosen_count, 1, "exactly one plan has chosen=true");
+        assert_eq!(event.plans[0].rank, 1, "rank 1 is highest score");
+        assert!(event.plans[0].annotation.chosen, "rank 1 plan is the chosen one");
     }
 }
