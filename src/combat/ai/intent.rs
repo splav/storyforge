@@ -1359,6 +1359,7 @@ mod tests {
     /// This pins the S5 fix — armor hits that do minimal damage no longer
     /// receive the same credit as impactful blows.
     #[test]
+    #[allow(deprecated)]
     fn focus_target_scores_proportional_to_damage() {
         use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
         use crate::core::DiceExpr;

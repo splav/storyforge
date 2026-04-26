@@ -28,6 +28,7 @@ use std::collections::HashSet;
 /// The only live computation remaining here is the **AoE friendly-fire** penalty
 /// via `compute_aoe_damage` — it operates on ally units which are not captured
 /// in `ActionOutcomeEstimate`, so it cannot be read from the outcome directly.
+#[allow(deprecated)]
 pub(super) fn compute_offensive(
     ability: &AbilityId,
     target_pos: Hex,
@@ -157,6 +158,7 @@ mod tests {
     /// `OffensiveFactors` mirrors them exactly. If any field were re-derived from
     /// the snapshot or via `compute_score_core` the values would differ.
     #[test]
+    #[allow(deprecated)]
     fn compute_offensive_reads_outcome_not_score_action() {
         use crate::combat::ai::difficulty::DifficultyProfile;
         use crate::combat::ai::reservations::Reservations;

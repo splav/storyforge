@@ -15,8 +15,9 @@ use crate::combat::ai::factors::{aoe_area, aoe_hits};
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::planning::sim::SimState;
 use crate::combat::ai::outcome::{
-    ActionOutcomeEstimate, estimate_deny_value, estimate_expected_damage, estimate_kill_soon,
-    estimate_rescue_value, step_path_danger,
+    ActionOutcomeEstimate, build_damage_facts, build_status_facts, aoe_p_kill_soon,
+    estimate_deny_value, estimate_expected_damage, estimate_hp_restored, estimate_kill_soon,
+    estimate_rescue_value, split_resource_costs, step_path_danger,
 };
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
@@ -165,7 +166,7 @@ pub fn generate_plans(
                 };
 
                 let step_damage = outcome.damage;
-                // Step 4.2/4.3: compute all 9 ActionOutcomeEstimate fields.
+                // Step 4.8: compute full fact-vector ActionOutcomeEstimate (new + legacy fields).
                 let ann_outcome = build_step_outcome_estimate(
                     &step,
                     &outcome,
@@ -177,6 +178,7 @@ pub fn generate_plans(
                     maps,
                     sa.pos,
                     sa.team,
+                    actor,
                 );
                 let mut extended = plan.clone();
                 extended.steps.push(step);
@@ -215,7 +217,18 @@ pub fn generate_plans(
 ///
 /// `caster_tile` is the actor's position before this step — needed to compute
 /// the AoE blast area for multi-target deny_value and p_kill_soon aggregation.
+/// Build the full `ActionOutcomeEstimate` for one plan step (step 4.2/4.3/4.8).
+///
+/// As of step 4.8: fills both new fact fields and legacy (deprecated) fields.
+/// Consumers still read legacy fields; migration happens in 4.10–4.11.
+///
+/// Uses the pre-step snapshot for target reads so killed targets (hp→0 in
+/// `outcome.killed`) are still visible via their pre-death stats.
+///
+/// `caster_tile` is the actor's position before this step — needed to compute
+/// the AoE blast area for multi-target deny_value and p_kill_soon aggregation.
 #[allow(clippy::too_many_arguments)]
+#[allow(deprecated)]
 fn build_step_outcome_estimate(
     step: &PlanStep,
     outcome: &crate::combat::ai::planning::types::StepOutcome,
@@ -227,6 +240,7 @@ fn build_step_outcome_estimate(
     maps: &InfluenceMaps,
     caster_tile: Hex,
     actor_unit_team: Team,
+    actor_entity: bevy::prelude::Entity,
 ) -> ActionOutcomeEstimate {
     match step {
         PlanStep::Cast { ability, target, target_pos } => {
@@ -234,24 +248,24 @@ fn build_step_outcome_estimate(
             let Some(def) = content.abilities.get(ability) else {
                 return ActionOutcomeEstimate {
                     expected_damage: step_damage,
+                    enemy_damage: step_damage,
                     ..Default::default()
                 };
             };
             let target_unit = pre_snap.unit(*target);
 
-            // p_kill_now: 1.0 if any entity was killed by this step.
+            // ── Kill facts ──
             let p_kill_now = if outcome.killed.is_empty() { 0.0 } else { 1.0 };
 
+            // ── Legacy: p_kill_soon + deny_value (AoE or single) ──
             // For AoE: aggregate deny_value and p_kill_soon over all enemy hits,
             // matching what compute_offensive does at scoring time.
-            // For single-target: use the primary target directly.
             let (p_kill_soon, deny_value) = if def.aoe == AoEShape::None {
                 let ks = target_unit.map_or(0.0, |t| estimate_kill_soon(def, t, caster, content));
                 let dv = target_unit.map_or(0.0, |t| estimate_deny_value(def, t, content));
                 (ks, dv)
             } else {
                 let area = crate::combat::ai::factors::aoe_area(def, *target_pos, caster_tile);
-                // Determine the actor's team to distinguish enemies from allies.
                 let actor_team = actor_unit_team;
                 let enemies_in_area: Vec<&UnitSnapshot> = pre_snap.units.iter()
                     .filter(|u| u.is_alive() && area.contains(&u.pos) && u.team != actor_team)
@@ -267,10 +281,7 @@ fn build_step_outcome_estimate(
                 (ks, dv)
             };
 
-            // expected_damage: scorer-compatible damage estimate for single-target
-            // enemy casts (= compute_score_core + crit_fail_adjusted). For AoE, keep
-            // sim-derived step_damage as a reference value — the scorer uses
-            // compute_aoe_damage directly for AoE damage anyway.
+            // ── Legacy: expected_damage ──
             let expected_damage = if def.aoe == AoEShape::None {
                 target_unit.map_or(0.0, |t| {
                     estimate_expected_damage(def, t, caster, content, crit_fail_effect, ctx.crit_fail_chance)
@@ -279,7 +290,7 @@ fn build_step_outcome_estimate(
                 step_damage
             };
 
-            // rescue_value: heal value with urgency (only for SingleAlly).
+            // ── Legacy: rescue_value ──
             let danger_at_target = maps.danger.get(*target_pos);
             let rescue_value = target_unit.map_or(0.0, |t| {
                 estimate_rescue_value(
@@ -288,33 +299,99 @@ fn build_step_outcome_estimate(
                 )
             });
 
-            // resource_swing: -(AP cost) - (mana/rage/energy costs).
+            // ── Legacy: resource_swing ──
             let resource_swing = -(def.cost_ap as f32)
                 - def.costs.iter().map(|c| c.amount as f32).sum::<f32>();
 
+            // ── New fact: damage breakdown ──
+            let dmg_facts = build_damage_facts(
+                def, *target_pos, *target, caster_tile,
+                actor_unit_team, actor_entity, pre_snap, caster, step_damage,
+            );
+
+            // ── New fact: p_kill_soon for AoE (using new helper) ──
+            let new_p_kill_soon = if def.aoe != AoEShape::None {
+                aoe_p_kill_soon(def, *target_pos, caster_tile, actor_unit_team, pre_snap, caster, content)
+            } else {
+                p_kill_soon
+            };
+
+            // ── New fact: status facts ──
+            let status_facts = build_status_facts(
+                def, *target, *target_pos, caster_tile,
+                actor_unit_team, pre_snap, content,
+            );
+
+            // ── New fact: hp_restored ──
+            let hp_restored = target_unit.map_or(0.0, |t| estimate_hp_restored(def, t, caster));
+
+            // ── New fact: resource costs split ──
+            let res_facts = split_resource_costs(def);
+
             ActionOutcomeEstimate {
-                expected_damage,
+                // New fact fields
+                enemy_damage: dmg_facts.enemy_damage,
+                enemy_damage_per_entity: dmg_facts.enemy_damage_per_entity,
+                ally_damage: dmg_facts.ally_damage,
+                ally_damage_per_entity: dmg_facts.ally_damage_per_entity,
+                self_damage: dmg_facts.self_damage,
                 p_kill_now,
-                p_kill_soon,
+                p_kill_soon: new_p_kill_soon,
+                cc_turns_applied: status_facts.cc_turns_applied,
+                vulnerability_applied: status_facts.vulnerability_applied,
+                armor_shred_applied: status_facts.armor_shred_applied,
+                hp_restored,
+                path_max_danger: 0.0,
+                mp_spent: 0,
+                ap_spent: res_facts.ap_spent,
+                mana_spent: res_facts.mana_spent,
+                rage_spent: res_facts.rage_spent,
+                other_resource_spent: res_facts.other_resource_spent,
+                // Legacy fields (deprecated, kept 1:1 with pre-4.8 behavior)
+                expected_damage,
                 deny_value,
                 rescue_value,
-                board_pressure: 0.0,  // filled in step 5
-                exposure_delta: 0.0,  // Cast: no movement, no path danger
-                geometry_gain: 0.0,   // filled in step 17
+                board_pressure: 0.0,
+                exposure_delta: 0.0,
+                geometry_gain: 0.0,
                 resource_swing,
             }
         }
         PlanStep::Move { path } => {
+            // ── New fact: path danger + mp_spent ──
+            let path_max_danger = step_path_danger(step, maps);
+            let mp_spent = path.len() as i32;
+            // ── Legacy: resource_swing (Move costs 1 MP per tile) ──
+            let resource_swing = -(path.len() as f32);
+            let exposure_delta = path_max_danger;
+
             ActionOutcomeEstimate {
-                expected_damage: 0.0,
+                // New fact fields
+                enemy_damage: 0.0,
+                enemy_damage_per_entity: vec![],
+                ally_damage: 0.0,
+                ally_damage_per_entity: vec![],
+                self_damage: 0.0,
                 p_kill_now: 0.0,
                 p_kill_soon: 0.0,
+                cc_turns_applied: 0.0,
+                vulnerability_applied: 0.0,
+                armor_shred_applied: 0.0,
+                hp_restored: 0.0,
+                path_max_danger,
+                mp_spent,
+                ap_spent: 0,
+                mana_spent: 0,
+                rage_spent: 0,
+                other_resource_spent: 0,
+                // Legacy fields (deprecated, kept 1:1 with pre-4.8 behavior)
+                expected_damage: 0.0,
                 deny_value: 0.0,
                 rescue_value: 0.0,
-                board_pressure: 0.0,   // filled in step 5
-                exposure_delta: step_path_danger(step, maps),
-                geometry_gain: 0.0,    // filled in step 17
-                resource_swing: -(path.len() as f32),
+                board_pressure: 0.0,
+                exposure_delta,
+                geometry_gain: 0.0,
+                resource_swing,
             }
         }
     }
@@ -869,6 +946,7 @@ mod tests {
     // ── Annotation outcomes match sim outcomes ─────────────────────────────
 
     #[test]
+    #[allow(deprecated)]
     fn annotation_expected_damage_matches_estimate_expected_damage() {
         // Step 4.3: `annotation.expected_damage` stores the scorer-compatible
         // expected damage (= compute_score_core() output via estimate_expected_damage),

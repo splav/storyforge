@@ -182,6 +182,7 @@ pub fn pick_best_plan(
 /// `consumed` comes from `steps_consumed_by_decision` and matches the match
 /// arm in `decision_from_steps` (1 for a solo cast/move, 2 for a Move→Cast
 /// bundle).
+#[allow(deprecated)]
 pub fn record_committed_reservations(
     plan: &TurnPlan,
     consumed: usize,

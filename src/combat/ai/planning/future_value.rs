@@ -166,6 +166,7 @@ fn position_component(active: &UnitSnapshot, committed_pos: Hex, tuning: &AiTuni
 /// - All other intents: top-3 enemies by priority (original Phase 7 logic).
 ///
 /// Reachability filter: `distance(committed_pos, target.pos) <= speed + max_attack_range`.
+#[allow(deprecated)]
 fn attack_component_intent(
     active: &UnitSnapshot,
     committed_pos: Hex,

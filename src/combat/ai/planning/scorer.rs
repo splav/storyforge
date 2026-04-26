@@ -809,6 +809,7 @@ mod tests {
     /// `annotation: Default::default()`) and then call `compute_plan_factors`.
     /// Step 4.3 moved live scoring to read `outcome.expected_damage` — without
     /// this helper, intent factors would be 0 for all manually-built plans.
+    #[allow(deprecated)]
     fn annotate_plan(
         plan: &mut TurnPlan,
         actor: &UnitSnapshot,
