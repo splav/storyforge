@@ -105,7 +105,15 @@ pub struct PlanAnnotation {
     pub contract: Option<ContractMaskHit>,
     /// Step 7.4: final aggregated score for this plan after all pipeline stages.
     /// Default 0.0. Written by scoring stages (replaces ScoredPool.scored).
-    #[serde(default)]
+    ///
+    /// Serde wrapped because contract masks (ProtectSelf, KillableGate) set
+    /// score = `f32::NEG_INFINITY` to sentinel-mask plans. JSON cannot represent
+    /// non-finite floats; serde_json writes them as `null` and then fails to
+    /// read back. The `f32_finite` adapter maps NEG_INFINITY → `f32::MIN`
+    /// (-3.4e38) on write; on read accepts both finite numbers and `null`
+    /// (decoded as `f32::MIN`). Production semantics preserved — runtime never
+    /// round-trips score through JSON.
+    #[serde(default, with = "crate::combat::ai::serde_helpers::f32_finite")]
     pub score: f32,
     /// Step 7.4: raw factor decomposition for this plan.
     /// Written by the initial scoring pass. Default PlanFactors::default().

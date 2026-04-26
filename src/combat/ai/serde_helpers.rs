@@ -95,3 +95,38 @@ pub mod ai_tags {
         Ok(AiTags::from_bits_truncate(bits))
     }
 }
+
+/// Serde adapter for `f32` fields that may be non-finite due to sentinel
+/// masking (e.g., `KillableGateStage` / `ProtectSelfMaskStage` write
+/// `f32::NEG_INFINITY` as a "this plan is masked" marker). JSON cannot
+/// represent non-finite floats; serde_json writes them as `null` and then
+/// fails on read.
+///
+/// This adapter:
+/// - Serializes `NEG_INFINITY` → `f32::MIN` (-3.4e38, finite, JSON-safe).
+/// - Serializes `INFINITY` → `f32::MAX`.
+/// - Serializes `NaN` → `0.0`.
+/// - Serializes finite values as-is.
+/// - Deserializes any number to f32; accepts `null` as `f32::MIN`
+///   (backward read for v27 logs that wrote `null`).
+pub mod f32_finite {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &f32, s: S) -> Result<S::Ok, S::Error> {
+        let safe = if v.is_finite() {
+            *v
+        } else if v.is_nan() {
+            0.0
+        } else if *v < 0.0 {
+            f32::MIN
+        } else {
+            f32::MAX
+        };
+        s.serialize_f32(safe)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+        // Accept null (legacy v27 wrote null for non-finite) → f32::MIN sentinel.
+        Option::<f32>::deserialize(d).map(|opt| opt.unwrap_or(f32::MIN))
+    }
+}
