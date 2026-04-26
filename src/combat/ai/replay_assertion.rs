@@ -53,8 +53,57 @@ use crate::core::AbilityId;
 #[derive(Debug, Deserialize, Default)]
 pub struct Overlay {
     pub scope: Option<OverlayScope>,
+    /// Optional AiMemory state to inject before pick_action runs.
+    /// When present, sets `AiMemory.last_goal` from the overlay fields.
+    /// When absent, `AiMemory` starts as default (no stored goal).
+    pub ai_memory: Option<AiMemoryOverlay>,
     #[serde(default)]
     pub expectations: Vec<Expectation>,
+}
+
+/// Flat representation of `AiMemory` fields for TOML overlay injection.
+///
+/// All fields are optional. When `[ai_memory]` is present in the overlay,
+/// `build_stored_goal` reads these fields and constructs `StoredGoalContext`
+/// if any goal-kind-specific field is provided.
+///
+/// Flat layout (no nesting) is intentional: TOML table syntax is more
+/// readable than inline table syntax for multi-field goal specifications.
+#[derive(Debug, Deserialize, Default)]
+pub struct AiMemoryOverlay {
+    /// Goal kind: `"Finish"`, `"Pressure"`, `"DisableEnemy"`, `"HealAlly"`,
+    /// `"Retreat"`, `"SetupAOE"`, or `"Reposition"`.
+    pub last_goal_kind: Option<String>,
+    /// Target entity bits (for targeted goals: Finish/Pressure/DisableEnemy/HealAlly).
+    pub last_goal_target: Option<u64>,
+    /// Hex anchor `[col, row]` for positional goals (Retreat/SetupAOE/Reposition).
+    pub last_goal_region_anchor: Option<[i32; 2]>,
+    /// Planned ability id for SetupAOE.
+    pub last_goal_planned_ability: Option<String>,
+    /// TTL remaining (default: 2).
+    pub last_goal_ttl: Option<u8>,
+    /// Confidence score at store time (default: 1.0).
+    pub last_goal_confidence: Option<f32>,
+    /// Round when goal was created (default: 0, meaning "long ago").
+    pub last_goal_created_round: Option<u32>,
+    /// Expected actor position at goal time `[col, row]`.
+    pub last_goal_expected_actor_pos: Option<[i32; 2]>,
+    /// Actor HP at store time (default: 0 — no hp-drop mismatch unless actor took damage).
+    pub last_goal_actor_hp_at_store: Option<i32>,
+    /// Actor rage at store time (default: 0).
+    pub last_goal_actor_rage_at_store: Option<i32>,
+    /// Actor status hash at store time (default: 0).
+    /// Accepts either a decimal string (e.g. `"15130871412783076140"`) or a
+    /// hex string with `0x` prefix (e.g. `"0xD1CE5E7E47D1B3AC"`).
+    /// Plain TOML integers are limited to i64 range, so large u64 values must
+    /// use this string form.
+    pub last_goal_actor_status_hash: Option<String>,
+    /// Target HP at store time (default: 0).
+    pub last_goal_target_hp_at_store: Option<i32>,
+    /// Target position at store time `[col, row]` (default: [0, 0]).
+    pub last_goal_target_pos_at_store: Option<[i32; 2]>,
+    /// Region radius for repair affinity (default: 2).
+    pub last_goal_region_radius: Option<u32>,
 }
 
 /// Selects which log entry to assert against.

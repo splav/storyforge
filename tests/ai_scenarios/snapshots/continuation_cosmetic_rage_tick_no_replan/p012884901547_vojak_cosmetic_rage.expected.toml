@@ -1,0 +1,38 @@
+# Continuation: rage tick (Cosmetic mismatch) — goal preserved, same target.
+#
+# Actor: Зверокров Вожак стаи (12884901547), r1, hp=9/16, rage=[1, 5].
+# Stored goal (injected via [ai_memory]): Pressure on target 12884901551.
+# Mismatch: actor_rage_at_store=0 != current rage=1 → severity = Cosmetic.
+# Expected: actor continues goal, attacks the same target 12884901551.
+#
+# This validates the Cosmetic severity classification: a rage tick from AoO
+# or round mechanics does NOT trigger a replan. The decision (intent + target)
+# must remain unchanged despite the mismatch.
+#
+# Source: road_bridge playtest 2026-04-26, round=1, actor=12884901547.
+
+[scope]
+plan_id = 12884901547
+
+[ai_memory]
+last_goal_kind = "Pressure"
+last_goal_target = 12884901551
+last_goal_region_anchor = [0, 2]
+last_goal_region_radius = 2
+last_goal_ttl = 2
+last_goal_confidence = 1.0
+last_goal_created_round = 1
+last_goal_expected_actor_pos = [4, 3]
+last_goal_actor_hp_at_store = 9
+last_goal_actor_rage_at_store = 0
+last_goal_actor_status_hash = "15130871412783076140"
+last_goal_target_hp_at_store = 20
+last_goal_target_pos_at_store = [0, 2]
+
+[[expectations]]
+# Cosmetic mismatch: goal preserved — actor attacks same target.
+decision_kind = ["MoveAndCast", "CastInPlace"]
+cast_ability = ["melee_attack"]
+cast_target = [12884901551]
+intent_kind = ["FocusTarget"]
+primary_effect = ["Damage"]

@@ -1,0 +1,36 @@
+# Continuation: target gone (Invalidating) — actor replans to next target.
+#
+# Actor: Человек Колокольный связанный (34359738026), r2, hp=6/14.
+# Stored goal (injected via [ai_memory]): Pressure on entity 4295067295.
+# Entity 4295067295 is NOT present in the snapshot → severity = Invalidating.
+# Expected: pre_tick clears stored goal, actor picks freely (no EndTurn).
+# The actor has AP and live enemies available — must commit an action.
+#
+# The not_target exclusion confirms the actor does NOT try to attack the
+# missing entity (which would be nonsensical — it's not even in the snapshot).
+#
+# Source: bell_crypt playtest 2026-04-26, round=2, actor=34359738026.
+
+[scope]
+plan_id = 34359738026
+
+[ai_memory]
+last_goal_kind = "Pressure"
+last_goal_target = 4295067295
+last_goal_region_anchor = [0, 2]
+last_goal_region_radius = 2
+last_goal_ttl = 2
+last_goal_confidence = 1.0
+last_goal_created_round = 1
+last_goal_expected_actor_pos = [3, 2]
+last_goal_actor_hp_at_store = 6
+last_goal_actor_rage_at_store = 0
+last_goal_actor_status_hash = "15130871412783076140"
+last_goal_target_hp_at_store = 20
+last_goal_target_pos_at_store = [0, 2]
+
+[[expectations]]
+# Actor has AP and enemies present — should attack, not EndTurn.
+decision_kind = ["MoveAndCast", "CastInPlace"]
+primary_effect = ["Damage"]
+not_target = [4295067295]

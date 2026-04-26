@@ -148,7 +148,6 @@ pub fn assert_v27_log_file(
     content: &ContentView,
     inf_cfg: &InfluenceConfig,
 ) -> Result<AssertOutcome, AssertError> {
-    use crate::combat::ai::intent::AiMemory;
     use crate::combat::ai::log::{ActorTickEvent, LoggedDecision};
     use crate::combat::ai::utility::pick_action;
     use crate::combat::ai::reservations::Reservations;
@@ -219,7 +218,7 @@ pub fn assert_v27_log_file(
         tuning: &content.ai_tuning,
         crit_fail_chance: 0.0,
     };
-    let memory = AiMemory::default();
+    let memory = build_memory_from_overlay(&overlay);
     let reservations = Reservations::default();
     let mut rng = DiceRng::with_seed(0);
 
@@ -267,6 +266,111 @@ pub fn assert_v27_log_file(
         actual,
         result: assert_result,
     })
+}
+
+// ── AiMemory overlay injection ────────────────────────────────────────────────
+
+/// Parse a `u64` from an optional string field in the overlay.
+///
+/// TOML integers are limited to `i64` range. Large `u64` values (e.g. status
+/// hashes) must be specified as decimal or hex (`"0x..."`) strings. Returns 0
+/// when the field is absent.
+fn parse_u64_field(value: Option<&str>, field_name: &'static str) -> u64 {
+    let Some(s) = value else { return 0; };
+    let s = s.trim();
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u64::from_str_radix(hex, 16)
+            .unwrap_or_else(|e| panic!("invalid hex u64 in overlay field {field_name}: {e}"))
+    } else {
+        s.parse::<u64>()
+            .unwrap_or_else(|e| panic!("invalid decimal u64 in overlay field {field_name}: {e}"))
+    }
+}
+
+/// Build an `AiMemory` from the overlay's optional `[ai_memory]` section.
+///
+/// When the section is absent, or when `last_goal_kind` is not provided,
+/// returns `AiMemory::default()` (no stored goal). When `last_goal_kind` is
+/// present, constructs a `StoredGoalContext` from the flat overlay fields.
+fn build_memory_from_overlay(overlay: &Overlay) -> crate::combat::ai::intent::AiMemory {
+    use crate::combat::ai::intent::AiMemory;
+    use crate::combat::ai::repair::{GoalKind, StoredGoalContext};
+    use crate::game::hex::Hex;
+
+    let Some(mem_overlay) = &overlay.ai_memory else {
+        return AiMemory::default();
+    };
+    let Some(kind_str) = &mem_overlay.last_goal_kind else {
+        return AiMemory::default();
+    };
+
+    let target_bits = mem_overlay.last_goal_target;
+    let region_anchor_raw = mem_overlay.last_goal_region_anchor.unwrap_or([0, 0]);
+    let region_anchor = Hex { x: region_anchor_raw[0], y: region_anchor_raw[1] };
+
+    let kind = match kind_str.as_str() {
+        "Finish" => {
+            let bits = target_bits.expect("Finish goal requires last_goal_target");
+            let target = bevy::prelude::Entity::try_from_bits(bits)
+                .expect("invalid last_goal_target entity bits");
+            GoalKind::Finish { target }
+        }
+        "Pressure" => {
+            let bits = target_bits.expect("Pressure goal requires last_goal_target");
+            let target = bevy::prelude::Entity::try_from_bits(bits)
+                .expect("invalid last_goal_target entity bits");
+            GoalKind::Pressure { target }
+        }
+        "DisableEnemy" => {
+            let bits = target_bits.expect("DisableEnemy goal requires last_goal_target");
+            let target = bevy::prelude::Entity::try_from_bits(bits)
+                .expect("invalid last_goal_target entity bits");
+            GoalKind::DisableEnemy { target }
+        }
+        "HealAlly" => {
+            let bits = target_bits.expect("HealAlly goal requires last_goal_target");
+            let ally = bevy::prelude::Entity::try_from_bits(bits)
+                .expect("invalid last_goal_target entity bits");
+            GoalKind::HealAlly { ally }
+        }
+        "Retreat" => GoalKind::Retreat { region_anchor },
+        "SetupAOE" => {
+            let ability = mem_overlay.last_goal_planned_ability.clone()
+                .expect("SetupAOE goal requires last_goal_planned_ability");
+            GoalKind::SetupAOE { region_center: region_anchor, planned_ability: ability.into() }
+        }
+        "Reposition" => GoalKind::Reposition { region_center: region_anchor },
+        other => panic!("unknown last_goal_kind in overlay: {other:?}"),
+    };
+
+    let expected_pos_raw = mem_overlay.last_goal_expected_actor_pos.unwrap_or([0, 0]);
+    let target_pos_raw = mem_overlay.last_goal_target_pos_at_store.unwrap_or([0, 0]);
+
+    let actor_status_hash = parse_u64_field(
+        mem_overlay.last_goal_actor_status_hash.as_deref(), "last_goal_actor_status_hash",
+    );
+
+    let stored = StoredGoalContext {
+        kind,
+        region_anchor,
+        region_radius: mem_overlay.last_goal_region_radius.unwrap_or(2),
+        planned_ability: mem_overlay.last_goal_planned_ability.as_ref()
+            .map(|s| s.clone().into()),
+        ttl: mem_overlay.last_goal_ttl.unwrap_or(2),
+        confidence: mem_overlay.last_goal_confidence.unwrap_or(1.0),
+        created_round: mem_overlay.last_goal_created_round.unwrap_or(0),
+        expected_actor_pos: Hex { x: expected_pos_raw[0], y: expected_pos_raw[1] },
+        actor_hp_at_store: mem_overlay.last_goal_actor_hp_at_store.unwrap_or(0),
+        actor_rage_at_store: mem_overlay.last_goal_actor_rage_at_store.unwrap_or(0),
+        actor_status_hash,
+        target_hp_at_store: mem_overlay.last_goal_target_hp_at_store.unwrap_or(0),
+        target_pos_at_store: Hex { x: target_pos_raw[0], y: target_pos_raw[1] },
+    };
+
+    AiMemory {
+        last_goal: Some(stored),
+        ..AiMemory::default()
+    }
 }
 
 #[cfg(test)]

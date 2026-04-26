@@ -849,7 +849,7 @@ Pre-condition: corpus с подходящими playtest'ами уже есть 
 | 7.3 | RepairAffinityStage + goal_lifecycle module | 0.5 | golden 0/116, lifecycle централизован | done (`f5a0f2f`) |
 | 7.4 | Pipeline assembly + architectural converge (drop Pipeline struct, score/raw_factors INTO annotation, PickBestStage, pure pick_action, single orchestrator) | 1.5 | per-entry golden 0/94 | done (`b1ebf00`) |
 | 7.5 | Schema v27 unified `actor_tick` + clean break (closes 6.7 carry-over fully) | 2.0 | v27 round-trip 0/N, mining baseline воспроизводится | done (`673755c` 7.5a + `4980478` 7.5b); pending: rebuild golden + 2 fixtures |
-| 7.6 | ai_scenarios state injection (closes 6.9 carry-over) | 1.0 | 4 pending continuation_* fixtures green на v27 формате | pending |
+| 7.6 | ai_scenarios state injection (closes 6.9 carry-over) | 1.0 | 4 pending continuation_* fixtures green на v27 формате | done (pending commit) |
 
 **Суммарно ~7 дней** (0.5 + 1.0 + 1.0 + 0.5 + 1.5 + 2.0 + 1.0 = 7.5; 7.0–7.2 done — оставшиеся 4.5 дня).
 
