@@ -1,12 +1,51 @@
-//! ActionOutcomeEstimate — structured outcome vector shared across factors,
-//! intent, critics, and terminal eval. Populated in SimState::apply_step
-//! call chain; consumers migrate onto it incrementally (steps 4.1–4.5).
+//! ActionOutcomeEstimate — facts about what a plan step did.
 //!
-//! Step 4.0 ships the type + PlanAnnotation container zero-filled — no
-//! consumers yet. See docs/ai_rework_step4_plan.md.
-//! Step 4.8 adds new fact fields alongside legacy fields. Legacy fields are
-//! deprecated and will be removed in 4.12 after consumer migration.
-//! Step 4.9 relocates the builder/helper logic into `outcome::builder`.
+//! ## Contract
+//!
+//! Outcome contains **facts only** — raw numerical signals about the step's
+//! effect on the board. No policy weighting, no value judgment, no progression
+//! curves. Any `× progress` / `× urgency` / `× horizon` / `× (1 + raw/max_hp)` —
+//! that's policy, lives in `combat::ai::policy`.
+//!
+//! ## Layered model
+//!
+//! ```text
+//! sim::StepOutcome  →  outcome::builder  →  ActionOutcomeEstimate  →  policy + factors  →  score
+//! (raw mechanics)     (structures facts)   (fact vector)             (judgment)            (number)
+//! ```
+//!
+//! ## Invariants
+//!
+//! 1. Outcome population (in builder) MUST NOT call any function from `policy::*`.
+//!    If you need to derive a value, derive it from raw mechanics, not from policy.
+//! 2. Policy formulas MUST be pure functions of (outcome, target, caster).
+//!    No state, no side effects, no caching beyond the call.
+//! 3. Outcome MUST be the same shape for Cast and Move steps. Move-specific facts
+//!    are 0 for Cast, vice versa.
+//! 4. New mechanics extend outcome by adding fact fields. Do not add policy fields.
+//!
+//! ## Consumers (authoritative list as of step 4.11)
+//!
+//! ### Active fact readers
+//! - `factors::offensive::compute_offensive` — primary scoring consumer (4.10).
+//! - `planning::terminal::compute_secure_kill` — reads `p_kill_now` / `p_kill_soon`.
+//! - `repair::goal::extract_goal_context` — reads `p_kill_now` for Finish/Pressure classification.
+//! - `planning::future_value::λ_attack` (`attack_component_intent`) — reads `expected_damage`
+//!   from hypothetical path; migrates to `policy::damage::value` in 4.12.
+//! - `planning::picker::record_committed_reservations` — reads `expected_damage`
+//!   from hypothetical path; migrates to `policy::damage::value` in 4.12.
+//!
+//! ### Non-consumers (NOT applicable, not a bug)
+//! - `trade::*` — actor valuation, not action outcome.
+//! - `terminal::compute_*` (except `secure_kill`) — end-state metrics from snapshot/maps.
+//! - `intent_score` non-Cast branches (Reposition / ProtectAlly / SetupAOE / LastStand) —
+//!   position/ability-type logic, outcome not applicable.
+//!
+//! ## Legacy fields
+//!
+//! Steps 4.8 added new fact fields alongside pre-4.8 policy-baked legacy fields.
+//! Legacy fields are `#[deprecated]` and drop in 4.12 together with the schema bump
+//! v27 → v28. See docs/ai_rework_step4_plan.md §4.12.
 
 pub mod builder;
 
