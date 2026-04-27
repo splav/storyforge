@@ -293,6 +293,7 @@ pub fn pick_action(
         adaptation::AdaptationStage,
         killable_gate::KillableGateStage,
         pick_best::PickBestStage,
+        plan_modifiers::PlanModifiersStage,
         protect_self::ProtectSelfMaskStage,
         repair_affinity::RepairAffinityStage,
         sanity::SanityStage,
@@ -309,6 +310,7 @@ pub fn pick_action(
     ProtectSelfMaskStage.apply(&mut pool, &mut stage_ctx);
     KillableGateStage.apply(&mut pool, &mut stage_ctx);
     RepairAffinityStage.apply(&mut pool, &mut stage_ctx);
+    PlanModifiersStage.apply(&mut pool, &mut stage_ctx);
     PickBestStage.apply(&mut pool, &mut stage_ctx);
 
     // Find winning plan index from PickBestStage annotation.
