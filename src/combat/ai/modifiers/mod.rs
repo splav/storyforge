@@ -8,8 +8,14 @@
 //! 2. `trade_bonus`  — economic gain/loss relative to actor value.
 //! 3. `repair_bonus` — goal-affinity amplifier when a stored goal is present.
 //!
-//! The static slice is used by `PlanModifiersStage` (commit 2). In commit 1
-//! it is declared but not yet wired into the production pipeline.
+//! ## Pipeline integration
+//!
+//! `PlanModifiersStage` applies these modifiers in the `run_pool_pipeline`
+//! between `RepairAffinityStage` (which populates `ann.repair_affinity`) and
+//! `PickBestStage` (which selects the winner). Modifiers run after all rescoring
+//! stages (`ViabilityStage`, `AdaptationStage`) so they see the final
+//! `finalize_scores` output. Results are recorded in `PlanAnnotation.modifiers`
+//! for observability — one `ModifierContribution` entry per modifier.
 
 pub mod repair_bonus;
 pub mod summon_bonus;
@@ -70,9 +76,9 @@ pub struct ModifierCtx<'w, 's, 'a> {
 
 /// Per-modifier additive contribution stored in `PlanAnnotation.modifiers`.
 ///
-/// Populated by `PlanModifiersStage` (commit 2). In commit 1 this struct
-/// exists for type completeness; `PlanAnnotation.modifiers` field is not yet
-/// added (that lands in commit 2).
+/// Populated by `PlanModifiersStage` for each plan. `name` matches the
+/// `PlanModifier::name()` return value; `contribution` is the signed addendum
+/// applied to `ann.score`. Entries appear in `PLAN_MODIFIERS` order.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ModifierContribution {
     pub name: String,
@@ -84,9 +90,6 @@ pub struct ModifierContribution {
 /// Ordered slice of all active plan modifiers.
 ///
 /// Order is fixed: `[summon_bonus, trade_bonus, repair_bonus]`.
-/// `PlanModifiersStage` (commit 2) applies them left-to-right; the same order
-/// appears in `PlanAnnotation.modifiers` entries.
-///
 /// `PlanModifiersStage` applies them left-to-right; the same order
 /// appears in `PlanAnnotation.modifiers` entries.
 pub static PLAN_MODIFIERS: &[&dyn PlanModifier] = &[

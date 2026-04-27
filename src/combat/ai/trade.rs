@@ -301,7 +301,7 @@ fn prefix_is_move_shaped(plan: &TurnPlan, prefix_len: usize) -> bool {
 /// tanh(delta / max(actor_value, UNIT_VALUE_FLOOR)) × TRADE_WEIGHT
 /// ```
 ///
-/// Single source of truth consumed by the scorer (`plan_trade_bonus`)
+/// Single source of truth consumed by `modifiers::trade_bonus`
 /// and the log writer so the "what did trade contribute to the score"
 /// column in the JSONL always reconciles with what the ranking
 /// actually used.

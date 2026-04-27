@@ -144,7 +144,9 @@ pub fn rescore_with_per_plan_modes(
 }
 
 /// Batch-normalise raw factors, apply role weights + difficulty multipliers,
-/// add summon bonus and score noise. Pure output — does not mutate `raw`.
+/// and add score noise. Returns pre-modifier scores — `PlanModifiersStage`
+/// applies summon_bonus, trade_bonus, and repair_bonus on top afterwards.
+/// Pure output — does not mutate `raw`.
 ///
 /// Noise is **deterministic per plan**, not RNG-driven:
 /// `hash((round, actor_entity, plan.canonical_key)) → noise ∈ [-1, 1]`.
@@ -2114,52 +2116,13 @@ mod tests {
     }
 
     // ── Step 6.3: repair-affinity bonus tests ──────────────────────────────────
+    // Modifier formula tests (repair_bonus_zero_when_no_stored_goal,
+    // repair_bonus_modulated_by_continue_commitment, repair_bonus_scaled_by_threshold)
+    // migrated to modifiers/repair_bonus.rs::tests (step 8.B.3).
 
-    /// No stored goal (last_goal = None) → repair bonus = 0, scores unchanged.
-    #[test]
-    fn repair_bonus_zero_when_no_stored_goal() {
-        use crate::combat::ai::test_helpers::{UnitBuilder, empty_maps};
-
-        let content = crate::combat::ai::test_helpers::empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-
-        let raw = vec![PlanFactorValues::default()];
-        // last_goal = None (make_scoring_ctx default)
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        assert!(ctx.last_goal.is_none());
-
-        let mut plan = inert_plan(pos);
-        // Set a non-zero repair_affinity to confirm it's NOT applied when last_goal = None
-        plan.annotation.repair_affinity = crate::combat::ai::repair::RepairAffinity {
-            goal_alignment: 1.0,
-            region_alignment: 1.0,
-            method_alignment: 1.0,
-            severity_factor: 1.0,
-            ttl_factor: 1.0,
-            confidence: 1.0,
-        };
-
-        let score_no_goal = finalize_scores(&mut [plan.clone()], &raw, &ctx)[0];
-
-        // With last_goal = None the bonus path is skipped entirely.
-        // Compare against a plan with zero affinity — should be identical.
-        plan.annotation.repair_affinity = Default::default();
-        let score_zero_affinity = finalize_scores(&mut [plan.clone()], &raw, &ctx)[0];
-
-        assert_eq!(
-            score_no_goal, score_zero_affinity,
-            "no stored goal → affinity values must not affect score"
-        );
-    }
-
-    /// Severity Invalidating → severity_factor = 0 → aggregate = 0 → bonus = 0.
+    /// severity_factor = 0 → aggregate = 0 → finalize_scores produces same output
+    /// regardless of other affinity axes. Tests `RepairAffinity::aggregate` interaction
+    /// with the scoring path (not the modifier itself).
     #[test]
     fn repair_bonus_zero_when_severity_invalidating() {
         use crate::combat::ai::repair::RepairAffinity;
@@ -2205,176 +2168,6 @@ mod tests {
         assert_eq!(
             score_invalidating, score_zero_affinity,
             "Invalidating severity must yield zero repair bonus"
-        );
-    }
-
-    /// Higher continue_commitment → larger repair bonus (2× at commitment=1.0 vs 0.0).
-    #[test]
-    fn repair_bonus_modulated_by_continue_commitment() {
-        use crate::combat::ai::repair::RepairAffinity;
-        
-        use crate::combat::ai::test_helpers::{UnitBuilder, empty_maps};
-
-        let content = crate::combat::ai::test_helpers::empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-
-        let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
-        let stored_goal = make_stored_goal(target_entity, pos);
-
-        let affinity = RepairAffinity {
-            goal_alignment: 1.0,
-            region_alignment: 0.0,
-            method_alignment: 0.0,
-            severity_factor: 1.0,
-            ttl_factor: 1.0,
-            confidence: 1.0,
-        };
-
-        let raw = vec![PlanFactorValues::default()];
-
-        let score_no_commitment = {
-            let mut ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-            ctx.last_goal = Some(&stored_goal);
-            ctx.need_signals = NeedSignals { continue_commitment: 0.0, ..Default::default() };
-            let mut plan = inert_plan(pos);
-            plan.annotation.repair_affinity = affinity;
-            finalize_scores(&mut [plan], &raw.clone(), &ctx)[0]
-        };
-
-        let score_full_commitment = {
-            let mut ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-            ctx.last_goal = Some(&stored_goal);
-            ctx.need_signals = NeedSignals { continue_commitment: 1.0, ..Default::default() };
-            let mut plan = inert_plan(pos);
-            plan.annotation.repair_affinity = affinity;
-            finalize_scores(&mut [plan], &raw.clone(), &ctx)[0]
-        };
-
-        // bonus(commitment=0) = aggregate * 1.0 * scale
-        // bonus(commitment=1) = aggregate * 2.0 * scale  → exactly 2×
-        let delta_no = score_no_commitment;
-        let delta_full = score_full_commitment;
-        assert!(
-            delta_full > delta_no,
-            "full continue_commitment must yield higher repair bonus: \
-             no_commitment={delta_no} full_commitment={delta_full}"
-        );
-        // Ratio: delta_full / delta_no should equal 2.0
-        let ratio = (delta_full - delta_no).abs();
-        // bonus_no = agg * scale; bonus_full = agg * 2 * scale → diff = agg * scale
-        // Both share the same base score (terminal etc) → delta_full - delta_no = agg * scale
-        let weights = actor.role.repair_weights(world.tuning);
-        let agg = affinity.aggregate(&weights);
-        let expected_diff = agg * world.tuning.thresholds.repair_bonus_scale;
-        assert!(
-            (ratio - expected_diff).abs() < 1e-5,
-            "bonus diff should equal aggregate * scale = {expected_diff}, got diff = {ratio}"
-        );
-    }
-
-    /// repair_bonus_scale = 0 → bonus = 0; scale = 0.4 → bonus = aggregate * 1.4 * 0.4.
-    #[test]
-    fn repair_bonus_scaled_by_threshold() {
-        use crate::combat::ai::repair::RepairAffinity;
-        
-        use crate::combat::ai::test_helpers::{UnitBuilder, empty_maps};
-        use crate::combat::ai::tuning::AiTuning;
-
-        let content = crate::combat::ai::test_helpers::empty_content();
-        let difficulty = DifficultyProfile::default();
-
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-
-        let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
-        let stored_goal = make_stored_goal(target_entity, pos);
-
-        let affinity = RepairAffinity {
-            goal_alignment: 1.0,
-            region_alignment: 0.0,
-            method_alignment: 0.0,
-            severity_factor: 1.0,
-            ttl_factor: 1.0,
-            confidence: 1.0,
-        };
-
-        // Case A: scale = 0 → no bonus
-        let score_scale_zero = {
-            let mut tuning = AiTuning::default();
-            tuning.thresholds.repair_bonus_scale = 0.0;
-            let world_scaled = AiWorld {
-                content: &content,
-                difficulty: &difficulty,
-                tuning: &tuning,
-                crit_fail_chance: 0.0,
-            };
-            let mut ctx = make_scoring_ctx(&world_scaled, &snap, &maps, &reservations, &actor);
-            ctx.last_goal = Some(&stored_goal);
-            ctx.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
-            let mut plan = inert_plan(pos);
-            plan.annotation.repair_affinity = affinity;
-            finalize_scores(&mut [plan], &[PlanFactorValues::default()], &ctx)[0]
-        };
-
-        // Case B: scale = 0.4 → bonus = aggregate * (1 + 0.4) * 0.4
-        let score_scale_04 = {
-            let mut tuning = AiTuning::default();
-            tuning.thresholds.repair_bonus_scale = 0.4;
-            let world_scaled = AiWorld {
-                content: &content,
-                difficulty: &difficulty,
-                tuning: &tuning,
-                crit_fail_chance: 0.0,
-            };
-            let mut ctx = make_scoring_ctx(&world_scaled, &snap, &maps, &reservations, &actor);
-            ctx.last_goal = Some(&stored_goal);
-            ctx.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
-            let mut plan = inert_plan(pos);
-            plan.annotation.repair_affinity = affinity;
-            finalize_scores(&mut [plan], &[PlanFactorValues::default()], &ctx)[0]
-        };
-
-        // scale=0 must give the same score as no affinity (no bonus applied)
-        let score_no_affinity = {
-            let mut tuning = AiTuning::default();
-            tuning.thresholds.repair_bonus_scale = 0.0;
-            let world_scaled = AiWorld {
-                content: &content,
-                difficulty: &difficulty,
-                tuning: &tuning,
-                crit_fail_chance: 0.0,
-            };
-            let mut ctx = make_scoring_ctx(&world_scaled, &snap, &maps, &reservations, &actor);
-            ctx.last_goal = Some(&stored_goal);
-            let mut plan = inert_plan(pos);
-            plan.annotation.repair_affinity = Default::default();
-            finalize_scores(&mut [plan], &[PlanFactorValues::default()], &ctx)[0]
-        };
-
-        assert_eq!(
-            score_scale_zero, score_no_affinity,
-            "scale=0 must yield zero bonus regardless of affinity"
-        );
-
-        // Expected bonus for scale=0.4, commitment=0.4:
-        // bonus = agg * (1 + 0.4) * 0.4
-        let weights = actor.role.repair_weights(&AiTuning::default());
-        let agg = affinity.aggregate(&weights);
-        let expected_bonus = agg * (1.0 + 0.4) * 0.4;
-        let actual_bonus = score_scale_04 - score_scale_zero;
-        assert!(
-            (actual_bonus - expected_bonus).abs() < 1e-5,
-            "bonus with scale=0.4, commitment=0.4 should be {expected_bonus}, got {actual_bonus}"
         );
     }
 

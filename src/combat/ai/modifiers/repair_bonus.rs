@@ -128,6 +128,158 @@ mod tests {
         assert_eq!(MODIFIER.modify(&plan, &ann, &ctx), 0.0);
     }
 
+    fn make_modifier_ctx<'w, 's, 'a>(
+        stage: &'a StageCtx<'w, 's>,
+        actor: &crate::combat::ai::snapshot::UnitSnapshot,
+        world: &'w AiWorld<'w>,
+        summon_dpr: &'a HashMap<String, f32>,
+    ) -> ModifierCtx<'w, 's, 'a> {
+        let actor_value = unit_value(actor, world.content);
+        let repair_weights = actor.role.repair_weights(world.tuning);
+        ModifierCtx { stage, summon_dpr, actor_value, repair_weights }
+    }
+
+    /// Higher continue_commitment → larger repair bonus.
+    /// bonus(c=0) = agg × 1.0 × scale; bonus(c=1) = agg × 2.0 × scale → diff = agg × scale.
+    #[test]
+    fn repair_bonus_modulated_by_continue_commitment() {
+        let content = crate::combat::ai::test_helpers::empty_content();
+        let difficulty = DifficultyProfile::default();
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0 };
+
+        let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
+        let stored_goal = make_stored_goal(target_entity, pos);
+
+        let affinity = RepairAffinity {
+            goal_alignment: 1.0,
+            region_alignment: 0.0,
+            method_alignment: 0.0,
+            severity_factor: 1.0,
+            ttl_factor: 1.0,
+            confidence: 1.0,
+        };
+
+        let summon_dpr = HashMap::new();
+
+        let bonus_no_commitment = {
+            let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+            scoring.last_goal = Some(&stored_goal);
+            scoring.need_signals = NeedSignals { continue_commitment: 0.0, ..Default::default() };
+            let mut rng = crate::core::rng::DiceRng::default();
+            let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+            let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
+            let mut plan = inert_plan(pos);
+            plan.annotation.repair_affinity = affinity;
+            let ann = plan.annotation.clone();
+            MODIFIER.modify(&plan, &ann, &ctx)
+        };
+
+        let bonus_full_commitment = {
+            let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+            scoring.last_goal = Some(&stored_goal);
+            scoring.need_signals = NeedSignals { continue_commitment: 1.0, ..Default::default() };
+            let mut rng = crate::core::rng::DiceRng::default();
+            let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+            let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
+            let mut plan = inert_plan(pos);
+            plan.annotation.repair_affinity = affinity;
+            let ann = plan.annotation.clone();
+            MODIFIER.modify(&plan, &ann, &ctx)
+        };
+
+        assert!(
+            bonus_full_commitment > bonus_no_commitment,
+            "full continue_commitment must yield higher repair bonus: no={bonus_no_commitment} full={bonus_full_commitment}"
+        );
+
+        // diff = agg × scale × ((1+1) - (1+0)) = agg × scale
+        let repair_weights = actor.role.repair_weights(world.tuning);
+        let agg = affinity.aggregate(&repair_weights).max(0.0);
+        let expected_diff = agg * world.tuning.thresholds.repair_bonus_scale;
+        let actual_diff = bonus_full_commitment - bonus_no_commitment;
+        assert!(
+            (actual_diff - expected_diff).abs() < 1e-5,
+            "bonus diff should equal aggregate × scale = {expected_diff}, got {actual_diff}"
+        );
+    }
+
+    /// scale=0 → zero bonus; scale=0.4, commitment=0.4 → bonus = agg × 1.4 × 0.4.
+    #[test]
+    fn repair_bonus_scaled_by_threshold() {
+        use crate::combat::ai::tuning::AiTuning;
+
+        let content = crate::combat::ai::test_helpers::empty_content();
+        let difficulty = DifficultyProfile::default();
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+
+        let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
+        let stored_goal = make_stored_goal(target_entity, pos);
+
+        let affinity = RepairAffinity {
+            goal_alignment: 1.0,
+            region_alignment: 0.0,
+            method_alignment: 0.0,
+            severity_factor: 1.0,
+            ttl_factor: 1.0,
+            confidence: 1.0,
+        };
+
+        let summon_dpr = HashMap::new();
+
+        // Case A: scale = 0 → zero bonus.
+        let bonus_scale_zero = {
+            let mut tuning = AiTuning::default();
+            tuning.thresholds.repair_bonus_scale = 0.0;
+            let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &tuning, crit_fail_chance: 0.0 };
+            let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+            scoring.last_goal = Some(&stored_goal);
+            scoring.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
+            let mut rng = crate::core::rng::DiceRng::default();
+            let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+            let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
+            let mut plan = inert_plan(pos);
+            plan.annotation.repair_affinity = affinity;
+            let ann = plan.annotation.clone();
+            MODIFIER.modify(&plan, &ann, &ctx)
+        };
+
+        assert_eq!(bonus_scale_zero, 0.0, "scale=0 must yield zero bonus");
+
+        // Case B: scale = 0.4, commitment = 0.4 → bonus = agg × (1 + 0.4) × 0.4.
+        let bonus_scale_04 = {
+            let mut tuning = AiTuning::default();
+            tuning.thresholds.repair_bonus_scale = 0.4;
+            let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &tuning, crit_fail_chance: 0.0 };
+            let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+            scoring.last_goal = Some(&stored_goal);
+            scoring.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
+            let mut rng = crate::core::rng::DiceRng::default();
+            let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
+            let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
+            let mut plan = inert_plan(pos);
+            plan.annotation.repair_affinity = affinity;
+            let ann = plan.annotation.clone();
+            MODIFIER.modify(&plan, &ann, &ctx)
+        };
+
+        let repair_weights = actor.role.repair_weights(&AiTuning::default());
+        let agg = affinity.aggregate(&repair_weights).max(0.0);
+        let expected_bonus = agg * (1.0 + 0.4) * 0.4;
+        assert!(
+            (bonus_scale_04 - expected_bonus).abs() < 1e-5,
+            "bonus with scale=0.4, commitment=0.4 should be {expected_bonus}, got {bonus_scale_04}"
+        );
+    }
+
     /// Pin: bonus = aggregate.max(0) × (1 + continue_commitment) × scale.
     ///
     /// Use goal_alignment=1, rest=0 → combined = 1×goal_w.
