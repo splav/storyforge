@@ -237,7 +237,7 @@ v26 mining gate (full voluntary/reactive split) — следующий playtest 
 
 ---
 
-### 8. `StepFactor` / `PlanFactor` / `TerminalFactor` + `PlanModifier` (объединены)
+### 8. `StepFactor` / `PlanFactor` / `TerminalFactor` + `PlanModifier` (объединены) ✓ DONE
 
 **Сложность:** 3
 **Польза:** 4
@@ -246,11 +246,33 @@ v26 mining gate (full voluntary/reactive split) — следующий playtest 
 
 **Суть:** два моих старых пункта. После появления outcome vector (шаг 4) и terminal eval (шаг 5) это становится чисто структурной работой — правила агрегации кодируются в типах, пост-composition бонусы получают явный trait. Делается за один проход.
 
-**Как поменять:**
-- Три трейта для факторов: `StepFactor` с `aggregate_policy()`, `PlanFactor` (один вызов на план), `TerminalFactor` (читает terminal_state). Нормализация — метод трейта.
-- `trait PlanModifier { fn modify(&self, plan, ctx) -> f32; }` — возвращает signed addendum после composition. Список модификаторов — одна стадия pipeline'а.
-- `summon_bonus` и `trade_score` — первые две реализации `PlanModifier` без изменения формул.
-- Каждый фактор / модификатор живёт в своём файле, регистрируется строкой в реестре.
+**Декомпозиция:** `docs/ai_rework_step8_plan.md` — три сабшага 8.A → 8.B → 8.C, ~6.5 дней.
+
+**Зафиксированные решения** (10 развилок, обоснования — в plan-документе):
+
+- **Реестр факторов** — enum + per-file modules через generic `factor_kind!` macro_rules!. Три инстанциации: `StepFactor` (7), `PlanFactor` (3), `TerminalFactor` (8). Не trait objects через slice — выбран enum ради exhaustive match и zero indirection.
+- **Storage** — `PlanFactorValues` / `TerminalScore` как `[f32; N]` typed wrappers indexed by enum. Flat struct `PlanFactors` исчезает; имя фактора живёт только в макрос-вызове (single source of truth).
+- **`PlanFactor` отдельно от `StepFactor`** — два enum'а с разными сигнатурами compute. Не объединяются через FactorCtx с Option-полями (runtime контракты).
+- **`PlanModifier` стадия** — `summon_bonus`, `trade_bonus`, `repair_bonus` унифицированы как signed addenda. Apply repair affinity переезжает в `PlanModifiersStage`. `finalize_scores` теряет три bonus apply блока.
+- **`plan_noise`** — `apply_pick_jitter` внутри PickBestStage (pre-sort step). Не отдельный stage. Contribution записывается в `pick.noise_applied` для observability.
+- **NeedSignals в StepFactor::compute** — explicit параметр в сигнатуре (closure carry-over из step 3 закрывается). Использование в формулах — отложено до step 11.
+- **Schema v28 → v29 clean break.** `raw_factors` удаляется полностью; `factors` / `terminal` сериализуются как named map через custom serde (enum names как ключи). Новое поле `modifiers: Vec<ModifierContribution>`.
+- **Без `OffensiveCache`** — каждый StepFactor::compute self-contained. Если профайлинг покажет regression — отдельный follow-up.
+
+**Pipeline после step 8:**
+```
+Viability → Sanity → Adaptation → ProtectSelfMask → KillableGate
+→ RepairAffinity (annotate) → PlanModifiers (apply summon+trade+repair) → PickBest (jitter+pick)
+```
+
+**Реализация:** 13 коммитов (`b29a784..1ac37ff`), implementer-планы в `docs/ai_rework_step8{A,B,C}_implementer.md`. Финальный gate: `cargo test --lib` 562, ai_scenarios 14/14, schema v29, FP-edge ≤3/N vs post-step-7 baseline. `finalize_scores` сократился ~250 → 85 строк. Observability: `PlanAnnotation.modifiers: Vec<ModifierContribution>` + `PickInfo.noise_applied`; mining sections E1/E2 в `bin/mine_ai_logs.rs`.
+
+**Backlog (out of scope step 8):**
+- Mining v29 corpus rebuild — user-driven follow-up.
+- `summon_basic` ai_scenario — replay не воспроизводит Summon-выбор без `ai_memory` injection (architectural).
+- `intent_offensive_value_on_target` использует `NeedSignals::default()` вместо `ctx.need_signals` — фикс на step 11.
+- Hardcoded `[0.0f32; 7]` / `const NFACTORS = 10` в `scorer.rs` — экспортировать `STEP_FACTOR_COUNT`.
+- `replay.rs:194` `:::{msg}` workaround — добавить `AssertError::Schema { path, message }` вариант.
 
 ---
 
