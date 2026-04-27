@@ -34,8 +34,6 @@ use crate::combat::ai::planning::adaptation::EvaluationMode;
 use crate::combat::ai::planning::terminal::terminal_state_score;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::estimate_st_damage;
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::trade::{trade_delta, trade_score, unit_value};
 use crate::combat::ai::utility::{AiWorld, ScoringCtx};
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::core::modifier;
@@ -168,16 +166,6 @@ pub fn finalize_scores(
     let active = ctx.active;
     let snap = ctx.snap;
     let world = ctx.world;
-    // Per-template summon DPR cache, computed once over the unique templates
-    // referenced by Summon casts in this batch. Pre-cache: each Summon-step
-    // per plan rebuilt CasterContext + walked the template's full ability set
-    // (estimate_st_damage is O(K)). With M plans × S summons × K abilities
-    // this scales as O(M·S·K); the cache replaces it with O(unique_templates·K)
-    // upfront + O(1) lookup inside `plan_summon_bonus`.
-    let summon_dpr = build_summon_dpr_cache(plans, world);
-    // Actor's own `unit_value` is plan-independent — compute once per
-    // batch and reuse as the tanh denominator inside `plan_trade_bonus`.
-    let actor_value = unit_value(active, world.content);
 
     // Per-factor min/max for batch-relative normalization via registry walk.
     // BatchStats indexed by StepFactor::iter() then PlanFactor::iter() order,
@@ -218,7 +206,7 @@ pub fn finalize_scores(
     let mut scores: Vec<f32> = raw
         .iter()
         .zip(plans.iter())
-        .map(|(factors, plan)| {
+        .map(|(factors, _plan)| {
             let mut score = 0.0f32;
             for f in StepFactor::iter() {
                 let i = f as usize;
@@ -228,17 +216,6 @@ pub fn finalize_scores(
                 let i = StepFactor::count() + f as usize;
                 score += default_norm(factors.get_plan(f), &stats[i], f.signed()) * weights[i];
             }
-            // Summon bonus bypasses normalisation: the factor pipeline can't
-            // see the strategic value of creating an ally, and for hybrid
-            // roles the damage-axis weight is too low to lift a raw summon
-            // score on its own.
-            score += plan_summon_bonus(plan, active, world, snap, &summon_dpr);
-            // Trade bonus: signed plan-level modifier in [-1, 1] via tanh
-            // over `trade_delta / unit_value(self)`. Applied outside the
-            // factor normalisation for the same reason as summon_bonus —
-            // the factor pipeline has no channel for "is this exchange
-            // worth it"; it answers "was anything useful done".
-            score += plan_trade_bonus(plan, active, snap, world, actor_value);
             score
         })
         .collect();
@@ -267,30 +244,6 @@ pub fn finalize_scores(
             for f in TerminalFactor::iter() {
                 *score += t.get(f) * tw[f as usize] * f.need_modulation().amplify(&needs);
             }
-        }
-    }
-
-    // Step 6.3: repair-affinity bonus — additive modifier applied after
-    // factor_sum + terminal_sum. Only active when AiMemory has a stored goal
-    // (signalled via ctx.last_goal being Some). Bonus is always ≥ 0:
-    // `aggregate` ≥ 0 by construction (all components in 0..1, all weights > 0).
-    //
-    // Modulation: `continue_commitment` (step 3.3) amplifies the bonus for
-    // actors that are already committed (multiplier in [1.0, 2.0]).
-    // Scale: `repair_bonus_scale` is a single global calibration scalar
-    // (default 0.4); tuned via golden per-entry diff review.
-    if ctx.last_goal.is_some() {
-        let weights = active.role.repair_weights(world.tuning);
-        let bonus_scale = world.tuning.thresholds.repair_bonus_scale;
-        let continue_commitment = ctx.need_signals.continue_commitment;
-        for (plan, score) in plans.iter().zip(scores.iter_mut()) {
-            if !score.is_finite() {
-                continue; // don't touch already-masked plans (−inf from sanity)
-            }
-            let affinity = plan.annotation.repair_affinity;
-            let bonus = affinity.aggregate(&weights).max(0.0); // clamp: always additive
-            let modulated = bonus * (1.0 + continue_commitment);
-            *score += modulated * bonus_scale;
         }
     }
 
@@ -357,81 +310,11 @@ fn plan_start_tile(plan: &TurnPlan) -> Hex {
     plan.final_pos
 }
 
-/// Additive post-normalisation bonus for every `Summon` cast in the plan.
-/// Each summon contributes `summon_dpr × cap_decay × saturation_mult`, where:
-/// - `cap_decay = 1 − count/cap` — per-step cap pressure (local to one summoner).
-/// - `saturation_mult = 0.65^total_allies` — global over-saturation penalty:
-///   plans that summon into an already-full friendly roster score proportionally
-///   less even before the cap math clips them, preventing "spam summons" from
-///   dominating when the battlefield is already crowded.
-///
-/// Zero for plans without any summon casts. `summon_dpr` is the precomputed
-/// per-template DPR table built once by `build_summon_dpr_cache`.
-fn plan_summon_bonus(
-    plan: &TurnPlan,
-    active: &UnitSnapshot,
-    ctx: &AiWorld,
-    snap: &BattleSnapshot,
-    summon_dpr: &std::collections::HashMap<String, f32>,
-) -> f32 {
-    // Only LIVE summons occupy a cap slot (spawn.rs filters Dead too). Dead
-    // units stay in the snapshot with hp=0 — counting them would make the AI
-    // think the cap is reached when the spawn side would happily summon more.
-    let mut count = snap
-        .units
-        .iter()
-        .filter(|u| u.summoner == Some(active.entity) && u.is_alive())
-        .count() as f32;
-
-    // Global saturation: total live allies on the actor's team (excluding actor).
-    let total_allies = snap
-        .units
-        .iter()
-        .filter(|u| u.team == active.team && u.entity != active.entity && u.is_alive())
-        .count() as f32;
-    let saturation_mult = 0.65_f32.powf(total_allies);
-
-    let mut total = 0.0f32;
-    for step in &plan.steps {
-        let PlanStep::Cast { ability, .. } = step else { continue };
-        let Some(def) = ctx.content.abilities.get(ability) else { continue };
-        let EffectDef::Summon { template, max_active } = &def.effect else { continue };
-
-        let cap = max_active.unwrap_or(3).max(1) as f32;
-        let decay = (1.0 - (count / cap)).max(0.0);
-        if decay <= 0.0 {
-            continue;
-        }
-
-        let dpr = summon_dpr.get(template).copied().unwrap_or(0.0);
-        total += dpr * decay * saturation_mult;
-        count += 1.0;
-    }
-    total
-}
-
-/// Plan-level signed modifier in roughly `[-TRADE_WEIGHT, +TRADE_WEIGHT]`.
-///
-/// Thin wrapper over `trade::trade_score` that first computes the
-/// plan's trade breakdown. Kept here rather than inlined at the call
-/// site so the log writer can reuse the same breakdown + score helper
-/// without duplicating the formula — see `combat::ai::trade`.
-fn plan_trade_bonus(
-    plan: &TurnPlan,
-    active: &UnitSnapshot,
-    snap: &BattleSnapshot,
-    ctx: &AiWorld,
-    actor_value: f32,
-) -> f32 {
-    let br = trade_delta(plan, active, snap, ctx.content);
-    trade_score(&br, actor_value)
-}
-
 /// Walk the plan pool, gather unique `Summon` template ids, and price each
 /// once via `estimate_st_damage`. Replaces a per-plan rebuild of
 /// `CasterContext` + `Abilities` clone that previously fired inside the
 /// per-plan scoring loop. Returns an empty map when no plan summons.
-fn build_summon_dpr_cache(
+pub(crate) fn build_summon_dpr_cache(
     plans: &[TurnPlan],
     ctx: &AiWorld,
 ) -> std::collections::HashMap<String, f32> {
@@ -735,7 +618,7 @@ mod tests {
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::AiTags;
+    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::make_scoring_ctx;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
@@ -1178,16 +1061,22 @@ mod tests {
         );
     }
 
-    /// `plan_trade_bonus` must reward killing a valuable target over a
+    /// `trade_bonus` modifier must reward killing a valuable target over a
     /// trivial one, all else equal. Both plans declare a kill in their
     /// `outcomes[0].killed`; the only difference is the victim's
     /// `unit_value` (driven here by `threat` through `horizon_avg`).
     /// Pins the architectural claim of MVP2 phase 3: the trade
     /// modifier actually differentiates the "what did we kill" signal
     /// that the binary `kill` factor can't.
+    ///
+    /// Migrated from direct `plan_trade_bonus` call → `MODIFIER.modify` (8.B.2).
     #[test]
     fn trade_bonus_favors_valuable_victim() {
-        use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::modifiers::{ModifierCtx, PLAN_MODIFIERS};
+        use crate::combat::ai::reservations::Reservations;
+        use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
+        use crate::core::DiceRng;
+        use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let support = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
@@ -1204,8 +1093,29 @@ mod tests {
         let content =
             crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
-        let ctx = test_ctx(&content, &difficulty);
-        let actor_val = unit_value(&actor, ctx.content);
+        let world = test_ctx(&content, &difficulty);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let mut rng = DiceRng::default();
+        let stage_ctx = crate::combat::ai::pipeline::StageCtx::new(
+            &scoring,
+            TacticalIntent::FocusTarget { target: support.entity },
+            IntentReason::NoRuleDefault,
+            actor.pos,
+            &mut rng,
+        );
+        let actor_value = crate::combat::ai::trade::unit_value(&actor, world.content);
+        let repair_weights = actor.role.repair_weights(world.tuning);
+        let mctx = ModifierCtx {
+            stage: &stage_ctx,
+            summon_dpr: &std::collections::HashMap::new(),
+            actor_value,
+            repair_weights,
+        };
+
+        // trade_bonus is PLAN_MODIFIERS[1]
+        let trade_modifier = PLAN_MODIFIERS[1];
 
         let mk_kill_plan = |victim: &UnitSnapshot| TurnPlan {
             steps: vec![PlanStep::Cast {
@@ -1225,12 +1135,9 @@ mod tests {
             annotation: Default::default(),
         };
 
-        let b_support = plan_trade_bonus(
-            &mk_kill_plan(&support), &actor, &snap, &ctx, actor_val,
-        );
-        let b_rat = plan_trade_bonus(
-            &mk_kill_plan(&rat), &actor, &snap, &ctx, actor_val,
-        );
+        let ann = PlanAnnotation::default();
+        let b_support = trade_modifier.modify(&mk_kill_plan(&support), &ann, &mctx);
+        let b_rat = trade_modifier.modify(&mk_kill_plan(&rat), &ann, &mctx);
 
         assert!(b_support > 0.0, "kill-support bonus must be positive: {b_support}");
         assert!(b_rat > 0.0, "kill-rat bonus still positive, just small: {b_rat}");
@@ -2045,39 +1952,9 @@ mod tests {
         );
     }
 
-    /// Trade bonus on an inert plan (no kills, no self-lethal exposure)
-    /// is exactly zero — the modifier must not drift the scoring of
-    /// neutral plans. Baseline contrast against `_favors_valuable_victim`.
-    #[test]
-    fn trade_bonus_zero_for_neutral_plan() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let content =
-            crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = DifficultyProfile::hard();
-        let ctx = test_ctx(&content, &difficulty);
-        let actor_val = unit_value(&actor, ctx.content);
-
-        let plan = TurnPlan {
-            steps: vec![PlanStep::Cast {
-                ability: "melee_attack".into(),
-                target: actor.entity,
-                target_pos: actor.pos,
-            }],
-            final_pos: actor.pos,
-            residual_ap: 1,
-            residual_mp: 3,
-            outcomes: vec![StepOutcome::default()],
-            partial_score: 0.0,
-            sim_snapshots: Vec::new(),
-            annotation: Default::default(),
-        };
-
-        let b = plan_trade_bonus(&plan, &actor, &snap, &ctx, actor_val);
-        assert_eq!(b, 0.0);
-    }
-
     // ── Terminal aggregator tests (step 5.4) ──────────────────────────────────
+    // Note: `trade_bonus_zero_for_neutral_plan` migrated to
+    // `modifiers/trade_bonus.rs::tests` in step 8.B.1.
 
     /// Minimal inert plan at `final_pos` with empty annotation.
     fn inert_plan(final_pos: Hex) -> TurnPlan {

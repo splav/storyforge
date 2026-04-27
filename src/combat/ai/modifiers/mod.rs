@@ -87,9 +87,8 @@ pub struct ModifierContribution {
 /// `PlanModifiersStage` (commit 2) applies them left-to-right; the same order
 /// appears in `PlanAnnotation.modifiers` entries.
 ///
-/// NOTE (commit 1): `PLAN_MODIFIERS` is compiled but not yet called from any
-/// production path. Dead-code lint suppressed here; removed in commit 2.
-#[allow(dead_code)]
+/// `PlanModifiersStage` applies them left-to-right; the same order
+/// appears in `PlanAnnotation.modifiers` entries.
 pub static PLAN_MODIFIERS: &[&dyn PlanModifier] = &[
     &summon_bonus::MODIFIER,
     &trade_bonus::MODIFIER,

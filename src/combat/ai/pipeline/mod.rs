@@ -118,7 +118,11 @@ pub trait PlanStage {
 ///
 /// Compile-time stage order, zero trait-object indirection:
 /// Viability → Sanity → Adaptation → ProtectSelfMask → KillableGate →
-/// RepairAffinity → PickBest.
+/// RepairAffinity → PlanModifiers → PickBest.
+///
+/// `PlanModifiersStage` applies the three registered post-normalisation modifiers
+/// (summon_bonus, trade_bonus, repair_bonus) after repair affinity is populated
+/// and before the winner is selected.
 ///
 /// After this returns, exactly one annotation has `chosen = true` and its
 /// `pick` field populated (unless the pool is empty).
@@ -127,6 +131,7 @@ pub fn run_pool_pipeline(pool: &mut ScoredPool, ctx: &mut StageCtx) {
         adaptation::AdaptationStage,
         killable_gate::KillableGateStage,
         pick_best::PickBestStage,
+        plan_modifiers::PlanModifiersStage,
         protect_self::ProtectSelfMaskStage,
         repair_affinity::RepairAffinityStage,
         sanity::SanityStage,
@@ -138,6 +143,7 @@ pub fn run_pool_pipeline(pool: &mut ScoredPool, ctx: &mut StageCtx) {
     ProtectSelfMaskStage.apply(pool, ctx);
     KillableGateStage.apply(pool, ctx);
     RepairAffinityStage.apply(pool, ctx);
+    PlanModifiersStage.apply(pool, ctx);
     PickBestStage.apply(pool, ctx);
 }
 
@@ -165,5 +171,74 @@ mod tests {
         let pool = ScoredPool::empty();
         assert!(pool.is_empty());
         assert_eq!(pool.len(), 0);
+    }
+
+    /// Verify that `run_pool_pipeline` applies `PlanModifiersStage` (after
+    /// `RepairAffinityStage` and before `PickBestStage`) by checking that the
+    /// chosen plan's `annotation.modifiers` has exactly one entry per registered
+    /// modifier (i.e. PLAN_MODIFIERS.len() == 3), in fixed order.
+    ///
+    /// This is a pipeline-order regression test: if `PlanModifiersStage` were
+    /// removed or reordered after `PickBestStage`, the chosen plan would have
+    /// an empty `modifiers` vec.
+    #[test]
+    fn pipeline_runs_modifiers_after_repair_before_pick() {
+        use crate::combat::ai::difficulty::DifficultyProfile;
+        use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+        use crate::combat::ai::modifiers::PLAN_MODIFIERS;
+        use crate::combat::ai::reservations::Reservations;
+        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::test_helpers::{
+            empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+        };
+        use crate::core::DiceRng;
+        use crate::game::components::Team;
+        use crate::game::hex::hex_from_offset;
+
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let maps = empty_maps();
+        let content = crate::combat::ai::test_helpers::empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let mut rng = DiceRng::default();
+        let mut ctx = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            actor.pos,
+            &mut rng,
+        );
+
+        let mut pool = ScoredPool::new(vec![TurnPlan::default(), TurnPlan::default()]);
+        // Give plans non-masked scores so PlanModifiersStage processes them.
+        pool.annotations[0].score = 1.0;
+        pool.annotations[1].score = 0.5;
+
+        run_pool_pipeline(&mut pool, &mut ctx);
+
+        // Exactly one chosen plan.
+        let chosen_count = pool.annotations.iter().filter(|a| a.chosen).count();
+        assert_eq!(chosen_count, 1, "exactly one plan must be chosen");
+
+        // Every non-masked plan (both plans here) should have exactly PLAN_MODIFIERS.len()
+        // modifier entries populated by PlanModifiersStage.
+        let expected_modifier_count = PLAN_MODIFIERS.len();
+        for (i, ann) in pool.annotations.iter().enumerate() {
+            assert_eq!(
+                ann.modifiers.len(),
+                expected_modifier_count,
+                "plan[{i}] must have {expected_modifier_count} modifier entries, got {}",
+                ann.modifiers.len()
+            );
+        }
+
+        // Modifier names must appear in canonical PLAN_MODIFIERS order.
+        let chosen = pool.annotations.iter().find(|a| a.chosen).unwrap();
+        assert_eq!(chosen.modifiers[0].name, "summon_bonus");
+        assert_eq!(chosen.modifiers[1].name, "trade_bonus");
+        assert_eq!(chosen.modifiers[2].name, "repair_bonus");
     }
 }

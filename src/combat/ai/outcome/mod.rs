@@ -54,6 +54,7 @@ pub use builder::{
 };
 
 use crate::combat::ai::factors::{PlanFactorValues, FactorTerminalScore};
+use crate::combat::ai::modifiers::ModifierContribution;
 use serde::{Deserialize, Serialize};
 
 /// Structured estimate of a single plan step's consequences.
@@ -202,6 +203,12 @@ pub struct PlanAnnotation {
     /// `None` for non-chosen plans. Set by `PickBestStage`.
     #[serde(default)]
     pub pick: Option<PickInfo>,
+    /// Step 8.B: per-modifier additive contributions applied in PlanModifiersStage.
+    /// Empty until that stage runs; populated in canonical PLAN_MODIFIERS order
+    /// [summon_bonus, trade_bonus, repair_bonus]. Sum equals the score delta
+    /// produced by the stage. Pure observability — does not influence picking.
+    #[serde(default)]
+    pub modifiers: Vec<ModifierContribution>,
 }
 
 /// Adaptation reason + original (pre-adaptation) score for a single plan.

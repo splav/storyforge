@@ -1468,4 +1468,30 @@ mod tests {
         assert_eq!(parsed.schema_version, SCHEMA_VERSION);
         assert_eq!(parsed.actor_id, event.actor_id);
     }
+
+    /// A `PlanAnnotation` serialised without the `modifiers` field (i.e. a v29
+    /// log entry written before step 8.B landed) must deserialise successfully
+    /// and yield an empty `modifiers` Vec.
+    ///
+    /// This pins the `#[serde(default)]` on `PlanAnnotation.modifiers` — if
+    /// someone accidentally removes the attribute, this test will fail.
+    #[test]
+    fn actor_tick_v29_loaded_without_modifiers_field_yields_empty_vec() {
+        // Minimal PlanAnnotation JSON that has no `modifiers` key.
+        // All other optional fields are also omitted — their `#[serde(default)]`
+        // attributes handle that.
+        let json = r#"{"score": 1.5}"#;
+        let ann: crate::combat::ai::outcome::PlanAnnotation =
+            serde_json::from_str(json).expect("PlanAnnotation without modifiers must parse");
+        assert!(
+            ann.modifiers.is_empty(),
+            "modifiers must default to empty Vec when absent from JSON, got: {:?}",
+            ann.modifiers
+        );
+        assert!(
+            (ann.score - 1.5_f32).abs() < 1e-6,
+            "score must be preserved: {}",
+            ann.score
+        );
+    }
 }
