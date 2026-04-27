@@ -191,7 +191,7 @@ pub fn assert_v28_log_file(
                 let msg = e.to_string();
                 return Err(AssertError::EntryParse {
                     path: jsonl_path.to_path_buf(),
-                    source: serde_json::from_str::<serde_json::Value>(&format!("{msg:?}"))
+                    source: serde_json::from_str::<serde_json::Value>(&format!(":::{msg}"))
                         .unwrap_err(),
                 });
             }

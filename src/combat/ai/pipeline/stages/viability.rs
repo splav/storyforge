@@ -31,7 +31,7 @@ impl PlanStage for ViabilityStage {
         let max_align = pool
             .annotations
             .iter()
-            .map(|a| a.raw_factors.intent)
+            .map(|a| a.factors.get_plan(crate::combat::ai::factors::PlanFactor::Intent))
             .fold(f32::NEG_INFINITY, f32::max);
 
         if max_align >= threshold {
@@ -88,7 +88,7 @@ impl PlanStage for ViabilityStage {
                 ctx.intent = new_intent;
                 ctx.intent_reason = new_reason;
                 // Extract raw_factors as a mut slice for rescore_with_intent.
-                let mut raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.raw_factors).collect();
+                let mut raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.factors).collect();
                 let new_scores = rescore_with_intent(
                     &mut pool.plans,
                     &mut raw_factors,
@@ -97,7 +97,7 @@ impl PlanStage for ViabilityStage {
                 );
                 for (ann, (new_score, new_raw)) in pool.annotations.iter_mut().zip(new_scores.into_iter().zip(raw_factors.into_iter())) {
                     ann.score = new_score;
-                    ann.raw_factors = new_raw;
+                    ann.factors = new_raw;
                 }
                 true
             } else {
@@ -120,7 +120,7 @@ impl PlanStage for ViabilityStage {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::PlanFactors;
+    use crate::combat::ai::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::intent::IntentReason;
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::TurnPlan;
@@ -134,7 +134,9 @@ mod tests {
     fn pool_with_intent_factor(factor: f32) -> ScoredPool {
         let plan = TurnPlan::default();
         let mut pool = ScoredPool::new(vec![plan]);
-        pool.annotations[0].raw_factors = PlanFactors { intent: factor, ..PlanFactors::default() };
+        let mut f = PlanFactorValues::default();
+        f.set_plan(PlanFactor::Intent, factor);
+        pool.annotations[0].factors = f;
         pool.annotations[0].score = 0.5;
         pool
     }

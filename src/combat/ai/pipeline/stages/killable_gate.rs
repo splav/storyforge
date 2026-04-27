@@ -41,7 +41,7 @@ impl PlanStage for KillableGateStage {
             })
             .collect();
 
-        let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.raw_factors).collect();
+        let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.factors).collect();
         let mut scores: Vec<f32> = pre_scores.clone();
         apply_killable_gate(
             &pool.plans,
@@ -71,7 +71,7 @@ impl PlanStage for KillableGateStage {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::PlanFactors;
+    use crate::combat::ai::factors::{PlanFactorValues, StepFactor};
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
@@ -87,7 +87,7 @@ mod tests {
     fn run_stage(
         plans: Vec<TurnPlan>,
         scores: Vec<f32>,
-        raw: Vec<PlanFactors>,
+        raw: Vec<PlanFactorValues>,
         intent: TacticalIntent,
         snap: &BattleSnapshot,
         actor: &crate::combat::ai::snapshot::UnitSnapshot,
@@ -109,10 +109,16 @@ mod tests {
         let mut pool = ScoredPool::new(plans);
         for (ann, (score, raw_f)) in pool.annotations.iter_mut().zip(scores.into_iter().zip(raw.into_iter())) {
             ann.score = score;
-            ann.raw_factors = raw_f;
+            ann.factors = raw_f;
         }
         KillableGateStage.apply(&mut pool, &mut ctx);
         pool
+    }
+
+    fn pfv_kill_now(v: f32) -> PlanFactorValues {
+        let mut f = PlanFactorValues::default();
+        f.set(StepFactor::KillNow, v);
+        f
     }
 
     // ── internal predicate ────────────────────────────────────────────────────
@@ -126,7 +132,7 @@ mod tests {
 
         let plans = vec![TurnPlan::default()];
         let scores = vec![0.5_f32];
-        let raw = vec![PlanFactors::default()];
+        let raw = vec![PlanFactorValues::default()];
 
         let pool = run_stage(plans, scores, raw, TacticalIntent::Reposition, &snap, &actor);
 
@@ -168,8 +174,8 @@ mod tests {
         let plans = vec![offensive_plan, non_offensive_plan];
         let scores = vec![0.5_f32, 0.6_f32];
         let raw = vec![
-            PlanFactors { kill_now: 1.0, ..Default::default() }, // CanFinish
-            PlanFactors::default(),                               // no kill signal
+            pfv_kill_now(1.0),       // CanFinish
+            PlanFactorValues::default(), // no kill signal
         ];
 
         let pool = run_stage(
@@ -204,7 +210,7 @@ mod tests {
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
         let scores = vec![0.5_f32, 0.4_f32];
         // No kill_now, no pressure-level damage → gate returns early.
-        let raw = vec![PlanFactors::default(), PlanFactors::default()];
+        let raw = vec![PlanFactorValues::default(), PlanFactorValues::default()];
 
         let pool = run_stage(
             plans, scores, raw,

@@ -9,7 +9,7 @@
 //! `SURVIVAL_FLOOR` keeps even punished plans competitive when all options
 //! are bad; retreat lines still beat "rush at 5 HP".
 
-use crate::combat::ai::factors::{aoe_area, PlanFactors};
+use crate::combat::ai::factors::{aoe_area, PlanFactor, PlanFactorValues};
 use crate::combat::ai::planning::adaptation::EvaluationMode;
 use crate::combat::ai::planning::scorer::worst_path_danger;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
@@ -336,7 +336,7 @@ pub fn plan_is_defensive(self_survival: f32, epsilon: f32) -> bool {
 /// inside this function.
 pub fn apply_protect_self_mask(
     scores: &mut [f32],
-    raw: &[PlanFactors],
+    raw: &[PlanFactorValues],
     modes: &[EvaluationMode],
     epsilon: f32,
 ) -> bool {
@@ -349,7 +349,7 @@ pub fn apply_protect_self_mask(
         if !matches!(modes.get(i), Some(EvaluationMode::Default)) {
             continue;
         }
-        if plan_is_defensive(f.self_survival, epsilon) {
+        if plan_is_defensive(f.get_plan(PlanFactor::SelfSurvival), epsilon) {
             any_defensive = true;
         } else if i < scores.len() {
             scores[i] = f32::NEG_INFINITY;

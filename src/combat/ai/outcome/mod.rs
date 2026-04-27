@@ -53,7 +53,7 @@ pub use builder::{
     step_path_danger,
 };
 
-use crate::combat::ai::factors::PlanFactors;
+use crate::combat::ai::factors::{PlanFactorValues, FactorTerminalScore};
 use serde::{Deserialize, Serialize};
 
 /// Structured estimate of a single plan step's consequences.
@@ -152,11 +152,9 @@ pub struct PlanAnnotation {
     pub outcomes: Vec<ActionOutcomeEstimate>,
     /// One-shot terminal-state evaluation. Populated by `terminal_state_score`
     /// in `finalize_scores`; consumed by aggregation in 5.4.
-    /// Serialized into JSONL as of schema v23 (step 5.6). Old v22 logs
-    /// deserialize via `#[serde(default)]` → zero-filled `TerminalScore`,
-    /// preserving backward compatibility.
+    /// Serialized into JSONL as of schema v29 as a named map.
     #[serde(default)]
-    pub terminal: crate::combat::ai::planning::terminal::TerminalScore,
+    pub terminal: FactorTerminalScore,
     /// Step 6.2: repair affinity of this plan against the stored goal context.
     /// Populated in `pick_action` when `AiMemory.last_goal` is present.
     /// Default zero-filled when no stored goal exists. Consumed by the
@@ -192,10 +190,10 @@ pub struct PlanAnnotation {
     /// round-trips score through JSON.
     #[serde(default, with = "crate::combat::ai::serde_helpers::f32_finite")]
     pub score: f32,
-    /// Step 7.4: raw factor decomposition for this plan.
-    /// Written by the initial scoring pass. Default PlanFactors::default().
+    /// Step 7.4: factor decomposition for this plan (v29 named map).
+    /// Written by the initial scoring pass. Default PlanFactorValues::default().
     #[serde(default)]
-    pub raw_factors: PlanFactors,
+    pub factors: PlanFactorValues,
     /// Step 7.4: whether this plan was chosen as the winning plan.
     /// Set to `true` by `PickBestStage`. Default false.
     #[serde(default)]

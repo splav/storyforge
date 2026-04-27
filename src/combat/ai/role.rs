@@ -305,7 +305,9 @@ fn has_damage(def: &crate::content::abilities::AbilityDef) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::factors::{DAMAGE_IDX, HEAL_IDX};
+    use crate::combat::ai::factors::StepFactor;
+    const DAMAGE_IDX: usize = StepFactor::Damage as usize;
+    const HEAL_IDX: usize = StepFactor::Heal as usize;
     use crate::core::AbilityId;
 
     fn db() -> ContentView {

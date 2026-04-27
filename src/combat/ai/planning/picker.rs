@@ -16,7 +16,7 @@ pub struct PickMechanics {
     pub chosen_pos: usize,
 }
 
-use crate::combat::ai::factors::{aoe_area, aoe_hits, PlanFactors};
+use crate::combat::ai::factors::{aoe_area, aoe_hits, PlanFactorValues, StepFactor};
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::scoring::applies_cc;
@@ -91,8 +91,10 @@ pub fn commit_plan(plan: &TurnPlan, actor_pos: Hex) -> (AiDecision, usize) {
 /// for `plan` — previously we re-ran `compute_plan_factors` per plan in the
 /// mercy window, which was a full plan-walk + per-step factor recomputation
 /// just to grab two numbers we already had.
-fn mercy_cruelty(raw: &PlanFactors) -> f32 {
-    raw.kill_now + raw.kill_promised * 0.5 + (raw.cc * 0.1).min(0.5)
+fn mercy_cruelty(raw: &PlanFactorValues) -> f32 {
+    raw.get(StepFactor::KillNow)
+        + raw.get(StepFactor::KillPromised) * 0.5
+        + (raw.get(StepFactor::Cc) * 0.1).min(0.5)
 }
 
 /// Pick the winning plan. Mirrors `pick_best_candidate` — window-bounded top-K
@@ -105,7 +107,7 @@ fn mercy_cruelty(raw: &PlanFactors) -> f32 {
 /// mechanics; debug overlay reads it.
 pub fn pick_best_plan(
     scored: &[f32],
-    raw_factors: &[PlanFactors],
+    raw_factors: &[PlanFactorValues],
     ctx: &AiWorld,
     rng: &mut DiceRng,
 ) -> (usize, PickMechanics) {

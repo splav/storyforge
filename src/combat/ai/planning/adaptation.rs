@@ -38,7 +38,7 @@
 //! invariants. A "I want to penalise X a bit more" rule belongs in sanity,
 //! not here.
 
-use crate::combat::ai::factors::PlanFactors;
+use crate::combat::ai::factors::{PlanFactor, PlanFactorValues};
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::sanity::expected_aoo_damage;
 use crate::combat::ai::planning::scorer::rescore_with_per_plan_modes;
@@ -257,7 +257,7 @@ impl Adaptation {
 ///   running afterwards → **CONTRACT-NEUTRAL**
 pub fn apply_adaptation(
     plans: &mut [TurnPlan],
-    raw: &mut [PlanFactors],
+    raw: &mut [PlanFactorValues],
     scored: &mut Vec<f32>,
     intent: &TacticalIntent,
     ctx: &ScoringCtx,
@@ -285,7 +285,7 @@ pub fn apply_adaptation(
     if matches!(intent, TacticalIntent::ProtectSelf) {
         let any_defensive = raw
             .iter()
-            .any(|f| plan_is_defensive(f.self_survival, ctx.world.tuning.thresholds.self_survival_epsilon));
+            .any(|f| plan_is_defensive(f.get_plan(PlanFactor::SelfSurvival), ctx.world.tuning.thresholds.self_survival_epsilon));
         if !any_defensive {
             for i in 0..plans.len() {
                 adaptation.modes[i] = EvaluationMode::LastStand;
@@ -439,7 +439,7 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        let mut raw = vec![PlanFactors::default()];
+        let mut raw = vec![PlanFactorValues::default()];
         let mut scored = vec![0.5];
         let intent = TacticalIntent::Reposition;
         let adaptation = apply_adaptation(&mut plans, &mut raw, &mut scored, &intent, &ctx);
@@ -487,8 +487,8 @@ mod tests {
         // raw[0] is the empty defensive plan — self_survival ≥ ε so spatial
         // check passes (any_defensive=true) and ExpectedSelfLethal is gated off.
         let mut raw = vec![
-            PlanFactors { self_survival: 0.2, ..Default::default() },
-            PlanFactors::default(),
+            { let mut f = PlanFactorValues::default(); f.set_plan(PlanFactor::SelfSurvival, 0.2); f },
+            PlanFactorValues::default(),
         ];
         let mut scored = vec![0.5, 0.5];
         let adaptation = apply_adaptation(
@@ -523,7 +523,7 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        let mut raw = vec![PlanFactors::default()];
+        let mut raw = vec![PlanFactorValues::default()];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
             &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
@@ -658,7 +658,7 @@ mod tests {
 
         // self_survival ≥ ε so spatial check (any_defensive) passes and the
         // doom/rescue branch is reached. The skip plan has no rescue → Futile.
-        let mut raw = vec![PlanFactors { self_survival: 0.2, ..Default::default() }];
+        let mut raw = vec![{ let mut f = PlanFactorValues::default(); f.set_plan(PlanFactor::SelfSurvival, 0.2); f }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
             &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
@@ -708,7 +708,7 @@ mod tests {
 
         // self_survival ≥ ε so spatial check passes; rescue plan heals above
         // pending DoT → any_rescue=true → contract holds.
-        let mut raw = vec![PlanFactors { self_survival: 0.2, ..Default::default() }];
+        let mut raw = vec![{ let mut f = PlanFactorValues::default(); f.set_plan(PlanFactor::SelfSurvival, 0.2); f }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
             &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
@@ -752,7 +752,7 @@ mod tests {
 
         // self_survival ≥ ε so spatial check passes; cleanse drops pending
         // DoT to 0 → any_rescue=true → contract holds.
-        let mut raw = vec![PlanFactors { self_survival: 0.2, ..Default::default() }];
+        let mut raw = vec![{ let mut f = PlanFactorValues::default(); f.set_plan(PlanFactor::SelfSurvival, 0.2); f }];
         let mut scored = vec![0.5];
         let adaptation = apply_adaptation(
             &mut plans, &mut raw, &mut scored, &TacticalIntent::ProtectSelf, &ctx,
@@ -810,7 +810,7 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        let mut raw = vec![PlanFactors::default()];
+        let mut raw = vec![PlanFactorValues::default()];
         let mut scored = vec![0.5];
         let intent = TacticalIntent::Reposition;
 
@@ -822,7 +822,8 @@ mod tests {
 
         assert_eq!(after_first, scored, "scored stable across a second call");
         assert_eq!(
-            raw_after_first[0].intent, raw[0].intent,
+            raw_after_first[0].get_plan(PlanFactor::Intent),
+            raw[0].get_plan(PlanFactor::Intent),
             "intent-column stable across a second call",
         );
     }
@@ -844,7 +845,7 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        let mut raw = vec![PlanFactors::default()];
+        let mut raw = vec![PlanFactorValues::default()];
         let scored_before = vec![0.5];
         let mut scored = scored_before.clone();
         let adaptation = apply_adaptation(

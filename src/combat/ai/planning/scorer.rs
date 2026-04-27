@@ -36,8 +36,9 @@
 //! now covered by `tempo_gain` and `self_survival`.
 
 use crate::combat::ai::factors::{
-    self, buff_saturation_penalty, compute_plan_self_survival, compute_plan_tempo_gain,
-    PlanFactors, ScoredStep, INTENT_IDX, NUM_FACTORS, SCARCITY_IDX, SIGNED_FACTOR,
+    compute_plan_self_survival, compute_plan_tempo_gain,
+    BatchStats, PlanFactor, PlanFactorValues, ScoredStep, StepFactor, TerminalFactor,
+    default_norm,
 };
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{cc_reach, intent_score, pursuit_move_score, TacticalIntent};
@@ -93,12 +94,12 @@ pub fn score_plans_with_raw(
     plans: &mut [TurnPlan],
     intent: &TacticalIntent,
     ctx: &ScoringCtx,
-) -> (Vec<f32>, Vec<PlanFactors>) {
+) -> (Vec<f32>, Vec<PlanFactorValues>) {
     if plans.is_empty() {
         return (Vec::new(), Vec::new());
     }
 
-    let raw: Vec<PlanFactors> = plans
+    let raw: Vec<PlanFactorValues> = plans
         .iter()
         .map(|p| compute_plan_factors(p, intent, ctx))
         .collect();
@@ -114,13 +115,13 @@ pub fn score_plans_with_raw(
 /// same intent.
 pub fn rescore_with_intent(
     plans: &mut [TurnPlan],
-    raw: &mut [PlanFactors],
+    raw: &mut [PlanFactorValues],
     intent: &TacticalIntent,
     ctx: &ScoringCtx,
 ) -> Vec<f32> {
     for (p, f) in plans.iter().zip(raw.iter_mut()) {
-        f.intent = compute_plan_intent_sum(p, intent, ctx);
-        f.tempo_gain = compute_plan_tempo_gain(p, intent, ctx);
+        f.set_plan(PlanFactor::Intent, compute_plan_intent_sum(p, intent, ctx));
+        f.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(p, intent, ctx));
     }
     finalize_scores(plans, raw, ctx)
 }
@@ -141,7 +142,7 @@ pub fn rescore_with_intent(
 ///   production fails soft by iterating the shorter of the two.
 pub fn rescore_with_per_plan_modes(
     plans: &mut [TurnPlan],
-    raw: &mut [PlanFactors],
+    raw: &mut [PlanFactorValues],
     modes: &[EvaluationMode],
     global: &TacticalIntent,
     ctx: &ScoringCtx,
@@ -150,8 +151,8 @@ pub fn rescore_with_per_plan_modes(
     debug_assert_eq!(plans.len(), modes.len());
     for ((p, f), mode) in plans.iter().zip(raw.iter_mut()).zip(modes.iter()) {
         let effective = mode.effective_intent(*global);
-        f.intent = compute_plan_intent_sum(p, &effective, ctx);
-        f.tempo_gain = compute_plan_tempo_gain(p, &effective, ctx);
+        f.set_plan(PlanFactor::Intent, compute_plan_intent_sum(p, &effective, ctx));
+        f.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(p, &effective, ctx));
     }
     finalize_scores(plans, raw, ctx)
 }
@@ -173,7 +174,7 @@ pub fn rescore_with_per_plan_modes(
 /// when scores clustered and "quiet" when they spread.
 pub fn finalize_scores(
     plans: &mut [TurnPlan],
-    raw: &[PlanFactors],
+    raw: &[PlanFactorValues],
     ctx: &ScoringCtx,
 ) -> Vec<f32> {
     let active = ctx.active;
@@ -189,27 +190,26 @@ pub fn finalize_scores(
     // Actor's own `unit_value` is plan-independent — compute once per
     // batch and reuse as the tanh denominator inside `plan_trade_bonus`.
     let actor_value = unit_value(active, world.content);
-    // Per-factor min/max for batch-relative normalization. Convert each
-    // PlanFactors row to its array view once for the inner loop.
-    let mut maxes = [0.0f32; NUM_FACTORS];
-    let mut mins = [0.0f32; NUM_FACTORS];
+
+    // Per-factor min/max for batch-relative normalization via registry walk.
+    // BatchStats indexed by StepFactor::iter() then PlanFactor::iter() order,
+    // matching PlanFactorValues layout.
+    const NFACTORS: usize = 10; // StepFactor::count() + PlanFactor::count()
+    let mut stats = [BatchStats { min: 0.0, max: 0.0 }; NFACTORS];
     for factors in raw {
-        for (i, v) in factors.as_array().into_iter().enumerate() {
-            if v > maxes[i] {
-                maxes[i] = v;
-            }
-            if v < mins[i] {
-                mins[i] = v;
-            }
+        for f in StepFactor::iter() {
+            let v = factors.get(f);
+            let s = &mut stats[f as usize];
+            if v > s.max { s.max = v; }
+            if v < s.min { s.min = v; }
         }
-    }
-    let mut denom = [0.0f32; NUM_FACTORS];
-    for i in 0..NUM_FACTORS {
-        denom[i] = if SIGNED_FACTOR[i] {
-            mins[i].abs().max(maxes[i].abs())
-        } else {
-            maxes[i]
-        };
+        for f in PlanFactor::iter() {
+            let idx = StepFactor::count() + f as usize;
+            let v = factors.get_plan(f);
+            let s = &mut stats[idx];
+            if v > s.max { s.max = v; }
+            if v < s.min { s.min = v; }
+        }
     }
 
     // Step 6.4: use continuation evaluator weights when actor has a stored goal.
@@ -220,24 +220,25 @@ pub fn finalize_scores(
     } else {
         active.role.factor_weights(world.tuning)
     };
-    weights[INTENT_IDX] *= world.difficulty.intent_commitment;
-    weights[SCARCITY_IDX] *= world.difficulty.resource_discipline;
+    // Intent slot: StepFactor::count() + PlanFactor::Intent as usize = 7 + 0 = 7
+    weights[StepFactor::count() + PlanFactor::Intent as usize] *= world.difficulty.intent_commitment;
+    // Scarcity slot: StepFactor::Scarcity as usize = 5
+    weights[StepFactor::Scarcity as usize] *= world.difficulty.resource_discipline;
     let noise_amp = world.difficulty.score_noise();
 
-    // Pass 1: compute noise-free scores.
+    // Pass 1: compute noise-free scores via registry walk.
     let mut scores: Vec<f32> = raw
         .iter()
         .zip(plans.iter())
         .map(|(factors, plan)| {
-            let arr = factors.as_array();
             let mut score = 0.0f32;
-            for i in 0..NUM_FACTORS {
-                let normalized = if denom[i] > f32::EPSILON {
-                    arr[i] / denom[i]
-                } else {
-                    0.0
-                };
-                score += normalized * weights[i];
+            for f in StepFactor::iter() {
+                let i = f as usize;
+                score += default_norm(factors.get(f), &stats[i], f.signed()) * weights[i];
+            }
+            for f in PlanFactor::iter() {
+                let i = StepFactor::count() + f as usize;
+                score += default_norm(factors.get_plan(f), &stats[i], f.signed()) * weights[i];
             }
             // Summon bonus bypasses normalisation: the factor pipeline can't
             // see the strategic value of creating an ally, and for hybrid
@@ -260,17 +261,11 @@ pub fn finalize_scores(
     }
 
     // Terminal aggregation (step 5.4): add terminal-state contribution to
-    // each plan's score. Each axis weighted by:
-    //   1. Role-mixed axis weight via `AxisProfile::terminal_weights`.
-    //   2. NeedSignals modulation: signal-relevant axes are amplified by
-    //      `(1 + need_signals.<signal>)` — signal in [0, 1] → multiplier
-    //      in [1, 2]. Negative-weight axes (exposure/lethality) carry w < 0;
-    //      their (1 + self_preserve) multiplier amplifies the penalty when
-    //      the actor is under threat.
-    //
-    // Cols: [exposure_at_end, next_turn_lethality, secure_kill, ally_rescue,
-    //        board_control_gain, line_actionability, density_value,
-    //        pressure_spacing_zone].
+    // each plan's score via TerminalFactor registry walk.
+    // Each axis weighted by role terminal weights × NeedAxis modulation.
+    // NeedAxis::None.amplify(_) = 1.0 — preserves FP-exact reproduction of
+    // line_actionability (slot 5) and pressure_spacing_zone (slot 7) which
+    // have no NeedSignals multiplier in the legacy formula.
     {
         // Step 6.4: use continuation terminal weights when actor has a stored goal.
         let tw = if ctx.last_goal.is_some() {
@@ -281,16 +276,9 @@ pub fn finalize_scores(
         let needs = ctx.need_signals;
         for (plan, score) in plans.iter().zip(scores.iter_mut()) {
             let t = &plan.annotation.terminal;
-            let terminal_sum =
-                t.exposure_at_end       * tw[0] * (1.0 + needs.self_preserve)
-              + t.next_turn_lethality   * tw[1] * (1.0 + needs.self_preserve)
-              + t.secure_kill           * tw[2] * (1.0 + needs.finish_target)
-              + t.ally_rescue           * tw[3] * (1.0 + needs.rescue_ally)
-              + t.board_control_gain    * tw[4] * (1.0 + needs.reposition)
-              + t.line_actionability    * tw[5]
-              + t.density_value         * tw[6] * (1.0 + needs.setup_aoe)
-              + t.pressure_spacing_zone * tw[7];
-            *score += terminal_sum;
+            for f in TerminalFactor::iter() {
+                *score += t.get(f) * tw[f as usize] * f.need_modulation().amplify(&needs);
+            }
         }
     }
 
@@ -497,10 +485,10 @@ pub fn compute_plan_factors(
     plan: &TurnPlan,
     intent: &TacticalIntent,
     ctx: &ScoringCtx,
-) -> PlanFactors {
+) -> PlanFactorValues {
     let mut out = compute_plan_factors_sans_intent(plan, ctx);
-    out.intent = compute_plan_intent_sum(plan, intent, ctx);
-    out.tempo_gain = compute_plan_tempo_gain(plan, intent, ctx);
+    out.set_plan(PlanFactor::Intent, compute_plan_intent_sum(plan, intent, ctx));
+    out.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(plan, intent, ctx));
     out
 }
 
@@ -510,7 +498,7 @@ pub fn compute_plan_factors(
 pub fn compute_plan_factors_sans_intent(
     plan: &TurnPlan,
     ctx: &ScoringCtx,
-) -> PlanFactors {
+) -> PlanFactorValues {
     let active = ctx.active;
     let snap = ctx.snap;
     // No sim is run here: the generator already produced the sim state after
@@ -523,13 +511,8 @@ pub fn compute_plan_factors_sans_intent(
         "TurnPlan sim_snapshots must align with steps, or be empty (deserialized)",
     );
 
-    let mut damage_sum = 0.0f32;
-    let mut heal_sum = 0.0f32;
-    let mut kill_now_sum = 0.0f32;
-    let mut kill_promised_sum = 0.0f32;
-    let mut cc_sum = 0.0f32;
-    let mut scarcity_sum = 0.0f32;
-    let mut saturation_sum = 0.0f32;
+    // sums[f as usize] for StepFactor variants, discounted per-step.
+    let mut sums = [0.0f32; 7]; // StepFactor::count()
 
     let base_discount = ctx.world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;
@@ -544,41 +527,27 @@ pub fn compute_plan_factors_sans_intent(
 
         if let PlanStep::Cast { .. } = step {
             // Mid-plan: shift perspective to the simulated actor + pre-step snap.
+            // NOTE: StepFactor::Saturation::compute reads ctx.snap as pre-step
+            // snapshot — correct only when called inside this with_perspective block.
             let step_ctx = ctx.with_perspective(&sim_actor, pre_snap);
             let step_outcome = plan.annotation.outcomes.get(idx).cloned().unwrap_or_default();
-            let raw = factors::compute_factors(&step_ctx, &scored_step, &step_outcome);
-            // Every Cast-accumulating factor uses the same shape: discounted
-            // sum with base^k decay. Deep Casts keep contributing but weigh
-            // less, reflecting execution uncertainty over plan depth.
-            damage_sum += raw.damage * step_weight;
-            kill_now_sum += raw.kill_now * step_weight;
-            kill_promised_sum += raw.kill_promised * step_weight;
-            cc_sum += raw.cc * step_weight;
-            heal_sum += raw.heal * step_weight;
-            scarcity_sum += raw.scarcity * step_weight;
-            if let PlanStep::Cast { ability, target, .. } = step {
-                let sat = buff_saturation_penalty(
-                    ability, *target, active.entity, pre_snap, step_ctx.world.content,
-                );
-                saturation_sum += sat * step_weight;
+            for f in StepFactor::iter() {
+                let v = f.compute(&step_ctx, &scored_step, &step_outcome, &ctx.need_signals);
+                sums[f as usize] += v * step_weight;
             }
         }
 
         step_weight *= base_discount;
     }
 
-    PlanFactors {
-        damage: damage_sum,
-        kill_now: kill_now_sum,
-        kill_promised: kill_promised_sum,
-        cc: cc_sum,
-        heal: heal_sum,
-        intent: 0.0,        // filled in by `compute_plan_intent_sum` when needed
-        scarcity: scarcity_sum,
-        tempo_gain: 0.0,    // filled in by `compute_plan_tempo_gain` when needed
-        saturation: saturation_sum,
-        self_survival: compute_plan_self_survival(plan, ctx),
+    let mut out = PlanFactorValues::default();
+    for f in StepFactor::iter() {
+        out.set(f, sums[f as usize]);
     }
+    // plan-level factors: intent and tempo_gain filled in by compute_plan_factors;
+    // self_survival computed here.
+    out.set_plan(PlanFactor::SelfSurvival, compute_plan_self_survival(plan, ctx));
+    out
 }
 
 /// Intent-column aggregation for a plan.
@@ -774,6 +743,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::factors::{PlanFactor, PlanFactorValues, StepFactor};
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::reservations::Reservations;
@@ -923,7 +893,7 @@ mod tests {
 
         // Single-cast: per-step intent_score for melee_attack@focus.
         let single = compute_plan_factors(&build(vec![cast_focus()]), &intent, &scoring_ctx);
-        let s1 = single.intent;
+        let s1 = single.get_plan(PlanFactor::Intent);
         assert!(s1 > 0.0, "single cast@focus must produce positive intent: {s1}");
 
         // Two casts (step-1c): first Cast per-step + terminal pursuit for tail.
@@ -934,9 +904,10 @@ mod tests {
         let tail_pursuit = pursuit_move_score(actor.pos, hex_from_offset(0, 0), focus.pos, reach);
         let expected_two = s1 + tail_pursuit * 0.85;
         let two = compute_plan_factors(&build(vec![cast_focus(), cast_focus()]), &intent, &scoring_ctx);
+        let two_intent = two.get_plan(PlanFactor::Intent);
         assert!(
-            (two.intent - expected_two).abs() < 0.005,
-            "two casts: intent={}, expected≈{expected_two} (s1={s1}, tail_pursuit={tail_pursuit})", two.intent,
+            (two_intent - expected_two).abs() < 0.005,
+            "two casts: intent={two_intent}, expected≈{expected_two} (s1={s1}, tail_pursuit={tail_pursuit})",
         );
 
         // Three casts: same formula — tail still collapses to single pursuit.
@@ -946,9 +917,10 @@ mod tests {
             &build(vec![cast_focus(), cast_focus(), cast_focus()]),
             &intent, &scoring_ctx,
         );
+        let three_intent = three.get_plan(PlanFactor::Intent);
         assert!(
-            (three.intent - expected_three).abs() < 0.005,
-            "three casts: intent={}, expected≈{expected_three} (same tail shortcut as two)", three.intent,
+            (three_intent - expected_three).abs() < 0.005,
+            "three casts: intent={three_intent}, expected≈{expected_three} (same tail shortcut as two)",
         );
     }
 
@@ -1017,12 +989,12 @@ mod tests {
         // whether step 0's outcome killed the intent target. Intent
         // itself does differ (post-goal skips it), not asserted here.
         for (got, want, name) in [
-            (f_goal.damage, f_miss.damage, "damage"),
-            (f_goal.kill_now, f_miss.kill_now, "kill_now"),
-            (f_goal.kill_promised, f_miss.kill_promised, "kill_promised"),
-            (f_goal.cc, f_miss.cc, "cc"),
-            (f_goal.heal, f_miss.heal, "heal"),
-            (f_goal.scarcity, f_miss.scarcity, "scarcity"),
+            (f_goal.get(StepFactor::Damage), f_miss.get(StepFactor::Damage), "damage"),
+            (f_goal.get(StepFactor::KillNow), f_miss.get(StepFactor::KillNow), "kill_now"),
+            (f_goal.get(StepFactor::KillPromised), f_miss.get(StepFactor::KillPromised), "kill_promised"),
+            (f_goal.get(StepFactor::Cc), f_miss.get(StepFactor::Cc), "cc"),
+            (f_goal.get(StepFactor::Heal), f_miss.get(StepFactor::Heal), "heal"),
+            (f_goal.get(StepFactor::Scarcity), f_miss.get(StepFactor::Scarcity), "scarcity"),
         ] {
             assert_eq!(
                 got, want,
@@ -2174,7 +2146,7 @@ mod tests {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
 
-        let raw = vec![PlanFactors::default()];
+        let raw = vec![PlanFactorValues::default()];
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         let scores = finalize_scores(&mut [inert_plan(actor.pos)], &raw, &ctx);
 
@@ -2207,13 +2179,13 @@ mod tests {
         maps.danger.add(final_pos, 1.0);
 
         // Score without self_preserve signal.
-        let raw = vec![PlanFactors::default()];
+        let raw = vec![PlanFactorValues::default()];
         let mut ctx_a = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         ctx_a.need_signals = NeedSignals::default();
         let score_no_preserve = finalize_scores(&mut [inert_plan(final_pos)], &raw, &ctx_a)[0];
 
         // Score with maximum self_preserve.
-        let raw2 = vec![PlanFactors::default()];
+        let raw2 = vec![PlanFactorValues::default()];
         let mut ctx_b = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         ctx_b.need_signals = NeedSignals { self_preserve: 1.0, ..Default::default() };
         let score_high_preserve = finalize_scores(&mut [inert_plan(final_pos)], &raw2, &ctx_b)[0];
@@ -2259,12 +2231,12 @@ mod tests {
         maps.danger.add(final_pos, 1.0);
 
         let snap_tank = BattleSnapshot::new(vec![tank.clone()], 1);
-        let raw_tank = vec![PlanFactors::default()];
+        let raw_tank = vec![PlanFactorValues::default()];
         let ctx_tank = make_scoring_ctx(&world, &snap_tank, &maps, &reservations, &tank);
         let score_tank = finalize_scores(&mut [inert_plan(final_pos)], &raw_tank, &ctx_tank)[0];
 
         let snap_ranged = BattleSnapshot::new(vec![ranged.clone()], 1);
-        let raw_ranged = vec![PlanFactors::default()];
+        let raw_ranged = vec![PlanFactorValues::default()];
         let ctx_ranged = make_scoring_ctx(&world, &snap_ranged, &maps, &reservations, &ranged);
         let score_ranged = finalize_scores(&mut [inert_plan(final_pos)], &raw_ranged, &ctx_ranged)[0];
 
@@ -2293,7 +2265,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
 
-        let raw = vec![PlanFactors::default()];
+        let raw = vec![PlanFactorValues::default()];
         // last_goal = None (make_scoring_ctx default)
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         assert!(ctx.last_goal.is_none());
@@ -2343,7 +2315,7 @@ mod tests {
         let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
         let stored_goal = make_stored_goal(target_entity, pos);
 
-        let raw = vec![PlanFactors::default()];
+        let raw = vec![PlanFactorValues::default()];
         let mut ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         ctx.last_goal = Some(&stored_goal);
 
@@ -2400,7 +2372,7 @@ mod tests {
             confidence: 1.0,
         };
 
-        let raw = vec![PlanFactors::default()];
+        let raw = vec![PlanFactorValues::default()];
 
         let score_no_commitment = {
             let mut ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
@@ -2486,7 +2458,7 @@ mod tests {
             ctx.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
             let mut plan = inert_plan(pos);
             plan.annotation.repair_affinity = affinity;
-            finalize_scores(&mut [plan], &[PlanFactors::default()], &ctx)[0]
+            finalize_scores(&mut [plan], &[PlanFactorValues::default()], &ctx)[0]
         };
 
         // Case B: scale = 0.4 → bonus = aggregate * (1 + 0.4) * 0.4
@@ -2504,7 +2476,7 @@ mod tests {
             ctx.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
             let mut plan = inert_plan(pos);
             plan.annotation.repair_affinity = affinity;
-            finalize_scores(&mut [plan], &[PlanFactors::default()], &ctx)[0]
+            finalize_scores(&mut [plan], &[PlanFactorValues::default()], &ctx)[0]
         };
 
         // scale=0 must give the same score as no affinity (no bonus applied)
@@ -2521,7 +2493,7 @@ mod tests {
             ctx.last_goal = Some(&stored_goal);
             let mut plan = inert_plan(pos);
             plan.annotation.repair_affinity = Default::default();
-            finalize_scores(&mut [plan], &[PlanFactors::default()], &ctx)[0]
+            finalize_scores(&mut [plan], &[PlanFactorValues::default()], &ctx)[0]
         };
 
         assert_eq!(
@@ -2573,7 +2545,7 @@ mod tests {
         let stored_goal = make_stored_goal(target_entity, pos);
 
         // Non-zero kill_now factor so the weight difference is visible.
-        let raw_slice = vec![PlanFactors { kill_now: 1.0, ..Default::default() }];
+        let raw_slice = vec![{ let mut f = PlanFactorValues::default(); f.set(StepFactor::KillNow, 1.0); f }];
 
         let score_no_goal = {
             let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
@@ -2616,7 +2588,7 @@ mod tests {
         let maps = empty_maps();
 
         // Non-zero self_survival — has different weights between evaluators.
-        let raw_slice = vec![PlanFactors { self_survival: 1.0, ..Default::default() }];
+        let raw_slice = vec![{ let mut f = PlanFactorValues::default(); f.set_plan(PlanFactor::SelfSurvival, 1.0); f }];
 
         // last_goal = None → discovery weights
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
@@ -2671,7 +2643,7 @@ mod tests {
         // but its score is pre-set to NEG_INFINITY (simulates a sanity mask).
         // After finalize_scores, plan_b must remain NEG_INFINITY — the bonus
         // path explicitly skips `!score.is_finite()` plans.
-        let raw = vec![PlanFactors::default(), PlanFactors::default()];
+        let raw = vec![PlanFactorValues::default(), PlanFactorValues::default()];
         let mut ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         ctx.last_goal = Some(&stored_goal);
         ctx.need_signals = NeedSignals { continue_commitment: 1.0, ..Default::default() };

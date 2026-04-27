@@ -22,7 +22,7 @@ impl PlanStage for AdaptationStage {
 
         // Extract scores and raw_factors for apply_adaptation.
         let mut scores: Vec<f32> = pre_scores.clone();
-        let mut raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.raw_factors).collect();
+        let mut raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.factors).collect();
 
         let adaptation = apply_adaptation(
             &mut pool.plans,
@@ -40,7 +40,7 @@ impl PlanStage for AdaptationStage {
             .enumerate()
         {
             ann.score = new_score;
-            ann.raw_factors = new_raw;
+            ann.factors = new_raw;
             if let Some(r) = adaptation.reasons.get(i).and_then(|r| r.as_ref()) {
                 ann.adaptation = Some(AdaptationData {
                     reason: r.clone(),
@@ -57,7 +57,7 @@ impl PlanStage for AdaptationStage {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::PlanFactors;
+    use crate::combat::ai::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
@@ -84,10 +84,16 @@ mod tests {
     }
 
     /// Run AdaptationStage on a pool with the given actor and return the pool.
+    fn pfv_survival(v: f32) -> PlanFactorValues {
+        let mut f = PlanFactorValues::default();
+        f.set_plan(PlanFactor::SelfSurvival, v);
+        f
+    }
+
     fn run_adaptation(
         plans: Vec<TurnPlan>,
         scores: Vec<f32>,
-        raw: Vec<PlanFactors>,
+        raw: Vec<PlanFactorValues>,
         actor: &crate::combat::ai::snapshot::UnitSnapshot,
         snap: &BattleSnapshot,
         intent: TacticalIntent,
@@ -109,7 +115,7 @@ mod tests {
         let mut pool = ScoredPool::new(plans);
         for (ann, (score, raw_f)) in pool.annotations.iter_mut().zip(scores.into_iter().zip(raw.into_iter())) {
             ann.score = score;
-            ann.raw_factors = raw_f;
+            ann.factors = raw_f;
         }
         AdaptationStage.apply(&mut pool, &mut ctx);
         pool
@@ -126,10 +132,7 @@ mod tests {
         // Two plans, neither defensive (self_survival=0.0 < epsilon).
         let plans = vec![empty_plan(), empty_plan()];
         let scores = vec![0.5, 0.4];
-        let raw = vec![
-            PlanFactors { self_survival: 0.0, ..Default::default() },
-            PlanFactors { self_survival: 0.0, ..Default::default() },
-        ];
+        let raw = vec![pfv_survival(0.0), pfv_survival(0.0)];
 
         let pool = run_adaptation(plans, scores, raw, &actor, &snap, TacticalIntent::ProtectSelf);
 
@@ -149,10 +152,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let plans = vec![empty_plan(), empty_plan()];
         let pre_scores = vec![0.5_f32, 0.4_f32];
-        let raw = vec![
-            PlanFactors { self_survival: 0.0, ..Default::default() },
-            PlanFactors { self_survival: 0.0, ..Default::default() },
-        ];
+        let raw = vec![pfv_survival(0.0), pfv_survival(0.0)];
 
         let pool = run_adaptation(
             plans, pre_scores.clone(), raw, &actor, &snap, TacticalIntent::ProtectSelf,
@@ -175,7 +175,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let plans = vec![move_plan(hex_from_offset(1, 0))];
         let scores = vec![0.5];
-        let raw = vec![PlanFactors::default()];
+        let raw = vec![PlanFactorValues::default()];
 
         let pool = run_adaptation(
             plans, scores, raw, &actor, &snap, TacticalIntent::Reposition,
@@ -198,10 +198,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let plans = vec![empty_plan(), empty_plan()];
         let scores = vec![0.5, 0.4];
-        let raw = vec![
-            PlanFactors { self_survival: 0.0, ..Default::default() },
-            PlanFactors { self_survival: 0.0, ..Default::default() },
-        ];
+        let raw = vec![pfv_survival(0.0), pfv_survival(0.0)];
 
         let pool = run_adaptation(plans, scores, raw, &actor, &snap, TacticalIntent::ProtectSelf);
 

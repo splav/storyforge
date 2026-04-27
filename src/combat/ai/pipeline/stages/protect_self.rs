@@ -42,7 +42,7 @@ impl PlanStage for ProtectSelfMaskStage {
             })
             .collect();
 
-        let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.raw_factors).collect();
+        let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.factors).collect();
         let mut scores: Vec<f32> = pre_scores.clone();
         apply_protect_self_mask(&mut scores, &raw_factors, &modes, epsilon);
 
@@ -65,7 +65,7 @@ impl PlanStage for ProtectSelfMaskStage {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::PlanFactors;
+    use crate::combat::ai::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::TurnPlan;
@@ -78,10 +78,16 @@ mod tests {
     use crate::game::hex::hex_from_offset;
     use crate::core::DiceRng;
 
+    fn pfv_survival(v: f32) -> PlanFactorValues {
+        let mut f = PlanFactorValues::default();
+        f.set_plan(PlanFactor::SelfSurvival, v);
+        f
+    }
+
     fn run_stage(
         plans: Vec<TurnPlan>,
         scores: Vec<f32>,
-        raw: Vec<PlanFactors>,
+        raw: Vec<PlanFactorValues>,
         intent: TacticalIntent,
     ) -> ScoredPool {
         let pos = hex_from_offset(0, 0);
@@ -104,7 +110,7 @@ mod tests {
         let mut pool = ScoredPool::new(plans);
         for (ann, (score, raw_f)) in pool.annotations.iter_mut().zip(scores.into_iter().zip(raw.into_iter())) {
             ann.score = score;
-            ann.raw_factors = raw_f;
+            ann.factors = raw_f;
         }
         ProtectSelfMaskStage.apply(&mut pool, &mut ctx);
         pool
@@ -117,7 +123,7 @@ mod tests {
         // Reposition intent → stage is a no-op; no annotation, no score change.
         let plans = vec![TurnPlan::default()];
         let scores = vec![0.5_f32];
-        let raw = vec![PlanFactors { self_survival: 0.0, ..Default::default() }];
+        let raw = vec![pfv_survival(0.0)];
 
         let pool = run_stage(plans, scores, raw, TacticalIntent::Reposition);
 
@@ -135,8 +141,8 @@ mod tests {
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
         let scores = vec![0.5_f32, 0.7_f32];
         let raw = vec![
-            PlanFactors { self_survival: 0.5, ..Default::default() }, // defensive
-            PlanFactors { self_survival: 0.0, ..Default::default() }, // non-defensive
+            pfv_survival(0.5), // defensive
+            pfv_survival(0.0), // non-defensive
         ];
 
         let pool = run_stage(plans, scores, raw, TacticalIntent::ProtectSelf);
@@ -158,10 +164,7 @@ mod tests {
         // All plans are defensive — mask is a no-op for scores, no annotations written.
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
         let scores = vec![0.5_f32, 0.4_f32];
-        let raw = vec![
-            PlanFactors { self_survival: 0.5, ..Default::default() },
-            PlanFactors { self_survival: 0.3, ..Default::default() },
-        ];
+        let raw = vec![pfv_survival(0.5), pfv_survival(0.3)];
 
         let pool = run_stage(plans, scores, raw, TacticalIntent::ProtectSelf);
 

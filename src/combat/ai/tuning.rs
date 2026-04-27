@@ -228,13 +228,15 @@ impl Default for Tables {
     #[rustfmt::skip]
     fn default() -> Self {
         Self {
+            // columns (v29): [damage, kill_now, kill_promised, cc, heal, scarcity, saturation, intent, tempo_gain, self_survival]
+            // was (v28):     [damage, kill_now, kill_promised, cc, heal, intent, scarcity, tempo_gain, saturation, self_survival]
             axis_factor_weights: [
-                //  dmg   kn    kp    cc    heal  intent scarc tempo sat   surv
-                [   0.4,  0.6,  0.3,  0.5,  0.2,  1.0,  0.4,  0.8,  1.0,  1.0 ], // Tank
-                [   1.3,  1.6,  0.8,  0.2,  0.0,  1.0,  0.3,  1.0,  1.0,  0.8 ], // Melee
-                [   1.3,  1.3,  0.65, 0.3,  0.0,  1.0,  0.5,  1.2,  1.0,  0.8 ], // Ranged
-                [   0.4,  0.5,  0.4,  1.6,  0.0,  1.0,  1.2,  1.0,  1.0,  0.8 ], // Control
-                [   0.2,  0.3,  0.15, 0.6,  2.0,  1.0,  0.8,  0.8,  1.0,  1.2 ], // Support
+                //  dmg   kn    kp    cc    heal  scarc sat   intent tempo surv
+                [   0.4,  0.6,  0.3,  0.5,  0.2,  0.4,  1.0,  1.0,  0.8,  1.0 ], // Tank
+                [   1.3,  1.6,  0.8,  0.2,  0.0,  0.3,  1.0,  1.0,  1.0,  0.8 ], // Melee
+                [   1.3,  1.3,  0.65, 0.3,  0.0,  0.5,  1.0,  1.0,  1.2,  0.8 ], // Ranged
+                [   0.4,  0.5,  0.4,  1.6,  0.0,  1.2,  1.0,  1.0,  1.0,  0.8 ], // Control
+                [   0.2,  0.3,  0.15, 0.6,  2.0,  0.8,  1.0,  1.0,  0.8,  1.2 ], // Support
             ],
             axis_position_weights: [
                 //  danger  ally   opp
@@ -262,21 +264,22 @@ impl Default for Tables {
                 [   0.4,   0.3,    0.3 ], // Control
                 [   0.7,   0.2,    0.1 ], // Support
             ],
-            // Continuation evaluator — factor weights.
+            // Continuation evaluator — factor weights (v29 column order).
+            // columns: [damage, kill_now, kill_promised, cc, heal, scarcity, saturation, intent, tempo_gain, self_survival]
             // Сдвиги от discovery:
             //   kill_now      (idx 1): ×1.2  — committed kill bonus
             //   kill_promised (idx 2): ×1.2  — committed kill bonus
-            //   tempo_gain    (idx 7): ×1.15 — reward forward momentum
+            //   tempo_gain    (idx 8): ×1.15 — reward forward momentum (was idx 7 in v28)
             //   self_survival (idx 9): ×0.7  — loosen self-preserve floor under commitment
             //   остальные axes:        ×1.0
             #[rustfmt::skip]
             axis_factor_weights_continuation: [
-                //  dmg   kn    kp    cc    heal  intent scarc tempo  sat   surv
-                [   0.4,  0.72, 0.36, 0.5,  0.2,  1.0,  0.4,  0.92, 1.0,  0.70 ], // Tank
-                [   1.3,  1.92, 0.96, 0.2,  0.0,  1.0,  0.3,  1.15, 1.0,  0.56 ], // Melee
-                [   1.3,  1.56, 0.78, 0.3,  0.0,  1.0,  0.5,  1.38, 1.0,  0.56 ], // Ranged
-                [   0.4,  0.60, 0.48, 1.6,  0.0,  1.0,  1.2,  1.15, 1.0,  0.56 ], // Control
-                [   0.2,  0.36, 0.18, 0.6,  2.0,  1.0,  0.8,  0.92, 1.0,  0.84 ], // Support
+                //  dmg   kn    kp    cc    heal  scarc sat   intent tempo  surv
+                [   0.4,  0.72, 0.36, 0.5,  0.2,  0.4,  1.0,  1.0,  0.92, 0.70 ], // Tank
+                [   1.3,  1.92, 0.96, 0.2,  0.0,  0.3,  1.0,  1.0,  1.15, 0.56 ], // Melee
+                [   1.3,  1.56, 0.78, 0.3,  0.0,  0.5,  1.0,  1.0,  1.38, 0.56 ], // Ranged
+                [   0.4,  0.60, 0.48, 1.6,  0.0,  1.2,  1.0,  1.0,  1.15, 0.56 ], // Control
+                [   0.2,  0.36, 0.18, 0.6,  2.0,  0.8,  1.0,  1.0,  0.92, 0.84 ], // Support
             ],
             // Continuation evaluator — terminal weights.
             // Сдвиги от discovery:

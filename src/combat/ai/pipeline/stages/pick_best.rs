@@ -22,7 +22,7 @@ impl PlanStage for PickBestStage {
         }
 
         let scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
-        let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.raw_factors).collect();
+        let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.factors).collect();
 
         let (best_idx, mech) = pick_best_plan(&scores, &raw_factors, ctx.scoring.world, ctx.rng);
 
@@ -37,7 +37,7 @@ impl PlanStage for PickBestStage {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::PlanFactors;
+    use crate::combat::ai::factors::PlanFactorValues;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::TurnPlan;
@@ -74,7 +74,7 @@ mod tests {
         let mut pool = ScoredPool::new(plans);
         for (ann, score) in pool.annotations.iter_mut().zip(scores.into_iter()) {
             ann.score = score;
-            ann.raw_factors = PlanFactors::default();
+            ann.factors = PlanFactorValues::default();
         }
         PickBestStage.apply(&mut pool, &mut ctx);
         pool

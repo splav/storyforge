@@ -35,13 +35,14 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::combat::ai::factors::{FactorTerminalScore, TerminalFactor};
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 
-/// Terminal-state evaluation per plan. Producer is `terminal_state_score`;
-/// each axis populated incrementally in 5.1–5.3. Consumed in
-/// `finalize_scores` (5.4) via `axis_terminal_weights` × `NeedSignals`.
+/// Legacy terminal-state struct — kept for backward compatibility with tests
+/// that construct it directly. Use `FactorTerminalScore` (= `factors::TerminalScore`)
+/// for all production paths as of schema v29.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct TerminalScore {
     pub exposure_at_end: f32,
@@ -56,33 +57,23 @@ pub struct TerminalScore {
 
 /// Compute the terminal-state score for a plan from its final sim snapshot.
 ///
-/// All 8 axes populated as of step 5.3. Consumed in `finalize_scores` (5.4)
-/// via `axis_terminal_weights` × `NeedSignals`; aggregator is still inert
-/// until that step.
+/// Returns a `FactorTerminalScore` (registry-typed wrapper) as of schema v29.
+/// All 8 axes populated as of step 5.3.
 pub fn terminal_state_score(
     plan: &TurnPlan,
     initial_snap: &BattleSnapshot,
     ctx: &ScoringCtx,
-) -> TerminalScore {
-    let exposure_at_end = compute_exposure_at_end(plan, ctx);
-    let next_turn_lethality = compute_next_turn_lethality(plan, initial_snap, ctx);
-    let secure_kill = compute_secure_kill(plan);
-    let ally_rescue = compute_ally_rescue(plan, initial_snap, ctx);
-    let board_control_gain = compute_board_control_gain(plan, ctx);
-    let line_actionability = compute_line_actionability(plan, initial_snap, ctx);
-    let density_value = compute_density_value(plan, initial_snap, ctx);
-    let pressure_spacing_zone = compute_pressure_spacing_zone(plan, ctx);
-
-    TerminalScore {
-        exposure_at_end,
-        next_turn_lethality,
-        secure_kill,
-        ally_rescue,
-        board_control_gain,
-        line_actionability,
-        density_value,
-        pressure_spacing_zone,
-    }
+) -> FactorTerminalScore {
+    let mut out = FactorTerminalScore::default();
+    out.set(TerminalFactor::ExposureAtEnd,     compute_exposure_at_end(plan, ctx));
+    out.set(TerminalFactor::NextTurnLethality, compute_next_turn_lethality(plan, initial_snap, ctx));
+    out.set(TerminalFactor::SecureKill,        compute_secure_kill(plan));
+    out.set(TerminalFactor::AllyRescue,        compute_ally_rescue(plan, initial_snap, ctx));
+    out.set(TerminalFactor::BoardControlGain,  compute_board_control_gain(plan, ctx));
+    out.set(TerminalFactor::LineActionability, compute_line_actionability(plan, initial_snap, ctx));
+    out.set(TerminalFactor::DensityValue,      compute_density_value(plan, initial_snap, ctx));
+    out.set(TerminalFactor::PressureSpacingZone, compute_pressure_spacing_zone(plan, ctx));
+    out
 }
 
 /// Danger map value at the actor's final position, clamped to [0, 1].
@@ -330,6 +321,7 @@ mod tests {
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
     use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::factors::TerminalFactor;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -377,7 +369,7 @@ mod tests {
 
         let plan = idle_plan(actor_pos, snap.clone());
         let terminal = terminal_state_score(&plan, &snap, &ctx);
-        assert_eq!(terminal.exposure_at_end, 0.0);
+        assert_eq!(terminal.get(TerminalFactor::ExposureAtEnd), 0.0);
     }
 
     #[test]
@@ -396,9 +388,9 @@ mod tests {
         let plan = idle_plan(actor_pos, snap.clone());
         let terminal = terminal_state_score(&plan, &snap, &ctx);
         assert!(
-            (terminal.exposure_at_end - 0.8).abs() < 1e-5,
+            (terminal.get(TerminalFactor::ExposureAtEnd) - 0.8).abs() < 1e-5,
             "expected ~0.8, got {}",
-            terminal.exposure_at_end
+            terminal.get(TerminalFactor::ExposureAtEnd)
         );
     }
 
@@ -426,7 +418,7 @@ mod tests {
 
         let plan = idle_plan(actor_pos, end_snap);
         let terminal = terminal_state_score(&plan, &initial_snap, &ctx);
-        assert_eq!(terminal.next_turn_lethality, 0.0);
+        assert_eq!(terminal.get(TerminalFactor::NextTurnLethality), 0.0);
     }
 
     #[test]
@@ -449,7 +441,7 @@ mod tests {
 
         let plan = idle_plan(actor_pos, snap.clone());
         let terminal = terminal_state_score(&plan, &snap, &ctx);
-        assert_eq!(terminal.next_turn_lethality, 0.0);
+        assert_eq!(terminal.get(TerminalFactor::NextTurnLethality), 0.0);
     }
 
     #[test]
@@ -474,9 +466,9 @@ mod tests {
         let plan = idle_plan(actor_pos, snap.clone());
         let terminal = terminal_state_score(&plan, &snap, &ctx);
         assert!(
-            terminal.next_turn_lethality > 0.7,
+            terminal.get(TerminalFactor::NextTurnLethality) > 0.7,
             "expected high lethality, got {}",
-            terminal.next_turn_lethality
+            terminal.get(TerminalFactor::NextTurnLethality)
         );
     }
 
@@ -506,10 +498,10 @@ mod tests {
         let plan = idle_plan(actor_pos, snap.clone());
         let terminal = terminal_state_score(&plan, &snap, &ctx);
         assert_eq!(
-            terminal.next_turn_lethality,
+            terminal.get(TerminalFactor::NextTurnLethality),
             1.0,
             "lethality must be clamped to 1.0, got {}",
-            terminal.next_turn_lethality
+            terminal.get(TerminalFactor::NextTurnLethality)
         );
     }
 
@@ -534,7 +526,7 @@ mod tests {
         let plan = deserialized_plan(actor_pos);
         // Empty sim_snapshots → uses initial_snap → enemy is far → lethality=0
         let terminal = terminal_state_score(&plan, &initial_snap, &ctx);
-        assert_eq!(terminal.next_turn_lethality, 0.0);
+        assert_eq!(terminal.get(TerminalFactor::NextTurnLethality), 0.0);
     }
 
     // ── secure_kill ────────────────────────────────────────────────────────

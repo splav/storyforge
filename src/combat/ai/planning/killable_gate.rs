@@ -26,7 +26,7 @@
 //!    to `CanFinish` and prune legit offensive-vs-target plans. See
 //!    `docs/ai_rework.md §3.1`, §3.2a.
 
-use crate::combat::ai::factors::PlanFactors;
+use crate::combat::ai::factors::{PlanFactorValues, StepFactor};
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::adaptation::EvaluationMode;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
@@ -95,7 +95,7 @@ pub fn plan_is_offensive_vs(plan: &TurnPlan, target: Entity) -> bool {
 /// Returns a `GateStats` summary suitable for logging.
 pub fn apply_killable_gate(
     plans: &[TurnPlan],
-    raw: &[PlanFactors],
+    raw: &[PlanFactorValues],
     scores: &mut [f32],
     modes: &[EvaluationMode],
     intent: &TacticalIntent,
@@ -126,10 +126,12 @@ pub fn apply_killable_gate(
     // some other enemy (kn=1, step.target != intent_target) would spuriously
     // raise strength to CanFinish.
     let can_finish = live.iter().any(|&i| {
-        plan_is_offensive_vs(&plans[i], target) && raw[i].kill_now >= 1.0
+        plan_is_offensive_vs(&plans[i], target)
+            && raw[i].get(StepFactor::KillNow) >= 1.0
     });
     let has_pressure = live.iter().any(|&i| {
-        plan_is_offensive_vs(&plans[i], target) && raw[i].damage >= hp_f * KILLABLE_ALPHA
+        plan_is_offensive_vs(&plans[i], target)
+            && raw[i].get(StepFactor::Damage) >= hp_f * KILLABLE_ALPHA
     });
 
     let strength = match (can_finish, has_pressure) {
@@ -146,7 +148,8 @@ pub fn apply_killable_gate(
             KillLineStrength::None => true,
             KillLineStrength::Pressure => plan_is_offensive_vs(&plans[i], target),
             KillLineStrength::CanFinish => {
-                plan_is_offensive_vs(&plans[i], target) && raw[i].kill_now >= 1.0
+                plan_is_offensive_vs(&plans[i], target)
+                    && raw[i].get(StepFactor::KillNow) >= 1.0
             }
         };
         if !keep {
@@ -219,8 +222,11 @@ mod tests {
         vec![EvaluationMode::Default; n]
     }
 
-    fn factors_with(damage: f32, kill_now: f32) -> PlanFactors {
-        PlanFactors { damage, kill_now, ..PlanFactors::default() }
+    fn factors_with(damage: f32, kill_now: f32) -> PlanFactorValues {
+        let mut f = PlanFactorValues::default();
+        f.set(StepFactor::Damage, damage);
+        f.set(StepFactor::KillNow, kill_now);
+        f
     }
 
     // ── Test 1: no kill-line → no-op ─────────────────────────────────────

@@ -278,7 +278,7 @@ pub fn pick_action(
     let mut pool = ScoredPool::new(plans);
     for (ann, (score, raw)) in pool.annotations.iter_mut().zip(initial_scored.into_iter().zip(initial_raw.into_iter())) {
         ann.score = score;
-        ann.raw_factors = raw;
+        ann.factors = raw;
     }
 
     let mut stage_ctx = StageCtx::new(
@@ -332,7 +332,7 @@ pub fn pick_action(
 
     // Build debug snapshot (reads scores/raw_factors from annotations).
     let scored: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
-    let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.raw_factors).collect();
+    let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.factors).collect();
     let pick_mech = debug.then(|| {
         pool.annotations[best_idx]
             .pick
@@ -433,7 +433,8 @@ pub fn write_decision_log_from_result(
                 &plans[idx],
                 rank + 1,
                 idx == best_idx,
-                ann.raw_factors.as_array(),
+                &ann.factors,
+                &ann.terminal,
                 base_score,
                 score,
                 &evaluation_modes[idx],

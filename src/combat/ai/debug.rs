@@ -5,7 +5,7 @@ use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
-use crate::combat::ai::factors::{PlanFactors, ScoredStep};
+use crate::combat::ai::factors::{PlanFactorValues, ScoredStep};
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::utility::{AiDecision, PickMechanics};
@@ -545,7 +545,7 @@ pub fn build_debug_snapshot(
     intent_reason: &IntentReason,
     plans: &[TurnPlan],
     scores: &[f32],
-    raw_factors: &[PlanFactors],
+    raw_factors: &[PlanFactorValues],
     decision: &AiDecision,
     snap: &BattleSnapshot,
     tuning: &AiTuning,

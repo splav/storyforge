@@ -155,7 +155,7 @@ use crate::game::hex::Hex;
 ///   (`expected_damage`, `deny_value`, `rescue_value`, `board_pressure`,
 ///   `geometry_gain`, `exposure_delta`, `resource_swing`). Outcomes now contain
 ///   fact fields only. v27 logs are incompatible — clean break.
-pub const SCHEMA_VERSION: u32 = 28;
+pub const SCHEMA_VERSION: u32 = 29;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -274,12 +274,15 @@ pub struct PlanLogEntry<'a> {
     pub final_pos: [i32; 2],
     pub residual_ap: i32,
     pub residual_mp: i32,
-    /// Raw factors before batch normalization: [damage, kill_now, kill_promised,
-    /// cc, heal, intent, scarcity, tempo_gain, saturation, self_survival].
+    /// Per-plan factor decomposition (v29 named map, replaces legacy `raw_factors` array).
+    /// Layout: `{damage, kill_now, kill_promised, cc, heal, scarcity, saturation,
+    /// intent, tempo_gain, self_survival}`. Column order updated from v28.
     /// Offline tools can recalibrate weights by re-normalizing + re-scoring
     /// without rerunning sim. When `evaluation_mode = LastStand`, the `intent`
-    /// column (index 5) reflects the `LastStand` rescore.
-    pub raw_factors: [f32; 10],
+    /// slot reflects the `LastStand` rescore.
+    pub factors: &'a crate::combat::ai::factors::PlanFactorValues,
+    /// Terminal-state factor decomposition (v29 named map).
+    pub terminal_factors: &'a crate::combat::ai::factors::FactorTerminalScore,
     /// Score after ADAPTATION (and noise). Kept under the historical name
     /// `score` so v1-v5 readers stay meaningful on v6 files. For adapted
     /// plans this is the LastStand-weighted number; for non-adapted plans
@@ -459,7 +462,8 @@ pub fn plan_to_log_entry<'a>(
     plan: &'a TurnPlan,
     rank: usize,
     chosen: bool,
-    raw_factors: [f32; 10],
+    factors: &'a crate::combat::ai::factors::PlanFactorValues,
+    terminal_factors: &'a crate::combat::ai::factors::FactorTerminalScore,
     base_score: f32,
     score: f32,
     evaluation_mode: &'a EvaluationMode,
@@ -475,7 +479,8 @@ pub fn plan_to_log_entry<'a>(
         final_pos: [plan.final_pos.x, plan.final_pos.y],
         residual_ap: plan.residual_ap,
         residual_mp: plan.residual_mp,
-        raw_factors,
+        factors,
+        terminal_factors,
         score,
         base_score,
         evaluation_mode,
@@ -1089,14 +1094,14 @@ struct SchemaHeader {
 ///
 /// Returns `Err(LogError::UnsupportedSchema)` when the line carries a
 /// `schema_version` lower than [`SCHEMA_VERSION`]. Tools should show this
-/// error to the user and ask for a fresh v28+ playtest.
+/// error to the user and ask for a fresh v29+ playtest.
 pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
     let header: SchemaHeader = serde_json::from_str(line)?;
     if header.schema_version < SCHEMA_VERSION {
         return Err(LogError::UnsupportedSchema {
             found: header.schema_version,
             required: SCHEMA_VERSION,
-            hint: "v27 outcome shape replaced in step 4.12; rebuild logs from v28+ playtest",
+            hint: "v28 raw_factors array replaced by factors/terminal named maps in v29; rebuild logs from v29+ playtest",
         });
     }
     Ok(serde_json::from_str(line)?)
@@ -1415,14 +1420,14 @@ mod tests {
 
     // ── parse_actor_tick schema version tests ─────────────────────────────────
 
-    /// v27 log line returns `UnsupportedSchema` error — clean break.
+    /// v27 log line returns `UnsupportedSchema` error — clean break (required bumped to 29).
     #[test]
     fn parse_v27_returns_unsupported_schema_error() {
         let json = r#"{"event_type":"actor_tick","schema_version":27}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 28, .. })),
-            "v27 must produce UnsupportedSchema(found=27, required=28), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 29, .. })),
+            "v27 must produce UnsupportedSchema(found=27, required=29), got: {result:?}",
         );
     }
 
@@ -1432,23 +1437,34 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":26}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 26, .. })),
+            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 29, .. })),
             "v26 must produce UnsupportedSchema, got: {result:?}",
         );
     }
 
-    /// v28 minimal actor_tick round-trips through parse_actor_tick.
+    /// v28 log line returns `UnsupportedSchema` — wire format break (raw_factors → factors named map).
     #[test]
-    fn actor_tick_v28_round_trips() {
+    fn actor_tick_v28_load_yields_unsupported_schema_error() {
+        let json = r#"{"event_type":"actor_tick","schema_version":28}"#;
+        let result = parse_actor_tick(json);
+        assert!(
+            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 29, .. })),
+            "v28 must produce UnsupportedSchema(found=28, required=29), got: {result:?}",
+        );
+    }
+
+    /// v29 minimal actor_tick round-trips through parse_actor_tick.
+    #[test]
+    fn actor_tick_v29_round_trip() {
         let snap = BattleSnapshot::default();
         let debug_names = std::collections::HashMap::new();
         let actor = Entity::from_bits(1);
         let input = make_tick_input_skip(actor, &snap, &debug_names);
         let event = build_actor_tick_event(input);
-        assert_eq!(event.schema_version, SCHEMA_VERSION); // must be 28
+        assert_eq!(event.schema_version, SCHEMA_VERSION); // must be 29
 
         let json = serde_json::to_string(&event).expect("serialize");
-        let parsed = parse_actor_tick(&json).expect("parse_actor_tick should succeed for v28");
+        let parsed = parse_actor_tick(&json).expect("parse_actor_tick should succeed for v29");
         assert_eq!(parsed.schema_version, SCHEMA_VERSION);
         assert_eq!(parsed.actor_id, event.actor_id);
     }
