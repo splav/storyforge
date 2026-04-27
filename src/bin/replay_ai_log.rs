@@ -1,8 +1,8 @@
-//! Replay an AI decision log (v28 JSONL) and compare current `pick_action`
+//! Replay an AI decision log (v29 JSONL) and compare current `pick_action`
 //! output against logged decisions.
 //!
 //! For every `actor_tick` event the tool:
-//! 1. Parses the event (`ActorTickEvent`, schema v28).
+//! 1. Parses the event (`ActorTickEvent`, schema v29).
 //! 2. Rebuilds `InfluenceMaps` from the embedded snapshot.
 //! 3. Calls the production `pick_action` with the logged snapshot.
 //! 4. Compares the re-picked decision with the logged decision.
@@ -121,7 +121,7 @@ fn infer_content_dirs(path: &std::path::Path) -> Option<(PathBuf, PathBuf)> {
     }
 }
 
-// ── GoldenRecord helpers (v28) ──────────────────────────────────────────────
+// ── GoldenRecord helpers (v29) ──────────────────────────────────────────────
 
 fn golden_from_v28_event(
     event: &ActorTickEvent,
@@ -207,7 +207,7 @@ fn decision_fields(
 
 // ── Plan shape helpers ──────────────────────────────────────────────────────
 
-fn plan_shape_v28(steps: &[PlanStep]) -> String {
+fn plan_shape_v29(steps: &[PlanStep]) -> String {
     let mut out = Vec::new();
     for s in steps {
         match s {
@@ -403,7 +403,7 @@ fn main() {
 
         for path in &paths {
             let path_str = path.to_string_lossy();
-            let events = match read_v28_events(path) {
+            let events = match read_v29_events(path) {
                 Ok(v) => v,
                 Err(e) => {
                     eprintln!("error reading {}: {e}", path.display());
@@ -471,7 +471,7 @@ fn main() {
         let mut current: Vec<GoldenRecord> = Vec::new();
         for path in &paths {
             let path_str = path.to_string_lossy();
-            let events = match read_v28_events(path) {
+            let events = match read_v29_events(path) {
                 Ok(v) => v,
                 Err(e) => {
                     eprintln!("error reading {}: {e}", path.display());
@@ -668,9 +668,9 @@ fn main() {
 
 // ── Event reading ───────────────────────────────────────────────────────────
 
-/// Read all `actor_tick` events (v27) from a JSONL file.
+/// Read all `actor_tick` events (v29) from a JSONL file.
 /// Returns an error if any line has a different schema version.
-pub fn read_v28_events(path: &std::path::Path) -> Result<Vec<ActorTickEvent>, String> {
+pub fn read_v29_events(path: &std::path::Path) -> Result<Vec<ActorTickEvent>, String> {
     use std::io::BufRead;
     use storyforge::combat::ai::log::parse_actor_tick;
 
@@ -798,7 +798,7 @@ fn print_event_plans(event: &ActorTickEvent) {
             p.rank,
             if p.annotation.chosen { "*" } else { " " },
             p.annotation.score,
-            plan_shape_v28(&p.steps),
+            plan_shape_v29(&p.steps),
         );
     }
 }

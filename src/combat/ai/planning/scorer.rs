@@ -1,39 +1,27 @@
-//! Plan scoring: replay each plan on a sim, aggregate 10 factors, normalize and
-//! weight the same way single-candidate scoring does.
+//! Plan scoring: registry-driven aggregation of 10 factors over `StepFactor`
+//! and `PlanFactor` enums, then batch-normalised and weighted per role axis.
 //!
-//! Aggregation rules per factor:
-//! - `damage`, `heal`, `cc`, `scarcity`: **discounted sum** across cast steps.
-//!   step[k] contributes its per-step factor value weighted by
-//!   `base_discount^k`, where `base_discount` is a difficulty knob (0.75 easy
-//!   / 0.85 normal / 0.90 hard). Rationale: future steps carry execution
-//!   uncertainty — each depth multiplies the chance of state drift between
-//!   plan and reality. The discount also prevents "cheap-filler" extensions
-//!   from winning the damage normalization race against genuinely strong
-//!   short plans.
-//! - **Post-goal behavior**: once a step kills the current
-//!   `FocusTarget`/`ApplyCC` target, the intent is satisfied. Subsequent
-//!   steps skip the **intent** aggregation — they aren't aligned or
-//!   misaligned, they're orthogonal to a now-solved goal. All other
-//!   factors (damage, heal, cc, kill, scarcity) continue at their
-//!   normal geometric `base^k` decay. No extra multiplier — post-goal
-//!   actions are scored on their own merit, neither penalised as
-//!   "bonuses" nor inflated as "peers".
-//! - `kill`: **discounted sum** of `raw_kill × step_weight` across Cast
-//!   steps. Accumulates count of planned kills (each `raw_kill` is
-//!   binary 0/1 from `single_target_kill`) with geometric decay — a
-//!   plan killing two enemies outscores one killing one.
-//! - `intent`: **discounted sum** of `intent_score × step_weight`
-//!   across all steps (Cast and Move). Captures alignment across the
-//!   whole plan, including misalign penalties on tail steps that do
-//!   drag the signal down. Skipped once the intent's goal is achieved
-//!   (see post-goal above).
-//! - `tempo_gain`: plan-terminal — captures approach quality + exit-danger
-//!   of the full plan path. See `factors::tempo`.
-//! - `self_survival`: plan-terminal — defensive value (heal + armor-buff +
-//!   exit-AoO). See `factors::survival`.
+//! ## Factor aggregation (post-8.A)
 //!
-//! Phase 6 removed `position`, `risk`, and `focus` axes. Their signals are
-//! now covered by `tempo_gain` and `self_survival`.
+//! Step factors (`StepFactor` enum, 7 variants): discounted sum across Cast steps.
+//! Each `StepFactor::f.compute(ctx, step, outcome, needs)` returns the raw value;
+//! step[k] is weighted by `base_discount^k` (0.75 easy / 0.85 normal / 0.90 hard).
+//!
+//! Plan factors (`PlanFactor` enum, 3 variants): plan-terminal, computed once per plan.
+//! - `Intent`: discounted sum of `intent_score` across all steps (see post-goal note).
+//! - `TempoGain`: `compute_plan_tempo_gain(plan, intent, ctx)`.
+//! - `SelfSurvival`: `compute_plan_self_survival(plan, ctx)`.
+//!
+//! Terminal factors (`TerminalFactor` enum, 8 variants): separate `terminal_state_score`
+//! pass, weighted by `axis_terminal_weights` × `NeedSignals` modulation.
+//!
+//! **Post-goal behavior**: once a step kills the current `FocusTarget`/`ApplyCC`
+//! target, subsequent steps skip the intent aggregation. All other factors continue
+//! at normal geometric decay.
+//!
+//! Signed factors (can be negative): `Scarcity`, `Saturation` (step), `Intent`,
+//! `TempoGain` (plan). These use symmetric normalisation ÷ max(|min|, |max|).
+//! Non-signed factors use max normalisation → [0, 1].
 
 use crate::combat::ai::factors::{
     compute_plan_self_survival, compute_plan_tempo_gain,

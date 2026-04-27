@@ -1,7 +1,7 @@
-//! AI decision log miner — v27 schema.
+//! AI decision log miner — v29 schema.
 //!
 //! Reads all `*.jsonl` from a directory and prints aggregated metrics.
-//! Only `actor_tick` events with `schema_version == 27` are processed.
+//! Only `actor_tick` events with `schema_version == 29` are processed.
 //! Files containing a different schema version produce a clear error.
 //!
 //! Class A (direct aggregation):

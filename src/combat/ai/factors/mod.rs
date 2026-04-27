@@ -1,23 +1,26 @@
-//! Per-step 10-factor computation.
+//! Factor registry and per-step/plan/terminal computation (post-8.A).
 //!
-//! Produces `[damage, kill_now, kill_promised, cc, heal, intent, scarcity, tempo_gain, saturation, self_survival]`
-//! for a single `ScoredStep`. Normalisation, role-axis weighting and the
-//! plan-level aggregation (discounted sums, max-across-steps) live in
-//! `combat::ai::planning::scorer`.
+//! ## Architecture
 //!
-//! Module layout:
-//! - `offensive` — damage / heal / kill_now / kill_promised / cc (single-target and AoE), `aoe_area`.
-//! - `scarcity`  — resource-vs-swing scoring for Cast candidates.
-//! - `adjustments` — reservation nerfs + crit-fail expected-value adjustment.
-//! - `tempo`     — plan-terminal `tempo_gain`.
-//! - `saturation` — per-plan buff-redundancy penalty (same class, same target).
-//! - `survival`  — plan-level `self_survival` (heal + armor-buff + exit-danger).
+//! Three enum-driven registries replace ad-hoc positional arrays:
+//! - `StepFactor` (7 variants) — per-step axes: damage, kill_now, kill_promised, cc, heal, scarcity, saturation.
+//! - `PlanFactor` (3 variants) — plan-level axes: intent, tempo_gain, self_survival.
+//! - `TerminalFactor` (8 variants) — terminal-state axes: exposure_at_end, …, pressure_spacing_zone.
 //!
-//! Phase 6 removed the legacy `position`, `risk`, and `focus` axes. Their
-//! signals are now covered by `tempo_gain` (approach + exit-danger) and
-//! `self_survival` (per-path bleed via AoO exposure). `evaluate_position`
-//! in `position_eval.rs` is kept as a helper for `Reposition` intent scoring
-//! and influence-map debugging, but is no longer a scored factor.
+//! `PlanFactorValues` is the typed `[f32; 10]` wrapper (step slots 0..7, plan slots 7..10)
+//! with custom named-map serde (schema v29). `TerminalScore` lives in `factors::terminal`.
+//!
+//! ## Module layout
+//! - `registry`   — `factor_kind!` macro, `BatchStats`, `NeedAxis`, `default_norm`.
+//! - `step/`      — 7 per-step leaf modules + `StepFactor` enum.
+//! - `plan/`      — 3 plan-level leaf modules + `PlanFactor` enum.
+//! - `terminal/`  — 8 terminal leaf modules + `TerminalFactor` enum + `TerminalScore` wrapper.
+//! - `offensive`  — shared `compute_offensive` helper (used by step leaves), `aoe_area`.
+//! - `scarcity`   — `compute_scarcity` (used by `step::scarcity`).
+//! - `saturation` — `buff_saturation_penalty` (used by `step::saturation`).
+//! - `adjustments`— reservation nerfs + crit-fail expected-value adjustment.
+//! - `tempo`      — `compute_plan_tempo_gain`.
+//! - `survival`   — `compute_plan_self_survival`.
 
 mod adjustments;
 mod aoe_hits;
@@ -151,82 +154,6 @@ impl<'a> ScoredStep<'a> {
     }
 }
 
-// ── Factor layout ───────────────────────────────────────────────────────────
-
-/// 10 utility factors: damage, kill_now, kill_promised, cc, heal, intent, scarcity, tempo_gain, saturation, self_survival.
-pub const NUM_FACTORS: usize = 10;
-
-// Named indices into the factor array. Use these anywhere a factor is read
-// by number — `raw[DAMAGE_IDX]` makes intent obvious and makes a future
-// reorder impossible to miss. The definitional array in
-// `scorer::compute_plan_factors_sans_intent` stays positional on purpose
-// (it's the one place *declaring* the layout).
-pub const DAMAGE_IDX: usize = 0;
-pub const KILL_NOW_IDX: usize = 1;
-pub const KILL_PROMISED_IDX: usize = 2;
-pub const CC_IDX: usize = 3;
-pub const HEAL_IDX: usize = 4;
-pub const INTENT_IDX: usize = 5;
-pub const SCARCITY_IDX: usize = 6;
-pub const TEMPO_IDX: usize = 7;
-pub const SATURATION_IDX: usize = 8;
-pub const SELF_SURVIVAL_IDX: usize = 9;
-
-/// Factors that can be negative (intent, scarcity, tempo_gain, saturation, self_survival).
-/// These use symmetric normalization in `planning::scorer`: divide by
-/// `max(|min|, |max|)` → [-1, 1]. Non-negative factors use max normalization
-/// → [0, 1].
-pub const SIGNED_FACTOR: [bool; NUM_FACTORS] = [
-    false, false, false, false, false, true, true, true, true, true,
-];
-
-/// Per-plan utility factors as a named struct. Replaces ad-hoc
-/// `[f32; NUM_FACTORS]` indexing throughout the scoring pipeline so callers
-/// read `f.intent` instead of `f[INTENT_IDX]`. Layout matches the
-/// `as_array()` order — the one place that **declares** the layout.
-///
-/// Numeric work (batch normalization in `finalize_scores`) still goes
-/// through `[f32; NUM_FACTORS]` views via `as_array()` / `from_array()`, so
-/// SIMD/loop-based math stays cheap. Log + debug writers convert to the
-/// stable `[f32; 10]` wire format at the boundary.
-#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PlanFactors {
-    pub damage: f32,
-    pub kill_now: f32,
-    pub kill_promised: f32,
-    pub cc: f32,
-    pub heal: f32,
-    pub intent: f32,
-    pub scarcity: f32,
-    pub tempo_gain: f32,
-    pub saturation: f32,
-    pub self_survival: f32,
-}
-
-impl PlanFactors {
-    pub fn as_array(&self) -> [f32; NUM_FACTORS] {
-        [
-            self.damage, self.kill_now, self.kill_promised, self.cc, self.heal,
-            self.intent, self.scarcity, self.tempo_gain, self.saturation, self.self_survival,
-        ]
-    }
-
-    pub fn from_array(a: [f32; NUM_FACTORS]) -> Self {
-        Self {
-            damage: a[DAMAGE_IDX],
-            kill_now: a[KILL_NOW_IDX],
-            kill_promised: a[KILL_PROMISED_IDX],
-            cc: a[CC_IDX],
-            heal: a[HEAL_IDX],
-            intent: a[INTENT_IDX],
-            scarcity: a[SCARCITY_IDX],
-            tempo_gain: a[TEMPO_IDX],
-            saturation: a[SATURATION_IDX],
-            self_survival: a[SELF_SURVIVAL_IDX],
-        }
-    }
-}
-
 /// Per-step offensive factors (populated only for Cast).
 #[derive(Default)]
 pub(crate) struct OffensiveFactors {
@@ -257,51 +184,6 @@ pub(crate) fn compute_offensive_for_step(
     off
 }
 
-/// Compute the per-step raw utility factors — **excluding** intent, tempo_gain,
-/// and self_survival (all three are filled plan-level by their respective
-/// compute_plan_* functions). `factor[INTENT_IDX]` is returned as `0.0` and
-/// aggregated separately at the plan level by `scorer::compute_plan_intent_sum`.
-/// This split lets the utility pipeline cache the intent-independent factors
-/// once per plan and re-apply a new intent (viability fallback, LastStand
-/// rescore) without redoing damage/heal/kill/cc/scarcity.
-///
-/// `outcome` carries the pre-annotated values from the generator
-/// (`build_step_outcome_estimate`). Pass `&ActionOutcomeEstimate::default()`
-/// when scoring outside a full plan context (e.g. intent_score tests).
-///
-/// Axes: [damage, kill_now, kill_promised, cc, heal, 0.0, scarcity, 0.0, 0.0, 0.0].
-pub fn compute_factors(
-    ctx: &ScoringCtx,
-    step: &ScoredStep,
-    outcome: &ActionOutcomeEstimate,
-) -> PlanFactors {
-    let mut off = match step {
-        ScoredStep::Cast { ability, target_pos, target, caster_tile } => {
-            offensive::compute_offensive(ability, *target_pos, *target, *caster_tile, ctx, outcome)
-        }
-        ScoredStep::Move { .. } => OffensiveFactors::default(),
-    };
-
-    adjustments::apply_reservation_adjustments(step, &mut off, ctx);
-
-    let scarcity = match step {
-        ScoredStep::Cast { .. } => scarcity::compute_scarcity(step, off.kill_now, ctx),
-        ScoredStep::Move { .. } => 0.0,
-    };
-
-    PlanFactors {
-        damage: off.damage,
-        kill_now: off.kill_now,
-        kill_promised: off.kill_promised,
-        cc: off.cc,
-        heal: off.heal,
-        intent: 0.0,        // filled in by `compute_plan_intent_sum` when needed
-        scarcity,
-        tempo_gain: 0.0,    // filled in by `compute_plan_tempo_gain` when needed
-        saturation: 0.0,    // filled in by scorer's per-plan saturation loop
-        self_survival: 0.0, // filled in by `compute_plan_self_survival` when needed
-    }
-}
 
 // Normalization tests used to live here but only exercised inlined copies
 // of the formula, not production code. The real batch-normalisation contract

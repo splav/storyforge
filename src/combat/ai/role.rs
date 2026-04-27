@@ -89,7 +89,7 @@ impl AxisProfile {
     ///  board_control_gain, line_actionability, density_value,
     ///  pressure_spacing_zone].
     /// Used by `finalize_scores` (5.4) to score plans by their terminal sim
-    /// state in parallel with step-summed PlanFactors.
+    /// state in parallel with step-summed `PlanFactorValues`.
     pub fn terminal_weights(&self, tuning: &AiTuning) -> [f32; 8] {
         let mix = self.biased_normalized();
         let table = &tuning.tables.axis_terminal_weights;

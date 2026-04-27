@@ -1,59 +1,22 @@
-//! Terminal state evaluation — step 5 of ai-rework.
+//! Terminal state evaluation — one-shot per-plan assessment of the final sim snapshot.
 //!
-//! One-shot per-plan evaluation of the final sim snapshot
-//! (`plan.sim_snapshots.last()`). Independent of step-summed `PlanFactors`:
-//! terminal axes capture "where we ended up", not "what we did along the way".
+//! Independent of step-summed factors: terminal axes capture "where we ended up",
+//! not "what we did along the way". Eight axes, three clusters:
+//! - Defensive: `exposure_at_end`, `next_turn_lethality`.
+//! - Offensive: `secure_kill`, `ally_rescue`, `board_control_gain`.
+//! - Geometric: `line_actionability`, `density_value`, `pressure_spacing_zone`.
 //!
-//! Eight axes split into 3 clusters (5.1–5.3):
-//!  - Defensive: `exposure_at_end`, `next_turn_lethality`
-//!  - Offensive: `secure_kill`, `ally_rescue`, `board_control_gain`
-//!  - Geometric: `line_actionability`, `density_value`, `pressure_spacing_zone`
+//! As of schema v29 (step 8.A), `terminal_state_score` returns a registry-typed
+//! `FactorTerminalScore` (`factors::TerminalScore`). The legacy `TerminalScore`
+//! named struct has been removed; use `FactorTerminalScore` everywhere.
 //!
-//! Step 5.0: scaffolding only — producer returns zeros, aggregator does not
-//! read terminal scores yet. Wired into 5.4 via `axis_terminal_weights`.
-//!
-//! Step 5.1: defensive cluster — `exposure_at_end` + `next_turn_lethality`
-//! implemented. Aggregator still inert (`axis_terminal_weights` = zeros).
-//!
-//! Step 5.2: offensive cluster — `secure_kill`, `ally_rescue`,
-//! `board_control_gain` implemented. Aggregator still inert.
-//!
-//! Step 5.3: geometric cluster — `line_actionability`, `density_value`,
-//! `pressure_spacing_zone` implemented. All 8 axes populated. Aggregator
-//! still inert (`axis_terminal_weights` = zeros).
-//!
-//! Step 5.4: consumer wired — aggregator in `finalize_scores` reads terminal
-//! axes weighted by `axis_terminal_weights` × `NeedSignals` modulation.
-//! Geometric axes oblong to zeros pending 5.6 mining calibration; defensive +
-//! offensive axes active.
-//!
-//! Step 5.5: migration analysis — overlap with existing factors documented,
-//! dead-code sweep. See `worst_path_danger` and `compute_plan_self_survival`
-//! doc-comments for distinction notes.
-//!
-//! Decomposition: docs/ai_rework_step5_plan.md.
-
-use serde::{Deserialize, Serialize};
+//! The per-axis `compute_*` free functions remain here as `pub(crate)` helpers;
+//! they are used by the `factors::terminal` leaf modules.
 
 use crate::combat::ai::factors::{FactorTerminalScore, TerminalFactor};
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
-
-/// Legacy terminal-state struct — kept for backward compatibility with tests
-/// that construct it directly. Use `FactorTerminalScore` (= `factors::TerminalScore`)
-/// for all production paths as of schema v29.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-pub struct TerminalScore {
-    pub exposure_at_end: f32,
-    pub next_turn_lethality: f32,
-    pub secure_kill: f32,
-    pub ally_rescue: f32,
-    pub board_control_gain: f32,
-    pub line_actionability: f32,
-    pub density_value: f32,
-    pub pressure_spacing_zone: f32,
-}
 
 /// Compute the terminal-state score for a plan from its final sim snapshot.
 ///
@@ -96,7 +59,7 @@ pub(crate) fn compute_exposure_at_end(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 
 /// # Overlap note (5.5)
 /// The `factors::offensive` step factors also read `p_kill_now`/`p_kill_soon`
 /// and contribute `kill_now`/`kill_promised` to the per-step discounted sum
-/// in `PlanFactors`. This creates a logical overlap: both pathways credit the
+/// in `PlanFactorValues`. This creates a logical overlap: both pathways credit the
 /// same kills. The distinction is *aggregation*: step factors apply a depth
 /// discount (`base^k`), so kills on steps 2-3 are underweighted relative to
 /// kills on step 1. `secure_kill` is a flat roll-up over the whole plan —

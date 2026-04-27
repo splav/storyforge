@@ -1,12 +1,12 @@
-//! `PlanStage` pipeline scaffolding — step 7.0/7.4.
+//! `PlanStage` pipeline scaffolding.
 //!
 //! Foundational types:
 //! - `StageCtx` — context threaded through every stage.
 //! - `ScoredPool` — typed pool of plans + annotations (`score` and
-//!   `raw_factors` are fields of `PlanAnnotation`).
+//!   `factors: PlanFactorValues` are fields of `PlanAnnotation`).
 //! - `PlanStage` — trait every stage implements.
 //!
-//! Step 7.4: `Pipeline` struct removed; all stages run via `run_pool_pipeline`.
+//! All stages run via `run_pool_pipeline`.
 
 pub mod stages;
 

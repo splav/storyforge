@@ -1,7 +1,8 @@
 use crate::combat::ai::repair::{classify_mismatch, PlanContinuationCheck};
 use crate::content::content_view::ContentView;
 use crate::combat::ai::difficulty::DifficultyProfile;
-use crate::combat::ai::factors::{aoe_area, aoe_hits, compute_factors, PlanFactors};
+use crate::combat::ai::factors::{aoe_area, aoe_hits, StepFactor};
+use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::position_eval::evaluate_position;
@@ -10,7 +11,6 @@ use crate::combat::ai::snapshot::{ActiveStatusView, AiTags, BattleSnapshot, Unit
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::factors::ScoredStep;
 use crate::combat::ai::planning::types::TurnPlan;
-use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
@@ -813,11 +813,11 @@ pub fn cc_reach(active: &UnitSnapshot, content: &ContentView) -> u32 {
 
 // ── IntentWeights ────────────────────────────────────────────────────────────
 
-/// Per-intent dot-product weight vector over `PlanFactors`.
+/// Per-intent weight vector for the four offensive axes (damage, kill_now, kill_promised, cc).
 ///
 /// Only the fields explicitly set matter; all others default to 0.0. Builder
-/// methods mirror the `PlanFactors` field names so the weight declaration reads
-/// as a direct mapping: `IntentWeights::default().kill_now(2.0).damage(1.0)`.
+/// methods mirror the field names for readable declarations:
+/// `IntentWeights::default().kill_now(2.0).damage(1.0)`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IntentWeights {
     pub damage: f32,
@@ -831,72 +831,64 @@ impl IntentWeights {
     pub fn kill_now(mut self, w: f32) -> Self { self.kill_now = w; self }
     pub fn kill_promised(mut self, w: f32) -> Self { self.kill_promised = w; self }
     pub fn cc(mut self, w: f32) -> Self { self.cc = w; self }
-
-    /// Dot product of weights against a `PlanFactors` (only the covered fields).
-    pub fn dot(&self, f: &PlanFactors) -> f32 {
-        self.damage * f.damage
-            + self.kill_now * f.kill_now
-            + self.kill_promised * f.kill_promised
-            + self.cc * f.cc
-    }
 }
 
-// ── Per-target offensive filtering ──────────────────────────────────────────
+// ── Narrow offensive API ─────────────────────────────────────────────────────
 
-/// Filter the offensive axes of `factors` to only credit actions that
-/// directly advance a targeted intent on `focus_entity`.
+/// Score the offensive value of `step` from the perspective of `focus`.
 ///
-/// Rules (by step type):
-/// - `Cast` directly targeting `focus_entity`: full credit (factors unchanged).
-/// - `Cast` of an AoE that covers `focus_entity`'s tile: offensive axes
-///   (damage, kill_now, kill_promised, cc) scaled by 0.6.
-/// - `Cast` not involving `focus_entity`: offensive axes zeroed.
-/// - `Move`: offensive axes zeroed — geometry hook handles Move alignment.
-fn filter_offensive_for_target(
-    mut factors: PlanFactors,
-    focus_entity: Entity,
+/// Returns 0 if `step` is a Move, or if it targets a non-focus entity and
+/// is not an AoE that covers the focus tile.
+///
+/// Used by `FocusTarget` and `ApplyCC` intent branches to compute
+/// the weighted offensive score for a single step with focus-target filtering.
+pub(crate) fn intent_offensive_value_on_target(
+    focus: Entity,
     step: &ScoredStep,
-    snap: &BattleSnapshot,
+    ctx: &ScoringCtx,
+    outcome: &ActionOutcomeEstimate,
+    weights: &IntentWeights,
     content: &ContentView,
-) -> PlanFactors {
-    match step {
-        ScoredStep::Move { .. } => {
-            // Move steps: no offensive credit; geometry hook drives scoring.
-            factors.damage = 0.0;
-            factors.kill_now = 0.0;
-            factors.kill_promised = 0.0;
-            factors.cc = 0.0;
-            factors
-        }
+) -> f32 {
+    let snap = ctx.snap;
+    let needs = NeedSignals::default();
+
+    let scale = match step {
+        ScoredStep::Move { .. } => return 0.0,
         ScoredStep::Cast { ability, target, target_pos, caster_tile } => {
-            if *target == focus_entity {
-                // Direct hit on the focus entity: full credit.
-                return factors;
-            }
-            // Check if an AoE covers the focus entity's tile.
-            if let Some(def) = content.abilities.get(*ability) {
+            if *target == focus {
+                1.0
+            } else if let Some(def) = content.abilities.get(*ability) {
                 if def.aoe != AoEShape::None {
-                    if let Some(focus_unit) = snap.unit(focus_entity) {
+                    if let Some(focus_unit) = snap.unit(focus) {
                         let area = aoe_area(def, *target_pos, *caster_tile);
                         if area.contains(&focus_unit.pos) {
-                            // AoE that includes the focus tile: partial credit.
-                            factors.damage *= 0.6;
-                            factors.kill_now *= 0.6;
-                            factors.kill_promised *= 0.6;
-                            factors.cc *= 0.6;
-                            return factors;
+                            0.6
+                        } else {
+                            return 0.0;
                         }
+                    } else {
+                        return 0.0;
                     }
+                } else {
+                    return 0.0;
                 }
+            } else {
+                return 0.0;
             }
-            // No involvement of the focus entity: zero out offensive axes.
-            factors.damage = 0.0;
-            factors.kill_now = 0.0;
-            factors.kill_promised = 0.0;
-            factors.cc = 0.0;
-            factors
         }
-    }
+    };
+
+    let damage     = StepFactor::Damage.compute(ctx, step, outcome, &needs);
+    let kill_now   = StepFactor::KillNow.compute(ctx, step, outcome, &needs);
+    let kill_prom  = StepFactor::KillPromised.compute(ctx, step, outcome, &needs);
+    let cc         = StepFactor::Cc.compute(ctx, step, outcome, &needs);
+
+    (weights.damage * damage
+        + weights.kill_now * kill_now
+        + weights.kill_promised * kill_prom
+        + weights.cc * cc)
+        * scale
 }
 
 // ── Intent → utility score (factor[7]) ──────────────────────────────────────
@@ -946,15 +938,13 @@ pub fn intent_score(
                     None => 0.0,
                 };
             }
-            // Cast: compute per-step factors, filter to focus target, dot with weights.
-            let raw = compute_factors(step_ctx, step, outcome);
-            let filtered = filter_offensive_for_target(raw, *focus, step, snap, content);
+            // Cast: score offensive value via narrow API (focus-target filtered).
             let weights = IntentWeights::default()
                 .kill_now(2.0)
                 .kill_promised(0.3)
                 .damage(1.0)
                 .cc(0.5);
-            weights.dot(&filtered)
+            intent_offensive_value_on_target(*focus, step, step_ctx, outcome, &weights, content)
         }
         TacticalIntent::ApplyCC { target: cc_target } => {
             if cast.is_none() {
@@ -968,13 +958,11 @@ pub fn intent_score(
                     None => 0.0,
                 };
             }
-            // Cast: compute per-step factors, filter to CC target, dot with weights.
-            let raw = compute_factors(step_ctx, step, outcome);
-            let filtered = filter_offensive_for_target(raw, *cc_target, step, snap, content);
+            // Cast: score offensive value via narrow API (CC-target filtered).
             let weights = IntentWeights::default()
                 .cc(1.5)
                 .damage(0.3);
-            weights.dot(&filtered)
+            intent_offensive_value_on_target(*cc_target, step, step_ctx, outcome, &weights, content)
         }
         TacticalIntent::Reposition => {
             // Tiered: strong improvement rewarded, any improvement neutral,
@@ -1715,5 +1703,216 @@ mod tests {
             "commitment=0.0 → no stickiness, ProtectSelf beats FocusTarget; got {:?}",
             choice_low.intent,
         );
+    }
+
+    // ── intent_offensive_value_on_target ────────────────────────────────────────
+
+    mod intent_score_via_narrow_offensive_api_matches_legacy {
+        use super::*;
+        use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
+        use crate::core::DiceExpr;
+        use crate::combat::ai::test_helpers::empty_content;
+
+        fn make_hit_ability(id: &str) -> AbilityDef {
+            AbilityDef {
+                id: AbilityId::from(id),
+                name: id.into(),
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 3 },
+                effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                magic_domains: Vec::new(),
+                magic_method: String::new(),
+                key: None,
+            }
+        }
+
+        fn make_aoe_ability(id: &str, radius: u32) -> AbilityDef {
+            AbilityDef {
+                id: AbilityId::from(id),
+                name: id.into(),
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 5 },
+                effect: EffectDef::Damage { dice: DiceExpr::new(2, 6, 0) },
+                costs: Vec::new(),
+                cost_ap: 2,
+                aoe: AoEShape::Circle { radius },
+                friendly_fire: false,
+                statuses: Vec::new(),
+                magic_domains: Vec::new(),
+                magic_method: String::new(),
+                key: None,
+            }
+        }
+
+        /// Direct cast on the focus entity: score must be > 0 (damage weight 1.0).
+        #[test]
+        fn focus_direct() {
+            let actor_pos = hex_from_offset(0, 0);
+            let focus_pos = hex_from_offset(2, 0);
+
+            let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
+            let focus = UnitBuilder::new(2, Team::Player, focus_pos).hp(50).max_hp(100).build();
+            let snap = BattleSnapshot::new(vec![actor.clone(), focus.clone()], 1);
+            let maps = empty_maps();
+            let difficulty = DifficultyProfile::default();
+            let reservations = Reservations::default();
+
+            let mut content = empty_content();
+            let ab = make_hit_ability("hit");
+            content.abilities.insert(ab.id.clone(), ab);
+
+            let world = make_test_ctx(&content, &difficulty);
+            let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+            let ab_id = AbilityId::from("hit");
+            let step = ScoredStep::Cast {
+                ability: &ab_id,
+                target: focus.entity,
+                target_pos: focus_pos,
+                caster_tile: actor_pos,
+            };
+            let outcome = ActionOutcomeEstimate {
+                enemy_damage: 10.0,
+                ..Default::default()
+            };
+            let weights = IntentWeights::default().kill_now(2.0).kill_promised(0.3).damage(1.0).cc(0.5);
+            let score = intent_offensive_value_on_target(focus.entity, &step, &ctx, &outcome, &weights, &content);
+            assert!(score > 0.0, "direct hit on focus must score > 0, got {score}");
+        }
+
+        /// Cast AoE whose area covers the focus tile: score must equal direct × 0.6.
+        #[test]
+        fn focus_aoe_covers() {
+            let actor_pos = hex_from_offset(0, 0);
+            // Target AoE at (1,0), focus at (2,0) — radius 2 covers focus.
+            let aoe_target_pos = hex_from_offset(1, 0);
+            let focus_pos = hex_from_offset(2, 0);
+
+            let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
+            let focus = UnitBuilder::new(2, Team::Player, focus_pos).hp(50).max_hp(100).build();
+            let direct_target = UnitBuilder::new(3, Team::Player, aoe_target_pos).hp(50).max_hp(100).build();
+            let snap = BattleSnapshot::new(vec![actor.clone(), focus.clone(), direct_target.clone()], 1);
+            let maps = empty_maps();
+            let difficulty = DifficultyProfile::default();
+            let reservations = Reservations::default();
+
+            let mut content = empty_content();
+            let ab = make_aoe_ability("aoe_hit", 2);
+            content.abilities.insert(ab.id.clone(), ab);
+
+            let world = make_test_ctx(&content, &difficulty);
+            let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+            let ab_id = AbilityId::from("aoe_hit");
+            // Step targets direct_target (not focus), but radius 2 covers focus_pos.
+            let step = ScoredStep::Cast {
+                ability: &ab_id,
+                target: direct_target.entity,
+                target_pos: aoe_target_pos,
+                caster_tile: actor_pos,
+            };
+            let outcome = ActionOutcomeEstimate {
+                enemy_damage: 10.0,
+                enemy_damage_per_entity: vec![(direct_target.entity, 10.0), (focus.entity, 8.0)],
+                ..Default::default()
+            };
+            let weights = IntentWeights::default().kill_now(2.0).kill_promised(0.3).damage(1.0).cc(0.5);
+
+            // Score with AoE covering focus: should be 0.6 × direct-equivalent.
+            let score_aoe = intent_offensive_value_on_target(focus.entity, &step, &ctx, &outcome, &weights, &content);
+            // Direct equivalent: same step but targeting focus directly.
+            let step_direct = ScoredStep::Cast {
+                ability: &ab_id,
+                target: focus.entity,
+                target_pos: focus_pos,
+                caster_tile: actor_pos,
+            };
+            let score_direct = intent_offensive_value_on_target(focus.entity, &step_direct, &ctx, &outcome, &weights, &content);
+
+            assert!(score_aoe > 0.0, "AoE covering focus must score > 0, got {score_aoe}");
+            let expected = score_direct * 0.6;
+            assert!(
+                (score_aoe - expected).abs() < 1e-4,
+                "AoE score {score_aoe} must equal direct*0.6={expected}",
+            );
+        }
+
+        /// Cast AoE whose area does NOT cover focus tile: score must be 0.
+        #[test]
+        fn focus_aoe_misses() {
+            let actor_pos = hex_from_offset(0, 0);
+            // Target AoE far away from focus.
+            let aoe_target_pos = hex_from_offset(8, 0);
+            let focus_pos = hex_from_offset(2, 0);
+
+            let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
+            let focus = UnitBuilder::new(2, Team::Player, focus_pos).hp(50).max_hp(100).build();
+            let other = UnitBuilder::new(3, Team::Player, aoe_target_pos).hp(50).max_hp(100).build();
+            let snap = BattleSnapshot::new(vec![actor.clone(), focus.clone(), other.clone()], 1);
+            let maps = empty_maps();
+            let difficulty = DifficultyProfile::default();
+            let reservations = Reservations::default();
+
+            let mut content = empty_content();
+            let ab = make_aoe_ability("aoe_miss", 1);
+            content.abilities.insert(ab.id.clone(), ab);
+
+            let world = make_test_ctx(&content, &difficulty);
+            let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+            let ab_id = AbilityId::from("aoe_miss");
+            let step = ScoredStep::Cast {
+                ability: &ab_id,
+                target: other.entity,
+                target_pos: aoe_target_pos,
+                caster_tile: actor_pos,
+            };
+            let outcome = ActionOutcomeEstimate {
+                enemy_damage: 10.0,
+                ..Default::default()
+            };
+            let weights = IntentWeights::default().kill_now(2.0).kill_promised(0.3).damage(1.0).cc(0.5);
+            let score = intent_offensive_value_on_target(focus.entity, &step, &ctx, &outcome, &weights, &content);
+            assert_eq!(score, 0.0, "AoE not covering focus must score 0, got {score}");
+        }
+
+        /// ApplyCC: direct cast on cc_target with cc weight 1.5. Score > 0 when cc applied.
+        #[test]
+        fn apply_cc_direct() {
+            let actor_pos = hex_from_offset(0, 0);
+            let target_pos = hex_from_offset(2, 0);
+
+            let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
+            let cc_target = UnitBuilder::new(2, Team::Player, target_pos).hp(50).max_hp(100).build();
+            let snap = BattleSnapshot::new(vec![actor.clone(), cc_target.clone()], 1);
+            let maps = empty_maps();
+            let difficulty = DifficultyProfile::default();
+            let reservations = Reservations::default();
+
+            let mut content = empty_content();
+            let ab = make_hit_ability("stun_hit");
+            content.abilities.insert(ab.id.clone(), ab);
+
+            let world = make_test_ctx(&content, &difficulty);
+            let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+            let ab_id = AbilityId::from("stun_hit");
+            let step = ScoredStep::Cast {
+                ability: &ab_id,
+                target: cc_target.entity,
+                target_pos,
+                caster_tile: actor_pos,
+            };
+            let outcome = ActionOutcomeEstimate {
+                enemy_damage: 5.0,
+                cc_turns_applied: 2.0,
+                ..Default::default()
+            };
+            // ApplyCC weights: cc=1.5, damage=0.3
+            let weights = IntentWeights::default().cc(1.5).damage(0.3);
+            let score = intent_offensive_value_on_target(cc_target.entity, &step, &ctx, &outcome, &weights, &content);
+            assert!(score > 0.0, "direct hit on cc_target must score > 0, got {score}");
+        }
     }
 }

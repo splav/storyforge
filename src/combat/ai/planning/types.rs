@@ -69,7 +69,7 @@ pub struct TurnPlan {
     #[serde(skip)]
     pub sim_snapshots: Vec<BattleSnapshot>,
     /// Per-step outcome annotations. Populated during plan generation alongside
-    /// `outcomes`. Consumers (compute_factors, intent_score, critics, terminal
+    /// `outcomes`. Consumers (StepFactor::compute, intent_score, critics, terminal
     /// eval) read this instead of recomputing from raw snapshot — see
     /// docs/ai_rework.md §4.
     ///
