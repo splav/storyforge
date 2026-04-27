@@ -27,6 +27,7 @@
 
 use crate::combat::ai::factors::{
     compute_plan_self_survival, compute_plan_tempo_gain,
+    plan as plan_factors, step as step_factors,
     BatchStats, PlanFactor, PlanFactorValues, ScoredStep, StepFactor, TerminalFactor,
     default_norm,
 };
@@ -158,7 +159,7 @@ pub fn finalize_scores(
     // Per-factor min/max for batch-relative normalization via registry walk.
     // BatchStats indexed by StepFactor::iter() then PlanFactor::iter() order,
     // matching PlanFactorValues layout.
-    const NFACTORS: usize = 10; // StepFactor::count() + PlanFactor::count()
+    const NFACTORS: usize = step_factors::COUNT + plan_factors::COUNT;
     let mut stats = [BatchStats { min: 0.0, max: 0.0 }; NFACTORS];
     for factors in raw {
         for f in StepFactor::iter() {
@@ -310,7 +311,7 @@ pub fn compute_plan_factors_sans_intent(
     );
 
     // sums[f as usize] for StepFactor variants, discounted per-step.
-    let mut sums = [0.0f32; 7]; // StepFactor::count()
+    let mut sums = [0.0f32; step_factors::COUNT];
 
     let base_discount = ctx.world.difficulty.plan_step_discount;
     let mut step_weight: f32 = 1.0;

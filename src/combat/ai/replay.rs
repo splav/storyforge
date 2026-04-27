@@ -52,6 +52,7 @@ pub enum AssertError {
     Io { path: PathBuf, source: std::io::Error },
     OverlayParse { path: PathBuf, source: toml::de::Error },
     EntryParse { path: PathBuf, source: serde_json::Error },
+    Schema { path: PathBuf, message: String },
     NoMatchingEntry { path: PathBuf, plan_id: Option<u64> },
     InvalidActorId(u64),
     ActorNotFound { actor_id: u64 },
@@ -66,6 +67,9 @@ impl std::fmt::Display for AssertError {
             }
             Self::EntryParse { path, source } => {
                 write!(f, "cannot parse log entry in {}: {source}", path.display())
+            }
+            Self::Schema { path, message } => {
+                write!(f, "schema mismatch in {}: {message}", path.display())
             }
             Self::NoMatchingEntry { path, plan_id } => match plan_id {
                 Some(id) => write!(f, "no entry with plan_id={id} in {}", path.display()),
@@ -186,13 +190,9 @@ pub fn assert_v28_log_file(
         let event: ActorTickEvent = match parse_actor_tick(&line) {
             Ok(e) => e,
             Err(e) => {
-                // Convert LogError to AssertError by wrapping as a serde error.
-                // For UnsupportedSchema, re-create a descriptive serde error string.
-                let msg = e.to_string();
-                return Err(AssertError::EntryParse {
+                return Err(AssertError::Schema {
                     path: jsonl_path.to_path_buf(),
-                    source: serde_json::from_str::<serde_json::Value>(&format!(":::{msg}"))
-                        .unwrap_err(),
+                    message: e.to_string(),
                 });
             }
         };

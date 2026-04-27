@@ -851,7 +851,7 @@ pub(crate) fn intent_offensive_value_on_target(
     content: &ContentView,
 ) -> f32 {
     let snap = ctx.snap;
-    let needs = NeedSignals::default();
+    let needs = ctx.need_signals;
 
     let scale = match step {
         ScoredStep::Move { .. } => return 0.0,
