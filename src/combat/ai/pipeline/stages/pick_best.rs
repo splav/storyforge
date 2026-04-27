@@ -25,32 +25,32 @@ impl PlanStage for PickBestStage {
             return;
         }
 
+        let noise_per_plan = apply_pick_jitter(pool, ctx);
+
         let scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
         let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.factors).collect();
 
         let (best_idx, mech) = pick_best_plan(&scores, &raw_factors, ctx.scoring.world, ctx.rng);
 
         pool.annotations[best_idx].chosen = true;
-        pool.annotations[best_idx].pick = Some(PickInfo { mechanics: mech, noise_applied: 0.0 });
+        pool.annotations[best_idx].pick = Some(PickInfo {
+            mechanics: mech,
+            noise_applied: noise_per_plan[best_idx],
+        });
     }
 }
 
 // ── Picking jitter ────────────────────────────────────────────────────────────
 
 /// Apply deterministic, batch-scaled noise to every finite-score plan in the
-/// pool. Mirrors Pass 2 from `scorer.rs::finalize_scores`; will replace it in
-/// commit 2.
+/// pool before argmax. Replaces Pass 2 noise from `scorer.rs::finalize_scores`.
 ///
 /// Returns a `Vec<f32>` (length `pool.len()`) with the accumulated noise
 /// per plan (0.0 for skipped / masked plans). Mutates `pool.annotations[i].score`
 /// in-place for finite scores.
 ///
-/// **Spec semantics (8.C):** if `s_min` or `s_max` is not finite (all plans
-/// masked), returns a zero vec immediately — no fallback to a constant spread.
-/// This differs from the legacy `scorer.rs` which fell back to `spread = 0.05`.
-///
-/// NOT called from `PickBestStage::apply` until commit 2.
-#[allow(dead_code)]
+/// If `s_min` or `s_max` is not finite (all plans masked), returns a zero vec
+/// immediately — no fallback to a constant spread.
 fn apply_pick_jitter(pool: &mut ScoredPool, ctx: &StageCtx) -> Vec<f32> {
     let noise_amp = ctx.scoring.world.difficulty.score_noise();
     let n = pool.len();
@@ -99,9 +99,7 @@ fn apply_pick_jitter(pool: &mut ScoredPool, ctx: &StageCtx) -> Vec<f32> {
 
 /// Deterministic per-plan noise ∈ [−amp, +amp). Seed = hash((round, actor,
 /// plan canonical key)) — order-invariant across any permutation of the plan
-/// pool. Byte-for-byte copy of `scorer.rs::plan_noise`; will be deduplicated
-/// in 8.C commit 2.
-#[allow(dead_code)]
+/// pool.
 fn plan_noise_internal(plan: &TurnPlan, round: u32, actor: Entity, amp: f32) -> f32 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     round.hash(&mut h);
@@ -113,9 +111,6 @@ fn plan_noise_internal(plan: &TurnPlan, round: u32, actor: Entity, amp: f32) -> 
 }
 
 /// Returns a stable start tile for plan canonical hashing.
-/// Byte-for-byte copy of `scorer.rs::plan_start_tile`.
-/// // Copy of scorer.rs::plan_start_tile — будет удалён в 8.C commit 2.
-#[allow(dead_code)]
 fn plan_start_tile(plan: &TurnPlan) -> Hex {
     plan.final_pos
 }
@@ -307,5 +302,115 @@ mod tests {
             noise_ab[1], noise_ba[0],
             "plan_b noise must not depend on pool position",
         );
+    }
+
+    /// Winner's PickInfo.noise_applied is populated with the actual noise value
+    /// when score_noise > 0.
+    #[test]
+    fn pick_jitter_records_noise_applied_in_pick_info() {
+        let difficulty = DifficultyProfile::easy();
+        assert!(difficulty.score_noise() > 0.0, "precondition");
+
+        let n = 3;
+        let plans = vec![TurnPlan::default(); n];
+        let scores = [0.1_f32, 0.5, 0.3];
+
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let maps = empty_maps();
+        let content = empty_content();
+        let reservations = Reservations::default();
+        let mut rng = DiceRng::default();
+
+        let world = make_test_ctx(&content, &difficulty);
+        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let mut ctx = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            pos,
+            &mut rng,
+        );
+
+        let mut pool = ScoredPool::new(plans);
+        for (ann, s) in pool.annotations.iter_mut().zip(scores.iter()) {
+            ann.score = *s;
+            ann.factors = PlanFactorValues::default();
+        }
+        PickBestStage.apply(&mut pool, &mut ctx);
+
+        let winner = pool.annotations.iter().find(|a| a.chosen).expect("winner must exist");
+        let pi = winner.pick.as_ref().expect("winner must have PickInfo");
+        assert_ne!(pi.noise_applied, 0.0, "noise_applied must be non-zero under easy difficulty");
+    }
+
+    /// With non-zero noise and two plans with equal pre-noise score, the winner
+    /// is determined by the jitter — not by insertion order. Jitter runs before argmax.
+    #[test]
+    fn pipeline_pick_runs_jitter_before_argmax() {
+        use crate::combat::ai::planning::types::{PlanStep, StepOutcome};
+
+        let difficulty = DifficultyProfile::easy();
+        assert!(difficulty.score_noise() > 0.0, "precondition");
+
+        let pos_a = hex_from_offset(3, 0);
+        let pos_b = hex_from_offset(2, 0);
+
+        let mk_plan = |target_pos: crate::game::hex::Hex| TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: "melee_attack".into(),
+                target: bevy::prelude::Entity::from_raw_u32(99).expect("valid"),
+                target_pos,
+            }],
+            final_pos: hex_from_offset(0, 0),
+            residual_ap: 1,
+            residual_mp: 3,
+            outcomes: vec![StepOutcome::default()],
+            partial_score: 0.0,
+            sim_snapshots: Vec::new(),
+            annotation: Default::default(),
+        };
+        let plan_a = mk_plan(pos_a);
+        let plan_b = mk_plan(pos_b);
+
+        let pre_noise_score = 0.5_f32;
+
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let maps = empty_maps();
+        let content = empty_content();
+        let reservations = Reservations::default();
+        let mut rng = DiceRng::default();
+
+        let world = make_test_ctx(&content, &difficulty);
+        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let mut ctx = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            pos,
+            &mut rng,
+        );
+
+        let mut pool = ScoredPool::new(vec![plan_a, plan_b]);
+        for ann in pool.annotations.iter_mut() {
+            ann.score = pre_noise_score;
+            ann.factors = PlanFactorValues::default();
+        }
+        PickBestStage.apply(&mut pool, &mut ctx);
+
+        // Exactly one winner.
+        let chosen: Vec<usize> = pool.annotations.iter().enumerate()
+            .filter(|(_, a)| a.chosen)
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(chosen.len(), 1, "exactly one plan chosen");
+
+        // Winner must have non-zero noise_applied (jitter ran).
+        let winner = &pool.annotations[chosen[0]];
+        let pi = winner.pick.as_ref().expect("winner has PickInfo");
+        assert_ne!(pi.noise_applied, 0.0, "noise_applied must reflect jitter contribution");
     }
 }
