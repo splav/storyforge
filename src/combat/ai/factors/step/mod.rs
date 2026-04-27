@@ -111,3 +111,110 @@ impl StepFactor {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::factors::compute_offensive_for_step;
+    use crate::combat::ai::reservations::Reservations;
+    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::content::content_view::ContentView;
+    use crate::core::AbilityId;
+    use crate::game::components::Team;
+    use crate::game::hex::hex_from_offset;
+
+    /// Routing pin: each `StepFactor` variant must read its **own** column from
+    /// `OffensiveFactors`. Catches wiring bugs (e.g. `Damage.compute` accidentally
+    /// returning `.heal`) by building a fixture where every offensive column has a
+    /// **different non-zero** value, then asserting each leaf returns the matching
+    /// column.
+    ///
+    /// Behaviour of the underlying formulas (policy::damage::value, crit-fail
+    /// adjustment, friendly fire, scarcity pricing, saturation penalty) is pinned
+    /// in `factors::offensive::tests` and `factors::{scarcity,saturation}::tests`
+    /// — this test only verifies dispatch/routing.
+    #[test]
+    fn step_factor_routes_each_variant_to_its_own_column() {
+        let content = ContentView::load_global_for_tests();
+        let diff = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &diff);
+
+        let caster_pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(1, 0);
+
+        let actor = UnitBuilder::new(1, Team::Enemy, caster_pos).full_hp(100).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos)
+            .hp(50)
+            .max_hp(100)
+            .threat(20.0)
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let maps = empty_maps();
+        let res = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &res, &actor);
+
+        // Every offensive fact distinct so column mis-routing is detectable.
+        let outcome = ActionOutcomeEstimate {
+            enemy_damage: 30.0,
+            p_kill_now: 0.7,
+            p_kill_soon: 0.4,
+            cc_turns_applied: 2.0,
+            hp_restored: 15.0,
+            ..Default::default()
+        };
+
+        let ability = AbilityId::from("melee_attack");
+        let step = ScoredStep::Cast {
+            ability: &ability,
+            target: target.entity,
+            target_pos,
+            caster_tile: caster_pos,
+        };
+        let needs = NeedSignals::default();
+
+        // Reference: pull all 5 columns through the shared core.
+        let off = compute_offensive_for_step(&ctx, &step, &outcome);
+
+        // Each leaf must return its own column — and only its own.
+        assert_eq!(StepFactor::Damage.compute(&ctx, &step, &outcome, &needs), off.damage);
+        assert_eq!(StepFactor::KillNow.compute(&ctx, &step, &outcome, &needs), off.kill_now);
+        assert_eq!(StepFactor::KillPromised.compute(&ctx, &step, &outcome, &needs), off.kill_promised);
+        assert_eq!(StepFactor::Cc.compute(&ctx, &step, &outcome, &needs), off.cc);
+        assert_eq!(StepFactor::Heal.compute(&ctx, &step, &outcome, &needs), off.heal);
+
+        // Discrimination check: at least three columns must differ between this
+        // outcome (a damage+kill+heal+cc fixture). If they all coincide, the test
+        // would silently mask wiring bugs — pin the divergence.
+        let cols = [off.damage, off.kill_now, off.kill_promised, off.cc, off.heal];
+        let unique: std::collections::HashSet<u32> = cols.iter().map(|v| v.to_bits()).collect();
+        assert!(unique.len() >= 3, "fixture too symmetric to detect mis-routing: {cols:?}");
+    }
+
+    /// `Move` steps yield zero across every offensive variant — single
+    /// behavioural pin, not duplicated per leaf.
+    #[test]
+    fn step_factor_move_step_yields_zero_offensive() {
+        let content = ContentView::load_global_for_tests();
+        let diff = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &diff);
+        let tile = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, tile).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let maps = empty_maps();
+        let res = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &res, &actor);
+
+        let step = ScoredStep::Move { caster_tile: tile };
+        let outcome = ActionOutcomeEstimate::default();
+        let needs = NeedSignals::default();
+
+        for f in StepFactor::iter() {
+            assert_eq!(
+                f.compute(&ctx, &step, &outcome, &needs), 0.0,
+                "Move step must yield 0 for {}", f.name(),
+            );
+        }
+    }
+}
