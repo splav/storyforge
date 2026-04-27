@@ -1,16 +1,19 @@
-# Continuation: SetupAOE goal — actor casts planned AoE ability.
+# Continuation: SetupAOE injection не перебивает rescue_ally need.
 #
-# Actor: Бурешаман (30064770732), r2, hp=30/30, mana=[6,6].
-# Stored goal (injected via [ai_memory]): SetupAOE with planned_ability=thunderstrike,
-#   region_center=[1,3] (actor is already at [1,3] — in position for AoE blast).
-# Two enemy clusters near [-2,3] and [0,3] make thunderstrike optimal.
-# Expected: actor casts thunderstrike (ground-targeted AoE covering multiple enemies).
+# Actor: Грозорождённый Старшина (47244639911), r=2, hp=15/22.
+# Injected SetupAOE memory с planned_ability=thunderstrike в позиции [1,3].
+# Реальное состояние tick'а: ally Грозорождённый Воин (64424509103) при
+# hp=11/18 — попадает в rescue_ally NeedSignal.
 #
-# The SetupAOE goal signals that the actor previously moved toward a position
-# to cast this AoE, and now executes the cast from that position.
-# Repair_affinity bonus on the thunderstrike plan confirms the committed goal.
+# AI выбирает CastInPlace heal на ally (FocusTarget на 64424509103) вместо
+# thunderstrike. Это корректный приоритет: rescue_ally + actor-as-support
+# axis weight перевешивают SetupAOE repair_affinity bonus.
 #
-# Source: stormborn_camp playtest 2026-04-26, round=2, actor=30064770732.
+# Сценарий validates что SetupAOE injection не заставляет actor'а слепо
+# спамить thunderstrike при наличии раненых allies — NeedSignals принимают
+# финальное решение.
+#
+# Source: rebuilt из v29 logs 27 апр 2026 (stormborn_camp playtest).
 
 [scope]
 plan_id = 47244639911
@@ -31,6 +34,7 @@ last_goal_target_hp_at_store = 0
 last_goal_target_pos_at_store = [0, 0]
 
 [[expectations]]
+# rescue_ally need перебивает SetupAOE — actor лечит, не атакует AoE.
 decision_kind = ["CastInPlace", "MoveAndCast"]
-cast_ability = ["thunderstrike"]
-primary_effect = ["Damage"]
+cast_ability = ["heal"]
+primary_effect = ["Heal"]

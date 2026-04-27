@@ -1,13 +1,17 @@
-# Offensive despite low HP: Зверокров Искажённый зверь r2, hp=3/12 (25%),
-# ap=1/1. Цель 17179868827 в досягаемости. AI коммитит move_and_cast melee.
-# Тестирует что при низком HP AI всё равно выполняет атаку если есть AP.
+# Self-preserve приоритет на критическом HP: Зверокров Искажённый зверь r1,
+# hp=2/12 (16%). AI отступает (ProtectSelf), не лезет в last-stand.
 #
-# Note: в v27 corpus нет hp=1/12 entry; используем hp=3/12 r2.
-# Source: rebuilt из v27 logs 20260426 (twisted_grove). v27: plan_id = actor_id.
+# Старый pin (offensive at all cost) отражал поведение pre-NeedSignals —
+# post-step-7 self_preserve threshold правильно перебивает FocusTarget при
+# критическом HP. Pin нового поведения как regression guard: при <20% HP
+# любой Cast-pin будет ложноположительным сигналом регрессии в self-preserve
+# floor.
+#
+# Source: rebuilt из v29 logs 27 апр 2026 (twisted_grove playtest).
 
 [scope]
 plan_id = 25769803436
 
 [[expectations]]
-decision_kind = ["CastInPlace", "MoveAndCast"]
-primary_effect = ["Damage"]
+decision_kind = ["Move", "EndTurn"]
+intent_kind = ["ProtectSelf"]
