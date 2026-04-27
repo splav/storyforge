@@ -17,6 +17,13 @@
 //!   C6. Continuation outcomes derived via `classify_continuation_outcome`.
 //!       Skip events with stored_goal = new signal (actor passed with goal).
 //!
+//! Class E (modifier + jitter breakdown):
+//!   E1. Per-modifier contribution distributions (summon_bonus, trade_bonus,
+//!       repair_bonus). Non-zero entries only; trade_bonus is sign-aware
+//!       (can be negative). Denominator: plans with at least one modifier emitted.
+//!   E2. Picking jitter (noise_applied) for chosen plans. Sign-aware reporter
+//!       (mean / min / max / abs_max). Denominator: chosen plans.
+//!
 //! Usage: `cargo run --release --bin mine_ai_logs -- --dir logs/`
 
 use std::collections::{BTreeMap, HashMap};
@@ -91,6 +98,18 @@ struct Aggregate {
     d2_entities_hit_per_cast: Vec<usize>,
     // All per-entity damage values across all AoE Cast steps (for avg/max).
     d2_per_entity_damage: Vec<f32>,
+
+    // E1: modifier contribution distributions (per-plan, non-zero entries only).
+    e1_summon_bonus: Vec<f32>,
+    e1_trade_bonus: Vec<f32>,  // signed: can be negative
+    e1_repair_bonus: Vec<f32>,
+    // Plans in which at least one modifier was emitted (denominator for "% of plans with modifiers").
+    e1_total_modifier_entries: usize,
+
+    // E2: picking jitter (noise_applied) for chosen plans (non-zero entries only).
+    e2_noise_applied: Vec<f32>,
+    // Chosen plans processed (denominator for "% chosen with non-zero noise").
+    e2_chosen_count: usize,
 }
 
 impl Aggregate {
@@ -159,6 +178,33 @@ impl Aggregate {
                     for &(_, dmg) in &outcome.enemy_damage_per_entity {
                         self.d2_per_entity_damage.push(dmg);
                     }
+                }
+            }
+        }
+
+        // E1: modifier contributions — walk all plans in pool.
+        for plan in &event.plans {
+            if !plan.annotation.modifiers.is_empty() {
+                self.e1_total_modifier_entries += 1;
+            }
+            for mc in &plan.annotation.modifiers {
+                if mc.contribution.abs() > f32::EPSILON {
+                    match mc.name.as_str() {
+                        "summon_bonus" => self.e1_summon_bonus.push(mc.contribution),
+                        "trade_bonus"  => self.e1_trade_bonus.push(mc.contribution),
+                        "repair_bonus" => self.e1_repair_bonus.push(mc.contribution),
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // E2: picking jitter — collect noise_applied from chosen plan only.
+        if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
+            self.e2_chosen_count += 1;
+            if let Some(pi) = &chosen.annotation.pick {
+                if pi.noise_applied.abs() > f32::EPSILON {
+                    self.e2_noise_applied.push(pi.noise_applied);
                 }
             }
         }
@@ -456,6 +502,26 @@ fn print_kill_rate(label: &str, count: usize, total_steps: usize) {
     );
 }
 
+/// Print sign-aware stats for a numeric field (may include negative values).
+///
+/// Reports mean / min / max / abs_max; denominators are the total count passed in.
+/// `values` must be non-empty non-zero entries (caller filters zeros).
+fn print_signed_field(label: &str, values: &[f32], total: usize) {
+    let count = values.len();
+    if count == 0 {
+        println!("  {:<28}  count=0  (never non-zero in corpus)", label);
+        return;
+    }
+    let mean = values.iter().sum::<f32>() / count as f32;
+    let min = values.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let abs_max = values.iter().copied().map(f32::abs).fold(0.0f32, f32::max);
+    println!(
+        "  {:<28}  count={:>4} ({:5.1}%)  mean={:+8.3}  min={:+8.3}  max={:+8.3}  abs_max={:8.3}",
+        label, count, pct(count, total), mean, min, max, abs_max
+    );
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 fn main() {
@@ -536,7 +602,7 @@ fn main() {
 
     // ── Report ────────────────────────────────────────────────────────────────
 
-    println!("# AI mining — v28");
+    println!("# AI mining — v29");
     println!();
     println!(
         "Source: {} JSONL files, {} AI decisions ({} skip)",
@@ -546,7 +612,7 @@ fn main() {
         println!("Parse errors (lines skipped): {parse_errors}");
     }
     if schema_errors > 0 {
-        println!("Schema errors (non-v28 lines skipped): {schema_errors}");
+        println!("Schema errors (non-v29 lines skipped): {schema_errors}");
     }
     println!();
 
@@ -727,6 +793,33 @@ fn main() {
         }
     }
     println!();
+
+    // E1: Modifier contributions
+    println!("=== Modifier contributions (E1) ===");
+    println!();
+    println!(
+        "Plans with at least one modifier emitted: {}  (of {} plans in pool)",
+        agg.e1_total_modifier_entries, agg.total_plans
+    );
+    println!("(stats over non-zero contributions; count% = fraction of modifier-bearing plans)");
+    println!();
+    let e1_denom = agg.e1_total_modifier_entries;
+    print_signed_field("summon_bonus", &agg.e1_summon_bonus, e1_denom);
+    print_signed_field("trade_bonus",  &agg.e1_trade_bonus,  e1_denom);
+    print_signed_field("repair_bonus", &agg.e1_repair_bonus, e1_denom);
+    println!();
+
+    // E2: Picking jitter
+    println!("=== Picking jitter (E2) ===");
+    println!();
+    println!(
+        "Chosen plans with non-zero noise_applied: {}  (of {} chosen plans)",
+        agg.e2_noise_applied.len(), agg.e2_chosen_count
+    );
+    println!("(sign-aware: negative noise can flip close decisions)");
+    println!();
+    print_signed_field("noise_applied", &agg.e2_noise_applied, agg.e2_chosen_count);
+    println!();
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -736,8 +829,10 @@ mod tests {
     use super::*;
     use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};
     use storyforge::combat::ai::snapshot::BattleSnapshot;
-    use storyforge::combat::ai::outcome::PlanAnnotation;
+    use storyforge::combat::ai::outcome::{PlanAnnotation, PickInfo};
+    use storyforge::combat::ai::modifiers::ModifierContribution;
     use storyforge::combat::ai::planning::PlanStep;
+    use storyforge::combat::ai::planning::PickMechanics;
 
     fn make_event(
         actor_id: u64,
@@ -882,5 +977,115 @@ mod tests {
     fn pct_zero_denominator_returns_zero() {
         assert_eq!(pct(5, 0), 0.0);
         assert!((pct(1, 4) - 25.0).abs() < 1e-9);
+    }
+
+    fn plan_with_modifiers(chosen: bool, modifiers: Vec<ModifierContribution>) -> LoggedPlan {
+        let ann = PlanAnnotation {
+            chosen,
+            modifiers,
+            pick: if chosen {
+                Some(PickInfo { mechanics: PickMechanics::default(), noise_applied: 0.0 })
+            } else {
+                None
+            },
+            ..Default::default()
+        };
+        LoggedPlan {
+            rank: 1,
+            steps: vec![PlanStep::Move { path: vec![] }],
+            annotation: ann,
+        }
+    }
+
+    fn plan_with_noise(noise: f32) -> LoggedPlan {
+        let ann = PlanAnnotation {
+            chosen: true,
+            pick: Some(PickInfo { mechanics: PickMechanics::default(), noise_applied: noise }),
+            ..Default::default()
+        };
+        LoggedPlan {
+            rank: 1,
+            steps: vec![PlanStep::Move { path: vec![] }],
+            annotation: ann,
+        }
+    }
+
+    #[test]
+    fn mine_v29_corpus_produces_modifier_section() {
+        let modifiers = vec![
+            ModifierContribution { name: "summon_bonus".to_owned(), contribution: 5.0 },
+            ModifierContribution { name: "trade_bonus".to_owned(), contribution: -2.0 },
+        ];
+        let event = make_event(
+            1,
+            LoggedDecision::EndTurn,
+            vec![plan_with_modifiers(true, modifiers)],
+            None,
+        );
+
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &event);
+
+        assert_eq!(agg.e1_total_modifier_entries, 1, "one plan had modifiers");
+        assert_eq!(agg.e1_summon_bonus, vec![5.0]);
+        assert_eq!(agg.e1_trade_bonus, vec![-2.0]);
+        assert!(agg.e1_repair_bonus.is_empty());
+    }
+
+    #[test]
+    fn mine_v29_corpus_produces_jitter_section() {
+        let event = make_event(
+            1,
+            LoggedDecision::EndTurn,
+            vec![plan_with_noise(0.042)],
+            None,
+        );
+
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &event);
+
+        assert_eq!(agg.e2_chosen_count, 1);
+        assert_eq!(agg.e2_noise_applied.len(), 1);
+        assert!((agg.e2_noise_applied[0] - 0.042).abs() < 1e-6);
+    }
+
+    #[test]
+    fn mine_e1_skips_zero_contributions() {
+        // Zero-value contributions must not be collected.
+        let modifiers = vec![
+            ModifierContribution { name: "summon_bonus".to_owned(), contribution: 0.0 },
+            ModifierContribution { name: "repair_bonus".to_owned(), contribution: 3.0 },
+        ];
+        let event = make_event(
+            1,
+            LoggedDecision::EndTurn,
+            vec![plan_with_modifiers(false, modifiers)],
+            None,
+        );
+
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &event);
+
+        // Plan had modifiers (non-empty vec) → counted.
+        assert_eq!(agg.e1_total_modifier_entries, 1);
+        assert!(agg.e1_summon_bonus.is_empty(), "zero contribution skipped");
+        assert_eq!(agg.e1_repair_bonus, vec![3.0]);
+    }
+
+    #[test]
+    fn mine_e2_skips_zero_noise() {
+        // noise_applied == 0.0 must not land in e2_noise_applied vec.
+        let event = make_event(
+            1,
+            LoggedDecision::EndTurn,
+            vec![plan_with_noise(0.0)],
+            None,
+        );
+
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &event);
+
+        assert_eq!(agg.e2_chosen_count, 1, "chosen plan counted in denominator");
+        assert!(agg.e2_noise_applied.is_empty(), "zero noise not recorded");
     }
 }
