@@ -13,7 +13,7 @@
 # Source: stormborn_camp playtest 2026-04-26, round=2, actor=30064770732.
 
 [scope]
-plan_id = 30064770732
+plan_id = 47244639911
 
 [ai_memory]
 last_goal_kind = "SetupAOE"

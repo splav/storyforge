@@ -1,17 +1,16 @@
 # Scenario: FocusTarget + MoveAndCast melee attack.
 #
-# Smoke-level сценарий: у Зверокрова Стража (actor 51539607196, v27 entity bits)
-# активный intent = FocusTarget, ближайший враг в досягаемости melee.
-# Ожидаем, что AI коммитит MoveAndCast через melee_attack на ближайшем
-# противнике (target 42949672607 в этом snapshot'е), а не тратит ход на
-# EndTurn / отступление.
+# Smoke-level сценарий: у Зверокрова Налётчика (actor 12884901549) активный
+# intent = FocusTarget, ближайший враг в досягаемости melee. Ожидаем, что AI
+# коммитит MoveAndCast через melee_attack, а не тратит ход на EndTurn /
+# отступление.
 #
-# Source: rebuilt из v27 logs 26 апр. 2026 (post-issue-#1+#2 fixes).
-# В v27 нет plan_id; scope.plan_id = actor_id (entity bits) per
-# replay's v27 reinterpretation.
+# Source: rebuilt из v29 logs 27 апр. 2026 (road_bridge playtest).
+# scope.plan_id = actor_id per replay's v29 reinterpretation (логи не имеют
+# отдельного plan_id поля).
 
 [scope]
-plan_id = 51539607196
+plan_id = 12884901549
 
 [[expectations]]
 decision_kind = ["MoveAndCast"]

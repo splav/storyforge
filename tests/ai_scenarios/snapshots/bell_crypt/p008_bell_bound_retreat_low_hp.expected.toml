@@ -6,7 +6,7 @@
 # Source: rebuilt из v27 logs 20260426 (bell_crypt). v27: plan_id = actor_id.
 
 [scope]
-plan_id = 34359738026
+plan_id = 25769803418
 
 [[expectations]]
 decision_kind = ["Move", "EndTurn", "MoveAndCast", "CastInPlace"]

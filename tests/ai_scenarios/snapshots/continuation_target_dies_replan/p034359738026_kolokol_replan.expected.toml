@@ -12,7 +12,7 @@
 # Source: bell_crypt playtest 2026-04-26, round=2, actor=34359738026.
 
 [scope]
-plan_id = 34359738026
+plan_id = 25769803418
 
 [ai_memory]
 last_goal_kind = "Pressure"

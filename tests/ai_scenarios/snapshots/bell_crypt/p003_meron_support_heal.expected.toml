@@ -8,7 +8,7 @@
 # Source: rebuilt из v27 logs 20260426 (bell_crypt). v27: plan_id = actor_id.
 
 [scope]
-plan_id = 34359738017
+plan_id = 55834574500
 
 [[expectations]]
 cast_ability = ["heal"]
