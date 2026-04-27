@@ -237,6 +237,11 @@ pub struct ContractMaskHit {
 pub struct PickInfo {
     /// Top-K window, mercy flag, chosen position in the ranked pool.
     pub mechanics: crate::combat::ai::planning::PickMechanics,
+    /// Deterministic jitter added to this plan's score before argmax.
+    /// Written in 8.C commit 2 when `apply_pick_jitter` is wired in.
+    /// Zero for pre-8.C logs (forward-compat via `#[serde(default)]`).
+    #[serde(default)]
+    pub noise_applied: f32,
 }
 
 #[cfg(test)]
@@ -270,5 +275,28 @@ mod tests {
     fn default_annotation_is_empty() {
         let a = PlanAnnotation::default();
         assert!(a.outcomes.is_empty());
+    }
+
+    /// Default-constructed PickInfo has noise_applied = 0.0.
+    #[test]
+    fn pick_info_default_noise_applied_zero() {
+        let pi = PickInfo::default();
+        assert_eq!(pi.noise_applied, 0.0);
+    }
+
+    /// JSON without `noise_applied` (pre-8.C logs) deserialises with 0.0.
+    #[test]
+    fn pick_info_v29_load_pre_8c_round_trip() {
+        // Round-trip via serialise → strip noise_applied → deserialise.
+        // This simulates a pre-8.C log entry that was written before the field existed.
+        let original = PickInfo::default();
+        let mut v: serde_json::Value = serde_json::to_value(&original).expect("serialize ok");
+        // Remove the field to simulate a pre-8.C log.
+        v.as_object_mut().unwrap().remove("noise_applied");
+        let json_without_field = serde_json::to_string(&v).expect("re-serialize ok");
+
+        let pi: PickInfo = serde_json::from_str(&json_without_field)
+            .expect("pre-8.C PickInfo should deserialise OK");
+        assert_eq!(pi.noise_applied, 0.0, "missing field should default to 0.0");
     }
 }
