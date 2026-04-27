@@ -90,7 +90,7 @@ pub fn terminal_state_score(
 /// Even if the danger map is not normalised, clamp produces a safe [0, 1]
 /// output. When the map is rank-normalised (see `InfluenceMap::normalize`),
 /// the clamp is a no-op.
-fn compute_exposure_at_end(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
+pub(crate) fn compute_exposure_at_end(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
     ctx.maps.danger.get(plan.final_pos).clamp(0.0, 1.0)
 }
 
@@ -114,7 +114,7 @@ fn compute_exposure_at_end(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
 /// Keep both — they measure related but different things. Double-counting risk
 /// is mitigated by the separate weight tables (`axis_factor_weights` vs
 /// `axis_terminal_weights`) which are tuned independently.
-fn compute_secure_kill(plan: &TurnPlan) -> f32 {
+pub(crate) fn compute_secure_kill(plan: &TurnPlan) -> f32 {
     plan.annotation
         .outcomes
         .iter()
@@ -136,7 +136,7 @@ fn compute_secure_kill(plan: &TurnPlan) -> f32 {
 ///
 /// Thresholds (0.4, 0.5, 0.6) are hard-coded pending 5.4–5.5 `Thresholds`
 /// struct.
-fn compute_ally_rescue(
+pub(crate) fn compute_ally_rescue(
     plan: &TurnPlan,
     initial_snap: &BattleSnapshot,
     ctx: &ScoringCtx,
@@ -174,7 +174,7 @@ fn compute_ally_rescue(
 /// The penalty for moving to a worse tile is intentional: `board_control_gain`
 /// should discourage purely retreating Repostion plans if the axis weight is
 /// positive. The aggregator context determines the final effect.
-fn compute_board_control_gain(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
+pub(crate) fn compute_board_control_gain(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
     let start_op = ctx.maps.opportunity.get(ctx.active.pos);
     let end_op = ctx.maps.opportunity.get(plan.final_pos);
     (end_op - start_op).clamp(-1.0, 1.0)
@@ -189,7 +189,7 @@ fn compute_board_control_gain(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
 ///
 /// Returns 0.0 if the actor is dead by end of plan (no point estimating
 /// incoming threat for a corpse).
-fn compute_next_turn_lethality(
+pub(crate) fn compute_next_turn_lethality(
     plan: &TurnPlan,
     initial_snap: &BattleSnapshot,
     ctx: &ScoringCtx,
@@ -232,7 +232,7 @@ fn compute_next_turn_lethality(
 ///
 /// TODO(5.5): if abilities change during plan (e.g. summon expiry), re-derive
 /// from end_snap. For the current content set, abilities are static per turn.
-fn compute_line_actionability(
+pub(crate) fn compute_line_actionability(
     plan: &TurnPlan,
     initial_snap: &BattleSnapshot,
     ctx: &ScoringCtx,
@@ -280,7 +280,7 @@ fn compute_line_actionability(
 /// TODO(5.5/5.6): derive radius from the actor's actual AoE abilities rather
 /// than the fixed constant once we have a reliable way to enumerate AoE
 /// shapes from `AbilityDef.aoe`.
-fn compute_density_value(
+pub(crate) fn compute_density_value(
     plan: &TurnPlan,
     initial_snap: &BattleSnapshot,
     ctx: &ScoringCtx,
@@ -313,7 +313,7 @@ fn compute_density_value(
 ///
 /// Signed axis — unlike the strictly-positive axes, this can contribute a
 /// penalty in the aggregator if the weight is positive and the actor retreated.
-fn compute_pressure_spacing_zone(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
+pub(crate) fn compute_pressure_spacing_zone(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
     let support_at_end = ctx.maps.ally_support.get(plan.final_pos);
     let support_at_start = ctx.maps.ally_support.get(ctx.active.pos);
     (support_at_end - support_at_start).clamp(-1.0, 1.0)

@@ -27,12 +27,24 @@ mod scarcity;
 mod survival;
 mod tempo;
 
+// ── New registry modules (commit 1) ──────────────────────────────────────────
+pub mod plan;
+pub mod registry;
+pub mod step;
+pub mod terminal;
+
 pub use adjustments::crit_fail_adjusted;
 pub use aoe_hits::{aoe_hits, AoeHits};
 pub use offensive::aoe_area;
 pub use saturation::buff_saturation_penalty;
 pub use survival::compute_plan_self_survival;
 pub use tempo::compute_plan_tempo_gain;
+
+// ── Registry re-exports (commit 1) ───────────────────────────────────────────
+pub use plan::PlanFactor;
+pub use registry::{BatchStats, NeedAxis, default_norm};
+pub use step::StepFactor;
+pub use terminal::{TerminalFactor, TerminalScore as FactorTerminalScore};
 
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
@@ -217,12 +229,32 @@ impl PlanFactors {
 
 /// Per-step offensive factors (populated only for Cast).
 #[derive(Default)]
-pub(super) struct OffensiveFactors {
-    pub(super) damage: f32,
-    pub(super) heal: f32,
-    pub(super) kill_now: f32,
-    pub(super) kill_promised: f32,
-    pub(super) cc: f32,
+pub(crate) struct OffensiveFactors {
+    pub(crate) damage: f32,
+    pub(crate) heal: f32,
+    pub(crate) kill_now: f32,
+    pub(crate) kill_promised: f32,
+    pub(crate) cc: f32,
+}
+
+/// Compute the offensive sub-factors for a single Cast step, including
+/// reservation adjustments. Used by the per-`StepFactor` leaf modules in
+/// `factors/step/` to avoid duplicating the offensive math.
+///
+/// Returns `OffensiveFactors::default()` for `Move` steps.
+pub(crate) fn compute_offensive_for_step(
+    ctx: &ScoringCtx,
+    step: &ScoredStep,
+    outcome: &ActionOutcomeEstimate,
+) -> OffensiveFactors {
+    let mut off = match step {
+        ScoredStep::Cast { ability, target_pos, target, caster_tile } => {
+            offensive::compute_offensive(ability, *target_pos, *target, *caster_tile, ctx, outcome)
+        }
+        ScoredStep::Move { .. } => OffensiveFactors::default(),
+    };
+    adjustments::apply_reservation_adjustments(step, &mut off, ctx);
+    off
 }
 
 /// Compute the per-step raw utility factors — **excluding** intent, tempo_gain,
@@ -276,3 +308,224 @@ pub fn compute_factors(
 // is pinned by `planning::scorer::tests::sum_factors_scale_by_step_weight`
 // and `rescore_matches_full_score_under_same_intent`, which drive
 // `finalize_scores` end-to-end.
+
+// ── PlanFactorValues typed wrapper ───────────────────────────────────────────
+
+/// Typed `[f32; 10]` wrapper for plan factor values.
+///
+/// Layout: `[damage(0), kill_now(1), kill_promised(2), cc(3), heal(4),
+///           scarcity(5), saturation(6), intent(7), tempo_gain(8), self_survival(9)]`.
+///
+/// Slots 0..7 are `StepFactor` values (discounted per-step sums); slots 7..10
+/// are `PlanFactor` values (plan-level aggregates).
+///
+/// `get`/`set` use `StepFactor as usize` directly; `get_plan`/`set_plan` add
+/// `StepFactor::count()` as the offset.
+///
+/// Custom serde writes/reads a named map `{"damage": ..., ..., "self_survival":
+/// ...}` via `StepFactor::from_name` + `PlanFactor::from_name`. Unknown keys →
+/// error; missing keys → 0.0 (forward-compat).
+///
+/// # Column order (post-8.A)
+/// `[damage, kill_now, kill_promised, cc, heal, scarcity, saturation, intent,
+/// tempo_gain, self_survival]`.
+/// Was `[damage, kill_now, kill_promised, cc, heal, intent, scarcity,
+/// tempo_gain, saturation, self_survival]` in v28. The re-permutation
+/// co-incides with TOML row update in commit 2.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct PlanFactorValues([f32; 10]);
+
+impl PlanFactorValues {
+    /// Get a step-factor slot by enum discriminant.
+    pub fn get(&self, f: StepFactor) -> f32 {
+        self.0[f as usize]
+    }
+
+    /// Get a plan-factor slot by enum discriminant.
+    pub fn get_plan(&self, f: PlanFactor) -> f32 {
+        self.0[StepFactor::count() + f as usize]
+    }
+
+    /// Set a step-factor slot.
+    pub fn set(&mut self, f: StepFactor, v: f32) {
+        self.0[f as usize] = v;
+    }
+
+    /// Set a plan-factor slot.
+    pub fn set_plan(&mut self, f: PlanFactor, v: f32) {
+        self.0[StepFactor::count() + f as usize] = v;
+    }
+
+    /// Return the underlying `[f32; 10]` in column order.
+    pub fn as_array(&self) -> [f32; 10] {
+        self.0
+    }
+}
+
+impl serde::Serialize for PlanFactorValues {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let total = StepFactor::count() + PlanFactor::count();
+        let mut map = ser.serialize_map(Some(total))?;
+        for f in StepFactor::iter() {
+            map.serialize_entry(f.name(), &self.get(f))?;
+        }
+        for f in PlanFactor::iter() {
+            map.serialize_entry(f.name(), &self.get_plan(f))?;
+        }
+        map.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PlanFactorValues {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = PlanFactorValues;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "a map of factor name to f32")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<PlanFactorValues, A::Error> {
+                let mut out = PlanFactorValues::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    let val: f32 = map.next_value()?;
+                    if let Some(f) = StepFactor::from_name(&key) {
+                        out.set(f, val);
+                    } else if let Some(f) = PlanFactor::from_name(&key) {
+                        out.set_plan(f, val);
+                    } else {
+                        return Err(serde::de::Error::custom(format!(
+                            "unknown factor \"{key}\""
+                        )));
+                    }
+                }
+                Ok(out)
+            }
+        }
+        de.deserialize_map(Visitor)
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::ai::factors::plan::PlanFactor;
+    use crate::combat::ai::factors::step::StepFactor;
+    use crate::combat::ai::factors::terminal::TerminalFactor;
+
+    // ── factor_kind macro metadata ────────────────────────────────────────────
+
+    #[test]
+    fn factor_kind_macro_generates_correct_enum_metadata() {
+        // StepFactor: 7 variants
+        assert_eq!(StepFactor::count(), 7);
+        let step_names: Vec<_> = StepFactor::iter().map(|f| f.name()).collect();
+        assert_eq!(
+            step_names,
+            ["damage", "kill_now", "kill_promised", "cc", "heal", "scarcity", "saturation"]
+        );
+        // signed flags
+        assert!(!StepFactor::Damage.signed());
+        assert!(!StepFactor::KillNow.signed());
+        assert!(!StepFactor::KillPromised.signed());
+        assert!(!StepFactor::Cc.signed());
+        assert!(!StepFactor::Heal.signed());
+        assert!(StepFactor::Scarcity.signed());
+        assert!(StepFactor::Saturation.signed());
+
+        // from_name round-trip
+        for f in StepFactor::iter() {
+            assert_eq!(StepFactor::from_name(f.name()), Some(f));
+        }
+        assert_eq!(StepFactor::from_name("intent"), None); // intent is PlanFactor
+
+        // PlanFactor: 3 variants
+        assert_eq!(PlanFactor::count(), 3);
+        let plan_names: Vec<_> = PlanFactor::iter().map(|f| f.name()).collect();
+        assert_eq!(plan_names, ["intent", "tempo_gain", "self_survival"]);
+        assert!(PlanFactor::Intent.signed());
+        assert!(PlanFactor::TempoGain.signed());
+        assert!(!PlanFactor::SelfSurvival.signed());
+
+        for f in PlanFactor::iter() {
+            assert_eq!(PlanFactor::from_name(f.name()), Some(f));
+        }
+        assert_eq!(PlanFactor::from_name("damage"), None); // damage is StepFactor
+
+        // TerminalFactor: 8 variants
+        assert_eq!(TerminalFactor::count(), 8);
+        let term_names: Vec<_> = TerminalFactor::iter().map(|f| f.name()).collect();
+        assert_eq!(
+            term_names,
+            [
+                "exposure_at_end",
+                "next_turn_lethality",
+                "secure_kill",
+                "ally_rescue",
+                "board_control_gain",
+                "line_actionability",
+                "density_value",
+                "pressure_spacing_zone",
+            ]
+        );
+        // need_modulation spot checks
+        assert_eq!(
+            TerminalFactor::ExposureAtEnd.need_modulation(),
+            crate::combat::ai::factors::registry::NeedAxis::SelfPreserve
+        );
+        assert_eq!(
+            TerminalFactor::LineActionability.need_modulation(),
+            crate::combat::ai::factors::registry::NeedAxis::None
+        );
+
+        for f in TerminalFactor::iter() {
+            assert_eq!(TerminalFactor::from_name(f.name()), Some(f));
+        }
+    }
+
+    // ── PlanFactorValues serde ─────────────────────────────────────────────────
+
+    #[test]
+    fn factor_values_serde_round_trip_named_map() {
+        let mut pfv = PlanFactorValues::default();
+        pfv.set(StepFactor::Damage, 1.2);
+        pfv.set(StepFactor::KillNow, 0.8);
+        pfv.set(StepFactor::KillPromised, 0.3);
+        pfv.set(StepFactor::Cc, 0.5);
+        pfv.set(StepFactor::Heal, 0.0);
+        pfv.set(StepFactor::Scarcity, -0.2);
+        pfv.set(StepFactor::Saturation, -0.4);
+        pfv.set_plan(PlanFactor::Intent, 1.0);
+        pfv.set_plan(PlanFactor::TempoGain, 0.6);
+        pfv.set_plan(PlanFactor::SelfSurvival, 0.1);
+
+        let json = serde_json::to_string(&pfv).unwrap();
+        // Must be a named map, not a bare array.
+        assert!(json.contains("\"damage\""), "expected named map: {json}");
+        assert!(json.contains("\"self_survival\""), "missing key: {json}");
+
+        let pfv2: PlanFactorValues = serde_json::from_str(&json).unwrap();
+        assert_eq!(pfv, pfv2, "round-trip mismatch");
+    }
+
+    #[test]
+    fn factor_values_missing_keys_default_zero() {
+        let json = r#"{"damage": 0.5}"#;
+        let pfv: PlanFactorValues = serde_json::from_str(json).unwrap();
+        assert!((pfv.get(StepFactor::Damage) - 0.5).abs() < f32::EPSILON);
+        assert_eq!(pfv.get(StepFactor::KillNow), 0.0);
+        assert_eq!(pfv.get_plan(PlanFactor::Intent), 0.0);
+    }
+
+    #[test]
+    fn factor_values_unknown_key_errors() {
+        let json = r#"{"damage": 1.0, "nonexistent": 2.0}"#;
+        let result: Result<PlanFactorValues, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "unknown key should produce an error");
+    }
+}

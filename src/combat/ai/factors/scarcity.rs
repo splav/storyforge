@@ -13,7 +13,7 @@ use crate::content::content_view::ContentView;
 /// Free abilities return 0.0 (neutral). Expensive abilities on low-value
 /// situations get negative scores; expensive abilities in high-swing moments
 /// get positive scores.
-pub(super) fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
+pub(crate) fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
     let ScoredStep::Cast { ability, target_pos, target, caster_tile } = step else {
         return 0.0;
     };

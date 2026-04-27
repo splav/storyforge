@@ -21,7 +21,7 @@ use std::collections::HashSet;
 /// Pure outcome-facts reader + policy applier. All damage / heal / CC values
 /// are derived exclusively from `outcome` (the pre-annotated fact vector filled
 /// by the generator) and the policy module — no re-derivation from the snapshot.
-pub(super) fn compute_offensive(
+pub(crate) fn compute_offensive(
     ability: &AbilityId,
     _target_pos: Hex,
     target: Entity,

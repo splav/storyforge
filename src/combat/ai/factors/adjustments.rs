@@ -9,7 +9,7 @@ use crate::core::ResourceKind;
 /// Coordination knob: overkill penalty + duplicate-CC.
 /// Phase 6 removed `focus` and `position` as scored factors, so the
 /// focus-fire bonus and tile-collision penalty were dropped here too.
-pub(super) fn apply_reservation_adjustments(
+pub(crate) fn apply_reservation_adjustments(
     step: &ScoredStep,
     off: &mut OffensiveFactors,
     ctx: &ScoringCtx,
