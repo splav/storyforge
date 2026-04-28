@@ -35,6 +35,7 @@ use storyforge::combat::ai::repair::{
 };
 use storyforge::combat::ai::intent::TacticalIntent;
 use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, StoredGoalContextSnapshot};
+use storyforge::combat::ai::tags::AbilityTag;
 
 // ── Session actor key ─────────────────────────────────────────────────────────
 
@@ -110,6 +111,30 @@ struct Aggregate {
     e2_noise_applied: Vec<f32>,
     // Chosen plans processed (denominator for "% chosen with non-zero noise").
     e2_chosen_count: usize,
+
+    // F1: AI tags coverage — per-tag counts for chosen plans.
+    // A chosen plan is counted for tag T when at least one Cast step has T in its effective_ai_tags.
+    // Denominator: total_chosen (plans where annotation.chosen == true).
+    f1_ability_tag_counts: BTreeMap<String, usize>,
+
+    // F2: Need signals post-9.B.
+    // NOTE: NeedSignals are NOT part of the v30 log schema (ActorTickEvent).
+    // This section pins the setup_aoe goal_kind count as a regression gate
+    // (setup_aoe goal should never be stored; its NeedSignal is always 0.0).
+    f2_setup_aoe_goal_count: usize,
+
+    // F3: Continuation severity — cross-tab severity × hardcoded StatusTag.
+    // Populated on actor_status_changed mismatch events (cont.severity != None).
+    // Hardcoded StatusTag mapping (from statuses.toml + derive_status_tags rules):
+    //   stunned, paralyzed → HardCC  |  taunted, pact_control → Compulsion
+    //   poisoned, burning, exhaustion → Dot  |  defending → Buff
+    //   disoriented, broken_faith → SoftCC/Cosmetic
+    f3_severity_counts: BTreeMap<String, usize>,
+    // cross-tab key = "Severity×Tag" e.g. "Invalidating×HardCC"
+    f3_severity_by_tag: BTreeMap<String, usize>,
+    // Per-severity goal continuation rate: preserved vs abandoned counts.
+    f3_preserved_by_severity: BTreeMap<String, usize>,
+    f3_abandoned_by_severity: BTreeMap<String, usize>,
 }
 
 impl Aggregate {
@@ -209,6 +234,20 @@ impl Aggregate {
             }
         }
 
+        // F1: AI tags coverage — per-tag counts for chosen plans.
+        if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
+            for tag in AbilityTag::iter() {
+                let has_tag = chosen
+                    .annotation
+                    .effective_ai_tags
+                    .iter()
+                    .any(|step_tags| step_tags.contains_tag(tag));
+                if has_tag {
+                    *self.f1_ability_tag_counts.entry(tag.name().to_owned()).or_default() += 1;
+                }
+            }
+        }
+
         // B5
         let key: SessionActorKey = (session.to_owned(), event.actor_id);
         let counter = self.actor_tick_counters.entry(key.clone()).or_default();
@@ -249,6 +288,12 @@ impl Aggregate {
             cont.age,
         );
 
+        let goal_preserved = matches!(
+            outcome,
+            ContinuationOutcome::GoalPreservedMethodDelivered
+                | ContinuationOutcome::GoalPreservedInTransit
+        );
+
         match outcome {
             ContinuationOutcome::NoStoredGoal => {
                 self.cont_no_stored += 1;
@@ -280,11 +325,92 @@ impl Aggregate {
             *self.cont_severity_counts.entry(format!("{sev:?}")).or_default() += 1;
         }
         let goal_kind = format!("{:?}", cont.stored_goal.kind);
-        *self.cont_goal_kind_counts.entry(goal_kind).or_default() += 1;
+        *self.cont_goal_kind_counts.entry(goal_kind.clone()).or_default() += 1;
+
+        // F2: setup_aoe goal regression pin — count goals of kind "setup_aoe".
+        if goal_kind.to_lowercase().contains("setup_aoe")
+            || cont.stored_goal.kind == "setup_aoe"
+        {
+            self.f2_setup_aoe_goal_count += 1;
+        }
+
+        // F3: continuation severity cross-tab on actor_status_changed events.
+        // We use cont.severity as the mismatch signal regardless of reason_code,
+        // because the severity is what drives continuation behaviour.
+        if let Some(sev) = cont.severity {
+            let sev_label = format!("{sev:?}");
+            *self.f3_severity_counts.entry(sev_label.clone()).or_default() += 1;
+
+            // Cross-tab: which statuses are on the actor at this tick?
+            // Map each known status_id to its hardcoded StatusTag bucket.
+            let tags_seen = statuses_to_tag_labels(event);
+            if tags_seen.is_empty() {
+                let key = format!("{sev_label}×(none)");
+                *self.f3_severity_by_tag.entry(key).or_default() += 1;
+            } else {
+                for tag_label in &tags_seen {
+                    let key = format!("{sev_label}×{tag_label}");
+                    *self.f3_severity_by_tag.entry(key).or_default() += 1;
+                }
+            }
+
+            // Goal continuation rate per severity.
+            if goal_preserved {
+                *self.f3_preserved_by_severity.entry(sev_label.clone()).or_default() += 1;
+            } else {
+                *self.f3_abandoned_by_severity.entry(sev_label).or_default() += 1;
+            }
+        }
     }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Hardcoded StatusTag mapping derived from `assets/data/statuses.toml` and
+/// `derive_status_tags` rules. Returns *distinct* tag labels for statuses active
+/// on the actor at this tick.
+///
+/// ContentDb is not available in the mining tool (pure-JSONL), so we pin the
+/// 10 known status ids from statuses.toml directly. Unknown ids are labelled
+/// "unknown". Rules mirror `classify.rs::derive_status_tags`.
+///
+/// Mapping (statuses.toml × classify rules):
+///   stunned, paralyzed     → HardCC    (skips_turn)
+///   taunted, pact_control  → Compulsion (forces_targeting / ai_controlled→Cosmetic)
+///   poisoned, burning,
+///   exhaustion             → Dot       (dot_dice / hp_percent_dot)
+///   defending              → Buff      (armor_bonus)
+///   disoriented            → SoftCC    (causes_disadvantage)
+///   broken_faith           → Cosmetic  (blocks_mana — no classify rule)
+///
+/// Note: pact_control has ai_controlled=true only; no classify rule → Cosmetic.
+fn statuses_to_tag_labels(event: &ActorTickEvent) -> Vec<&'static str> {
+    // Find the actor's own UnitSnapshot in the snapshot.
+    let actor_statuses = event
+        .snapshot
+        .units
+        .iter()
+        .find(|u| u.entity.to_bits() == event.actor_id)
+        .map(|u| u.statuses.as_slice())
+        .unwrap_or(&[]);
+
+    let mut seen: std::collections::BTreeSet<&'static str> = std::collections::BTreeSet::new();
+    for s in actor_statuses {
+        let tag = match s.id.0.as_str() {
+            "stunned" | "paralyzed"          => "HardCC",
+            "taunted"                         => "Compulsion",
+            "pact_control"                    => "Cosmetic",
+            "poisoned" | "burning"            => "Dot",
+            "exhaustion"                      => "Dot",     // hp_percent_dot + speed_bonus → also SoftCC but Dot is primary
+            "defending"                       => "Buff",
+            "disoriented"                     => "SoftCC",
+            "broken_faith"                    => "Cosmetic",
+            _                                 => "unknown",
+        };
+        seen.insert(tag);
+    }
+    seen.into_iter().collect()
+}
 
 fn decision_kind_label(d: &LoggedDecision) -> &'static str {
     match d {
@@ -820,6 +946,90 @@ fn main() {
     println!();
     print_signed_field("noise_applied", &agg.e2_noise_applied, agg.e2_chosen_count);
     println!();
+
+    // F1: AI tags coverage
+    println!("=== AI tags coverage (F1) ===");
+    println!();
+    println!(
+        "Chosen plans: {}  (a plan is counted for tag T when any Cast step has T)",
+        agg.total_chosen
+    );
+    println!();
+    for tag in AbilityTag::iter() {
+        let count = agg.f1_ability_tag_counts.get(tag.name()).copied().unwrap_or(0);
+        println!(
+            "  {:<14}  {:>6}  ({:5.1}%)",
+            tag.name(), count, pct(count, agg.total_chosen)
+        );
+    }
+    println!();
+
+    // F2: Need signals (post-9.B)
+    println!("=== Need signals (F2) ===");
+    println!();
+    println!("NOTE: NeedSignals are not part of the v30 log schema (ActorTickEvent).");
+    println!("      The section below shows only the regression pin for setup_aoe.");
+    println!();
+    println!(
+        "  setup_aoe goal_kind count (regression pin — must be 0): {}",
+        agg.f2_setup_aoe_goal_count
+    );
+    if agg.f2_setup_aoe_goal_count > 0 {
+        println!("  *** REGRESSION: setup_aoe goal appeared in corpus — check compute_need_signals ***");
+    }
+    println!();
+    println!("  (rescue_ally / apply_cc distributions: add NeedSignals to ActorTickEvent");
+    println!("   in a future schema bump to enable full signal mining here.)");
+    println!();
+
+    // F3: Continuation severity (post-9.B)
+    println!("=== Continuation severity (F3) ===");
+    println!();
+    println!(
+        "Ticks with non-None severity (mismatch events): {}",
+        agg.f3_severity_counts.values().sum::<usize>()
+    );
+    println!("(hardcoded StatusTag mapping for cross-tab — see statuses_to_tag_labels)");
+    println!();
+
+    // Per-severity counts
+    {
+        let severities = ["Cosmetic", "Relevant", "Invalidating"];
+        for sev in &severities {
+            let count = agg.f3_severity_counts.get(*sev).copied().unwrap_or(0);
+            let total_sev: usize = agg.f3_severity_counts.values().sum();
+            let preserved = agg.f3_preserved_by_severity.get(*sev).copied().unwrap_or(0);
+            let abandoned = agg.f3_abandoned_by_severity.get(*sev).copied().unwrap_or(0);
+            let total_outcome = preserved + abandoned;
+            println!(
+                "  {:<14}  {:>4}  ({:5.1}%)  preserved {:5.1}%  abandoned {:5.1}%",
+                sev,
+                count,
+                pct(count, total_sev),
+                pct(preserved, total_outcome),
+                pct(abandoned, total_outcome),
+            );
+        }
+    }
+    println!();
+
+    // Cross-tab: severity × StatusTag
+    if !agg.f3_severity_by_tag.is_empty() {
+        println!("  Cross-tab severity × StatusTag (actor's active statuses):");
+        let cross_total: usize = agg.f3_severity_by_tag.values().sum();
+        let mut rows: Vec<(&str, usize)> = agg
+            .f3_severity_by_tag
+            .iter()
+            .map(|(k, v)| (k.as_str(), *v))
+            .collect();
+        rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+        for (key, count) in &rows {
+            println!("    {:<30}  {:>4}  ({:5.1}%)", key, count, pct(*count, cross_total));
+        }
+    } else {
+        println!("  (no mismatch events with status data in corpus)");
+    }
+    println!();
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -1087,5 +1297,146 @@ mod tests {
 
         assert_eq!(agg.e2_chosen_count, 1, "chosen plan counted in denominator");
         assert!(agg.e2_noise_applied.is_empty(), "zero noise not recorded");
+    }
+
+    // ── F1: AI tags coverage ──────────────────────────────────────────────────
+
+    fn plan_with_tags(tags: Vec<storyforge::combat::ai::tags::AbilityTagSet>) -> LoggedPlan {
+        let ann = PlanAnnotation {
+            chosen: true,
+            effective_ai_tags: tags,
+            ..Default::default()
+        };
+        LoggedPlan {
+            rank: 1,
+            steps: vec![PlanStep::Move { path: vec![] }],
+            annotation: ann,
+        }
+    }
+
+    #[test]
+    fn f1_ability_tag_counts_chosen_plan_with_offensive() {
+        use storyforge::combat::ai::tags::{AbilityTag, AbilityTagSet};
+        let mut tags = AbilityTagSet::empty();
+        tags.insert_tag(AbilityTag::Offensive);
+        let event = make_event(1, LoggedDecision::EndTurn, vec![plan_with_tags(vec![tags])], None);
+
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &event);
+
+        assert_eq!(*agg.f1_ability_tag_counts.get("offensive").unwrap(), 1);
+        assert!(!agg.f1_ability_tag_counts.contains_key("rescue"), "rescue not set");
+        assert_eq!(agg.total_chosen, 1);
+    }
+
+    #[test]
+    fn f1_plan_counted_once_per_tag_even_if_multiple_steps() {
+        use storyforge::combat::ai::tags::{AbilityTag, AbilityTagSet};
+        // Two Cast steps both with Offensive — plan counted once for Offensive.
+        let mut step_tags = AbilityTagSet::empty();
+        step_tags.insert_tag(AbilityTag::Offensive);
+        let event = make_event(
+            1,
+            LoggedDecision::EndTurn,
+            vec![plan_with_tags(vec![step_tags, step_tags])],
+            None,
+        );
+
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &event);
+
+        assert_eq!(*agg.f1_ability_tag_counts.get("offensive").unwrap(), 1,
+            "plan counted once per tag even with two steps");
+    }
+
+    #[test]
+    fn f1_unchosen_plan_not_counted() {
+        use storyforge::combat::ai::tags::{AbilityTag, AbilityTagSet};
+        let mut tags = AbilityTagSet::empty();
+        tags.insert_tag(AbilityTag::Offensive);
+        // Non-chosen plan: chosen=false
+        let ann = PlanAnnotation {
+            chosen: false,
+            effective_ai_tags: vec![tags],
+            ..Default::default()
+        };
+        let unchosen = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+        let event = make_event(1, LoggedDecision::EndTurn, vec![unchosen], None);
+
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &event);
+
+        assert!(agg.f1_ability_tag_counts.is_empty(), "unchosen plan not counted for F1");
+    }
+
+    // ── F2: Need signals regression pin ──────────────────────────────────────
+
+    #[test]
+    fn f2_setup_aoe_goal_count_zero_for_non_setup_aoe_goals() {
+        use storyforge::combat::ai::log::ContinuationLogSection;
+        use storyforge::combat::ai::log::StoredGoalContextSnapshot;
+
+        let stored = StoredGoalContextSnapshot {
+            kind: "finish".to_owned(),
+            target_id: None,
+            region_anchor: [0, 0],
+            region_radius: 2,
+            planned_ability: None,
+            ttl: 3,
+            confidence: 0.8,
+            created_round: 1,
+            expected_actor_pos: [0, 0],
+            actor_hp_at_store: 20,
+            actor_rage_at_store: 0,
+            actor_status_hash: 0,
+            actor_statuses_at_store: vec![],
+            target_hp_at_store: 10,
+            target_pos_at_store: [1, 0],
+        };
+        let cont = ContinuationLogSection { stored_goal: stored, severity: None, age: 1 };
+        let event = make_event(1, LoggedDecision::EndTurn, vec![], Some(cont));
+
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &event);
+
+        assert_eq!(agg.f2_setup_aoe_goal_count, 0, "no setup_aoe goal should appear");
+    }
+
+    // ── F3: Continuation severity ─────────────────────────────────────────────
+
+    #[test]
+    fn f3_severity_counts_relevant_event() {
+        use storyforge::combat::ai::log::ContinuationLogSection;
+        use storyforge::combat::ai::log::StoredGoalContextSnapshot;
+        use storyforge::combat::ai::repair::ContinuationSeverity;
+
+        let stored = StoredGoalContextSnapshot {
+            kind: "pressure".to_owned(),
+            target_id: None,
+            region_anchor: [0, 0],
+            region_radius: 2,
+            planned_ability: None,
+            ttl: 3,
+            confidence: 0.8,
+            created_round: 1,
+            expected_actor_pos: [0, 0],
+            actor_hp_at_store: 20,
+            actor_rage_at_store: 0,
+            actor_status_hash: 0,
+            actor_statuses_at_store: vec![],
+            target_hp_at_store: 10,
+            target_pos_at_store: [1, 0],
+        };
+        let cont = ContinuationLogSection {
+            stored_goal: stored,
+            severity: Some(ContinuationSeverity::Relevant),
+            age: 1,
+        };
+        let event = make_event(1, LoggedDecision::EndTurn, vec![], Some(cont));
+
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &event);
+
+        assert_eq!(*agg.f3_severity_counts.get("Relevant").unwrap(), 1);
     }
 }
