@@ -4,6 +4,7 @@ use crate::content::encounters::VictoryCondition;
 use crate::content::scenarios::{active_party, SceneDef};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::role::infer_profile;
+use crate::combat::ai::tags::AbilityTagCache;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
 use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Initiative, Mana, Rage, StartingHexPos, UnitToken, VictoryTarget};
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -27,6 +28,7 @@ fn spawn_combatants(
     db: &GameDb,
     scenario: &ScenarioState,
     objective: &mut CombatObjective,
+    tag_cache: &AbilityTagCache,
 ) {
     let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
     let encounter_id = match &scen.scenes[scenario.scene_index] {
@@ -57,7 +59,7 @@ fn spawn_combatants(
         };
         let effective = content.effective_stats(&cls.stats, &equipment);
         let armor = content.equipment_armor(&equipment);
-        let role = infer_profile(&cls.abilities, effective.max_hp, armor, content);
+        let role = infer_profile(&cls.abilities, effective.max_hp, armor, content, tag_cache);
         let mut ec = commands.spawn((
             Name::new(member.name.clone()),
             hero_bundle(effective, armor, cls.speed, cls.abilities.clone(), equipment),
@@ -83,7 +85,7 @@ fn spawn_combatants(
         let armor = content.equipment_armor(&equipment);
         let race_name = content.races.get(&enemy.race).map_or("", |r| r.name.as_str());
         let display_name = format!("{} {}", race_name, &enemy.name);
-        let role = infer_profile(&enemy.ability_ids, effective.max_hp, armor, content);
+        let role = infer_profile(&enemy.ability_ids, effective.max_hp, armor, content, tag_cache);
         let mut ec = commands.spawn((
             Name::new(display_name),
             enemy_bundle(effective, armor, enemy.speed, enemy.ability_ids.clone(), equipment),
@@ -144,8 +146,9 @@ pub fn spawn_combat_scene(
     mut cursor: ResMut<ConsoleCursor>,
     mut popup_cursor: ResMut<PopupCursor>,
     mut anim_queue: ResMut<AnimationQueue>,
+    tag_cache: Res<AbilityTagCache>,
 ) {
-    spawn_combatants(&mut commands, &db, &scenario, &mut objective);
+    spawn_combatants(&mut commands, &db, &scenario, &mut objective, &tag_cache);
     spawn_background(&mut commands, &db, &scenario, &asset_server, &windows);
     reset_combat_state(&mut ctx, &mut log, &mut cursor, &mut popup_cursor, &mut anim_queue);
 }
@@ -212,6 +215,7 @@ pub fn restart_combat_system(
     mut commands: Commands,
     db: Res<GameDb>,
     scenario: Res<ScenarioState>,
+    tag_cache: Res<AbilityTagCache>,
     combatants: Query<(Entity, &Name, &Initiative), With<Combatant>>,
     cleanup: Query<Entity, Or<(With<UnitToken>, With<crate::ui::animation::EnemyActionPopup>)>>,
     mut preset: ResMut<PresetInitiative>,
@@ -253,7 +257,7 @@ pub fn restart_combat_system(
     sel.clear();
 
     // 3. Spawn fresh combatants + reset state.
-    spawn_combatants(&mut commands, &db, &scenario, &mut objective);
+    spawn_combatants(&mut commands, &db, &scenario, &mut objective, &tag_cache);
     reset_combat_state(&mut ctx, log, cursor, popup_cursor, anim_queue);
 
     // 4. → StartRound, где assign_hex_positions создаст токены,

@@ -1,4 +1,5 @@
 use crate::combat::ai::role::{infer_profile, AxisProfile};
+use crate::combat::ai::tags::AbilityTagCache;
 use crate::content::content_view::ActiveContent;
 use crate::content::encounters::PhaseTrigger;
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -18,6 +19,7 @@ pub fn phase_transition_system(
     mut commands: Commands,
     mut log: ResMut<CombatLog>,
     content: Res<ActiveContent>,
+    tag_cache: Res<AbilityTagCache>,
     mut q: Query<(
         Entity,
         &mut EnemyPhases,
@@ -69,7 +71,7 @@ pub fn phase_transition_system(
         if let Some(mut role) = role_opt {
             if phase.stats.is_some() || phase.ability_ids.is_some() {
                 // Re-infer when inputs changed.
-                *role = infer_profile(&abilities.0, vital.max_hp, vital.armor, &content);
+                *role = infer_profile(&abilities.0, vital.max_hp, vital.armor, &content, &tag_cache);
             }
         }
 

@@ -8,6 +8,7 @@
 
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::role::infer_profile;
+use crate::combat::ai::tags::AbilityTagCache;
 use crate::content::content_view::ActiveContent;
 use crate::game::bundles::enemy_bundle;
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -31,6 +32,7 @@ pub fn apply_spawn_system(
     mut positions: ResMut<HexPositions>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     content: Res<ActiveContent>,
+    tag_cache: Res<AbilityTagCache>,
     mats: Res<HexMaterials>,
     token_mesh: Res<TokenMesh>,
     grid_offset: Res<HexGridOffset>,
@@ -104,7 +106,7 @@ pub fn apply_spawn_system(
         };
         // Summoner's team determines the spawn's team. Fallback: Enemy (matches most use cases).
         let team = factions.get(msg.summoner).map_or(Team::Enemy, |f| f.0);
-        let role = infer_profile(&template.ability_ids, effective.max_hp, armor, &content);
+        let role = infer_profile(&template.ability_ids, effective.max_hp, armor, &content, &tag_cache);
 
         let mut entity_commands = commands.spawn((
             Name::new(display_name.clone()),

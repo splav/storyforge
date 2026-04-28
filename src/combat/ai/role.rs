@@ -1,6 +1,7 @@
 use crate::combat::ai::repair::affinity::RepairWeights;
+use crate::combat::ai::tags::{AbilityTag, AbilityTagCache, AbilityTagSet};
 use crate::combat::ai::tuning::AiTuning;
-use crate::content::abilities::{AoEShape, EffectDef, TargetType};
+use crate::content::abilities::{AoEShape, EffectDef};
 use crate::content::content_view::ContentView;
 use crate::core::AbilityId;
 use bevy::prelude::*;
@@ -208,12 +209,16 @@ pub fn infer_profile(
     max_hp: i32,
     total_armor: i32,
     content: &ContentView,
+    tag_cache: &AbilityTagCache,
 ) -> AxisProfile {
     let mut p = AxisProfile::default();
 
     for id in abilities {
         let Some(def) = content.abilities.get(id) else { continue };
-        let v = ability_vote(def);
+        let cost: f32 = def.costs.iter().map(|c| c.amount as f32).sum();
+        let weight = 1.0 + cost;
+        let tags = tag_cache.effective(id);
+        let v = tag_axis_vote(tags, def, weight);
         p.tank    += v[0];
         p.melee   += v[1];
         p.ranged  += v[2];
@@ -235,83 +240,78 @@ pub fn infer_profile(
     p
 }
 
-/// Vote a single ability into the 5-axis space.
+/// Vote a single ability into the 5-axis space using semantic tags.
+///
+/// Priority order (first matching branch wins):
+/// Rescue → Summon → Defensive(no Offensive, no Peel) → Offensive → ApplyCC → Peel → Mobility → zero
+///
+/// The Peel condition is excluded from the Defensive branch so that abilities
+/// with both tags (e.g. `taunt`: Defensive+Peel) reach the Peel branch and
+/// produce the blended Tank/Support vote rather than a pure Tank vote.
+///
 /// Returns `[tank, melee, ranged, control, support]`.
-fn ability_vote(def: &crate::content::abilities::AbilityDef) -> [f32; 5] {
-    let cost: f32 = def.costs.iter().map(|c| c.amount as f32).sum();
-    let weight = 1.0 + cost;
+fn tag_axis_vote(
+    tags: AbilityTagSet,
+    def: &crate::content::abilities::AbilityDef,
+    weight: f32,
+) -> [f32; 5] {
     let mut v = [0.0f32; 5];
 
-    // 1. Heal on ally → pure Support.
-    if def.target_type == TargetType::SingleAlly
-        && matches!(def.effect, EffectDef::Heal { .. })
-    {
+    if tags.contains_tag(AbilityTag::Rescue) {
         v[4] += weight;
         return v;
     }
-
-    // 2. Summon → Support + Ranged (caster-style summoner, not a self-buff tank).
-    if matches!(def.effect, EffectDef::Summon { .. }) {
+    if tags.contains_tag(AbilityTag::Summon) {
         v[4] += weight * 0.7;
         v[2] += weight * 0.3;
         return v;
     }
-
-    // 3. Self-buff / taunt (Myself target, no damage) → Tank.
-    if def.target_type == TargetType::Myself && !has_damage(def) {
+    if tags.contains_tag(AbilityTag::Defensive)
+        && !tags.contains_tag(AbilityTag::Offensive)
+        && !tags.contains_tag(AbilityTag::Peel)
+    {
         v[0] += weight;
         return v;
     }
-
-    // 3. Damage abilities: melee vs ranged split.
-    if has_damage(def) {
-        let is_spell = matches!(def.effect, EffectDef::SpellDamage { .. });
-        let is_aoe = def.aoe != AoEShape::None;
-        let is_ranged_phys = def.range.min >= 2;
-
-        // TODO: melee cleave (aoe != None && range.max == 1) should vote Melee,
-        // not Ranged. No such content yet — all AoE in current game is ranged.
-        if is_aoe || is_spell || is_ranged_phys {
-            v[2] += weight;
-        } else {
-            v[1] += weight;
-        }
-
-        // Damage + status (e.g. poison_shot) has partial Control signature.
-        if !def.statuses.is_empty() {
-            v[3] += weight * 0.4;
-        }
+    if tags.contains_tag(AbilityTag::Offensive) {
+        // Melee/ranged split — the one place where shape is still needed.
+        let is_ranged = matches!(def.effect, EffectDef::SpellDamage { .. })
+            || def.aoe != AoEShape::None
+            || def.range.min >= 2;
+        if is_ranged { v[2] += weight } else { v[1] += weight };
+        if tags.contains_tag(AbilityTag::ApplyCC) { v[3] += weight * 0.4; }
         return v;
     }
-
-    // 4. Status-only ability (stun, paralyze) → Control.
-    if !def.statuses.is_empty() {
+    if tags.contains_tag(AbilityTag::ApplyCC) {
         v[3] += weight;
         return v;
     }
+    if tags.contains_tag(AbilityTag::Peel) {
+        v[0] += weight * 0.7;
+        v[4] += weight * 0.3;
+        return v;
+    }
+    if tags.contains_tag(AbilityTag::Mobility) {
+        v[1] += weight * 0.3;
+        return v;
+    }
 
-    // 5. Movement / utility (rush) → weak Melee fallback (aggressive mobility).
-    v[1] += weight * 0.3;
     v
-}
-
-fn has_damage(def: &crate::content::abilities::AbilityDef) -> bool {
-    matches!(
-        def.effect,
-        EffectDef::Damage { .. } | EffectDef::SpellDamage { .. } | EffectDef::WeaponAttack,
-    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::combat::ai::factors::StepFactor;
+    use crate::combat::ai::tags::cache::build_caches;
     const DAMAGE_IDX: usize = StepFactor::Damage as usize;
     const HEAL_IDX: usize = StepFactor::Heal as usize;
     use crate::core::AbilityId;
 
-    fn db() -> ContentView {
-        ContentView::load_global_for_tests()
+    fn db_with_cache() -> (ContentView, AbilityTagCache) {
+        let content = ContentView::load_global_for_tests();
+        let (_, ac) = build_caches(&content);
+        (content, ac)
     }
 
     fn ids(names: &[&str]) -> Vec<AbilityId> {
@@ -409,10 +409,10 @@ mod tests {
     fn infer_kael_is_ranged() {
         // Kael: ranger — melee + bow + paralyzing_shot + field_medic + poison_shot.
         // Expected: Ranged dominant, small Support and Control secondary.
-        let db = db();
+        let (db, ac) = db_with_cache();
         let p = infer_profile(
             &ids(&["melee_attack", "bow_shot", "paralyzing_shot", "field_medic", "poison_shot"]),
-            18, 2, &db,
+            18, 2, &db, &ac,
         );
         assert_eq!(dominant(&p), "Ranged", "profile: {:?}", p);
         assert!(p.ranged > p.support);
@@ -423,35 +423,34 @@ mod tests {
     fn infer_lyra_is_ranged_mage() {
         // Lyra: mage — melee + flash + burn + fireball + heal.
         // Expected: Ranged dominant (fireball weight 6 dominates).
-        let db = db();
+        // burn has Cosmetic status (not CC) → empty tags → zero vote (9.B: DOT ≠ CC).
+        let (db, ac) = db_with_cache();
         let p = infer_profile(
             &ids(&["melee_attack", "flash", "burn", "fireball", "heal"]),
-            10, 0, &db,
+            10, 0, &db, &ac,
         );
         assert_eq!(dominant(&p), "Ranged", "profile: {:?}", p);
         assert!(p.support > 0.0, "heal should contribute to Support");
-        assert!(p.control > 0.0, "burn/AoE should contribute to Control");
+        assert_eq!(p.control, 0.0, "burn applies DOT (not CC) → no Control contribution");
     }
 
     #[test]
     fn infer_aldric_is_control_tank() {
         // Aldric: warrior — melee + taunt + stun + rush.
-        // Expected: Control (stun weight=4) or Tank dominant.
-        let db = db();
+        // Expected: Control or Tank dominant.
+        // Tag-based breakdown:
+        //   melee_attack → OFFENSIVE melee → Melee 1
+        //   taunt → DEFENSIVE + PEEL → Peel branch: Tank 0.7 + Support 0.3 (weight 1)
+        //   stun → APPLY_CC → Control 4 (weight 1+3=4)
+        //   rush → MOBILITY → Melee 0.3×3 = 0.9 (weight 1+2=3)
+        //   stat: (20+5*2)/20 = 1.5 → Tank 1.5
+        // Totals: Tank=0.7+1.5=2.2, Melee=1+0.9=1.9, Control=4, Support=0.3
+        // Dominant: Control.
+        let (db, ac) = db_with_cache();
         let p = infer_profile(
             &ids(&["melee_attack", "taunt", "stun", "rush"]),
-            20, 5, &db,
+            20, 5, &db, &ac,
         );
-        // Stun weight 4 (3 rage + 1) → Control 4; Tank = taunt(1) + rush(0.3×3 fallback? actually rush goes to melee)
-        // Actually: stun has no damage + has status → Control 4. Tank gets taunt(1) + stat 25/20=1.25.
-        // rush is target=Myself no damage, no statuses → Tank (not stun-like). Let me recheck.
-        // rush: target_type=Myself, effect=grant_movement (not damage), no statuses.
-        //   → Self-buff branch: Tank +3 (weight 1+2).
-        // taunt: target_type=Myself, effect=None, has statuses → but self-buff branch matches first.
-        //   Wait, taunt has target_type=Myself and statuses=[defending, taunted]. Our rule:
-        //   "Myself + no damage" catches it BEFORE status check → Tank +1.
-        // So: Tank = 1(taunt) + 3(rush) + 1.25(stat) = 5.25. Control = 4(stun).
-        // Dominant: Tank.
         assert!(
             dominant(&p) == "Tank" || dominant(&p) == "Control",
             "expected Tank or Control, got {} with profile {:?}", dominant(&p), p
@@ -464,8 +463,8 @@ mod tests {
     fn infer_molnienosets_is_melee_assassin() {
         // Молниеносец: melee + backstab, speed 6 (doesn't affect profile directly),
         // hp 12, armor 1. Expected: Melee dominant, low Tank (glass cannon).
-        let db = db();
-        let p = infer_profile(&ids(&["melee_attack", "backstab"]), 12, 1, &db);
+        let (db, ac) = db_with_cache();
+        let p = infer_profile(&ids(&["melee_attack", "backstab"]), 12, 1, &db, &ac);
         assert_eq!(dominant(&p), "Melee", "profile: {:?}", p);
         let mix = p.biased_normalized();
         assert!(mix[1] > 0.6, "melee should dominate: {:?}", mix);
@@ -476,8 +475,8 @@ mod tests {
     fn infer_burevestnik_is_ranged_with_support() {
         // Буревестник: melee + thunderstrike (5 mana AoE) + heal (2 mana).
         // Expected: Ranged dominant (thunderstrike weight 6), Support secondary.
-        let db = db();
-        let p = infer_profile(&ids(&["melee_attack", "thunderstrike", "heal"]), 14, 1, &db);
+        let (db, ac) = db_with_cache();
+        let p = infer_profile(&ids(&["melee_attack", "thunderstrike", "heal"]), 14, 1, &db, &ac);
         assert_eq!(dominant(&p), "Ranged", "profile: {:?}", p);
         assert!(p.support > 0.0, "heal should contribute: {:?}", p);
         let mix = p.biased_normalized();
@@ -488,8 +487,8 @@ mod tests {
     fn infer_starshina_is_support() {
         // Старшина: melee + heal + burn + spark. hp 22, armor 3.
         // Expected: Support dominant (heal weight 3 + tank stat bonus not enough to overtake).
-        let db = db();
-        let p = infer_profile(&ids(&["melee_attack", "heal", "burn", "spark"]), 22, 3, &db);
+        let (db, ac) = db_with_cache();
+        let p = infer_profile(&ids(&["melee_attack", "heal", "burn", "spark"]), 22, 3, &db, &ac);
         assert!(p.support > 0.0);
         // Support might lose to Tank due to stat bonus. Check it's either top or close.
         let dom = dominant(&p);
@@ -503,14 +502,229 @@ mod tests {
     fn infer_stormborn_warrior_is_tank_melee() {
         // Stormborn Воин: only melee, hp 18, armor 2.
         // Expected: Tank + Melee mix (brawler).
-        let db = db();
-        let p = infer_profile(&ids(&["melee_attack"]), 18, 2, &db);
+        let (db, ac) = db_with_cache();
+        let p = infer_profile(&ids(&["melee_attack"]), 18, 2, &db, &ac);
         assert!(p.melee > 0.5, "should have melee vote: {:?}", p);
         assert!(p.tank > 0.5, "stat-based tank should be present: {:?}", p);
         let dom = dominant(&p);
         assert!(
             dom == "Tank" || dom == "Melee",
             "expected Tank or Melee, got {}", dom
+        );
+    }
+
+    // ── New tests: parity + override ────────────────────────────────────
+
+    /// Compare `tag_axis_vote` (9.B) against the pre-9.B `ability_vote` for every
+    /// ability in abilities.toml.  7 abilities shift intentionally (semantic improvements);
+    /// all remaining ≥11 must be byte-identical to legacy.
+    ///
+    /// Intended shifts:
+    ///   taunt      — DEFENSIVE+PEEL hits Peel branch → [0.7,0,0,0,0.3] vs legacy Tank [1,0,0,0,0]
+    ///   rush       — MOBILITY is aggro move, not self-buff → [0,0.9,0,0,0] vs legacy Tank [3,0,0,0,0]
+    ///   move       — utility toggle has empty tags → [0,0,0,0,0] vs legacy Tank [1,0,0,0,0]
+    ///   rest       — resource restore has empty tags → [0,0,0,0,0] vs legacy Tank [1,0,0,0,0]
+    ///   burn       — DOT status is not CC → empty [0,0,0,0,0] vs legacy Control [0,0,0,2,0]
+    ///   backstab   — DOT(poison) on damage is not CC → [0,3,0,0,0] vs legacy [0,3,0,1.2,0]
+    ///   poison_shot — DOT(poison) on ranged damage is not CC → [0,0,4,0,0] vs legacy [0,0,4,1.6,0]
+    #[test]
+    fn tag_axis_vote_diff_from_legacy_is_intended() {
+        use crate::combat::ai::tags::cache::build_caches;
+        use crate::content::abilities::{EffectDef, TargetType, AoEShape};
+        use std::collections::HashMap;
+
+        let content = ContentView::load_global_for_tests();
+        let (_, ac) = build_caches(&content);
+
+        // Inline copy of pre-9.B ability_vote logic (removed in 9.B).
+        fn legacy_ability_vote(def: &crate::content::abilities::AbilityDef) -> [f32; 5] {
+            let cost: f32 = def.costs.iter().map(|c| c.amount as f32).sum();
+            let weight = 1.0 + cost;
+            let mut v = [0.0f32; 5];
+
+            let has_damage = matches!(
+                def.effect,
+                EffectDef::Damage { .. } | EffectDef::SpellDamage { .. } | EffectDef::WeaponAttack,
+            );
+
+            if def.target_type == TargetType::SingleAlly
+                && matches!(def.effect, EffectDef::Heal { .. })
+            {
+                v[4] += weight;
+                return v;
+            }
+            if matches!(def.effect, EffectDef::Summon { .. }) {
+                v[4] += weight * 0.7;
+                v[2] += weight * 0.3;
+                return v;
+            }
+            if def.target_type == TargetType::Myself && !has_damage {
+                v[0] += weight;
+                return v;
+            }
+            if has_damage {
+                let is_spell = matches!(def.effect, EffectDef::SpellDamage { .. });
+                let is_aoe = def.aoe != AoEShape::None;
+                let is_ranged_phys = def.range.min >= 2;
+                if is_aoe || is_spell || is_ranged_phys {
+                    v[2] += weight;
+                } else {
+                    v[1] += weight;
+                }
+                if !def.statuses.is_empty() {
+                    v[3] += weight * 0.4;
+                }
+                return v;
+            }
+            if !def.statuses.is_empty() {
+                v[3] += weight;
+                return v;
+            }
+            v[1] += weight * 0.3;
+            v
+        }
+
+        // Expected divergences: (new_axis_vote, rationale).
+        // Values must match tag_axis_vote output exactly (same weight formula: 1+cost).
+        let expected_shifts: HashMap<&str, ([f32; 5], &str)> = [
+            (
+                "taunt",
+                (
+                    [0.7, 0.0, 0.0, 0.0, 0.3],
+                    "DEFENSIVE+PEEL → Peel branch (Tank 0.7 + Support 0.3); \
+                     legacy Myself+no-damage → pure Tank was inaccurate for an aggro-redirect",
+                ),
+            ),
+            (
+                "rush",
+                (
+                    [0.0, 0.90000004, 0.0, 0.0, 0.0],
+                    "MOBILITY → Melee 0.3×weight(3)=0.9; \
+                     legacy Myself+no-damage → Tank 3 was wrong — rush is an aggressive mobility tool",
+                ),
+            ),
+            (
+                "move",
+                (
+                    [0.0, 0.0, 0.0, 0.0, 0.0],
+                    "ToggleMoveMode → empty tags → zero vote; \
+                     legacy Myself+no-damage → Tank 1 was noise (utility, not defensive)",
+                ),
+            ),
+            (
+                "rest",
+                (
+                    [0.0, 0.0, 0.0, 0.0, 0.0],
+                    "RestoreResources → empty tags → zero vote; \
+                     legacy Myself+no-damage → Tank 1 was noise (utility, not defensive)",
+                ),
+            ),
+            (
+                "burn",
+                (
+                    [0.0, 0.0, 0.0, 0.0, 0.0],
+                    "Applies Burning(Cosmetic) — not Buff, not CC → empty tags → zero vote; \
+                     legacy !statuses.is_empty() → Control 2 was wrong (DOT ≠ crowd-control)",
+                ),
+            ),
+            (
+                "backstab",
+                (
+                    [0.0, 3.0, 0.0, 0.0, 0.0],
+                    "OFFENSIVE melee; Poisoned(DOT) is not CC → no ApplyCC tag → pure Melee 3; \
+                     legacy damage+statuses → +Control 1.2 spuriously (DOT ≠ CC)",
+                ),
+            ),
+            (
+                "poison_shot",
+                (
+                    [0.0, 0.0, 4.0, 0.0, 0.0],
+                    "OFFENSIVE ranged; Poisoned(DOT) is not CC → no ApplyCC tag → pure Ranged 4; \
+                     legacy damage+statuses → +Control 1.6 spuriously (DOT ≠ CC)",
+                ),
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        let mut unexpected: Vec<String> = Vec::new();
+        let mut parity_count = 0usize;
+
+        for (id, def) in &content.abilities {
+            let id_str = id.0.as_str();
+            let cost: f32 = def.costs.iter().map(|c| c.amount as f32).sum();
+            let weight = 1.0 + cost;
+            let tags = ac.effective(id);
+            let new_vote = tag_axis_vote(tags, def, weight);
+            let legacy_vote = legacy_ability_vote(def);
+
+            let differs = new_vote.iter().zip(legacy_vote.iter())
+                .any(|(a, b)| (a - b).abs() > 1e-6);
+
+            if !differs {
+                parity_count += 1;
+                continue;
+            }
+
+            if let Some((expected_new, rationale)) = expected_shifts.get(id_str) {
+                // Verify the new vote matches the pinned expected value.
+                let new_matches = new_vote.iter().zip(expected_new.iter())
+                    .all(|(a, b)| (a - b).abs() < 1e-5);
+                assert!(
+                    new_matches,
+                    "{}: new vote changed — expected {:?} but got {:?}\n  rationale: {}",
+                    id_str, expected_new, new_vote, rationale
+                );
+                // Verify legacy indeed differs (documents the divergence is real).
+                let legacy_differs_from_new = expected_new.iter().zip(legacy_vote.iter())
+                    .any(|(a, b)| (a - b).abs() > 1e-6);
+                assert!(
+                    legacy_differs_from_new,
+                    "{}: expected legacy to differ from new vote {:?}, but they're equal",
+                    id_str, expected_new
+                );
+            } else {
+                unexpected.push(format!(
+                    "{}: new={:?} legacy={:?}",
+                    id_str, new_vote, legacy_vote
+                ));
+            }
+        }
+
+        assert!(
+            unexpected.is_empty(),
+            "unexpected parity divergences (not in expected_shifts):\n{}",
+            unexpected.iter().map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n")
+        );
+
+        assert!(
+            parity_count >= 11,
+            "expected parity for ≥11 abilities (18 total, 7 intended shifts), got {}",
+            parity_count
+        );
+    }
+
+    /// Actor with ability `melee_attack` overridden to `[support]`
+    /// must yield AxisProfile with dominant = Support.
+    #[test]
+    fn infer_profile_uses_override_when_set() {
+        use crate::combat::ai::tags::cache::build_caches;
+
+        let mut content = ContentView::load_global_for_tests();
+        let id = AbilityId::from("melee_attack");
+        if let Some(def) = content.abilities.get_mut(&id) {
+            def.ai_tags_override = Some(vec!["rescue".to_string()]);
+        }
+        let (_, ac) = build_caches(&content);
+
+        // hp 10, armor 0 → stat tank = (10+0)/20 = 0.5 (clamped to 0.3 min → 0.5)
+        // melee_attack override = Rescue → Support 1.0 (weight 1.0)
+        // Total: Tank=0.5, Support=1.0 → dominant = Support
+        let p = infer_profile(&ids(&["melee_attack"]), 10, 0, &content, &ac);
+        assert_eq!(
+            dominant(&p),
+            "Support",
+            "override to rescue should make Support dominant: {:?}", p
         );
     }
 }
