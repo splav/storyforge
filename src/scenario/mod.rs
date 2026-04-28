@@ -57,6 +57,14 @@ pub fn enter_scenario_at(
     // correct (possibly-overridden) abilities/statuses/weapons/etc.
     commands.insert_resource(ActiveContent(scen.content.clone()));
 
+    // Build AI tag caches from the content view and insert them as Resources.
+    // StatusTagCache is built first (no deps); AbilityTagCache uses it for
+    // Defensive/ApplyCC/Peel classification.
+    let (status_tags, ability_tags) =
+        crate::combat::ai::tags::cache::build_caches(&scen.content);
+    commands.insert_resource(status_tags);
+    commands.insert_resource(ability_tags);
+
     match &scen.scenes[scene_index] {
         SceneDef::Story { .. } => next_state.set(AppState::Story),
         SceneDef::Combat { .. } => next_state.set(AppState::Combat),
