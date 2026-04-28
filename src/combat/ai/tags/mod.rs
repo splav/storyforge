@@ -157,27 +157,34 @@ pub enum StatusTag {
     SoftCC,
     Dot,
     Buff,
+    /// Step 9.B: derived from `forces_targeting = true` (taunted-like statuses).
+    /// Set in parallel with other tags; replaces the Cosmetic fallback when it
+    /// is the sole distinguishing property.
+    /// Treated as Invalidating by `repair::classify_mismatch` (commit 3).
+    Compulsion,
     Cosmetic,
 }
 
 impl StatusTag {
     pub fn name(self) -> &'static str {
         match self {
-            Self::HardCC   => "hard_cc",
-            Self::SoftCC   => "soft_cc",
-            Self::Dot      => "dot",
-            Self::Buff     => "buff",
-            Self::Cosmetic => "cosmetic",
+            Self::HardCC    => "hard_cc",
+            Self::SoftCC    => "soft_cc",
+            Self::Dot       => "dot",
+            Self::Buff      => "buff",
+            Self::Compulsion => "compulsion",
+            Self::Cosmetic  => "cosmetic",
         }
     }
 
     pub fn from_name(s: &str) -> Option<Self> {
         match s {
-            "hard_cc"  => Some(Self::HardCC),
-            "soft_cc"  => Some(Self::SoftCC),
-            "dot"      => Some(Self::Dot),
-            "buff"     => Some(Self::Buff),
-            "cosmetic" => Some(Self::Cosmetic),
+            "hard_cc"    => Some(Self::HardCC),
+            "soft_cc"    => Some(Self::SoftCC),
+            "dot"        => Some(Self::Dot),
+            "buff"       => Some(Self::Buff),
+            "compulsion" => Some(Self::Compulsion),
+            "cosmetic"   => Some(Self::Cosmetic),
             _ => None,
         }
     }
@@ -185,18 +192,20 @@ impl StatusTag {
     /// Iteration order = bitset write order = JSON list order.
     /// Pinned by `status_tag_set_iter_order_is_stable`.
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::HardCC, Self::SoftCC, Self::Dot, Self::Buff, Self::Cosmetic].into_iter()
+        [Self::HardCC, Self::SoftCC, Self::Dot, Self::Buff, Self::Compulsion, Self::Cosmetic].into_iter()
     }
 }
 
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
     pub struct StatusTagSet: u8 {
-        const HARD_CC  = 0b0000_0001;
-        const SOFT_CC  = 0b0000_0010;
-        const DOT      = 0b0000_0100;
-        const BUFF     = 0b0000_1000;
-        const COSMETIC = 0b0001_0000;
+        const HARD_CC   = 0b0000_0001;
+        const SOFT_CC   = 0b0000_0010;
+        const DOT       = 0b0000_0100;
+        const BUFF      = 0b0000_1000;
+        /// Step 9.B: set when `forces_targeting = true` on the status def.
+        const COMPULSION = 0b0010_0000;
+        const COSMETIC  = 0b0001_0000;
     }
 }
 
@@ -223,11 +232,12 @@ impl StatusTagSet {
 
     fn tag_bit(t: StatusTag) -> Self {
         match t {
-            StatusTag::HardCC   => Self::HARD_CC,
-            StatusTag::SoftCC   => Self::SOFT_CC,
-            StatusTag::Dot      => Self::DOT,
-            StatusTag::Buff     => Self::BUFF,
-            StatusTag::Cosmetic => Self::COSMETIC,
+            StatusTag::HardCC     => Self::HARD_CC,
+            StatusTag::SoftCC     => Self::SOFT_CC,
+            StatusTag::Dot        => Self::DOT,
+            StatusTag::Buff       => Self::BUFF,
+            StatusTag::Compulsion => Self::COMPULSION,
+            StatusTag::Cosmetic   => Self::COSMETIC,
         }
     }
 }
@@ -278,7 +288,7 @@ mod tests {
         let tags: Vec<StatusTag> = StatusTag::iter().collect();
         assert_eq!(tags, vec![
             StatusTag::HardCC, StatusTag::SoftCC, StatusTag::Dot,
-            StatusTag::Buff,   StatusTag::Cosmetic,
+            StatusTag::Buff,   StatusTag::Compulsion, StatusTag::Cosmetic,
         ]);
     }
 

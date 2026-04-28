@@ -33,14 +33,13 @@ impl StatusTagLookup for HashMap<StatusId, StatusTagSet> {
 /// Derive AI semantic tags from a status definition. Pure — no side effects.
 ///
 /// Rule summary:
-/// - HardCC:  `skips_turn`
-/// - SoftCC:  `causes_disadvantage || speed_bonus < 0`
-/// - Dot:     `dot_dice.is_some() || hp_percent_dot > 0`
-/// - Buff:    `buff_class.is_some() || armor_bonus > 0`
-/// - Cosmetic: fallback when none of the above apply
-///
-/// Note: `forces_targeting` is intentionally not mapped to any StatusTag —
-/// it's a raw shape flag used by the ability-side Peel classifier via `status_defs`.
+/// - HardCC:     `skips_turn`
+/// - SoftCC:     `causes_disadvantage || speed_bonus < 0`
+/// - Dot:        `dot_dice.is_some() || hp_percent_dot > 0`
+/// - Buff:       `buff_class.is_some() || armor_bonus > 0`
+/// - Compulsion: `forces_targeting` — overrides targeting (taunt-like).
+///   Set in parallel with other tags; suppresses the Cosmetic fallback.
+/// - Cosmetic:   fallback when none of the above apply (including Compulsion)
 pub fn derive_status_tags(def: &StatusDef) -> StatusTagSet {
     let mut s = StatusTagSet::empty();
     if def.skips_turn {
@@ -55,6 +54,10 @@ pub fn derive_status_tags(def: &StatusDef) -> StatusTagSet {
     if def.buff_class.is_some() || def.armor_bonus > 0 {
         s.insert_tag(StatusTag::Buff);
     }
+    if def.forces_targeting {
+        s.insert_tag(StatusTag::Compulsion);
+    }
+    // Cosmetic fallback: only when no other tag was set (Compulsion included).
     if s.is_empty() {
         s.insert_tag(StatusTag::Cosmetic);
     }
@@ -210,8 +213,9 @@ mod tests {
     fn derive_status_tags_for_taunted() {
         let content = load_content();
         let def = status_def("taunted", &content);
-        // forces_targeting=true — not a StatusTag; no other AI-side fields → COSMETIC
-        assert_eq!(derive_status_tags(&def), StatusTagSet::COSMETIC);
+        // forces_targeting=true → COMPULSION (step 9.B); no other AI-side fields;
+        // Cosmetic fallback is suppressed because Compulsion is set.
+        assert_eq!(derive_status_tags(&def), StatusTagSet::COMPULSION);
     }
 
     #[test]
@@ -549,5 +553,43 @@ mod tests {
         let r1 = derive_ability_tags(&def, &lookup, &content.statuses);
         let r2 = derive_ability_tags(&def, &lookup, &content.statuses);
         assert_eq!(r1, r2, "classifier must be deterministic / pure");
+    }
+
+    // ── Step 9.B: Compulsion tests ────────────────────────────────────────────
+
+    /// Pin test (9.B): `taunted` has `forces_targeting=true` → tag set must
+    /// contain `Compulsion` and NOT contain `Cosmetic`.
+    #[test]
+    fn derive_status_tags_taunted_has_compulsion() {
+        let content = load_content();
+        let def = status_def("taunted", &content);
+        let tags = derive_status_tags(&def);
+        assert!(tags.contains_tag(StatusTag::Compulsion), "taunted must have Compulsion");
+        assert!(!tags.contains_tag(StatusTag::Cosmetic), "taunted must NOT have Cosmetic when Compulsion is set");
+    }
+
+    /// Generic test (9.B): any status with `forces_targeting=true` (and no other
+    /// AI-side fields) receives `Compulsion` as its sole tag; Cosmetic is suppressed.
+    #[test]
+    fn derive_status_tags_compulsion_set_for_forces_targeting() {
+        let def = StatusDef {
+            id: crate::core::StatusId::from("test_compulsion"),
+            name: "test_compulsion".to_string(),
+            forces_targeting: true,
+            // All other fields at their zero/None values — pure forces_targeting effect.
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            skips_turn: false,
+            dot_dice: None,
+            blocks_mana_abilities: false,
+            speed_bonus: 0,
+            hp_percent_dot: 0,
+            ai_controlled: false,
+            causes_disadvantage: false,
+            buff_class: None,
+        };
+        let tags = derive_status_tags(&def);
+        assert_eq!(tags, StatusTagSet::COMPULSION, "sole forces_targeting → only Compulsion");
+        assert!(!tags.contains_tag(StatusTag::Cosmetic), "Cosmetic must be suppressed by Compulsion");
     }
 }

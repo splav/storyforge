@@ -14,6 +14,8 @@ pub use affinity::{RepairAffinity, RepairWeights, compute_repair_affinity};
 pub mod lifecycle;
 
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+use crate::combat::ai::snapshot::ActiveStatusView;
+use crate::core::StatusId;
 use serde::{Deserialize, Serialize};
 
 /// Semantic severity of a detected state mismatch between a stored plan
@@ -276,6 +278,47 @@ pub fn is_abandoned_outcome(outcome: &ContinuationOutcome) -> bool {
             | ContinuationOutcome::GoalAbandonedReactive { .. }
             | ContinuationOutcome::LegacyV25Abandoned { .. }
     )
+}
+
+// ── Status delta (step 9.B) ───────────────────────────────────────────────────
+
+/// Diff between the status set stored at plan-capture time and the current
+/// actor status set.
+///
+/// Used in commit 3 by `classify_mismatch` to determine the severity of an
+/// `actor_status_changed` mismatch without hard-coding severity per code.
+/// Introduced here (commit 0) as a pure shared helper; no consumers yet.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StatusDelta {
+    /// Status ids present in `current` but absent in `stored`.
+    pub added: Vec<StatusId>,
+    /// Status ids present in `stored` but absent in `current`.
+    pub removed: Vec<StatusId>,
+}
+
+/// Compute the diff between a stored status list and the current one.
+///
+/// Pure — no side effects, no allocations beyond the returned vecs.
+/// `stored` is a snapshot of `StatusId`s captured when the plan was made;
+/// `current` is the live `ActiveStatusView` slice on the actor right now.
+///
+/// The function compares **presence** only (not round counts / dot values),
+/// which is what matters for goal-validity classification.
+pub fn compute_status_delta(
+    stored: &[StatusId],
+    current: &[ActiveStatusView],
+) -> StatusDelta {
+    let added: Vec<StatusId> = current
+        .iter()
+        .filter(|av| !stored.contains(&av.id))
+        .map(|av| av.id.clone())
+        .collect();
+    let removed: Vec<StatusId> = stored
+        .iter()
+        .filter(|sid| !current.iter().any(|av| &av.id == *sid))
+        .cloned()
+        .collect();
+    StatusDelta { added, removed }
 }
 
 #[cfg(test)]
@@ -616,5 +659,43 @@ mod tests {
         );
         assert_eq!(outcome, ContinuationOutcome::GoalAbandonedInvalidating);
         assert!(is_goal_obsolete(&outcome), "invalidating goal must be cleared");
+    }
+
+    // ── StatusDelta tests (step 9.B commit 0) ────────────────────────────────
+
+    fn sid(s: &str) -> StatusId { StatusId::from(s) }
+
+    fn active_status(id: &str) -> ActiveStatusView {
+        ActiveStatusView { id: sid(id), rounds_remaining: 1, dot_per_tick: 0 }
+    }
+
+    /// New status present in `current` but not in `stored` → shows up in `added`.
+    #[test]
+    fn compute_status_delta_added_diff() {
+        let stored = vec![sid("burning")];
+        let current = vec![active_status("burning"), active_status("stunned")];
+        let delta = compute_status_delta(&stored, &current);
+        assert_eq!(delta.added, vec![sid("stunned")]);
+        assert!(delta.removed.is_empty());
+    }
+
+    /// Status present in `stored` but gone from `current` → shows up in `removed`.
+    #[test]
+    fn compute_status_delta_removed_diff() {
+        let stored = vec![sid("burning"), sid("poisoned")];
+        let current = vec![active_status("burning")];
+        let delta = compute_status_delta(&stored, &current);
+        assert!(delta.added.is_empty());
+        assert_eq!(delta.removed, vec![sid("poisoned")]);
+    }
+
+    /// Same status set (only counter may differ) → both `added` and `removed` empty.
+    #[test]
+    fn compute_status_delta_pure_tick_empty() {
+        let stored = vec![sid("burning"), sid("poisoned")];
+        let current = vec![active_status("burning"), active_status("poisoned")];
+        let delta = compute_status_delta(&stored, &current);
+        assert!(delta.added.is_empty(), "no new statuses");
+        assert!(delta.removed.is_empty(), "no removed statuses");
     }
 }

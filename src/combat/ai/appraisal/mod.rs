@@ -16,7 +16,26 @@ use serde::{Deserialize, Serialize};
 use crate::combat::ai::intent::{AiMemory, IntentKind};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::tags::{AbilityTagCache, StatusTagCache};
 use crate::combat::ai::tuning::AiTuning;
+use crate::content::content_view::ContentView;
+
+/// Grouping struct for all read-only inputs to `compute_need_signals`.
+///
+/// Introduced in step 9.B commit 0 — type definition only.
+/// No production code reads this struct in commit 0; it will be wired up in
+/// commit 2 when `compute_need_signals` gains `rescue_ally` / `apply_cc`
+/// producers that need tag-cache access.
+pub struct AppraisalCtx<'a> {
+    pub active:       &'a UnitSnapshot,
+    pub snap:         &'a BattleSnapshot,
+    pub maps:         &'a InfluenceMaps,
+    pub memory:       &'a AiMemory,
+    pub tuning:       &'a AiTuning,
+    pub ability_tags: &'a AbilityTagCache,
+    pub status_tags:  &'a StatusTagCache,
+    pub content:      &'a ContentView,
+}
 
 /// Normalised need-signal vector. Each field in [0, 1] semantically; producer
 /// clamps. Five signals are populated in step 3.1 (`self_preserve`,
