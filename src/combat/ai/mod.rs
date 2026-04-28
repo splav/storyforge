@@ -1,5 +1,6 @@
 pub mod action_state;
 pub mod modifiers;
+pub mod tags;
 pub mod pipeline;
 pub mod appraisal;
 pub mod log;

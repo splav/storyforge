@@ -119,6 +119,7 @@ mod tests {
             magic_domains: vec![],
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         }
     }
 

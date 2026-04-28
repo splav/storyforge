@@ -701,6 +701,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         }
     }
 
@@ -1047,6 +1048,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         }
     }
 
@@ -1069,6 +1071,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         }
     }
 
@@ -1087,6 +1090,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         }
     }
 
@@ -1409,6 +1413,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
 
         let mut content = empty_content();
@@ -1531,6 +1536,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
 
         let mut content = empty_content();
@@ -1617,6 +1623,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
 
         let mut content = empty_content();
@@ -1672,6 +1679,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
 
         let mut content = empty_content();
@@ -1722,6 +1730,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
 
         let mut content = empty_content();

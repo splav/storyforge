@@ -727,6 +727,7 @@ mod tests {
             magic_domains: vec![],
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         }
     }
 
@@ -747,6 +748,7 @@ mod tests {
             magic_domains: vec![],
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         }
     }
 
@@ -774,6 +776,7 @@ mod tests {
             magic_domains: vec![],
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
         let status = StatusDef {
             id: status_id,
@@ -810,6 +813,7 @@ mod tests {
             magic_domains: vec![],
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         }
     }
 

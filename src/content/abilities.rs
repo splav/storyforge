@@ -83,6 +83,11 @@ pub struct AbilityDef {
     pub magic_method: String,
     /// Custom hotkey (e.g. "M", "R"). Abilities with keys are universal (available to all).
     pub key: Option<String>,
+    /// Optional override for AI semantic tags (replaces derived, not appends).
+    /// `Some(vec![])` = explicitly empty tag set. `None` = use derived tags.
+    /// Tag-name strings are validated (panic on unknown) in `tags::cache::build_caches`.
+    /// Stored raw here to avoid content layer depending on the AI layer.
+    pub ai_tags_override: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +250,8 @@ struct AbilityRecord {
     summon_template: Option<String>,
     #[serde(default)]
     summon_max_active: Option<u32>,
+    #[serde(default)]
+    ai_tags_override: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -376,6 +383,7 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                 magic_domains: r.magic_domains,
                 magic_method: r.magic_method,
                 key: r.key,
+                ai_tags_override: r.ai_tags_override,
             }
         })
         .collect()

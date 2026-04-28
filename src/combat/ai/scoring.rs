@@ -328,6 +328,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         }
     }
 
@@ -346,6 +347,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         }
     }
 
@@ -433,6 +435,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
         let content = content_with(vec![ping.clone()]);
         let abilities = Abilities(vec![ping.id.clone()]);

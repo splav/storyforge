@@ -1273,6 +1273,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
         let melee = AbilityDef {
             id: AbilityId::from("melee_attack"),
@@ -1288,6 +1289,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
         content.abilities.insert(stun_shot.id.clone(), stun_shot.clone());
         content.abilities.insert(melee.id.clone(), melee.clone());
@@ -1374,6 +1376,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
         let weak = AbilityDef {
             id: AbilityId::from("weak_hit"),
@@ -1389,6 +1392,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
         content.abilities.insert(strong.id.clone(), strong.clone());
         content.abilities.insert(weak.id.clone(), weak.clone());
@@ -1477,6 +1481,7 @@ mod tests {
             magic_domains: Vec::new(),
             magic_method: String::new(),
             key: None,
+            ai_tags_override: None,
         };
         content.abilities.insert(hit.id.clone(), hit);
 
@@ -1728,6 +1733,7 @@ mod tests {
                 magic_domains: Vec::new(),
                 magic_method: String::new(),
                 key: None,
+                ai_tags_override: None,
             }
         }
 
@@ -1746,6 +1752,7 @@ mod tests {
                 magic_domains: Vec::new(),
                 magic_method: String::new(),
                 key: None,
+                ai_tags_override: None,
             }
         }
 
