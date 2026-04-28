@@ -99,7 +99,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
-        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache() };
+        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache(), status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache() };
 
         // last_goal = None (make_scoring_ctx default).
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
@@ -150,7 +150,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
-        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache() };
+        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache(), status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache() };
 
         let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
         let stored_goal = make_stored_goal(target_entity, pos);
@@ -239,7 +239,7 @@ mod tests {
         let bonus_scale_zero = {
             let mut tuning = AiTuning::default();
             tuning.thresholds.repair_bonus_scale = 0.0;
-            let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache() };
+            let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache(), status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache() };
             let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
             scoring.last_goal = Some(&stored_goal);
             scoring.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
@@ -258,7 +258,7 @@ mod tests {
         let bonus_scale_04 = {
             let mut tuning = AiTuning::default();
             tuning.thresholds.repair_bonus_scale = 0.4;
-            let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache() };
+            let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache(), status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache() };
             let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
             scoring.last_goal = Some(&stored_goal);
             scoring.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
@@ -295,7 +295,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
-        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache() };
+        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache(), status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache() };
 
         let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();
         let stored_goal = make_stored_goal(target_entity, pos);

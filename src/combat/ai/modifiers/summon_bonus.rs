@@ -102,7 +102,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
-        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache() };
+        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache(), status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache() };
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         let mut rng = crate::core::rng::DiceRng::default();
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
@@ -147,7 +147,7 @@ mod tests {
 
         let EffectDef::Summon { template, max_active } = &summon_def.effect else { unreachable!() };
 
-        let world = AiWorld { content: &real_content, difficulty: &difficulty, tuning: &real_content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache() };
+        let world = AiWorld { content: &real_content, difficulty: &difficulty, tuning: &real_content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache(), status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache() };
         // Actor with no existing summons, no other allies.
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);

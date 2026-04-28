@@ -138,6 +138,9 @@ pub struct AiWorld<'a> {
     /// Step 9.A: tag cache for effective_ai_tags writeback in pick_action.
     /// Default (empty) value is used in test contexts via `make_test_ctx`.
     pub ability_tags: &'a crate::combat::ai::tags::AbilityTagCache,
+    /// Step 9.B commit 2: status tag cache for `compute_apply_cc` (HardCC filter).
+    /// Default (empty) value is used in test contexts via `make_test_ctx`.
+    pub status_tags: &'a crate::combat::ai::tags::StatusTagCache,
 }
 
 /// Bundle of every read-only context the scoring layer touches. Replaces
@@ -232,9 +235,17 @@ pub fn pick_action(
     };
 
     // Compute need signals once per actor.
-    let need_signals = crate::combat::ai::appraisal::compute_need_signals(
-        active, snap, maps, memory, world.tuning,
-    );
+    let appraisal_ctx = crate::combat::ai::appraisal::AppraisalCtx {
+        active,
+        snap,
+        maps,
+        memory,
+        tuning: world.tuning,
+        ability_tags: world.ability_tags,
+        status_tags: world.status_tags,
+        content: world.content,
+    };
+    let need_signals = crate::combat::ai::appraisal::compute_need_signals(&appraisal_ctx);
 
     // ── Select tactical intent ──────────────────────────────────────────
     let choice = select_intent(active, snap, maps, memory, world.difficulty, world.tuning, &need_signals);
@@ -524,7 +535,7 @@ mod tests {
         use_content_cache: bool,
     ) -> Vec<crate::combat::ai::outcome::PlanAnnotation> {
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let (_, ability_tag_cache) = build_caches(&content);
+        let (status_tag_cache, ability_tag_cache) = build_caches(&content);
         let difficulty = DifficultyProfile::default();
 
         let actor_pos = hex_from_offset(0, 0);
@@ -548,6 +559,8 @@ mod tests {
             crit_fail_chance: 0.0,
             ability_tags: if use_content_cache { &ability_tag_cache }
                           else { crate::combat::ai::test_helpers::empty_ability_tag_cache() },
+            status_tags: if use_content_cache { &status_tag_cache }
+                         else { crate::combat::ai::test_helpers::empty_status_tag_cache() },
         };
         let memory = crate::combat::ai::intent::AiMemory::default();
         let mut rng = DiceRng::with_seed(0);
@@ -614,7 +627,7 @@ mod tests {
         if let Some(def) = content.abilities.get_mut(&ability_id) {
             def.ai_tags_override = Some(vec!["mobility".to_string()]);
         }
-        let (_, ability_tag_cache) = build_caches(&content);
+        let (status_tag_cache, ability_tag_cache) = build_caches(&content);
 
         let difficulty = DifficultyProfile::default();
         let actor_pos = hex_from_offset(0, 0);
@@ -637,6 +650,7 @@ mod tests {
             tuning: &content.ai_tuning,
             crit_fail_chance: 0.0,
             ability_tags: &ability_tag_cache,
+            status_tags: &status_tag_cache,
         };
         let result = pick_action(
             actor.entity, actor_pos, &world, &snap, &maps, &mut rng,

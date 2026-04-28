@@ -223,17 +223,16 @@ pub fn assert_v28_log_file(
 
     let maps = build_influence_maps(&event.snapshot, actor, active.team, inf_cfg);
     let difficulty = DifficultyProfile::normal();
-    // Step 9.A: use content-derived cache for effective_ai_tags diagnostic.
-    let ability_tag_cache = {
-        let (_, ac) = crate::combat::ai::tags::cache::build_caches(content);
-        ac
-    };
+    // Step 9.A/9.B: use content-derived caches for tag-based logic.
+    let (status_tag_cache, ability_tag_cache) =
+        crate::combat::ai::tags::cache::build_caches(content);
     let world = AiWorld {
         content,
         difficulty: &difficulty,
         tuning: &content.ai_tuning,
         crit_fail_chance: 0.0,
         ability_tags: &ability_tag_cache,
+        status_tags: &status_tag_cache,
     };
     let memory = build_memory_from_overlay(&overlay);
     let reservations = Reservations::default();

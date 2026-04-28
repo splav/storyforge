@@ -29,6 +29,15 @@ pub(crate) fn empty_ability_tag_cache() -> &'static AbilityTagCache {
     EMPTY_ABILITY_TAG_CACHE.get_or_init(AbilityTagCache::default)
 }
 
+/// Shared empty `StatusTagCache` for test contexts that don't exercise
+/// status-tag logic. Lives in a `OnceLock` to satisfy the `'a` lifetime
+/// requirement in `AiWorld<'a>.status_tags` without caller cascade.
+static EMPTY_STATUS_TAG_CACHE: OnceLock<StatusTagCache> = OnceLock::new();
+
+pub(crate) fn empty_status_tag_cache() -> &'static StatusTagCache {
+    EMPTY_STATUS_TAG_CACHE.get_or_init(StatusTagCache::default)
+}
+
 /// Build an empty `(StatusTagCache, AbilityTagCache)` pair for test contexts
 /// that need to pass owned caches (e.g., `pick_action` integration tests).
 #[allow(dead_code)]
@@ -55,6 +64,7 @@ pub(crate) fn make_test_ctx<'a>(
         tuning: &content.ai_tuning,
         crit_fail_chance: 0.0,
         ability_tags: empty_ability_tag_cache(),
+        status_tags: empty_status_tag_cache(),
     }
 }
 
@@ -203,6 +213,10 @@ impl UnitBuilder {
     }
     pub fn crit_fail_effect(mut self, eff: CritFailEffect) -> Self {
         self.inner.crit_fail_effect = eff;
+        self
+    }
+    pub fn damage_horizon(mut self, horizon: Vec<f32>) -> Self {
+        self.inner.damage_horizon = horizon;
         self
     }
     pub fn build(self) -> UnitSnapshot {

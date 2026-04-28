@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::content::content_view::{ActiveContent, ContentView};
 use crate::combat::ai::debug::AiDebugState;
-use crate::combat::ai::tags::AbilityTagCache;
+use crate::combat::ai::tags::{AbilityTagCache, StatusTagCache};
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::AiMemory;
@@ -48,6 +48,8 @@ pub struct AiEnv<'w> {
     combat_ctx: Res<'w, CombatContext>,
     /// Step 9.A: tag cache for effective_ai_tags diagnostic writeback.
     ability_tags: Res<'w, AbilityTagCache>,
+    /// Step 9.B commit 2: status tag cache for `compute_apply_cc` HardCC filter.
+    status_tags: Res<'w, StatusTagCache>,
 }
 
 // ── Main system ────────────────────────────────────────────────────────────
@@ -106,6 +108,7 @@ fn run_ai_turn(
     let positions = &env.positions;
     let combat_ctx = &env.combat_ctx;
     let ability_tags: &AbilityTagCache = &env.ability_tags;
+    let status_tags: &StatusTagCache = &env.status_tags;
     let Some(actor_pos) = positions.get(&actor) else {
         warn!("AI: actor {:?} has no position, ending turn", actor);
         msgs.end_turn.write(EndTurn { actor });
@@ -194,6 +197,7 @@ fn run_ai_turn(
         tuning: &content.ai_tuning,
         crit_fail_chance,
         ability_tags,
+        status_tags,
     };
 
     // Build name map for debug / log.

@@ -139,13 +139,14 @@ fn golden_from_v28_event(
 
     let maps = build_influence_maps(&event.snapshot, actor, active.team, inf_cfg);
     let difficulty = DifficultyProfile::normal();
-    let (_, fn_ability_tag_cache) = build_caches(content);
+    let (fn_status_tag_cache, fn_ability_tag_cache) = build_caches(content);
     let world = AiWorld {
         content,
         difficulty: &difficulty,
         tuning: &content.ai_tuning,
         crit_fail_chance: 0.0,
         ability_tags: &fn_ability_tag_cache,
+        status_tags: &fn_status_tag_cache,
     };
     let memory = AiMemory::default();
     let reservations = Reservations::default();
@@ -356,8 +357,8 @@ fn main() {
         (global.to_path_buf(), global.to_path_buf())
     };
     let content = ContentView::load_layered(&campaign_dir, &scenario_dir);
-    // Step 9.A: pre-build tag cache once for all replay entries.
-    let (_, ability_tag_cache) = build_caches(&content);
+    // Step 9.A/9.B: pre-build tag caches once for all replay entries.
+    let (status_tag_cache, ability_tag_cache) = build_caches(&content);
     let inf_cfg = InfluenceConfig::default();
 
     // ── Assert mode ──────────────────────────────────────────────────────────
@@ -622,6 +623,7 @@ fn main() {
                 tuning: &content.ai_tuning,
                 crit_fail_chance: 0.0,
                 ability_tags: &ability_tag_cache,
+                status_tags: &status_tag_cache,
             };
             let memory = AiMemory::default();
             let reservations = Reservations::default();

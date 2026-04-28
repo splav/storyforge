@@ -63,6 +63,14 @@ pub struct Curves {
     pub reposition_pos_gain: ResponseCurve,
     /// Logistic over `mana_ratio` with `k < 0`. High at low resources.
     pub conserve_resource: ResponseCurve,
+    /// Step 9.B: logistic over `(1 - ally_hp_pct) × ally_threat_proxy ∈ [0, 1]`.
+    /// High when an endangered ally is threatened by nearby enemies.
+    // PROVISIONAL — recalibrate in step 9.C using v30 mining corpus.
+    pub rescue_ally: ResponseCurve,
+    /// Step 9.B: linear-clamped over best unstunned enemy `horizon_avg ∈ [0, 10]+`.
+    /// High when a high-DPR unstunned enemy is within reach.
+    // PROVISIONAL — recalibrate in step 9.C using v30 mining corpus.
+    pub apply_cc: ResponseCurve,
 }
 
 impl Default for Curves {
@@ -74,6 +82,10 @@ impl Default for Curves {
             finish_target_kill: ResponseCurve::Logistic { mid: 0.6, k: 6.0 },
             reposition_pos_gain: ResponseCurve::LinearClamped { x_lo: 0.05, x_hi: 0.5 },
             conserve_resource: ResponseCurve::Logistic { mid: 0.3, k: -10.0 },
+            // PROVISIONAL — recalibrate in step 9.C using v30 mining corpus.
+            rescue_ally: ResponseCurve::Logistic { mid: 0.4, k: 8.0 },
+            // PROVISIONAL — recalibrate in step 9.C using v30 mining corpus.
+            apply_cc: ResponseCurve::LinearClamped { x_lo: 2.0, x_hi: 10.0 },
         }
     }
 }

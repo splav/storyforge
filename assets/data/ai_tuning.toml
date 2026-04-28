@@ -145,3 +145,7 @@ continue_commitment_hp  = { kind = "logistic",       mid = 0.4,  k = 10.0  }
 finish_target_kill      = { kind = "logistic",       mid = 0.6,  k = 6.0   }
 reposition_pos_gain     = { kind = "linear_clamped", x_lo = 0.05, x_hi = 0.5 }
 conserve_resource       = { kind = "logistic",       mid = 0.3,  k = -10.0 }
+# Step 9.B — PROVISIONAL: recalibrate in step 9.C using v30 mining corpus.
+rescue_ally             = { kind = "logistic",       mid = 0.4,  k = 8.0   }
+# Step 9.B — PROVISIONAL: recalibrate in step 9.C using v30 mining corpus.
+apply_cc                = { kind = "linear_clamped", x_lo = 2.0, x_hi = 10.0 }
