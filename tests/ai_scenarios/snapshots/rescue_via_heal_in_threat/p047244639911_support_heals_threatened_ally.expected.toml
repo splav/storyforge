@@ -1,0 +1,24 @@
+# Smoke: rescue_via_heal_in_threat — healer кастует heal на ally с критическим HP.
+#
+# Actor: Грозорождённый Старшина (47244639911), Enemy team, hp=22/22, r=2.
+# Abilities: melee_attack, heal, burn, summon_storm_spirit.
+# Ally в danger: entity 111669149350, Enemy team, hp=1/14 (7%), pos=[-3, 5].
+# Враги (Player) в proximity: entity 68719476392 на pos=[-2, 3], bow_shot в range 2 до ally.
+#
+# AI выбирает ProtectAlly intent + cast heal на союзника с 7% HP.
+# intent_reason: protect_ally, ally_hp_pct=0.07, threshold=0.7, heal_identity=1.0.
+#
+# Это валидирует rescue_ally NeedSignal (step 9.B): при наличии союзника с
+# HP < threshold и healer-actor в kit'е AI переходит в ProtectAlly режим
+# вместо FocusTarget.
+#
+# Source: stormborn_camp playtest 2026-04-28 (v30), round=2, actor=47244639911.
+
+[scope]
+plan_id = 47244639911
+
+[[expectations]]
+decision_kind = ["CastInPlace", "MoveAndCast"]
+cast_ability = ["heal", "field_medic"]
+intent_kind = ["ProtectAlly"]
+primary_effect = ["Heal"]

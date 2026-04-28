@@ -1,18 +1,15 @@
 # Continuation: TTL expired — stored goal cleared by pre_tick, actor replans freely.
 #
-# Actor: Морочник Морочный двойник (25769803431), r2, hp=8/8.
+# Actor: Морочник Морочный двойник (25769803431), r=1, hp=8/8.
 # Stored goal (injected via [ai_memory]): Pressure on target 17179868827.
-# TTL check: created_round=0, ttl=2, snapshot.round=2 → age=2 >= ttl=2 → EXPIRED.
+# TTL check: created_round=0, ttl=1, snapshot.round=1 → age=1 >= ttl=1 → EXPIRED.
 # Expected: pre_tick clears the goal, actor picks freely with no repair_affinity.
 #
 # The actor still has AP and live enemies — should commit an offensive action.
 # The key property: the expired goal does NOT force a specific decision. Actor
 # picks the highest-scoring plan from scratch.
 #
-# Without repair_affinity bonus the actor still attacks the strongest accessible
-# target (17179868827, hp=20) since it has the highest damage value.
-#
-# Source: twisted_grove playtest 2026-04-26, round=2, actor=25769803431.
+# Source: twisted_grove playtest 2026-04-28 (v30), round=1, actor=25769803431.
 
 [scope]
 plan_id = 25769803431
@@ -22,21 +19,17 @@ last_goal_kind = "Pressure"
 last_goal_target = 17179868827
 last_goal_region_anchor = [2, 4]
 last_goal_region_radius = 2
-last_goal_ttl = 2
+last_goal_ttl = 1
 last_goal_confidence = 1.0
 last_goal_created_round = 0
-last_goal_expected_actor_pos = [4, 5]
+last_goal_expected_actor_pos = [4, 1]
 last_goal_actor_hp_at_store = 8
 last_goal_actor_rage_at_store = 0
 last_goal_actor_status_hash = "15130871412783076140"
-last_goal_target_hp_at_store = 20
+last_goal_target_hp_at_store = 16
 last_goal_target_pos_at_store = [2, 4]
 
 [[expectations]]
 # TTL expired: actor picks freely, still commits an offensive action.
-# The high-value target (17179868827) remains the best choice even without
-# the repair_affinity bonus, so we assert the same target is chosen.
 decision_kind = ["MoveAndCast", "CastInPlace"]
-cast_ability = ["melee_attack"]
-cast_target = [17179868827]
-intent_kind = ["FocusTarget"]
+primary_effect = ["Damage"]

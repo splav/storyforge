@@ -1,19 +1,20 @@
 # Continuation: SetupAOE injection не перебивает rescue_ally need.
 #
-# Actor: Грозорождённый Старшина (47244639911), r=2, hp=15/22.
+# Actor: Грозорождённый Старшина (47244639911), r=2, hp=22/22.
 # Injected SetupAOE memory с planned_ability=thunderstrike в позиции [1,3].
-# Реальное состояние tick'а: ally Грозорождённый Воин (64424509103) при
-# hp=11/18 — попадает в rescue_ally NeedSignal.
+# Реальное состояние tick'а: ally 111669149350 при hp=1/14 (7%) —
+# критический rescue_ally NeedSignal.
 #
-# AI выбирает CastInPlace heal на ally (FocusTarget на 64424509103) вместо
-# thunderstrike. Это корректный приоритет: rescue_ally + actor-as-support
-# axis weight перевешивают SetupAOE repair_affinity bonus.
+# AI выбирает CastInPlace heal на ally вместо thunderstrike. Это корректный
+# приоритет: rescue_ally + actor-as-support axis weight перевешивают
+# SetupAOE repair_affinity bonus.
 #
 # Сценарий validates что SetupAOE injection не заставляет actor'а слепо
 # спамить thunderstrike при наличии раненых allies — NeedSignals принимают
 # финальное решение.
 #
-# Source: rebuilt из v29 logs 27 апр 2026 (stormborn_camp playtest).
+# Source: stormborn_camp playtest 2026-04-28 (v30).
+# v30 rebuild: actor hp=22 (полный), ally entity изменился → hp_at_store обновлён.
 
 [scope]
 plan_id = 47244639911
@@ -27,7 +28,7 @@ last_goal_ttl = 2
 last_goal_confidence = 1.0
 last_goal_created_round = 1
 last_goal_expected_actor_pos = [1, 3]
-last_goal_actor_hp_at_store = 14
+last_goal_actor_hp_at_store = 22
 last_goal_actor_rage_at_store = 0
 last_goal_actor_status_hash = "15130871412783076140"
 last_goal_target_hp_at_store = 0

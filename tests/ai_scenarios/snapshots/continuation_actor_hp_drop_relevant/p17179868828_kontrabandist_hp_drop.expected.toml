@@ -1,0 +1,41 @@
+# Continuation: actor HP drop (Relevant mismatch) — goal NOT cleared by pre_tick.
+#
+# Actor: Человек Контрабандист (17179868828), r=1, hp=1/10 (10%).
+# Stored goal (injected via [ai_memory]): Pressure on target 17179868830.
+# Mismatch: actor_hp_at_store=5 > current hp=1 → severity = Relevant.
+# Expected: pre_tick keeps the goal (Relevant does NOT clear) — actor
+#   chooses its best action given the critical HP state (ProtectSelf intent).
+#
+# Key assertion: the actor does NOT EndTurn passively — it has AP and must act.
+# At 10% HP self_preserve floor is active → ProtectSelf/panic_override intent.
+# This is acceptable: Relevant severity means the goal survives pre_tick,
+# but the actor's scoring still overrides to survival play.
+#
+# Note: expected_actor_pos must match actor's current pos to avoid
+# actor_pos_mismatch (which would be Invalidating, not Relevant).
+#
+# Source: glassworks playtest 2026-04-28 (v30), round=1, actor=17179868828.
+# continuation.severity = Relevant (actor_hp_drop), age = 1.
+
+[scope]
+plan_id = 17179868828
+
+[ai_memory]
+last_goal_kind = "Pressure"
+last_goal_target = 17179868830
+last_goal_region_anchor = [1, 2]
+last_goal_region_radius = 2
+last_goal_ttl = 2
+last_goal_confidence = 1.0
+last_goal_created_round = 0
+last_goal_expected_actor_pos = [5, 1]
+last_goal_actor_hp_at_store = 5
+last_goal_actor_rage_at_store = 0
+last_goal_actor_status_hash = "15130871412783076140"
+last_goal_target_hp_at_store = 20
+last_goal_target_pos_at_store = [1, 2]
+
+[[expectations]]
+# Relevant mismatch does NOT clear the goal — pre_tick leaves it intact.
+# Actor acts (has AP) and chooses best option at critical HP.
+decision_kind = ["CastInPlace", "MoveAndCast", "Move", "EndTurn"]

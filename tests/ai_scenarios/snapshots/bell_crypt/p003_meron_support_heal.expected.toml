@@ -6,9 +6,11 @@
 # против атаки при наличии раненного ally.
 #
 # Source: rebuilt из v27 logs 20260426 (bell_crypt). v27: plan_id = actor_id.
+# v30 rebuild (2026-04-28): actor entity ID изменился в новом playtest
+# (55834574500 → 34359738029), поведение идентично: Мерон кастует heal на ally hp=4/12.
 
 [scope]
-plan_id = 55834574500
+plan_id = 34359738029
 
 [[expectations]]
 cast_ability = ["heal"]

@@ -4,9 +4,12 @@
 # Ожидание: Move или атака — Accept wide range.
 #
 # Source: rebuilt из v27 logs 20260426 (bell_crypt). v27: plan_id = actor_id.
+# v30 rebuild (2026-04-28): actor entity ID изменился (25769803418 → 34359738025).
+# Колокольный связанный в этом playtest стартует с hp=14/14 в r=1 → wide-range overlay
+# сохраняется (любой valid decision проходит).
 
 [scope]
-plan_id = 25769803418
+plan_id = 34359738025
 
 [[expectations]]
 decision_kind = ["Move", "EndTurn", "MoveAndCast", "CastInPlace"]
