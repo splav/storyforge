@@ -464,4 +464,47 @@ mod tests {
         let calc = EffectDef::WeaponAttack.calc(&c).unwrap();
         assert!((calc.expected() - 3.0).abs() < 0.01);
     }
+
+    // ── ai_tags_override parse tests ──────────────────────────────────────
+
+    #[test]
+    fn parse_abilities_default_override_is_none() {
+        // TOML without ai_tags_override field → None (via #[serde(default)])
+        let src = r#"
+[[abilities]]
+id          = "melee_attack"
+name        = "Strike"
+target_type = "single_enemy"
+effect      = "weapon_attack"
+range       = 1
+"#;
+        let defs = parse_abilities("test", src);
+        assert_eq!(defs.len(), 1);
+        assert!(
+            defs[0].ai_tags_override.is_none(),
+            "missing ai_tags_override must deserialise as None"
+        );
+    }
+
+    #[test]
+    fn parse_abilities_with_override_field_round_trip() {
+        // TOML with ai_tags_override → Some(vec![...])
+        let src = r#"
+[[abilities]]
+id               = "rush"
+name             = "Rush"
+target_type      = "myself"
+effect           = "grant_movement"
+distance         = 2
+range            = 0
+ai_tags_override = ["mobility"]
+"#;
+        let defs = parse_abilities("test", src);
+        assert_eq!(defs.len(), 1);
+        assert_eq!(
+            defs[0].ai_tags_override,
+            Some(vec!["mobility".to_string()]),
+            "ai_tags_override must round-trip through TOML deserialization"
+        );
+    }
 }
