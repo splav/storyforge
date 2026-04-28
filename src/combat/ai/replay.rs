@@ -379,6 +379,7 @@ fn build_memory_from_overlay(overlay: &Overlay) -> crate::combat::ai::intent::Ai
         actor_hp_at_store: mem_overlay.last_goal_actor_hp_at_store.unwrap_or(0),
         actor_rage_at_store: mem_overlay.last_goal_actor_rage_at_store.unwrap_or(0),
         actor_status_hash,
+        actor_statuses_at_store: vec![], // replay overlays don't supply status lists
         target_hp_at_store: mem_overlay.last_goal_target_hp_at_store.unwrap_or(0),
         target_pos_at_store: Hex { x: target_pos_raw[0], y: target_pos_raw[1] },
     };

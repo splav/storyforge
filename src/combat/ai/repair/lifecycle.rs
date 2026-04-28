@@ -8,12 +8,18 @@ use crate::combat::ai::repair::{
     is_abandoned_outcome, FreshDecisionKind,
 };
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::tags::StatusTagCache;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::utility::{AiDecision, ChosenInfo};
 
 /// Pre-tick: TTL decay + clear stale goals (TTL expired or Invalidating severity).
 /// Called by the orchestrator BEFORE `pick_action`. Idempotent on stale memory.
-pub fn pre_tick(memory: &mut AiMemory, snap: &BattleSnapshot, actor: &UnitSnapshot) {
+pub fn pre_tick(
+    memory: &mut AiMemory,
+    snap: &BattleSnapshot,
+    actor: &UnitSnapshot,
+    status_tags: &StatusTagCache,
+) {
     let Some(g) = &memory.last_goal else { return };
     let age = snap.round.saturating_sub(g.created_round);
     if age >= g.ttl as u32 {
@@ -22,7 +28,7 @@ pub fn pre_tick(memory: &mut AiMemory, snap: &BattleSnapshot, actor: &UnitSnapsh
     }
     let target = g.target_entity().and_then(|t| snap.unit(t));
     if matches!(
-        g.check_continuation(actor, target),
+        g.check_continuation(actor, target, status_tags),
         Some(c) if c.severity == ContinuationSeverity::Invalidating
     ) {
         memory.last_goal = None;
@@ -35,6 +41,7 @@ pub fn pre_tick(memory: &mut AiMemory, snap: &BattleSnapshot, actor: &UnitSnapsh
 /// - `CastInPlace` / `MoveAndCast` → clear (goal climax executed).
 /// - `EndTurn` → clear only when `classify_continuation_outcome` yields an
 ///   abandoned outcome; otherwise preserve for next round.
+#[allow(clippy::too_many_arguments)]
 pub fn post_tick(
     memory: &mut AiMemory,
     decision: &AiDecision,
@@ -43,6 +50,7 @@ pub fn post_tick(
     actor: &UnitSnapshot,
     round: u32,
     tuning: &AiTuning,
+    status_tags: &StatusTagCache,
 ) {
     match decision {
         AiDecision::Move { path, .. } => {
@@ -70,7 +78,9 @@ pub fn post_tick(
             // preserve so pre_tick handles TTL/invalidating on the next round.
             if let (Some(stored), Some(c)) = (&memory.last_goal, chosen) {
                 let target = stored.target_entity().and_then(|t| snap.unit(t));
-                let severity = stored.check_continuation(actor, target).map(|ck| ck.severity);
+                let severity = stored
+                    .check_continuation(actor, target, status_tags)
+                    .map(|ck| ck.severity);
                 let age = round.saturating_sub(stored.created_round);
                 let fresh_decision_kind = FreshDecisionKind::EndTurn;
                 let outcome = classify_continuation_outcome(
@@ -130,9 +140,14 @@ mod tests {
             // Match status_hash(&[]) — DefaultHasher seed is non-zero, so a literal 0
             // here would falsely trigger actor_status_changed before target checks run.
             actor_status_hash: crate::combat::ai::intent::status_hash(&[]),
+            actor_statuses_at_store: vec![],
             target_hp_at_store: 8,
             target_pos_at_store: hex_from_offset(2, 0),
         }
+    }
+
+    fn empty_status_tags() -> StatusTagCache {
+        StatusTagCache::default()
     }
 
     fn make_snap_with_round(round: u32) -> BattleSnapshot {
@@ -176,7 +191,8 @@ mod tests {
         let actor = make_actor(1);
         let snap = make_snap_with_round(3);
         let mut memory = AiMemory::default();
-        pre_tick(&mut memory, &snap, &actor);
+        let tags = empty_status_tags();
+        pre_tick(&mut memory, &snap, &actor, &tags);
         assert!(memory.last_goal.is_none());
     }
 
@@ -190,7 +206,8 @@ mod tests {
             last_goal: Some(stored_finish(target, 0)),
             ..Default::default()
         };
-        pre_tick(&mut memory, &snap, &actor);
+        let tags = empty_status_tags();
+        pre_tick(&mut memory, &snap, &actor, &tags);
         assert!(memory.last_goal.is_none(), "TTL-expired goal must be cleared");
     }
 
@@ -210,7 +227,8 @@ mod tests {
             last_goal: Some(stored),
             ..Default::default()
         };
-        pre_tick(&mut memory, &snap, &actor);
+        let tags = empty_status_tags();
+        pre_tick(&mut memory, &snap, &actor, &tags);
         assert!(memory.last_goal.is_none(), "Invalidating goal (target gone) must be cleared");
     }
 
@@ -238,7 +256,8 @@ mod tests {
             last_goal: Some(stored),
             ..Default::default()
         };
-        pre_tick(&mut memory, &snap, &actor);
+        let tags = empty_status_tags();
+        pre_tick(&mut memory, &snap, &actor, &tags);
         assert!(memory.last_goal.is_some(), "Relevant mismatch must NOT clear the goal");
     }
 
@@ -251,6 +270,7 @@ mod tests {
         let actor = make_actor(1);
         let snap = make_snap_with_round(1);
         let tuning = default_tuning();
+        let tags = empty_status_tags();
 
         let decision = AiDecision::Move {
             path: vec![dest],
@@ -259,7 +279,7 @@ mod tests {
         let c = chosen_move(target, dest);
         let mut memory = AiMemory::default();
 
-        post_tick(&mut memory, &decision, Some(&c), &snap, &actor, 1, &tuning);
+        post_tick(&mut memory, &decision, Some(&c), &snap, &actor, 1, &tuning, &tags);
         // extract_goal_context may return None for FocusTarget if no target in snap,
         // but the call should at least not panic and be a no-op (None stored).
         // To confirm the store path ran, check that the call didn't clear anything.
@@ -274,6 +294,7 @@ mod tests {
         let actor = make_actor(1);
         let snap = make_snap_with_round(1);
         let tuning = default_tuning();
+        let tags = empty_status_tags();
         let decision = AiDecision::CastInPlace {
             ability,
             target,
@@ -284,7 +305,7 @@ mod tests {
             ..Default::default()
         };
 
-        post_tick(&mut memory, &decision, None, &snap, &actor, 1, &tuning);
+        post_tick(&mut memory, &decision, None, &snap, &actor, 1, &tuning, &tags);
         assert!(memory.last_goal.is_none(), "CastInPlace must clear goal");
     }
 
@@ -295,6 +316,7 @@ mod tests {
         let actor = make_actor(1);
         let snap = make_snap_with_round(1);
         let tuning = default_tuning();
+        let tags = empty_status_tags();
         let decision = AiDecision::MoveAndCast {
             path: vec![hex_from_offset(1, 0)],
             ability,
@@ -306,7 +328,7 @@ mod tests {
             ..Default::default()
         };
 
-        post_tick(&mut memory, &decision, None, &snap, &actor, 1, &tuning);
+        post_tick(&mut memory, &decision, None, &snap, &actor, 1, &tuning, &tags);
         assert!(memory.last_goal.is_none(), "MoveAndCast must clear goal");
     }
 
@@ -322,6 +344,7 @@ mod tests {
         .build();
         let snap = make_snap_with_units(vec![actor.clone(), target_unit], 1);
         let tuning = default_tuning();
+        let tags = empty_status_tags();
 
         let stored = StoredGoalContext {
             kind: GoalKind::Finish { target },
@@ -340,7 +363,7 @@ mod tests {
             ..Default::default()
         };
 
-        post_tick(&mut memory, &decision, Some(&c), &snap, &actor, 1, &tuning);
+        post_tick(&mut memory, &decision, Some(&c), &snap, &actor, 1, &tuning, &tags);
         assert!(memory.last_goal.is_some(), "In-transit goal must be preserved on EndTurn");
     }
 
@@ -356,6 +379,7 @@ mod tests {
         .build();
         let snap = make_snap_with_units(vec![actor.clone(), target_unit], 1);
         let tuning = default_tuning();
+        let tags = empty_status_tags();
 
         let stored = StoredGoalContext {
             kind: GoalKind::Finish { target },
@@ -375,7 +399,7 @@ mod tests {
             ..Default::default()
         };
 
-        post_tick(&mut memory, &decision, Some(&c), &snap, &actor, 1, &tuning);
+        post_tick(&mut memory, &decision, Some(&c), &snap, &actor, 1, &tuning, &tags);
         assert!(memory.last_goal.is_none(), "Voluntary abandon on EndTurn must clear goal");
     }
 }

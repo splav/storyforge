@@ -675,6 +675,11 @@ pub struct StoredGoalContextSnapshot {
     pub actor_hp_at_store: i32,
     pub actor_rage_at_store: i32,
     pub actor_status_hash: u64,
+    /// Status ids stored with the goal — used to compute delta for
+    /// `actor_status_changed` severity classification (step 9.B.3).
+    /// `#[serde(default)]` for backward compat with pre-v30 snapshots.
+    #[serde(default)]
+    pub actor_statuses_at_store: Vec<String>,
     pub target_hp_at_store: i32,
     pub target_pos_at_store: [i32; 2],
 }
@@ -694,6 +699,7 @@ impl From<&StoredGoalContext> for StoredGoalContextSnapshot {
             actor_hp_at_store: g.actor_hp_at_store,
             actor_rage_at_store: g.actor_rage_at_store,
             actor_status_hash: g.actor_status_hash,
+            actor_statuses_at_store: g.actor_statuses_at_store.iter().map(|s| s.0.clone()).collect(),
             target_hp_at_store: g.target_hp_at_store,
             target_pos_at_store: [g.target_pos_at_store.x, g.target_pos_at_store.y],
         }
@@ -753,6 +759,11 @@ impl From<&StoredGoalContextSnapshot> for StoredGoalContext {
             actor_hp_at_store: s.actor_hp_at_store,
             actor_rage_at_store: s.actor_rage_at_store,
             actor_status_hash: s.actor_status_hash,
+            actor_statuses_at_store: s
+                .actor_statuses_at_store
+                .iter()
+                .map(|id| crate::core::StatusId::from(id.as_str()))
+                .collect(),
             target_hp_at_store: s.target_hp_at_store,
             target_pos_at_store: Hex::new(s.target_pos_at_store[0], s.target_pos_at_store[1]),
         }
@@ -926,6 +937,8 @@ pub struct ActorTickInput<'a> {
     /// Threaded into `ActorTickEvent.intent_reason` for mining tools.
     pub intent_reason: Option<&'a crate::combat::ai::intent::IntentReason>,
     pub debug_names: &'a std::collections::HashMap<Entity, String>,
+    /// Status tag cache for severity classification in `continuation` section.
+    pub status_tags: &'a crate::combat::ai::tags::StatusTagCache,
 }
 
 /// Build an `ActorTickEvent` from the given inputs. Pure function.
@@ -959,6 +972,7 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
         let severity = stored.check_continuation(
             actor_snap.unwrap_or_else(|| input.snapshot.units.first().expect("non-empty snap")),
             target_snap,
+            input.status_tags,
         ).map(|c| c.severity);
         let age = input.round.saturating_sub(stored.created_round);
         ContinuationLogSection {
@@ -1297,6 +1311,7 @@ mod tests {
             pool: None,
             intent_reason: None,
             debug_names,
+            status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
         }
     }
 
@@ -1363,6 +1378,7 @@ mod tests {
             pool: Some(&pool),
             intent_reason: Some(&test_reason),
             debug_names: &debug_names,
+            status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
         };
         let event = build_actor_tick_event(input);
 
@@ -1410,6 +1426,7 @@ mod tests {
             pool: Some(&pool),
             intent_reason: Some(&reason),
             debug_names: &debug_names,
+            status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
         };
         let event = build_actor_tick_event(input);
 

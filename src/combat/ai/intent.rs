@@ -1,4 +1,4 @@
-use crate::combat::ai::repair::{classify_mismatch, PlanContinuationCheck};
+use crate::combat::ai::repair::{classify_mismatch, compute_status_delta, MismatchContext, PlanContinuationCheck, StatusDelta};
 use crate::content::content_view::ContentView;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::factors::{aoe_area, aoe_hits, StepFactor};
@@ -8,6 +8,7 @@ use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::snapshot::{ActiveStatusView, AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::tags::StatusTagCache;
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::factors::ScoredStep;
 use crate::combat::ai::planning::types::TurnPlan;
@@ -96,6 +97,9 @@ pub struct PlanSnapshot {
     /// Stable hash over active status ids + remaining durations. Changes when
     /// a status is applied, removed, or ticked down (debuffs, auras, etc.).
     pub actor_status_hash: u64,
+    /// Status ids present on the actor at capture time — used to compute the
+    /// diff (added/removed) when `actor_status_changed` fires (step 9.B.3).
+    pub actor_statuses_at_capture: Vec<crate::core::StatusId>,
     /// Where the actor should be on the next tick (destination of the Move).
     pub expected_actor_pos: Hex,
     /// Intent target at plan time, if any (FocusTarget / ApplyCC / ProtectAlly).
@@ -114,6 +118,7 @@ impl PlanSnapshot {
             actor_hp: actor.hp,
             actor_rage: actor.rage.map(|(r, _)| r).unwrap_or(0),
             actor_status_hash: status_hash(&actor.statuses),
+            actor_statuses_at_capture: actor.statuses.iter().map(|s| s.id.clone()).collect(),
             expected_actor_pos,
             target: target.map(|t| t.entity),
             target_hp: target.map(|t| t.hp).unwrap_or(0),
@@ -172,11 +177,37 @@ impl PlanSnapshot {
         &self,
         actor: &UnitSnapshot,
         target: Option<&UnitSnapshot>,
+        status_tags: &StatusTagCache,
     ) -> Option<PlanContinuationCheck> {
-        self.mismatch(actor, target).map(|code| PlanContinuationCheck {
-            severity: classify_mismatch(code),
-            reason_code: code,
-        })
+        let code = self.mismatch(actor, target)?;
+        let severity = if code == "actor_status_changed" {
+            let delta = compute_status_delta(&self.actor_statuses_at_capture, &actor.statuses);
+            let ctx = MismatchContext { status_delta: Some(&delta), status_tags };
+            classify_mismatch(code, &ctx)
+        } else {
+            let ctx = MismatchContext { status_delta: None, status_tags };
+            classify_mismatch(code, &ctx)
+        };
+        Some(PlanContinuationCheck { severity, reason_code: code })
+    }
+
+    /// Returns `Some((code, Some(delta)))` when the mismatch is `actor_status_changed`,
+    /// or `Some((code, None))` for other codes. Returns `None` when no mismatch.
+    ///
+    /// The delta is computed using the shared `compute_status_delta` helper (step 9.B.0),
+    /// ensuring identical diff logic as `StoredGoalContext::check_continuation`.
+    pub fn mismatch_with_delta(
+        &self,
+        actor: &UnitSnapshot,
+        target: Option<&UnitSnapshot>,
+    ) -> Option<(&'static str, Option<StatusDelta>)> {
+        let code = self.mismatch(actor, target)?;
+        let delta = if code == "actor_status_changed" {
+            Some(compute_status_delta(&self.actor_statuses_at_capture, &actor.statuses))
+        } else {
+            None
+        };
+        Some((code, delta))
     }
 }
 

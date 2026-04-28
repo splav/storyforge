@@ -84,6 +84,7 @@ mod tests {
             actor_hp_at_store: 0,
             actor_rage_at_store: 0,
             actor_status_hash: 0,
+            actor_statuses_at_store: vec![],
             target_hp_at_store: 0,
             target_pos_at_store: Hex::ZERO,
         }

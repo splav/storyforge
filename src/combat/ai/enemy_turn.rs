@@ -147,7 +147,7 @@ fn run_ai_turn(
 
     // Step 7.3: centralised goal lifecycle — TTL decay + invalidating clear.
     // Replaces the inline FIXME(step 7) TTL clear on the early-return path.
-    goal_lifecycle::pre_tick(memory_ref, &snap, actor_snap);
+    goal_lifecycle::pre_tick(memory_ref, &snap, actor_snap, &env.status_tags);
 
     if c.ap.action_points <= 0 && !c.ap.can_move() {
         // Step 7.5: write actor_tick log for skip path (no AP/MP).
@@ -178,6 +178,7 @@ fn run_ai_turn(
                 pool: None,
                 intent_reason: None,
                 debug_names: &debug_names_skip,
+                status_tags: &env.status_tags,
             });
         }
         msgs.end_turn.write(EndTurn { actor });
@@ -263,6 +264,7 @@ fn run_ai_turn(
             pool: Some(&result.pool),
             intent_reason: Some(&result.intent_reason),
             debug_names: &debug_names,
+            status_tags: &env.status_tags,
         });
     }
 
@@ -302,6 +304,7 @@ fn run_ai_turn(
         actor_snap,
         combat_ctx.round,
         world.tuning,
+        &env.status_tags,
     );
 
     // Execute decision.

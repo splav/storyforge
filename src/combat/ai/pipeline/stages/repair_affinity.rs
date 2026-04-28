@@ -26,7 +26,7 @@ impl PlanStage for RepairAffinityStage {
                 .target_entity()
                 .and_then(|t| ctx.scoring.snap.unit(t));
             stored_goal
-                .check_continuation(actor_snap, target_snap)
+                .check_continuation(actor_snap, target_snap, ctx.scoring.world.status_tags)
                 .map(|c| c.severity)
         };
 
@@ -77,6 +77,7 @@ mod tests {
             actor_hp_at_store: 10,
             actor_rage_at_store: 0,
             actor_status_hash: 0,
+            actor_statuses_at_store: vec![],
             target_hp_at_store: 8,
             target_pos_at_store: hex_from_offset(2, 0),
         }

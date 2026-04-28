@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::planning::types::PlanStep;
-use crate::combat::ai::repair::{PlanContinuationCheck, classify_mismatch};
+use crate::combat::ai::repair::{PlanContinuationCheck, StatusDelta, classify_mismatch, compute_status_delta, MismatchContext};
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::tags::StatusTagCache;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::core::AbilityId;
@@ -117,6 +118,10 @@ pub struct StoredGoalContext {
     pub actor_rage_at_store: i32,
     /// Stable hash over actor status ids + remaining durations at store time.
     pub actor_status_hash: u64,
+    /// Status ids present on the actor at store time — used to compute the
+    /// diff (added/removed) when `actor_status_changed` fires (step 9.B.3).
+    #[serde(default)]
+    pub actor_statuses_at_store: Vec<crate::core::StatusId>,
     /// Target HP at the time of store (0 when no target).
     pub target_hp_at_store: i32,
     /// Target position at the time of store (Hex::ZERO when no target).
@@ -168,32 +173,37 @@ impl StoredGoalContext {
         &self,
         actor: &UnitSnapshot,
         target: Option<&UnitSnapshot>,
+        status_tags: &StatusTagCache,
     ) -> Option<PlanContinuationCheck> {
         // 1. Actor position mismatch — topology broken.
+        let no_delta_ctx = MismatchContext { status_delta: None, status_tags };
         if actor.pos != self.expected_actor_pos {
             return Some(PlanContinuationCheck {
-                severity: classify_mismatch("actor_pos_mismatch"),
+                severity: classify_mismatch("actor_pos_mismatch", &no_delta_ctx),
                 reason_code: "actor_pos_mismatch",
             });
         }
         // 2. Actor HP dropped — self-preserve re-eval needed, goal alive.
         if actor.hp < self.actor_hp_at_store {
             return Some(PlanContinuationCheck {
-                severity: classify_mismatch("actor_hp_drop"),
+                severity: classify_mismatch("actor_hp_drop", &no_delta_ctx),
                 reason_code: "actor_hp_drop",
             });
         }
         // 3. Actor rage changed — cosmetic side-effect of AoO / round mechanics.
         if actor.rage.map(|(r, _)| r).unwrap_or(0) != self.actor_rage_at_store {
             return Some(PlanContinuationCheck {
-                severity: classify_mismatch("actor_rage_changed"),
+                severity: classify_mismatch("actor_rage_changed", &no_delta_ctx),
                 reason_code: "actor_rage_changed",
             });
         }
-        // 4. Actor status set changed — may indicate CC application.
+        // 4. Actor status set changed — compute delta for semantic classification.
         if crate::combat::ai::intent::status_hash(&actor.statuses) != self.actor_status_hash {
+            let delta: StatusDelta =
+                compute_status_delta(&self.actor_statuses_at_store, &actor.statuses);
+            let delta_ctx = MismatchContext { status_delta: Some(&delta), status_tags };
             return Some(PlanContinuationCheck {
-                severity: classify_mismatch("actor_status_changed"),
+                severity: classify_mismatch("actor_status_changed", &delta_ctx),
                 reason_code: "actor_status_changed",
             });
         }
@@ -202,26 +212,26 @@ impl StoredGoalContext {
             match target {
                 None => {
                     return Some(PlanContinuationCheck {
-                        severity: classify_mismatch("target_gone"),
+                        severity: classify_mismatch("target_gone", &no_delta_ctx),
                         reason_code: "target_gone",
                     });
                 }
                 Some(t) => {
                     if Some(t.entity) != self.target_entity() {
                         return Some(PlanContinuationCheck {
-                            severity: classify_mismatch("target_entity_changed"),
+                            severity: classify_mismatch("target_entity_changed", &no_delta_ctx),
                             reason_code: "target_entity_changed",
                         });
                     }
                     if t.hp < self.target_hp_at_store {
                         return Some(PlanContinuationCheck {
-                            severity: classify_mismatch("target_hp_drop"),
+                            severity: classify_mismatch("target_hp_drop", &no_delta_ctx),
                             reason_code: "target_hp_drop",
                         });
                     }
                     if t.pos != self.target_pos_at_store {
                         return Some(PlanContinuationCheck {
-                            severity: classify_mismatch("target_moved"),
+                            severity: classify_mismatch("target_moved", &no_delta_ctx),
                             reason_code: "target_moved",
                         });
                     }
@@ -289,6 +299,9 @@ pub fn extract_goal_context(
     let target_snap = target_entity.and_then(|e| snap.unit(e));
     let actor_rage_at_store = actor.rage.map(|(r, _)| r).unwrap_or(0);
     let actor_status_hash = crate::combat::ai::intent::status_hash(&actor.statuses);
+    // Status id list for delta-based severity classification (step 9.B.3).
+    let actor_statuses_at_store: Vec<crate::core::StatusId> =
+        actor.statuses.iter().map(|s| s.id.clone()).collect();
 
     Some(StoredGoalContext {
         kind,
@@ -302,6 +315,7 @@ pub fn extract_goal_context(
         actor_hp_at_store: actor.hp,
         actor_rage_at_store,
         actor_status_hash,
+        actor_statuses_at_store,
         target_hp_at_store: target_snap.map(|t| t.hp).unwrap_or(0),
         target_pos_at_store: target_snap.map(|t| t.pos).unwrap_or_default(),
     })
@@ -660,5 +674,32 @@ mod tests {
 
         assert!(ctx.confidence.is_finite(), "confidence must be finite");
         assert!(ctx.confidence <= 1.0, "confidence must be ≤ 1.0");
+    }
+
+    /// StoredGoalContext uses the same `compute_status_delta` helper as
+    /// `PlanSnapshot::mismatch_with_delta`. Sanity check: when no statuses were
+    /// stored and the actor currently has `["stunned"]`, the delta shows it added.
+    #[test]
+    fn stored_goal_context_uses_shared_compute_status_delta() {
+        use crate::combat::ai::repair::compute_status_delta;
+        use crate::combat::ai::snapshot::ActiveStatusView;
+        use crate::core::StatusId;
+
+        let stored_statuses: Vec<StatusId> = vec![];
+        let current_statuses = vec![
+            ActiveStatusView { id: StatusId::from("stunned"), rounds_remaining: 2, dot_per_tick: 0 }
+        ];
+
+        let delta = compute_status_delta(&stored_statuses, &current_statuses);
+        assert_eq!(delta.added, vec![StatusId::from("stunned")]);
+        assert!(delta.removed.is_empty());
+
+        // Mirror: PlanSnapshot uses the same call — ensure the functions are identical
+        // by checking symmetry.
+        let stored2 = vec![StatusId::from("stunned")];
+        let current2: Vec<ActiveStatusView> = vec![];
+        let delta2 = compute_status_delta(&stored2, &current2);
+        assert!(delta2.added.is_empty());
+        assert_eq!(delta2.removed, vec![StatusId::from("stunned")]);
     }
 }

@@ -15,6 +15,7 @@ pub mod lifecycle;
 
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::snapshot::ActiveStatusView;
+use crate::combat::ai::tags::{StatusTag, StatusTagCache};
 use crate::core::StatusId;
 use serde::{Deserialize, Serialize};
 
@@ -46,23 +47,47 @@ pub struct PlanContinuationCheck {
     pub reason_code: &'static str,
 }
 
+/// Context passed to `classify_mismatch` for the `actor_status_changed` branch.
+///
+/// - `status_delta` — pre-computed diff of status ids (added/removed vs stored).
+///   `None` when the mismatch code is not `actor_status_changed` or when the
+///   caller cannot compute a delta (safe fallback → `Relevant`).
+/// - `status_tags` — cache used to look up the semantic tag of each status id.
+pub struct MismatchContext<'a> {
+    pub status_delta: Option<&'a StatusDelta>,
+    pub status_tags: &'a StatusTagCache,
+}
+
+#[cfg(test)]
+impl MismatchContext<'_> {
+    /// Construct a minimal context for unit tests: no delta, empty cache.
+    pub fn for_test(status_tags: &StatusTagCache) -> MismatchContext<'_> {
+        MismatchContext { status_delta: None, status_tags }
+    }
+}
+
 /// Classify a raw mismatch code from `PlanSnapshot::mismatch()` into a
 /// semantic `ContinuationSeverity`.
 ///
-/// Pure function — no side effects, no allocations.
+/// Pure function — no side effects, no allocations beyond those inside
+/// `classify_status_change` when a delta is provided.
 ///
 /// The mapping is intentionally exhaustive over the 8 codes currently produced
 /// by `mismatch()`. Unknown codes fall through to `Invalidating` as the safe
 /// default (better to replan unnecessarily than to continue an invalid goal).
-pub fn classify_mismatch(code: &'static str) -> ContinuationSeverity {
+pub fn classify_mismatch(code: &'static str, ctx: &MismatchContext<'_>) -> ContinuationSeverity {
     match code {
         // Rage ticks are a natural side effect of AoO / round mechanics.
         // The goal (target, position, method) is unaffected.
         "actor_rage_changed" => ContinuationSeverity::Cosmetic,
 
-        // Status change may include a CC application — could become Invalidating
-        // after step 9 adds semantic tags to distinguish CC-set vs duration-tick.
-        "actor_status_changed" => ContinuationSeverity::Relevant,
+        // Status change: severity depends on what changed (HardCC/Compulsion set →
+        // Invalidating; Buff lost / SoftCC set → Relevant; pure tick → Cosmetic).
+        // Falls back to Relevant when no delta is available.
+        "actor_status_changed" => ctx
+            .status_delta
+            .map(|d| classify_status_change(d, ctx.status_tags))
+            .unwrap_or(ContinuationSeverity::Relevant),
 
         // Actor took damage: self-preserve needs re-eval, but the goal is alive.
         "actor_hp_drop" => ContinuationSeverity::Relevant,
@@ -87,6 +112,42 @@ pub fn classify_mismatch(code: &'static str) -> ContinuationSeverity {
         // in perpetuity; the match arm is here to provide an exhaustiveness guarantee.
         _ => ContinuationSeverity::Invalidating,
     }
+}
+
+/// Classify the severity of an `actor_status_changed` event given the status diff.
+///
+/// Priority order (highest severity wins):
+/// 1. HardCC or Compulsion added → `Invalidating` (actor is stunned / forced-target).
+/// 2. Buff removed → `Relevant` (lost protection, goal achievability changes).
+/// 3. SoftCC added → `Relevant` (soft constraint, actor can still act).
+/// 4. Dot/other added → `Relevant` (minor world state change).
+/// 5. Empty added/removed → `Cosmetic` (pure tick: counter changed, set unchanged).
+fn classify_status_change(delta: &StatusDelta, cache: &StatusTagCache) -> ContinuationSeverity {
+    // 1. HardCC or Compulsion set — actor is now controlled or forced-target.
+    for added in &delta.added {
+        let tags = cache.get(added);
+        if tags.contains_tag(StatusTag::HardCC) || tags.contains_tag(StatusTag::Compulsion) {
+            return ContinuationSeverity::Invalidating;
+        }
+    }
+    // 2. Buff lost — actor has lost a defensive/protective status.
+    for removed in &delta.removed {
+        if cache.get(removed).contains_tag(StatusTag::Buff) {
+            return ContinuationSeverity::Relevant;
+        }
+    }
+    // 3. SoftCC added — actor is slowed or disoriented, but can still pursue the goal.
+    for added in &delta.added {
+        if cache.get(added).contains_tag(StatusTag::SoftCC) {
+            return ContinuationSeverity::Relevant;
+        }
+    }
+    // 4. Pure tick — counter decremented, status set itself is unchanged.
+    if delta.added.is_empty() && delta.removed.is_empty() {
+        return ContinuationSeverity::Cosmetic;
+    }
+    // 5. Any other set change (Dot added, unknown status) → Relevant.
+    ContinuationSeverity::Relevant
 }
 
 // ── ContinuationOutcome (step 6.5, refined in 6.6b) ──────────────────────────
@@ -326,13 +387,18 @@ mod tests {
     use super::*;
 
     /// Every mismatch code produced by `PlanSnapshot::mismatch()` must map to
-    /// an explicit (non-wildcard) severity.  This test locks in the full table
-    /// and guards against silent fall-through when new codes are added.
+    /// an explicit (non-wildcard) severity.
+    ///
+    /// For `actor_status_changed` we assert the two representative cases:
+    /// - No delta (unknown caller context) → fallback `Relevant`.
+    /// - Delta with HardCC added → `Invalidating`.
     #[test]
     fn classify_all_existing_codes_have_explicit_severity() {
-        let table: &[(&'static str, ContinuationSeverity)] = &[
+        let cache = StatusTagCache::default();
+
+        // Non-status codes: check with empty context (delta=None).
+        let non_status_table: &[(&'static str, ContinuationSeverity)] = &[
             ("actor_rage_changed", ContinuationSeverity::Cosmetic),
-            ("actor_status_changed", ContinuationSeverity::Relevant),
             ("actor_hp_drop", ContinuationSeverity::Relevant),
             ("actor_pos_mismatch", ContinuationSeverity::Invalidating),
             ("target_gone", ContinuationSeverity::Invalidating),
@@ -340,19 +406,67 @@ mod tests {
             ("target_hp_drop", ContinuationSeverity::Relevant),
             ("target_moved", ContinuationSeverity::Relevant),
         ];
-        for (code, expected) in table {
+        let no_delta_ctx = MismatchContext::for_test(&cache);
+        for (code, expected) in non_status_table {
             assert_eq!(
-                classify_mismatch(code),
+                classify_mismatch(code, &no_delta_ctx),
                 *expected,
                 "classify_mismatch({code:?}) returned wrong severity"
             );
         }
+
+        // actor_status_changed without delta → Relevant fallback.
+        assert_eq!(
+            classify_mismatch("actor_status_changed", &MismatchContext::for_test(&cache)),
+            ContinuationSeverity::Relevant,
+            "actor_status_changed without delta must fall back to Relevant"
+        );
+
+        // actor_status_changed with HardCC delta → Invalidating.
+        use crate::combat::ai::tags::StatusTagSet;
+        let delta = StatusDelta {
+            added: vec![StatusId::from("stunned")],
+            removed: vec![],
+        };
+        // Build a cache that maps "stunned" → HardCC.
+        let mut hardcc_cache = StatusTagCache::default();
+        hardcc_cache.map.insert(
+            StatusId::from("stunned"),
+            StatusTagSet::from_iter_tags([StatusTag::HardCC]),
+        );
+        let hardcc_ctx = MismatchContext { status_delta: Some(&delta), status_tags: &hardcc_cache };
+        assert_eq!(
+            classify_mismatch("actor_status_changed", &hardcc_ctx),
+            ContinuationSeverity::Invalidating,
+            "actor_status_changed with HardCC delta must be Invalidating"
+        );
+
+        // actor_status_changed with Compulsion delta → Invalidating.
+        let compulsion_delta = StatusDelta {
+            added: vec![StatusId::from("taunted")],
+            removed: vec![],
+        };
+        let mut compulsion_cache = StatusTagCache::default();
+        compulsion_cache.map.insert(
+            StatusId::from("taunted"),
+            StatusTagSet::from_iter_tags([StatusTag::Compulsion]),
+        );
+        let compulsion_ctx = MismatchContext {
+            status_delta: Some(&compulsion_delta),
+            status_tags: &compulsion_cache,
+        };
+        assert_eq!(
+            classify_mismatch("actor_status_changed", &compulsion_ctx),
+            ContinuationSeverity::Invalidating,
+            "actor_status_changed with Compulsion delta must be Invalidating"
+        );
     }
 
     #[test]
     fn cosmetic_codes_dont_invalidate_goal() {
+        let cache = StatusTagCache::default();
         assert_eq!(
-            classify_mismatch("actor_rage_changed"),
+            classify_mismatch("actor_rage_changed", &MismatchContext::for_test(&cache)),
             ContinuationSeverity::Cosmetic,
         );
     }
@@ -361,8 +475,9 @@ mod tests {
     fn invalidating_codes_safe_default() {
         // Unknown codes must always produce Invalidating to avoid continuing
         // a goal that may be invalid under an unanticipated world change.
+        let cache = StatusTagCache::default();
         assert_eq!(
-            classify_mismatch("garbage_xyz"),
+            classify_mismatch("garbage_xyz", &MismatchContext::for_test(&cache)),
             ContinuationSeverity::Invalidating,
         );
     }
@@ -387,6 +502,7 @@ mod tests {
             actor_hp_at_store: 0,
             actor_rage_at_store: 0,
             actor_status_hash: 0,
+            actor_statuses_at_store: vec![],
             target_hp_at_store: 0,
             target_pos_at_store: crate::game::hex::Hex::new(0, 0),
         }
@@ -697,5 +813,87 @@ mod tests {
         let delta = compute_status_delta(&stored, &current);
         assert!(delta.added.is_empty(), "no new statuses");
         assert!(delta.removed.is_empty(), "no removed statuses");
+    }
+
+    // ── classify_status_change tests (step 9.B commit 3) ────────────────────
+
+    use crate::combat::ai::tags::StatusTagSet;
+
+    /// Build a StatusTagCache with a single entry.
+    fn cache_single(id: &str, tag: StatusTag) -> StatusTagCache {
+        let mut c = StatusTagCache::default();
+        c.map.insert(StatusId::from(id), StatusTagSet::from_iter_tags([tag]));
+        c
+    }
+
+    /// HardCC added → Invalidating (actor is stunned).
+    #[test]
+    fn classify_status_change_hardcc_set_invalidates() {
+        let cache = cache_single("stunned", StatusTag::HardCC);
+        let delta = StatusDelta { added: vec![sid("stunned")], removed: vec![] };
+        assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Invalidating);
+    }
+
+    /// Compulsion added → Invalidating (actor is force-targeted / taunted).
+    #[test]
+    fn classify_status_change_compulsion_set_invalidates() {
+        let cache = cache_single("taunted", StatusTag::Compulsion);
+        let delta = StatusDelta { added: vec![sid("taunted")], removed: vec![] };
+        assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Invalidating);
+    }
+
+    /// SoftCC added → Relevant (actor slowed/disoriented, goal still alive).
+    #[test]
+    fn classify_status_change_softcc_set_relevant() {
+        let cache = cache_single("disoriented", StatusTag::SoftCC);
+        let delta = StatusDelta { added: vec![sid("disoriented")], removed: vec![] };
+        assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Relevant);
+    }
+
+    /// Buff removed → Relevant (actor lost protection, goal achievability changes).
+    #[test]
+    fn classify_status_change_buff_removed_relevant() {
+        let cache = cache_single("defending", StatusTag::Buff);
+        let delta = StatusDelta { added: vec![], removed: vec![sid("defending")] };
+        assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Relevant);
+    }
+
+    /// Dot added (tagged as Dot, not HardCC/SoftCC/Buff) → Relevant.
+    #[test]
+    fn classify_status_change_dot_added_relevant() {
+        let cache = cache_single("poisoned", StatusTag::Dot);
+        let delta = StatusDelta { added: vec![sid("poisoned")], removed: vec![] };
+        assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Relevant);
+    }
+
+    /// Pure tick: no added/removed statuses → Cosmetic.
+    #[test]
+    fn classify_status_change_pure_tick_cosmetic() {
+        let cache = StatusTagCache::default();
+        let delta = StatusDelta { added: vec![], removed: vec![] };
+        assert_eq!(classify_status_change(&delta, &cache), ContinuationSeverity::Cosmetic);
+    }
+
+    /// Legacy codes other than actor_status_changed are unchanged by the new context.
+    #[test]
+    fn classify_mismatch_legacy_codes_unchanged() {
+        let cache = StatusTagCache::default();
+        let ctx = MismatchContext::for_test(&cache);
+        let table: &[(&'static str, ContinuationSeverity)] = &[
+            ("actor_rage_changed",    ContinuationSeverity::Cosmetic),
+            ("actor_hp_drop",         ContinuationSeverity::Relevant),
+            ("actor_pos_mismatch",    ContinuationSeverity::Invalidating),
+            ("target_gone",           ContinuationSeverity::Invalidating),
+            ("target_entity_changed", ContinuationSeverity::Invalidating),
+            ("target_hp_drop",        ContinuationSeverity::Relevant),
+            ("target_moved",          ContinuationSeverity::Relevant),
+        ];
+        for (code, expected) in table {
+            assert_eq!(
+                classify_mismatch(code, &ctx),
+                *expected,
+                "classify_mismatch({code:?}) must be unchanged"
+            );
+        }
     }
 }
