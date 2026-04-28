@@ -36,6 +36,7 @@ use storyforge::combat::ai::replay::{
 };
 use storyforge::combat::ai::replay_assertion::{print_assertion_failure, AssertResult};
 use storyforge::combat::ai::reservations::Reservations;
+use storyforge::combat::ai::tags::cache::build_caches;
 use storyforge::combat::ai::utility::{AiDecision, AiWorld, pick_action};
 use storyforge::content::content_view::ContentView;
 use storyforge::core::DiceRng;
@@ -138,11 +139,13 @@ fn golden_from_v28_event(
 
     let maps = build_influence_maps(&event.snapshot, actor, active.team, inf_cfg);
     let difficulty = DifficultyProfile::normal();
+    let (_, fn_ability_tag_cache) = build_caches(content);
     let world = AiWorld {
         content,
         difficulty: &difficulty,
         tuning: &content.ai_tuning,
         crit_fail_chance: 0.0,
+        ability_tags: &fn_ability_tag_cache,
     };
     let memory = AiMemory::default();
     let reservations = Reservations::default();
@@ -353,6 +356,8 @@ fn main() {
         (global.to_path_buf(), global.to_path_buf())
     };
     let content = ContentView::load_layered(&campaign_dir, &scenario_dir);
+    // Step 9.A: pre-build tag cache once for all replay entries.
+    let (_, ability_tag_cache) = build_caches(&content);
     let inf_cfg = InfluenceConfig::default();
 
     // ── Assert mode ──────────────────────────────────────────────────────────
@@ -616,6 +621,7 @@ fn main() {
                 difficulty: &difficulty,
                 tuning: &content.ai_tuning,
                 crit_fail_chance: 0.0,
+                ability_tags: &ability_tag_cache,
             };
             let memory = AiMemory::default();
             let reservations = Reservations::default();

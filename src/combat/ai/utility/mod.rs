@@ -135,6 +135,9 @@ pub struct AiWorld<'a> {
     pub difficulty: &'a DifficultyProfile,
     pub tuning: &'a AiTuning,
     pub crit_fail_chance: f32,
+    /// Step 9.A: tag cache for effective_ai_tags writeback in pick_action.
+    /// Default (empty) value is used in test contexts via `make_test_ctx`.
+    pub ability_tags: &'a crate::combat::ai::tags::AbilityTagCache,
 }
 
 /// Bundle of every read-only context the scoring layer touches. Replaces
@@ -279,6 +282,22 @@ pub fn pick_action(
     for (ann, (score, raw)) in pool.annotations.iter_mut().zip(initial_scored.into_iter().zip(initial_raw.into_iter())) {
         ann.score = score;
         ann.factors = raw;
+    }
+
+    // Step 9.A: populate effective_ai_tags per Cast step (diagnostic only).
+    // Written here — after score/factors cycle — so it's available for future
+    // consumers in 9.B without touching the scoring pipeline.
+    for (plan, ann) in pool.plans.iter().zip(pool.annotations.iter_mut()) {
+        ann.effective_ai_tags = plan
+            .steps
+            .iter()
+            .filter_map(|step| match step {
+                crate::combat::ai::planning::types::PlanStep::Cast { ability, .. } => {
+                    Some(world.ability_tags.effective(ability))
+                }
+                _ => None,
+            })
+            .collect();
     }
 
     let mut stage_ctx = StageCtx::new(
@@ -479,5 +498,162 @@ pub fn write_decision_log_from_result(
     );
     if let Err(e) = logger.write_entry(&entry) {
         warn!("AI log write failed: {}", e);
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::ai::tags::AbilityTag;
+    use crate::combat::ai::tags::cache::build_caches;
+    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
+    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::reservations::Reservations;
+    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::game::components::Team;
+    use crate::game::hex::hex_from_offset;
+    use crate::core::DiceRng;
+    use std::collections::HashMap;
+
+    /// Helper: run pick_action with a single actor against an enemy,
+    /// return the annotations of all scored plans.
+    fn run_pick(
+        actor_abilities: &[&str],
+        use_content_cache: bool,
+    ) -> Vec<crate::combat::ai::outcome::PlanAnnotation> {
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let (_, ability_tag_cache) = build_caches(&content);
+        let difficulty = DifficultyProfile::default();
+
+        let actor_pos = hex_from_offset(0, 0);
+        let enemy_pos = hex_from_offset(1, 0);
+
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ability_names(actor_abilities)
+            .ap(2)
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
+
+        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let maps = empty_maps();
+        let actor_entity = actor.entity;
+        let reservations = Reservations::default();
+
+        let world = AiWorld {
+            content: &content,
+            difficulty: &difficulty,
+            tuning: &content.ai_tuning,
+            crit_fail_chance: 0.0,
+            ability_tags: if use_content_cache { &ability_tag_cache }
+                          else { crate::combat::ai::test_helpers::empty_ability_tag_cache() },
+        };
+        let memory = crate::combat::ai::intent::AiMemory::default();
+        let mut rng = DiceRng::with_seed(0);
+
+        let result = pick_action(
+            actor_entity, actor_pos, &world, &snap, &maps, &mut rng,
+            &memory, &reservations, false, &HashMap::new(),
+        );
+        result.pool.annotations
+    }
+
+    #[test]
+    fn pick_action_populates_effective_ai_tags_per_cast_step() {
+        // Actor with melee_attack; any plan that casts it should have OFFENSIVE in tags.
+        let annotations = run_pick(&["melee_attack"], true);
+        // At least one plan should exist.
+        assert!(
+            !annotations.is_empty(),
+            "pick_action should produce at least one plan"
+        );
+        // Find any plan that has a Cast step (non-empty effective_ai_tags).
+        let has_cast_plan = annotations
+            .iter()
+            .any(|ann| !ann.effective_ai_tags.is_empty());
+        assert!(
+            has_cast_plan,
+            "at least one plan must have non-empty effective_ai_tags (cast melee_attack)"
+        );
+        // Every non-empty effective_ai_tags entry for melee_attack should have OFFENSIVE.
+        for ann in &annotations {
+            for tag_set in &ann.effective_ai_tags {
+                assert!(
+                    tag_set.contains_tag(AbilityTag::Offensive),
+                    "melee_attack Cast step must have OFFENSIVE tag, got {:?}",
+                    tag_set
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pick_action_move_only_plan_has_empty_effective_ai_tags() {
+        // Actor with only `move` (ToggleMoveMode) — no offensive/rescue/etc abilities.
+        // `move` classifies as empty(), so every entry in effective_ai_tags must be empty.
+        let annotations = run_pick(&["move"], true);
+        for ann in &annotations {
+            for tag_set in &ann.effective_ai_tags {
+                assert!(
+                    tag_set.is_empty(),
+                    "Plans with only 'move' ability must have all-empty AbilityTagSet entries, \
+                     got {:?}", tag_set
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pick_action_override_propagates_to_annotation() {
+        // Actor with melee_attack; override it to MOBILITY.
+        // Plans with Cast(melee_attack) must show MOBILITY, not OFFENSIVE.
+        let content_base = crate::content::content_view::ContentView::load_global_for_tests();
+        let mut content = content_base.clone();
+        let ability_id = crate::core::AbilityId::from("melee_attack");
+        if let Some(def) = content.abilities.get_mut(&ability_id) {
+            def.ai_tags_override = Some(vec!["mobility".to_string()]);
+        }
+        let (_, ability_tag_cache) = build_caches(&content);
+
+        let difficulty = DifficultyProfile::default();
+        let actor_pos = hex_from_offset(0, 0);
+        let enemy_pos = hex_from_offset(1, 0);
+
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .ability_names(&["melee_attack"])
+            .ap(2)
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let memory = crate::combat::ai::intent::AiMemory::default();
+        let mut rng = DiceRng::with_seed(0);
+
+        let world = AiWorld {
+            content: &content,
+            difficulty: &difficulty,
+            tuning: &content.ai_tuning,
+            crit_fail_chance: 0.0,
+            ability_tags: &ability_tag_cache,
+        };
+        let result = pick_action(
+            actor.entity, actor_pos, &world, &snap, &maps, &mut rng,
+            &memory, &reservations, false, &HashMap::new(),
+        );
+
+        for ann in &result.pool.annotations {
+            for tag_set in &ann.effective_ai_tags {
+                assert!(
+                    tag_set.contains_tag(AbilityTag::Mobility),
+                    "override to MOBILITY must propagate to effective_ai_tags"
+                );
+                assert!(
+                    !tag_set.contains_tag(AbilityTag::Offensive),
+                    "OFFENSIVE must not appear when overridden to MOBILITY"
+                );
+            }
+        }
     }
 }

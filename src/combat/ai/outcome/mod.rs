@@ -209,6 +209,13 @@ pub struct PlanAnnotation {
     /// produced by the stage. Pure observability — does not influence picking.
     #[serde(default)]
     pub modifiers: Vec<ModifierContribution>,
+    /// Step 9.A: per-Cast-step effective AI tags (cache lookup with override applied).
+    /// Length equals the number of Cast steps in the plan; Move steps contribute nothing.
+    /// Diagnostic only — no consumer reads this in 9.A. Consumers come in 9.B.
+    /// Schema-additive via `#[serde(default)]`; v29 logs without this field
+    /// deserialise as an empty vec.
+    #[serde(default)]
+    pub effective_ai_tags: Vec<crate::combat::ai::tags::AbilityTagSet>,
 }
 
 /// Adaptation reason + original (pre-adaptation) score for a single plan.
@@ -298,5 +305,52 @@ mod tests {
         let pi: PickInfo = serde_json::from_str(&json_without_field)
             .expect("pre-8.C PickInfo should deserialise OK");
         assert_eq!(pi.noise_applied, 0.0, "missing field should default to 0.0");
+    }
+
+    // ── Step 9.A: PlanAnnotation.effective_ai_tags tests ─────────────────────
+
+    /// Default PlanAnnotation has empty effective_ai_tags.
+    #[test]
+    fn plan_annotation_default_effective_ai_tags_empty() {
+        let a = PlanAnnotation::default();
+        assert!(
+            a.effective_ai_tags.is_empty(),
+            "default effective_ai_tags must be empty vec"
+        );
+    }
+
+    /// A v29 JSON log entry without `effective_ai_tags` field deserialises
+    /// as empty vec (forward compatibility via #[serde(default)]).
+    #[test]
+    fn plan_annotation_serde_v29_log_without_effective_ai_tags_deserialises() {
+        let original = PlanAnnotation::default();
+        let mut v: serde_json::Value = serde_json::to_value(&original).expect("serialize ok");
+        v.as_object_mut().unwrap().remove("effective_ai_tags");
+        let json_without_field = serde_json::to_string(&v).expect("re-serialize ok");
+
+        let ann: PlanAnnotation = serde_json::from_str(&json_without_field)
+            .expect("v29 PlanAnnotation without effective_ai_tags must deserialise OK");
+        assert!(
+            ann.effective_ai_tags.is_empty(),
+            "missing effective_ai_tags field must deserialise as empty vec"
+        );
+    }
+
+    /// PlanAnnotation with effective_ai_tags survives a serde round-trip.
+    #[test]
+    fn plan_annotation_serde_round_trip_with_effective_ai_tags() {
+        use crate::combat::ai::tags::{AbilityTag, AbilityTagSet};
+
+        let ann = PlanAnnotation {
+            effective_ai_tags: vec![AbilityTagSet::OFFENSIVE, AbilityTagSet::RESCUE],
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&ann).expect("serialize ok");
+        let decoded: PlanAnnotation = serde_json::from_str(&json).expect("deserialize ok");
+
+        assert_eq!(decoded.effective_ai_tags.len(), 2);
+        assert!(decoded.effective_ai_tags[0].contains_tag(AbilityTag::Offensive));
+        assert!(decoded.effective_ai_tags[1].contains_tag(AbilityTag::Rescue));
+        assert!(!decoded.effective_ai_tags[0].contains_tag(AbilityTag::Rescue));
     }
 }

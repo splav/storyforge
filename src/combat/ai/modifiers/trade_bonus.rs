@@ -60,7 +60,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
-        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0 };
+        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache() };
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         let mut rng = crate::core::rng::DiceRng::default();
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
@@ -115,7 +115,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone(), support.clone(), rat.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
-        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0 };
+        let world = AiWorld { content: &content, difficulty: &difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0, ability_tags: crate::combat::ai::test_helpers::empty_ability_tag_cache() };
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         let mut rng = crate::core::rng::DiceRng::default();
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);

@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::content::content_view::{ActiveContent, ContentView};
 use crate::combat::ai::debug::AiDebugState;
+use crate::combat::ai::tags::AbilityTagCache;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::AiMemory;
@@ -45,6 +46,8 @@ pub struct AiEnv<'w> {
     inf_cfg: Res<'w, InfluenceConfig>,
     positions: Res<'w, HexPositions>,
     combat_ctx: Res<'w, CombatContext>,
+    /// Step 9.A: tag cache for effective_ai_tags diagnostic writeback.
+    ability_tags: Res<'w, AbilityTagCache>,
 }
 
 // ── Main system ────────────────────────────────────────────────────────────
@@ -102,6 +105,7 @@ fn run_ai_turn(
     let inf_cfg = &env.inf_cfg;
     let positions = &env.positions;
     let combat_ctx = &env.combat_ctx;
+    let ability_tags: &AbilityTagCache = &env.ability_tags;
     let Some(actor_pos) = positions.get(&actor) else {
         warn!("AI: actor {:?} has no position, ending turn", actor);
         msgs.end_turn.write(EndTurn { actor });
@@ -184,7 +188,13 @@ fn run_ai_turn(
     // live on each `UnitSnapshot` row (built by `build_snapshot` above), so
     // there's no parallel `ActorCtx` to thread.
     let crit_fail_chance = 1.0 / settings.crit_fail_die as f32;
-    let world = AiWorld { content, difficulty, tuning: &content.ai_tuning, crit_fail_chance };
+    let world = AiWorld {
+        content,
+        difficulty,
+        tuning: &content.ai_tuning,
+        crit_fail_chance,
+        ability_tags,
+    };
 
     // Build name map for debug / log.
     let debug = settings.ai_debug;

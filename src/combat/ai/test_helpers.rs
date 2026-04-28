@@ -8,6 +8,7 @@ use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
 use crate::combat::ai::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::tags::{AbilityTagCache, StatusTagCache};
 use crate::combat::ai::utility::{AiWorld, ScoringCtx};
 use crate::content::abilities::CasterContext;
 use crate::content::content_view::ContentView;
@@ -17,6 +18,23 @@ use crate::game::components::Team;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 use std::collections::HashMap;
+use std::sync::OnceLock;
+
+/// Shared empty `AbilityTagCache` for test contexts that don't exercise
+/// tag-based logic. Lives in a `OnceLock` to satisfy the `'a` lifetime
+/// requirement in `AiWorld<'a>.ability_tags` without caller cascade.
+static EMPTY_ABILITY_TAG_CACHE: OnceLock<AbilityTagCache> = OnceLock::new();
+
+pub(crate) fn empty_ability_tag_cache() -> &'static AbilityTagCache {
+    EMPTY_ABILITY_TAG_CACHE.get_or_init(AbilityTagCache::default)
+}
+
+/// Build an empty `(StatusTagCache, AbilityTagCache)` pair for test contexts
+/// that need to pass owned caches (e.g., `pick_action` integration tests).
+#[allow(dead_code)]
+pub(crate) fn empty_caches() -> (StatusTagCache, AbilityTagCache) {
+    (StatusTagCache::default(), AbilityTagCache::default())
+}
 
 // ── Utility context ────────────────────────────────────────────────────────
 
@@ -31,7 +49,13 @@ pub(crate) fn make_test_ctx<'a>(
     content: &'a ContentView,
     difficulty: &'a DifficultyProfile,
 ) -> AiWorld<'a> {
-    AiWorld { content, difficulty, tuning: &content.ai_tuning, crit_fail_chance: 0.0 }
+    AiWorld {
+        content,
+        difficulty,
+        tuning: &content.ai_tuning,
+        crit_fail_chance: 0.0,
+        ability_tags: empty_ability_tag_cache(),
+    }
 }
 
 /// Bundle the per-test (world, snap, maps, reservations, active) refs into

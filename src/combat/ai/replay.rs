@@ -18,6 +18,7 @@ use bevy::prelude::Entity;
 use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
+
 use crate::combat::ai::replay_assertion::{
     build_actual_decision, run_assertion, ActualDecision, AssertResult, Overlay,
 };
@@ -222,11 +223,17 @@ pub fn assert_v28_log_file(
 
     let maps = build_influence_maps(&event.snapshot, actor, active.team, inf_cfg);
     let difficulty = DifficultyProfile::normal();
+    // Step 9.A: use content-derived cache for effective_ai_tags diagnostic.
+    let ability_tag_cache = {
+        let (_, ac) = crate::combat::ai::tags::cache::build_caches(content);
+        ac
+    };
     let world = AiWorld {
         content,
         difficulty: &difficulty,
         tuning: &content.ai_tuning,
         crit_fail_chance: 0.0,
+        ability_tags: &ability_tag_cache,
     };
     let memory = build_memory_from_overlay(&overlay);
     let reservations = Reservations::default();
