@@ -21,10 +21,8 @@ use crate::content::content_view::ContentView;
 
 /// Grouping struct for all read-only inputs to `compute_need_signals`.
 ///
-/// Introduced in step 9.B commit 0 — type definition only.
-/// No production code reads this struct in commit 0; it will be wired up in
-/// commit 2 when `compute_need_signals` gains `rescue_ally` / `apply_cc`
-/// producers that need tag-cache access.
+/// Provides tag-cache access for `rescue_ally` / `apply_cc` producers alongside
+/// snapshot, influence maps, memory, tuning, and content view.
 pub struct AppraisalCtx<'a> {
     pub active:       &'a UnitSnapshot,
     pub snap:         &'a BattleSnapshot,
@@ -54,8 +52,8 @@ pub struct NeedSignals {
 
 /// Compute need signals from raw tactical state via `AppraisalCtx`.
 ///
-/// Step 9.B commit 2: activates `rescue_ally` and `apply_cc` producers via
-/// tag-cache access. `setup_aoe` stays at 0.0 — no Setup mechanic in shape.
+/// Populates all 7 active signals; `rescue_ally` and `apply_cc` read tag-caches.
+/// `setup_aoe` stays at 0.0 — no Setup mechanic in shape (see inline comment).
 pub fn compute_need_signals(ctx: &AppraisalCtx<'_>) -> NeedSignals {
     NeedSignals {
         self_preserve:       compute_self_preserve(ctx),

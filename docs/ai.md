@@ -357,16 +357,21 @@ factor_weight[f] = Σ(biased[i] × AXIS_FACTOR_WEIGHTS[i][f])
 
 ### Инференс профиля (role.rs::infer_profile)
 
-Каждая ability голосует за оси с весом `1 + total_cost`:
+Каждая ability голосует за оси через **`tag_axis_vote`** (не pattern-matching по EffectDef).
+Вес голоса = `1 + total_cost`. Правило маппинга AbilityTag → ось:
 
-| Ability pattern | Голос |
-|---|---|
-| SingleAlly + Heal effect | Support +weight |
-| Myself + no damage (taunt, rush) | Tank +weight |
-| AoE / SpellDamage / ranged physical + damage | Ranged +weight (+0.4×w Control если есть status) |
-| Melee physical + damage | Melee +weight (+0.4×w Control если есть status) |
-| Status-only (stun, paralyze) | Control +weight |
-| Movement/utility fallback | Melee +0.3×w |
+| AbilityTag | Ось | Кредит |
+|---|---|---|
+| Offensive | Melee или Ranged (по `target_type`) | `+weight` |
+| Rescue | Support | `+weight` |
+| Summon | Support | `+weight × 0.5` |
+| Defensive | Tank | `+weight × 0.7` |
+| ApplyCC | Control | `+weight` |
+| Peel | Tank + Control | `+weight × [0.7, 0.3]` |
+| Mobility | Melee | `+weight × 0.9` (aggro move) |
+| (no tags) | Melee | `+weight × 0.3` (utility fallback) |
+
+Override: если `ai_tags_override` выставлен в TOML — используется он вместо derived tags (replace, не append).
 
 Плюс **stat-based Tank bonus**: `(max_hp + armor×2) / 20`, clamped [0.3, 2.0].
 
@@ -756,6 +761,41 @@ Per-entity policy application из `outcome.enemy_damage_per_entity` / `ally_dam
 ```
 LOW_HP | CAN_HEAL | CAN_CC | HAS_AOE | IS_STUNNED | FORCES_TARGETING | RANGED | MELEE_ONLY
 ```
+
+## AI Semantic Tags
+
+Семантические теги (`src/combat/ai/tags/classify.rs` — single source of truth) дополняют битфлаги более высокоуровневой классификацией способностей и статусов. Строятся один раз при загрузке контента; кешируются в `AbilityTagCache` / `StatusTagCache`.
+
+### AbilityTag (7 значений)
+
+| Тег | Условие (из `derive_ability_tags`) |
+|---|---|
+| `Offensive` | WeaponAttack / Damage / SpellDamage effect |
+| `Defensive` | Применяет Buff-статус на self или союзника |
+| `Rescue` | Heal effect + target = SingleAlly |
+| `Summon` | Summon effect |
+| `Mobility` | GrantMovement effect |
+| `ApplyCC` | Применяет HardCC или SoftCC на врага |
+| `Peel` | Применяет `forces_targeting` статус на self или союзника |
+
+Override: поле `ai_tags_override` в TOML заменяет derived tags целиком (replace-not-append). Используется для пограничных случаев, где shape не передаёт семантику.
+
+### StatusTag (6 значений)
+
+| Тег | Условие (из `derive_status_tags`) |
+|---|---|
+| `HardCC` | `skips_turn = true` |
+| `SoftCC` | `causes_disadvantage` или `speed_bonus < 0` |
+| `Dot` | `dot_dice` задан или `hp_percent_dot > 0` |
+| `Buff` | `buff_class` задан или `armor_bonus > 0` |
+| `Compulsion` | `forces_targeting = true` (параллельно с другими тегами) |
+| `Cosmetic` | fallback — ни один другой тег не выставлен |
+
+### Как теги влияют на поведение AI
+
+- **Инференс профиля** (`role.rs::infer_profile`) — `tag_axis_vote` использует AbilityTag для голосования за оси.
+- **Need signals** (`appraisal/mod.rs`) — `rescue_ally` читает Rescue-tagged abilities; `apply_cc` читает ApplyCC-tagged abilities + target с HardCC для подавления сигнала.
+- **Продолжение планов** (`repair/mod.rs::classify_status_change`) — StatusTag определяет severity при `actor_status_changed`: HardCC/Compulsion set → Invalidating; Buff removed/SoftCC set → Relevant; пустой tick → Cosmetic.
 
 ## Influence Maps
 

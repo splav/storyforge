@@ -276,7 +276,7 @@ Viability → Sanity → Adaptation → ProtectSelfMask → KillableGate
 
 ---
 
-### 9. Semantic AI tags для способностей и статусов
+### 9. Semantic AI tags для способностей и статусов ✓ DONE
 
 **Сложность:** 3
 **Польза:** 5
@@ -285,11 +285,22 @@ Viability → Sanity → Adaptation → ProtectSelfMask → KillableGate
 
 **Суть:** authored high-level знание без перехода на полный HTN. Работает особенно хорошо поверх outcome vector: теги подсказывают, **какие измерения outcome релевантны** для данной способности.
 
-**Как поменять:**
-- В контенте (`abilities.toml`, `statuses.toml`): `ai_tags`, `ai_profile_hints`, опционально `ai_outcome_hints`.
-- Словарь: `offensive`, `defensive`, `rescue`, `setup`, `cleanse`, `escape`, `summon`, `zone_control`, `finisher`, `mobility`, `peel`, `commitment_skill`.
-- Потребители: `role.rs`, `intent.rs`, `generator.rs`, `scoring.rs`, critics, team coordination. Во всех — теги сначала, существующая эвристика как fallback.
-- `PlanAnnotation.effective_ai_tags` для каждого шага.
+**Реализовано (9.A–9.C):**
+- `src/combat/ai/tags/classify.rs` — single source of truth для AbilityTag (7) и StatusTag (6).
+- `AbilityTagCache` / `StatusTagCache` — строятся при загрузке контента, кешируются.
+- `role.rs::tag_axis_vote` — инференс профиля через теги (вместо pattern-matching по shape).
+- `appraisal/mod.rs` — `rescue_ally` и `apply_cc` need signals через tag-cache.
+- `repair/mod.rs::classify_status_change` — severity `actor_status_changed` через StatusTag.
+- Override: `ai_tags_override` в TOML заменяет derived tags (replace-not-append).
+- Mining: `mine_ai_logs` — секции F1 (tag coverage), F2 (need signals pin), F3 (continuation severity).
+- Scenarios: `apply_cc_skips_already_hardcc_target`, `actor_status_hardcc_invalidates_goal`, `actor_status_dot_tick_preserves_goal` + 15 existing (18 total).
+
+**Backlog (не вошло в scope step 9):**
+- **Setup / Cleanse / ZoneControl tags** — нет механики в shape (channel/marker/hazard zones).
+- **Finisher / Escape** — не теги: outcome property / intent context, добавятся с шагами 10/11.
+- **commitment_skill** — step 12 (mid-plan reflow).
+- **Peel-aware terminal axis** — пока Peel живёт только в `tag_axis_vote`; real terminal consumer в backlog.
+- **NeedSignals в log schema** — `rescue_ally`/`apply_cc` недоступны для mining (v30 не включает NeedSignals в `ActorTickEvent`); добавить при следующем schema bump.
 
 ---
 
