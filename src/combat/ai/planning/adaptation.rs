@@ -239,6 +239,96 @@ impl Adaptation {
     }
 }
 
+/// Pure mode-selection pass — step 11.0.
+///
+/// Evaluates snapshot facts for every plan and returns per-plan
+/// `EvaluationMode` assignments together with their reasons.
+/// Does **not** touch `ann.score`, `ann.factors`, or `raw` — scoring
+/// is entirely deferred to `FinalizeStage`.
+///
+/// This is the first half of the old `apply_adaptation` split:
+/// - **`select_evaluation_modes`** — which mode for each plan? (this fn)
+/// - **`rescore_with_per_plan_modes`** in `scorer.rs` — apply those modes.
+///
+/// # Contract
+///
+/// Pure function over snapshot facts. Inputs are read-only (except
+/// `plans` which is `&[TurnPlan]`). Callers may run Sanity/Critics
+/// multipliers *after* this returns and *before* calling
+/// `rescore_with_per_plan_modes`, because mode selection is
+/// fact-driven and does not depend on scores.
+pub fn select_evaluation_modes(
+    plans: &[TurnPlan],
+    raw: &[PlanFactorValues],
+    intent: &TacticalIntent,
+    ctx: &ScoringCtx,
+) -> Adaptation {
+    debug_assert_eq!(plans.len(), raw.len());
+
+    let mut adaptation = Adaptation::empty(plans.len());
+    if plans.is_empty() {
+        return adaptation;
+    }
+
+    let active = ctx.active;
+    let content = ctx.world.content;
+
+    // ── Global rules under ProtectSelf ────────────────────────────────────
+    if matches!(intent, TacticalIntent::ProtectSelf) {
+        let any_defensive = raw
+            .iter()
+            .any(|f| plan_is_defensive(f.get_plan(PlanFactor::SelfSurvival), ctx.world.tuning.thresholds.self_survival_epsilon));
+        if !any_defensive {
+            for i in 0..plans.len() {
+                adaptation.modes[i] = EvaluationMode::LastStand;
+                adaptation.reasons[i] = Some(AdaptationReason::ProtectSelfNoDefensive);
+            }
+            return adaptation;
+        }
+
+        let pending_dot = pending_dot_before_next_action(active, content);
+        if pending_dot >= active.hp {
+            let any_rescue = plans
+                .iter()
+                .any(|p| plan_has_self_rescue(p, active, ctx.snap, content));
+            if !any_rescue {
+                let reason = AdaptationReason::ProtectSelfFutile {
+                    pending_dot,
+                    actor_hp: active.hp,
+                };
+                for i in 0..plans.len() {
+                    adaptation.modes[i] = EvaluationMode::LastStand;
+                    adaptation.reasons[i] = Some(reason.clone());
+                }
+                return adaptation;
+            }
+        }
+
+        // ProtectSelf with defensive options AND feasible survival:
+        // contract still holds. Per-plan ExpectedSelfLethal is gated off.
+        return adaptation;
+    }
+
+    // ── Per-plan rule: ExpectedSelfLethal ─────────────────────────────────
+    let enemies: Vec<&UnitSnapshot> = ctx.snap.enemies_of(active.team).collect();
+    let hp_cutoff = active.hp as f32;
+    for (i, plan) in plans.iter().enumerate() {
+        if active.hp <= 0 {
+            break;
+        }
+        let aoo_dmg = expected_aoo_damage(active, plan, &enemies);
+        if aoo_dmg >= hp_cutoff {
+            adaptation.modes[i] = EvaluationMode::LastStand;
+            adaptation.reasons[i] = Some(AdaptationReason::ExpectedSelfLethal {
+                aoo_dmg,
+                actor_hp: active.hp,
+            });
+        }
+    }
+
+    adaptation
+}
+
 /// Run the ADAPTATION pass over the plan pool. Returns an `Adaptation`
 /// reflecting per-plan mode decisions; mutates `raw` (intent-column for
 /// switched plans) and `scored` (full batch rescored so normalisation
@@ -255,6 +345,12 @@ impl Adaptation {
 ///   value → **IDEMPOTENT**
 /// - does not consult contract masks and does not prevent them from
 ///   running afterwards → **CONTRACT-NEUTRAL**
+///
+/// # Deprecation note (step 11.0)
+///
+/// Preserved for the existing unit-test suite in this module, which tests
+/// mode-selection + rescore in concert. New pipeline code uses
+/// `select_evaluation_modes` + `FinalizeStage` instead.
 pub fn apply_adaptation(
     plans: &mut [TurnPlan],
     raw: &mut [PlanFactorValues],

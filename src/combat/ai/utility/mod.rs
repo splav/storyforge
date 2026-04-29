@@ -320,9 +320,10 @@ pub fn pick_action(
     );
 
     use crate::combat::ai::pipeline::stages::{
-        adaptation::AdaptationStage,
         critics::CriticsStage,
+        finalize::FinalizeStage,
         killable_gate::KillableGateStage,
+        mode_selection::ModeSelectionStage,
         pick_best::PickBestStage,
         plan_modifiers::PlanModifiersStage,
         protect_self::ProtectSelfMaskStage,
@@ -331,14 +332,24 @@ pub fn pick_action(
         viability::ViabilityStage,
     };
     use crate::combat::ai::pipeline::PlanStage;
+
+    // Pipeline order (step 11.0 — B3 fix):
+    //   Viability → ModeSelection → Finalize → Sanity → Critics → ProtectSelfMask
+    //   → KillableGate → RepairAffinity → PlanModifiers → PickBest
+    //
+    // ModeSelection selects per-plan EvaluationMode (no score mutation).
+    // Finalize applies mode-aware scoring (overwrites ann.score from raw factors).
+    // Sanity and Critics then apply their multipliers on the finalized base score,
+    // so LastStand-triggered plans keep their Sanity/Critics modifiers (B3 fix).
     ViabilityStage.apply(&mut pool, &mut stage_ctx);
+    ModeSelectionStage.apply(&mut pool, &mut stage_ctx);
+    FinalizeStage.apply(&mut pool, &mut stage_ctx);
     SanityStage.apply(&mut pool, &mut stage_ctx);
     CriticsStage::first_wave().apply(&mut pool, &mut stage_ctx);
 
-    // Snapshot post-sanity scores (before adaptation rescoring).
+    // Snapshot post-sanity/critics scores (after all multipliers applied).
     let base_scored: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
 
-    AdaptationStage.apply(&mut pool, &mut stage_ctx);
     ProtectSelfMaskStage.apply(&mut pool, &mut stage_ctx);
     KillableGateStage.apply(&mut pool, &mut stage_ctx);
     RepairAffinityStage.apply(&mut pool, &mut stage_ctx);

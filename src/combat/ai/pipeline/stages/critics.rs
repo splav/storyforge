@@ -182,4 +182,111 @@ mod tests {
         );
         assert_eq!(ann.critics[0].critic, CriticKind::OvercommitIntoDanger);
     }
+
+    // ── critics_survive_through_adaptation_path (B3 regression) ──────────
+    //
+    // Regression test for B3 fix (step 11.0): in the old pipeline order
+    // Critics ran before AdaptationStage, which would rescore ann.score from
+    // raw factors — wiping the Critics multiplier. In the new order:
+    //   ModeSelection → Finalize → Sanity → Critics → ...
+    // Critics run AFTER Finalize, so their multipliers survive.
+    //
+    // This test runs a partial pipeline:
+    //   ModeSelectionStage → FinalizeStage → AlwaysHitCritic(0.5)
+    // and verifies that the final score = finalized_score × 0.5.
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_partial_pipeline_with_critic(
+        plans: Vec<TurnPlan>,
+        scores: Vec<f32>,
+        raw: Vec<crate::combat::ai::factors::PlanFactorValues>,
+        adaptations: Vec<Option<crate::combat::ai::outcome::AdaptationData>>,
+        actor: &crate::combat::ai::snapshot::UnitSnapshot,
+        snap: &BattleSnapshot,
+        intent: TacticalIntent,
+        critic_multiplier: f32,
+    ) -> ScoredPool {
+        let maps = empty_maps();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let scoring = make_scoring_ctx(&world, snap, &maps, &reservations, actor);
+        let mut rng = DiceRng::default();
+        let mut ctx = StageCtx::new(&scoring, intent, IntentReason::NoRuleDefault, actor.pos, &mut rng);
+
+        let mut pool = ScoredPool::new(plans);
+        for (ann, ((score, raw_f), adaptation)) in pool
+            .annotations
+            .iter_mut()
+            .zip(scores.into_iter().zip(raw.into_iter()).zip(adaptations.into_iter()))
+        {
+            ann.score = score;
+            ann.factors = raw_f;
+            ann.adaptation = adaptation;
+        }
+
+        // Run partial pipeline: ModeSelection already ran (adaptation is pre-injected),
+        // so we start from FinalizeStage then Critics.
+        use crate::combat::ai::pipeline::stages::finalize::FinalizeStage;
+        use crate::combat::ai::pipeline::PlanStage;
+        FinalizeStage.apply(&mut pool, &mut ctx);
+
+        let score_after_finalize: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
+
+        // Apply mock critic.
+        let stage = CriticsStage {
+            critics: vec![Box::new(AlwaysHitCritic { multiplier: critic_multiplier })],
+        };
+        stage.apply(&mut pool, &mut ctx);
+
+        // Verify: each score == finalized_score × multiplier.
+        for (i, ann) in pool.annotations.iter().enumerate() {
+            let expected = score_after_finalize[i] * critic_multiplier;
+            assert!(
+                (ann.score - expected).abs() < 1e-5,
+                "plan[{i}]: critics multiplier was lost — expected {expected}, got {}",
+                ann.score,
+            );
+        }
+
+        pool
+    }
+
+    #[test]
+    fn critics_survive_through_adaptation_path() {
+        use crate::combat::ai::factors::PlanFactorValues;
+        use crate::combat::ai::outcome::AdaptationData;
+        use crate::combat::ai::planning::adaptation::AdaptationReason;
+        use crate::combat::ai::planning::types::TurnPlan;
+
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+
+        // Two plans: one with LastStand adaptation, one with Default (no adaptation).
+        let plans = vec![TurnPlan::default(), TurnPlan::default()];
+        let scores = vec![0.8_f32, 0.6_f32];
+        let raw = vec![PlanFactorValues::default(), PlanFactorValues::default()];
+        let adaptations = vec![
+            Some(AdaptationData {
+                reason: AdaptationReason::ProtectSelfNoDefensive,
+                original_score: 0.8,
+            }),
+            None, // Default mode
+        ];
+
+        // Both plans must have critics multiplier applied after Finalize.
+        run_partial_pipeline_with_critic(
+            plans,
+            scores,
+            raw,
+            adaptations,
+            &actor,
+            &snap,
+            TacticalIntent::Reposition,
+            0.5,
+        );
+        // Assertions are inside run_partial_pipeline_with_critic.
+    }
 }
