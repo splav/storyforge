@@ -216,6 +216,12 @@ pub struct PlanAnnotation {
     /// deserialise as an empty vec.
     #[serde(default)]
     pub effective_ai_tags: Vec<crate::combat::ai::tags::AbilityTagSet>,
+    /// Step 10.0: critic hits applied to this plan (critic + multiplier + reason triples).
+    /// Empty until CriticsStage runs or when no critics fired.
+    /// Schema-additive via `#[serde(default)]`; v30 logs without this field
+    /// deserialise as an empty vec.
+    #[serde(default)]
+    pub critics: Vec<crate::combat::ai::critics::CriticHit>,
 }
 
 /// Adaptation reason + original (pre-adaptation) score for a single plan.

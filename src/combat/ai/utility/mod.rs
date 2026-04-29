@@ -321,6 +321,7 @@ pub fn pick_action(
 
     use crate::combat::ai::pipeline::stages::{
         adaptation::AdaptationStage,
+        critics::CriticsStage,
         killable_gate::KillableGateStage,
         pick_best::PickBestStage,
         plan_modifiers::PlanModifiersStage,
@@ -332,6 +333,7 @@ pub fn pick_action(
     use crate::combat::ai::pipeline::PlanStage;
     ViabilityStage.apply(&mut pool, &mut stage_ctx);
     SanityStage.apply(&mut pool, &mut stage_ctx);
+    CriticsStage::first_wave().apply(&mut pool, &mut stage_ctx);
 
     // Snapshot post-sanity scores (before adaptation rescoring).
     let base_scored: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();

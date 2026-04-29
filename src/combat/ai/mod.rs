@@ -1,4 +1,5 @@
 pub mod action_state;
+pub mod critics;
 pub mod modifiers;
 pub mod tags;
 pub mod pipeline;

@@ -1,4 +1,5 @@
 pub mod adaptation;
+pub mod critics;
 pub mod killable_gate;
 pub mod pick_best;
 pub mod plan_modifiers;
