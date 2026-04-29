@@ -38,14 +38,6 @@ impl PlanCritic for OvercommitIntoDanger {
         "overcommit_into_danger"
     }
 
-    /// Survival-focused: opted out of LastStand. The whole point of LastStand
-    /// is "survival is no longer the objective"; penalising danger exposure
-    /// duplicates the adaptation signal (G mining: 100% Overcommit hit rate
-    /// on `protect_self_no_defensive` plans pre-fix).
-    fn applies_in_last_stand(&self) -> bool {
-        false
-    }
-
     fn evaluate(
         &self,
         plan: &TurnPlan,
