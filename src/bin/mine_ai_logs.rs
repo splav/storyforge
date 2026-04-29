@@ -30,6 +30,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
+use storyforge::combat::ai::planning::AdaptationReason;
 use storyforge::combat::ai::repair::{
     classify_continuation_outcome, ContinuationOutcome, FreshDecisionKind, StoredGoalContext,
 };
@@ -135,6 +136,37 @@ struct Aggregate {
     // Per-severity goal continuation rate: preserved vs abandoned counts.
     f3_preserved_by_severity: BTreeMap<String, usize>,
     f3_abandoned_by_severity: BTreeMap<String, usize>,
+
+    // G1: Critics coverage (step 10) — per-critic stats for chosen plans.
+    // For each critic kind we track:
+    //   - count of chosen plans where the critic fired (had a hit)
+    //   - distribution of multipliers actually applied
+    // Denominator: total_chosen.
+    g1_critic_hit_counts: BTreeMap<String, usize>,
+    g1_critic_multipliers: BTreeMap<String, Vec<f32>>,
+    // A: pool-wide per-critic fire rate. How often each critic fires across
+    // ALL plans in the pool (regardless of chosen). Distinguishes
+    // "filter that knocks out candidates" (pool > 0, chosen 0) from
+    // "dead critic / over-strict gating" (both 0).
+    g1_pool_per_critic: BTreeMap<String, usize>,
+    // Pool-wide aggregate (any critic fired) — kept for the headline number.
+    g1_pool_with_any_critic: usize,
+    g1_pool_total: usize,
+    // E (Overcommit-only): cross-tab `OvercommitIntoDanger` hit count
+    // by chosen-plan decision_kind. Tells us whether the over-fire is
+    // localised to a specific decision class (e.g. only on Move).
+    g1_overcommit_by_decision_kind: BTreeMap<String, usize>,
+    // Total chosen plans by decision_kind (denominator for the cross-tab).
+    g1_chosen_by_decision_kind: BTreeMap<String, usize>,
+
+    // G: Overcommit × adaptation cross-tab. Detects whether Overcommit hits
+    // pile up on top of LastStand-mode plans (double-pressure) or are
+    // localised to Default-mode plans.
+    //
+    // Reason key = adaptation reason variant ("expected_self_lethal" /
+    // "protect_self_no_defensive" / "protect_self_futile") or "none".
+    g1_overcommit_by_adapt_reason: BTreeMap<String, usize>,
+    g1_chosen_by_adapt_reason: BTreeMap<String, usize>,
 }
 
 impl Aggregate {
@@ -244,6 +276,60 @@ impl Aggregate {
                     .any(|step_tags| step_tags.contains_tag(tag));
                 if has_tag {
                     *self.f1_ability_tag_counts.entry(tag.name().to_owned()).or_default() += 1;
+                }
+            }
+
+            // G1 (chosen-plan stats): for each critic that fired, increment
+            // the hit count and record the multiplier.
+            let mut overcommit_in_chosen = false;
+            for hit in &chosen.annotation.critics {
+                let key = format!("{:?}", hit.critic);
+                *self.g1_critic_hit_counts.entry(key.clone()).or_default() += 1;
+                self.g1_critic_multipliers.entry(key.clone()).or_default().push(hit.multiplier);
+                if key == "OvercommitIntoDanger" {
+                    overcommit_in_chosen = true;
+                }
+            }
+
+            // E: chosen-plan totals by decision_kind + Overcommit cross-tab.
+            *self.g1_chosen_by_decision_kind.entry(decision_kind.to_owned()).or_default() += 1;
+            if overcommit_in_chosen {
+                *self.g1_overcommit_by_decision_kind.entry(decision_kind.to_owned()).or_default() += 1;
+            }
+
+            // G: Overcommit × adaptation reason cross-tab.
+            // Adaptation reason carries the LastStand/ProtectSelf context;
+            // any non-None reason means the plan was rescored under a
+            // non-Default regime. Use the variant's `kind` tag as the key.
+            let adapt_key = chosen
+                .annotation
+                .adaptation
+                .as_ref()
+                .map(|a| match &a.reason {
+                    AdaptationReason::ExpectedSelfLethal { .. } => "expected_self_lethal".to_owned(),
+                    AdaptationReason::ProtectSelfNoDefensive => "protect_self_no_defensive".to_owned(),
+                    AdaptationReason::ProtectSelfFutile { .. } => "protect_self_futile".to_owned(),
+                })
+                .unwrap_or_else(|| "none".to_owned());
+            *self.g1_chosen_by_adapt_reason.entry(adapt_key.clone()).or_default() += 1;
+            if overcommit_in_chosen {
+                *self.g1_overcommit_by_adapt_reason.entry(adapt_key).or_default() += 1;
+            }
+        }
+
+        // G1 (pool-wide): count how often any critic fires across all plans
+        // in the pool, plus per-critic pool fire rate (Variant A).
+        for plan in &event.plans {
+            self.g1_pool_total += 1;
+            if !plan.annotation.critics.is_empty() {
+                self.g1_pool_with_any_critic += 1;
+            }
+            // A: per-critic pool count. Each critic counted at most once per plan.
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for hit in &plan.annotation.critics {
+                let key = format!("{:?}", hit.critic);
+                if seen.insert(key.clone()) {
+                    *self.g1_pool_per_critic.entry(key).or_default() += 1;
                 }
             }
         }
@@ -728,7 +814,7 @@ fn main() {
 
     // ── Report ────────────────────────────────────────────────────────────────
 
-    println!("# AI mining — v29");
+    println!("# AI mining — v31");
     println!();
     println!(
         "Source: {} JSONL files, {} AI decisions ({} skip)",
@@ -1030,6 +1116,177 @@ fn main() {
         println!("  (no mismatch events with status data in corpus)");
     }
     println!();
+
+    // G1: Critics coverage (step 10).
+    println!("=== Critics coverage (G1) ===");
+    println!();
+    println!(
+        "Chosen plans: {}; pool plans: {}",
+        agg.total_chosen, agg.g1_pool_total
+    );
+    println!(
+        "  Pool-wide: any critic fired in {} / {} plans  ({:.1}%)",
+        agg.g1_pool_with_any_critic,
+        agg.g1_pool_total,
+        pct(agg.g1_pool_with_any_critic, agg.g1_pool_total),
+    );
+    println!();
+
+    // Six critics — fixed display order (defensive → positioning → resource/value).
+    let critic_kinds = [
+        "OvercommitIntoDanger",
+        "SelfLethalWithoutPayoff",
+        "BlindspotRanged",
+        "BuffIntoVoid",
+        "RareResourceForLowImpact",
+        "HealWithoutRescueValue",
+    ];
+
+    // Per-critic table: chosen + pool fire rates + multiplier summary.
+    println!(
+        "  {:<28} {:>8} {:>8} {:>8} {:>8} {:>10} {:>10}",
+        "critic", "chosen", "ch_freq", "pool", "po_freq", "mean_mul", "min_mul"
+    );
+    println!("  {}", "-".repeat(86));
+    for k in &critic_kinds {
+        let chosen_n = agg.g1_critic_hit_counts.get(*k).copied().unwrap_or(0);
+        let pool_n = agg.g1_pool_per_critic.get(*k).copied().unwrap_or(0);
+        let muls = agg.g1_critic_multipliers.get(*k);
+        let (mean_mul, min_mul) = match muls {
+            Some(v) if !v.is_empty() => {
+                let sum: f32 = v.iter().sum();
+                let mean = sum / v.len() as f32;
+                let min = v.iter().copied().fold(f32::INFINITY, f32::min);
+                (Some(mean), Some(min))
+            }
+            _ => (None, None),
+        };
+        let mean_str = mean_mul.map(|m| format!("{:.3}", m)).unwrap_or_else(|| "—".into());
+        let min_str = min_mul.map(|m| format!("{:.3}", m)).unwrap_or_else(|| "—".into());
+        println!(
+            "  {:<28} {:>8} {:>7.1}% {:>8} {:>7.1}% {:>10} {:>10}",
+            k,
+            chosen_n,
+            pct(chosen_n, agg.total_chosen),
+            pool_n,
+            pct(pool_n, agg.g1_pool_total),
+            mean_str,
+            min_str,
+        );
+    }
+    println!();
+
+    // F: multiplier severity buckets per critic that has hits.
+    println!("  Multiplier severity buckets (chosen plans):");
+    println!(
+        "  {:<28} {:>10} {:>10} {:>10}",
+        "critic", "<0.5", "0.5..0.8", "0.8..1.0"
+    );
+    println!("  {}", "-".repeat(64));
+    for k in &critic_kinds {
+        let muls = match agg.g1_critic_multipliers.get(*k) {
+            Some(v) if !v.is_empty() => v,
+            _ => continue, // skip critics with no hits
+        };
+        let mut severe = 0_usize;
+        let mut moderate = 0_usize;
+        let mut mild = 0_usize;
+        for &m in muls {
+            if m < 0.5 {
+                severe += 1;
+            } else if m < 0.8 {
+                moderate += 1;
+            } else {
+                mild += 1;
+            }
+        }
+        let total = muls.len();
+        println!(
+            "  {:<28} {:>4} ({:>4.1}%) {:>4} ({:>4.1}%) {:>4} ({:>4.1}%)",
+            k,
+            severe, pct(severe, total),
+            moderate, pct(moderate, total),
+            mild, pct(mild, total),
+        );
+    }
+    println!();
+
+    // E: Overcommit cross-tab by chosen decision_kind.
+    let overcommit_total: usize = agg.g1_overcommit_by_decision_kind.values().sum();
+    if overcommit_total > 0 {
+        println!("  OvercommitIntoDanger × decision_kind (chosen plans):");
+        println!(
+            "  {:<14} {:>8} {:>8} {:>8}",
+            "decision", "chosen", "with_oc", "rate%"
+        );
+        println!("  {}", "-".repeat(44));
+        let mut kinds: Vec<&String> = agg.g1_chosen_by_decision_kind.keys().collect();
+        kinds.sort_by(|a, b| {
+            agg.g1_chosen_by_decision_kind.get(*b).cmp(&agg.g1_chosen_by_decision_kind.get(*a))
+        });
+        for kind in kinds {
+            let chosen_total = agg.g1_chosen_by_decision_kind.get(kind).copied().unwrap_or(0);
+            let with_oc = agg.g1_overcommit_by_decision_kind.get(kind).copied().unwrap_or(0);
+            println!(
+                "  {:<14} {:>8} {:>8} {:>7.1}%",
+                kind, chosen_total, with_oc, pct(with_oc, chosen_total),
+            );
+        }
+        println!();
+    }
+
+    // G: Overcommit × adaptation reason. Non-"none" rows imply LastStand
+    // mode (every adaptation reason switches the plan to LastStand). Use
+    // this to detect double-penalty: actor in LastStand AND Overcommit hit.
+    if overcommit_total > 0 {
+        println!("  OvercommitIntoDanger × adaptation reason (chosen plans):");
+        println!(
+            "  {:<32} {:>8} {:>8} {:>8}",
+            "adaptation_reason", "chosen", "with_oc", "rate%"
+        );
+        println!("  {}", "-".repeat(60));
+        let reason_order = [
+            "none",                          // Default mode
+            "expected_self_lethal",          // per-plan LastStand
+            "protect_self_no_defensive",     // global LastStand (no defensive options)
+            "protect_self_futile",           // global LastStand (DoT-doomed)
+        ];
+        for reason in &reason_order {
+            let chosen_total = agg.g1_chosen_by_adapt_reason.get(*reason).copied().unwrap_or(0);
+            if chosen_total == 0 {
+                continue;
+            }
+            let with_oc = agg.g1_overcommit_by_adapt_reason.get(*reason).copied().unwrap_or(0);
+            println!(
+                "  {:<32} {:>8} {:>8} {:>7.1}%",
+                reason, chosen_total, with_oc, pct(with_oc, chosen_total),
+            );
+        }
+        // Aggregated LastStand row (sum of all non-"none" reasons).
+        let last_stand_total: usize = agg
+            .g1_chosen_by_adapt_reason
+            .iter()
+            .filter(|(k, _)| k.as_str() != "none")
+            .map(|(_, v)| *v)
+            .sum();
+        let last_stand_with_oc: usize = agg
+            .g1_overcommit_by_adapt_reason
+            .iter()
+            .filter(|(k, _)| k.as_str() != "none")
+            .map(|(_, v)| *v)
+            .sum();
+        if last_stand_total > 0 {
+            println!("  {}", "-".repeat(60));
+            println!(
+                "  {:<32} {:>8} {:>8} {:>7.1}%",
+                "(any LastStand)",
+                last_stand_total,
+                last_stand_with_oc,
+                pct(last_stand_with_oc, last_stand_total),
+            );
+        }
+        println!();
+    }
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
