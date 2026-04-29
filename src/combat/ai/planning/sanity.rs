@@ -18,7 +18,7 @@ use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::effects_math::final_damage_f32;
 use crate::content::abilities::AoEShape;
-use crate::game::hex::{has_los, in_bounds, Hex};
+use crate::game::hex::{in_bounds, Hex};
 use std::collections::HashSet;
 
 // ── Sanity rule observability ──────────────────────────────────────────────
@@ -102,12 +102,10 @@ pub fn sanity_adjust_plans(
         .allies_of(active.team)
         .filter(|u| u.entity != active.entity)
         .collect();
-    // LoS blockers are LIVE units only. Corpses in the snapshot (dead but
-    // still present for replay / death-trigger reasons) do not block sight —
-    // line-of-sight is a tactical signal about who-can-see-what, not a
-    // tile-occupancy question. Explicit `.is_alive()` keeps the behaviour
-    // pinned now that `snap.units` includes dead entries.
-    let occupied: HashSet<Hex> = snap
+    // LoS blockers were used by LosBlindspot (now migrated to BlindspotRanged
+    // critic, step 10.2). The set is retained here (prefixed `_`) to keep the
+    // comment & intent visible until step 10.4 cleans up the dead code.
+    let _occupied: HashSet<Hex> = snap
         .units
         .iter()
         .filter(|u| u.is_alive())
@@ -158,18 +156,11 @@ pub fn sanity_adjust_plans(
             }
         }
 
-        // 3. LOS blindspot: ranged unit ending its turn with no enemy in LOS.
-        if active.tags.contains(AiTags::RANGED) && !enemies.is_empty() {
-            let can_see_any = enemies.iter().any(|e| {
-                has_los(final_pos, e.pos, |mid| {
-                    occupied.contains(&mid) && mid != final_pos && mid != e.pos
-                })
-            });
-            if !can_see_any {
-                penalty *= 0.3;
-                hits.push(SanityHit { rule: SanityRule::LosBlindspot, multiplier: 0.3 });
-            }
-        }
+        // 3. LosBlindspot: migrated to BlindspotRanged critic (step 10.2).
+        // The branch is intentionally disabled here; the critic applies the
+        // same formula in CriticsStage. Removed from SanityRule in step 10.4.
+        let _los_unused = active.tags.contains(AiTags::RANGED) && !enemies.is_empty();
+        // (no push)
 
         // 4. Retreat trap: final tile with fewer than 2 open neighbours
         // (flankable, no room to move next turn).
@@ -661,7 +652,8 @@ mod tests {
 
         assert_eq!(breakdown.len(), 2);
 
-        // Neither plan should fire Survival or AoOBleed — those are now in critics.
+        // Neither plan should fire Survival, AoOBleed, SelfAoe, or LosBlindspot —
+        // those are now in critics (migrated in steps 10.1 and 10.2).
         for (i, hits) in breakdown.iter().enumerate() {
             let rules: Vec<SanityRule> = hits.iter().map(|h| h.rule).collect();
             assert!(
@@ -675,6 +667,10 @@ mod tests {
             assert!(
                 !rules.contains(&SanityRule::SelfAoe),
                 "plan {i}: SelfAoe must not fire in sanity (migrated to critic), got: {rules:?}",
+            );
+            assert!(
+                !rules.contains(&SanityRule::LosBlindspot),
+                "plan {i}: LosBlindspot must not fire in sanity (migrated to critic), got: {rules:?}",
             );
         }
     }

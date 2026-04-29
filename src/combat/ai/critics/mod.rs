@@ -1,4 +1,4 @@
-//! Critics layer — step 10.0 / 10.1.
+//! Critics layer — step 10.0 / 10.1 / 10.2.
 //!
 //! `PlanCritic` trait + associated types. Each critic evaluates a single plan
 //! after scoring and returns an `Option<CriticHit>`:
@@ -9,9 +9,11 @@
 //! Concrete critics are implemented in sub-modules (step 10.1-10.3); this file
 //! defines only the shared contract and data types.
 
+pub mod blindspot_ranged;
 pub mod overcommit_into_danger;
 pub mod self_lethal_without_payoff;
 
+pub use blindspot_ranged::BlindspotRanged;
 pub use overcommit_into_danger::{OvercommitIntoDanger, OvercommitSource};
 pub use self_lethal_without_payoff::SelfLethalWithoutPayoff;
 
@@ -82,6 +84,12 @@ pub enum CriticReason {
         /// Normalised payoff estimate (`payoff / actor.max_hp`).
         payoff_estimate: f32,
     },
+    /// `BlindspotRanged` fired — ranged actor ends turn with no visible enemies.
+    BlindspotRanged {
+        /// Number of enemies visible from `final_pos`. Always 0 when the critic
+        /// fires; kept as a field for observability in structured logs.
+        enemies_visible: u32,
+    },
 }
 
 // ── CriticHit ─────────────────────────────────────────────────────────────────
@@ -140,6 +148,7 @@ mod tests {
             CriticReason::OvercommitIntoDanger { source: OvercommitSource::SurvivalPath, ratio: 0.5 },
             CriticReason::OvercommitIntoDanger { source: OvercommitSource::AooBleed, ratio: 0.8 },
             CriticReason::SelfLethalWithoutPayoff { self_dmg_ratio: 0.45, payoff_estimate: 0.1 },
+            CriticReason::BlindspotRanged { enemies_visible: 0 },
         ];
         for r in reasons {
             let json = serde_json::to_string(&r).expect("serialize");

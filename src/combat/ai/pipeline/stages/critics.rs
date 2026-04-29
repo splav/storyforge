@@ -7,6 +7,7 @@
 //! `CriticsStage::first_wave()` starts with an empty vec (step 10.0 scaffolding).
 //! Concrete critics are registered in steps 10.1–10.3.
 
+use crate::combat::ai::critics::blindspot_ranged::BlindspotRanged;
 use crate::combat::ai::critics::overcommit_into_danger::OvercommitIntoDanger;
 use crate::combat::ai::critics::self_lethal_without_payoff::SelfLethalWithoutPayoff;
 use crate::combat::ai::critics::PlanCritic;
@@ -22,12 +23,14 @@ impl CriticsStage {
     /// Build the first-wave critic set.
     ///
     /// Step 10.1: defensive cluster — OvercommitIntoDanger + SelfLethalWithoutPayoff.
-    /// Steps 10.2-10.3 will add positioning + resource/value critics.
+    /// Step 10.2: positioning cluster — BlindspotRanged.
+    /// Step 10.3 will add resource/value critics.
     pub fn first_wave() -> Self {
         Self {
             critics: vec![
                 Box::new(OvercommitIntoDanger),
                 Box::new(SelfLethalWithoutPayoff),
+                Box::new(BlindspotRanged),
             ],
         }
     }
