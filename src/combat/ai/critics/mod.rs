@@ -44,6 +44,22 @@ pub trait PlanCritic: Send + Sync {
         ann: &PlanAnnotation,
         ctx: &ScoringCtx,
     ) -> Option<CriticHit>;
+
+    /// Whether this critic should fire on plans evaluated under `LastStand`
+    /// (i.e. plans whose `annotation.adaptation` is `Some`).
+    ///
+    /// Default `true`: most critics measure waste / inefficiency axes that
+    /// remain valid even when the actor is out of survival options.
+    /// Override to `false` for *survival-focused* critics whose semantics
+    /// conflict with LastStand (the actor is already accepting death;
+    /// double-penalising them for danger / self-damage is empirically
+    /// observed to over-fire — see G mining cross-tab).
+    ///
+    /// `CriticsStage` consults this method per (critic, plan) and skips
+    /// the evaluation when the plan is in LastStand and the critic opts out.
+    fn applies_in_last_stand(&self) -> bool {
+        true
+    }
 }
 
 // ── CriticKind ────────────────────────────────────────────────────────────────

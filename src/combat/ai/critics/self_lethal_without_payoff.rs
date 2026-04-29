@@ -44,6 +44,16 @@ impl PlanCritic for SelfLethalWithoutPayoff {
         "self_lethal_without_payoff"
     }
 
+    /// Survival-focused: opted out of LastStand. In LastStand the actor has
+    /// already accepted death; a self-AoE that takes one or two enemies down
+    /// is a *good* terminal trade, not a waste — but this critic's payoff
+    /// threshold is calibrated against Default-mode value, not last-resort
+    /// trades. Skipping under LastStand prevents misfiring on legitimate
+    /// kamikaze plans.
+    fn applies_in_last_stand(&self) -> bool {
+        false
+    }
+
     fn evaluate(
         &self,
         plan: &TurnPlan,

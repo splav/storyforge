@@ -49,7 +49,15 @@ impl PlanStage for CriticsStage {
 
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
         for (plan, ann) in pool.plans.iter().zip(pool.annotations.iter_mut()) {
+            // Plans rescored under any AdaptationReason run in LastStand mode
+            // (every reason variant switches to LastStand). Survival-focused
+            // critics opt out — penalising danger / self-damage on a plan
+            // that has already accepted death is double-penalty.
+            let in_last_stand = ann.adaptation.is_some();
             for c in &self.critics {
+                if in_last_stand && !c.applies_in_last_stand() {
+                    continue;
+                }
                 if let Some(hit) = c.evaluate(plan, ann, ctx.scoring) {
                     ann.score *= hit.multiplier;
                     ann.critics.push(hit);
@@ -181,5 +189,116 @@ mod tests {
             "expected exactly one critic hit, got {:?}", ann.critics,
         );
         assert_eq!(ann.critics[0].critic, CriticKind::OvercommitIntoDanger);
+    }
+
+    // ── LastStand mode-gating ──────────────────────────────────────────────
+
+    /// A mock survival-focused critic that always fires AND opts out of LastStand.
+    struct SurvivalLikeCritic;
+    impl PlanCritic for SurvivalLikeCritic {
+        fn name(&self) -> &'static str { "survival_like" }
+        fn applies_in_last_stand(&self) -> bool { false }
+        fn evaluate(
+            &self, _plan: &TurnPlan, _ann: &PlanAnnotation, _ctx: &ScoringCtx,
+        ) -> Option<CriticHit> {
+            use crate::combat::ai::critics::overcommit_into_danger::OvercommitSource;
+            Some(CriticHit {
+                critic: CriticKind::OvercommitIntoDanger,
+                multiplier: 0.5,
+                reason: CriticReason::OvercommitIntoDanger {
+                    source: OvercommitSource::SurvivalPath, ratio: 0.5,
+                },
+            })
+        }
+    }
+
+    #[test]
+    fn critics_stage_skips_survival_critic_under_last_stand() {
+        // A plan with adaptation set (= LastStand mode) must NOT receive hits
+        // from a critic that opted out of LastStand.
+        use crate::combat::ai::outcome::AdaptationData;
+        use crate::combat::ai::planning::AdaptationReason;
+
+        let stage = CriticsStage { critics: vec![Box::new(SurvivalLikeCritic)] };
+        let mut pool = make_pool_with_scores(vec![1.0]);
+        // Mark plan 0 as LastStand: any AdaptationReason variant works.
+        pool.annotations[0].adaptation = Some(AdaptationData {
+            reason: AdaptationReason::ProtectSelfNoDefensive,
+            original_score: 1.0,
+        });
+        let pool = apply_critics_to_pool(stage, pool);
+
+        let ann = &pool.annotations[0];
+        assert!(
+            (ann.score - 1.0).abs() < 1e-6,
+            "score must be unchanged on LastStand for opted-out critic, got {}", ann.score,
+        );
+        assert!(
+            ann.critics.is_empty(),
+            "no critic hits expected on LastStand for opted-out critic, got {:?}", ann.critics,
+        );
+    }
+
+    #[test]
+    fn critics_stage_runs_default_critic_under_last_stand() {
+        // The default `applies_in_last_stand = true` critic still fires on
+        // LastStand plans. Verifies the gate is opt-in (not a blanket skip).
+        use crate::combat::ai::outcome::AdaptationData;
+        use crate::combat::ai::planning::AdaptationReason;
+
+        let stage = CriticsStage {
+            critics: vec![Box::new(AlwaysHitCritic { multiplier: 0.5 })],
+        };
+        let mut pool = make_pool_with_scores(vec![1.0]);
+        pool.annotations[0].adaptation = Some(AdaptationData {
+            reason: AdaptationReason::ProtectSelfNoDefensive,
+            original_score: 1.0,
+        });
+        let pool = apply_critics_to_pool(stage, pool);
+
+        let ann = &pool.annotations[0];
+        assert!(
+            (ann.score - 0.5).abs() < 1e-6,
+            "default critic must still fire on LastStand, got score {}", ann.score,
+        );
+        assert_eq!(ann.critics.len(), 1, "expected hit from default critic on LastStand");
+    }
+
+    #[test]
+    fn critics_stage_runs_survival_critic_outside_last_stand() {
+        // Sanity: SurvivalLikeCritic still fires when adaptation is None
+        // (Default mode). Pins the contract — opt-out is LastStand-specific,
+        // not a blanket disable.
+        let stage = CriticsStage { critics: vec![Box::new(SurvivalLikeCritic)] };
+        let pool = apply_critics_to_pool(stage, make_pool_with_scores(vec![1.0]));
+
+        let ann = &pool.annotations[0];
+        assert!((ann.score - 0.5).abs() < 1e-6,
+            "survival critic must fire in Default mode, got {}", ann.score);
+        assert_eq!(ann.critics.len(), 1);
+    }
+
+    /// Pins the per-critic contract: the two survival-focused critics in the
+    /// first wave opt out of LastStand; the four others stay in.
+    #[test]
+    fn first_wave_survival_critics_opt_out_of_last_stand() {
+        use crate::combat::ai::critics::{
+            BlindspotRanged, BuffIntoVoid, HealWithoutRescueValue, OvercommitIntoDanger,
+            RareResourceForLowImpact, SelfLethalWithoutPayoff,
+        };
+        // Survival-focused — must opt out.
+        assert!(!OvercommitIntoDanger.applies_in_last_stand(),
+            "OvercommitIntoDanger must opt out of LastStand");
+        assert!(!SelfLethalWithoutPayoff.applies_in_last_stand(),
+            "SelfLethalWithoutPayoff must opt out of LastStand");
+        // Resource / positioning / target-value — keep firing.
+        assert!(BlindspotRanged.applies_in_last_stand(),
+            "BlindspotRanged must keep firing under LastStand");
+        assert!(BuffIntoVoid.applies_in_last_stand(),
+            "BuffIntoVoid must keep firing under LastStand");
+        assert!(RareResourceForLowImpact.applies_in_last_stand(),
+            "RareResourceForLowImpact must keep firing under LastStand");
+        assert!(HealWithoutRescueValue.applies_in_last_stand(),
+            "HealWithoutRescueValue must keep firing under LastStand");
     }
 }
