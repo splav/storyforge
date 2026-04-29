@@ -163,6 +163,12 @@ pub struct Thresholds {
     /// `finalize_scores` to each plan's `repair_affinity.aggregate()` output.
     /// Starting calibration 0.4; tune via golden per-entry diff review.
     pub repair_bonus_scale: f32,
+    // ── Step 11.1: band assignment ────────────────────────────────────────
+    /// Minimum `rescue_ally` signal required for `HardRescueOpportunity` band.
+    /// Only fires when the actor also has `CAN_HEAL`. Default 0.7 means a
+    /// critically wounded ally (hp ≈ 15 %) is required; tune downward to make
+    /// healers more proactive.
+    pub hard_rescue_threshold: f32,
 }
 
 impl Default for Thresholds {
@@ -187,6 +193,7 @@ impl Default for Thresholds {
             repair_default_ttl: 2,
             goal_finish_p_kill: 0.6,
             repair_bonus_scale: 0.4,
+            hard_rescue_threshold: 0.7,
         }
     }
 }

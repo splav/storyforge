@@ -1,3 +1,6 @@
+pub mod bands;
+pub use bands::{assign_band, BandReason, BandWeights, PriorityBand};
+
 use crate::combat::ai::repair::{classify_mismatch, compute_status_delta, MismatchContext, PlanContinuationCheck, StatusDelta};
 use crate::content::content_view::ContentView;
 use crate::combat::ai::difficulty::DifficultyProfile;

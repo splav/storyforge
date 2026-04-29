@@ -19,7 +19,7 @@ use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::intent::{
-    select_intent, AiMemory, IntentReason, TacticalIntent,
+    assign_band, select_intent, AiMemory, IntentReason, TacticalIntent,
 };
 use crate::combat::ai::log::{self, AiLogger, IntentBlock, TradeBlock};
 use crate::combat::ai::planning::{
@@ -246,6 +246,11 @@ pub fn pick_action(
         content: world.content,
     };
     let need_signals = crate::combat::ai::appraisal::compute_need_signals(&appraisal_ctx);
+
+    // ── Step 11.1: band assignment (computed for telemetry plumbing only) ──
+    // Band is NOT used for routing here — routing lands in 11.4.
+    // Explicit discard so reviewers can see the intent without compiler noise.
+    let _ = assign_band(active, snap, maps, &need_signals, world.difficulty, world.tuning);
 
     // ── Select tactical intent ──────────────────────────────────────────
     let choice = select_intent(active, snap, maps, memory, world.difficulty, world.tuning, &need_signals);
