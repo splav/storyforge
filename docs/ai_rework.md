@@ -460,6 +460,22 @@ Viability → Sanity → Adaptation → ProtectSelfMask → KillableGate
 
 **B2. Ranking-based weight tuning.** Сложность 3, польза 3. Offline harness для подбора весов из JSONL-логов (grid search / coordinate descent / линейная ranking model). Имеет смысл только после стабилизации feature set (шаги 3, 4, 5, 8, 10), иначе маскирует архитектурные дыры коэффициентами.
 
+**B3. Adaptation rescore wipes Sanity/Critics.** Сложность 3, польза 4. `AdaptationStage::apply` сейчас пересчитывает `ann.score` из raw factors через `rescore_with_per_plan_modes → finalize_scores` для **всего** pool'а, как только триггерится хоть один LastStand-кейс. Это стирает все pre-adaptation score modifiers (Sanity и Critics) для всех планов в этом pool'е, включая Default-mode. Mining (G1 cross-tab `Overcommit × adaptation reason`) обнаружил, что critic hits логируются, но не влияют на финальный score в adaptation-триггерных pool'ах.
+
+Это нарушает заявленную семантику Sanity/Critics как cost correction. Желаемый порядок (на будущее):
+```
+raw factors / outcomes
+→ Adaptation chooses EvaluationMode (без rescore)
+→ finalize base score (под выбранными modes)
+→ Sanity → Critics → ProtectSelfMask → Repair / modifiers
+→ Pick
+```
+Adaptation должна **выбирать mode**, а penalty layers применяются **после** finalize, чтобы не быть стёртыми. Реархитектура trojит: `apply_adaptation` разделить на (a) mode selection, (b) initial score computation; CriticsStage остаётся в текущей позиции, но больше не имеет проблемы со стиранием.
+
+Исследовать после стабилизации Step 11 (bands+agenda) — band selection тоже работает с post-adaptation scores, и эти изменения логически связаны.
+
+История: гипотеза «double-penalty Critics × LastStand» (см. mining G от 2026-04-29) была отвергнута — adaptation rescore изолирует pool, не дублирует штраф. Откат коммита `4f14e10`.
+
 ---
 
 ## Инварианты, которые не ломаем

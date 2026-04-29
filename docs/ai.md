@@ -832,6 +832,18 @@ Pipeline order: `Viability → Sanity → Critics → Adaptation → ProtectSelf
 - TOML-конфигурируемые thresholds + multiplier'ы — после mining-калибровки на v31+ corpus.
 - ai_scenarios harness extension для critic-fixtures (поле `Expectation.critics`) — отдельный backlog.
 
+### Implementation caveat: Adaptation rescore wipes Sanity/Critics
+
+Текущая реализация `AdaptationStage::apply` вызывает `rescore_with_per_plan_modes(...) → finalize_scores(...)` (`scorer.rs:130-145`), которая пересчитывает `ann.score` для **всех** планов pool'а из raw factors — как только триггерится хоть один LastStand-кейс (`ProtectSelfNoDefensive` / `ProtectSelfFutile` / `ExpectedSelfLethal`). Это **стирает все pre-adaptation score modifiers** — Sanity и Critics multipliers — для всего pool'а, включая Default-mode планы в нём.
+
+Practical implications:
+- В adaptation-триггерных pool'ах: Sanity и Critics не влияют на финальный ranking; их hits в `ann.sanity` / `ann.critics` остаются для логов, но score'у уже не помогают.
+- В adaptation-неактивных pool'ах: Sanity и Critics работают как заявлено.
+
+Это **не желаемый дизайн**, а current implementation behavior. Mining cross-tab `Overcommit × adaptation reason` (G1 секция в `mine_ai_logs`) показывает следствие: 100% Overcommit hit rate на `protect_self_no_defensive`-планах при том, что critic effect на эти планы фактически не доходит до финального score.
+
+См. также: backlog «Adaptation rescore wipes Sanity/Critics» в `docs/ai_rework.md`.
+
 ## Influence Maps
 
 - `danger`, `ally_support`, `opportunity` ∈ [0, 1]
