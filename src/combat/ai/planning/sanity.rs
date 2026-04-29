@@ -130,17 +130,13 @@ pub fn sanity_adjust_plans(
         // factor and the penalty look at exactly the same signal.
         let max_path_danger = worst_path_danger(plan, maps);
 
-        // 1. Survival: low-HP actor crossing/resting on dangerous tiles.
-        // Uses `max_path_danger` rather than just final_pos so "walk through
-        // Kael's AoO corridor to land on a safe tile" still eats the penalty.
+        // 1. Survival: migrated to OvercommitIntoDanger critic (step 10.1).
+        // The branch is intentionally disabled here; the critic applies the
+        // same formula in CriticsStage. Removed from SanityRule in step 10.4.
         let hp_need = ((0.6 - active.hp_pct()) / 0.6).clamp(0.0, 1.0);
         let excess = (max_path_danger - 0.5).max(0.0);
-        let surv = ctx.world.tuning.thresholds.low_hp_factor * hp_need * excess * excess;
-        if surv > 0.0 {
-            let multiplier = (1.0 - surv).max(ctx.world.tuning.thresholds.survival_floor);
-            penalty *= multiplier;
-            hits.push(SanityHit { rule: SanityRule::Survival, multiplier });
-        }
+        let _surv_unused = ctx.world.tuning.thresholds.low_hp_factor * hp_need * excess * excess;
+        // (no push)
 
         // 2. Healer exposure: a non-healer abandoning the team's healer.
         if active.role.support < 0.3 {
@@ -187,31 +183,15 @@ pub fn sanity_adjust_plans(
             hits.push(SanityHit { rule: SanityRule::RetreatTrap, multiplier: 0.5 });
         }
 
-        // 5. Self-AoE: any Cast step in the plan centers a friendly-fire AoE
-        // on a tile that covers the caster's position at that moment.
-        if plan_has_self_aoe(plan, ctx) {
-            penalty *= 0.5;
-            hits.push(SanityHit { rule: SanityRule::SelfAoe, multiplier: 0.5 });
-        }
+        // 5. SelfAoe: migrated to SelfLethalWithoutPayoff critic (step 10.1).
+        // Disabled here; critic applies the same check in CriticsStage.
+        // Removed from SanityRule in step 10.4.
+        let _ = plan_has_self_aoe(plan, ctx); // keep pub(crate) reachable
 
-        // 6. AoO bleed: every Move step transition `was_adj && !still_adj`
-        // against a melee enemy with reactions provokes an opportunity attack.
-        // Sum expected damage per enemy (one AoO per enemy per turn) and
-        // apply a multiplicative quadratic penalty with a floor so high-
-        // reward plans can still accept the risk.
-        //
-        // Invariant: **sanity never hard-masks.** The "expected-lethal"
-        // case (aoo_dmg ≥ hp) lives in `adaptation::apply_adaptation` —
-        // there a plan whose AoO bleed crosses the HP threshold gets its
-        // evaluation regime switched to `LastStand` rather than masked
-        // out. See `planning/adaptation.rs` for the rationale.
-        let aoo_dmg = expected_aoo_damage(active, plan, &enemies);
-        if aoo_dmg > 0.0 {
-            let ratio = (aoo_dmg / active.hp.max(1) as f32).min(1.0);
-            let multiplier = (1.0 - ctx.world.tuning.thresholds.aoo_penalty_k * ratio * ratio).max(ctx.world.tuning.thresholds.aoo_risk_floor);
-            penalty *= multiplier;
-            hits.push(SanityHit { rule: SanityRule::AoOBleed, multiplier });
-        }
+        // 6. AoOBleed: migrated to OvercommitIntoDanger critic (step 10.1).
+        // Disabled here; critic applies the same formula in CriticsStage.
+        // Removed from SanityRule in step 10.4.
+        let _ = expected_aoo_damage(active, plan, &enemies); // keep pub(crate) reachable
 
         // 7. Synergy bonus: the plan repositions to a safer/better tile AND
         // includes a useful cast. Encourages retreat-and-help combos. Multi-
@@ -281,7 +261,7 @@ pub(crate) fn expected_aoo_damage(
     total
 }
 
-fn plan_has_self_aoe(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
+pub(crate) fn plan_has_self_aoe(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
     let content = ctx.world.content;
     plan.walk_with_caster(ctx.active.pos).any(|(_, step, caster_pos)| {
         let PlanStep::Cast { ability, target_pos, .. } = step else { return false };
@@ -629,53 +609,40 @@ mod tests {
         );
     }
 
-    /// Verify that `sanity_adjust_plans` returns a correct per-plan breakdown
-    /// when multiple rules fire on the same plan.
+    /// Verify that `sanity_adjust_plans` no longer fires `Survival` or `AoOBleed`
+    /// (migrated to critics in step 10.1) and that the breakdown for the same
+    /// scenario does NOT contain those rules.
     ///
-    /// Setup: two plans so the early-exit (len ≤ 1) is bypassed.
-    /// - Plan 0 (noop): actor stays in place — no rules should fire.
-    /// - Plan 1 (Survival + AoO bleed): actor at low HP moves away from an
-    ///   adjacent melee enemy through a high-danger tile. This triggers both
-    ///   `Survival` (low HP + dangerous path) and `AoOBleed` (leaves
-    ///   adjacency with an enemy that has reactions).
+    /// The scenario is identical to the pre-10.1 test: low-HP actor moves from
+    /// (3,0) to (2,0) leaving adjacency with an enemy at (4,0) and crossing a
+    /// high-danger tile. Before 10.1 this fired Survival + AoOBleed in sanity;
+    /// after 10.1 it must NOT appear in the sanity breakdown (the critic handles it).
     ///
-    /// Grid note: the even-r grid has rows 0–6; row 0 (even) has columns 0–6.
-    /// Actor at (3,0), enemy at (4,0), destination (2,0) — all in-bounds.
-    /// Moving from (3,0) to (2,0) leaves adjacency with enemy at (4,0).
-    ///
-    /// We assert:
-    /// - Plan 0 breakdown is empty (no rules fired).
-    /// - Plan 1 breakdown contains `Survival` and `AoOBleed`.
-    /// - Both penalty multipliers are < 1.0.
+    /// The test also pins that the residual sanity rules (HealerExposure,
+    /// RetreatTrap, SynergyBonus) are unaffected — the noop plan produces no
+    /// sanity hits, and the aoo_plan may produce RetreatTrap (destination tile
+    /// depends on geometry) but must NOT produce Survival or AoOBleed.
     #[test]
-    fn breakdown_reports_survival_and_aoo_bleed() {
+    fn breakdown_no_longer_fires_survival_and_aoo_bleed() {
         use crate::combat::ai::reservations::Reservations;
         use crate::combat::ai::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx};
 
-        // Actor: very low HP (5/30 → hp_pct ≈ 0.17, well below the 0.6 threshold).
         let actor_pos = hex_from_offset(3, 0);
-        let actor = unit(1, Team::Enemy, actor_pos, 5); // low HP triggers survival rule
-        // Enemy adjacent to actor at (4,0) with reactions — will provoke AoO
-        // when the actor moves to (2,0), leaving adjacency.
+        let actor = unit(1, Team::Enemy, actor_pos, 5); // low HP (was survival trigger)
         let enemy_pos = hex_from_offset(4, 0);
-        let enemy = unit(2, Team::Player, enemy_pos, 20);
+        let enemy = unit(2, Team::Player, enemy_pos, 20); // AoO-capable (was bleed trigger)
 
         let content = empty_content();
         let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
         let mut maps = empty_maps();
-        // Add danger to the destination tile so the survival rule fires.
-        // Actor hp_pct ≈ 0.17 → hp_need ≈ 0.72; excess = (danger - 0.5).max(0).
-        // With danger=0.9: excess=0.4; surv = 1.2 × 0.72 × 0.16 = 0.138 > 0.
         let dest = hex_from_offset(2, 0);
         maps.danger.add(dest, 0.9);
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        // Plan 0: actor stays in place (no steps, final_pos = actor_pos).
-        // (3,0) has ≥2 open neighbours so RetreatTrap doesn't fire.
         let noop_plan = TurnPlan {
             steps: Vec::new(),
             final_pos: actor_pos,
@@ -686,47 +653,29 @@ mod tests {
             sim_snapshots: Vec::new(),
             annotation: Default::default(),
         };
-        // Plan 1: move from (3,0) to (2,0) — leaves adjacency with enemy at
-        // (4,0), triggering AoOBleed; path is through the high-danger tile,
-        // triggering Survival.
-        let dest = hex_from_offset(2, 0);
         let aoo_plan = move_plan(vec![dest]);
 
         let plans = vec![noop_plan, aoo_plan];
         let mut scores = vec![1.0f32, 1.0f32];
-
         let breakdown = sanity_adjust_plans(&mut scores, &plans, &ctx);
 
-        assert_eq!(breakdown.len(), 2, "breakdown length == plans length");
+        assert_eq!(breakdown.len(), 2);
 
-        // Plan 0 should have no hits (noop, no danger, no adjacency change).
-        assert!(
-            breakdown[0].is_empty(),
-            "noop plan must produce no sanity hits, got: {:?}",
-            breakdown[0],
-        );
-
-        // Plan 1 must contain Survival and AoOBleed (in order).
-        let hits = &breakdown[1];
-        let rules: Vec<SanityRule> = hits.iter().map(|h| h.rule).collect();
-        assert!(
-            rules.contains(&SanityRule::Survival),
-            "expected Survival hit in breakdown, got: {:?}", rules,
-        );
-        assert!(
-            rules.contains(&SanityRule::AoOBleed),
-            "expected AoOBleed hit in breakdown, got: {:?}", rules,
-        );
-
-        // Both are penalties — multipliers < 1.0.
-        for hit in hits {
-            if hit.rule == SanityRule::Survival || hit.rule == SanityRule::AoOBleed {
-                assert!(
-                    hit.multiplier < 1.0,
-                    "{:?} is a penalty — multiplier must be < 1.0, got {}",
-                    hit.rule, hit.multiplier,
-                );
-            }
+        // Neither plan should fire Survival or AoOBleed — those are now in critics.
+        for (i, hits) in breakdown.iter().enumerate() {
+            let rules: Vec<SanityRule> = hits.iter().map(|h| h.rule).collect();
+            assert!(
+                !rules.contains(&SanityRule::Survival),
+                "plan {i}: Survival must not fire in sanity (migrated to critic), got: {rules:?}",
+            );
+            assert!(
+                !rules.contains(&SanityRule::AoOBleed),
+                "plan {i}: AoOBleed must not fire in sanity (migrated to critic), got: {rules:?}",
+            );
+            assert!(
+                !rules.contains(&SanityRule::SelfAoe),
+                "plan {i}: SelfAoe must not fire in sanity (migrated to critic), got: {rules:?}",
+            );
         }
     }
 }

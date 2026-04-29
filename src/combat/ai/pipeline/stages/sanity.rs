@@ -110,36 +110,34 @@ mod tests {
         }
     }
 
-    // ── hits are written to annotation ────────────────────────────────────
+    // ── Survival migrated to critics: sanity stage no longer fires it ────────
 
     #[test]
-    fn sanity_stage_appends_hits() {
-        // Very low HP + high danger on destination triggers Survival rule.
-        // We need >= 2 plans for sanity rules to run (early-return at len <= 1).
+    fn sanity_stage_does_not_fire_survival_after_10_1_migration() {
+        // Before step 10.1 a low-HP actor on a high-danger tile triggered the
+        // Survival sanity rule. After migration that branch is disabled in
+        // sanity_adjust_plans; the OvercommitIntoDanger critic handles it.
+        // This test pins that the sanity annotation stays empty in that scenario.
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
         let plans = vec![
             make_move_plan(vec![dest_a]),
             make_move_plan(vec![dest_b]),
         ];
-        // 2/20 HP = 10%; danger tile on destination of plan 0
+        // 2/20 HP = 10%; danger tile on destination of plan 0.
         let pool = apply_sanity_to_two_plans(
             plans, vec![0.5, 0.4], 2, 20, Some((dest_a, 1.0)),
         );
 
-        // plan 0 ends on a dangerous tile with very low HP → Survival fires
-        let hits_0 = &pool.annotations[0].sanity;
-        assert!(
-            !hits_0.is_empty(),
-            "expected Survival hit for low-HP actor on danger tile, got empty",
-        );
-        assert!(
-            hits_0.iter().any(|h| {
-                use crate::combat::ai::planning::SanityRule;
-                h.rule == SanityRule::Survival
-            }),
-            "expected Survival rule in hits, got {:?}", hits_0,
-        );
+        // Survival must NOT be in sanity (it is now handled by critics).
+        for ann in &pool.annotations {
+            use crate::combat::ai::planning::SanityRule;
+            assert!(
+                !ann.sanity.iter().any(|h| h.rule == SanityRule::Survival),
+                "Survival must not fire in sanity after step 10.1 migration, got {:?}",
+                ann.sanity,
+            );
+        }
     }
 
     fn empty_content() -> crate::content::content_view::ContentView {

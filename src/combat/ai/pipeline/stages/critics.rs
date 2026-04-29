@@ -7,6 +7,8 @@
 //! `CriticsStage::first_wave()` starts with an empty vec (step 10.0 scaffolding).
 //! Concrete critics are registered in steps 10.1–10.3.
 
+use crate::combat::ai::critics::overcommit_into_danger::OvercommitIntoDanger;
+use crate::combat::ai::critics::self_lethal_without_payoff::SelfLethalWithoutPayoff;
 use crate::combat::ai::critics::PlanCritic;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 
@@ -19,10 +21,15 @@ pub struct CriticsStage {
 impl CriticsStage {
     /// Build the first-wave critic set.
     ///
-    /// Step 10.0: empty vec — no critics active yet (no-op stage).
-    /// Steps 10.1-10.3 will populate this with concrete critics.
+    /// Step 10.1: defensive cluster — OvercommitIntoDanger + SelfLethalWithoutPayoff.
+    /// Steps 10.2-10.3 will add positioning + resource/value critics.
     pub fn first_wave() -> Self {
-        Self { critics: vec![] }
+        Self {
+            critics: vec![
+                Box::new(OvercommitIntoDanger),
+                Box::new(SelfLethalWithoutPayoff),
+            ],
+        }
     }
 }
 
@@ -134,10 +141,14 @@ mod tests {
             _ann: &PlanAnnotation,
             _ctx: &ScoringCtx,
         ) -> Option<CriticHit> {
+            use crate::combat::ai::critics::overcommit_into_danger::OvercommitSource;
             Some(CriticHit {
                 critic: CriticKind::OvercommitIntoDanger,
                 multiplier: self.multiplier,
-                reason: CriticReason::Placeholder,
+                reason: CriticReason::OvercommitIntoDanger {
+                    source: OvercommitSource::SurvivalPath,
+                    ratio: 0.5,
+                },
             })
         }
     }

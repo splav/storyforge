@@ -1,4 +1,4 @@
-//! Critics layer — step 10.0.
+//! Critics layer — step 10.0 / 10.1.
 //!
 //! `PlanCritic` trait + associated types. Each critic evaluates a single plan
 //! after scoring and returns an `Option<CriticHit>`:
@@ -8,6 +8,12 @@
 //!
 //! Concrete critics are implemented in sub-modules (step 10.1-10.3); this file
 //! defines only the shared contract and data types.
+
+pub mod overcommit_into_danger;
+pub mod self_lethal_without_payoff;
+
+pub use overcommit_into_danger::{OvercommitIntoDanger, OvercommitSource};
+pub use self_lethal_without_payoff::SelfLethalWithoutPayoff;
 
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::types::TurnPlan;
@@ -56,13 +62,26 @@ pub enum CriticKind {
 
 /// Structured context explaining why a critic fired.
 ///
-/// Variants are added per critic in steps 10.1–10.3. The `Placeholder` variant
-/// keeps the enum non-empty for step 10.0 compilation; it will be removed in 10.1.
+/// Each variant corresponds to one concrete critic. New variants are added in
+/// steps 10.1–10.3; `#[serde(tag = "kind")]` ensures forward-compatible JSON.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CriticReason {
-    /// Temporary placeholder — removed in step 10.1 when real reason variants arrive.
-    Placeholder,
+    /// `OvercommitIntoDanger` fired — records which hazard signal dominated.
+    OvercommitIntoDanger {
+        /// Which of the two input signals produced the stronger penalty.
+        source: overcommit_into_danger::OvercommitSource,
+        /// The normalised risk ratio used to derive the multiplier:
+        /// `surv` for SurvivalPath, `aoo_dmg / actor.hp` for AooBleed.
+        ratio: f32,
+    },
+    /// `SelfLethalWithoutPayoff` fired — records the damage and payoff ratios.
+    SelfLethalWithoutPayoff {
+        /// `self_damage_total / actor.max_hp`.
+        self_dmg_ratio: f32,
+        /// Normalised payoff estimate (`payoff / actor.max_hp`).
+        payoff_estimate: f32,
+    },
 }
 
 // ── CriticHit ─────────────────────────────────────────────────────────────────
@@ -111,6 +130,21 @@ mod tests {
             let json = serde_json::to_string(&k).expect("serialize");
             let back: CriticKind = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(k, back);
+        }
+    }
+
+    #[test]
+    fn critic_reason_serde_round_trip() {
+        use overcommit_into_danger::OvercommitSource;
+        let reasons: Vec<CriticReason> = vec![
+            CriticReason::OvercommitIntoDanger { source: OvercommitSource::SurvivalPath, ratio: 0.5 },
+            CriticReason::OvercommitIntoDanger { source: OvercommitSource::AooBleed, ratio: 0.8 },
+            CriticReason::SelfLethalWithoutPayoff { self_dmg_ratio: 0.45, payoff_estimate: 0.1 },
+        ];
+        for r in reasons {
+            let json = serde_json::to_string(&r).expect("serialize");
+            let back: CriticReason = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(r, back);
         }
     }
 }
