@@ -1,4 +1,4 @@
-//! Critics layer — step 10.0 / 10.1 / 10.2.
+//! Critics layer — step 10.0 / 10.1 / 10.2 / 10.3.
 //!
 //! `PlanCritic` trait + associated types. Each critic evaluates a single plan
 //! after scoring and returns an `Option<CriticHit>`:
@@ -10,11 +10,17 @@
 //! defines only the shared contract and data types.
 
 pub mod blindspot_ranged;
+pub mod buff_into_void;
+pub mod heal_without_rescue_value;
 pub mod overcommit_into_danger;
+pub mod rare_resource_for_low_impact;
 pub mod self_lethal_without_payoff;
 
 pub use blindspot_ranged::BlindspotRanged;
+pub use buff_into_void::BuffIntoVoid;
+pub use heal_without_rescue_value::HealWithoutRescueValue;
 pub use overcommit_into_danger::{OvercommitIntoDanger, OvercommitSource};
+pub use rare_resource_for_low_impact::RareResourceForLowImpact;
 pub use self_lethal_without_payoff::SelfLethalWithoutPayoff;
 
 use crate::combat::ai::outcome::PlanAnnotation;
@@ -90,6 +96,33 @@ pub enum CriticReason {
         /// fires; kept as a field for observability in structured logs.
         enemies_visible: u32,
     },
+    /// `BuffIntoVoid` fired — status cast wasted on a target who already has
+    /// the same effect active (or received it from an earlier step in the plan).
+    BuffIntoVoid {
+        /// ID of the ability whose buff was wasted.
+        ability: String,
+        /// `true` = target already had the status in the snapshot;
+        /// `false` = the status was applied redundantly within the same plan.
+        target_already_buffed: bool,
+    },
+    /// `RareResourceForLowImpact` fired — expensive mana ability dealt
+    /// significantly less damage than expected.
+    RareResourceForLowImpact {
+        /// ID of the ability that consumed the resource.
+        ability: String,
+        /// Mana cost of the ability.
+        cost: u8,
+        /// `actual_enemy_damage / expected_damage` (clamped to [0, 1]).
+        impact_ratio: f32,
+    },
+    /// `HealWithoutRescueValue` fired — heal cast on a healthy ally who is not
+    /// in a dangerous position.
+    HealWithoutRescueValue {
+        /// Target's HP as a fraction of max HP at the time of the cast.
+        target_hp_pct: f32,
+        /// Danger map value at the target's position.
+        target_danger: f32,
+    },
 }
 
 // ── CriticHit ─────────────────────────────────────────────────────────────────
@@ -149,6 +182,23 @@ mod tests {
             CriticReason::OvercommitIntoDanger { source: OvercommitSource::AooBleed, ratio: 0.8 },
             CriticReason::SelfLethalWithoutPayoff { self_dmg_ratio: 0.45, payoff_estimate: 0.1 },
             CriticReason::BlindspotRanged { enemies_visible: 0 },
+            CriticReason::BuffIntoVoid {
+                ability: "buff_shield".into(),
+                target_already_buffed: true,
+            },
+            CriticReason::BuffIntoVoid {
+                ability: "buff_shield".into(),
+                target_already_buffed: false,
+            },
+            CriticReason::RareResourceForLowImpact {
+                ability: "bolt".into(),
+                cost: 40,
+                impact_ratio: 0.15,
+            },
+            CriticReason::HealWithoutRescueValue {
+                target_hp_pct: 0.92,
+                target_danger: 0.05,
+            },
         ];
         for r in reasons {
             let json = serde_json::to_string(&r).expect("serialize");

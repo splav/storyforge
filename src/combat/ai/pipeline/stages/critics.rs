@@ -4,11 +4,13 @@
 //! For each critic hit, applies `ann.score *= hit.multiplier` and pushes the
 //! hit into `ann.critics` for structured logging.
 //!
-//! `CriticsStage::first_wave()` starts with an empty vec (step 10.0 scaffolding).
-//! Concrete critics are registered in steps 10.1–10.3.
+//! `CriticsStage::first_wave()` registers all critics from steps 10.1–10.3.
 
 use crate::combat::ai::critics::blindspot_ranged::BlindspotRanged;
+use crate::combat::ai::critics::buff_into_void::BuffIntoVoid;
+use crate::combat::ai::critics::heal_without_rescue_value::HealWithoutRescueValue;
 use crate::combat::ai::critics::overcommit_into_danger::OvercommitIntoDanger;
+use crate::combat::ai::critics::rare_resource_for_low_impact::RareResourceForLowImpact;
 use crate::combat::ai::critics::self_lethal_without_payoff::SelfLethalWithoutPayoff;
 use crate::combat::ai::critics::PlanCritic;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
@@ -24,13 +26,17 @@ impl CriticsStage {
     ///
     /// Step 10.1: defensive cluster — OvercommitIntoDanger + SelfLethalWithoutPayoff.
     /// Step 10.2: positioning cluster — BlindspotRanged.
-    /// Step 10.3 will add resource/value critics.
+    /// Step 10.3: resource/value cluster — BuffIntoVoid + RareResourceForLowImpact
+    ///            + HealWithoutRescueValue.
     pub fn first_wave() -> Self {
         Self {
             critics: vec![
                 Box::new(OvercommitIntoDanger),
                 Box::new(SelfLethalWithoutPayoff),
                 Box::new(BlindspotRanged),
+                Box::new(BuffIntoVoid),
+                Box::new(RareResourceForLowImpact),
+                Box::new(HealWithoutRescueValue),
             ],
         }
     }
