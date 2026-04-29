@@ -250,7 +250,23 @@ pub fn pick_action(
     // ── Step 11.1: band assignment (computed for telemetry plumbing only) ──
     // Band is NOT used for routing here — routing lands in 11.4.
     // Explicit discard so reviewers can see the intent without compiler noise.
-    let _ = assign_band(active, snap, maps, &need_signals, world.difficulty, world.tuning);
+    let (band, band_reason) = assign_band(active, snap, maps, &need_signals, world.difficulty, world.tuning);
+
+    // ── Step 11.2: agenda construction (computed, not used) ──────────────
+    // Agenda is built here so the infrastructure is exercised end-to-end
+    // and future telemetry hooks in 11.6 have a natural attachment point.
+    // Routing (11.4) and per-item considerations (11.3) land in later subs.
+    let agenda = crate::combat::ai::intent::build_agenda(
+        band,
+        &band_reason,
+        active,
+        snap,
+        maps,
+        &need_signals,
+        world.difficulty,
+        world.tuning,
+    );
+    let _ = agenda; // 11.2: computed for telemetry plumbing only — NOT used for routing.
 
     // ── Select tactical intent ──────────────────────────────────────────
     let choice = select_intent(active, snap, maps, memory, world.difficulty, world.tuning, &need_signals);

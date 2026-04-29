@@ -1,4 +1,6 @@
+pub mod agenda;
 pub mod bands;
+pub use agenda::{build_agenda, Agenda, AgendaItem};
 pub use bands::{assign_band, BandReason, BandWeights, PriorityBand};
 
 use crate::combat::ai::repair::{classify_mismatch, compute_status_delta, MismatchContext, PlanContinuationCheck, StatusDelta};
