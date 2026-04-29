@@ -246,15 +246,15 @@ ai_scenarios:
 
 ## Итого
 
-| # | Шаг | Эстимейт | Gate |
-|---|---|---|---|
-| 10.0 | Scaffolding (trait + types + empty CriticsStage) | 0.5 | golden 0/N, no behavior |
-| 10.1 | Defensive cluster (OvercommitIntoDanger + SelfLethalWithoutPayoff) | 1.5 | golden ≤15%, per-entry attributed |
-| 10.2 | Positioning cluster (BlindspotRanged) | 0.5 | golden ≤5% (1:1 port) |
-| 10.3 | Resource/value cluster (BuffIntoVoid + RareResourceForLowImpact + HealWithoutRescueValue) | 2.0 | golden ≤15%, per-entry attributed |
-| 10.4 | Cleanup + schema v30→v31 + mining G1 | 1.0 | v31 round-trip 0/N, mining G1 voiceprint |
+| # | Шаг | Эстимейт | Gate | Статус |
+|---|---|---|---|---|
+| 10.0 | Scaffolding (trait + types + empty CriticsStage) | 0.5 | golden 0/N, no behavior | done (`91dd599`) |
+| 10.1 | Defensive cluster (OvercommitIntoDanger + SelfLethalWithoutPayoff) | 1.5 | golden ≤15%, per-entry attributed | done (`ab86458`) |
+| 10.2 | Positioning cluster (BlindspotRanged) | 0.5 | golden ≤5% (1:1 port) | done (`7947555`) |
+| 10.3 | Resource/value cluster (BuffIntoVoid + RareResourceForLowImpact + HealWithoutRescueValue) | 2.0 | golden ≤15%, per-entry attributed | done (`1bd7135`) + post-fixes (`dcc2f98`/`3d26112`/`741131e`) |
+| 10.4 | Cleanup + schema v30→v31 + critics docs | 1.0 | v31 round-trip 0/N, sanity shrink | done (pending commit). Mining G1 — out of scope (user-driven corpus). |
 
-**Суммарно ~5.5 дня.**
+**Суммарно ~5.5 дня. Step 10 DONE.**
 
 ## Критические файлы
 

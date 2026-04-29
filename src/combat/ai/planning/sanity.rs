@@ -1,17 +1,13 @@
-//! Plan-level sanity adjustments. Multiplicative penalties for situations the
-//! per-factor scoring can't catch — walking through a dangerous corridor with
-//! low HP, moving onto a tile with no LoS, centering a self-AoE on yourself,
-//! cornering yourself into a 1-neighbour dead-end. Mirrors
-//! `utility/sanity.rs` but operates on `TurnPlan` instead of `ActionCandidate`.
+//! Plan-level sanity adjustments — residual rules after step 10.1–10.2 critics
+//! migration. Three rules remain: `HealerExposure`, `RetreatTrap`,
+//! `SynergyBonus`. The four rules migrated to critics (`Survival`, `AoOBleed`,
+//! `LosBlindspot`, `SelfAoe`) have been removed from this module in step 10.4.
 //!
 //! Applied between `score_plans_with_raw` and `pick_best_plan`: each plan's final score
-//! gets multiplied in place by a product of the penalty factors. Floor at
-//! `SURVIVAL_FLOOR` keeps even punished plans competitive when all options
-//! are bad; retreat lines still beat "rush at 5 HP".
+//! gets multiplied in place by a product of the penalty factors.
 
 use crate::combat::ai::factors::{aoe_area, PlanFactor, PlanFactorValues};
 use crate::combat::ai::planning::adaptation::EvaluationMode;
-use crate::combat::ai::planning::scorer::worst_path_danger;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
@@ -23,23 +19,17 @@ use std::collections::HashSet;
 
 // ── Sanity rule observability ──────────────────────────────────────────────
 
-/// Identifies one sanity rule. One variant per rule in `sanity_adjust_plans`,
-/// in the order they fire. Stable codes consumed by offline analyzers.
+/// Identifies one residual sanity rule. Variants that were migrated to
+/// `PlanCritic` in steps 10.1–10.2 (`Survival`, `AoOBleed`, `LosBlindspot`,
+/// `SelfAoe`) are removed in step 10.4. Stable codes consumed by offline
+/// analyzers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SanityRule {
-    /// Low-HP actor crossing/resting on dangerous tiles (survival quadratic).
-    Survival,
     /// Non-healer abandoning the team's unguarded healer.
     HealerExposure,
-    /// Ranged unit ending its turn with no enemy in LoS.
-    LosBlindspot,
     /// Final tile has fewer than 2 open neighbours (retreat trap).
     RetreatTrap,
-    /// Any Cast step in the plan centers a friendly-fire AoE on the caster.
-    SelfAoe,
-    /// Move step provokes an opportunity attack (AoO bleed).
-    AoOBleed,
     /// Plan repositions to a safer/better tile AND includes a useful cast (synergy bonus).
     SynergyBonus,
 }
@@ -48,12 +38,8 @@ impl SanityRule {
     /// Short stable code for offline analyzer consumption.
     pub fn code(self) -> &'static str {
         match self {
-            Self::Survival => "survival",
             Self::HealerExposure => "healer_exposure",
-            Self::LosBlindspot => "los_blindspot",
             Self::RetreatTrap => "retreat_trap",
-            Self::SelfAoe => "self_aoe",
-            Self::AoOBleed => "aoo_bleed",
             Self::SynergyBonus => "synergy_bonus",
         }
     }
@@ -62,7 +48,7 @@ impl SanityRule {
 /// Records that one sanity rule fired on one plan and the factor it applied.
 /// `multiplier < 1.0` for penalties; `> 1.0` for the synergy bonus.
 /// The value is the **clamped** factor that was actually multiplied into the
-/// plan score (i.e. post-`max(SURVIVAL_FLOOR)` / post-`max(AOO_RISK_FLOOR)`).
+/// plan score.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SanityHit {
     pub rule: SanityRule,
@@ -70,8 +56,8 @@ pub struct SanityHit {
 }
 
 
-/// Apply sanity multipliers to `scores` in place and return a per-plan
-/// breakdown of which rules fired and with what multiplier.
+/// Apply residual sanity multipliers to `scores` in place and return a
+/// per-plan breakdown of which rules fired and with what multiplier.
 ///
 /// The outer `Vec` is parallel to `plans`/`scores`. Each inner `Vec` lists
 /// the `SanityHit`s for that plan in the order they fired; an empty inner
@@ -97,19 +83,9 @@ pub fn sanity_adjust_plans(
     let active = ctx.active;
     let snap = ctx.snap;
     let maps = ctx.maps;
-    let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
     let allies: Vec<&UnitSnapshot> = snap
         .allies_of(active.team)
         .filter(|u| u.entity != active.entity)
-        .collect();
-    // LoS blockers were used by LosBlindspot (now migrated to BlindspotRanged
-    // critic, step 10.2). The set is retained here (prefixed `_`) to keep the
-    // comment & intent visible until step 10.4 cleans up the dead code.
-    let _occupied: HashSet<Hex> = snap
-        .units
-        .iter()
-        .filter(|u| u.is_alive())
-        .map(|u| u.pos)
         .collect();
     let ally_positions: HashSet<Hex> = allies.iter().map(|a| a.pos).collect();
     let current_pos_eval = evaluate_position(active.pos, &active.role, ctx.world.tuning, maps);
@@ -123,20 +99,7 @@ pub fn sanity_adjust_plans(
         let final_pos = plan.final_pos;
         let hits = &mut breakdown[idx];
 
-        // Worst danger the actor touches across moves + resting tile.
-        // Shared helper with scorer (`scorer::worst_path_danger`) so the
-        // factor and the penalty look at exactly the same signal.
-        let max_path_danger = worst_path_danger(plan, maps);
-
-        // 1. Survival: migrated to OvercommitIntoDanger critic (step 10.1).
-        // The branch is intentionally disabled here; the critic applies the
-        // same formula in CriticsStage. Removed from SanityRule in step 10.4.
-        let hp_need = ((0.6 - active.hp_pct()) / 0.6).clamp(0.0, 1.0);
-        let excess = (max_path_danger - 0.5).max(0.0);
-        let _surv_unused = ctx.world.tuning.thresholds.low_hp_factor * hp_need * excess * excess;
-        // (no push)
-
-        // 2. Healer exposure: a non-healer abandoning the team's healer.
+        // 1. Healer exposure: a non-healer abandoning the team's healer.
         if active.role.support < 0.3 {
             for ally in &allies {
                 if !ally.tags.contains(AiTags::CAN_HEAL) {
@@ -156,13 +119,7 @@ pub fn sanity_adjust_plans(
             }
         }
 
-        // 3. LosBlindspot: migrated to BlindspotRanged critic (step 10.2).
-        // The branch is intentionally disabled here; the critic applies the
-        // same formula in CriticsStage. Removed from SanityRule in step 10.4.
-        let _los_unused = active.tags.contains(AiTags::RANGED) && !enemies.is_empty();
-        // (no push)
-
-        // 4. Retreat trap: final tile with fewer than 2 open neighbours
+        // 2. Retreat trap: final tile with fewer than 2 open neighbours
         // (flankable, no room to move next turn).
         let open_neighbors = final_pos
             .all_neighbors()
@@ -174,17 +131,7 @@ pub fn sanity_adjust_plans(
             hits.push(SanityHit { rule: SanityRule::RetreatTrap, multiplier: 0.5 });
         }
 
-        // 5. SelfAoe: migrated to SelfLethalWithoutPayoff critic (step 10.1).
-        // Disabled here; critic applies the same check in CriticsStage.
-        // Removed from SanityRule in step 10.4.
-        let _ = plan_has_self_aoe(plan, ctx); // keep pub(crate) reachable
-
-        // 6. AoOBleed: migrated to OvercommitIntoDanger critic (step 10.1).
-        // Disabled here; critic applies the same formula in CriticsStage.
-        // Removed from SanityRule in step 10.4.
-        let _ = expected_aoo_damage(active, plan, &enemies); // keep pub(crate) reachable
-
-        // 7. Synergy bonus: the plan repositions to a safer/better tile AND
+        // 3. Synergy bonus: the plan repositions to a safer/better tile AND
         // includes a useful cast. Encourages retreat-and-help combos. Multi-
         // plicative so it doesn't flip sign.
         if final_pos != active.pos {
@@ -339,7 +286,6 @@ mod tests {
     use crate::game::hex::hex_from_offset;
 
     /// Sanity-suite defaults: max_hp=30, speed=4, aoo=(5.0, 1 reaction).
-    /// Mirrors the pre-builder `fn unit(id, team, pos, hp)` factory.
     fn unit(id: u32, team: Team, pos: Hex, hp: i32) -> UnitSnapshot {
         UnitBuilder::new(id, team, pos)
             .hp(hp)
@@ -600,21 +546,13 @@ mod tests {
         );
     }
 
-    /// Verify that `sanity_adjust_plans` no longer fires `Survival` or `AoOBleed`
-    /// (migrated to critics in step 10.1) and that the breakdown for the same
-    /// scenario does NOT contain those rules.
-    ///
-    /// The scenario is identical to the pre-10.1 test: low-HP actor moves from
-    /// (3,0) to (2,0) leaving adjacency with an enemy at (4,0) and crossing a
-    /// high-danger tile. Before 10.1 this fired Survival + AoOBleed in sanity;
-    /// after 10.1 it must NOT appear in the sanity breakdown (the critic handles it).
-    ///
-    /// The test also pins that the residual sanity rules (HealerExposure,
-    /// RetreatTrap, SynergyBonus) are unaffected — the noop plan produces no
-    /// sanity hits, and the aoo_plan may produce RetreatTrap (destination tile
-    /// depends on geometry) but must NOT produce Survival or AoOBleed.
+    /// Pin that `sanity_adjust_plans` only fires the three residual rules
+    /// (`HealerExposure`, `RetreatTrap`, `SynergyBonus`) and never the four
+    /// variants that were migrated to critics in steps 10.1–10.2.
+    /// Uses the same scenario as the pre-10.1 test: low-HP actor in a
+    /// danger tile, adjacent to an AoO-capable enemy.
     #[test]
-    fn breakdown_no_longer_fires_survival_and_aoo_bleed() {
+    fn sanity_only_fires_residual_rules() {
         use crate::combat::ai::reservations::Reservations;
         use crate::combat::ai::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx};
@@ -652,26 +590,16 @@ mod tests {
 
         assert_eq!(breakdown.len(), 2);
 
-        // Neither plan should fire Survival, AoOBleed, SelfAoe, or LosBlindspot —
-        // those are now in critics (migrated in steps 10.1 and 10.2).
-        for (i, hits) in breakdown.iter().enumerate() {
-            let rules: Vec<SanityRule> = hits.iter().map(|h| h.rule).collect();
-            assert!(
-                !rules.contains(&SanityRule::Survival),
-                "plan {i}: Survival must not fire in sanity (migrated to critic), got: {rules:?}",
-            );
-            assert!(
-                !rules.contains(&SanityRule::AoOBleed),
-                "plan {i}: AoOBleed must not fire in sanity (migrated to critic), got: {rules:?}",
-            );
-            assert!(
-                !rules.contains(&SanityRule::SelfAoe),
-                "plan {i}: SelfAoe must not fire in sanity (migrated to critic), got: {rules:?}",
-            );
-            assert!(
-                !rules.contains(&SanityRule::LosBlindspot),
-                "plan {i}: LosBlindspot must not fire in sanity (migrated to critic), got: {rules:?}",
-            );
+        // Only residual rules are valid; the enum no longer has Survival /
+        // AoOBleed / SelfAoe / LosBlindspot so the compiler ensures no such
+        // hits can appear.
+        for hits in &breakdown {
+            for h in hits {
+                assert!(
+                    matches!(h.rule, SanityRule::HealerExposure | SanityRule::RetreatTrap | SanityRule::SynergyBonus),
+                    "unexpected rule in sanity breakdown: {:?}", h.rule,
+                );
+            }
         }
     }
 }

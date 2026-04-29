@@ -798,6 +798,40 @@ Override: поле `ai_tags_override` в TOML заменяет derived tags це
 - **Need signals** (`appraisal/mod.rs`) — `rescue_ally` читает Rescue-tagged abilities; `apply_cc` читает ApplyCC-tagged abilities + target с HardCC для подавления сигнала.
 - **Продолжение планов** (`repair/mod.rs::classify_status_change`) — StatusTag определяет severity при `actor_status_changed`: HardCC/Compulsion set → Invalidating; Buff removed/SoftCC set → Relevant; пустой tick → Cosmetic.
 
+## Critics Layer
+
+После step 7-stages pipeline'а планы проходят через `CriticsStage` (`pipeline/stages/critics.rs`), который применяет `Vec<Box<dyn PlanCritic>>` — каждый critic читает структурированные секции `PlanAnnotation` (outcomes, terminal, repair_affinity) и возвращает `Option<CriticHit>`. Hit умножает `ann.score *= multiplier` и пишется в `ann.critics: Vec<CriticHit>` для логов. Композиция в `CriticsStage::first_wave()` — code-driven (не TOML).
+
+Pipeline order: `Viability → Sanity → Critics → Adaptation → ProtectSelfMask → KillableGate → RepairAffinity → PlanModifiers → PickBest`.
+
+### Первая волна (6 critics в `src/combat/ai/critics/`)
+
+| Critic | Что ловит | Вход |
+|---|---|---|
+| `OvercommitIntoDanger` | Low-HP актор лезет в опасный путь / провоцирует AoO. Объединил sanity rules `Survival` + `AoOBleed` (max из двух multiplier'ов). | `worst_path_danger` × hp_need / `expected_aoo_damage` ÷ hp |
+| `SelfLethalWithoutPayoff` | Урон самому себе (включая AoO + self-AoE) без отдачи. Расширение `SelfAoe`: учитывает любой self-damage, не только AoE. | `outcome.self_damage` сумма vs payoff (kills + ally_rescue) |
+| `BlindspotRanged` | RANGED актор закончил ход без LoS на врагов. 1:1 порт `LosBlindspot`. | `has_los(final_pos, enemy.pos)` |
+| `BuffIntoVoid` | Buff/status на цель, у которой эффект уже активен (или будет активирован раньше в плане). Identity по `target: Entity` (стабильно при движении цели). | `target_unit.statuses` + intra-plan tracking |
+| `RareResourceForLowImpact` | Дорогой damage-каст с низкой отдачей. **Только damage-способности** — status-only пропускаются (их ценность вне damage). | `mana_cost ≥ 30` + `actual_damage / expected_damage < 0.5` |
+| `HealWithoutRescueValue` | Heal на здорового неугрожаемого ally. Использует `tuning.curves.rescue_ally` — ту же кривую, что в `appraisal::compute_rescue_ally`. | `(1 - hp_pct) × ally_threat_proxy` через Logistic; HP-need gate как fallback для раненых |
+
+### Residual sanity (`planning/sanity.rs`)
+
+Три правила остались как general-purpose multiplicative penalties — содержательно не маппятся на critic-классы из мастер-плана:
+
+- `HealerExposure` — non-healer уходит от unguarded healer (multiplier 0.5).
+- `RetreatTrap` — final tile с <2 open neighbours (multiplier 0.5).
+- `SynergyBonus` — retreat to safer/better tile + useful cast (bonus 1.1, не штраф).
+
+Также в `sanity.rs` остались как `pub(crate)` helpers, переиспользуемые критиками: `expected_aoo_damage`, `plan_has_self_aoe`, `plan_has_useful_cast`. `apply_protect_self_mask` — hard mask (≠ critic).
+
+### Backlog
+
+- `ZoneOverlapWaste` critic — отложен до step 17 (geometry awareness; в текущем content нет zone-абилок).
+- `Flag`-only critics (observability без штрафа) — step 11 (band/agenda).
+- TOML-конфигурируемые thresholds + multiplier'ы — после mining-калибровки на v31+ corpus.
+- ai_scenarios harness extension для critic-fixtures (поле `Expectation.critics`) — отдельный backlog.
+
 ## Influence Maps
 
 - `danger`, `ally_support`, `opportunity` ∈ [0, 1]

@@ -110,14 +110,15 @@ mod tests {
         }
     }
 
-    // ── Survival migrated to critics: sanity stage no longer fires it ────────
+    // ── residual-only: low-HP actor on danger tile must not produce any hits ──
+    // (Survival was migrated to critics in 10.1; SanityRule no longer has
+    //  that variant after 10.4 cleanup.)
 
     #[test]
-    fn sanity_stage_does_not_fire_survival_after_10_1_migration() {
-        // Before step 10.1 a low-HP actor on a high-danger tile triggered the
-        // Survival sanity rule. After migration that branch is disabled in
-        // sanity_adjust_plans; the OvercommitIntoDanger critic handles it.
-        // This test pins that the sanity annotation stays empty in that scenario.
+    fn sanity_stage_no_hits_for_low_hp_danger_tile() {
+        // Low-HP actor on a danger tile: before step 10.1 this triggered
+        // the Survival sanity rule. After 10.4, the enum no longer has
+        // Survival — this test pins that the annotation stays empty.
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
         let plans = vec![
@@ -129,12 +130,13 @@ mod tests {
             plans, vec![0.5, 0.4], 2, 20, Some((dest_a, 1.0)),
         );
 
-        // Survival must NOT be in sanity (it is now handled by critics).
+        // No sanity rule should fire — the only active rules are
+        // HealerExposure, RetreatTrap, SynergyBonus, none of which
+        // trigger in this solo-actor scenario.
         for ann in &pool.annotations {
-            use crate::combat::ai::planning::SanityRule;
             assert!(
-                !ann.sanity.iter().any(|h| h.rule == SanityRule::Survival),
-                "Survival must not fire in sanity after step 10.1 migration, got {:?}",
+                ann.sanity.is_empty(),
+                "no sanity hits expected for low-HP actor in danger tile (Survival is now a critic), got {:?}",
                 ann.sanity,
             );
         }
