@@ -113,6 +113,8 @@ pub fn validation_app() -> App {
 
 pub fn effects_app() -> App {
     let mut app = App::new();
+    let content = storyforge::content::content_view::ContentView::load_global_for_tests();
+    let (status_tags, ability_tags) = build_caches(&content);
     app.add_plugins((MinimalPlugins, StatesPlugin))
         .init_state::<AppState>()
         .add_sub_state::<CombatPhase>()
@@ -121,7 +123,9 @@ pub fn effects_app() -> App {
         .init_resource::<TurnQueue>()
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
-        .insert_resource(ActiveContent(storyforge::content::content_view::ContentView::load_global_for_tests()))
+        .insert_resource(ActiveContent(content))
+        .insert_resource(status_tags)
+        .insert_resource(ability_tags)
         .init_resource::<SelectionState>()
         .init_resource::<DiceRng>()
         .add_message::<ApplyDamage>()
