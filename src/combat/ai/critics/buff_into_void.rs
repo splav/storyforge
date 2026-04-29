@@ -21,7 +21,7 @@ use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::core::StatusId;
-use crate::game::hex::Hex;
+use bevy::prelude::Entity;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -45,13 +45,13 @@ impl PlanCritic for BuffIntoVoid {
         _ann: &PlanAnnotation,
         ctx: &ScoringCtx,
     ) -> Option<CriticHit> {
-        // Track statuses applied by earlier plan steps: (target_pos, status_id).
-        // We use target_pos as a proxy for "same unit" because UnitSnapshot can
-        // be looked up by position via `snap.unit_at(pos)`.
-        let mut plan_applied: Vec<(Hex, StatusId)> = Vec::new();
+        // Track statuses applied by earlier plan steps, keyed by target Entity.
+        // Entity is stable identity even if the target moves between steps —
+        // a Hex-keyed proxy would miss intra-plan re-buff after target movement.
+        let mut plan_applied: Vec<(Entity, StatusId)> = Vec::new();
 
         for step in &plan.steps {
-            let PlanStep::Cast { ability, target_pos, .. } = step else {
+            let PlanStep::Cast { ability, target, .. } = step else {
                 continue;
             };
 
@@ -63,25 +63,25 @@ impl PlanCritic for BuffIntoVoid {
                 continue;
             }
 
-            // Look up target unit at the cast position.
-            let Some(target) = ctx.snap.unit_at(*target_pos) else {
+            // Look up target unit by Entity (handles cross-step movement and
+            // entity-keyed identity correctly).
+            let Some(target_unit) = ctx.snap.unit(*target) else {
                 // Register statuses this step would apply even if target not found,
                 // then continue.
                 for sa in &def.statuses {
-                    plan_applied.push((*target_pos, sa.status.clone()));
+                    plan_applied.push((*target, sa.status.clone()));
                 }
                 continue;
             };
 
-            // Check each status the ability would apply.
             for sa in &def.statuses {
                 // 1. Already active on the target from the original snapshot?
-                let already_on_unit = target.statuses.iter().any(|s| s.id == sa.status);
+                let already_on_unit = target_unit.statuses.iter().any(|s| s.id == sa.status);
 
-                // 2. Applied earlier in this plan to the same target position?
+                // 2. Applied earlier in this plan to the same target entity?
                 let applied_by_plan = plan_applied
                     .iter()
-                    .any(|(pos, sid)| *pos == *target_pos && *sid == sa.status);
+                    .any(|(ent, sid)| *ent == *target && *sid == sa.status);
 
                 if already_on_unit || applied_by_plan {
                     return Some(CriticHit {
@@ -95,9 +95,8 @@ impl PlanCritic for BuffIntoVoid {
                 }
             }
 
-            // Register statuses applied by this step for later steps to see.
             for sa in &def.statuses {
-                plan_applied.push((*target_pos, sa.status.clone()));
+                plan_applied.push((*target, sa.status.clone()));
             }
         }
 
