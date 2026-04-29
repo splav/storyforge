@@ -264,7 +264,7 @@ fn compute_rescue_ally(ctx: &AppraisalCtx<'_>) -> f32 {
 /// enemies in attack range of the ally, normalised to ≈ [0, 1] by dividing by
 /// 10 (mid-game DPR ceiling). Reuses `scoring::horizon_avg` for consistency
 /// with the scoring layer.
-fn ally_threat_proxy(ally: &UnitSnapshot, snap: &BattleSnapshot) -> f32 {
+pub(crate) fn ally_threat_proxy(ally: &UnitSnapshot, snap: &BattleSnapshot) -> f32 {
     snap.units.iter()
         .filter(|e| e.team != ally.team)
         .filter(|e| e.pos.unsigned_distance_to(ally.pos) <= e.max_attack_range)

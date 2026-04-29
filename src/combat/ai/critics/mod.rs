@@ -115,13 +115,16 @@ pub enum CriticReason {
         /// `actual_enemy_damage / expected_damage` (clamped to [0, 1]).
         impact_ratio: f32,
     },
-    /// `HealWithoutRescueValue` fired — heal cast on a healthy ally who is not
-    /// in a dangerous position.
+    /// `HealWithoutRescueValue` fired — heal cast on an ally with low rescue
+    /// need (computed via the same `curves.rescue_ally` used by the appraisal
+    /// layer for the `rescue_ally` need signal). Penalty scales continuously
+    /// with `(1 - rescue_need)` instead of binary thresholds.
     HealWithoutRescueValue {
-        /// Target's HP as a fraction of max HP at the time of the cast.
+        /// Rescue-need score from `curves.rescue_ally.eval((1-hp_pct)*threat_proxy)`.
+        /// Lower values trigger the critic; closer to 0 → harsher penalty.
+        rescue_need: f32,
+        /// Target's HP as a fraction of max HP. Kept for log readability.
         target_hp_pct: f32,
-        /// Danger map value at the target's position.
-        target_danger: f32,
     },
 }
 
@@ -196,8 +199,8 @@ mod tests {
                 impact_ratio: 0.15,
             },
             CriticReason::HealWithoutRescueValue {
+                rescue_need: 0.05,
                 target_hp_pct: 0.92,
-                target_danger: 0.05,
             },
         ];
         for r in reasons {
