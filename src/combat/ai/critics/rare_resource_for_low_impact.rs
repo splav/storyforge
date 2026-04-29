@@ -1,15 +1,20 @@
 //! RareResourceForLowImpact critic — step 10.3.
 //!
-//! Fires when a plan contains a Cast step with a high mana cost but low
-//! actual enemy damage relative to what the ability expected to deal.
-//! Spending a scarce resource for poor returns is a strategic waste.
+//! Fires when a plan contains a Cast step with a **damaging** ability that has
+//! a high mana cost but low actual enemy damage relative to its expected
+//! output. Spending a scarce resource for poor damage returns is a strategic
+//! waste.
+//!
+//! **Scope: damage-abilities only.** Status-only casts (CC, buffs, debuffs)
+//! are skipped — their value is in the status, not in damage, and a low-damage
+//! ratio for a stun/silence is structurally normal. Wasted-buff cases are
+//! handled by `BuffIntoVoid` in this same wave; dedicated status-value critics
+//! belong in a future wave (master plan backlog).
 //!
 //! Fire condition:
-//!   `mana_cost >= 30` AND `impact_ratio < 0.5`
+//!   `def.effect.calc(actor.caster_ctx).expected() > 0` (ability deals damage)
+//!   AND `mana_cost >= 30` AND `impact_ratio < 0.5`
 //!   where `impact_ratio = outcome.enemy_damage / expected_damage`.
-//!   `expected_damage` is derived from `def.effect.calc(actor.caster_ctx)`.
-//!   Falls back to `mana_cost as f32` as a surrogate when the ability has no
-//!   direct damage effect (e.g. status-only high-cost casts get a proxy check).
 //!
 //! Multiplier: monotone in `(0.5 - impact_ratio)`, floored at 0.5.
 //!   `multiplier = (1.0 - 0.4 * (0.5 - ratio) / 0.5).max(0.5)`
@@ -68,27 +73,25 @@ impl PlanCritic for RareResourceForLowImpact {
                 continue;
             }
 
+            // Damage-only scope: skip status-only / utility abilities — their
+            // value lies outside damage and a low impact_ratio there is
+            // structural, not a waste.
+            let Some(expected_damage) = def
+                .effect
+                .calc(&ctx.active.caster_ctx)
+                .map(|ec| ec.expected())
+                .filter(|&e| e > 0.0)
+            else {
+                continue;
+            };
+
             // Actual enemy damage from the corresponding outcome, if available.
             let actual_damage = ann
                 .outcomes
                 .get(step_idx)
                 .map_or(0.0, |o| o.enemy_damage);
 
-            // Expected damage: use `def.effect.calc(actor.caster_ctx).expected()`.
-            // Falls back to `mana_cost as f32` for non-damage abilities so that
-            // expensive status-only casts still get a proportional check.
-            let expected_damage = def
-                .effect
-                .calc(&ctx.active.caster_ctx)
-                .map(|ec| ec.expected())
-                .filter(|&e| e > 0.0)
-                .unwrap_or(mana_cost as f32);
-
-            let impact_ratio = if expected_damage > 0.0 {
-                (actual_damage / expected_damage).min(1.0)
-            } else {
-                1.0 // can't compute ratio, assume fine
-            };
+            let impact_ratio = (actual_damage / expected_damage).min(1.0);
 
             if impact_ratio >= IMPACT_RATIO_THRESHOLD {
                 continue;
@@ -312,6 +315,47 @@ mod tests {
         assert!(
             mult_vl <= mult_ml,
             "very-low impact ({mult_vl}) must be at least as punishing as moderate-low ({mult_ml})",
+        );
+    }
+
+    // ── status-only abilities are skipped, regardless of cost ────────────────
+
+    #[test]
+    fn rare_resource_skips_status_only_abilities() {
+        // Expensive status-only ability (cost=40, no damage). The critic must
+        // not fire — value is in the status, not in damage. Wasted-buff cases
+        // are handled by BuffIntoVoid; status-value critics live in a future wave.
+        use crate::content::abilities::{StatusApplication, StatusOn};
+        use crate::core::StatusId;
+
+        let caster_pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(3, 0);
+        let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos).build();
+
+        let mut content = empty_content();
+        let mut stun = expensive_spell("hard_stun", 40, DiceExpr::new(0, 0, 0));
+        stun.effect = EffectDef::None;
+        stun.statuses = vec![StatusApplication {
+            status: StatusId::from("stunned"),
+            on: StatusOn::Target,
+            duration_rounds: 2,
+        }];
+        content.abilities.insert(AbilityId::from("hard_stun"), stun);
+
+        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
+
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
+        let (plan, ann) = cast_plan_with_outcome("hard_stun", target_entity, target_pos, 0.0);
+
+        assert!(
+            RareResourceForLowImpact.evaluate(&plan, &ann, &ctx).is_none(),
+            "expensive status-only ability must not fire — damage is not its value axis",
         );
     }
 }
