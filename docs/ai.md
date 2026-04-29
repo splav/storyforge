@@ -358,18 +358,19 @@ factor_weight[f] = Σ(biased[i] × AXIS_FACTOR_WEIGHTS[i][f])
 ### Инференс профиля (role.rs::infer_profile)
 
 Каждая ability голосует за оси через **`tag_axis_vote`** (не pattern-matching по EffectDef).
-Вес голоса = `1 + total_cost`. Правило маппинга AbilityTag → ось:
+Вес голоса = `1 + total_cost`. Правила приоритизированы — возвращается первый matched тег (single-return), за исключением Offensive + ApplyCC, где Control добавляется к Melee/Ranged:
 
-| AbilityTag | Ось | Кредит |
-|---|---|---|
-| Offensive | Melee или Ranged (по `target_type`) | `+weight` |
-| Rescue | Support | `+weight` |
-| Summon | Support | `+weight × 0.5` |
-| Defensive | Tank | `+weight × 0.7` |
-| ApplyCC | Control | `+weight` |
-| Peel | Tank + Control | `+weight × [0.7, 0.3]` |
-| Mobility | Melee | `+weight × 0.9` (aggro move) |
-| (no tags) | Melee | `+weight × 0.3` (utility fallback) |
+| Условие (тег / комбинация) | Распределение |
+|---|---|
+| `Rescue` | Support `+weight` |
+| `Summon` | Support `+weight × 0.7` + Ranged `+weight × 0.3` |
+| `Defensive` (без Offensive и без Peel) | Tank `+weight` |
+| `Offensive` ranged (`SpellDamage` / AoE / `range.min ≥ 2`) | Ranged `+weight` (+ Control `+weight × 0.4` если есть ApplyCC) |
+| `Offensive` melee | Melee `+weight` (+ Control `+weight × 0.4` если есть ApplyCC) |
+| `ApplyCC` (без Offensive) | Control `+weight` |
+| `Peel` | Tank `+weight × 0.7` + Support `+weight × 0.3` |
+| `Mobility` (только) | Melee `+weight × 0.3` (aggro move) |
+| Empty tags | 0 (только stat-based Tank floor добавится) |
 
 Override: если `ai_tags_override` выставлен в TOML — используется он вместо derived tags (replace, не append).
 

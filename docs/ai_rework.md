@@ -293,7 +293,7 @@ Viability → Sanity → Adaptation → ProtectSelfMask → KillableGate
 - `repair/mod.rs::classify_status_change` — severity `actor_status_changed` через StatusTag.
 - Override: `ai_tags_override` в TOML заменяет derived tags (replace-not-append).
 - Mining: `mine_ai_logs` — секции F1 (tag coverage), F2 (need signals pin), F3 (continuation severity).
-- Scenarios: `apply_cc_skips_already_hardcc_target`, `actor_status_hardcc_invalidates_goal`, `actor_status_dot_tick_preserves_goal` + 15 existing (18 total).
+- Scenarios: 16 групп (`rescue_via_heal_in_threat` smoke + `actor_status_dot_preserves_goal` tag-driven + 14 corpus-rebuild на v30); 18 expected.toml cases.
 
 **Backlog (не вошло в scope step 9):**
 - **Setup / Cleanse / ZoneControl tags** — нет механики в shape (channel/marker/hazard zones).
@@ -301,6 +301,8 @@ Viability → Sanity → Adaptation → ProtectSelfMask → KillableGate
 - **commitment_skill** — step 12 (mid-plan reflow).
 - **Peel-aware terminal axis** — пока Peel живёт только в `tag_axis_vote`; real terminal consumer в backlog.
 - **NeedSignals в log schema** — `rescue_ally`/`apply_cc` недоступны для mining (v30 не включает NeedSignals в `ActorTickEvent`); добавить при следующем schema bump.
+- **3 запланированных scenarios** не нашлись в playtest corpus (`apply_cc_skips_already_hardcc_target`, `actor_status_hardcc_invalidates_goal`, `peel_via_taunt`) — требуют целевого playtest'а; logic покрыта unit-тестами в `appraisal::tests` и `repair::tests`.
+- **Mining-driven calibration** провизорных curves (`rescue_ally` Logistic, `apply_cc` LinearClamped) — отдельный data-driven проход на расширенном corpus.
 
 ---
 
