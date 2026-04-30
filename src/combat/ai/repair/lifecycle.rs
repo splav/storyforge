@@ -7,8 +7,8 @@ use crate::combat::ai::repair::{
     ContinuationSeverity, classify_continuation_outcome, extract_goal_context,
     is_abandoned_outcome, FreshDecisionKind,
 };
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::tags::StatusTagCache;
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::tags::StatusTagCache;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::utility::{AiDecision, ChosenInfo};
 
@@ -108,7 +108,7 @@ mod tests {
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::planning::types::{TurnPlan, PlanStep};
     use crate::combat::ai::repair::goal::{GoalKind, StoredGoalContext};
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::utility::ChosenInfo;
     use crate::game::hex::hex_from_offset;
     use crate::game::components::Team;
@@ -120,7 +120,7 @@ mod tests {
         Entity::from_raw_u32(id).expect("valid entity id")
     }
 
-    fn make_actor(id: u32) -> crate::combat::ai::snapshot::UnitSnapshot {
+    fn make_actor(id: u32) -> crate::combat::ai::world::snapshot::UnitSnapshot {
         crate::combat::ai::test_helpers::UnitBuilder::new(id, Team::Enemy, hex_from_offset(0, 0))
             .build()
     }

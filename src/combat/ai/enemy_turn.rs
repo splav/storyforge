@@ -1,15 +1,15 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::content::content_view::{ActiveContent, ContentView};
 use crate::combat::ai::debug::AiDebugState;
-use crate::combat::ai::tags::{AbilityTagCache, StatusTagCache};
+use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
 use crate::combat::ai::difficulty::DifficultyProfile;
-use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
+use crate::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::repair::lifecycle as goal_lifecycle;
 use crate::combat::ai::log::{AiLogger, ActorTickInput, write_actor_tick_log};
-use crate::combat::ai::reservations::Reservations;
+use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
-use crate::combat::ai::snapshot::build_snapshot;
+use crate::combat::ai::world::snapshot::build_snapshot;
 use crate::combat::ai::intent::update_memory;
 use crate::combat::ai::planning::record_committed_reservations;
 use crate::combat::ai::utility::{

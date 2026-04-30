@@ -10,7 +10,7 @@ use crate::combat::ai::factors::{aoe_area, PlanFactor, PlanFactorValues};
 use crate::combat::ai::planning::adaptation::EvaluationMode;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
-use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{AiTags, UnitSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::effects_math::final_damage_f32;
 use crate::content::abilities::AoEShape;
@@ -501,8 +501,8 @@ mod tests {
 
     #[test]
     fn plan_has_self_aoe_detects_friendly_fire_circle_on_caster() {
-        use crate::combat::ai::reservations::Reservations;
-        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::world::reservations::Reservations;
+        use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
         use crate::content::abilities::CasterContext;
         let actor_pos = hex_from_offset(0, 0);
@@ -553,8 +553,8 @@ mod tests {
     /// danger tile, adjacent to an AoO-capable enemy.
     #[test]
     fn sanity_only_fires_residual_rules() {
-        use crate::combat::ai::reservations::Reservations;
-        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::world::reservations::Reservations;
+        use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx};
 
         let actor_pos = hex_from_offset(3, 0);

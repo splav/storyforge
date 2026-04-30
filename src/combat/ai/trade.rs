@@ -37,7 +37,7 @@
 use crate::combat::ai::planning::sanity::expected_aoo_damage;
 use crate::combat::ai::planning::TurnPlan;
 use crate::combat::ai::scoring::horizon_avg;
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::content::abilities::{StatusOn, TargetType};
 use crate::content::content_view::ContentView;
 
@@ -569,7 +569,7 @@ mod tests {
     // fallback deserialized plans use. Direct, no sim wiring needed.
 
     use crate::combat::ai::planning::{PlanStep, StepOutcome, TurnPlan};
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use bevy::prelude::Entity;
 
     fn ent(id: u32) -> Entity {

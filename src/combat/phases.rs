@@ -1,5 +1,5 @@
 use crate::combat::ai::role::{infer_profile, AxisProfile};
-use crate::combat::ai::tags::AbilityTagCache;
+use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::content::content_view::ActiveContent;
 use crate::content::encounters::PhaseTrigger;
 use crate::game::combat_log::{CombatEvent, CombatLog};

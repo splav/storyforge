@@ -17,13 +17,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::appraisal::{ally_threat_proxy, NeedSignals};
 use crate::combat::ai::difficulty::DifficultyProfile;
-use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::intent::{
     select_intent_normal, AiMemory, BandReason, IntentKind, IntentReason, PriorityBand, TacticalIntent,
 };
 use crate::combat::ai::intent::considerations::{compute_considerations, IntentConsiderations};
 use crate::combat::ai::role::AxisProfile;
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
 use crate::combat::ai::tuning::AiTuning;
 
@@ -356,7 +356,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot};
+    use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot};
     use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
     use crate::combat::ai::tuning::AiTuning;
     use crate::game::components::Team;

@@ -19,7 +19,7 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use storyforge::combat::ai::influence::InfluenceConfig;
+use storyforge::combat::ai::world::influence::InfluenceConfig;
 use storyforge::combat::ai::replay::assert_v28_log_file;
 use storyforge::combat::ai::replay_assertion::AssertResult;
 use storyforge::content::content_view::ContentView;

@@ -18,7 +18,7 @@ pub mod secure_kill;
 
 use crate::combat::ai::factors::registry::{default_norm, BatchStats, NeedAxis};
 use crate::combat::ai::planning::types::TurnPlan;
-use crate::combat::ai::snapshot::BattleSnapshot;
+use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::utility::ScoringCtx;
 
 crate::factor_kind! {

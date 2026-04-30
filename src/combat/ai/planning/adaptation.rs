@@ -43,7 +43,7 @@ use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::sanity::expected_aoo_damage;
 use crate::combat::ai::planning::scorer::rescore_with_per_plan_modes;
 use crate::combat::ai::planning::{plan_is_defensive, TurnPlan};
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::content_view::ContentView;
 
@@ -466,8 +466,8 @@ mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::planning::{sanity_adjust_plans, PlanStep};
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
@@ -738,7 +738,7 @@ mod tests {
             .max_hp(20)
             .build();
         let mut actor_with_dot = actor.clone();
-        actor_with_dot.statuses.push(crate::combat::ai::snapshot::ActiveStatusView {
+        actor_with_dot.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
             id: StatusId::from("poison"),
             rounds_remaining: 1,
             dot_per_tick: 4,
@@ -782,7 +782,7 @@ mod tests {
             .hp(2)
             .max_hp(20)
             .build();
-        actor_doomed.statuses.push(crate::combat::ai::snapshot::ActiveStatusView {
+        actor_doomed.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
             id: StatusId::from("poison"),
             rounds_remaining: 1,
             dot_per_tick: 4,
@@ -827,7 +827,7 @@ mod tests {
             .hp(2)
             .max_hp(20)
             .build();
-        actor_doomed.statuses.push(crate::combat::ai::snapshot::ActiveStatusView {
+        actor_doomed.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
             id: StatusId::from("poison"),
             rounds_remaining: 1,
             dot_per_tick: 4,
@@ -871,7 +871,7 @@ mod tests {
             .max_hp(40)
             .build();
         let mut actor_sick = actor.clone();
-        actor_sick.statuses.push(crate::combat::ai::snapshot::ActiveStatusView {
+        actor_sick.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
             id: StatusId::from("exhaustion"),
             rounds_remaining: 1,
             dot_per_tick: 0, // the flat-damage channel is empty

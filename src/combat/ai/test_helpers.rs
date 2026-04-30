@@ -4,11 +4,11 @@
 //! test module used to hand-roll.
 
 use crate::combat::ai::difficulty::DifficultyProfile;
-use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
-use crate::combat::ai::reservations::Reservations;
+use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
+use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::role::AxisProfile;
-use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::tags::{AbilityTagCache, StatusTagCache};
+use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
 use crate::combat::ai::utility::{AiWorld, ScoringCtx};
 use crate::content::abilities::CasterContext;
 use crate::content::content_view::ContentView;

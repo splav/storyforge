@@ -29,14 +29,14 @@ use bevy::prelude::Entity;
 use crate::combat::ai::factors::{
     FactorTerminalScore, PlanFactor, PlanFactorValues, TerminalFactor,
 };
-use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::intent::agenda::AgendaItem;
 use crate::combat::ai::intent::considerations::IntentConsiderations;
 use crate::combat::ai::intent::IntentKind;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
-use crate::combat::ai::snapshot::BattleSnapshot;
+use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::game::hex::Hex;
 
 // ── Leverage v1 priors (mining-adjustable) ─────────────────────────────────
@@ -403,8 +403,8 @@ mod tests {
     };
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
@@ -832,7 +832,7 @@ mod tests {
     /// "mobile defense > stationary defense" semantic (counterpart to the cap test).
     #[test]
     fn leverage_protect_self_uses_reduction_when_danger_decreases() {
-        use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
+        use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
 
         let actor_pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();

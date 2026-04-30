@@ -12,12 +12,12 @@
 use crate::combat::actions::{check_legality, ProposedAction};
 use crate::combat::ai::action_state::SnapshotActionState;
 use crate::combat::ai::factors::{aoe_area, aoe_hits};
-use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::planning::sim::SimState;
 use crate::combat::ai::outcome::builder as outcome_builder;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 use crate::core::AbilityId;
@@ -657,7 +657,7 @@ fn partial_score(plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, ent, UnitBuilder};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
@@ -1028,7 +1028,7 @@ mod tests {
     // are covered at the `check_legality` layer (actions/mod.rs + arch
     // D.a) and end-to-end via `generate_plans_*` tests below.
 
-    use crate::combat::ai::snapshot::AiTags as Tags;
+    use crate::combat::ai::world::snapshot::AiTags as Tags;
     use crate::content::abilities::{StatusApplication, StatusOn};
     use crate::content::statuses::StatusDef;
     use crate::core::StatusId;
@@ -1306,7 +1306,7 @@ mod tests {
     /// Now `check_legality` gates every Cast candidate and filters them out.
     #[test]
     fn generate_plans_excludes_mana_casts_under_blocks_mana_status() {
-        use crate::combat::ai::snapshot::ActiveStatusView;
+        use crate::combat::ai::world::snapshot::ActiveStatusView;
         use crate::core::ResourceKind;
 
         // Actor has broken_faith + enough mana + both a mana spell and a
@@ -1514,7 +1514,7 @@ mod tests {
     /// over-estimating disoriented unit's damage.
     #[test]
     fn disadvantage_status_discounts_plan_damage_estimate() {
-        use crate::combat::ai::snapshot::ActiveStatusView;
+        use crate::combat::ai::world::snapshot::ActiveStatusView;
         use crate::content::statuses::StatusDef;
         use crate::core::StatusId;
 

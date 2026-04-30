@@ -113,8 +113,8 @@ pub fn compute_plan_self_survival(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
 mod tests {
     use super::*;
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -182,7 +182,7 @@ mod tests {
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
         // A plan that does NOT target self (cast targeting someone else)
-        let other_entity = crate::combat::ai::snapshot::BattleSnapshot::new(
+        let other_entity = crate::combat::ai::world::snapshot::BattleSnapshot::new(
             vec![UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build()], 1
         );
         let _ = other_entity; // just to note the plan targets actor itself but with non-heal

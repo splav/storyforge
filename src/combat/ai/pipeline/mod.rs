@@ -1,13 +1,15 @@
 //! `PlanStage` pipeline scaffolding.
 //!
 //! Foundational types:
-//! - `StageCtx` — context threaded through every stage.
+//! - `StageCtx` — context threaded through every pipeline stage.
 //! - `ScoredPool` — typed pool of plans + annotations (`score` and
 //!   `factors: PlanFactorValues` are fields of `PlanAnnotation`).
 //! - `PlanStage` — trait every stage implements.
 //!
-//! All stages run via `run_pool_pipeline`.
+//! The production stage order lives in `order::PRODUCTION_PIPELINE` (single
+//! source of truth).  Use `order::run` to execute any pipeline slice.
 
+pub mod order;
 pub mod stages;
 
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
@@ -126,41 +128,6 @@ pub trait PlanStage {
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx);
 }
 
-// ── run_pool_pipeline ────────────────────────────────────────────────────────
-
-/// Run all scoring and selection stages in order.
-///
-/// Compile-time stage order, zero trait-object indirection:
-/// Viability → Sanity → Adaptation → ProtectSelfMask → KillableGate →
-/// RepairAffinity → PlanModifiers → PickBest.
-///
-/// `PlanModifiersStage` applies the three registered post-normalisation modifiers
-/// (summon_bonus, trade_bonus, repair_bonus) after repair affinity is populated
-/// and before the winner is selected.
-///
-/// After this returns, exactly one annotation has `chosen = true` and its
-/// `pick` field populated (unless the pool is empty).
-pub fn run_pool_pipeline(pool: &mut ScoredPool, ctx: &mut StageCtx) {
-    use stages::{
-        adaptation::AdaptationStage,
-        killable_gate::KillableGateStage,
-        pick_best::PickBestStage,
-        plan_modifiers::PlanModifiersStage,
-        protect_self::ProtectSelfMaskStage,
-        repair_affinity::RepairAffinityStage,
-        sanity::SanityStage,
-        viability::ViabilityStage,
-    };
-    ViabilityStage.apply(pool, ctx);
-    SanityStage.apply(pool, ctx);
-    AdaptationStage.apply(pool, ctx);
-    ProtectSelfMaskStage.apply(pool, ctx);
-    KillableGateStage.apply(pool, ctx);
-    RepairAffinityStage.apply(pool, ctx);
-    PlanModifiersStage.apply(pool, ctx);
-    PickBestStage.apply(pool, ctx);
-}
-
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -187,21 +154,23 @@ mod tests {
         assert_eq!(pool.len(), 0);
     }
 
-    /// Verify that `run_pool_pipeline` applies `PlanModifiersStage` (after
-    /// `RepairAffinityStage` and before `PickBestStage`) by checking that the
-    /// chosen plan's `annotation.modifiers` has exactly one entry per registered
-    /// modifier (i.e. PLAN_MODIFIERS.len() == 3), in fixed order.
+    /// Verify that `PRODUCTION_PIPELINE` applies `PlanModifiersStage` after
+    /// `RepairAffinityStage` and before `PickBestStage` by checking that every
+    /// plan's `annotation.modifiers` has exactly one entry per registered
+    /// modifier (PLAN_MODIFIERS.len() == 3), in canonical order.
     ///
-    /// This is a pipeline-order regression test: if `PlanModifiersStage` were
-    /// removed or reordered after `PickBestStage`, the chosen plan would have
-    /// an empty `modifiers` vec.
+    /// Pipeline-order regression test: if `PlanModifiersStage` were removed or
+    /// reordered after `PickBestStage`, the chosen plan would have an empty
+    /// `modifiers` vec.  The test uses `PRODUCTION_PIPELINE` directly so that
+    /// production and test order are always identical.
     #[test]
     fn pipeline_runs_modifiers_after_repair_before_pick() {
         use crate::combat::ai::difficulty::DifficultyProfile;
         use crate::combat::ai::intent::{IntentReason, TacticalIntent};
         use crate::combat::ai::modifiers::PLAN_MODIFIERS;
-        use crate::combat::ai::reservations::Reservations;
-        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};
+        use crate::combat::ai::world::reservations::Reservations;
+        use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{
             empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
         };
@@ -231,7 +200,7 @@ mod tests {
         pool.annotations[0].score = 1.0;
         pool.annotations[1].score = 0.5;
 
-        run_pool_pipeline(&mut pool, &mut ctx);
+        run(PRODUCTION_PIPELINE, &mut pool, &mut ctx);
 
         // Exactly one chosen plan.
         let chosen_count = pool.annotations.iter().filter(|a| a.chosen).count();

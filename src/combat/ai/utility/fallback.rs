@@ -3,9 +3,9 @@
 //! retreat, depending on HP.
 
 use super::{AiDecision, MoveOrigin};
-use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::planning::reach_from;
-use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::game::hex::Hex;
 
 pub(super) fn fallback_move(

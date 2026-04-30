@@ -151,7 +151,7 @@ mod tests {
         let content = load_content();
         let (_, ac) = build_caches(&content);
         let tags = ac.get(&AbilityId::from("taunt"));
-        use crate::combat::ai::tags::AbilityTag;
+        use crate::combat::ai::world::tags::AbilityTag;
         assert!(
             tags.contains_tag(AbilityTag::Peel),
             "taunt must have PEEL — status classification must run before ability"
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn override_replaces_derived_not_appends() {
-        use crate::combat::ai::tags::AbilityTagSet;
+        use crate::combat::ai::world::tags::AbilityTagSet;
 
         let mut content = load_content();
         // melee_attack derived = OFFENSIVE; override to DEFENSIVE only
@@ -211,7 +211,7 @@ mod tests {
         let ability_id = AbilityId::from("melee_attack");
         // No override set in global content
         let (_, ac) = build_caches(&content);
-        use crate::combat::ai::tags::AbilityTagSet;
+        use crate::combat::ai::world::tags::AbilityTagSet;
         assert_eq!(
             ac.effective(&ability_id),
             AbilityTagSet::OFFENSIVE,
@@ -238,7 +238,7 @@ mod tests {
             def.ai_tags_override = Some(vec!["offensive".to_string(), "peel".to_string()]);
         }
         let (_, ac) = build_caches(&content);
-        use crate::combat::ai::tags::{AbilityTag, AbilityTagSet};
+        use crate::combat::ai::world::tags::{AbilityTag, AbilityTagSet};
         let tags = ac.effective(&ability_id);
         assert!(tags.contains_tag(AbilityTag::Offensive));
         assert!(tags.contains_tag(AbilityTag::Peel));

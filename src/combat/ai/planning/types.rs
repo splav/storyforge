@@ -2,7 +2,7 @@
 //! applying a plan to a simulated battle state.
 
 use crate::combat::ai::outcome::PlanAnnotation;
-use crate::combat::ai::snapshot::BattleSnapshot;
+use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;

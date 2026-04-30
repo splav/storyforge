@@ -75,8 +75,8 @@ mod tests {
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder, ent,
     };
@@ -90,7 +90,7 @@ mod tests {
         raw: Vec<PlanFactorValues>,
         intent: TacticalIntent,
         snap: &BattleSnapshot,
-        actor: &crate::combat::ai::snapshot::UnitSnapshot,
+        actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
     ) -> ScoredPool {
         let maps = empty_maps();
         let content = empty_content();

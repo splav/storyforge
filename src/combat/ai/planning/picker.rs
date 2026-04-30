@@ -18,9 +18,9 @@ pub struct PickMechanics {
 
 use crate::combat::ai::factors::{aoe_area, aoe_hits, PlanFactorValues, StepFactor};
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
-use crate::combat::ai::reservations::Reservations;
+use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::{AiDecision, AiWorld, MoveOrigin};
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::core::DiceRng;

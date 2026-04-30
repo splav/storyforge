@@ -291,7 +291,7 @@ pub struct PlanAnnotation {
     /// Schema-additive via `#[serde(default)]`; v29 logs without this field
     /// deserialise as an empty vec.
     #[serde(default)]
-    pub effective_ai_tags: Vec<crate::combat::ai::tags::AbilityTagSet>,
+    pub effective_ai_tags: Vec<crate::combat::ai::world::tags::AbilityTagSet>,
     /// Step 10.0: critic hits applied to this plan (critic + multiplier + reason triples).
     /// Empty until CriticsStage runs or when no critics fired.
     /// Schema-additive via `#[serde(default)]`; v30 logs without this field
@@ -462,7 +462,7 @@ mod tests {
     /// PlanAnnotation with effective_ai_tags survives a serde round-trip.
     #[test]
     fn plan_annotation_serde_round_trip_with_effective_ai_tags() {
-        use crate::combat::ai::tags::{AbilityTag, AbilityTagSet};
+        use crate::combat::ai::world::tags::{AbilityTag, AbilityTagSet};
 
         let ann = PlanAnnotation {
             effective_ai_tags: vec![AbilityTagSet::OFFENSIVE, AbilityTagSet::RESCUE],

@@ -7,8 +7,8 @@ use bevy::state::app::StatesPlugin;
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
     advance_turn::{advance_turn_system, check_victory_system}, ai::debug::AiDebugState,
-    ai::difficulty::DifficultyProfile, ai::influence::InfluenceConfig,
-    ai::reservations::Reservations,
+    ai::difficulty::DifficultyProfile, ai::world::influence::InfluenceConfig,
+    ai::world::reservations::Reservations,
     apply_effects::apply_effects_system, ai::enemy_turn::enemy_ai_system,
     movement::movement_system,
     phases::phase_transition_system,
@@ -17,7 +17,7 @@ use storyforge::combat::{
     status_tick::tick_status_effects_system,
     validation::validate_action_system,
 };
-use storyforge::combat::ai::tags::cache::build_caches;
+use storyforge::combat::ai::world::tags::cache::build_caches;
 use storyforge::content::content_view::ActiveContent;
 use storyforge::content::settings::GameSettings;
 use storyforge::content::statuses::StatusDef;

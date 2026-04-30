@@ -30,7 +30,7 @@ use crate::combat::ai::factors::{PlanFactorValues, StepFactor};
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::adaptation::EvaluationMode;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
-use crate::combat::ai::snapshot::BattleSnapshot;
+use crate::combat::ai::world::snapshot::BattleSnapshot;
 use bevy::prelude::Entity;
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -168,7 +168,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::planning::adaptation::EvaluationMode;
     use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{ent, UnitBuilder};
     use crate::core::AbilityId;
     use crate::game::components::Team;

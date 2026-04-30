@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::app_state::CombatPhase;
-use crate::combat::ai::reservations::Reservations;
+use crate::combat::ai::world::reservations::Reservations;
 use crate::content::content_view::ActiveContent;
 use crate::core::{modifier, DiceRng};
 use crate::game::components::{ActionPoints, ActiveCombatant, CombatStats, Combatant, Initiative, Reactions, Speed, StatusEffects, Vital};

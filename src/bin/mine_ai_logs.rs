@@ -43,7 +43,7 @@ use storyforge::combat::ai::repair::{
 };
 use storyforge::combat::ai::intent::{IntentKind, TacticalIntent};
 use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, StoredGoalContextSnapshot};
-use storyforge::combat::ai::tags::AbilityTag;
+use storyforge::combat::ai::world::tags::AbilityTag;
 
 // ── Session actor key ─────────────────────────────────────────────────────────
 
@@ -2045,7 +2045,7 @@ fn main() {
 mod tests {
     use super::*;
     use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};
-    use storyforge::combat::ai::snapshot::BattleSnapshot;
+    use storyforge::combat::ai::world::snapshot::BattleSnapshot;
     use storyforge::combat::ai::outcome::{PlanAnnotation, PickInfo};
     use storyforge::combat::ai::modifiers::ModifierContribution;
     use storyforge::combat::ai::planning::PlanStep;
@@ -2311,7 +2311,7 @@ mod tests {
 
     // ── F1: AI tags coverage ──────────────────────────────────────────────────
 
-    fn plan_with_tags(tags: Vec<storyforge::combat::ai::tags::AbilityTagSet>) -> LoggedPlan {
+    fn plan_with_tags(tags: Vec<storyforge::combat::ai::world::tags::AbilityTagSet>) -> LoggedPlan {
         let ann = PlanAnnotation {
             chosen: true,
             effective_ai_tags: tags,
@@ -2326,7 +2326,7 @@ mod tests {
 
     #[test]
     fn f1_ability_tag_counts_chosen_plan_with_offensive() {
-        use storyforge::combat::ai::tags::{AbilityTag, AbilityTagSet};
+        use storyforge::combat::ai::world::tags::{AbilityTag, AbilityTagSet};
         let mut tags = AbilityTagSet::empty();
         tags.insert_tag(AbilityTag::Offensive);
         let event = make_event(1, LoggedDecision::EndTurn, vec![plan_with_tags(vec![tags])], None);
@@ -2341,7 +2341,7 @@ mod tests {
 
     #[test]
     fn f1_plan_counted_once_per_tag_even_if_multiple_steps() {
-        use storyforge::combat::ai::tags::{AbilityTag, AbilityTagSet};
+        use storyforge::combat::ai::world::tags::{AbilityTag, AbilityTagSet};
         // Two Cast steps both with Offensive — plan counted once for Offensive.
         let mut step_tags = AbilityTagSet::empty();
         step_tags.insert_tag(AbilityTag::Offensive);
@@ -2361,7 +2361,7 @@ mod tests {
 
     #[test]
     fn f1_unchosen_plan_not_counted() {
-        use storyforge::combat::ai::tags::{AbilityTag, AbilityTagSet};
+        use storyforge::combat::ai::world::tags::{AbilityTag, AbilityTagSet};
         let mut tags = AbilityTagSet::empty();
         tags.insert_tag(AbilityTag::Offensive);
         // Non-chosen plan: chosen=false
@@ -2673,12 +2673,12 @@ mod tests {
 
     /// Build a UnitSnapshot at the given hex-axial position with given AP/MP.
     fn unit_at(entity_bits: u64, x: i32, y: i32, ap: i32, mp: i32, max_range: u32)
-        -> storyforge::combat::ai::snapshot::UnitSnapshot
+        -> storyforge::combat::ai::world::snapshot::UnitSnapshot
     {
-        use storyforge::combat::ai::snapshot::UnitSnapshot;
+        use storyforge::combat::ai::world::snapshot::UnitSnapshot;
         use storyforge::content::abilities::CasterContext;
         use storyforge::combat::ai::role::AxisProfile;
-        use storyforge::combat::ai::snapshot::AiTags;
+        use storyforge::combat::ai::world::snapshot::AiTags;
         use storyforge::game::components::Team;
         use storyforge::content::races::CritFailEffect;
         use bevy::prelude::Entity;
@@ -2711,7 +2711,7 @@ mod tests {
     /// Build an unattributed tick event (chosen plan has no agenda_item, agenda is non-empty).
     fn make_h3c_event(
         actor_id: u64,
-        snapshot: storyforge::combat::ai::snapshot::BattleSnapshot,
+        snapshot: storyforge::combat::ai::world::snapshot::BattleSnapshot,
         agenda: Vec<storyforge::combat::ai::log::AgendaItemLog>,
         plans: Vec<LoggedPlan>,
     ) -> ActorTickEvent {
@@ -2728,7 +2728,7 @@ mod tests {
     #[test]
     fn h3c_ap_mp_blocked_when_actor_has_zero_resources() {
         use storyforge::combat::ai::intent::IntentKind;
-        use storyforge::combat::ai::snapshot::BattleSnapshot;
+        use storyforge::combat::ai::world::snapshot::BattleSnapshot;
         use bevy::prelude::Entity;
 
         let actor_bits = Entity::from_raw_u32(1).expect("valid").to_bits();
@@ -2758,7 +2758,7 @@ mod tests {
     #[test]
     fn h3c_no_target_when_all_agenda_items_have_no_target() {
         use storyforge::combat::ai::intent::IntentKind;
-        use storyforge::combat::ai::snapshot::BattleSnapshot;
+        use storyforge::combat::ai::world::snapshot::BattleSnapshot;
         use bevy::prelude::Entity;
 
         let actor_bits = Entity::from_raw_u32(2).expect("valid").to_bits();
@@ -2786,7 +2786,7 @@ mod tests {
     #[test]
     fn h3c_no_plan_attempts_target_when_pool_skips_agenda_target() {
         use storyforge::combat::ai::intent::IntentKind;
-        use storyforge::combat::ai::snapshot::BattleSnapshot;
+        use storyforge::combat::ai::world::snapshot::BattleSnapshot;
         use bevy::prelude::Entity;
         use storyforge::core::AbilityId;
         use hexx::Hex;
@@ -2831,7 +2831,7 @@ mod tests {
     #[test]
     fn h3c_only_move_plans_when_no_cast_steps_at_all() {
         use storyforge::combat::ai::intent::IntentKind;
-        use storyforge::combat::ai::snapshot::BattleSnapshot;
+        use storyforge::combat::ai::world::snapshot::BattleSnapshot;
         use bevy::prelude::Entity;
         use hexx::Hex;
 
@@ -2869,7 +2869,7 @@ mod tests {
     fn h3c_attributed_tick_not_counted() {
         // If chosen plan has an agenda_item, H3c should not fire.
         use storyforge::combat::ai::intent::IntentKind;
-        use storyforge::combat::ai::snapshot::BattleSnapshot;
+        use storyforge::combat::ai::world::snapshot::BattleSnapshot;
         use bevy::prelude::Entity;
 
         let actor_bits = Entity::from_raw_u32(8).expect("valid").to_bits();

@@ -5,7 +5,7 @@
 //! the same plan (populated by the generator's sim), so no additional running
 //! state is needed for intra-plan dedup.
 
-use crate::combat::ai::snapshot::BattleSnapshot;
+use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::content::abilities::StatusOn;
 use crate::content::content_view::ContentView;
 use crate::core::AbilityId;
@@ -65,7 +65,7 @@ pub fn buff_saturation_penalty(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
     use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, TargetType};
     use crate::content::content_view::ContentView;
     use crate::content::statuses::{BuffClass, StatusDef};

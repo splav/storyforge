@@ -8,7 +8,7 @@ pub const SIGNED: bool = false;
 
 use crate::combat::ai::planning::terminal::compute_secure_kill;
 use crate::combat::ai::planning::types::TurnPlan;
-use crate::combat::ai::snapshot::BattleSnapshot;
+use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::utility::ScoringCtx;
 
 pub fn compute(plan: &TurnPlan, _snap: &BattleSnapshot, _ctx: &ScoringCtx) -> f32 {

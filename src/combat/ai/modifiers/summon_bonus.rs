@@ -70,8 +70,8 @@ mod tests {
     use crate::combat::ai::modifiers::ModifierCtx;
     use crate::combat::ai::pipeline::StageCtx;
     use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
     use crate::combat::ai::trade::unit_value;
     use crate::combat::ai::utility::AiWorld;

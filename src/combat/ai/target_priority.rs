@@ -1,4 +1,4 @@
-use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 
 /// Pick the enemy with the highest `target_priority` relative to `active`.
 /// Single source of truth for "what's the most important enemy right now".
@@ -72,7 +72,7 @@ pub fn target_priority(
 mod tests {
     use super::*;
     use crate::combat::ai::role::AxisProfile;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{unit, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;

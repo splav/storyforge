@@ -12,7 +12,7 @@
 //! friendly-fire damage twice (once via `allies_of`, once via the explicit
 //! self-branch).
 
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::game::hex::Hex;
 use std::collections::HashSet;
 

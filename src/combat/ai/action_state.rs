@@ -10,7 +10,7 @@
 //! prerequisite that proves the trait works on both world models.
 
 use crate::combat::actions::{ActionState, ActorView};
-use crate::combat::ai::snapshot::{AiTags, BattleSnapshot};
+use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot};
 use crate::content::content_view::ContentView;
 use crate::core::AbilityId;
 use crate::game::components::Team;
@@ -90,7 +90,7 @@ impl ActionState for SnapshotActionState<'_> {
 mod tests {
     use super::*;
     use crate::combat::actions::{check_legality, IllegalReason, ProposedAction};
-    use crate::combat::ai::snapshot::{ActiveStatusView, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
     use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, TargetType,

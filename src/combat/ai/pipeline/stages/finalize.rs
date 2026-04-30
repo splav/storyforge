@@ -91,8 +91,8 @@ mod tests {
     use crate::combat::ai::planning::adaptation::AdaptationReason;
     use crate::combat::ai::planning::types::TurnPlan;
     use crate::combat::ai::planning::score_plans_with_raw;
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
@@ -109,7 +109,7 @@ mod tests {
         scores: Vec<f32>,
         raw: Vec<PlanFactorValues>,
         adaptations: Vec<Option<AdaptationData>>,
-        actor: &crate::combat::ai::snapshot::UnitSnapshot,
+        actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
         snap: &BattleSnapshot,
         intent: TacticalIntent,
     ) -> ScoredPool {

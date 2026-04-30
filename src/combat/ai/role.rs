@@ -1,5 +1,5 @@
 use crate::combat::ai::repair::affinity::RepairWeights;
-use crate::combat::ai::tags::{AbilityTag, AbilityTagCache, AbilityTagSet};
+use crate::combat::ai::world::tags::{AbilityTag, AbilityTagCache, AbilityTagSet};
 use crate::combat::ai::tuning::AiTuning;
 use crate::content::abilities::{AoEShape, EffectDef};
 use crate::content::content_view::ContentView;
@@ -303,7 +303,7 @@ fn tag_axis_vote(
 mod tests {
     use super::*;
     use crate::combat::ai::factors::StepFactor;
-    use crate::combat::ai::tags::cache::build_caches;
+    use crate::combat::ai::world::tags::cache::build_caches;
     const DAMAGE_IDX: usize = StepFactor::Damage as usize;
     const HEAL_IDX: usize = StepFactor::Heal as usize;
     use crate::core::AbilityId;
@@ -529,7 +529,7 @@ mod tests {
     ///   poison_shot — DOT(poison) on ranged damage is not CC → [0,0,4,0,0] vs legacy [0,0,4,1.6,0]
     #[test]
     fn tag_axis_vote_diff_from_legacy_is_intended() {
-        use crate::combat::ai::tags::cache::build_caches;
+        use crate::combat::ai::world::tags::cache::build_caches;
         use crate::content::abilities::{EffectDef, TargetType, AoEShape};
         use std::collections::HashMap;
 
@@ -708,7 +708,7 @@ mod tests {
     /// must yield AxisProfile with dominant = Support.
     #[test]
     fn infer_profile_uses_override_when_set() {
-        use crate::combat::ai::tags::cache::build_caches;
+        use crate::combat::ai::world::tags::cache::build_caches;
 
         let mut content = ContentView::load_global_for_tests();
         let id = AbilityId::from("melee_attack");

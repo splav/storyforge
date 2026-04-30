@@ -16,7 +16,7 @@ use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
 use crate::content::content_view::ContentView;
 use crate::combat::ai::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
 use crate::combat::ai::difficulty::DifficultyProfile;
-use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::intent::{
     assign_band, AiMemory, IntentReason, TacticalIntent,
@@ -27,8 +27,8 @@ use crate::combat::ai::log::{self, AiLogger, IntentBlock, TradeBlock};
 use crate::combat::ai::planning::{
     commit_plan, generate_plans, TurnPlan,
 };
-use crate::combat::ai::reservations::Reservations;
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::reservations::Reservations;
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::core::{AbilityId, DiceRng};
 use crate::game::hex::Hex;
 use bevy::prelude::*;
@@ -143,10 +143,10 @@ pub struct AiWorld<'a> {
     pub crit_fail_chance: f32,
     /// Step 9.A: tag cache for effective_ai_tags writeback in pick_action.
     /// Default (empty) value is used in test contexts via `make_test_ctx`.
-    pub ability_tags: &'a crate::combat::ai::tags::AbilityTagCache,
+    pub ability_tags: &'a crate::combat::ai::world::tags::AbilityTagCache,
     /// Step 9.B commit 2: status tag cache for `compute_apply_cc` (HardCC filter).
     /// Default (empty) value is used in test contexts via `make_test_ctx`.
-    pub status_tags: &'a crate::combat::ai::tags::StatusTagCache,
+    pub status_tags: &'a crate::combat::ai::world::tags::StatusTagCache,
 }
 
 /// Bundle of every read-only context the scoring layer touches. Replaces
@@ -375,48 +375,18 @@ pub fn pick_action(
         stage_ctx = stage_ctx.with_agenda(&agenda);
     }
 
-    use crate::combat::ai::pipeline::stages::{
-        critics::CriticsStage,
-        finalize::FinalizeStage,
-        item_scoring::ItemScoringStage,
-        killable_gate::KillableGateStage,
-        mode_selection::ModeSelectionStage,
-        overlay_considerations::OverlayConsiderationsStage,
-        pick_best::PickBestStage,
-        plan_modifiers::PlanModifiersStage,
-        protect_self::ProtectSelfMaskStage,
-        repair_affinity::RepairAffinityStage,
-        sanity::SanityStage,
-        viability::ViabilityStage,
+    use crate::combat::ai::pipeline::order::{
+        run, PRODUCTION_PIPELINE_POST_MASK, PRODUCTION_PIPELINE_PRE_MASK,
     };
-    use crate::combat::ai::pipeline::PlanStage;
 
-    // Pipeline order (step 11.4):
-    //   Viability → ItemScoring → ModeSelection → Finalize → Sanity → Critics
-    //   → ProtectSelfMask → KillableGate → RepairAffinity
-    //   → OverlayConsiderations → PlanModifiers → PickBest
-    //
-    // ItemScoringStage runs BEFORE ModeSelection so it sees primary-intent raw
-    // factors (before any LastStand rescoring changes them).
-    // OverlayConsiderationsStage runs AFTER RepairAffinity so it can read
-    // ann.repair_affinity for accurate continuation_value.
-    // PickBestStage performs composition using per_item + weights when agenda present.
-    ViabilityStage.apply(&mut pool, &mut stage_ctx);
-    ItemScoringStage.apply(&mut pool, &mut stage_ctx);
-    ModeSelectionStage.apply(&mut pool, &mut stage_ctx);
-    FinalizeStage.apply(&mut pool, &mut stage_ctx);
-    SanityStage.apply(&mut pool, &mut stage_ctx);
-    CriticsStage::first_wave().apply(&mut pool, &mut stage_ctx);
+    run(PRODUCTION_PIPELINE_PRE_MASK, &mut pool, &mut stage_ctx);
 
-    // Snapshot post-sanity/critics scores (after all multipliers applied).
+    // Snapshot post-sanity/critics scores (after all multipliers applied,
+    // before mask/gate stages).  Carried in PickResult.base_scored and used
+    // by the decision log to show pre/post-adaptation deltas.
     let base_scored: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
 
-    ProtectSelfMaskStage.apply(&mut pool, &mut stage_ctx);
-    KillableGateStage.apply(&mut pool, &mut stage_ctx);
-    RepairAffinityStage.apply(&mut pool, &mut stage_ctx);
-    OverlayConsiderationsStage.apply(&mut pool, &mut stage_ctx);
-    PlanModifiersStage.apply(&mut pool, &mut stage_ctx);
-    PickBestStage.apply(&mut pool, &mut stage_ctx);
+    run(PRODUCTION_PIPELINE_POST_MASK, &mut pool, &mut stage_ctx);
 
     // Find winning plan index from PickBestStage annotation.
     let best_idx = pool.annotations.iter().position(|a| a.chosen).unwrap_or(0);
@@ -594,12 +564,12 @@ pub fn write_decision_log_from_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::tags::AbilityTag;
-    use crate::combat::ai::tags::cache::build_caches;
+    use crate::combat::ai::world::tags::AbilityTag;
+    use crate::combat::ai::world::tags::cache::build_caches;
     use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use crate::core::DiceRng;

@@ -70,8 +70,8 @@ mod tests {
     use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::TurnPlan;
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
     use crate::combat::ai::utility::ScoringCtx;
     use crate::core::DiceRng;
@@ -201,7 +201,7 @@ mod tests {
         scores: Vec<f32>,
         raw: Vec<crate::combat::ai::factors::PlanFactorValues>,
         adaptations: Vec<Option<crate::combat::ai::outcome::AdaptationData>>,
-        actor: &crate::combat::ai::snapshot::UnitSnapshot,
+        actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
         snap: &BattleSnapshot,
         intent: TacticalIntent,
         critic_multiplier: f32,

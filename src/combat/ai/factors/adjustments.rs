@@ -74,8 +74,8 @@ pub fn crit_fail_adjusted(
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
@@ -97,7 +97,7 @@ mod tests {
     /// Placeholder active for tests where `apply_reservation_adjustments`
     /// doesn't actually read the actor — the bundle requires one but the
     /// coordination logic is actor-agnostic. Any minimal unit works.
-    fn placeholder_active() -> crate::combat::ai::snapshot::UnitSnapshot {
+    fn placeholder_active() -> crate::combat::ai::world::snapshot::UnitSnapshot {
         UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build()
     }
 

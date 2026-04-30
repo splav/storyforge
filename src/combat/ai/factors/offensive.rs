@@ -142,8 +142,8 @@ mod tests {
     #[test]
     fn compute_offensive_reads_facts_and_applies_policy() {
         use crate::combat::ai::difficulty::DifficultyProfile;
-        use crate::combat::ai::reservations::Reservations;
-        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::world::reservations::Reservations;
+        use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
 
         let content = db();
@@ -215,8 +215,8 @@ mod tests {
     #[test]
     fn compute_offensive_aoe_per_entity_progression() {
         use crate::combat::ai::difficulty::DifficultyProfile;
-        use crate::combat::ai::reservations::Reservations;
-        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::world::reservations::Reservations;
+        use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{ent, empty_maps, make_scoring_ctx, make_test_ctx};
 
         let content = db();
@@ -303,8 +303,8 @@ mod tests {
     #[test]
     fn compute_offensive_friendly_fire_super_linear() {
         use crate::combat::ai::difficulty::DifficultyProfile;
-        use crate::combat::ai::reservations::Reservations;
-        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::world::reservations::Reservations;
+        use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
 
         let content = db();

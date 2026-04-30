@@ -8,7 +8,7 @@
 //! builds the env and delegates. Kept here (rather than in pathfinding) so
 //! the shared layer stays ignorant of `BattleSnapshot` / `UnitSnapshot`.
 
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::game::hex::Hex;
 use crate::game::pathfinding::{reach_from as reach_from_env, MovementEnv, ReachableMap};
 use std::collections::HashSet;

@@ -12,14 +12,14 @@
 
 use crate::combat::ai::factors::aoe_hits;
 use crate::combat::ai::factors::aoe_area;
-use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::scorer::{compute_plan_factors, finalize_scores};
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::outcome::builder::hypothetical as estimate_hypothetical;
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::utility::ScoringCtx;
@@ -345,10 +345,10 @@ pub fn score_plans_prototype(
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
+    use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome};
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::AiTags;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::AiTags;
     use crate::combat::ai::test_helpers::{make_scoring_ctx, make_test_ctx, UnitBuilder};
     use crate::content::abilities::CasterContext;
     use crate::core::DiceExpr;

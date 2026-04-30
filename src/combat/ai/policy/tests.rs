@@ -10,7 +10,7 @@
 //!    `damage::value`, `friendly_fire::penalty`.
 
 use crate::combat::ai::policy;
-use crate::combat::ai::snapshot::UnitSnapshot;
+use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectDef};
 use crate::content::content_view::ContentView;
 use crate::core::DiceExpr;
@@ -162,7 +162,7 @@ impl Lcg {
 
 fn random_target(rng: &mut Lcg) -> UnitSnapshot {
     use crate::combat::ai::role::AxisProfile;
-    use crate::combat::ai::snapshot::AiTags;
+    use crate::combat::ai::world::snapshot::AiTags;
     let hp = rng.next_range(1, 100);
     let max_hp = hp + rng.next_range(0, 50);
     let threat = rng.next_range(1, 20) as f32;

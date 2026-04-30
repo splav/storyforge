@@ -1,4 +1,4 @@
-use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::tuning::AiTuning;
 use crate::game::hex::Hex;
@@ -16,7 +16,7 @@ pub fn evaluate_position(tile: Hex, profile: &AxisProfile, tuning: &AiTuning, ma
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::influence::InfluenceMap;
+    use crate::combat::ai::world::influence::InfluenceMap;
     use crate::combat::ai::tuning::AiTuning;
     use crate::game::hex::hex_from_offset;
 

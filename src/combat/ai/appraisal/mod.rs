@@ -13,9 +13,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::intent::{AiMemory, IntentKind};
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::influence::InfluenceMaps;
-use crate::combat::ai::tags::{AbilityTag, AbilityTagCache, StatusTag, StatusTagCache};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::influence::InfluenceMaps;
+use crate::combat::ai::world::tags::{AbilityTag, AbilityTagCache, StatusTag, StatusTagCache};
 use crate::combat::ai::tuning::AiTuning;
 use crate::content::content_view::ContentView;
 
@@ -306,7 +306,7 @@ fn target_already_hardcc(unit: &UnitSnapshot, cache: &StatusTagCache) -> bool {
 mod tests {
     use super::*;
     use crate::combat::ai::intent::IntentKind;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, ent, UnitBuilder};
     use crate::combat::ai::tuning::AiTuning;
     use crate::game::components::Team;
@@ -324,7 +324,7 @@ mod tests {
         }
     }
 
-    fn snap(units: Vec<crate::combat::ai::snapshot::UnitSnapshot>) -> BattleSnapshot {
+    fn snap(units: Vec<crate::combat::ai::world::snapshot::UnitSnapshot>) -> BattleSnapshot {
         BattleSnapshot::new(units, 1)
     }
 
@@ -336,7 +336,7 @@ mod tests {
         battle_snap: &'a BattleSnapshot,
         memory: &'a AiMemory,
         tuning: &'a AiTuning,
-        maps: &'a crate::combat::ai::influence::InfluenceMaps,
+        maps: &'a crate::combat::ai::world::influence::InfluenceMaps,
         content: &'a crate::content::content_view::ContentView,
         ability_tags: &'a AbilityTagCache,
         status_tags: &'a StatusTagCache,
@@ -811,7 +811,7 @@ mod tests {
 
     /// Build a content + ability_tag_cache with a "heal" ability tagged Rescue.
     fn content_with_rescue_ability() -> (crate::content::content_view::ContentView, AbilityTagCache, StatusTagCache) {
-        use crate::combat::ai::tags::cache::build_caches;
+        use crate::combat::ai::world::tags::cache::build_caches;
 
         let mut content = empty_content();
         let mut def = minimal_ability_def_with_override(&["rescue"]);
@@ -823,7 +823,7 @@ mod tests {
 
     /// Build content + cache with a "stun" ability tagged ApplyCC.
     fn content_with_apply_cc_ability() -> (crate::content::content_view::ContentView, AbilityTagCache, StatusTagCache) {
-        use crate::combat::ai::tags::cache::build_caches;
+        use crate::combat::ai::world::tags::cache::build_caches;
 
         let mut content = empty_content();
         let mut def = minimal_ability_def_with_override(&["apply_cc"]);
@@ -933,7 +933,7 @@ mod tests {
     #[test]
     fn rescue_ally_zero_when_override_empties_kit() {
         // Ability with override Some([]) → replace-not-append semantics → no tags → gate fails.
-        use crate::combat::ai::tags::cache::build_caches;
+        use crate::combat::ai::world::tags::cache::build_caches;
 
         let actor_pos = hex_from_offset(3, 3);
         let ally_pos = hex_from_offset(4, 3);
@@ -983,7 +983,7 @@ mod tests {
     #[test]
     fn apply_cc_zero_when_target_already_hardcc() {
         // Stun in kit, but the only enemy already has HardCC status → gate filters it → 0.
-        use crate::combat::ai::tags::cache::build_caches;
+        use crate::combat::ai::world::tags::cache::build_caches;
         use crate::content::statuses::StatusDef;
 
         let actor_pos = hex_from_offset(3, 3);
@@ -1022,7 +1022,7 @@ mod tests {
         // Enemy already has the stunned status applied.
         let mut enemy = UnitBuilder::new(2, Team::Player, enemy_pos)
             .full_hp(20).threat(8.0).damage_horizon(vec![8.0]).build();
-        enemy.statuses.push(crate::combat::ai::snapshot::ActiveStatusView {
+        enemy.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
             id: "stunned".into(),
             rounds_remaining: 1,
             dot_per_tick: 0,

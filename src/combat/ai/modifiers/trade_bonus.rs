@@ -35,8 +35,8 @@ mod tests {
     use crate::combat::ai::modifiers::ModifierCtx;
     use crate::combat::ai::pipeline::StageCtx;
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
     use crate::combat::ai::trade::unit_value;
     use crate::combat::ai::utility::AiWorld;
@@ -125,7 +125,7 @@ mod tests {
         let summon_dpr = HashMap::new();
         let ctx = ModifierCtx { stage: &stage, summon_dpr: &summon_dpr, actor_value, repair_weights };
 
-        let mk_kill_plan = |victim: &crate::combat::ai::snapshot::UnitSnapshot| TurnPlan {
+        let mk_kill_plan = |victim: &crate::combat::ai::world::snapshot::UnitSnapshot| TurnPlan {
             steps: vec![PlanStep::Cast {
                 ability: "melee_attack".into(),
                 target: victim.entity,

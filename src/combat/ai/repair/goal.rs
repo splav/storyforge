@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::planning::types::PlanStep;
 use crate::combat::ai::repair::{PlanContinuationCheck, StatusDelta, classify_mismatch, compute_status_delta, MismatchContext};
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::tags::StatusTagCache;
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::tags::StatusTagCache;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::core::AbilityId;
@@ -395,7 +395,7 @@ fn region_anchor_for(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::combat::ai::tuning::AiTuning;
     use crate::game::components::Team;
@@ -411,7 +411,7 @@ mod tests {
     }
 
     /// Build a minimal `BattleSnapshot` with a single unit at `pos`.
-    fn snap_with_unit(unit: crate::combat::ai::snapshot::UnitSnapshot) -> BattleSnapshot {
+    fn snap_with_unit(unit: crate::combat::ai::world::snapshot::UnitSnapshot) -> BattleSnapshot {
         BattleSnapshot::new(vec![unit], 1)
     }
 
@@ -421,7 +421,7 @@ mod tests {
     }
 
     // Dummy actor snapshot for tests that don't care about severity-check fields.
-    fn dummy_actor() -> crate::combat::ai::snapshot::UnitSnapshot {
+    fn dummy_actor() -> crate::combat::ai::world::snapshot::UnitSnapshot {
         UnitBuilder::new(1, Team::Enemy, Hex::ZERO).build()
     }
 
@@ -682,7 +682,7 @@ mod tests {
     #[test]
     fn stored_goal_context_uses_shared_compute_status_delta() {
         use crate::combat::ai::repair::compute_status_delta;
-        use crate::combat::ai::snapshot::ActiveStatusView;
+        use crate::combat::ai::world::snapshot::ActiveStatusView;
         use crate::core::StatusId;
 
         let stored_statuses: Vec<StatusId> = vec![];

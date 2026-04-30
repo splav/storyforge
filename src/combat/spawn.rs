@@ -8,7 +8,7 @@
 
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::role::infer_profile;
-use crate::combat::ai::tags::AbilityTagCache;
+use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::content::content_view::ActiveContent;
 use crate::game::bundles::enemy_bundle;
 use crate::game::combat_log::{CombatEvent, CombatLog};

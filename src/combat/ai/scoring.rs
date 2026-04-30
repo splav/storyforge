@@ -1,5 +1,5 @@
 use crate::content::content_view::ContentView;
-use crate::combat::ai::snapshot::UnitSnapshot;
+use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::content::abilities::{AbilityDef, CasterContext, TargetType};
 use crate::content::statuses::StatusDef;
 use crate::core::ResourceKind;
@@ -454,7 +454,7 @@ mod tests {
     #[test]
     fn stun_value_devalues_resource_starved_target() {
         use crate::combat::ai::role::AxisProfile;
-        use crate::combat::ai::snapshot::AiTags;
+        use crate::combat::ai::world::snapshot::AiTags;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
 

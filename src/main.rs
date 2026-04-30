@@ -47,9 +47,9 @@ fn main() {
             ai_debug: settings.ai_debug,
             ..Default::default()
         })
-        .init_resource::<combat::ai::reservations::Reservations>()
+        .init_resource::<combat::ai::world::reservations::Reservations>()
         .init_resource::<combat::ai::log::AiLogger>()
-        .init_resource::<combat::ai::influence::InfluenceConfig>()
+        .init_resource::<combat::ai::world::influence::InfluenceConfig>()
         .init_resource::<AiTuning>()
         .insert_resource(settings)
         .init_resource::<ui::console_log::ConsoleCursor>()

@@ -10,12 +10,12 @@ use crate::content::content_view::ContentView;
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::factors::{aoe_area, aoe_hits, StepFactor};
 use crate::combat::ai::appraisal::NeedSignals;
-use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::snapshot::{ActiveStatusView, AiTags, BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::tags::StatusTagCache;
+use crate::combat::ai::world::snapshot::{ActiveStatusView, AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::tags::StatusTagCache;
 use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::factors::ScoredStep;
 use crate::combat::ai::planning::types::TurnPlan;
@@ -1286,10 +1286,10 @@ mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::influence::InfluenceMaps;
+    use crate::combat::ai::world::influence::InfluenceMaps;
     use crate::combat::ai::outcome::ActionOutcomeEstimate;
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
@@ -1726,7 +1726,7 @@ mod tests {
 
     // ── PlanSnapshot: invalidation detection ────────────────────────────
 
-    use crate::combat::ai::snapshot::ActiveStatusView;
+    use crate::combat::ai::world::snapshot::ActiveStatusView;
     use crate::core::StatusId;
 
     fn make_status(id: &str, rounds: u32) -> ActiveStatusView {

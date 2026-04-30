@@ -14,8 +14,8 @@ pub use affinity::{RepairAffinity, RepairWeights, compute_repair_affinity};
 pub mod lifecycle;
 
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-use crate::combat::ai::snapshot::ActiveStatusView;
-use crate::combat::ai::tags::{StatusTag, StatusTagCache};
+use crate::combat::ai::world::snapshot::ActiveStatusView;
+use crate::combat::ai::world::tags::{StatusTag, StatusTagCache};
 use crate::core::StatusId;
 use serde::{Deserialize, Serialize};
 
@@ -423,7 +423,7 @@ mod tests {
         );
 
         // actor_status_changed with HardCC delta → Invalidating.
-        use crate::combat::ai::tags::StatusTagSet;
+        use crate::combat::ai::world::tags::StatusTagSet;
         let delta = StatusDelta {
             added: vec![StatusId::from("stunned")],
             removed: vec![],
@@ -817,7 +817,7 @@ mod tests {
 
     // ── classify_status_change tests (step 9.B commit 3) ────────────────────
 
-    use crate::combat::ai::tags::StatusTagSet;
+    use crate::combat::ai::world::tags::StatusTagSet;
 
     /// Build a StatusTagCache with a single entry.
     fn cache_single(id: &str, tag: StatusTag) -> StatusTagCache {

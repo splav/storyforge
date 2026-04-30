@@ -61,7 +61,7 @@ pub fn enter_scenario_at(
     // StatusTagCache is built first (no deps); AbilityTagCache uses it for
     // Defensive/ApplyCC/Peel classification.
     let (status_tags, ability_tags) =
-        crate::combat::ai::tags::cache::build_caches(&scen.content);
+        crate::combat::ai::world::tags::cache::build_caches(&scen.content);
     commands.insert_resource(status_tags);
     commands.insert_resource(ability_tags);
 

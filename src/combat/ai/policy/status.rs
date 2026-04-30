@@ -1,7 +1,7 @@
 //! Status effect value policies — HP-equivalent value of applied status effects.
 
 use crate::combat::ai::scoring::{horizon_window_sum, status_applications};
-use crate::combat::ai::snapshot::UnitSnapshot;
+use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::content::abilities::AbilityDef;
 use crate::content::content_view::ContentView;
 

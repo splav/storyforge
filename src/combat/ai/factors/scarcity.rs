@@ -4,7 +4,7 @@ use super::aoe_hits::aoe_hits;
 use super::offensive::aoe_area;
 use super::ScoredStep;
 use crate::combat::ai::scoring::stun_denial_value;
-use crate::combat::ai::snapshot::{AiTags, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{AiTags, UnitSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ContentView;
@@ -130,9 +130,9 @@ fn has_free_attack(active: &UnitSnapshot, content: &ContentView) -> bool {
 mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
-    use crate::combat::ai::reservations::Reservations;
+    use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::role::AxisProfile;
-    use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, unit, UnitBuilder,
     };

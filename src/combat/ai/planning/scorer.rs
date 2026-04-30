@@ -31,7 +31,7 @@ use crate::combat::ai::factors::{
     BatchStats, PlanFactor, PlanFactorValues, ScoredStep, StepFactor, TerminalFactor,
     default_norm,
 };
-use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::intent::{cc_reach, intent_score, pursuit_move_score, TacticalIntent};
 use crate::combat::ai::planning::adaptation::EvaluationMode;
 use crate::combat::ai::planning::terminal::terminal_state_score;
@@ -555,8 +555,8 @@ mod tests {
     use crate::combat::ai::factors::{PlanFactor, PlanFactorValues, StepFactor};
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::make_scoring_ctx;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
@@ -591,7 +591,7 @@ mod tests {
     fn annotate_plan(
         plan: &mut TurnPlan,
         actor: &UnitSnapshot,
-        snap: &crate::combat::ai::snapshot::BattleSnapshot,
+        snap: &crate::combat::ai::world::snapshot::BattleSnapshot,
         content: &crate::content::content_view::ContentView,
         _crit_fail_chance: f32,
     ) {
@@ -1011,7 +1011,7 @@ mod tests {
     #[test]
     fn trade_bonus_favors_valuable_victim() {
         use crate::combat::ai::modifiers::{ModifierCtx, PLAN_MODIFIERS};
-        use crate::combat::ai::reservations::Reservations;
+        use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
         use crate::core::DiceRng;
         use crate::combat::ai::intent::{IntentReason, TacticalIntent};

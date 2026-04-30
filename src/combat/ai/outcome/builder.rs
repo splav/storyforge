@@ -10,11 +10,11 @@
 //!
 //! All private helpers live here; `outcome::mod.rs` re-exports the public API.
 
-use crate::combat::ai::influence::InfluenceMaps;
+use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::planning::types::PlanStep;
 use crate::combat::ai::scoring::status_applications;
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext};
 use crate::content::content_view::ContentView;
@@ -526,7 +526,7 @@ pub(crate) fn split_resource_costs(def: &AbilityDef) -> ResourceFacts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::snapshot::ActiveStatusView;
+    use crate::combat::ai::world::snapshot::ActiveStatusView;
     use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::content::content_view::ContentView;
     use crate::core::{AbilityId, StatusId};
@@ -620,8 +620,8 @@ mod tests {
 
     // --- step_path_danger ---
 
-    fn empty_maps_local() -> crate::combat::ai::influence::InfluenceMaps {
-        use crate::combat::ai::influence::{InfluenceMap, InfluenceMaps};
+    fn empty_maps_local() -> crate::combat::ai::world::influence::InfluenceMaps {
+        use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
         InfluenceMaps {
             danger: InfluenceMap::new(),
             ally_support: InfluenceMap::new(),
@@ -817,9 +817,9 @@ mod tests {
         }
     }
 
-    fn make_snap(units: Vec<crate::combat::ai::snapshot::UnitSnapshot>) -> crate::combat::ai::snapshot::BattleSnapshot {
+    fn make_snap(units: Vec<crate::combat::ai::world::snapshot::UnitSnapshot>) -> crate::combat::ai::world::snapshot::BattleSnapshot {
         let n = units.len() as u32;
-        crate::combat::ai::snapshot::BattleSnapshot::new(units, n)
+        crate::combat::ai::world::snapshot::BattleSnapshot::new(units, n)
     }
 
     // ── enemy_damage matches sim for single-target ─────────────────────────

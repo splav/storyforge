@@ -44,8 +44,8 @@ mod tests {
     use crate::combat::ai::pipeline::StageCtx;
     use crate::combat::ai::planning::types::TurnPlan;
     use crate::combat::ai::repair::RepairAffinity;
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
     use crate::combat::ai::trade::unit_value;
     use crate::combat::ai::utility::AiWorld;
@@ -131,7 +131,7 @@ mod tests {
 
     fn make_modifier_ctx<'w, 's, 'a>(
         stage: &'a StageCtx<'w, 's>,
-        actor: &crate::combat::ai::snapshot::UnitSnapshot,
+        actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
         world: &'w AiWorld<'w>,
         summon_dpr: &'a HashMap<String, f32>,
     ) -> ModifierCtx<'w, 's, 'a> {

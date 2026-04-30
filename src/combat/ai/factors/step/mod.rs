@@ -117,8 +117,8 @@ mod tests {
     use super::*;
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::factors::compute_offensive_for_step;
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
     use crate::content::content_view::ContentView;
     use crate::core::AbilityId;

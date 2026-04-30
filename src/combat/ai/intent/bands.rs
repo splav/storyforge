@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::difficulty::DifficultyProfile;
-use crate::combat::ai::influence::InfluenceMaps;
-use crate::combat::ai::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::influence::InfluenceMaps;
+use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::tuning::AiTuning;
 
 // ── PriorityBand ─────────────────────────────────────────────────────────────
@@ -186,7 +186,7 @@ mod tests {
     use crate::combat::ai::difficulty::DifficultyProfile;
     use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
     use crate::combat::ai::tuning::AiTuning;
-    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot};
+    use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

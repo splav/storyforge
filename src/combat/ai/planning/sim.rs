@@ -6,7 +6,7 @@
 //! Does **not** run the real Bevy message pipeline — this is a deterministic
 //! offline predictor used by the planner for scoring candidate sequences.
 
-use crate::combat::ai::snapshot::{
+use crate::combat::ai::world::snapshot::{
     refresh_status_aggregates, ActiveStatusView, AiTags, BattleSnapshot, UnitSnapshot,
 };
 use crate::combat::effects_math::final_damage_f32;

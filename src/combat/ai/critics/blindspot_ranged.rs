@@ -13,7 +13,7 @@
 use crate::combat::ai::critics::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::types::TurnPlan;
-use crate::combat::ai::snapshot::AiTags;
+use crate::combat::ai::world::snapshot::AiTags;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::game::hex::has_los;
 use std::collections::HashSet;
@@ -89,8 +89,8 @@ mod tests {
     use crate::combat::ai::critics::PlanCritic;
     use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::reservations::Reservations;
-    use crate::combat::ai::snapshot::{AiTags, BattleSnapshot};
+    use crate::combat::ai::world::reservations::Reservations;
+    use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot};
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;

@@ -27,7 +27,7 @@ use std::path::PathBuf;
 use bevy::prelude::Entity;
 
 use storyforge::combat::ai::difficulty::DifficultyProfile;
-use storyforge::combat::ai::influence::{build_influence_maps, InfluenceConfig};
+use storyforge::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::intent::AiMemory;
 use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};
 use storyforge::combat::ai::planning::PlanStep;
@@ -35,8 +35,8 @@ use storyforge::combat::ai::replay::{
     assert_v28_log_file, default_overlay_path, GoldenRecord,
 };
 use storyforge::combat::ai::replay_assertion::{print_assertion_failure, AssertResult};
-use storyforge::combat::ai::reservations::Reservations;
-use storyforge::combat::ai::tags::cache::build_caches;
+use storyforge::combat::ai::world::reservations::Reservations;
+use storyforge::combat::ai::world::tags::cache::build_caches;
 use storyforge::combat::ai::utility::{AiDecision, AiWorld, pick_action};
 use storyforge::content::content_view::ContentView;
 use storyforge::core::DiceRng;
@@ -711,7 +711,7 @@ pub fn read_v29_events(path: &std::path::Path) -> Result<Vec<ActorTickEvent>, St
 
 fn collect_metrics_from_event(
     event: &ActorTickEvent,
-    active: &storyforge::combat::ai::snapshot::UnitSnapshot,
+    active: &storyforge::combat::ai::world::snapshot::UnitSnapshot,
     metrics: &mut Metrics,
 ) {
     use storyforge::combat::ai::planning::CommittedPrefix;
@@ -817,7 +817,7 @@ fn print_event_plans(event: &ActorTickEvent) {
 mod tests {
     use super::*;
     use storyforge::combat::ai::log::ActorTickEvent;
-    use storyforge::combat::ai::snapshot::BattleSnapshot;
+    use storyforge::combat::ai::world::snapshot::BattleSnapshot;
 
     fn make_skip_event() -> ActorTickEvent {
         ActorTickEvent {

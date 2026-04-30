@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use bevy::prelude::Entity;
 use serde::{Deserialize, Serialize};
 
-use crate::combat::ai::influence::{build_influence_maps, InfluenceConfig};
+use crate::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 
 use crate::combat::ai::replay_assertion::{
     build_actual_decision, run_assertion, ActualDecision, AssertResult, Overlay,
@@ -158,7 +158,7 @@ pub fn assert_v28_log_file(
 ) -> Result<AssertOutcome, AssertError> {
     use crate::combat::ai::log::{parse_actor_tick, ActorTickEvent, LoggedDecision};
     use crate::combat::ai::utility::pick_action;
-    use crate::combat::ai::reservations::Reservations;
+    use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::utility::AiWorld;
     use crate::combat::ai::difficulty::DifficultyProfile;
 
@@ -225,7 +225,7 @@ pub fn assert_v28_log_file(
     let difficulty = DifficultyProfile::normal();
     // Step 9.A/9.B: use content-derived caches for tag-based logic.
     let (status_tag_cache, ability_tag_cache) =
-        crate::combat::ai::tags::cache::build_caches(content);
+        crate::combat::ai::world::tags::cache::build_caches(content);
     let world = AiWorld {
         content,
         difficulty: &difficulty,

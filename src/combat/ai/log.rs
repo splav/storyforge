@@ -42,7 +42,7 @@ use crate::combat::ai::repair::{ContinuationSeverity, StoredGoalContext};
 use crate::combat::ai::repair::goal::GoalKind;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::{AdaptationReason, EvaluationMode, PlanStep, SanityHit, StepOutcome, TurnPlan};
-use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::AiDecision;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
@@ -982,7 +982,7 @@ pub struct ActorTickInput<'a> {
     pub intent_reason: Option<&'a crate::combat::ai::intent::IntentReason>,
     pub debug_names: &'a std::collections::HashMap<Entity, String>,
     /// Status tag cache for severity classification in `continuation` section.
-    pub status_tags: &'a crate::combat::ai::tags::StatusTagCache,
+    pub status_tags: &'a crate::combat::ai::world::tags::StatusTagCache,
     /// Step 11.6: priority band assigned this tick. `None` on skip-path.
     pub band: Option<(PriorityBand, BandReason)>,
     /// Step 11.6: agenda built this tick. `None` on skip-path.
@@ -1325,7 +1325,7 @@ mod tests {
 
     #[test]
     fn reservations_snapshot_round_trips() {
-        use crate::combat::ai::reservations::Reservations;
+        use crate::combat::ai::world::reservations::Reservations;
         use crate::game::hex::Hex;
         let e = Entity::from_raw_u32(42).expect("valid");
         let mut r = Reservations::default();
@@ -1386,7 +1386,7 @@ mod tests {
 
     #[test]
     fn actor_tick_event_round_trips() {
-        use crate::combat::ai::snapshot::BattleSnapshot;
+        use crate::combat::ai::world::snapshot::BattleSnapshot;
         let snap = BattleSnapshot::default();
         let debug_names = std::collections::HashMap::new();
         let actor = Entity::from_bits(1);
