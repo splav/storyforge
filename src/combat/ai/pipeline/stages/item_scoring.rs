@@ -31,7 +31,7 @@
 use crate::combat::ai::factors::compute_plan_tempo_gain;
 use crate::combat::ai::factors::PlanFactor;
 use crate::combat::ai::intent::IntentKind;
-use crate::combat::ai::outcome::PerItemEval;
+use crate::combat::ai::outcome::{PerItemEval, RejectReason};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::planning::{
     compute_plan_intent_sum, plan_is_defensive, plan_is_offensive_vs,
@@ -86,22 +86,34 @@ impl PlanStage for ItemScoringStage {
                     let tempo_factor =
                         compute_plan_tempo_gain(plan, &intent, ctx.scoring);
 
-                    let eligible = match item.kind {
-                        IntentKind::ProtectSelf => plan_is_defensive(self_survival, epsilon),
-                        IntentKind::FocusTarget => {
-                            if let Some(target) = item.target {
-                                plan_is_offensive_vs(plan, target)
+                    let (eligible, reject_reason) = match item.kind {
+                        IntentKind::ProtectSelf => {
+                            if plan_is_defensive(self_survival, epsilon) {
+                                (true, None)
                             } else {
-                                true // no target → no mask
+                                (false, Some(RejectReason::NotDefensive))
                             }
                         }
-                        _ => true,
+                        IntentKind::FocusTarget => {
+                            if let Some(target) = item.target {
+                                if plan_is_offensive_vs(plan, target) {
+                                    (true, None)
+                                } else {
+                                    (false, Some(RejectReason::NotOffensiveVsTarget))
+                                }
+                            } else {
+                                // No target assigned by build_agenda → no mask (eligible).
+                                (true, None)
+                            }
+                        }
+                        _ => (true, None),
                     };
 
                     PerItemEval {
                         intent_factor,
                         tempo_factor,
                         eligible,
+                        reject_reason,
                         considerations: crate::combat::ai::intent::considerations::IntentConsiderations::default(),
                     }
                 })

@@ -188,6 +188,13 @@ impl PlanStage for PickBestStage {
                             .map(|pi| pi.considerations)
                             .collect();
 
+                        // Step 11.7: snapshot reject reasons alongside considerations.
+                        ann.reject_reasons_per_item = ann
+                            .per_item
+                            .iter()
+                            .map(|pi| pi.reject_reason)
+                            .collect();
+
                         if let Some((best_score, best_idx)) = best_composed {
                             ann.score = best_score;
                             ann.agenda_item = Some(best_idx);
@@ -643,6 +650,7 @@ mod tests {
             intent_factor: 0.0, // same as primary (all factors default to 0)
             tempo_factor: 0.0,
             eligible: true,
+            reject_reason: None,
             considerations: uniform_considerations(),
         }]];
         let pool = run_pick_with_agenda(
@@ -682,8 +690,8 @@ mod tests {
         // Plan 0 with both items eligible; item 1 has much higher considerations.
         let per_items = vec![
             vec![
-                PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true,  considerations: IntentConsiderations { urgency: 0.1, feasibility: 1.0, leverage: 0.1, safety: 1.0, role_affinity: 0.1, continuation_value: 0.1 } },
-                PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true,  considerations: IntentConsiderations { urgency: 0.9, feasibility: 1.0, leverage: 0.9, safety: 1.0, role_affinity: 0.9, continuation_value: 0.9 } },
+                PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true,  reject_reason: None, considerations: IntentConsiderations { urgency: 0.1, feasibility: 1.0, leverage: 0.1, safety: 1.0, role_affinity: 0.1, continuation_value: 0.1 } },
+                PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true,  reject_reason: None, considerations: IntentConsiderations { urgency: 0.9, feasibility: 1.0, leverage: 0.9, safety: 1.0, role_affinity: 0.9, continuation_value: 0.9 } },
             ],
         ];
         let pool = run_pick_with_agenda(
@@ -735,6 +743,7 @@ mod tests {
             intent_factor: 0.0,
             tempo_factor: 0.0,
             eligible: true,
+            reject_reason: None,
             considerations: uniform_considerations(),
         }]];
         let pool = run_pick_with_agenda(
@@ -771,6 +780,7 @@ mod tests {
             intent_factor: 0.0,
             tempo_factor: 0.0,
             eligible: true,
+            reject_reason: None,
             considerations: uniform_considerations(),
         };
 
@@ -805,8 +815,8 @@ mod tests {
             ],
         };
         let per_items = vec![vec![
-            PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: false, considerations: zero_considerations() },
-            PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true,  considerations: uniform_considerations() },
+            PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: false, reject_reason: None, considerations: zero_considerations() },
+            PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true,  reject_reason: None, considerations: uniform_considerations() },
         ]];
         let pool = run_pick_with_agenda(
             vec![0.5],
@@ -843,13 +853,13 @@ mod tests {
         let pool_zero = run_pick_with_agenda(
             vec![0.5],
             vec![0.5],
-            vec![vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true, considerations: zero_considerations() }]],
+            vec![vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true, reject_reason: None, considerations: zero_considerations() }]],
             &agenda_zero,
         );
         let pool_full = run_pick_with_agenda(
             vec![0.5],
             vec![0.5],
-            vec![vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true, considerations: uniform_considerations() }]],
+            vec![vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true, reject_reason: None, considerations: uniform_considerations() }]],
             &agenda_full,
         );
 
@@ -876,8 +886,8 @@ mod tests {
         // Plan A: has one eligible item with uniform cdot.
         // Plan B: no eligible items → fallback (score stays at pipeline score = score_initial).
         let per_items = vec![
-            vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true,  considerations: uniform_considerations() }],
-            vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: false, considerations: uniform_considerations() }],
+            vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true,  reject_reason: None, considerations: uniform_considerations() }],
+            vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: false, reject_reason: None, considerations: uniform_considerations() }],
         ];
         let pool = run_pick_with_agenda(
             vec![0.5, 0.5],  // equal pipeline scores
@@ -909,8 +919,8 @@ mod tests {
         //   composed_B = 1.0 + 0 + 0 + w_intent*0 = 1.0
         //   Plan A score = 2.0 (fallback, pipeline value)
         let per_items = vec![
-            vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: false, considerations: zero_considerations() }],
-            vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true,  considerations: zero_considerations() }],
+            vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: false, reject_reason: None, considerations: zero_considerations() }],
+            vec![PerItemEval { intent_factor: 0.0, tempo_factor: 0.0, eligible: true,  reject_reason: None, considerations: zero_considerations() }],
         ];
         let pool = run_pick_with_agenda(
             vec![2.0, 1.0],
@@ -940,6 +950,7 @@ mod tests {
             intent_factor: 0.0,
             tempo_factor: 0.0,
             eligible: true,
+            reject_reason: None,
             considerations: uniform_considerations(),
         }]];
         let pool = run_pick_with_agenda(
@@ -977,6 +988,7 @@ mod tests {
             intent_factor: 1.0,
             tempo_factor: 0.0,
             eligible: true,
+            reject_reason: None,
             considerations: uniform_considerations(),
         };
         let pool = run_pick_with_agenda(

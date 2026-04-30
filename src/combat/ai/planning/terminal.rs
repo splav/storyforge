@@ -357,6 +357,57 @@ mod tests {
         );
     }
 
+    /// `exposure_at_end` is non-zero when the plan's final position has danger > 0.
+    /// Simulates: actor ends in an enemy-threat zone (danger map has value at that tile).
+    ///
+    /// Source verification: `compute_exposure_at_end` reads `ctx.maps.danger.get(plan.final_pos)`.
+    /// When danger map is zero everywhere, result is 0.0. When danger > 0 at final_pos, result > 0.
+    #[test]
+    fn exposure_at_end_non_zero_when_actor_in_enemy_threat_zone() {
+        let actor_pos = hex_from_offset(0, 0);
+        let enemy_adjacent = hex_from_offset(1, 0); // actor will end at actor_pos in danger
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let mut maps = empty_maps();
+        // Simulate enemy threat: danger at actor's final position (enemy adjacent).
+        maps.danger.add(actor_pos, 0.6);
+        let _ = enemy_adjacent; // used conceptually above
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let plan = idle_plan(actor_pos, snap.clone());
+        let exposure = crate::combat::ai::planning::terminal::compute_exposure_at_end(&plan, &ctx);
+        assert!(
+            exposure > 0.0,
+            "exposure_at_end must be > 0 when final position is in enemy threat zone (danger=0.6), got {exposure}"
+        );
+    }
+
+    /// `exposure_at_end` is ≈ 0 when actor stays in a safe backline tile
+    /// (danger map is zero at the final position).
+    #[test]
+    fn exposure_at_end_zero_in_safe_backline() {
+        let actor_pos = hex_from_offset(5, 5); // far from any enemy
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let difficulty = DifficultyProfile::hard();
+        let world = make_test_ctx(&content, &difficulty);
+        let maps = empty_maps(); // danger map all zeros — safe backline
+        let reservations = Reservations::default();
+        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+
+        let plan = idle_plan(actor_pos, snap.clone());
+        let exposure = crate::combat::ai::planning::terminal::compute_exposure_at_end(&plan, &ctx);
+        assert_eq!(
+            exposure, 0.0,
+            "exposure_at_end must be 0 in safe backline (danger map = 0)"
+        );
+    }
+
     // ── next_turn_lethality ────────────────────────────────────────────────
 
     #[test]

@@ -57,6 +57,30 @@ use crate::combat::ai::factors::{PlanFactorValues, FactorTerminalScore};
 use crate::combat::ai::modifiers::ModifierContribution;
 use serde::{Deserialize, Serialize};
 
+// ── RejectReason ─────────────────────────────────────────────────────────────
+
+/// Why a plan is ineligible under a particular agenda item — step 11.7.
+///
+/// Set by `ItemScoringStage` whenever `eligible = false`.
+/// `None` when the plan is eligible (`eligible = true`).
+///
+/// Serialisable for log persistence (`reject_reasons_per_item` on `PlanAnnotation`).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RejectReason {
+    /// ProtectSelf item: plan is not defensive (SelfSurvival ≤ epsilon).
+    NotDefensive,
+    /// FocusTarget item: plan does not engage the target offensively.
+    NotOffensiveVsTarget,
+    /// FocusTarget/ApplyCC item: `item.target` field is `None` (build_agenda
+    /// did not assign a target); treated as eligible by ItemScoringStage.
+    /// Included here for completeness / future masking.
+    NoTarget,
+    /// ProtectAlly item: same as `NoTarget` but for ally — separate for clarity.
+    NoAllyTarget,
+    /// Catch-all for future filters; current code should not emit this.
+    Other,
+}
+
 // ── PerItemEval ───────────────────────────────────────────────────────────────
 
 /// Per-agenda-item scoring cache for one plan — step 11.4.
@@ -79,6 +103,9 @@ pub struct PerItemEval {
     ///          FocusTarget → `plan_is_offensive_vs` check.
     /// Defaults to `true` (no masking for general intent kinds).
     pub eligible: bool,
+    /// Why the plan is ineligible (`None` when `eligible = true`).
+    /// Populated by `ItemScoringStage` alongside `eligible = false` — step 11.7.
+    pub reject_reason: Option<RejectReason>,
     /// Plan-aware considerations overlay.  Populated by `OverlayConsiderationsStage`
     /// (after `RepairAffinityStage`) with accurate feasibility / leverage / safety
     /// values derived from plan data.  Falls back to item-level considerations
@@ -92,6 +119,7 @@ impl Default for PerItemEval {
             intent_factor: 0.0,
             tempo_factor: 0.0,
             eligible: true, // eligible by default; masking stages set to false
+            reject_reason: None,
             considerations: crate::combat::ai::intent::considerations::IntentConsiderations::default(),
         }
     }
@@ -295,6 +323,14 @@ pub struct PlanAnnotation {
     /// runtime-only and live only in `per_item` (not serialised).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub considerations_per_item: Vec<crate::combat::ai::intent::considerations::IntentConsiderations>,
+
+    /// Step 11.7: per-agenda-item reject reasons as set by `ItemScoringStage`.
+    /// `reject_reasons_per_item[i]` is `Some(reason)` when item `i` was
+    /// rejected (eligible=false), else `None`.
+    /// Empty when agenda is absent or before `PickBestStage` snapshots them.
+    /// Schema-additive: v32 logs without this field deserialise as empty vec.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reject_reasons_per_item: Vec<Option<RejectReason>>,
 }
 
 /// Adaptation reason + original (pre-adaptation) score for a single plan.

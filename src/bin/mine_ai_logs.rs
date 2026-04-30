@@ -199,6 +199,30 @@ struct Aggregate {
     // agenda attribution). Fallback rate = h2_band_chosen_total - Σ h2_band_item_win
     // for that band — indicates how often no agenda item was eligible.
     h2_band_chosen_total: BTreeMap<String, usize>,
+
+    // H3a: Construction-time metrics from existing v32 logs.
+    // Agenda size distribution per band. Key = "band/size", value = count of ticks.
+    h3a_agenda_size: BTreeMap<String, usize>,
+    // Item.target=None rate by (band, item.kind). Key = "band/kind/none" or "band/kind/some".
+    h3a_target_none: BTreeMap<String, usize>,
+    h3a_target_some: BTreeMap<String, usize>,
+    // Per-band unattributed fallback breakdown.
+    // Key = band. Values: chosen ticks with an attributed item vs without.
+    h3a_band_attributed: BTreeMap<String, usize>,
+    h3a_band_unattributed: BTreeMap<String, usize>,
+    // Sub-classification of unattributed: agenda was empty.
+    h3a_unattr_no_items: BTreeMap<String, usize>,
+    // Sub-classification: all items have target=None.
+    h3a_unattr_all_no_target: BTreeMap<String, usize>,
+
+    // H3b: Per-plan reject reason breakdown (from reject_reasons_per_item, new in 11.7).
+    // Key = "band/kind/reason", value = count of rejected per-plan entries.
+    h3b_reject_reason: BTreeMap<String, usize>,
+    // Total per-plan entries (eligible + rejected) per (band, kind). Key = "band/kind".
+    h3b_total: BTreeMap<String, usize>,
+    h3b_eligible: BTreeMap<String, usize>,
+    // Whether any v32 log with reject_reasons_per_item was observed.
+    h3b_has_data: bool,
 }
 
 impl Aggregate {
@@ -410,6 +434,65 @@ impl Aggregate {
                 if let Some(item_idx) = chosen.annotation.agenda_item {
                     let win_key = format!("{band_key}/{item_idx}");
                     *self.h2_band_item_win.entry(win_key).or_default() += 1;
+                }
+            }
+
+            // H3a: construction-time metrics from existing v32 logs.
+            // Agenda size distribution per band.
+            let size_key = format!("{}/{}", band_key, event.agenda.len());
+            *self.h3a_agenda_size.entry(size_key).or_default() += 1;
+
+            // Item.target=None rate by (band, item.kind).
+            for item in &event.agenda {
+                let kind_key = format!("{band_key}/{:?}", item.kind);
+                if item.target.is_none() {
+                    *self.h3a_target_none.entry(kind_key).or_default() += 1;
+                } else {
+                    *self.h3a_target_some.entry(kind_key).or_default() += 1;
+                }
+            }
+
+            // H3a: fallback bucket classification (chosen plan).
+            if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
+                if chosen.annotation.agenda_item.is_some() {
+                    *self.h3a_band_attributed.entry(band_key.clone()).or_default() += 1;
+                } else {
+                    *self.h3a_band_unattributed.entry(band_key.clone()).or_default() += 1;
+                    // Sub-classification.
+                    if event.agenda.is_empty() {
+                        *self.h3a_unattr_no_items.entry(band_key.clone()).or_default() += 1;
+                    } else if event.agenda.iter().all(|it| it.target.is_none()) {
+                        *self.h3a_unattr_all_no_target.entry(band_key.clone()).or_default() += 1;
+                    }
+                    // else: unclassified at construction-time; needs per-plan reject reasons.
+                }
+            }
+
+            // H3b: per-plan reject reason breakdown (requires reject_reasons_per_item
+            // field from 11.7 instrumentation — only present in new logs).
+            for plan in &event.plans {
+                let rr = &plan.annotation.reject_reasons_per_item;
+                if rr.is_empty() {
+                    // Old log without 11.7 field — skip per-plan stats.
+                    continue;
+                }
+                self.h3b_has_data = true;
+                for (item_idx, reason_opt) in rr.iter().enumerate() {
+                    let item = match event.agenda.get(item_idx) {
+                        Some(i) => i,
+                        None => continue,
+                    };
+                    let kind_key = format!("{band_key}/{:?}", item.kind);
+                    *self.h3b_total.entry(kind_key.clone()).or_default() += 1;
+                    match reason_opt {
+                        None => {
+                            *self.h3b_eligible.entry(kind_key).or_default() += 1;
+                        }
+                        Some(reason) => {
+                            let reason_key = format!("{kind_key}/{reason:?}");
+                            *self.h3b_reject_reason.entry(reason_key).or_default() += 1;
+                        }
+                    }
                 }
             }
         }
@@ -1450,6 +1533,115 @@ fn main() {
             println!();
         }
     }
+
+    // H3a: Construction-time metrics (retrospective on existing v32 logs)
+    println!("## H3a. Agenda construction-time metrics (from existing v32 logs)");
+    println!();
+    let h3a_has_band_data = !agg.h3a_agenda_size.is_empty();
+    if !h3a_has_band_data {
+        println!("  (no v32 band data — corpus is pre-v32 or skip-only)");
+    } else {
+        // H3a.1: agenda size distribution per band.
+        println!("### H3a.1. Agenda size distribution per band");
+        println!();
+        let band_order = ["ForcedTargeting", "CriticalSelfPreservation", "HardRescueOpportunity", "NormalTactical"];
+        // Collect max size seen across all bands.
+        let max_size: usize = agg.h3a_agenda_size.keys()
+            .filter_map(|k| k.rsplit_once('/').and_then(|(_, s)| s.parse::<usize>().ok()))
+            .max()
+            .unwrap_or(3);
+        let col_header: String = (0..=max_size).map(|i| format!("  items={i:>2}")).collect::<Vec<_>>().join("");
+        println!("  {:<28}{col_header}   total", "Band");
+        for band in &band_order {
+            let band_total: usize = (0..=max_size)
+                .map(|s| agg.h3a_agenda_size.get(&format!("{band}/{s}")).copied().unwrap_or(0))
+                .sum();
+            if band_total == 0 { continue; }
+            let counts: String = (0..=max_size)
+                .map(|s| format!("  {:>8}", agg.h3a_agenda_size.get(&format!("{band}/{s}")).copied().unwrap_or(0)))
+                .collect::<Vec<_>>().join("");
+            println!("  {:<28}{counts}   {}", band, band_total);
+        }
+        println!();
+
+        // H3a.2: item.target=None rate by (band, item.kind).
+        println!("### H3a.2. Item.target=None rate by (band, item.kind)");
+        println!();
+        println!("  {:<44} {:>11}  {:>11}  {:>7}  {:>9}", "Band/Kind", "target=None", "target=Some", "total", "none_rate%");
+        // Collect all band/kind keys.
+        let mut kind_keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        kind_keys.extend(agg.h3a_target_none.keys().cloned());
+        kind_keys.extend(agg.h3a_target_some.keys().cloned());
+        for key in &kind_keys {
+            let none_cnt = agg.h3a_target_none.get(key).copied().unwrap_or(0);
+            let some_cnt = agg.h3a_target_some.get(key).copied().unwrap_or(0);
+            let total = none_cnt + some_cnt;
+            println!("  {:<44} {:>11}  {:>11}  {:>7}  {:>8.1}%",
+                key, none_cnt, some_cnt, total, pct(none_cnt, total));
+        }
+        println!();
+
+        // H3a.3: fallback buckets per band (attributed vs unattributed).
+        println!("### H3a.3. Unattributed fallback rate per band");
+        println!();
+        println!("  {:<28} {:>11}  {:>12}  {:>12}", "Band", "attributed", "unattributed", "unattr_rate%");
+        for band in &band_order {
+            let attr = agg.h3a_band_attributed.get(*band).copied().unwrap_or(0);
+            let unattr = agg.h3a_band_unattributed.get(*band).copied().unwrap_or(0);
+            let total = attr + unattr;
+            if total == 0 { continue; }
+            println!("  {:<28} {:>11}  {:>12}  {:>11.1}%", band, attr, unattr, pct(unattr, total));
+        }
+        println!();
+
+        // H3a.4: sub-classification of unattributed ticks.
+        println!("### H3a.4. Unattributed sub-classification (construction-time)");
+        println!();
+        let total_unattr: usize = agg.h3a_band_unattributed.values().sum();
+        let no_items: usize = agg.h3a_unattr_no_items.values().sum();
+        let all_no_target: usize = agg.h3a_unattr_all_no_target.values().sum();
+        let needs_reject: usize = total_unattr.saturating_sub(no_items + all_no_target);
+        println!("  no_items_generated (agenda.empty):                      {no_items}");
+        println!("  all_items_no_target (every item has target=None):       {all_no_target}");
+        println!("  unclassified (needs per-plan reject_reason from 11.7b): {needs_reject}");
+        println!("  total unattributed:                                      {total_unattr}");
+        println!();
+    }
+
+    // H3b: Per-plan reject reason breakdown (from 11.7 instrumentation).
+    println!("## H3b. Per-plan eligibility breakdown (composition-time)");
+    println!();
+    if !agg.h3b_has_data {
+        println!("  no per-plan reject data — collect new logs after 11.7 lands");
+        println!();
+    } else {
+        println!("### H3b.1. Reject-reason distribution per (band, item.kind)");
+        println!();
+        println!("  {:<44} {:>9}  {:>9}  {:>9}  {:>9}  {:>13}", "Band/Kind", "not_def", "not_off", "no_tgt", "no_ally", "total_rejects");
+        let mut all_kinds: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        all_kinds.extend(agg.h3b_total.keys().cloned());
+        for kind_key in &all_kinds {
+            let not_def = agg.h3b_reject_reason.get(&format!("{kind_key}/NotDefensive")).copied().unwrap_or(0);
+            let not_off = agg.h3b_reject_reason.get(&format!("{kind_key}/NotOffensiveVsTarget")).copied().unwrap_or(0);
+            let no_tgt  = agg.h3b_reject_reason.get(&format!("{kind_key}/NoTarget")).copied().unwrap_or(0);
+            let no_ally = agg.h3b_reject_reason.get(&format!("{kind_key}/NoAllyTarget")).copied().unwrap_or(0);
+            let total_rej = not_def + not_off + no_tgt + no_ally;
+            if total_rej == 0 { continue; }
+            println!("  {:<44} {:>9}  {:>9}  {:>9}  {:>9}  {:>13}", kind_key, not_def, not_off, no_tgt, no_ally, total_rej);
+        }
+        println!();
+
+        println!("### H3b.2. Eligibility rate per (band, item.kind)");
+        println!();
+        println!("  {:<44} {:>9}  {:>9}  {:>8}  {:>10}", "Band/Kind", "eligible", "rejected", "total", "elig_rate%");
+        for kind_key in &all_kinds {
+            let elig  = agg.h3b_eligible.get(kind_key).copied().unwrap_or(0);
+            let total = agg.h3b_total.get(kind_key).copied().unwrap_or(0);
+            let rej   = total.saturating_sub(elig);
+            println!("  {:<44} {:>9}  {:>9}  {:>8}  {:>9.1}%", kind_key, elig, rej, total, pct(elig, total));
+        }
+        println!();
+    }
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -1950,5 +2142,135 @@ mod tests {
 
         assert!(agg.h1_band_tick_counts.is_empty(), "skip-path should not add to band counts");
         assert!(agg.h1_urgency.is_empty());
+    }
+
+    // ── H3a: Construction-time metrics ───────────────────────────────────────
+
+    #[test]
+    fn h3a_agenda_size_tracked_per_band() {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+        use storyforge::combat::ai::intent::IntentKind;
+
+        let agenda = vec![
+            agenda_item_log(IntentKind::FocusTarget),
+            agenda_item_log(IntentKind::Reposition),
+        ];
+        let event = make_event_with_band(
+            PriorityBand::NormalTactical,
+            BandReason::Normal,
+            agenda,
+            vec![],
+        );
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(
+            agg.h3a_agenda_size.get("NormalTactical/2").copied(),
+            Some(1),
+            "agenda of size 2 should be recorded"
+        );
+    }
+
+    #[test]
+    fn h3a_target_none_rate_by_band_kind() {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
+        use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::log::AgendaItemLog;
+
+        let mut item_with_target = AgendaItemLog {
+            kind: IntentKind::FocusTarget,
+            target: Some(42),
+            raw_score: 1.0,
+            considerations: IntentConsiderations::default(),
+            reason: IntentReason::NoRuleDefault,
+        };
+        // One item with target, one without.
+        let item_no_target = AgendaItemLog { target: None, ..item_with_target.clone() };
+        item_with_target.target = Some(7);
+
+        let event = make_event_with_band(
+            PriorityBand::ForcedTargeting,
+            BandReason::Normal,
+            vec![item_with_target, item_no_target],
+            vec![],
+        );
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(agg.h3a_target_none.get("ForcedTargeting/FocusTarget").copied(), Some(1));
+        assert_eq!(agg.h3a_target_some.get("ForcedTargeting/FocusTarget").copied(), Some(1));
+    }
+
+    #[test]
+    fn h3a_unattributed_classified_as_no_items_when_agenda_empty() {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+
+        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        ann.agenda_item = None; // no attribution
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let event = make_event_with_band(
+            PriorityBand::NormalTactical,
+            BandReason::Normal,
+            vec![], // empty agenda
+            vec![plan],
+        );
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(agg.h3a_band_unattributed.get("NormalTactical").copied(), Some(1));
+        assert_eq!(agg.h3a_unattr_no_items.get("NormalTactical").copied(), Some(1));
+    }
+
+    // ── H3b: Per-plan reject reason ───────────────────────────────────────────
+
+    #[test]
+    fn h3b_no_data_when_reject_reasons_field_absent() {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+        use storyforge::combat::ai::intent::IntentKind;
+
+        // Plan without reject_reasons_per_item (empty = pre-11.7 log).
+        let ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let event = make_event_with_band(
+            PriorityBand::NormalTactical,
+            BandReason::Normal,
+            vec![agenda_item_log(IntentKind::FocusTarget)],
+            vec![plan],
+        );
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert!(!agg.h3b_has_data, "no reject_reasons_per_item → h3b_has_data stays false");
+    }
+
+    #[test]
+    fn h3b_reject_reason_counted_when_field_present() {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+        use storyforge::combat::ai::intent::IntentKind;
+        use storyforge::combat::ai::outcome::RejectReason;
+
+        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        ann.reject_reasons_per_item = vec![Some(RejectReason::NotDefensive)];
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let event = make_event_with_band(
+            PriorityBand::CriticalSelfPreservation,
+            BandReason::Normal,
+            vec![agenda_item_log(IntentKind::ProtectSelf)],
+            vec![plan],
+        );
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert!(agg.h3b_has_data);
+        assert_eq!(
+            agg.h3b_reject_reason.get("CriticalSelfPreservation/ProtectSelf/NotDefensive").copied(),
+            Some(1)
+        );
+        assert_eq!(agg.h3b_total.get("CriticalSelfPreservation/ProtectSelf").copied(), Some(1));
+        assert_eq!(agg.h3b_eligible.get("CriticalSelfPreservation/ProtectSelf").copied(), None);
     }
 }
