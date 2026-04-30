@@ -1,6 +1,12 @@
 # Step 11.8 Calibration Design
 
 > **Status:** Draft for review (post H3a/H3b/H3c mining + HardRescue fix).
+>
+> **Post-implementation findings:** see `docs/ai_rework_step11_8_findings.md`.
+> Gate 2 passed strongly (Forced fallback 45.9% → 14.3%, −68.8% relative).
+> Gate 1 partial: ProtectSelf leverage and feasibility alive; Reposition/AOE
+> leverage flat (corpus-bound + minor formula edge — not a code bug; deferred
+> to post-11.9 calibration slice).
 
 ## Source data
 
