@@ -98,6 +98,36 @@ pub struct AiTuning {
     pub difficulty: Difficulty,
     /// Response curves for the appraisal / need layer (step 3.0).
     pub curves: Curves,
+    /// Intent-layer tuning knobs (step 11.8).
+    pub intent: IntentTuning,
+}
+
+/// Tuning constants for the intent composition layer (step 11.8).
+///
+/// Added in 11.8: a single new constant `feasibility_margin` controlling the
+/// continuous feasibility formula in `OverlayConsiderationsStage`.  All fields
+/// have data-driven defaults so existing TOML files that omit `[intent]` are
+/// backward-compatible.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(default)]
+pub struct IntentTuning {
+    /// Margin used to normalise `viability.adjusted_score` into the `[0, 1]`
+    /// feasibility axis.  Data-driven from P1 distribution sampling (11.8):
+    /// `adjusted_score` domain is `[-2.11, +3.99]`; margin=2.0 yields 63%
+    /// middle-mass (values strictly inside the `(0.05, 0.95)` band).
+    ///
+    /// Formula: `(adjusted_score - VIABILITY_THRESHOLD) / feasibility_margin`.
+    /// Increase to compress the scale (more middle-mass at the cost of less
+    /// separation at the top); decrease to spread the scale.
+    pub feasibility_margin: f32,
+}
+
+impl Default for IntentTuning {
+    fn default() -> Self {
+        Self {
+            feasibility_margin: 2.0,
+        }
+    }
 }
 
 /// Scalar thresholds used by the AI scoring/sanity pipeline.

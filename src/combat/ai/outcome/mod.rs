@@ -69,8 +69,16 @@ use serde::{Deserialize, Serialize};
 pub enum RejectReason {
     /// ProtectSelf item: plan is not defensive (SelfSurvival ≤ epsilon).
     NotDefensive,
-    /// FocusTarget item: plan does not engage the target offensively.
+    /// FocusTarget item: plan does not engage the target offensively (no Cast
+    /// step targets the agenda target). Step 11.8 §A: this is the primary-path
+    /// failure; in `ForcedTargeting` band the ApproachTarget fallback may still
+    /// salvage the plan — if even ApproachTarget fails, see `NotApproachingTarget`.
     NotOffensiveVsTarget,
+    /// FocusTarget item under `ForcedTargeting` band only: pool-level fallback
+    /// activated (no offensive plan in the pool) but this plan also fails the
+    /// ApproachTarget guard (no Move step OR final_pos not strictly closer to
+    /// taunter than start_pos). Step 11.8 §A.
+    NotApproachingTarget,
     /// FocusTarget/ApplyCC item: `item.target` field is `None` (build_agenda
     /// did not assign a target); treated as eligible by ItemScoringStage.
     /// Included here for completeness / future masking.

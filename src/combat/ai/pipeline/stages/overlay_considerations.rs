@@ -40,6 +40,11 @@ use crate::combat::ai::snapshot::BattleSnapshot;
 use crate::game::hex::Hex;
 
 // ── Leverage v1 priors (mining-adjustable) ─────────────────────────────────
+/// Viability threshold below which a plan is considered non-viable.
+/// P2-verified: `viability_min` field absent in AiTuning — use 0.0 unconditionally.
+/// Do NOT replace with a tuning knob (design doc Section B).
+const VIABILITY_THRESHOLD: f32 = 0.0;
+
 const FOCUS_DAMAGE_WEIGHT: f32 = 0.6;
 const FOCUS_KILL_WEIGHT: f32 = 0.4;
 const APPLY_CC_REFERENCE_TURNS: f32 = 2.0; // 2 turns of CC = full leverage
@@ -78,10 +83,24 @@ impl PlanStage for OverlayConsiderationsStage {
 
             // Compute plan-aware axis values once per plan.
 
-            // feasibility: continuous adjusted_score from viability gate.
-            // `adjusted_score` is the post-rewrite score (= pre-viability score
-            // when gate passed). Clamped to [0,1] to serve as a 0…1 quality axis.
-            let feasibility = ann.viability.adjusted_score.clamp(0.0, 1.0);
+            // feasibility: continuous formula via margin above viability threshold.
+            //
+            // The `!passed` guard is the critical branch: `adjusted_score` for
+            // failed plans is not specified (may be a raw pre-viability score that
+            // is high even though the plan is unviable). Without this guard a
+            // failed plan with high `adjusted_score` would compute feasibility=1.0,
+            // which is semantically wrong. See Section B of ai_rework_step11_8_design.md.
+            //
+            // VIABILITY_THRESHOLD = 0.0 (P2-verified — viability_min field absent
+            // in AiTuning). feasibility_margin = 2.0 (data-driven from P1 sampling:
+            // adjusted_score domain [-2.11, +3.99]; margin 2.0 → 63% middle-mass).
+            let feasibility = if !ann.viability.passed {
+                0.0
+            } else {
+                let margin = ctx.scoring.world.tuning.intent.feasibility_margin;
+                ((ann.viability.adjusted_score - VIABILITY_THRESHOLD) / margin)
+                    .clamp(0.0, 1.0)
+            };
 
             // safety: 1.0 - max(self_damage_ratio, exposure_at_end).
             // self_damage_ratio: cumulative self-damage normalised by actor's max HP.
@@ -487,6 +506,9 @@ mod tests {
 
     // ── Existing tests (preserved) ────────────────────────────────────────────
 
+    /// Continuous feasibility: passed=true, adjusted_score=1.0, margin=2.0 → 0.5.
+    /// This replaces the old binary test (pre-11.8 clamped adjusted_score to [0,1];
+    /// 11.8 introduces margin normalisation + !passed guard — see Section B).
     #[test]
     fn overlay_feasibility_is_continuous_adjusted_score() {
         let agenda = Agenda {
@@ -494,16 +516,16 @@ mod tests {
             items: vec![empty_agenda_item()],
         };
 
-        // adjusted_score = 0.7 → feasibility = 0.7 (continuous, not binary).
+        // passed=true, adjusted_score=1.0 → (1.0 - 0.0) / 2.0 = 0.5.
         let mut ann = PlanAnnotation::default();
-        ann.viability = ViabilityResult { passed: false, adjusted_score: 0.7 };
+        ann.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
         ann.per_item = vec![PerItemEval::default()];
 
         let pool = run_overlay(vec![TurnPlan::default()], vec![ann], &agenda);
         let feasibility = pool.annotations[0].per_item[0].considerations.feasibility;
         assert!(
-            (feasibility - 0.7).abs() < 1e-5,
-            "feasibility must equal adjusted_score=0.7, got {feasibility}"
+            (feasibility - 0.5).abs() < 1e-5,
+            "feasibility=(1.0-0.0)/2.0=0.5, got {feasibility}"
         );
     }
 
@@ -546,8 +568,9 @@ mod tests {
         );
     }
 
-    /// Plan-aware overlay uses continuous adjusted_score for feasibility.
-    /// Two plans with different adjusted_score produce different feasibility values.
+    /// Plan-aware overlay uses continuous adjusted_score for feasibility (11.8 formula).
+    /// Two plans with different adjusted_score and both passed=true produce different
+    /// feasibility values: (score - 0.0) / 2.0.
     #[test]
     fn plan_aware_overlay_changes_feasibility_axis() {
         let agenda = Agenda {
@@ -568,26 +591,28 @@ mod tests {
             }],
         };
 
+        // passed=true, adjusted_score=1.8 → (1.8-0.0)/2.0 = 0.9.
         let mut ann_high = PlanAnnotation::default();
-        ann_high.viability = ViabilityResult { passed: true, adjusted_score: 0.9 };
+        ann_high.viability = ViabilityResult { passed: true, adjusted_score: 1.8 };
         ann_high.per_item = vec![PerItemEval::default()];
         let pool_high = run_overlay(vec![TurnPlan::default()], vec![ann_high], &agenda);
         let feasibility_high =
             pool_high.annotations[0].per_item[0].considerations.feasibility;
         assert!(
             (feasibility_high - 0.9).abs() < 1e-5,
-            "adjusted_score=0.9 → feasibility=0.9, got {feasibility_high}"
+            "adjusted_score=1.8 → feasibility=0.9, got {feasibility_high}"
         );
 
+        // passed=false → feasibility=0.0 regardless of adjusted_score.
         let mut ann_zero = PlanAnnotation::default();
-        ann_zero.viability = ViabilityResult { passed: false, adjusted_score: 0.0 };
+        ann_zero.viability = ViabilityResult { passed: false, adjusted_score: 1.8 };
         ann_zero.per_item = vec![PerItemEval::default()];
         let pool_zero = run_overlay(vec![TurnPlan::default()], vec![ann_zero], &agenda);
         let feasibility_zero =
             pool_zero.annotations[0].per_item[0].considerations.feasibility;
         assert!(
             feasibility_zero.abs() < 1e-5,
-            "adjusted_score=0.0 → feasibility=0.0, got {feasibility_zero}"
+            "passed=false → feasibility=0.0, got {feasibility_zero}"
         );
 
         assert!(
@@ -1027,6 +1052,70 @@ mod tests {
         assert!(
             leverage < 1e-4,
             "ApplyCC AoE CC on non-target must not credit leverage; expected ≈0, got {leverage}"
+        );
+    }
+
+    // ── T5: Feasibility tests (step 11.8 §B) ─────────────────────────────────
+
+    /// Two plans with different `adjusted_score` but both `passed=true` produce
+    /// different feasibility values via the continuous formula.
+    /// Formula: (adjusted_score - 0.0) / 2.0.  Scores 0.5 and 1.5 → 0.25 and 0.75.
+    #[test]
+    fn feasibility_continuous_distinguishes_two_adjusted_scores() {
+        let agenda = Agenda {
+            band: PriorityBand::NormalTactical,
+            items: vec![empty_agenda_item()],
+        };
+
+        // adjusted_score = 0.5, passed = true → (0.5 - 0.0) / 2.0 = 0.25
+        let mut ann_low = PlanAnnotation::default();
+        ann_low.viability = ViabilityResult { passed: true, adjusted_score: 0.5 };
+        ann_low.per_item = vec![PerItemEval::default()];
+        let pool_low = run_overlay(vec![TurnPlan::default()], vec![ann_low], &agenda);
+        let f_low = pool_low.annotations[0].per_item[0].considerations.feasibility;
+
+        // adjusted_score = 1.5, passed = true → (1.5 - 0.0) / 2.0 = 0.75
+        let mut ann_high = PlanAnnotation::default();
+        ann_high.viability = ViabilityResult { passed: true, adjusted_score: 1.5 };
+        ann_high.per_item = vec![PerItemEval::default()];
+        let pool_high = run_overlay(vec![TurnPlan::default()], vec![ann_high], &agenda);
+        let f_high = pool_high.annotations[0].per_item[0].considerations.feasibility;
+
+        assert!(
+            (f_low - 0.25).abs() < 1e-5,
+            "adjusted_score=0.5 → feasibility=0.25, got {f_low}"
+        );
+        assert!(
+            (f_high - 0.75).abs() < 1e-5,
+            "adjusted_score=1.5 → feasibility=0.75, got {f_high}"
+        );
+        assert!(
+            f_high > f_low,
+            "higher adjusted_score must produce higher feasibility"
+        );
+    }
+
+    /// A plan with `passed=false` must have feasibility=0.0 regardless of
+    /// `adjusted_score`.  This pins the `!passed` guard (Section B rationale:
+    /// `adjusted_score` for failed plans is unspecified and may be high).
+    #[test]
+    fn feasibility_zero_when_viability_failed() {
+        let agenda = Agenda {
+            band: PriorityBand::NormalTactical,
+            items: vec![empty_agenda_item()],
+        };
+
+        // High adjusted_score but passed=false → guard must fire → feasibility=0.0.
+        let mut ann = PlanAnnotation::default();
+        ann.viability = ViabilityResult { passed: false, adjusted_score: 1.5 };
+        ann.per_item = vec![PerItemEval::default()];
+
+        let pool = run_overlay(vec![TurnPlan::default()], vec![ann], &agenda);
+        let feasibility = pool.annotations[0].per_item[0].considerations.feasibility;
+
+        assert!(
+            feasibility.abs() < 1e-5,
+            "passed=false must yield feasibility=0.0 regardless of adjusted_score=1.5, got {feasibility}"
         );
     }
 }
