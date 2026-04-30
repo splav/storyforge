@@ -19,7 +19,7 @@ use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::intent::{
-    assign_band, select_intent, AiMemory, IntentReason, TacticalIntent,
+    assign_band, AiMemory, IntentReason, TacticalIntent,
 };
 use crate::combat::ai::log::{self, AiLogger, IntentBlock, TradeBlock};
 use crate::combat::ai::planning::{
@@ -252,9 +252,11 @@ pub fn pick_action(
     // Explicit discard so reviewers can see the intent without compiler noise.
     let (band, band_reason) = assign_band(active, snap, maps, &need_signals, world.difficulty, world.tuning);
 
-    // ── Step 11.2 / 11.4: agenda construction ────────────────────────────
+    // ── Step 11.2 / 11.4 / 11.5: agenda construction ─────────────────────
     // In 11.4, agenda is passed into StageCtx so ItemScoringStage and
     // PickBestStage can perform per-item composition.
+    // In 11.5, `memory` is forwarded so NormalTactical band's stickiness
+    // bonuses match prior `select_intent` behaviour.
     let agenda = crate::combat::ai::intent::build_agenda(
         band,
         &band_reason,
@@ -264,10 +266,29 @@ pub fn pick_action(
         &need_signals,
         world.difficulty,
         world.tuning,
+        memory,
     );
 
-    // ── Select tactical intent ──────────────────────────────────────────
-    let choice = select_intent(active, snap, maps, memory, world.difficulty, world.tuning, &need_signals);
+    // ── Step 11.5: primary intent derived from agenda ─────────────────────
+    // `choice` drives (a) the initial `score_plans_with_raw` pass (producing
+    // `score_initial` used by PickBestStage's additive composition formula)
+    // and (b) `StageCtx.intent` for stages that still read the legacy field.
+    //
+    // Primary item = agenda.items[0] (highest raw_score).  Fallback to
+    // Reposition / NoRuleDefault when the agenda is unexpectedly empty —
+    // this should not happen in practice because every band builder guarantees
+    // at least one item, but we keep the fallback for robustness.
+    let choice = if let Some(primary) = agenda.items.first() {
+        crate::combat::ai::intent::IntentChoice {
+            intent: primary.intent_for_scoring(),
+            reason: primary.reason.clone(),
+        }
+    } else {
+        crate::combat::ai::intent::IntentChoice {
+            intent: TacticalIntent::Reposition,
+            reason: IntentReason::NoRuleDefault,
+        }
+    };
 
     // ── Generate plans (beam search over depths) ───────────────────────
     let mut plans = generate_plans(actor, world, snap, maps);

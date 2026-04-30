@@ -279,11 +279,20 @@ pub struct AiMemory {
 pub enum IntentReason {
     /// Step 3.2: fields migrated from raw hp_pct/hp_threshold to
     /// need_signals.self_preserve. Schema v20 → v21.
+    ///
+    /// **Step 11.5**: routing equivalent is `BandReason::PanicOverride` in
+    /// `CriticalSelfPreservation` band.  Kept for serialization compat (v31)
+    /// and as `AgendaItem.reason` in `build_critical_self_preservation`.
     PanicOverride { self_preserve: f32, self_preserve_threshold: f32, danger: f32, danger_threshold: f32 },
     /// Step 3.2: hp_pct field renamed to self_preserve. Schema v20 → v21.
     Urgency { self_preserve: f32, danger: f32 },
     ProtectAlly { ally_hp_pct: f32, threshold: f32, heal_identity: f32 },
+    /// **Step 11.5**: routing equivalent is `BandReason::TauntForced` in
+    /// `ForcedTargeting` band.  Kept for serialization compat (v31) and as
+    /// `AgendaItem.reason` in `build_forced_targeting`.
     TauntForced,
+    /// **Step 11.5**: produced only by the deprecated `select_intent`.  Kept
+    /// for serialization compat (v31); no longer emitted in production paths.
     TauntCc { dpr: f32 },
     /// Step 3.5: added `finish_target` field for diagnostics (add-only, no schema bump needed).
     Killable { threat: f32, eff_hp: i32, reach_budget: u32, #[serde(default)] finish_target: f32 },
@@ -413,8 +422,174 @@ pub struct IntentChoice {
     pub reason: IntentReason,
 }
 
+/// Normal-tactical intent selection: FocusTarget / ApplyCC / SetupAOE / Reposition only.
+///
+/// This is the inner core of `select_intent` with the hard-override branches removed:
+/// - No PanicOverride (handled by `CriticalSelfPreservation` band).
+/// - No ProtectSelf urgency-gate (handled by band builders for CSP/HardRescue).
+/// - No ProtectAlly healer branch (handled by `HardRescueOpportunity` band).
+/// - No Taunt branch (handled by `ForcedTargeting` band).
+///
+/// Stickiness (continuation bonus) is preserved — it affects which FocusTarget or
+/// ApplyCC candidate wins within the normal tactical space.
+///
+/// Called by `build_normal_tactical` when building the `NormalTactical` band agenda.
+pub(crate) fn select_intent_normal(
+    active: &UnitSnapshot,
+    snap: &BattleSnapshot,
+    maps: &InfluenceMaps,
+    memory: &AiMemory,
+    difficulty: &DifficultyProfile,
+    tuning: &AiTuning,
+    need_signals: &NeedSignals,
+) -> IntentChoice {
+    let _ = (maps, difficulty); // used by outer select_intent; kept for signature symmetry
+    let t = &tuning.thresholds;
+    let mut best_score = f32::NEG_INFINITY;
+    let mut best: Option<IntentChoice> = None;
+
+    let mut consider = |intent: TacticalIntent, score: f32, reason: IntentReason| {
+        let mut s = score;
+        // Stickiness: same logic as select_intent — bonus for continuing the prior intent.
+        if memory.turns_committed < t.max_committed_turns
+            && memory.last_intent == Some(intent.kind())
+        {
+            let stickiness_factor = match intent.kind() {
+                IntentKind::FocusTarget | IntentKind::ApplyCC => {
+                    need_signals.continue_commitment
+                }
+                _ => 1.0,
+            };
+            s += t.stickiness_bonus * stickiness_factor;
+            if let (Some(prev), Some(cur)) = (memory.last_target, intent.target()) {
+                if prev == cur {
+                    s += t.target_stickiness_bonus * stickiness_factor;
+                }
+            }
+        }
+        // conserve_resource soft bonus for cheap intents (same as select_intent).
+        if need_signals.conserve_resource > t.conserve_resource_threshold {
+            let cheap = matches!(
+                intent.kind(),
+                IntentKind::ProtectSelf | IntentKind::Reposition
+            );
+            if cheap {
+                s += t.conserve_resource_bonus * need_signals.conserve_resource;
+            }
+        }
+
+        if s > best_score {
+            best_score = s;
+            best = Some(IntentChoice { intent, reason });
+        }
+    };
+
+    // NOTE: no taunter check — taunt is handled by ForcedTargeting band.
+    // NOTE: no PanicOverride early-return — handled by CriticalSelfPreservation band.
+    // NOTE: no ProtectSelf / ProtectAlly — handled by band builders.
+
+    // FocusTarget killable enemy / best priority target.
+    let reach_budget = (active.speed.max(0) as u32).saturating_add(active.max_attack_range);
+    let killable = snap
+        .enemies_of(active.team)
+        .filter(|_| active.action_points > 0)
+        .filter(|e| active.threat >= e.eff_hp() as f32)
+        .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
+        .min_by_key(|e| e.eff_hp());
+    if let Some(target) = killable {
+        let kill_score = 1.2 + need_signals.finish_target * 0.3;
+        consider(
+            TacticalIntent::FocusTarget { target: target.entity },
+            kill_score,
+            IntentReason::Killable {
+                threat: active.threat,
+                eff_hp: target.eff_hp(),
+                reach_budget,
+                finish_target: need_signals.finish_target,
+            },
+        );
+    } else if let Some(target) = highest_priority_enemy(active, snap) {
+        let prio = target_priority(active, target, snap);
+        consider(
+            TacticalIntent::FocusTarget { target: target.entity },
+            0.5 + prio * 0.3,
+            IntentReason::BestPriority { priority: prio },
+        );
+    }
+
+    // ApplyCC: high-sustained-damage unstunned enemy.
+    if active.tags.contains(AiTags::CAN_CC) {
+        let cc_target = snap
+            .enemies_of(active.team)
+            .filter(|e| !e.tags.contains(AiTags::IS_STUNNED))
+            .max_by(|a, b| {
+                let da = crate::combat::ai::scoring::horizon_avg(a);
+                let db = crate::combat::ai::scoring::horizon_avg(b);
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        if let Some(target) = cc_target {
+            let dpr = crate::combat::ai::scoring::horizon_avg(target);
+            let cc_score = 0.8 + dpr * 0.1;
+            consider(
+                TacticalIntent::ApplyCC { target: target.entity },
+                cc_score,
+                IntentReason::ApplyCc { dpr },
+            );
+        }
+    }
+
+    // SetupAOE: enemies clustered.
+    if active.tags.contains(AiTags::HAS_AOE) {
+        let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
+        let cluster_count = enemies.iter().enumerate().filter(|(i, a)| {
+            enemies[*i + 1..]
+                .iter()
+                .any(|b| a.pos.unsigned_distance_to(b.pos) <= 2)
+        }).count();
+        if cluster_count > 0 {
+            let aoe_score = 0.7 + cluster_count as f32 * 0.2;
+            consider(
+                TacticalIntent::SetupAOE,
+                aoe_score,
+                IntentReason::SetupAoe { clustered_pairs: cluster_count },
+            );
+        }
+    }
+
+    // Reposition: driven by need_signals.reposition.
+    let repo_floor = t.reposition_signal_floor;
+    if need_signals.reposition > repo_floor {
+        let repo_score = 0.3 + need_signals.reposition * 0.7;
+        consider(
+            TacticalIntent::Reposition,
+            repo_score,
+            IntentReason::Reposition {
+                reposition: need_signals.reposition,
+                floor: repo_floor,
+            },
+        );
+    }
+
+    best.unwrap_or(IntentChoice {
+        intent: TacticalIntent::Reposition,
+        reason: IntentReason::NoRuleDefault,
+    })
+}
+
 /// Analyze the battlefield, score all valid intents, and pick the best.
 /// Applies stickiness bonus if the previous intent is still reasonable.
+///
+/// # Deprecation
+///
+/// **Step 11.5**: This function is deprecated in favour of the band/agenda flow:
+/// `assign_band` → `build_agenda` → per-item scoring in `pick_action`.
+/// - Normal-tactical routing uses `select_intent_normal` (called from `build_normal_tactical`).
+/// - Panic/taunt/rescue routing is handled by `assign_band` + respective band builders.
+///
+/// Remaining callers: unit tests in this module (testing internal scoring properties).
+/// Will be removed in step 12.
+#[deprecated(note = "use assign_band → build_agenda flow; direct callers should migrate to \
+                     select_intent_normal for NormalTactical. Removal in step 12.")]
 pub fn select_intent(
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
@@ -1101,7 +1276,12 @@ pub fn intent_score(
 }
 
 
+// Tests call `select_intent` directly to verify stickiness, killable-gate, and
+// other internal scoring properties of the full intent ladder.  The deprecated
+// attribute fires because the function is marked deprecated (step 11.5), but
+// these tests are the authorised remaining callers until step 12 removes it.
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;

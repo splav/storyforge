@@ -19,7 +19,7 @@ use crate::combat::ai::appraisal::{ally_threat_proxy, NeedSignals};
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{
-    select_intent, AiMemory, BandReason, IntentKind, IntentReason, PriorityBand, TacticalIntent,
+    select_intent_normal, AiMemory, BandReason, IntentKind, IntentReason, PriorityBand, TacticalIntent,
 };
 use crate::combat::ai::intent::considerations::{compute_considerations, IntentConsiderations};
 use crate::combat::ai::role::AxisProfile;
@@ -98,6 +98,10 @@ pub struct Agenda {
 /// Dispatches to a per-band builder based on `band`.  The result is sorted by
 /// `raw_score` descending before being returned.
 ///
+/// `memory` is forwarded to `build_normal_tactical` so that stickiness bonuses
+/// apply within the normal-tactical intent selection, matching the prior
+/// `select_intent` behaviour (step 11.5).
+///
 /// **11.3 contract**: considerations are computed for every item but are NOT used
 /// for routing — that lands in 11.4.  `repair` is `None` in 11.3; per-plan repair
 /// affinity arrives in 11.4 alongside the plan overlay.
@@ -111,6 +115,7 @@ pub fn build_agenda(
     needs: &NeedSignals,
     difficulty: &DifficultyProfile,
     tuning: &AiTuning,
+    memory: &AiMemory,
 ) -> Agenda {
     let mut items = match band {
         PriorityBand::ForcedTargeting => {
@@ -123,7 +128,7 @@ pub fn build_agenda(
             build_hard_rescue_opportunity(active, snap, needs)
         }
         PriorityBand::NormalTactical => {
-            build_normal_tactical(active, snap, maps, needs, difficulty, tuning)
+            build_normal_tactical(active, snap, maps, needs, difficulty, tuning, memory)
         }
     };
 
@@ -300,12 +305,14 @@ fn build_hard_rescue_opportunity(
     vec![protect_ally, focus_item]
 }
 
-/// NormalTactical: N=1 in 11.2 (legacy `select_intent` winner).
+/// NormalTactical: N=1 — winner of `select_intent_normal`.
 ///
-/// NOTE 11.2: NormalTactical agenda is N=1 (legacy select_intent winner).
-/// Full N=3 expansion (best FocusTarget / best ApplyCC or SetupAOE /
-/// best Reposition or ProtectAlly) arrives in 11.5 along with
-/// `select_intent` decomposition.
+/// Step 11.5: replaces the previous `select_intent` (full ladder) call with
+/// `select_intent_normal` (FocusTarget / ApplyCC / SetupAOE / Reposition only).
+/// Panic / taunt / rescue branches are handled by their own band builders.
+///
+/// `memory` is forwarded to preserve stickiness bonuses within normal-tactical
+/// intent selection, matching prior behaviour in `pick_action`.
 fn build_normal_tactical(
     active: &UnitSnapshot,
     snap: &BattleSnapshot,
@@ -313,18 +320,16 @@ fn build_normal_tactical(
     needs: &NeedSignals,
     difficulty: &DifficultyProfile,
     tuning: &AiTuning,
+    memory: &AiMemory,
 ) -> Vec<AgendaItem> {
-    // Use legacy select_intent as a black box — wraps the winner into one item.
-    let memory = AiMemory::default();
-    let choice = select_intent(active, snap, maps, &memory, difficulty, tuning, needs);
+    let choice = select_intent_normal(active, snap, maps, memory, difficulty, tuning, needs);
 
     let kind = choice.intent.kind();
     let target = choice.intent.target();
 
-    // raw_score: for NormalTactical we use 1.0 as a placeholder — the actual
-    // score comes from the plan scoring pipeline, not from intent selection.
-    // 11.3 will populate structured considerations; 11.5 will replace this
-    // with a proper multi-candidate expansion.
+    // raw_score: 1.0 placeholder — actual winner is determined by per-item plan
+    // scoring in PickBestStage (step 11.4).  Full multi-candidate expansion
+    // (N=3) is deferred to a future step when mining confirms its benefit.
     let raw_score = 1.0_f32;
 
     vec![AgendaItem {
@@ -380,6 +385,7 @@ mod tests {
             &zero_needs(),
             &difficulty,
             &tuning,
+            &AiMemory::default(),
         );
 
         assert_eq!(agenda.items.len(), 1, "ForcedTargeting must emit exactly 1 item");
@@ -421,6 +427,7 @@ mod tests {
             &needs,
             &difficulty,
             &tuning,
+            &AiMemory::default(),
         );
 
         assert_eq!(agenda.items.len(), 2, "CriticalSelf must emit exactly 2 items");
@@ -465,6 +472,7 @@ mod tests {
             &needs,
             &difficulty,
             &tuning,
+            &AiMemory::default(),
         );
 
         assert_eq!(agenda.items.len(), 2, "HardRescue must emit exactly 2 items");
@@ -496,11 +504,12 @@ mod tests {
             &zero_needs(),
             &difficulty,
             &tuning,
+            &AiMemory::default(),
         );
 
         assert!(
             !agenda.items.is_empty(),
-            "NormalTactical must emit at least 1 item (N=1 in 11.2)"
+            "NormalTactical must emit at least 1 item"
         );
     }
 
@@ -538,6 +547,7 @@ mod tests {
             &needs,
             &difficulty,
             &tuning,
+            &AiMemory::default(),
         );
 
         // Verify strict descending order.
