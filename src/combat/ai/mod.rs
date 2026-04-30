@@ -12,8 +12,6 @@ pub mod policy;
 pub mod replay;
 pub mod replay_assertion;
 pub mod config;
-pub mod serde_helpers;
-pub mod debug;
 pub mod enemy_turn;
 pub mod factors;
 pub mod intent;

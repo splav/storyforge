@@ -265,7 +265,7 @@ pub struct PlanAnnotation {
     /// (-3.4e38) on write; on read accepts both finite numbers and `null`
     /// (decoded as `f32::MIN`). Production semantics preserved — runtime never
     /// round-trips score through JSON.
-    #[serde(default, with = "crate::combat::ai::serde_helpers::f32_finite")]
+    #[serde(default, with = "crate::combat::ai::log::serde_helpers::f32_finite")]
     pub score: f32,
     /// Step 7.4: factor decomposition for this plan (v29 named map).
     /// Written by the initial scoring pass. Default PlanFactorValues::default().

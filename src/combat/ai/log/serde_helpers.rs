@@ -1,7 +1,7 @@
 //! Serde adapters for types without native `Serialize`/`Deserialize`:
 //! `bevy::Entity`, `hexx::Hex`, the bit-packed `AiTags`.
 //!
-//! Apply with `#[serde(with = "crate::combat::ai::serde_helpers::hex")]` (and
+//! Apply with `#[serde(with = "crate::combat::ai::log::serde_helpers::hex")]` (and
 //! variants for `Vec<Hex>`, `Option<Entity>`, `Vec<Entity>`, `AiTags`).
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

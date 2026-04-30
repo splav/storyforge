@@ -50,11 +50,11 @@ pub struct BattleSnapshot {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct UnitSnapshot {
-    #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+    #[serde(with = "crate::combat::ai::log::serde_helpers::entity")]
     pub entity: Entity,
     pub team: Team,
     pub role: AxisProfile,
-    #[serde(with = "crate::combat::ai::serde_helpers::hex")]
+    #[serde(with = "crate::combat::ai::log::serde_helpers::hex")]
     pub pos: Hex,
     pub hp: i32,
     pub max_hp: i32,
@@ -75,13 +75,13 @@ pub struct UnitSnapshot {
     pub energy: Option<(i32, i32)>,
     pub abilities: Vec<AbilityId>,
     pub threat: f32,
-    #[serde(with = "crate::combat::ai::serde_helpers::ai_tags")]
+    #[serde(with = "crate::combat::ai::log::serde_helpers::ai_tags")]
     pub tags: AiTags,
     /// Max range of any offensive (SingleEnemy) ability. Used for reach checks
     /// in intent selection (e.g., "is this enemy killable this turn?").
     pub max_attack_range: u32,
     /// Entity of the summoner, if this unit was summoned.
-    #[serde(with = "crate::combat::ai::serde_helpers::entity_opt")]
+    #[serde(with = "crate::combat::ai::log::serde_helpers::entity_opt")]
     pub summoner: Option<Entity>,
     /// Remaining opportunity reactions this round. Zero means no AoO this turn.
     /// (Schema v2+: default `1` on v1 logs — every current unit has `max=1`.)

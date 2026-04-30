@@ -35,38 +35,38 @@ use crate::game::hex::Hex;
 pub enum GoalKind {
     /// Kill the target this turn or as soon as possible.
     Finish {
-        #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::entity")]
         target: Entity,
     },
     /// Pressure / whittle down the target without expecting an immediate kill.
     Pressure {
-        #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::entity")]
         target: Entity,
     },
     /// Apply crowd-control to the target.
     DisableEnemy {
-        #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::entity")]
         target: Entity,
     },
     /// Heal / protect an allied unit.
     HealAlly {
-        #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::entity")]
         ally: Entity,
     },
     /// Retreat to a safe region (ProtectSelf / LastStand with movement).
     Retreat {
-        #[serde(with = "crate::combat::ai::serde_helpers::hex")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::hex")]
         region_anchor: Hex,
     },
     /// Reposition into the blast zone of a planned AoE cast.
     SetupAOE {
-        #[serde(with = "crate::combat::ai::serde_helpers::hex")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::hex")]
         region_center: Hex,
         planned_ability: AbilityId,
     },
     /// Pure repositioning — improve board position without a specific target.
     Reposition {
-        #[serde(with = "crate::combat::ai::serde_helpers::hex")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::hex")]
         region_center: Hex,
     },
 }
@@ -88,7 +88,7 @@ pub struct StoredGoalContext {
     /// For target-bound kinds (`Finish`, `Pressure`, `DisableEnemy`,
     /// `HealAlly`) this equals the target's position at store time.
     /// For positional kinds it equals `chosen_final_pos`.
-    #[serde(with = "crate::combat::ai::serde_helpers::hex")]
+    #[serde(with = "crate::combat::ai::log::serde_helpers::hex")]
     pub region_anchor: Hex,
     /// Maximum hex distance from `region_anchor` that is still considered
     /// "on-goal" for repair-affinity region alignment. Read from
@@ -110,7 +110,7 @@ pub struct StoredGoalContext {
     // These replicate the fields from `PlanSnapshot` so that `check_continuation`
     // can be called on `StoredGoalContext` after `AiMemory.last_plan` is removed.
     /// Where the actor should be on the next tick (destination of the Move).
-    #[serde(with = "crate::combat::ai::serde_helpers::hex")]
+    #[serde(with = "crate::combat::ai::log::serde_helpers::hex")]
     pub expected_actor_pos: Hex,
     /// Actor HP at the time of store.
     pub actor_hp_at_store: i32,
@@ -125,7 +125,7 @@ pub struct StoredGoalContext {
     /// Target HP at the time of store (0 when no target).
     pub target_hp_at_store: i32,
     /// Target position at the time of store (Hex::ZERO when no target).
-    #[serde(with = "crate::combat::ai::serde_helpers::hex")]
+    #[serde(with = "crate::combat::ai::log::serde_helpers::hex")]
     pub target_pos_at_store: Hex,
 }
 

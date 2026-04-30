@@ -43,7 +43,7 @@ fn main() {
         .init_resource::<SelectionState>()
         .init_resource::<DiceRng>()
         .insert_resource(settings.difficulty.clone())
-        .insert_resource(combat::ai::debug::AiDebugState {
+        .insert_resource(combat::ai::log::debug::AiDebugState {
             ai_debug: settings.ai_debug,
             ..Default::default()
         })
@@ -179,10 +179,10 @@ fn main() {
         .add_systems(
             Update,
             (
-                combat::ai::debug::toggle_debug_system,
-                combat::ai::debug::print_ai_debug_system
+                combat::ai::log::debug::toggle_debug_system,
+                combat::ai::log::debug::print_ai_debug_system
                     .after(CombatStep::Command),
-                combat::ai::debug::debug_overlay_system
+                combat::ai::log::debug::debug_overlay_system
                     .after(ui::hex_grid::update_hex_visuals),
             )
                 .run_if(in_state(AppState::Combat)),

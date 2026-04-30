@@ -26,6 +26,9 @@
 
 #![allow(clippy::too_many_arguments)]
 
+pub mod debug;
+pub mod serde_helpers;
+
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;

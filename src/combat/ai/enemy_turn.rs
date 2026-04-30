@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::content::content_view::{ActiveContent, ContentView};
-use crate::combat::ai::debug::AiDebugState;
+use crate::combat::ai::log::debug::AiDebugState;
 use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
 use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};

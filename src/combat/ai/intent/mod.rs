@@ -33,12 +33,12 @@ use std::fmt;
 pub enum TacticalIntent {
     /// Focus fire: kill or heavily damage a specific target.
     FocusTarget {
-        #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::entity")]
         target: Entity,
     },
     /// Apply CC (stun) to a high-threat target.
     ApplyCC {
-        #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::entity")]
         target: Entity,
     },
     /// Reposition to a better tile.
@@ -47,7 +47,7 @@ pub enum TacticalIntent {
     ProtectSelf,
     /// Protect/heal a specific wounded ally.
     ProtectAlly {
-        #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::entity")]
         ally: Entity,
     },
     /// Position to hit multiple enemies with AoE.

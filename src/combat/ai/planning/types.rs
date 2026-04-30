@@ -15,16 +15,16 @@ pub enum PlanStep {
     /// destination — matches the convention used by `ReachableMap::path_to`
     /// and `MoveUnit { path }`. `path.len()` therefore equals MP cost.
     Move {
-        #[serde(with = "crate::combat::ai::serde_helpers::hex_vec")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::hex_vec")]
         path: Vec<Hex>,
     },
     /// Cast `ability` at `target` (living entity) on `target_pos` (cell the
     /// primary effect is centred on; for AoE this is the blast origin).
     Cast {
         ability: AbilityId,
-        #[serde(with = "crate::combat::ai::serde_helpers::entity")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::entity")]
         target: Entity,
-        #[serde(with = "crate::combat::ai::serde_helpers::hex")]
+        #[serde(with = "crate::combat::ai::log::serde_helpers::hex")]
         target_pos: Hex,
     },
 }
@@ -36,7 +36,7 @@ pub enum PlanStep {
 pub struct TurnPlan {
     pub steps: Vec<PlanStep>,
     /// Actor's position after all steps.
-    #[serde(with = "crate::combat::ai::serde_helpers::hex")]
+    #[serde(with = "crate::combat::ai::log::serde_helpers::hex")]
     pub final_pos: Hex,
     /// AP remaining after all steps.
     pub residual_ap: i32,
@@ -299,10 +299,10 @@ pub struct StepOutcome {
     /// Expected HP-equivalent healing done.
     pub heal: f32,
     /// Targets whose HP dropped to 0 during this step (ordered by application).
-    #[serde(with = "crate::combat::ai::serde_helpers::entity_vec")]
+    #[serde(with = "crate::combat::ai::log::serde_helpers::entity_vec")]
     pub killed: Vec<Entity>,
     /// Entities that received a turn-skipping status (stun, paralyse, sleep).
-    #[serde(with = "crate::combat::ai::serde_helpers::entity_vec")]
+    #[serde(with = "crate::combat::ai::log::serde_helpers::entity_vec")]
     pub stunned: Vec<Entity>,
     /// Number of targets touched by the step (AoE or single). Zero for Move.
     pub hits: u32,

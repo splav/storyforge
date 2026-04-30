@@ -14,7 +14,7 @@ pub use crate::combat::ai::planning::PickMechanics;
 
 use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
 use crate::content::content_view::ContentView;
-use crate::combat::ai::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
+use crate::combat::ai::log::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
 use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::config::tuning::AiTuning;
