@@ -282,21 +282,29 @@ fn build_hard_rescue_opportunity(
         considerations: IntentConsiderations::default(),
     };
 
-    // Item 2: FocusTarget — the biggest threat to the endangered ally.
-    let threat_entity = snap
+    // Item 2 (optional): FocusTarget — the biggest threat to the endangered ally.
+    // Only emit when an actual threat is identified. Step 11.7 mining showed that
+    // emitting FocusTarget with `target=None` produced 23.5% of HardRescue
+    // FocusTarget items as untargeted — semantic noise. Honest N=1 ProtectAlly
+    // is preferable to an artificial FocusTarget without a target.
+    let threat = snap
         .enemies_of(active.team)
         .filter(|e| e.pos.unsigned_distance_to(endangered_ally.pos) <= e.max_attack_range)
         .max_by(|a, b| {
             crate::combat::ai::scoring::horizon_avg(a)
                 .partial_cmp(&crate::combat::ai::scoring::horizon_avg(b))
                 .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(|e| e.entity);
+        });
+
+    let Some(threat) = threat else {
+        // No threat to the endangered ally — return N=1 ProtectAlly only.
+        return vec![protect_ally];
+    };
 
     let focus_score = rescue_score * 0.8; // slightly lower than ProtectAlly
     let focus_item = AgendaItem {
         kind: IntentKind::FocusTarget,
-        target: threat_entity,
+        target: Some(threat.entity),
         raw_score: focus_score,
         reason: IntentReason::BestPriority { priority: focus_score },
         considerations: IntentConsiderations::default(),
@@ -479,8 +487,58 @@ mod tests {
         // First item must be ProtectAlly (highest raw_score).
         assert_eq!(agenda.items[0].kind, IntentKind::ProtectAlly, "item[0] must be ProtectAlly");
         assert_eq!(agenda.items[0].target, Some(ally.entity), "ProtectAlly target must be endangered ally");
-        // Second item must be FocusTarget.
+        // Second item must be FocusTarget on the actual threat.
         assert_eq!(agenda.items[1].kind, IntentKind::FocusTarget, "item[1] must be FocusTarget");
+        assert!(agenda.items[1].target.is_some(), "FocusTarget must carry a threat target");
+    }
+
+    /// Step 11.7 follow-up: when no enemy threatens the endangered ally,
+    /// HardRescue must emit only N=1 ProtectAlly — never a FocusTarget with
+    /// `target=None`. Mining showed 23.5% of legacy HardRescue/FocusTarget items
+    /// were untargeted; this test pins the corrected semantic.
+    #[test]
+    fn agenda_hard_rescue_skips_focus_target_when_no_threat() {
+        let active = UnitBuilder::new(1, Team::Enemy, origin())
+            .tags(AiTags::CAN_HEAL)
+            .build();
+        let ally = UnitBuilder::new(2, Team::Enemy, hex_from_offset(1, 0))
+            .hp(2)
+            .max_hp(20)
+            .build();
+        // No enemy in the snapshot — no threat to find.
+        let snap = BattleSnapshot::new(vec![active.clone(), ally.clone()], 1);
+        let maps = empty_maps();
+        let tuning = default_tuning();
+        let difficulty = default_difficulty();
+
+        let needs = NeedSignals {
+            rescue_ally: tuning.thresholds.hard_rescue_threshold + 0.05,
+            ..NeedSignals::default()
+        };
+        let band_reason = BandReason::HardRescueNeed { rescue_need: needs.rescue_ally };
+
+        let agenda = build_agenda(
+            PriorityBand::HardRescueOpportunity,
+            &band_reason,
+            &active,
+            &snap,
+            &maps,
+            &needs,
+            &difficulty,
+            &tuning,
+            &AiMemory::default(),
+        );
+
+        assert_eq!(
+            agenda.items.len(),
+            1,
+            "HardRescue without a threat must collapse to N=1 ProtectAlly only"
+        );
+        assert_eq!(agenda.items[0].kind, IntentKind::ProtectAlly);
+        assert!(
+            !agenda.items.iter().any(|item| item.kind == IntentKind::FocusTarget && item.target.is_none()),
+            "must never emit FocusTarget with target=None"
+        );
     }
 
     // ── 4. NormalTactical emits at least one item ─────────────────────────
