@@ -12,7 +12,7 @@
 # Source: twisted_grove playtest 2026-04-28 (v30), round=1, actor=25769803431.
 
 [scope]
-plan_id = 25769803431
+plan_id = 34359738026
 
 [ai_memory]
 last_goal_kind = "Pressure"

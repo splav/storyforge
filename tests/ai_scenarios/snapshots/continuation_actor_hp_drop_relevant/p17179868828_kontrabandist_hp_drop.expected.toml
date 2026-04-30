@@ -18,7 +18,7 @@
 # continuation.severity = Relevant (actor_hp_drop), age = 1.
 
 [scope]
-plan_id = 17179868828
+plan_id = 21474836139
 
 [ai_memory]
 last_goal_kind = "Pressure"

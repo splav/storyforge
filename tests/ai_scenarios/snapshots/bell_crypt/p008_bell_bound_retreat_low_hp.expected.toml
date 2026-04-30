@@ -9,7 +9,7 @@
 # сохраняется (любой valid decision проходит).
 
 [scope]
-plan_id = 34359738025
+plan_id = 30064770716
 
 [[expectations]]
 decision_kind = ["Move", "EndTurn", "MoveAndCast", "CastInPlace"]

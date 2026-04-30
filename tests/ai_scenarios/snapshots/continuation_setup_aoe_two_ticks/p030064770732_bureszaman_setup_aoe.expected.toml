@@ -17,7 +17,7 @@
 # v30 rebuild: actor hp=22 (полный), ally entity изменился → hp_at_store обновлён.
 
 [scope]
-plan_id = 47244639911
+plan_id = 34359738005
 
 [ai_memory]
 last_goal_kind = "SetupAOE"
