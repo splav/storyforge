@@ -1683,7 +1683,11 @@ fn main() {
         // On pre-11.8 logs leverage was a single flat 0.0 formula; all buckets
         // will show mean=0.000 (expected, not a bug).
         println!("### H1c.bis. Per-IntentKind leverage histograms (step 11.8)");
-        println!("  (chosen plan's considerations_per_item, matched to agenda item kind)");
+        println!("  Sample: each tick contributes |agenda.items| values from the CHOSEN plan's");
+        println!("  `considerations_per_item`, routed by `agenda.items[idx].kind`. Unchosen");
+        println!("  plans are NOT sampled — focus is \"what the AI picked\", not \"full pool diversity\".");
+        println!("  (Sample N here ≠ H2 attributed-ticks: a chosen plan with `agenda_item=None`");
+        println!("   still contributes its considerations_per_item entries to these histograms.)");
         println!();
 
         // Helper: compute middle_mass = fraction of values in (0.05, 0.95).

@@ -1119,19 +1119,23 @@ mod tests {
         );
     }
 
-    /// Safety probe (step 11.8 §D): verify that the safety axis correctly drops
-    /// below 1.0 when the plan ends in a tile with non-zero danger
-    /// (`terminal.ExposureAtEnd > 0`).
+    /// Safety probe (step 11.8 §D): formula isolation test.
     ///
-    /// Formula: `safety = 1.0 - max(self_damage_ratio, exposure_at_end)`.
-    /// With exposure=0.8 and self_damage=0: expected safety = 1.0 - 0.8 = 0.2.
+    /// Asserts that `safety = 1.0 - max(self_damage_ratio, exposure_at_end)` correctly
+    /// drops below 1.0 when `terminal.ExposureAtEnd` is high. With exposure=0.8 and
+    /// self_damage=0, expected safety = 1.0 - 0.8 = 0.2.
     ///
-    /// In the production corpus safety is observed flat at 1.0. This is corpus-bound
-    /// (OvercommitIntoDanger critic + scenario design keeps actors in safe tiles).
-    /// This probe confirms the formula itself is correct: if it fails (safety stays
-    /// 1.0 despite exposure=0.8), the formula is broken → escalate to backlog.
+    /// Sets `terminal.ExposureAtEnd` directly — does NOT exercise the
+    /// `maps.danger → TerminalStage → exposure_at_end` pipeline (that's covered by
+    /// 11.7b synthetic tests in `planning::terminal::tests`). This pins the overlay
+    /// formula in isolation.
+    ///
+    /// Production context: the H1c histogram shows safety flat at 1.0. That is
+    /// corpus-bound (OvercommitIntoDanger critic + scenario design keep actors in
+    /// safe tiles), not a code bug. If THIS isolation test fails (safety stays 1.0
+    /// despite high exposure), the formula itself is broken → escalate to backlog.
     #[test]
-    fn safety_drops_below_one_when_actor_ends_in_danger_zone() {
+    fn safety_drops_below_one_when_exposure_at_end_is_high() {
         let agenda = Agenda {
             band: PriorityBand::NormalTactical,
             items: vec![empty_agenda_item()],
