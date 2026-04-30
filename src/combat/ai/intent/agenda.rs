@@ -21,6 +21,8 @@ use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{
     select_intent, AiMemory, BandReason, IntentKind, IntentReason, PriorityBand,
 };
+use crate::combat::ai::intent::considerations::{compute_considerations, IntentConsiderations};
+use crate::combat::ai::role::AxisProfile;
 use crate::combat::ai::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
 use crate::combat::ai::tuning::AiTuning;
@@ -39,10 +41,12 @@ pub struct AgendaItem {
     /// Optional target entity — populated for FocusTarget / ApplyCC / ProtectAlly.
     pub target: Option<Entity>,
     /// Score from the legacy or band-specific heuristic.
-    /// 11.3 will overlay structured `IntentConsiderations` on top of this.
     pub raw_score: f32,
-    /// Why this item was added — for logs and 11.3 considerations.
+    /// Why this item was added — for logs and considerations.
     pub reason: IntentReason,
+    /// Structured 6-axis considerations computed in 11.3.
+    /// Populated by `build_agenda`; not used for routing until 11.4.
+    pub considerations: IntentConsiderations,
 }
 
 // ── Agenda ────────────────────────────────────────────────────────────────────
@@ -64,7 +68,9 @@ pub struct Agenda {
 /// Dispatches to a per-band builder based on `band`.  The result is sorted by
 /// `raw_score` descending before being returned.
 ///
-/// **11.2 contract**: caller discards the result — no routing change.
+/// **11.3 contract**: considerations are computed for every item but are NOT used
+/// for routing — that lands in 11.4.  `repair` is `None` in 11.3; per-plan repair
+/// affinity arrives in 11.4 alongside the plan overlay.
 #[allow(clippy::too_many_arguments)]
 pub fn build_agenda(
     band: PriorityBand,
@@ -90,6 +96,14 @@ pub fn build_agenda(
             build_normal_tactical(active, snap, maps, needs, difficulty, tuning)
         }
     };
+
+    // ── Step 11.3: compute considerations per item ────────────────────────────
+    // `repair = None` — per-plan RepairAffinity arrives in 11.4.
+    // `role` taken from active.role (AxisProfile on UnitSnapshot).
+    let role: &AxisProfile = &active.role;
+    for item in items.iter_mut() {
+        item.considerations = compute_considerations(item, needs, role, None);
+    }
 
     // Ensure ordering contract: highest raw_score first.
     items.sort_by(|a, b| b.raw_score.partial_cmp(&a.raw_score).unwrap_or(std::cmp::Ordering::Equal));
@@ -123,6 +137,7 @@ fn build_forced_targeting(
         target: Some(taunter),
         raw_score,
         reason: IntentReason::TauntForced,
+        considerations: IntentConsiderations::default(),
     }]
 }
 
@@ -151,6 +166,7 @@ fn build_critical_self_preservation(
             danger,
             danger_threshold: 0.0,
         },
+        considerations: IntentConsiderations::default(),
     };
 
     // Item 2: Reposition away — score based on reposition need signal.
@@ -165,6 +181,7 @@ fn build_critical_self_preservation(
             reposition: needs.reposition,
             floor: 0.0, // floor not available here; plan-level viability will gate
         },
+        considerations: IntentConsiderations::default(),
     };
 
     // ProtectSelf is always the primary item (higher urgency); Reposition
@@ -210,6 +227,7 @@ fn build_hard_rescue_opportunity(
                 self_preserve: needs.self_preserve,
                 danger: 0.0,
             },
+            considerations: IntentConsiderations::default(),
         }];
     };
 
@@ -226,6 +244,7 @@ fn build_hard_rescue_opportunity(
             threshold: 0.5, // default threshold; exact value from tuning in 11.3
             heal_identity: active.role.support.min(1.0),
         },
+        considerations: IntentConsiderations::default(),
     };
 
     // Item 2: FocusTarget — the biggest threat to the endangered ally.
@@ -245,6 +264,7 @@ fn build_hard_rescue_opportunity(
         target: threat_entity,
         raw_score: focus_score,
         reason: IntentReason::BestPriority { priority: focus_score },
+        considerations: IntentConsiderations::default(),
     };
 
     vec![protect_ally, focus_item]
@@ -282,6 +302,7 @@ fn build_normal_tactical(
         target,
         raw_score,
         reason: choice.reason,
+        considerations: IntentConsiderations::default(),
     }]
 }
 

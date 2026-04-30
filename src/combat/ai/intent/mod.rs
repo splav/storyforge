@@ -1,7 +1,9 @@
 pub mod agenda;
 pub mod bands;
+pub mod considerations;
 pub use agenda::{build_agenda, Agenda, AgendaItem};
 pub use bands::{assign_band, BandReason, BandWeights, PriorityBand};
+pub use considerations::{compute_considerations, IntentConsiderations};
 
 use crate::combat::ai::repair::{classify_mismatch, compute_status_delta, MismatchContext, PlanContinuationCheck, StatusDelta};
 use crate::content::content_view::ContentView;
