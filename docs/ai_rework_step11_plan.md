@@ -273,34 +273,257 @@ pub fn compute_considerations(item: &AgendaItem, plan_for_item: Option<&PlanAnno
 
 ### 11.4. Per-agenda-item planning + cross-comparison
 
-**Scope.**
+**ВНИМАНИЕ:** это первый сабшаг с реальным behavior change. До этого 11.0–11.3 были infrastructure-only (golden 0/N). 11.4 включает agenda в scoring loop и допускает ≤25% diff.
 
-`pick_action` модифицируется: после `generate_plans` (один раз) для каждого agenda item:
+**Цель.** Заменить single-intent ranking на multi-item composed ranking: для каждого плана оценить пригодность под **каждый** agenda item; финальный winner = плот с наибольшим composed score, ему атрибутируется конкретный item, который "оправдал" его выбор.
+
+#### Архитектурное решение
+
+**Ключевой инсайт:** intent влияет на pipeline **только** через два фактора — `PlanFactor::Intent` и `PlanFactor::TempoGain` (см. `rescore_with_per_plan_modes` в `scorer.rs`). Все остальные факторы (offensive/defensive/survival/raw outcomes) — intent-агностичны. Multipliers в Sanity/Critics/PlanModifiers тоже intent-агностичны, кроме двух:
+- **`ProtectSelfMaskStage`** — fires только под intent=ProtectSelf. Маскирует non-defensive планы в `-∞`.
+- **`KillableGateStage`** — fires только под intent=FocusTarget. Маскирует non-killable планы в `-∞`.
+
+Это требует: per-item scoring должен учитывать intent-specific masks. Иначе план, замаскированный под Default-intent, не сможет участвовать в re-evaluation под другим item.
+
+**Решение — three-layer model:**
+
+1. **Layer A: shared base** — не зависит от intent. Один проход на pool: outcomes, terminal, raw factors кроме `Intent`/`TempoGain`. Сюда же Viability (intent-agnostic gate на reachability/AP).
+2. **Layer B: per-item** — intent-зависимое. На каждый item вычисляются: `Intent`/`TempoGain` factors, ProtectSelfMask (если item.kind == ProtectSelf), KillableGate (если item.kind == FocusTarget). Хранится в `PlanAnnotation.per_item: Vec<PerItemEval>`.
+3. **Layer C: shared multipliers** — Sanity, Critics, PlanModifiers, RepairAffinity. Применяются к **base score**, потом распространяются на per-item scores через ratio. Эти стадии работают на ann.score один раз; ratio сохраняется и применяется ко всем per-item scores при composition.
+
+#### Концептуальная формула
+
+```
+base_score(plan) = finalize_factors(raw_minus_intent) × (composite of intent-agnostic factors)
+multiplier_ratio(plan) = ann.score_after_pipeline / ann.score_initial   # captures Sanity × Critics × Modifiers
+per_item_score(plan, i) = base_score(plan) × intent_factor(plan, item.kind) × tempo_factor(plan, item.kind)
+                          × intent_specific_mask(plan, item.kind)        # 1.0 or -∞ from ProtectSelf/Killable
+final_for_item(plan, i) = per_item_score(plan, i) × multiplier_ratio(plan) × consideration_dot(item, weights)
+
+ann.agenda_item = argmax_i final_for_item(plan, i)
+ann.score = max_i final_for_item(plan, i)
+```
+
+Где `consideration_dot(item, weights) = Σ axis: weights[axis] × item.considerations[axis]` (нормированная свёртка по 6 осям).
+
+#### Конкретная имплементация
+
+**Шаг 1.** В `pick_action` после `build_agenda + compute_considerations`:
 
 ```rust
-for (item_idx, item) in agenda.items.iter().enumerate() {
-    let (item_scores, item_raw) = score_plans_with_raw(&mut plans, &item.intent_for_scoring(), &scoring_ctx);
-    // Сохраняем per-item score в ann.per_item_scores[item_idx]
-    // Run pipeline (sanity/critics/etc) per-item — но shared (один раз)
+// (a) generate_plans — один раз
+let mut plans = generate_plans(...);
+
+// (b) initial scoring через ОДИН представительский intent. Выбор:
+//     primary_item = item с максимальным consideration_dot.
+//     Это даёт baseline для multipliers; multiplier_ratio будет применён к остальным.
+let primary_idx = agenda.items.iter().enumerate()
+    .max_by(|(_, a), (_, b)| a.considerations.dot(weights).partial_cmp(&b.considerations.dot(weights)).unwrap())
+    .map(|(i, _)| i)
+    .unwrap_or(0);
+let primary_intent = agenda.items[primary_idx].intent_for_scoring();
+
+let (initial_scores, initial_raw) = score_plans_with_raw(&mut plans, &primary_intent, &ctx);
+
+// (c) сохранить initial_score в ann.score_initial для дальнейшего ratio
+for (ann, &s) in pool.annotations.iter_mut().zip(initial_scores.iter()) {
+    ann.score = s;
+    ann.score_initial = s;  // NEW field в PlanAnnotation, документировать
 }
 ```
 
-**Перепродумка**: pipeline (Sanity/Critics/Adaptation/...) запускается **один раз** на shared pool. Per-item различается только initial-scoring intent. Для каждого плана: финальный `ann.score` = `max_i (per_item_scores[i] × band.weights · considerations_i × pipeline_multipliers)`. `ann.agenda_item` = argmax.
+**Шаг 2.** Между `ViabilityStage` и `ModeSelectionStage` — новый `ItemScoringStage`:
 
-Композиция score:
+```rust
+impl PlanStage for ItemScoringStage {
+    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
+        let agenda = ctx.agenda; // прокинуть Agenda через StageCtx
+        for (plan_idx, ann) in pool.annotations.iter_mut().enumerate() {
+            let plan = &pool.plans[plan_idx];
+            for (item_idx, item) in agenda.items.iter().enumerate() {
+                let intent_factor = compute_plan_intent_sum(plan, &item.intent, ctx.scoring);
+                let tempo_factor = compute_plan_tempo_gain(plan, &item.intent, ctx.scoring);
+                let intent_mask = compute_intent_mask(plan, &item.intent, &ann.factors); // -∞ или 1.0
+                ann.per_item[item_idx] = PerItemEval {
+                    intent_factor,
+                    tempo_factor,
+                    intent_mask,
+                };
+            }
+        }
+    }
+}
 ```
-final_score = pipeline_multipliers × (Σ items: weighted_consideration_dot[i] × per_item_factor_score[i])
+
+`compute_intent_mask` — pure function, читает существующую логику ProtectSelfMask и KillableGate, возвращает `f32` множитель (0.0 при mask, 1.0 иначе). Реализация: переиспользует `plan_is_defensive` (из sanity.rs) для ProtectSelf и `is_killable_target` (если есть) для FocusTarget.
+
+**Шаг 3.** Pipeline order **(новый):**
+
+```
+ItemScoringStage → ModeSelection → Finalize → Sanity → Critics → ProtectSelfMask → KillableGate → RepairAffinity → PlanModifiers → PickBest
 ```
 
-Где `weighted_consideration_dot[i] = Σ axis: weights[axis] × considerations[i][axis]`.
+Где `ProtectSelfMaskStage` / `KillableGateStage` остаются — но **только** для primary_intent (одного представителя). Per-item masks уже посчитаны в ItemScoringStage. Альтернативно: убрать их из pipeline в 11.4 и полагаться только на per-item masks. **Решение:** оставить — это backup для primary item flow и для NormalTactical band где agenda — N=1.
 
-`PickBestStage` теперь отбирает план с лучшим composed score; писать `ann.agenda_item`.
+**Шаг 4.** `PickBestStage` modifies:
 
-**Юнит-тесты:** `multi_item_pick_attributes_to_winning_item`, `single_item_band_collapses_to_legacy_score`, `consideration_weights_dominate_in_critical_self_band`.
+```rust
+impl PlanStage for PickBestStage {
+    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
+        let agenda = ctx.agenda;
+        let weights = agenda.band.weights();
+        let mut best_idx = 0;
+        let mut best_composed = f32::NEG_INFINITY;
+        for (plan_idx, ann) in pool.annotations.iter_mut().enumerate() {
+            // multiplier_ratio = ann.score / ann.score_initial (captures Sanity/Critics/Modifiers)
+            let ratio = if ann.score_initial.abs() > f32::EPSILON {
+                ann.score / ann.score_initial
+            } else { 1.0 };
+            let mut item_best = f32::NEG_INFINITY;
+            let mut item_best_idx = 0_u8;
+            for (item_idx, item) in agenda.items.iter().enumerate() {
+                let per_item = &ann.per_item[item_idx];
+                // Reconstruct per-item base score from raw factors with item's Intent/TempoGain
+                let base_for_item = ann.factors.with_intent_tempo(per_item.intent_factor, per_item.tempo_factor)
+                    .finalize_intent_aware(&ctx.scoring);
+                let masked = base_for_item * per_item.intent_mask;
+                let cdot = consideration_dot(&item.considerations, &weights);
+                let composed = masked * ratio * cdot;
+                if composed > item_best {
+                    item_best = composed;
+                    item_best_idx = item_idx as u8;
+                }
+            }
+            ann.score = item_best;
+            ann.agenda_item = Some(item_best_idx);
+            if item_best > best_composed { best_composed = item_best; best_idx = plan_idx; }
+        }
+        pool.annotations[best_idx].chosen = true;
+    }
+}
+```
 
-**Gate.** Golden review per-entry. Допустимо ≤25% diff'ов; каждый — атрибутируется к agenda-item swap (winner был low-rank legacy choice). По-fixture снимки.
+(Псевдокод — реальная имплементация подгоняется под `PlanFactorValues` API. Если `with_intent_tempo` нет — добавь helper в `factors/`.)
 
-**Эстимейт:** 2.5 дня.
+#### `PlanAnnotation` extensions (НЕ schema bump — поля локальные)
+
+Новые поля в `PlanAnnotation`:
+- `pub score_initial: f32` — score сразу после initial scoring, до Sanity/Critics. Используется для ratio.
+- `pub per_item: Vec<PerItemEval>` (length == agenda.items.len()) — кэш per-item scoring.
+- `pub agenda_item: Option<u8>` — winning item attribution.
+
+`PerItemEval`:
+```rust
+#[derive(Default, Clone, Copy, Debug)]
+pub struct PerItemEval {
+    pub intent_factor: f32,
+    pub tempo_factor: f32,
+    pub intent_mask: f32, // 0.0 (masked) or 1.0
+}
+```
+
+Сериализация: добавить `#[serde(default)]` для backward-compat. **Schema bump v31→v32 — это 11.6**, в 11.4 поля живут только в runtime.
+
+#### `Agenda` через `StageCtx`
+
+`StageCtx` сейчас несёт `intent`, `intent_reason`. Добавь:
+- `pub agenda: Option<&'s Agenda>` — Some когда per-item active, None для legacy путей (если 11.4 захватит все pipeline'ы — None не нужен; иначе guard).
+
+#### Edge cases (важные!)
+
+1. **Empty agenda** — `agenda.items.is_empty()`. Возможно для NormalTactical если `select_intent` не вернул winner. Pipeline должен gracefully fallback на legacy single-intent. Решение: при empty agenda, ItemScoringStage no-op, PickBest использует ann.score напрямую (как в 11.0–11.3).
+
+2. **Agenda с одним item (N=1)** — типично для ForcedTargeting и NormalTactical (пока 11.5 не сделает N=3). Composition должна collapse к single-intent: `final = base × ratio × cdot`. Поведение должно быть byte-identical к pre-11.4 пути для N=1 случая (после нормализации `cdot = 1.0` если только один item — см. invariant ниже).
+
+3. **All items masked** — например, ProtectSelf band с одним ProtectSelf item, но нет defensive плана. Все per_item masked в `-∞`. PickBest должен fallback на best non-masked item — или если все masked, фолбек на legacy choice. В этом случае `ProtectSelfNoDefensive` adaptation уже сработал в ModeSelection, и Finalize пересчитал в LastStand mode — что должно дать non-zero scores. Tests на этот flow.
+
+4. **Mode-aware finalize × per-item** — после Finalize, raw factors имеют mode-aware Intent/TempoGain. ItemScoringStage compute свой Intent/TempoGain для каждого item — какой mode использовать? **Решение:** ItemScoringStage runs ДО ModeSelection (он первый в pipeline), значит mode = Default. После ModeSelection/Finalize, `ann.factors` имеет mode-aware Intent для **primary** intent. Per-item evals **не** учитывают LastStand — это имеется в виду как ограничение первой волны. Документировать. Backlog: Mode × per-item interaction.
+
+5. **`multiplier_ratio` non-finite** — если `score_initial == 0.0` или `ann.score == -∞`, ratio undefined. Guard через `if score_initial.abs() > EPSILON { ratio = ann.score / score_initial } else { 1.0 }`.
+
+#### Composition normalization
+
+Без нормализации `consideration_dot` уязвим к артефактам если все consideration оси высокие — composed score становится больше base score, искажая ratio с другими планами. **Решение:** нормировать так, чтобы для **default считераций** (1,1,1,1,1,1) и default band weights composition collapse'ился к raw base score.
+
+```rust
+let raw_dot = Σ axis: weights[axis] × considerations[axis];
+let weight_sum = Σ axis: weights[axis];
+let normalized_dot = raw_dot / weight_sum.max(EPSILON);  // ∈ [0, 1] approximately
+```
+
+Тесты: `composition_collapses_to_base_when_considerations_uniform` — pin invariant.
+
+#### `IntentConsiderations::dot` helper
+
+Добавить:
+```rust
+impl IntentConsiderations {
+    pub fn weighted_dot(&self, w: &BandWeights) -> f32 {
+        let raw = self.urgency * w.urgency + self.feasibility * w.feasibility
+                + self.leverage * w.leverage + self.safety * w.safety
+                + self.role_affinity * w.role_affinity + self.continuation_value * w.continuation_value;
+        let sum = w.urgency + w.feasibility + w.leverage + w.safety + w.role_affinity + w.continuation_value;
+        if sum > f32::EPSILON { raw / sum } else { 1.0 }
+    }
+}
+```
+
+#### Plan-aware overlay в `compute_considerations`
+
+В 11.3 4 оси (feasibility/leverage/safety и часть continuation_value) возвращали defaults при `plan_for_item = None`. **В 11.4 их нужно доопределить** — потому что после ItemScoringStage у нас есть per-item data, и compute_considerations можно вызвать с `Some(ann)` для уточнения осей. Решение:
+
+- В `ItemScoringStage` (после initial fill of per_item), цикл повторного вызова `compute_considerations(item, Some(ann), needs, role, repair_aff_for_plan)` — overlay на agenda-item considerations **per-plan**.
+- Это значит **considerations per-plan-per-item**. Хранить в `PerItemEval.considerations: IntentConsiderations`. Item-level (из 11.3) остаётся как fallback baseline.
+- В PickBest composition использовать per-plan-per-item considerations (более точные).
+
+Для repair_affinity per plan: после RepairAffinityStage `ann.repair_affinity` populated. Идеально вызывать compute_considerations overlay **после** RepairAffinityStage, не раньше. Решение: `OverlayConsiderationsStage` между RepairAffinity и PlanModifiers (или прямо в PickBest перед composition).
+
+**Альтернатива (упрощение для 11.4):** оставить considerations item-level (без plan overlay) в 11.4 и сделать plan-aware overlay в backlog или в 11.5. Тогда 11.4 имеет меньший scope. **Решение для плана:** plan-aware overlay **в scope 11.4**, потому что без него `feasibility`/`leverage`/`safety` всегда default'ы — composition теряет свою точность, и behavior diff будет не атрибутируем.
+
+#### Tests (обязательные, ≥10)
+
+В `pipeline/stages/pick_best.rs::tests` или `intent/composition.rs::tests`:
+
+1. `composition_collapses_to_base_when_considerations_uniform` — pin normalization invariant.
+2. `multi_item_pick_attributes_to_winning_item` — pool с двумя планами, оба viable; разные item's win — каждый план получает item attribution.
+3. `single_item_agenda_byte_identical_to_legacy` — N=1 agenda → final score равен (pre-11.4) score within epsilon.
+4. `consideration_weights_dominate_in_critical_self_band` — band weights сильно сдвигают urgency → ProtectSelf wins даже при низком raw score.
+5. `intent_mask_protects_self_for_non_defensive_plans` — ProtectSelf agenda item + non-defensive plan → masked, final=-∞ для этого item; план может выиграть через другой item.
+6. `intent_mask_killable_gate_for_non_killable_focus_target` — аналогично для KillableGate.
+7. `multiplier_ratio_preserves_sanity_critic_effect` — план с Critics hit получает соответствующий drop в final score через ratio.
+8. `empty_agenda_falls_back_to_legacy_pipeline` — пустая agenda → ItemScoringStage no-op → behavior как 11.3.
+9. `agenda_item_attribution_persisted_in_annotation` — после PickBest `ann.agenda_item` соответствует winning item.
+10. `plan_aware_overlay_changes_feasibility_axis` — compute_considerations с Some(ann) → feasibility != 1.0 default.
+11. `mode_lastestand_does_not_break_per_item_scoring` — ProtectSelfNoDefensive triggers, plans rescored in LastStand, but per_item scores still computed (warning: see edge case 4).
+
+В `intent/considerations.rs::tests` — добавить с-plan тесты для feasibility/leverage/safety теперь когда они реально читают plan data.
+
+#### Risks & mitigations
+
+| Риск | Вероятность | Mitigation |
+|---|---|---|
+| **Multiplier ratio broken** для plan где Critics/Sanity делают score → 0.0 → div by zero | средняя | guard на EPSILON; tests на pathological ratio |
+| **Per-item factor расходится с finalize** (если intent_factor/tempo_factor compute не совпадает с finalize_scores семантикой) | высокая | Reuse `compute_plan_intent_sum`/`compute_plan_tempo_gain` напрямую, не дублировать |
+| **Intent mask дублирует ProtectSelfMaskStage** | средняя | После 11.4 решить: оставить Stage в pipeline (для legacy single-item path) или убрать. Если оставить — добавить тест что mask из ItemScoringStage и Stage'а согласованы для primary item |
+| **Agenda через StageCtx ломает API** существующих stage'ов | низкая | Сделать `agenda: Option<...>` — старые stages не читают и не ломаются |
+| **`composition_collapses_to_base_when_considerations_uniform`** не выполняется из-за плавающей точки | низкая | Tolerance в тесте (≤1e-4) |
+| **Adaptive replacement of `select_intent`** — 11.4 ещё не убирает `select_intent`, но build_agenda для NormalTactical зовёт его. Risk: select_intent под Default-mode с глобальным intent VS per-item scoring под item.intent — расхождение | средняя | В 11.4 для NormalTactical agenda item.intent == select_intent.intent (по построению в 11.2). Composition должна давать тот же финальный pick как legacy в N=1 случае — pin тестом #3 |
+| **Performance regression** — N=3 items × X plans = 3X scoring passes | низкая (M=N*X где N=3) | Compute_plan_intent_sum дешёв (один проход по plan steps). Профилировать post-11.4 если будет видно |
+
+#### Что **не делать** в 11.4
+
+- **Не двигать ProtectSelfMaskStage / KillableGateStage** — оставить, они работают на primary item (через ann.score path); per-item masks дополнительные в ItemScoringStage.
+- **Не убирать `select_intent`** — он вызывается из build_agenda для NormalTactical (N=1 fallback). Удаление — 11.5.
+- **Не трогать SanityRule enum / CriticsKind** — Critics/Sanity intent-агностичны, не зависят от per-item intents.
+- **Не делать schema bump** — `agenda_item`/`per_item`/`score_initial` локальные runtime поля; сериализация — 11.6.
+- **Не вводить ranking-tuning** для consideration weights — захардкодены в `BandWeights`.
+- **Не делать commit.**
+
+#### Эстимейт
+
+**3.0 дня** (увеличен с 2.5 из-за plan-aware overlay scope и edge cases). Самый рискованный сабшаг шага 11. Рекомендуется выделить отдельную сессию.
+
+**Gate.** Golden review per-entry. Допустимо ≤25% diff'ов; каждый — атрибутируется к agenda-item swap (winner был low-rank legacy choice). По-fixture снимки для 6 missions corpus'а до/после. Все ≥10 unit-тестов зелёные, ≥3 тестов из 11.3 (с-plan для feasibility/leverage/safety) обновлены и зелёные.
 
 ---
 
