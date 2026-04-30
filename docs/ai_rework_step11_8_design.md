@@ -104,13 +104,22 @@ let feasibility = if !ann.viability.passed {
 
 **Day-1 prerequisite — verify `adjusted_score` domain.** Before locking `FEASIBILITY_MARGIN`, sample `ann.viability.adjusted_score` across the pool on existing v32 logs (or via a small mining script). Record `min / p10 / p50 / p90 / max`. If the scale is materially different from `[0, 1]` (e.g., `[0, 100]` raw points), adjust margin to match — otherwise `MARGIN = 1.0` either re-collapses feasibility to `1.0` (too coarse) or stuck near `0` (too tight). **Implementer must paste this distribution into the 11.8 acceptance summary** before any formula tuning.
 
-**Constants (conservative starting points; mining-adjustable later):**
-- `VIABILITY_THRESHOLD` — **use `0.0` as the v1 default**. If `tuning.thresholds` already has a `viability_min` (or equivalent) field, reuse it. **Do NOT add a new threshold tuning constant in 11.8** — keep the new tuning surface minimal.
-- `FEASIBILITY_MARGIN = 1.0` — full unit margin **assuming `adjusted_score` is in `[0, 1]` domain**. If domain check above shows otherwise, scale accordingly. This **is** a new tuning knob (`tuning.intent.feasibility_margin: f32 = 1.0`) — the only one in 11.8.
+**Constants — v1 values set from P1 distribution data (see P1 results below):**
+- `VIABILITY_THRESHOLD = 0.0` — **P2 confirmed `viability_min` field absent in tuning**. Use `0.0` unconditionally. **Do NOT add a new threshold tuning constant.**
+- `FEASIBILITY_MARGIN = 2.0` — **data-driven from P1**: `adjusted_score` domain is `[-2.11, +3.99]`, **not** `[0, 1]` as initially assumed. Margin scan showed:
+
+  | margin | clamp@1 | clamp@0 | middle_mass | verdict |
+  |---|---|---|---|---|
+  | 0.5 | 64% | 21% | 14% | fails gate |
+  | 1.0 | 46% | 21% | 30% | technically passes, but ~half of plans saturate at 1.0 |
+  | **2.0** | **11%** | 21% | **63%** | **chosen — clean continuous signal** |
+  | 3.0 | 1% | 21% | 73% | over-compresses upper range (p90 ≈ 0.52) |
+
+  `2.0` keeps the upper quality plans distinguishable while preserving wide middle mass. The single new tuning knob is `tuning.intent.feasibility_margin: f32 = 2.0`.
 
 > **Note:** `FEASIBILITY_MARGIN = 1.0` is a **v1 scale assumption**, not a calibrated constant. Mining on the post-11.8 corpus may show that 1.0 is too generous (mean → 1.0 again) or too tight (mean → 0); adjust based on observed distribution.
 
-**Tuning surface — strict minimum:** the only new tuning constant in 11.8 is `tuning.intent.feasibility_margin: f32 = 1.0`. `VIABILITY_THRESHOLD` reuses an existing field or defaults to `0.0` — does **not** introduce a new constant. Don't introduce a constellation of knobs.
+**Tuning surface — strict minimum:** the only new tuning constant in 11.8 is `tuning.intent.feasibility_margin: f32 = 2.0`. `VIABILITY_THRESHOLD = 0.0` (P2-verified absent from current tuning, no new constant added). Don't introduce a constellation of knobs.
 
 **Acceptance — middle-mass criterion (rules out bimodal):** rerun H1c on post-11.8 corpus must show genuine continuous spread, not collapse to extremes:
 - `middle_mass = fraction of values in (0.05, 0.95)` ≥ **20%**;
@@ -155,8 +164,10 @@ let leverage = match item.kind {
         // Offensive: damage to **this specific target** relative to its HP + kill pressure.
         // Critical: use per-entity damage, not total enemy_damage — AoE plans must not
         // get full credit by hitting other enemies.
+        // For single-target casts: matches Cast.target == item.target via plan/outcome alignment.
+        // For AoE casts: looks up `enemy_damage_per_entity[item.target]`.
         let target_hp = target_current_hp_or_max(snap, item.target);
-        let damage_to_target = damage_to_specific_target(&ann.outcomes, item.target);
+        let damage_to_target = damage_to_specific_target(plan, &ann.outcomes, item.target);
         let damage_ratio = if target_hp > 0.0 {
             (damage_to_target / target_hp).clamp(0.0, 1.0)
         } else { 0.0 };
@@ -168,7 +179,13 @@ let leverage = match item.kind {
         // ApplyCC's purpose is incapacitation, not damage — a plan that CCs the
         // target for 2 turns must out-leverage a plan that deals 30 damage but
         // applies no CC. Damage is incidental here.
-        let target_cc = cc_turns_applied_to_target(&ann.outcomes, item.target);
+        //
+        // v1 semantic: target-specific CC is inferred by step/outcome alignment
+        // (Cast steps whose `target == item.target`). AoE or position-targeted
+        // CC that hits the agenda target as a side-effect is **under-credited**
+        // because per-entity CC breakdown is not currently in `ActionOutcomeEstimate`.
+        // See backlog: per-entity CC breakdown for AoE/area CC leverage.
+        let target_cc = cc_turns_applied_to_target(plan, &ann.outcomes, item.target);
         (target_cc / APPLY_CC_REFERENCE_TURNS).clamp(0.0, 1.0)
     }
     IntentKind::ProtectAlly => {
@@ -231,10 +248,16 @@ let leverage = match item.kind {
 };
 ```
 
-**Helpers required:**
+**Helpers required (all single-file additions; no schema/struct changes):**
+
 - `target_current_hp_or_max(snap, target_opt) -> f32` — reads target unit HP from snapshot, returns 0 when target=None.
-- `damage_to_specific_target(outcomes, target_opt) -> f32` — `Σ enemy_damage_per_entity` filtered by `entity == target`. Returns 0 when target=None.
-- `cc_turns_applied_to_target(outcomes, target_opt) -> f32` — equivalent to `damage_to_specific_target` but for cc_turns. Requires `cc_turns_per_entity` field if not yet present in `ActionOutcomeEstimate`. **If field doesn't exist, implementer adds it (per-entity breakdown for cc_turns_applied) as Day-1 prerequisite.** When this field is added, **propagate the change to log schema serialisation and to `mine_ai_logs.rs` parsers** that read `ActionOutcomeEstimate` (even if `SCHEMA_VERSION` stays at 32 thanks to `serde(default)`, mining code that *reads* the field must be aware). Add an explicit checklist item to the implementer brief.
+- `damage_to_specific_target(plan, outcomes, target_opt) -> f32` — walks `plan.steps.zip(outcomes)`. For each `Cast` step:
+  - If `outcome.enemy_damage_per_entity` is non-empty (AoE case): look up entry where `entity == target`, sum its damage.
+  - Else (single-target case) and `Cast.target == target`: use `outcome.enemy_damage` directly.
+  - Else: 0 contribution.
+- `cc_turns_applied_to_target(plan, outcomes, target_opt) -> f32` — **v1 simplification**: walks `plan.steps.zip(outcomes)`, filters Cast steps where `Cast.target == target`, sums `outcome.cc_turns_applied`. **Does NOT require new struct fields.**
+
+  > **v1 limitation — under-credits AoE/area CC.** A plan that targets entity A with an AoE that also stuns target B (the agenda target) will under-credit ApplyCC leverage, because we only credit when the explicit Cast target matches. Per-entity CC breakdown (`cc_turns_per_entity` field, analogous to `enemy_damage_per_entity`) is **deferred to backlog** — add only if mining shows ApplyCC under-credit is causing wrong attribution.
 - `sum_hp_restored`, `sum_cc_turns_applied` — straightforward `Σ` over `ann.outcomes` (broad sum, used by ProtectAlly v1 simplification).
 - `ally_hp_deficit_for_target(snap, ally_opt) -> f32` — `ally.max_hp - ally.hp` for the protected ally.
 
@@ -284,28 +307,33 @@ If probe fails (safety=1.0 even when exposure > 0) — formula is broken, escala
 
 Total estimate: **~3 days**. Strict sequencing: P-steps first (prerequisites — investigation only), then S/T/U (implementation). Each step has explicit acceptance.
 
-### Day 0 / Prerequisites — investigation-only, no production code yet
+### Day 0 / Prerequisites — completed before implementer launch
 
-> These are **gates** — don't proceed to S-steps until all P-steps return a known answer. Output of each P-step pasted into the 11.8 acceptance summary.
+> All P-steps **already done in conversation**. Outputs and decisions recorded below; no investigation needed by the implementer. Implementer can start directly with Day 1 (S-steps).
 
-- **P1.** Sample `ann.viability.adjusted_score` distribution across the pool on existing v32 logs (or via a small standalone script). Record `min / p10 / p50 / p90 / max`.
-  - **Output:** distribution paste in acceptance summary.
-  - **Decision:** if scale materially differs from `[0, 1]` (e.g., raw [0, 100]), adjust `FEASIBILITY_MARGIN` accordingly in T2. If 95%+ values cluster at one or two points, **escalate** per Section B's source-fix rule — do not tune margin blindly.
-- **P2.** Verify whether `tuning.thresholds` already has a `viability_min` (or equivalent) field. Use `ya tool ast-index agrep "viability_min"` or grep tuning.rs.
-  - **If exists:** reuse, set `VIABILITY_THRESHOLD = tuning.thresholds.viability_min`.
-  - **If absent:** use `0.0` as v1 default. **Do NOT add a new tuning constant.**
-- **P3.** Verify whether `ActionOutcomeEstimate` has `cc_turns_per_entity: Vec<(Entity, f32)>` (analogous to `enemy_damage_per_entity`).
-  - **If exists:** good, skip P3 implementation.
-  - **If absent:** add the field. Propagate to: (a) `ActionOutcomeEstimate` struct, (b) outcome `builder` (populate per-entity), (c) log serialisation (will work via `serde(default)` — no schema bump needed), (d) `mine_ai_logs.rs` parsers that read `ActionOutcomeEstimate` (verify existing readers are tolerant of new field). Add unit test that `cc_turns_per_entity` aggregates correctly under AoE CC.
-- **P4.** Verify `ctx.scoring.active.pos` invariant (must be **start-of-turn** snapshot position, not mutated state). One source-read of `ScoringCtx` construction in `pick_action`. If any mutation suspected, escalate before relying on it for ProtectSelf leverage.
+**P1 — `adjusted_score` distribution sampled on existing v32 logs (n=3557 plans, 3230 passed):**
+
+```
+domain:     [-2.11, +3.99]   ← NOT [0, 1] as initially assumed
+mean:        0.86  stddev: 0.97
+percentiles: p10=-0.32  p25=0.15  p50=0.89  p75=1.55  p90=2.07
+```
+
+21% of "passed" plans have negative `adjusted_score` (clamped to 0 by formula). Margin scan led to the choice **`FEASIBILITY_MARGIN = 2.0`** (see Section B for full table). With this margin: 11% clamp@1, 21% clamp@0, 63% middle_mass — clean continuous signal.
+
+**P2 — `viability_min` field absent.** `ya tool ast-index agrep "viability_min"` returned 0 matches. Decision: `VIABILITY_THRESHOLD = 0.0` unconditionally, **no new tuning constant added**.
+
+**P3 — `cc_turns_per_entity` field absent, but NOT needed.** `ActionOutcomeEstimate` has only aggregate `cc_turns_applied: f32`. Instead of adding a new field, the helper `cc_turns_applied_to_target` uses `plan.steps.zip(outcomes)` and filters Cast steps where `Cast.target == agenda.target`. Same trick used by `damage_to_specific_target` (which falls back to `enemy_damage_per_entity` for AoE). **Net result: zero schema/struct/log/mining changes for cc handling.** v1 limitation: AoE/area CC affecting the agenda target as a side-effect is under-credited — backlog item if mining shows ApplyCC under-credit.
+
+**P4 — `active.pos` invariant verified.** `ScoringCtx.active = snap.unit(actor)`; `snap: BattleSnapshot` is taken at start of actor's turn and is immutable during planning (planning is hypothetical, doesn't mutate snapshot). Therefore `ctx.scoring.active.pos` reliably equals start-of-turn position — safe to use in `ProtectSelf` leverage formula's `danger_now`.
 
 ### Day 1 / Leverage formulas (S-steps)
 
 - **S1.** Add 11 named constants at module scope of `overlay_considerations.rs`: `FOCUS_DAMAGE_WEIGHT`, `FOCUS_KILL_WEIGHT`, `APPLY_CC_REFERENCE_TURNS`, `PROTECT_HEAL_WEIGHT`, `PROTECT_CC_WEIGHT`, `SELF_SURVIVAL_WEIGHT`, `SELF_REDUCTION_WEIGHT`, `REPO_LINE_WEIGHT`, `REPO_CLUSTER_WEIGHT`, `LAST_STAND_KILL_WEIGHT`, `LAST_STAND_DAMAGE_WEIGHT`, `LAST_STAND_DAMAGE_REFERENCE`. Values per Section C code listing.
-- **S2.** Implement helpers (location: same file or shared module — implementer's choice, but no duplication):
+- **S2.** Implement helpers (location: same file or shared module — implementer's choice, but no duplication). All take `&TurnPlan` where step/outcome alignment is needed:
   - `target_current_hp_or_max(snap, target_opt) -> f32`
-  - `damage_to_specific_target(outcomes, target_opt) -> f32` (uses `enemy_damage_per_entity`)
-  - `cc_turns_applied_to_target(outcomes, target_opt) -> f32` (uses `cc_turns_per_entity` from P3)
+  - `damage_to_specific_target(plan, outcomes, target_opt) -> f32` — walks `plan.steps.zip(outcomes)`; uses `enemy_damage_per_entity` for AoE, falls back to `enemy_damage` for single-target where `Cast.target == target`
+  - `cc_turns_applied_to_target(plan, outcomes, target_opt) -> f32` — walks `plan.steps.zip(outcomes)`, filters `Cast.target == target`, sums `outcome.cc_turns_applied`. **No new struct field needed** (per P3 decision). Documents v1 limitation: AoE/area CC on non-explicit-targets under-credited.
   - `sum_hp_restored(outcomes) -> f32`
   - `sum_cc_turns_applied(outcomes) -> f32`
   - `ally_hp_deficit_for_target(snap, ally_opt) -> f32`
@@ -386,5 +414,6 @@ Total estimate: **~3 days**. Strict sequencing: P-steps first (prerequisites —
 - **`FEASIBILITY_MARGIN` calibration** — backlog after first 11.8 mining run.
 - **safety probe** — implemented in 11.8 (axis D); if it fails, separate fix slice.
 - **ProtectAlly threat-specific CC** — v1 uses broad `cc_turns_applied`. Refine to threat-specific (only count CC on enemies threatening the protected ally) if mining shows gaming behavior.
+- **Per-entity CC breakdown for AoE leverage** — v1 `cc_turns_applied_to_target` matches by Cast.target only; AoE/area CC that hits the agenda target as a side-effect is under-credited. If mining shows ApplyCC under-credit (e.g., low ApplyCC leverage despite plans that demonstrably stun the target via AoE), add `cc_turns_per_entity: Vec<(Entity, f32)>` to `ActionOutcomeEstimate` (analogous to `enemy_damage_per_entity`).
 - **continuation_value rare > 0.5** — H1c shows `p99=0.499`, suggesting `repair_affinity.severity_factor` rarely fires. Investigate why repair_affinity is mostly zero. Backlog after 11.8 mining.
 - **Step 12+ removal of deprecated `select_intent`** — already deprecated in 11.5; full removal scheduled for step 12.
