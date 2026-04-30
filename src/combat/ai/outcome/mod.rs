@@ -57,6 +57,46 @@ use crate::combat::ai::factors::{PlanFactorValues, FactorTerminalScore};
 use crate::combat::ai::modifiers::ModifierContribution;
 use serde::{Deserialize, Serialize};
 
+// ── PerItemEval ───────────────────────────────────────────────────────────────
+
+/// Per-agenda-item scoring cache for one plan — step 11.4.
+///
+/// Holds the intent-dependent factors for a specific `AgendaItem` evaluated
+/// against a specific plan.  `ItemScoringStage` fills `per_item[i]` for every
+/// item `i` in the agenda; `PickBestStage` reads them during composition.
+///
+/// Runtime-only — not serialised (no `#[serde]`).  Schema bump lives in 11.6.
+#[derive(Clone, Copy, Debug)]
+pub struct PerItemEval {
+    /// `compute_plan_intent_sum(plan, item.intent_for_scoring(), ctx)`.
+    pub intent_factor: f32,
+    /// `compute_plan_tempo_gain(plan, item.intent_for_scoring(), ctx)`.
+    pub tempo_factor: f32,
+    /// `true` when the plan is eligible under this item's intent-specific filter.
+    /// `false` means the plan is incompatible with this agenda item and must be
+    /// skipped during composition.
+    /// Sources: ProtectSelf → `plan_is_defensive` check;
+    ///          FocusTarget → `plan_is_offensive_vs` check.
+    /// Defaults to `true` (no masking for general intent kinds).
+    pub eligible: bool,
+    /// Plan-aware considerations overlay.  Populated by `OverlayConsiderationsStage`
+    /// (after `RepairAffinityStage`) with accurate feasibility / leverage / safety
+    /// values derived from plan data.  Falls back to item-level considerations
+    /// when not yet populated (zero-default `IntentConsiderations`).
+    pub considerations: crate::combat::ai::intent::considerations::IntentConsiderations,
+}
+
+impl Default for PerItemEval {
+    fn default() -> Self {
+        Self {
+            intent_factor: 0.0,
+            tempo_factor: 0.0,
+            eligible: true, // eligible by default; masking stages set to false
+            considerations: crate::combat::ai::intent::considerations::IntentConsiderations::default(),
+        }
+    }
+}
+
 /// Structured estimate of a single plan step's consequences.
 ///
 /// Contains **facts only** — raw, policy-free measurements derived from the sim
@@ -222,6 +262,30 @@ pub struct PlanAnnotation {
     /// deserialise as an empty vec.
     #[serde(default)]
     pub critics: Vec<crate::combat::ai::critics::CriticHit>,
+
+    // ── Step 11.4 fields (runtime-only; schema bump deferred to 11.6) ─────────
+
+    /// Score immediately after the initial `score_plans_with_raw` pass,
+    /// before any pipeline stages run.  Used in `PickBestStage` as the base
+    /// for additive per-item composition: `composed = score_initial +
+    /// intent_delta + tempo_delta + W × cdot`.
+    /// Not serialised — runtime-only field.
+    #[serde(skip)]
+    pub score_initial: f32,
+
+    /// Per-agenda-item scoring cache.  `per_item[i]` holds the intent-dependent
+    /// factors for agenda item `i`.  Populated by `ItemScoringStage`; consumed
+    /// by `PickBestStage` during composition.
+    /// Not serialised — runtime-only field.
+    #[serde(skip)]
+    pub per_item: Vec<PerItemEval>,
+
+    /// Winning agenda-item index (into `Agenda::items`) as chosen by
+    /// `PickBestStage`.  `None` when agenda is empty (legacy path) or before
+    /// `PickBestStage` runs.
+    /// Not serialised — runtime-only field.
+    #[serde(skip)]
+    pub agenda_item: Option<u8>,
 }
 
 /// Adaptation reason + original (pre-adaptation) score for a single plan.

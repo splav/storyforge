@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::intent::{AgendaItem, IntentKind};
+use crate::combat::ai::intent::bands::BandWeights;
 use crate::combat::ai::repair::affinity::RepairAffinity;
 use crate::combat::ai::role::AxisProfile;
 
@@ -43,6 +44,29 @@ pub struct IntentConsiderations {
     pub role_affinity: f32,
     /// Stickiness / repair-aware continuation value.
     pub continuation_value: f32,
+}
+
+impl IntentConsiderations {
+    /// Normalised weighted dot product of these considerations against `w`.
+    ///
+    /// Raw dot is divided by the sum of weights so that, for uniform
+    /// considerations `(1,1,1,1,1,1)` and any band weights, the result
+    /// equals the arithmetic mean of the considerations (which is 1.0 when
+    /// all axes are 1.0).  This ensures composition collapses to the base
+    /// score when considerations are all-1.
+    ///
+    /// Returns 1.0 when `weight_sum ≈ 0` to avoid div-by-zero.
+    pub fn weighted_dot(&self, w: &BandWeights) -> f32 {
+        let raw = self.urgency            * w.urgency
+                + self.feasibility        * w.feasibility
+                + self.leverage           * w.leverage
+                + self.safety             * w.safety
+                + self.role_affinity      * w.role_affinity
+                + self.continuation_value * w.continuation_value;
+        let sum = w.urgency + w.feasibility + w.leverage
+                + w.safety + w.role_affinity + w.continuation_value;
+        if sum > f32::EPSILON { raw / sum } else { 1.0 }
+    }
 }
 
 // ── compute_considerations ────────────────────────────────────────────────────
@@ -424,6 +448,115 @@ mod tests {
             assert!(
                 (0.0..=1.0).contains(&val),
                 "{name} must be in [0,1], got {val}"
+            );
+        }
+    }
+
+    // ── Step 11.4: weighted_dot tests ─────────────────────────────────────────
+
+    use crate::combat::ai::intent::bands::{BandWeights, PriorityBand};
+
+    fn uniform_weights() -> BandWeights {
+        BandWeights {
+            urgency: 1.0,
+            feasibility: 1.0,
+            leverage: 1.0,
+            safety: 1.0,
+            role_affinity: 1.0,
+            continuation_value: 1.0,
+        }
+    }
+
+    fn uniform_considerations() -> IntentConsiderations {
+        IntentConsiderations {
+            urgency: 1.0,
+            feasibility: 1.0,
+            leverage: 1.0,
+            safety: 1.0,
+            role_affinity: 1.0,
+            continuation_value: 1.0,
+        }
+    }
+
+    /// Normalization invariant: for uniform considerations (all 1.0) and
+    /// uniform weights (all 1.0), weighted_dot == 1.0.
+    /// Pinning this invariant ensures composition collapses to base score.
+    #[test]
+    fn composition_collapses_to_base_when_considerations_uniform() {
+        let c = uniform_considerations();
+        let w = uniform_weights();
+        let dot = c.weighted_dot(&w);
+        assert!(
+            (dot - 1.0).abs() < 1e-5,
+            "uniform considerations × uniform weights must yield 1.0, got {dot}"
+        );
+    }
+
+    /// weighted_dot returns 1.0 when weight_sum ≈ 0 (div-by-zero guard).
+    #[test]
+    fn weighted_dot_zero_weights_returns_one() {
+        let c = uniform_considerations();
+        let w = BandWeights {
+            urgency: 0.0,
+            feasibility: 0.0,
+            leverage: 0.0,
+            safety: 0.0,
+            role_affinity: 0.0,
+            continuation_value: 0.0,
+        };
+        let dot = c.weighted_dot(&w);
+        assert!(
+            (dot - 1.0).abs() < 1e-5,
+            "zero-weight sum must return 1.0 (div-by-zero guard), got {dot}"
+        );
+    }
+
+    /// High-safety band weights amplify the safety axis.
+    /// CriticalSelfPreservation band: safety=1.0, urgency=1.0, leverage=0.1.
+    /// Considerations with safety=1.0 and low others should still produce
+    /// a dot close to the band's emphasis.
+    #[test]
+    fn consideration_weights_dominate_in_critical_self_band() {
+        let w = PriorityBand::CriticalSelfPreservation.weights();
+        // High safety + high urgency considerations.
+        let c_safe = IntentConsiderations {
+            urgency: 1.0,
+            feasibility: 0.7,
+            leverage: 0.0,
+            safety: 1.0,
+            role_affinity: 0.5,
+            continuation_value: 0.5,
+        };
+        // Low safety considerations.
+        let c_unsafe = IntentConsiderations {
+            urgency: 0.2,
+            feasibility: 0.7,
+            leverage: 0.5,
+            safety: 0.0,
+            role_affinity: 0.5,
+            continuation_value: 0.5,
+        };
+        let dot_safe = c_safe.weighted_dot(&w);
+        let dot_unsafe = c_unsafe.weighted_dot(&w);
+        assert!(
+            dot_safe > dot_unsafe,
+            "CriticalSelf band must rank safe considerations higher: safe={dot_safe} vs unsafe={dot_unsafe}"
+        );
+    }
+
+    /// weighted_dot result is in [0, 1] for valid consideration values.
+    #[test]
+    fn weighted_dot_in_unit_range_for_valid_input() {
+        let w = PriorityBand::NormalTactical.weights();
+        for considerations in [
+            uniform_considerations(),
+            IntentConsiderations::default(), // all zeros
+            IntentConsiderations { urgency: 0.5, feasibility: 0.5, leverage: 0.5, safety: 0.5, role_affinity: 0.5, continuation_value: 0.5 },
+        ] {
+            let dot = considerations.weighted_dot(&w);
+            assert!(
+                (0.0..=1.0).contains(&dot),
+                "weighted_dot must be in [0,1] for valid inputs, got {dot}"
             );
         }
     }

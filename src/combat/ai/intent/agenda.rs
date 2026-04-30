@@ -19,7 +19,7 @@ use crate::combat::ai::appraisal::{ally_threat_proxy, NeedSignals};
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::influence::InfluenceMaps;
 use crate::combat::ai::intent::{
-    select_intent, AiMemory, BandReason, IntentKind, IntentReason, PriorityBand,
+    select_intent, AiMemory, BandReason, IntentKind, IntentReason, PriorityBand, TacticalIntent,
 };
 use crate::combat::ai::intent::considerations::{compute_considerations, IntentConsiderations};
 use crate::combat::ai::role::AxisProfile;
@@ -47,6 +47,36 @@ pub struct AgendaItem {
     /// Structured 6-axis considerations computed in 11.3.
     /// Populated by `build_agenda`; not used for routing until 11.4.
     pub considerations: IntentConsiderations,
+}
+
+impl AgendaItem {
+    /// Convert this item into a `TacticalIntent` suitable for scoring functions
+    /// (`compute_plan_intent_sum`, `compute_plan_tempo_gain`).
+    ///
+    /// Target-bearing intents (`FocusTarget`, `ApplyCC`, `ProtectAlly`) use
+    /// the stored `self.target`.  When `target` is `None` (e.g. the item was
+    /// built without a target — shouldn't happen for these kinds, but handled
+    /// defensively), the intent degrades to `Reposition`.
+    pub fn intent_for_scoring(&self) -> TacticalIntent {
+        match self.kind {
+            IntentKind::FocusTarget => self
+                .target
+                .map(|t| TacticalIntent::FocusTarget { target: t })
+                .unwrap_or(TacticalIntent::Reposition),
+            IntentKind::ApplyCC => self
+                .target
+                .map(|t| TacticalIntent::ApplyCC { target: t })
+                .unwrap_or(TacticalIntent::Reposition),
+            IntentKind::ProtectAlly => self
+                .target
+                .map(|ally| TacticalIntent::ProtectAlly { ally })
+                .unwrap_or(TacticalIntent::Reposition),
+            IntentKind::Reposition => TacticalIntent::Reposition,
+            IntentKind::ProtectSelf => TacticalIntent::ProtectSelf,
+            IntentKind::SetupAOE => TacticalIntent::SetupAOE,
+            IntentKind::LastStand => TacticalIntent::LastStand,
+        }
+    }
 }
 
 // ── Agenda ────────────────────────────────────────────────────────────────────

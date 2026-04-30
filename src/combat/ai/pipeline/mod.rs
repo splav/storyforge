@@ -11,6 +11,7 @@
 pub mod stages;
 
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+use crate::combat::ai::intent::agenda::Agenda;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::utility::ScoringCtx;
@@ -31,6 +32,11 @@ pub struct StageCtx<'w, 's> {
     pub intent_reason: IntentReason,
     pub actor_pos: Hex,
     pub rng: &'s mut DiceRng,
+    /// Step 11.4: optional agenda for per-item composition.
+    /// `Some` when `pick_action` has built a non-empty agenda; `None` on legacy
+    /// / empty-agenda paths so that `ItemScoringStage` and `PickBestStage` can
+    /// gracefully fall back to single-intent behaviour.
+    pub agenda: Option<&'s Agenda>,
 }
 
 impl<'w, 's> StageCtx<'w, 's> {
@@ -47,7 +53,15 @@ impl<'w, 's> StageCtx<'w, 's> {
             intent_reason,
             actor_pos,
             rng,
+            agenda: None,
         }
+    }
+
+    /// Attach an agenda to this context.  Called from `pick_action` after
+    /// `build_agenda` returns a non-empty agenda.
+    pub fn with_agenda(mut self, agenda: &'s Agenda) -> Self {
+        self.agenda = Some(agenda);
+        self
     }
 }
 

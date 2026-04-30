@@ -43,6 +43,16 @@ use crate::core::modifier;
 use crate::game::components::Abilities;
 use bevy::prelude::Entity;
 
+/// Per-factor contribution used both in `finalize_scores` (Pass 1) and in
+/// `PickBestStage` (step 11.4 additive composition).
+///
+/// Returns `default_norm(raw_value, stats, signed) × weight` — the exact
+/// quantity that `finalize_scores` adds to a plan's score for one factor.
+/// Exposing it here keeps both callsites mathematically identical.
+pub fn factor_contribution(raw_value: f32, stats: &BatchStats, signed: bool, weight: f32) -> f32 {
+    default_norm(raw_value, stats, signed) * weight
+}
+
 /// Worst danger value across the plan's path tiles + its final tile.
 /// Excludes the actor's starting tile — callers that care about it (the
 /// scorer's risk factor) fold it in on top. Sanity uses this directly
@@ -198,11 +208,11 @@ pub fn finalize_scores(
             let mut score = 0.0f32;
             for f in StepFactor::iter() {
                 let i = f as usize;
-                score += default_norm(factors.get(f), &stats[i], f.signed()) * weights[i];
+                score += factor_contribution(factors.get(f), &stats[i], f.signed(), weights[i]);
             }
             for f in PlanFactor::iter() {
                 let i = StepFactor::count() + f as usize;
-                score += default_norm(factors.get_plan(f), &stats[i], f.signed()) * weights[i];
+                score += factor_contribution(factors.get_plan(f), &stats[i], f.signed(), weights[i]);
             }
             score
         })

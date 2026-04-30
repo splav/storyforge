@@ -252,10 +252,9 @@ pub fn pick_action(
     // Explicit discard so reviewers can see the intent without compiler noise.
     let (band, band_reason) = assign_band(active, snap, maps, &need_signals, world.difficulty, world.tuning);
 
-    // ── Step 11.2: agenda construction (computed, not used) ──────────────
-    // Agenda is built here so the infrastructure is exercised end-to-end
-    // and future telemetry hooks in 11.6 have a natural attachment point.
-    // Routing (11.4) and per-item considerations (11.3) land in later subs.
+    // ── Step 11.2 / 11.4: agenda construction ────────────────────────────
+    // In 11.4, agenda is passed into StageCtx so ItemScoringStage and
+    // PickBestStage can perform per-item composition.
     let agenda = crate::combat::ai::intent::build_agenda(
         band,
         &band_reason,
@@ -266,7 +265,6 @@ pub fn pick_action(
         world.difficulty,
         world.tuning,
     );
-    let _ = agenda; // 11.2: computed for telemetry plumbing only — NOT used for routing.
 
     // ── Select tactical intent ──────────────────────────────────────────
     let choice = select_intent(active, snap, maps, memory, world.difficulty, world.tuning, &need_signals);
@@ -313,6 +311,7 @@ pub fn pick_action(
     let mut pool = ScoredPool::new(plans);
     for (ann, (score, raw)) in pool.annotations.iter_mut().zip(initial_scored.into_iter().zip(initial_raw.into_iter())) {
         ann.score = score;
+        ann.score_initial = score; // Step 11.4: snapshot pre-pipeline score for multiplier_ratio.
         ann.factors = raw;
     }
 
@@ -340,11 +339,18 @@ pub fn pick_action(
         rng,
     );
 
+    // Step 11.4: attach agenda to stage context for per-item composition.
+    if !agenda.items.is_empty() {
+        stage_ctx = stage_ctx.with_agenda(&agenda);
+    }
+
     use crate::combat::ai::pipeline::stages::{
         critics::CriticsStage,
         finalize::FinalizeStage,
+        item_scoring::ItemScoringStage,
         killable_gate::KillableGateStage,
         mode_selection::ModeSelectionStage,
+        overlay_considerations::OverlayConsiderationsStage,
         pick_best::PickBestStage,
         plan_modifiers::PlanModifiersStage,
         protect_self::ProtectSelfMaskStage,
@@ -354,15 +360,18 @@ pub fn pick_action(
     };
     use crate::combat::ai::pipeline::PlanStage;
 
-    // Pipeline order (step 11.0 — B3 fix):
-    //   Viability → ModeSelection → Finalize → Sanity → Critics → ProtectSelfMask
-    //   → KillableGate → RepairAffinity → PlanModifiers → PickBest
+    // Pipeline order (step 11.4):
+    //   Viability → ItemScoring → ModeSelection → Finalize → Sanity → Critics
+    //   → ProtectSelfMask → KillableGate → RepairAffinity
+    //   → OverlayConsiderations → PlanModifiers → PickBest
     //
-    // ModeSelection selects per-plan EvaluationMode (no score mutation).
-    // Finalize applies mode-aware scoring (overwrites ann.score from raw factors).
-    // Sanity and Critics then apply their multipliers on the finalized base score,
-    // so LastStand-triggered plans keep their Sanity/Critics modifiers (B3 fix).
+    // ItemScoringStage runs BEFORE ModeSelection so it sees primary-intent raw
+    // factors (before any LastStand rescoring changes them).
+    // OverlayConsiderationsStage runs AFTER RepairAffinity so it can read
+    // ann.repair_affinity for accurate continuation_value.
+    // PickBestStage performs composition using per_item + weights when agenda present.
     ViabilityStage.apply(&mut pool, &mut stage_ctx);
+    ItemScoringStage.apply(&mut pool, &mut stage_ctx);
     ModeSelectionStage.apply(&mut pool, &mut stage_ctx);
     FinalizeStage.apply(&mut pool, &mut stage_ctx);
     SanityStage.apply(&mut pool, &mut stage_ctx);
@@ -374,6 +383,7 @@ pub fn pick_action(
     ProtectSelfMaskStage.apply(&mut pool, &mut stage_ctx);
     KillableGateStage.apply(&mut pool, &mut stage_ctx);
     RepairAffinityStage.apply(&mut pool, &mut stage_ctx);
+    OverlayConsiderationsStage.apply(&mut pool, &mut stage_ctx);
     PlanModifiersStage.apply(&mut pool, &mut stage_ctx);
     PickBestStage.apply(&mut pool, &mut stage_ctx);
 

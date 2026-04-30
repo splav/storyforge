@@ -25,8 +25,8 @@ pub use picker::{commit_plan, pick_best_plan, record_committed_reservations, Pic
 pub use reach::reach_from;
 pub use sanity::{apply_protect_self_mask, plan_is_defensive, sanity_adjust_plans, SanityHit, SanityRule};
 pub use scorer::{
-    compute_plan_factors, finalize_scores, rescore_with_intent, rescore_with_per_plan_modes,
-    score_plans_with_raw,
+    compute_plan_factors, compute_plan_intent_sum, factor_contribution, finalize_scores,
+    rescore_with_intent, rescore_with_per_plan_modes, score_plans_with_raw,
 };
 pub use sim::SimState;
 pub use types::{CommittedPrefix, PlanStep, StepOutcome, TurnPlan};
