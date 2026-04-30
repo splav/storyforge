@@ -41,7 +41,7 @@ use storyforge::combat::ai::planning::AdaptationReason;
 use storyforge::combat::ai::repair::{
     classify_continuation_outcome, ContinuationOutcome, FreshDecisionKind, StoredGoalContext,
 };
-use storyforge::combat::ai::intent::TacticalIntent;
+use storyforge::combat::ai::intent::{IntentKind, TacticalIntent};
 use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, StoredGoalContextSnapshot};
 use storyforge::combat::ai::tags::AbilityTag;
 
@@ -219,6 +219,18 @@ struct Aggregate {
     h1_safety: Vec<f32>,
     h1_role_affinity: Vec<f32>,
     h1_continuation_value: Vec<f32>,
+
+    // H1c.bis (step 11.8): per-IntentKind leverage histograms from the chosen plan's
+    // considerations_per_item. Each plan-item's leverage goes into the bucket matching
+    // the corresponding agenda item's kind.
+    // Note: Reposition and SetupAOE share one bucket — they use the same overlay branch.
+    // The global h1_leverage above is kept for cross-kind comparison and backward compat.
+    h1_leverage_focus_target: Vec<f32>,
+    h1_leverage_apply_cc: Vec<f32>,
+    h1_leverage_protect_ally: Vec<f32>,
+    h1_leverage_protect_self: Vec<f32>,
+    h1_leverage_reposition: Vec<f32>, // also covers SetupAOE (same overlay branch)
+    h1_leverage_last_stand: Vec<f32>,
 
     // H2: Agenda-item win-rate (step 11.6, schema v32).
     // Per band: which agenda item index (0/1/2...) wins most often.
@@ -463,6 +475,26 @@ impl Aggregate {
                 self.h1_safety.push(c.safety);
                 self.h1_role_affinity.push(c.role_affinity);
                 self.h1_continuation_value.push(c.continuation_value);
+            }
+
+            // H1c.bis (step 11.8): per-IntentKind leverage histograms from chosen plan.
+            // Uses considerations_per_item (plan-aware overlay values), matched to agenda
+            // items by index. Separate from the item-level h1_leverage above (which uses
+            // agenda item baseline considerations, not plan-specific overlays).
+            if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
+                for (idx, cons) in chosen.annotation.considerations_per_item.iter().enumerate() {
+                    if let Some(item) = event.agenda.get(idx) {
+                        let bucket = match item.kind {
+                            IntentKind::FocusTarget => &mut self.h1_leverage_focus_target,
+                            IntentKind::ApplyCC     => &mut self.h1_leverage_apply_cc,
+                            IntentKind::ProtectAlly => &mut self.h1_leverage_protect_ally,
+                            IntentKind::ProtectSelf => &mut self.h1_leverage_protect_self,
+                            IntentKind::Reposition | IntentKind::SetupAOE => &mut self.h1_leverage_reposition,
+                            IntentKind::LastStand   => &mut self.h1_leverage_last_stand,
+                        };
+                        bucket.push(cons.leverage);
+                    }
+                }
             }
 
             // H1: winner-intent distribution — attributed agenda item kind on chosen plan.
@@ -1644,6 +1676,86 @@ fn main() {
         print_axis("role_affinity",       agg.h1_role_affinity.clone());
         print_axis("continuation_value",  agg.h1_continuation_value.clone());
         println!();
+
+        // H1c.bis: per-IntentKind leverage histograms (step 11.8).
+        // Values come from chosen plan's considerations_per_item, so these are
+        // plan-aware overlay values — not the item-level baselines above.
+        // On pre-11.8 logs leverage was a single flat 0.0 formula; all buckets
+        // will show mean=0.000 (expected, not a bug).
+        println!("### H1c.bis. Per-IntentKind leverage histograms (step 11.8)");
+        println!("  (chosen plan's considerations_per_item, matched to agenda item kind)");
+        println!();
+
+        // Helper: compute middle_mass = fraction of values in (0.05, 0.95).
+        let middle_mass = |v: &[f32]| -> f32 {
+            if v.is_empty() { return 0.0; }
+            let in_middle = v.iter().filter(|&&x| x > 0.05 && x < 0.95).count();
+            in_middle as f32 / v.len() as f32
+        };
+
+        let print_kind_axis = |name: &str, mut v: Vec<f32>| {
+            if v.is_empty() {
+                println!("  {name:<18}  N=0  (no data)");
+                return;
+            }
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let n = v.len();
+            let mean = v.iter().sum::<f32>() / n as f32;
+            let p10 = percentile_sorted(&v, 10.0);
+            let p25 = percentile_sorted(&v, 25.0);
+            let p50 = percentile_sorted(&v, 50.0);
+            let p75 = percentile_sorted(&v, 75.0);
+            let p90 = percentile_sorted(&v, 90.0);
+            let mm = middle_mass(&v) * 100.0;
+            println!(
+                "  {name:<18}  N={n:<5}  mean={mean:.3}  p10={p10:.3}  p25={p25:.3}  p50={p50:.3}  p75={p75:.3}  p90={p90:.3}  middle_mass={mm:.1}%"
+            );
+        };
+
+        let kinds: &[(&str, Vec<f32>)] = &[
+            ("FocusTarget",     agg.h1_leverage_focus_target.clone()),
+            ("ApplyCC",         agg.h1_leverage_apply_cc.clone()),
+            ("ProtectAlly",     agg.h1_leverage_protect_ally.clone()),
+            ("ProtectSelf",     agg.h1_leverage_protect_self.clone()),
+            ("Reposition/AOE",  agg.h1_leverage_reposition.clone()),
+            ("LastStand",       agg.h1_leverage_last_stand.clone()),
+        ];
+        for (name, v) in kinds {
+            print_kind_axis(name, v.clone());
+        }
+        println!();
+
+        // Cross-kind balance gate (acceptance criterion per design doc Section C):
+        // if max_mean / min_mean > 1.30 → flag for retune.
+        {
+            let means: Vec<(&str, f32)> = kinds.iter()
+                .filter(|(_, v)| !v.is_empty())
+                .map(|(name, v)| {
+                    let mean = v.iter().sum::<f32>() / v.len() as f32;
+                    (*name, mean)
+                })
+                .collect();
+            if means.len() >= 2 {
+                let max_entry = means.iter().copied().fold(("", f32::NEG_INFINITY), |acc, x| if x.1 > acc.1 { x } else { acc });
+                let min_entry = means.iter().copied().fold(("", f32::INFINITY),     |acc, x| if x.1 < acc.1 { x } else { acc });
+                if min_entry.1 > 0.0 {
+                    let ratio = max_entry.1 / min_entry.1;
+                    if ratio > 1.30 {
+                        println!(
+                            "  [WARN] Cross-kind balance: {} (mean={:.3}) dominates {} (mean={:.3}) by {:.2}x — flag for retune",
+                            max_entry.0, max_entry.1, min_entry.0, min_entry.1, ratio
+                        );
+                    } else {
+                        println!("  [OK] Cross-kind balance: max/min ratio = {ratio:.2}x (threshold 1.30x)");
+                    }
+                } else {
+                    println!("  [NOTE] Cross-kind balance: min_mean=0 (all kinds flat — pre-11.8 corpus or no data)");
+                }
+            } else {
+                println!("  [NOTE] Cross-kind balance: insufficient kinds with data ({} kinds)", means.len());
+            }
+        }
+        println!();
     }
 
     // H2: Agenda-item win-rate
@@ -2773,5 +2885,119 @@ mod tests {
 
         // H3c total should be 0 for attributed tick.
         assert_eq!(agg.h3c_total.get("NormalTactical").copied().unwrap_or(0), 0);
+    }
+
+    // ── H1c.bis: per-IntentKind leverage histograms (step 11.8) ─────────────
+
+    /// Verify that per-kind leverage values from the chosen plan's
+    /// considerations_per_item are routed to the correct buckets.
+    ///
+    /// Two agenda items: FocusTarget and ProtectSelf. Chosen plan has
+    /// considerations_per_item with leverage 0.7 and 0.4 respectively.
+    /// Each value must land in its own bucket and nowhere else.
+    #[test]
+    fn h1c_per_kind_leverage_buckets_split_correctly() {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
+        use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::log::AgendaItemLog;
+
+        let item_focus = AgendaItemLog {
+            kind: IntentKind::FocusTarget,
+            target: None,
+            raw_score: 1.0,
+            considerations: IntentConsiderations::default(),
+            reason: IntentReason::NoRuleDefault,
+        };
+        let item_protect = AgendaItemLog {
+            kind: IntentKind::ProtectSelf,
+            target: None,
+            raw_score: 1.0,
+            considerations: IntentConsiderations::default(),
+            reason: IntentReason::NoRuleDefault,
+        };
+
+        // Chosen plan with considerations_per_item aligned to the agenda.
+        let cons_focus = IntentConsiderations {
+            urgency: 0.0, feasibility: 1.0, leverage: 0.7,
+            safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
+        };
+        let cons_protect = IntentConsiderations {
+            urgency: 0.0, feasibility: 1.0, leverage: 0.4,
+            safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
+        };
+        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        ann.considerations_per_item = vec![cons_focus, cons_protect];
+
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let mut event = make_event_with_band(
+            PriorityBand::NormalTactical,
+            BandReason::Normal,
+            vec![item_focus, item_protect],
+            vec![plan],
+        );
+        // Give the event a snapshot (required by H3c) — reuse default, no H3c needed.
+        event.snapshot = BattleSnapshot::default();
+
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        // FocusTarget bucket gets 0.7.
+        assert_eq!(agg.h1_leverage_focus_target.len(), 1);
+        assert!((agg.h1_leverage_focus_target[0] - 0.7).abs() < 1e-6,
+            "FocusTarget leverage expected 0.7, got {}", agg.h1_leverage_focus_target[0]);
+
+        // ProtectSelf bucket gets 0.4.
+        assert_eq!(agg.h1_leverage_protect_self.len(), 1);
+        assert!((agg.h1_leverage_protect_self[0] - 0.4).abs() < 1e-6,
+            "ProtectSelf leverage expected 0.4, got {}", agg.h1_leverage_protect_self[0]);
+
+        // Other buckets stay empty.
+        assert!(agg.h1_leverage_apply_cc.is_empty(), "ApplyCC bucket should be empty");
+        assert!(agg.h1_leverage_protect_ally.is_empty(), "ProtectAlly bucket should be empty");
+        assert!(agg.h1_leverage_reposition.is_empty(), "Reposition bucket should be empty");
+        assert!(agg.h1_leverage_last_stand.is_empty(), "LastStand bucket should be empty");
+    }
+
+    /// Verify Reposition and SetupAOE both route to the shared reposition bucket.
+    #[test]
+    fn h1c_reposition_and_setup_aoe_share_bucket() {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
+        use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::log::AgendaItemLog;
+
+        let make_item = |kind| AgendaItemLog {
+            kind,
+            target: None,
+            raw_score: 1.0,
+            considerations: IntentConsiderations::default(),
+            reason: IntentReason::NoRuleDefault,
+        };
+        let make_cons = |leverage| IntentConsiderations {
+            urgency: 0.0, feasibility: 1.0, leverage,
+            safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
+        };
+
+        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        ann.considerations_per_item = vec![make_cons(0.6), make_cons(0.3)];
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let event = make_event_with_band(
+            PriorityBand::NormalTactical,
+            BandReason::Normal,
+            vec![make_item(IntentKind::Reposition), make_item(IntentKind::SetupAOE)],
+            vec![plan],
+        );
+
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(agg.h1_leverage_reposition.len(), 2,
+            "both Reposition and SetupAOE should land in reposition bucket");
+        let values: Vec<f32> = agg.h1_leverage_reposition.clone();
+        assert!(values.contains(&0.6_f32) || values.iter().any(|&v| (v - 0.6).abs() < 1e-6));
+        assert!(values.iter().any(|&v| (v - 0.3).abs() < 1e-6));
     }
 }

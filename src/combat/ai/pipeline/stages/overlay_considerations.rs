@@ -1118,4 +1118,44 @@ mod tests {
             "passed=false must yield feasibility=0.0 regardless of adjusted_score=1.5, got {feasibility}"
         );
     }
+
+    /// Safety probe (step 11.8 §D): verify that the safety axis correctly drops
+    /// below 1.0 when the plan ends in a tile with non-zero danger
+    /// (`terminal.ExposureAtEnd > 0`).
+    ///
+    /// Formula: `safety = 1.0 - max(self_damage_ratio, exposure_at_end)`.
+    /// With exposure=0.8 and self_damage=0: expected safety = 1.0 - 0.8 = 0.2.
+    ///
+    /// In the production corpus safety is observed flat at 1.0. This is corpus-bound
+    /// (OvercommitIntoDanger critic + scenario design keeps actors in safe tiles).
+    /// This probe confirms the formula itself is correct: if it fails (safety stays
+    /// 1.0 despite exposure=0.8), the formula is broken → escalate to backlog.
+    #[test]
+    fn safety_drops_below_one_when_actor_ends_in_danger_zone() {
+        let agenda = Agenda {
+            band: PriorityBand::NormalTactical,
+            items: vec![empty_agenda_item()],
+        };
+
+        let mut ann = PlanAnnotation::default();
+        ann.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
+        ann.per_item = vec![PerItemEval::default()];
+        // High danger at plan end position — captured as terminal factor.
+        // safety = 1.0 - max(self_damage_ratio=0, exposure=0.8) = 0.2
+        let mut terminal = FactorTerminalScore::default();
+        terminal.set(TerminalFactor::ExposureAtEnd, 0.8);
+        ann.terminal = terminal;
+
+        let pool = run_overlay(vec![TurnPlan::default()], vec![ann], &agenda);
+        let safety = pool.annotations[0].per_item[0].considerations.safety;
+
+        assert!(
+            (safety - 0.2).abs() < 1e-4,
+            "safety probe: exposure=0.8 must give safety=0.2, got {safety}"
+        );
+        assert!(
+            safety < 1.0,
+            "safety formula broken — high exposure must produce safety < 1.0 (got {safety})"
+        );
+    }
 }
