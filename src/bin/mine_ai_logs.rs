@@ -1,7 +1,7 @@
-//! AI decision log miner — v29 schema.
+//! AI decision log miner — v32 schema.
 //!
 //! Reads all `*.jsonl` from a directory and prints aggregated metrics.
-//! Only `actor_tick` events with `schema_version == 29` are processed.
+//! Only `actor_tick` events with `schema_version == 32` are processed.
 //! Files containing a different schema version produce a clear error.
 //!
 //! Class A (direct aggregation):
@@ -23,6 +23,13 @@
 //!       (can be negative). Denominator: plans with at least one modifier emitted.
 //!   E2. Picking jitter (noise_applied) for chosen plans. Sign-aware reporter
 //!       (mean / min / max / abs_max). Denominator: chosen plans.
+//!
+//! Class H (bands & agenda — schema v32+):
+//!   H1. Band coverage: per-band tick count, winner-intent distribution,
+//!       per-axis consideration histograms (urgency/feasibility/leverage/
+//!       safety/role_affinity/continuation_value).
+//!   H2. Agenda-item win-rate per band: which item index (0/1/2) wins most
+//!       often. Sanity check: NormalTactical should not degenerate to item 0.
 //!
 //! Usage: `cargo run --release --bin mine_ai_logs -- --dir logs/`
 
@@ -167,6 +174,31 @@ struct Aggregate {
     // "protect_self_no_defensive" / "protect_self_futile") or "none".
     g1_overcommit_by_adapt_reason: BTreeMap<String, usize>,
     g1_chosen_by_adapt_reason: BTreeMap<String, usize>,
+
+    // H1: Band coverage (step 11.6, schema v32).
+    // Per-band tick count and winner-intent distribution.
+    // Denominator: total_decisions (all ticks, including skip-path).
+    h1_band_tick_counts: BTreeMap<String, usize>,
+    // Per-band: the winning intent kind (agenda_item attribution on chosen plan).
+    // Key = "band/intent_kind", value = count.
+    h1_band_winner_intent: BTreeMap<String, usize>,
+    // Per-axis consideration histograms across ALL agenda items (all ticks, all bands).
+    // Stored as raw f32 vecs for percentile reporting.
+    h1_urgency: Vec<f32>,
+    h1_feasibility: Vec<f32>,
+    h1_leverage: Vec<f32>,
+    h1_safety: Vec<f32>,
+    h1_role_affinity: Vec<f32>,
+    h1_continuation_value: Vec<f32>,
+
+    // H2: Agenda-item win-rate (step 11.6, schema v32).
+    // Per band: which agenda item index (0/1/2...) wins most often.
+    // Key = "band/item_index", value = count of ticks where that item won.
+    h2_band_item_win: BTreeMap<String, usize>,
+    // Denominator per band: total ticks with a chosen plan (regardless of
+    // agenda attribution). Fallback rate = h2_band_chosen_total - Σ h2_band_item_win
+    // for that band — indicates how often no agenda item was eligible.
+    h2_band_chosen_total: BTreeMap<String, usize>,
 }
 
 impl Aggregate {
@@ -344,6 +376,43 @@ impl Aggregate {
         // C6
         let fdk = fresh_decision_kind(&event.decision);
         self.process_continuation(event, fdk);
+
+        // H1: Band coverage — per-band tick count + per-axis consideration histograms.
+        // Skipped on skip-path (event.band is None).
+        if let Some(band) = &event.band {
+            let band_key = format!("{band:?}");
+            *self.h1_band_tick_counts.entry(band_key.clone()).or_default() += 1;
+
+            // H1: per-axis histograms from agenda item-level considerations.
+            for item in &event.agenda {
+                let c = &item.considerations;
+                self.h1_urgency.push(c.urgency);
+                self.h1_feasibility.push(c.feasibility);
+                self.h1_leverage.push(c.leverage);
+                self.h1_safety.push(c.safety);
+                self.h1_role_affinity.push(c.role_affinity);
+                self.h1_continuation_value.push(c.continuation_value);
+            }
+
+            // H1: winner-intent distribution — attributed agenda item kind on chosen plan.
+            if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
+                if let Some(item_idx) = chosen.annotation.agenda_item {
+                    if let Some(item) = event.agenda.get(item_idx as usize) {
+                        let winner_key = format!("{band_key}/{:?}", item.kind);
+                        *self.h1_band_winner_intent.entry(winner_key).or_default() += 1;
+                    }
+                }
+            }
+
+            // H2: agenda-item win-rate — which item index wins per band.
+            if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
+                *self.h2_band_chosen_total.entry(band_key.clone()).or_default() += 1;
+                if let Some(item_idx) = chosen.annotation.agenda_item {
+                    let win_key = format!("{band_key}/{item_idx}");
+                    *self.h2_band_item_win.entry(win_key).or_default() += 1;
+                }
+            }
+        }
     }
 
     fn process_continuation(&mut self, event: &ActorTickEvent, fdk: FreshDecisionKind) {
@@ -814,7 +883,7 @@ fn main() {
 
     // ── Report ────────────────────────────────────────────────────────────────
 
-    println!("# AI mining — v31");
+    println!("# AI mining — v32");
     println!();
     println!(
         "Source: {} JSONL files, {} AI decisions ({} skip)",
@@ -1287,6 +1356,100 @@ fn main() {
         }
         println!();
     }
+
+    // H1: Band coverage
+    let h1_total_with_band: usize = agg.h1_band_tick_counts.values().sum();
+    println!("## H1. Band coverage (schema v32 — bands/agenda serialised)");
+    println!();
+    if h1_total_with_band == 0 {
+        println!("  (no v32 band data — corpus is pre-v32 or skip-only)");
+    } else {
+        println!("Ticks with band attribution: {} ({:.1}% of all ticks)", h1_total_with_band,
+            pct(h1_total_with_band, agg.total_decisions));
+        println!();
+        println!("### H1a. Per-band tick count");
+        println!();
+        let band_order = [
+            "ForcedTargeting",
+            "CriticalSelfPreservation",
+            "HardRescueOpportunity",
+            "NormalTactical",
+        ];
+        for band in &band_order {
+            let count = agg.h1_band_tick_counts.get(*band).copied().unwrap_or(0);
+            println!("  {:<28} {:>6}  ({:5.1}%)", band, count, pct(count, h1_total_with_band));
+        }
+        // Any bands not in the canonical order (forward-compat).
+        for (band, count) in &agg.h1_band_tick_counts {
+            if !band_order.contains(&band.as_str()) {
+                println!("  {:<28} {:>6}  ({:5.1}%)", band, count, pct(*count, h1_total_with_band));
+            }
+        }
+        println!();
+
+        println!("### H1b. Winner-intent distribution per band (chosen plan attribution)");
+        println!();
+        for (key, count) in &agg.h1_band_winner_intent {
+            println!("  {:<44} {:>6}", key, count);
+        }
+        println!();
+
+        println!("### H1c. Per-axis consideration histograms (all agenda items, all bands)");
+        println!("  (mean / p10 / p50 / p90 / p99 over {} samples)", agg.h1_urgency.len());
+        println!();
+        let print_axis = |name: &str, mut v: Vec<f32>| {
+            if v.is_empty() { println!("  {name:<20} (no data)"); return; }
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let mean = v.iter().sum::<f32>() / v.len() as f32;
+            let p10 = percentile_sorted(&v, 10.0);
+            let p50 = percentile_sorted(&v, 50.0);
+            let p90 = percentile_sorted(&v, 90.0);
+            let p99 = percentile_sorted(&v, 99.0);
+            println!("  {name:<20} mean={mean:.3}  p10={p10:.3}  p50={p50:.3}  p90={p90:.3}  p99={p99:.3}");
+        };
+        print_axis("urgency",             agg.h1_urgency.clone());
+        print_axis("feasibility",         agg.h1_feasibility.clone());
+        print_axis("leverage",            agg.h1_leverage.clone());
+        print_axis("safety",              agg.h1_safety.clone());
+        print_axis("role_affinity",       agg.h1_role_affinity.clone());
+        print_axis("continuation_value",  agg.h1_continuation_value.clone());
+        println!();
+    }
+
+    // H2: Agenda-item win-rate
+    println!("## H2. Agenda-item win-rate per band (which item index wins most)");
+    println!();
+    if agg.h2_band_chosen_total.is_empty() {
+        println!("  (no v32 agenda data — corpus is pre-v32 or skip-only)");
+    } else {
+        println!("  Sanity check: NormalTactical should have distributed wins (not index 0 dominating).");
+        println!();
+        // Group by band for readability.
+        let band_order = ["ForcedTargeting", "CriticalSelfPreservation", "HardRescueOpportunity", "NormalTactical"];
+        for band in &band_order {
+            let band_total = agg.h2_band_chosen_total.get(*band).copied().unwrap_or(0);
+            if band_total == 0 { continue; }
+            println!("  {band} (attributed ticks: {band_total})");
+            // Collect item wins for this band.
+            let mut items: Vec<(usize, usize)> = agg.h2_band_item_win.iter()
+                .filter_map(|(k, v)| {
+                    let (b, idx) = k.rsplit_once('/')?;
+                    if b == *band { Some((idx.parse::<usize>().ok()?, *v)) } else { None }
+                })
+                .collect();
+            items.sort_by_key(|(idx, _)| *idx);
+            for (idx, count) in &items {
+                println!("    item[{idx}] wins: {:>5}  ({:5.1}%)", count, pct(*count, band_total));
+            }
+            // Ticks where chosen plan had no attributed agenda item.
+            let attributed_sum: usize = items.iter().map(|(_, c)| c).sum();
+            let unattributed = band_total.saturating_sub(attributed_sum);
+            if unattributed > 0 {
+                println!("    (no attribution): {:>5}  ({:5.1}%)", unattributed, pct(unattributed, band_total));
+            }
+            println!();
+        }
+    }
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -1309,7 +1472,7 @@ mod tests {
     ) -> ActorTickEvent {
         ActorTickEvent {
             event_type: "actor_tick".to_owned(),
-            schema_version: 27,
+            schema_version: 32,
             round: 1,
             timestamp_ms: 0,
             actor_id,
@@ -1319,6 +1482,9 @@ mod tests {
             decision,
             continuation,
             intent_reason: None,
+            band: None,
+            band_reason: None,
+            agenda: vec![],
         }
     }
 
@@ -1695,5 +1861,94 @@ mod tests {
         agg.process_event("f.jsonl", &event);
 
         assert_eq!(*agg.f3_severity_counts.get("Relevant").unwrap(), 1);
+    }
+
+    // ── H1/H2: Band coverage + agenda-item win-rate ───────────────────────────
+
+    fn make_event_with_band(
+        band: storyforge::combat::ai::intent::bands::PriorityBand,
+        band_reason: storyforge::combat::ai::intent::bands::BandReason,
+        agenda: Vec<storyforge::combat::ai::log::AgendaItemLog>,
+        plans: Vec<LoggedPlan>,
+    ) -> ActorTickEvent {
+        let mut event = make_event(1, LoggedDecision::EndTurn, plans, None);
+        event.band = Some(band);
+        event.band_reason = Some(band_reason);
+        event.agenda = agenda;
+        event
+    }
+
+    fn agenda_item_log(kind: storyforge::combat::ai::intent::IntentKind) -> storyforge::combat::ai::log::AgendaItemLog {
+        use storyforge::combat::ai::intent::IntentReason;
+        use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        storyforge::combat::ai::log::AgendaItemLog {
+            kind,
+            target: None,
+            raw_score: 1.0,
+            considerations: IntentConsiderations { urgency: 0.5, feasibility: 0.7,
+                leverage: 0.6, safety: 0.8, role_affinity: 0.9, continuation_value: 0.3 },
+            reason: IntentReason::NoRuleDefault,
+        }
+    }
+
+    #[test]
+    fn h1_band_tick_count_incremented_for_events_with_band() {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+        use storyforge::combat::ai::intent::IntentKind;
+
+        let agenda = vec![agenda_item_log(IntentKind::FocusTarget)];
+        let event = make_event_with_band(
+            PriorityBand::NormalTactical,
+            BandReason::Normal,
+            agenda,
+            vec![],
+        );
+
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(agg.h1_band_tick_counts.get("NormalTactical").copied(), Some(1));
+        assert_eq!(agg.h1_urgency.len(), 1);
+        assert!((agg.h1_urgency[0] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn h2_item_win_rate_attributed_when_chosen_plan_has_agenda_item() {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+        use storyforge::combat::ai::intent::IntentKind;
+
+        // Chosen plan with agenda_item = 1.
+        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        ann.agenda_item = Some(1);
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let agenda = vec![
+            agenda_item_log(IntentKind::FocusTarget),
+            agenda_item_log(IntentKind::ApplyCC),
+        ];
+        let event = make_event_with_band(
+            PriorityBand::NormalTactical,
+            BandReason::Normal,
+            agenda,
+            vec![plan],
+        );
+
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(agg.h2_band_chosen_total.get("NormalTactical").copied(), Some(1));
+        assert_eq!(agg.h2_band_item_win.get("NormalTactical/1").copied(), Some(1));
+        assert!(!agg.h2_band_item_win.contains_key("NormalTactical/0"));
+    }
+
+    #[test]
+    fn h1_skip_path_does_not_increment_band_counts() {
+        // Skip path event has no band.
+        let event = make_event(1, LoggedDecision::Skip { reason: "no_ap".to_owned() }, vec![], None);
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert!(agg.h1_band_tick_counts.is_empty(), "skip-path should not add to band counts");
+        assert!(agg.h1_urgency.is_empty());
     }
 }

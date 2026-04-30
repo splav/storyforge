@@ -179,6 +179,8 @@ fn run_ai_turn(
                 intent_reason: None,
                 debug_names: &debug_names_skip,
                 status_tags: &env.status_tags,
+                band: None,
+                agenda: None,
             });
         }
         msgs.end_turn.write(EndTurn { actor });
@@ -265,6 +267,8 @@ fn run_ai_turn(
             intent_reason: Some(&result.intent_reason),
             debug_names: &debug_names,
             status_tags: &env.status_tags,
+            band: Some(result.band.clone()),
+            agenda: Some(&result.agenda),
         });
     }
 

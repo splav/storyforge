@@ -178,6 +178,16 @@ impl PlanStage for PickBestStage {
                             }
                         }
 
+                        // Step 11.6: snapshot considerations for all per_item entries
+                        // (serialised in schema v32 as considerations_per_item).
+                        // Populated unconditionally so the log contains the full
+                        // overlay even for non-chosen / ineligible items.
+                        ann.considerations_per_item = ann
+                            .per_item
+                            .iter()
+                            .map(|pi| pi.considerations)
+                            .collect();
+
                         if let Some((best_score, best_idx)) = best_composed {
                             ann.score = best_score;
                             ann.agenda_item = Some(best_idx);

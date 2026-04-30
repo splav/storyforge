@@ -822,7 +822,7 @@ mod tests {
     fn make_skip_event() -> ActorTickEvent {
         ActorTickEvent {
             event_type: "actor_tick".to_owned(),
-            schema_version: 27,
+            schema_version: 32,
             round: 1,
             timestamp_ms: 0,
             actor_id: 1,
@@ -832,6 +832,9 @@ mod tests {
             decision: LoggedDecision::Skip { reason: "no_ap_no_mp".to_owned() },
             continuation: None,
             intent_reason: None,
+            band: None,
+            band_reason: None,
+            agenda: vec![],
         }
     }
 

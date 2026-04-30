@@ -21,6 +21,8 @@ use crate::combat::ai::tuning::AiTuning;
 use crate::combat::ai::intent::{
     assign_band, AiMemory, IntentReason, TacticalIntent,
 };
+use crate::combat::ai::intent::agenda::Agenda;
+use crate::combat::ai::intent::bands::{BandReason, PriorityBand};
 use crate::combat::ai::log::{self, AiLogger, IntentBlock, TradeBlock};
 use crate::combat::ai::planning::{
     commit_plan, generate_plans, TurnPlan,
@@ -97,6 +99,10 @@ pub struct PickResult {
     /// Pre-adaptation (post-sanity) scores — used by the log to show
     /// pre/post-adaptation deltas. Same length as `pool`.
     pub base_scored: Vec<f32>,
+    /// Step 11.6: priority band and reason assigned this tick.
+    pub band: (crate::combat::ai::intent::bands::PriorityBand, crate::combat::ai::intent::bands::BandReason),
+    /// Step 11.6: agenda built this tick (items in raw_score-desc order).
+    pub agenda: crate::combat::ai::intent::agenda::Agenda,
 }
 
 /// Source of a `Move` decision. See `AiDecision::Move`.
@@ -218,6 +224,8 @@ pub fn pick_action(
             intent: TacticalIntent::Reposition,
             intent_reason: IntentReason::NoRuleDefault,
             base_scored: vec![],
+            band: (PriorityBand::NormalTactical, BandReason::Normal),
+            agenda: Agenda { band: PriorityBand::NormalTactical, items: vec![] },
         };
     };
 
@@ -309,6 +317,8 @@ pub fn pick_action(
             intent: choice.intent,
             intent_reason: choice.reason,
             base_scored: vec![],
+            band: (band, band_reason),
+            agenda,
         };
     }
 
@@ -454,6 +464,8 @@ pub fn pick_action(
         intent: final_intent,
         intent_reason: final_reason,
         base_scored,
+        band: (band, band_reason),
+        agenda,
     }
 }
 

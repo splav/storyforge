@@ -263,7 +263,7 @@ pub struct PlanAnnotation {
     #[serde(default)]
     pub critics: Vec<crate::combat::ai::critics::CriticHit>,
 
-    // ── Step 11.4 fields (runtime-only; schema bump deferred to 11.6) ─────────
+    // ── Step 11.4/11.6 fields ─────────────────────────────────────────────────
 
     /// Score immediately after the initial `score_plans_with_raw` pass,
     /// before any pipeline stages run.  Used in `PickBestStage` as the base
@@ -283,9 +283,18 @@ pub struct PlanAnnotation {
     /// Winning agenda-item index (into `Agenda::items`) as chosen by
     /// `PickBestStage`.  `None` when agenda is empty (legacy path) or before
     /// `PickBestStage` runs.
-    /// Not serialised — runtime-only field.
-    #[serde(skip)]
+    /// Step 11.6: serialised in schema v32.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agenda_item: Option<u8>,
+
+    /// Step 11.6: per-agenda-item considerations overlay as applied during
+    /// `PickBestStage` composition. `considerations_per_item[i]` is the
+    /// `IntentConsiderations` from `per_item[i]` (plan-aware composite overlay).
+    /// Empty when agenda is absent (legacy path) or before `PickBestStage` runs.
+    /// Serialised in schema v32. Factors (`intent_factor`, `tempo_factor`) are
+    /// runtime-only and live only in `per_item` (not serialised).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub considerations_per_item: Vec<crate::combat::ai::intent::considerations::IntentConsiderations>,
 }
 
 /// Adaptation reason + original (pre-adaptation) score for a single plan.

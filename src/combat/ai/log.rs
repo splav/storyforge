@@ -36,6 +36,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::difficulty::DifficultyProfile;
 use crate::combat::ai::intent::{AiMemory, IntentKind, IntentReason, TacticalIntent};
+use crate::combat::ai::intent::bands::{BandReason, PriorityBand};
+use crate::combat::ai::intent::considerations::IntentConsiderations;
 use crate::combat::ai::repair::{ContinuationSeverity, StoredGoalContext};
 use crate::combat::ai::repair::goal::GoalKind;
 use crate::combat::ai::outcome::PlanAnnotation;
@@ -161,7 +163,11 @@ use crate::game::hex::Hex;
 /// serialised; `SanityRule` enum shrinks to 3 residual variants (Survival /
 /// AoOBleed / LosBlindspot / SelfAoe removed). v30 logs give
 /// `LogError::UnsupportedSchema` — clean break.
-pub const SCHEMA_VERSION: u32 = 31;
+/// Step 11.6: bumped to v32. `ActorTickEvent` gains `band`, `band_reason`, and
+/// `agenda` fields; `PlanAnnotation` gains `agenda_item` and
+/// `considerations_per_item`. v31 logs pre-date bands/agenda serialisation and
+/// give `LogError::UnsupportedSchema` — clean break.
+pub const SCHEMA_VERSION: u32 = 32;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -894,6 +900,28 @@ pub struct ContinuationLogSection {
     pub age: u32,
 }
 
+/// Lightweight serialisation form of one agenda item (step 11.6, schema v32).
+///
+/// Carries the intent kind, optional target, heuristic score, item-level
+/// baseline considerations, and the reason that produced this item.  The
+/// full `AgendaItem` is not serialised because it is too large and the
+/// per-plan `PerItemEval` overlay (with plan-aware corrections) is already
+/// captured in `PlanAnnotation.considerations_per_item`.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AgendaItemLog {
+    /// Intent kind (without entity payload — entity is in `target`).
+    pub kind: IntentKind,
+    /// Target entity bits; `None` for non-targeted intents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<u64>,
+    /// Heuristic raw score from the band-specific builder.
+    pub raw_score: f32,
+    /// Item-level baseline considerations (plan-agnostic, from `build_agenda`).
+    pub considerations: IntentConsiderations,
+    /// Diagnostic reason that produced this agenda item.
+    pub reason: IntentReason,
+}
+
 /// Unified per-tick AI decision event (schema v27).
 ///
 /// Replaces the old `actor_turn` + `plan_divergence` + implicit skip-path.
@@ -919,6 +947,18 @@ pub struct ActorTickEvent {
     /// taunt_forced, killable, etc.). `None` on skip-path. Required by mining
     /// to distinguish reactive vs voluntary abandons via `IntentReason::code()`.
     pub intent_reason: Option<crate::combat::ai::intent::IntentReason>,
+    /// Step 11.6 (schema v32): priority band assigned to the actor this tick.
+    /// `None` on skip-path (no AP/MP — band was not computed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band: Option<PriorityBand>,
+    /// Step 11.6 (schema v32): structured reason for band assignment.
+    /// `None` on skip-path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band_reason: Option<BandReason>,
+    /// Step 11.6 (schema v32): agenda items built for this tick.
+    /// Empty on skip-path.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agenda: Vec<AgendaItemLog>,
 }
 
 // ── ActorTickInput + build helpers ────────────────────────────────────────
@@ -943,6 +983,10 @@ pub struct ActorTickInput<'a> {
     pub debug_names: &'a std::collections::HashMap<Entity, String>,
     /// Status tag cache for severity classification in `continuation` section.
     pub status_tags: &'a crate::combat::ai::tags::StatusTagCache,
+    /// Step 11.6: priority band assigned this tick. `None` on skip-path.
+    pub band: Option<(PriorityBand, BandReason)>,
+    /// Step 11.6: agenda built this tick. `None` on skip-path.
+    pub agenda: Option<&'a crate::combat::ai::intent::agenda::Agenda>,
 }
 
 /// Build an `ActorTickEvent` from the given inputs. Pure function.
@@ -986,6 +1030,22 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
         }
     });
 
+    // Build agenda log (empty on skip-path).
+    let (band, band_reason, agenda) = if let Some((b, br)) = input.band {
+        let agenda_log = input.agenda.map(|ag| {
+            ag.items.iter().map(|item| AgendaItemLog {
+                kind: item.kind,
+                target: item.target.map(|e| e.to_bits()),
+                raw_score: item.raw_score,
+                considerations: item.considerations,
+                reason: item.reason.clone(),
+            }).collect()
+        }).unwrap_or_default();
+        (Some(b), Some(br), agenda_log)
+    } else {
+        (None, None, vec![])
+    };
+
     ActorTickEvent {
         event_type: "actor_tick".to_owned(),
         schema_version: SCHEMA_VERSION,
@@ -998,6 +1058,9 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
         decision,
         intent_reason: input.intent_reason.cloned(),
         continuation,
+        band,
+        band_reason,
+        agenda,
     }
 }
 
@@ -1114,14 +1177,14 @@ struct SchemaHeader {
 ///
 /// Returns `Err(LogError::UnsupportedSchema)` when the line carries a
 /// `schema_version` lower than [`SCHEMA_VERSION`]. Tools should show this
-/// error to the user and ask for a fresh v31+ playtest.
+/// error to the user and ask for a fresh v32+ playtest.
 pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
     let header: SchemaHeader = serde_json::from_str(line)?;
     if header.schema_version < SCHEMA_VERSION {
         return Err(LogError::UnsupportedSchema {
             found: header.schema_version,
             required: SCHEMA_VERSION,
-            hint: "v30 logs pre-date critics serialisation and SanityRule shrink (v31); rebuild logs from v31+ playtest",
+            hint: "v31 logs pre-date bands/agenda serialisation (v32); rebuild logs from v32+ playtest",
         });
     }
     Ok(serde_json::from_str(line)?)
@@ -1316,6 +1379,8 @@ mod tests {
             intent_reason: None,
             debug_names,
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
+            band: None,
+            agenda: None,
         }
     }
 
@@ -1383,6 +1448,8 @@ mod tests {
             intent_reason: Some(&test_reason),
             debug_names: &debug_names,
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
+            band: None,
+            agenda: None,
         };
         let event = build_actor_tick_event(input);
 
@@ -1431,6 +1498,8 @@ mod tests {
             intent_reason: Some(&reason),
             debug_names: &debug_names,
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
+            band: None,
+            agenda: None,
         };
         let event = build_actor_tick_event(input);
 
@@ -1449,8 +1518,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":27}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 31, .. })),
-            "v27 must produce UnsupportedSchema(found=27, required=31), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 32, .. })),
+            "v27 must produce UnsupportedSchema(found=27, required=32), got: {result:?}",
         );
     }
 
@@ -1460,7 +1529,7 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":26}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 31, .. })),
+            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 32, .. })),
             "v26 must produce UnsupportedSchema, got: {result:?}",
         );
     }
@@ -1471,8 +1540,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":28}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 31, .. })),
-            "v28 must produce UnsupportedSchema(found=28, required=31), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 32, .. })),
+            "v28 must produce UnsupportedSchema(found=28, required=32), got: {result:?}",
         );
     }
 
@@ -1482,8 +1551,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":29}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 31, .. })),
-            "v29 must produce UnsupportedSchema(found=29, required=31), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 32, .. })),
+            "v29 must produce UnsupportedSchema(found=29, required=32), got: {result:?}",
         );
     }
 
@@ -1493,8 +1562,19 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":30}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 31, .. })),
-            "v30 must produce UnsupportedSchema(found=30, required=31), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 32, .. })),
+            "v30 must produce UnsupportedSchema(found=30, required=32), got: {result:?}",
+        );
+    }
+
+    /// v31 log line returns `UnsupportedSchema` — step 11.6 bump (bands/agenda serialisation in v32).
+    #[test]
+    fn actor_tick_v31_load_yields_unsupported_schema_error() {
+        let json = r#"{"event_type":"actor_tick","schema_version":31}"#;
+        let result = parse_actor_tick(json);
+        assert!(
+            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 32, .. })),
+            "v31 must produce UnsupportedSchema(found=31, required=32), got: {result:?}",
         );
     }
 
@@ -1538,5 +1618,105 @@ mod tests {
             "score must be preserved: {}",
             ann.score
         );
+    }
+
+    /// v32 round-trip: tick with band/agenda/considerations_per_item serialises
+    /// and deserialises correctly. Validates the schema v32 additions atomically.
+    #[test]
+    fn schema_v32_round_trip() {
+        use crate::combat::ai::intent::bands::{BandReason, PriorityBand};
+        use crate::combat::ai::intent::considerations::IntentConsiderations;
+        use crate::combat::ai::intent::{IntentKind, IntentReason};
+        use crate::combat::ai::pipeline::ScoredPool;
+        use crate::combat::ai::planning::types::TurnPlan;
+
+        let snap = BattleSnapshot::default();
+        let debug_names = std::collections::HashMap::new();
+        let actor = Entity::from_bits(42);
+        let decision = AiDecision::EndTurn;
+        let reason = IntentReason::NoRuleDefault;
+
+        let mut plan = TurnPlan::default();
+        // Add considerations_per_item and agenda_item to the plan annotation.
+        let cons = IntentConsiderations {
+            urgency: 0.8, feasibility: 0.9, leverage: 0.7,
+            safety: 0.6, role_affinity: 0.5, continuation_value: 0.4,
+        };
+        plan.annotation.considerations_per_item = vec![cons];
+        plan.annotation.agenda_item = Some(0);
+
+        let mut pool = ScoredPool::new(vec![plan]);
+        pool.annotations[0].score = 3.15;
+        pool.annotations[0].chosen = true;
+        pool.annotations[0].considerations_per_item = vec![cons];
+        pool.annotations[0].agenda_item = Some(0);
+
+        let band = PriorityBand::NormalTactical;
+        let band_reason = BandReason::Normal;
+
+        // Build an agenda with one item for the log.
+        use crate::combat::ai::intent::agenda::{Agenda, AgendaItem};
+        let agenda_item = AgendaItem {
+            kind: IntentKind::FocusTarget,
+            target: Some(Entity::from_bits(99)),
+            raw_score: 1.5,
+            reason: IntentReason::NoRuleDefault,
+            considerations: cons,
+        };
+        let agenda = Agenda { band, items: vec![agenda_item] };
+
+        let input = ActorTickInput {
+            round: 1,
+            actor,
+            actor_name: "TestActor",
+            snapshot: &snap,
+            memory_pre: &None,
+            decision: &decision,
+            skip_reason: None,
+            pool: Some(&pool),
+            intent_reason: Some(&reason),
+            debug_names: &debug_names,
+            status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
+            band: Some((band, band_reason)),
+            agenda: Some(&agenda),
+        };
+
+        let event = build_actor_tick_event(input);
+        assert_eq!(event.schema_version, 32, "must be v32");
+        assert!(event.band.is_some(), "band must be present on full path");
+        assert_eq!(event.band, Some(PriorityBand::NormalTactical));
+        assert_eq!(event.agenda.len(), 1, "agenda must have one item");
+        assert_eq!(event.agenda[0].kind, IntentKind::FocusTarget);
+        assert_eq!(event.agenda[0].target, Some(99u64));
+        assert!((event.agenda[0].raw_score - 1.5).abs() < 1e-6);
+
+        // Check that considerations_per_item survived into the logged plan.
+        assert_eq!(event.plans.len(), 1);
+        let logged_ann = &event.plans[0].annotation;
+        assert_eq!(logged_ann.agenda_item, Some(0u8));
+        assert_eq!(logged_ann.considerations_per_item.len(), 1);
+        assert!((logged_ann.considerations_per_item[0].urgency - 0.8).abs() < 1e-6);
+
+        // Full JSON round-trip.
+        let json = serde_json::to_string(&event).expect("serialize");
+        let restored: ActorTickEvent = parse_actor_tick(&json).expect("parse_actor_tick v32");
+        assert_eq!(restored.schema_version, 32);
+        assert_eq!(restored.band, Some(PriorityBand::NormalTactical));
+        assert_eq!(restored.agenda.len(), 1);
+        assert_eq!(restored.plans[0].annotation.agenda_item, Some(0u8));
+        assert_eq!(restored.plans[0].annotation.considerations_per_item.len(), 1);
+    }
+
+    /// v31 format must yield UnsupportedSchema with a hint mentioning bands/agenda.
+    #[test]
+    fn schema_v31_rejected_with_clear_error() {
+        let json = r#"{"event_type":"actor_tick","schema_version":31,"round":1,"timestamp_ms":0,"actor_id":1,"actor_name":"x","plans":[],"decision":{"kind":"end_turn"},"snapshot":{}}"#;
+        let result = parse_actor_tick(json);
+        let Err(LogError::UnsupportedSchema { found, required, hint }) = result else {
+            panic!("expected UnsupportedSchema, got: {result:?}");
+        };
+        assert_eq!(found, 31);
+        assert_eq!(required, 32);
+        assert!(hint.contains("bands"), "hint must mention 'bands', got: {hint}");
     }
 }
