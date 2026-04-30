@@ -50,6 +50,35 @@ use storyforge::combat::ai::tags::AbilityTag;
 /// One session = one JSONL file (= one combat).
 type SessionActorKey = (String, u64); // (filename, actor_id)
 
+// ── H3c bucket enum ───────────────────────────────────────────────────────────
+
+/// Mutually exclusive post-hoc fallback cause buckets (H3c).
+/// Precedence: ApMpBlocked → NoTargetInAgenda → TargetUnreachable →
+/// OnlyMovePlans → NoPlanAttemptsTarget → Unclassified.
+///
+/// Note: OnlyMovePlans (bucket 3) is checked before NoPlanAttemptsTarget (bucket 4)
+/// because "no Cast steps in pool at all" is a more specific diagnosis than
+/// "Cast steps exist but none target the agenda entity". When all plans are
+/// Move-only, bucket 4 would also fire (trivially true), so we prefer bucket 3.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum H3cBucket {
+    ApMpBlocked          = 0,
+    NoTargetInAgenda     = 1,
+    TargetUnreachable    = 2,
+    OnlyMovePlans        = 3,
+    NoPlanAttemptsTarget = 4,
+    Unclassified         = 5,
+}
+
+const H3C_BUCKET_LABELS: [&str; 6] = [
+    "ap_mp_blk",
+    "no_tgt",
+    "unreach",
+    "only_move",
+    "no_attempt",
+    "unclass",
+];
+
 // ── Aggregation state ─────────────────────────────────────────────────────────
 
 #[derive(Default)]
@@ -223,6 +252,24 @@ struct Aggregate {
     h3b_eligible: BTreeMap<String, usize>,
     // Whether any v32 log with reject_reasons_per_item was observed.
     h3b_has_data: bool,
+
+    // H3c: Post-hoc fallback cause classifier (schema v32).
+    // Counts for each unattributed tick (chosen plan has no agenda_item AND agenda non-empty).
+    // Buckets are mutually exclusive; precedence order: ap_mp_blocked → no_target_in_agenda →
+    // target_unreachable → no_plan_attempts_target → only_move_plans → unclassified.
+    // Key = band label.
+    h3c_ap_mp_blocked: BTreeMap<String, usize>,
+    h3c_no_target_in_agenda: BTreeMap<String, usize>,
+    h3c_target_unreachable: BTreeMap<String, usize>,
+    h3c_no_plan_attempts_target: BTreeMap<String, usize>,
+    h3c_only_move_plans: BTreeMap<String, usize>,
+    h3c_unclassified: BTreeMap<String, usize>,
+    // Per-(band, primary intent kind) breakdown. Key = "band/kind".
+    h3c_by_band_kind: BTreeMap<String, [usize; 6]>,
+    // Total unattributed ticks per band (= Σ all buckets per band). Sanity vs H3a.
+    h3c_total: BTreeMap<String, usize>,
+    // Total ticks with band data per band (for fallback% denominator).
+    h3c_band_total: BTreeMap<String, usize>,
 }
 
 impl Aggregate {
@@ -493,6 +540,106 @@ impl Aggregate {
                             *self.h3b_reject_reason.entry(reason_key).or_default() += 1;
                         }
                     }
+                }
+            }
+
+            // H3c: post-hoc fallback cause classifier.
+            // Runs for unattributed ticks where agenda is non-empty.
+            *self.h3c_band_total.entry(band_key.clone()).or_default() += 1;
+            if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
+                if chosen.annotation.agenda_item.is_none() && !event.agenda.is_empty() {
+                    let primary_kind = format!("{:?}", event.agenda[0].kind);
+                    let band_kind_key = format!("{band_key}/{primary_kind}");
+
+                    // Find actor in snapshot.
+                    let actor_snap = event.snapshot.units.iter()
+                        .find(|u| u.entity.to_bits() == event.actor_id);
+
+                    // Bucket 1: ap_mp_blocked — actor has no AP and no MP.
+                    let bucket = if let Some(actor) = actor_snap {
+                        if actor.action_points == 0 && actor.movement_points == 0 {
+                            H3cBucket::ApMpBlocked
+                        } else {
+                            // Bucket 2: no_target_in_agenda — all items have target=None.
+                            let primary_target = event.agenda[0].target;
+                            if primary_target.is_none() && event.agenda.iter().all(|it| it.target.is_none()) {
+                                H3cBucket::NoTargetInAgenda
+                            } else if let Some(target_bits) = primary_target {
+                                // Bucket 3: target_unreachable — target too far.
+                                let target_snap = event.snapshot.units.iter()
+                                    .find(|u| u.entity.to_bits() == target_bits);
+                                let unreachable = target_snap.map(|t| {
+                                    let dist = actor.pos.unsigned_distance_to(t.pos);
+                                    dist > (actor.movement_points as u32) + actor.max_attack_range
+                                }).unwrap_or(false);
+
+                                if unreachable {
+                                    H3cBucket::TargetUnreachable
+                                } else {
+                                    // Bucket 3 (OnlyMovePlans): no Cast steps at all in pool.
+                                    // Checked before bucket 4: "all move-only" is a more specific
+                                    // root-cause than "no plan targets this entity" (trivially true
+                                    // when there are no Cast plans at all).
+                                    let any_cast = event.plans.iter().any(|p| {
+                                        p.steps.iter().any(|s| matches!(s,
+                                            storyforge::combat::ai::planning::PlanStep::Cast { .. }
+                                        ))
+                                    });
+                                    if !any_cast {
+                                        H3cBucket::OnlyMovePlans
+                                    } else {
+                                        // Bucket 4: Cast plans exist, but none target agenda entity.
+                                        let any_plan_targets = event.plans.iter().any(|p| {
+                                            p.steps.iter().any(|s| matches!(s,
+                                                storyforge::combat::ai::planning::PlanStep::Cast { target, .. }
+                                                if target.to_bits() == target_bits
+                                            ))
+                                        });
+                                        if !any_plan_targets {
+                                            H3cBucket::NoPlanAttemptsTarget
+                                        } else {
+                                            H3cBucket::Unclassified
+                                        }
+                                    }
+                                }
+                            } else {
+                                // primary_target is None but not all items lack target —
+                                // fall through to OnlyMovePlans / Unclassified.
+                                let any_cast = event.plans.iter().any(|p| {
+                                    p.steps.iter().any(|s| matches!(s,
+                                        storyforge::combat::ai::planning::PlanStep::Cast { .. }
+                                    ))
+                                });
+                                if !any_cast {
+                                    H3cBucket::OnlyMovePlans
+                                } else {
+                                    H3cBucket::Unclassified
+                                }
+                            }
+                        }
+                    } else {
+                        // actor not in snapshot — can't classify by resource/position
+                        H3cBucket::Unclassified
+                    };
+
+                    match bucket {
+                        H3cBucket::ApMpBlocked =>
+                            *self.h3c_ap_mp_blocked.entry(band_key.clone()).or_default() += 1,
+                        H3cBucket::NoTargetInAgenda =>
+                            *self.h3c_no_target_in_agenda.entry(band_key.clone()).or_default() += 1,
+                        H3cBucket::TargetUnreachable =>
+                            *self.h3c_target_unreachable.entry(band_key.clone()).or_default() += 1,
+                        H3cBucket::NoPlanAttemptsTarget =>
+                            *self.h3c_no_plan_attempts_target.entry(band_key.clone()).or_default() += 1,
+                        H3cBucket::OnlyMovePlans =>
+                            *self.h3c_only_move_plans.entry(band_key.clone()).or_default() += 1,
+                        H3cBucket::Unclassified =>
+                            *self.h3c_unclassified.entry(band_key.clone()).or_default() += 1,
+                    }
+                    *self.h3c_total.entry(band_key.clone()).or_default() += 1;
+                    self.h3c_by_band_kind
+                        .entry(band_kind_key)
+                        .or_insert([0usize; 6])[bucket as usize] += 1;
                 }
             }
         }
@@ -1642,6 +1789,138 @@ fn main() {
         }
         println!();
     }
+
+    // H3c: Post-hoc fallback cause classifier
+    println!("## H3c. Fallback cause classification (post-hoc, schema v32)");
+    println!();
+    let h3c_total_all: usize = agg.h3c_total.values().sum();
+    if h3c_total_all == 0 && agg.h3c_band_total.is_empty() {
+        println!("  (no v32 band data — corpus is pre-v32 or skip-only)");
+        println!();
+    } else {
+        println!("Total unattributed ticks: {h3c_total_all}");
+        println!();
+
+        let band_order = ["ForcedTargeting", "CriticalSelfPreservation", "HardRescueOpportunity", "NormalTactical"];
+
+        // H3c.1: per-band fallback breakdown
+        println!("### H3c.1. Per-band fallback breakdown");
+        println!();
+        let col_w = 11usize;
+        println!(
+            "  {:<28}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>8}",
+            "Band",
+            H3C_BUCKET_LABELS[0], H3C_BUCKET_LABELS[1], H3C_BUCKET_LABELS[2],
+            H3C_BUCKET_LABELS[3], H3C_BUCKET_LABELS[4], H3C_BUCKET_LABELS[5],
+            "total",
+            col_w = col_w,
+        );
+        for band in &band_order {
+            let total = agg.h3c_total.get(*band).copied().unwrap_or(0);
+            if total == 0 { continue; }
+            let ap  = agg.h3c_ap_mp_blocked.get(*band).copied().unwrap_or(0);
+            let nt  = agg.h3c_no_target_in_agenda.get(*band).copied().unwrap_or(0);
+            let ur  = agg.h3c_target_unreachable.get(*band).copied().unwrap_or(0);
+            let na  = agg.h3c_no_plan_attempts_target.get(*band).copied().unwrap_or(0);
+            let om  = agg.h3c_only_move_plans.get(*band).copied().unwrap_or(0);
+            let uc  = agg.h3c_unclassified.get(*band).copied().unwrap_or(0);
+            println!(
+                "  {:<28}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>8}",
+                band, ap, nt, ur, na, om, uc, total,
+                col_w = col_w,
+            );
+        }
+        // Any unlisted bands.
+        for (band, total) in &agg.h3c_total {
+            if band_order.contains(&band.as_str()) { continue; }
+            let ap  = agg.h3c_ap_mp_blocked.get(band).copied().unwrap_or(0);
+            let nt  = agg.h3c_no_target_in_agenda.get(band).copied().unwrap_or(0);
+            let ur  = agg.h3c_target_unreachable.get(band).copied().unwrap_or(0);
+            let na  = agg.h3c_no_plan_attempts_target.get(band).copied().unwrap_or(0);
+            let om  = agg.h3c_only_move_plans.get(band).copied().unwrap_or(0);
+            let uc  = agg.h3c_unclassified.get(band).copied().unwrap_or(0);
+            println!(
+                "  {:<28}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>8}",
+                band, ap, nt, ur, na, om, uc, total,
+                col_w = col_w,
+            );
+        }
+        println!();
+
+        // Sanity check: H3c total vs H3a unattributed.
+        {
+            let h3a_total_unattr: usize = agg.h3a_band_unattributed.values().sum();
+            // H3c only runs for unattributed ticks with non-empty agenda;
+            // H3a.unattributed includes agenda-empty cases (no_items).
+            let h3a_no_items: usize = agg.h3a_unattr_no_items.values().sum();
+            let h3a_comparable = h3a_total_unattr.saturating_sub(h3a_no_items);
+            let match_mark = if h3c_total_all == h3a_comparable { "OK" } else { "MISMATCH" };
+            println!(
+                "  Sanity: H3c total={h3c_total_all}, H3a unattr-no_items={h3a_comparable} [{match_mark}]"
+            );
+            if h3c_total_all != h3a_comparable {
+                println!("  (H3a total_unattr={h3a_total_unattr}, no_items={h3a_no_items})");
+            }
+        }
+        println!();
+
+        // H3c.2: per-(band, primary intent kind) breakdown
+        println!("### H3c.2. Per-(band, primary intent) breakdown");
+        println!();
+        println!(
+            "  {:<40}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>8}",
+            "Band/Kind",
+            H3C_BUCKET_LABELS[0], H3C_BUCKET_LABELS[1], H3C_BUCKET_LABELS[2],
+            H3C_BUCKET_LABELS[3], H3C_BUCKET_LABELS[4], H3C_BUCKET_LABELS[5],
+            "total",
+            col_w = col_w,
+        );
+        for (key, counts) in &agg.h3c_by_band_kind {
+            let total: usize = counts.iter().sum();
+            if total == 0 { continue; }
+            println!(
+                "  {:<40}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>col_w$}  {:>8}",
+                key, counts[0], counts[1], counts[2], counts[3], counts[4], counts[5], total,
+                col_w = col_w,
+            );
+        }
+        println!();
+
+        // H3c.3: per-band fallback rate decomposition
+        println!("### H3c.3. Per-band fallback rate decomposition");
+        println!();
+        println!(
+            "  {:<28}  {:>10}  {:>8}  {:>8}  {:>11}  {:>10}  {:>9}",
+            "Band", "fallback%", "ap_mp%", "no_tgt%", "no_attempt%", "only_move%", "unclass%",
+        );
+        for band in &band_order {
+            let band_total = agg.h3c_band_total.get(*band).copied().unwrap_or(0);
+            if band_total == 0 { continue; }
+            let unattr = agg.h3c_total.get(*band).copied().unwrap_or(0);
+            let ap  = agg.h3c_ap_mp_blocked.get(*band).copied().unwrap_or(0);
+            let nt  = agg.h3c_no_target_in_agenda.get(*band).copied().unwrap_or(0);
+            let ur  = agg.h3c_target_unreachable.get(*band).copied().unwrap_or(0);
+            let na  = agg.h3c_no_plan_attempts_target.get(*band).copied().unwrap_or(0);
+            let om  = agg.h3c_only_move_plans.get(*band).copied().unwrap_or(0);
+            let uc  = agg.h3c_unclassified.get(*band).copied().unwrap_or(0);
+            // unreach is folded into no_attempt% column for the decomposition display
+            // (both indicate "generator gap"), or shown as separate columns.
+            let _ = ur; // shown in H3c.1; in decomp we show all as % of unattributed.
+            println!(
+                "  {:<28}  {:>9.1}%  {:>7.1}%  {:>7.1}%  {:>10.1}%  {:>9.1}%  {:>8.1}%",
+                band,
+                pct(unattr, band_total),
+                pct(ap,  unattr),
+                pct(nt,  unattr),
+                pct(na,  unattr),
+                pct(om,  unattr),
+                pct(uc,  unattr),
+            );
+        }
+        println!();
+        println!("  NOTE: unreach% not shown in H3c.3 (folded into H3c.1; see above).");
+        println!();
+    }
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -2272,5 +2551,227 @@ mod tests {
         );
         assert_eq!(agg.h3b_total.get("CriticalSelfPreservation/ProtectSelf").copied(), Some(1));
         assert_eq!(agg.h3b_eligible.get("CriticalSelfPreservation/ProtectSelf").copied(), None);
+    }
+
+    // ── H3c: Post-hoc fallback cause classifier ───────────────────────────────
+
+    /// Build a UnitSnapshot at the given hex-axial position with given AP/MP.
+    fn unit_at(entity_bits: u64, x: i32, y: i32, ap: i32, mp: i32, max_range: u32)
+        -> storyforge::combat::ai::snapshot::UnitSnapshot
+    {
+        use storyforge::combat::ai::snapshot::UnitSnapshot;
+        use storyforge::content::abilities::CasterContext;
+        use storyforge::combat::ai::role::AxisProfile;
+        use storyforge::combat::ai::snapshot::AiTags;
+        use storyforge::game::components::Team;
+        use storyforge::content::races::CritFailEffect;
+        use bevy::prelude::Entity;
+        use hexx::Hex;
+        UnitSnapshot {
+            entity: Entity::try_from_bits(entity_bits).expect("valid entity bits"),
+            team: Team::Player,
+            role: AxisProfile::default(),
+            pos: Hex::new(x, y),
+            hp: 20, max_hp: 20,
+            armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+            action_points: ap, max_ap: 2,
+            movement_points: mp, speed: mp,
+            mana: None, rage: None, energy: None,
+            abilities: vec![],
+            threat: 1.0,
+            tags: AiTags::empty(),
+            max_attack_range: max_range,
+            summoner: None,
+            reactions_left: 1,
+            aoo_expected_damage: None,
+            statuses: vec![],
+            caster_ctx: CasterContext::default(),
+            crit_fail_effect: CritFailEffect::default(),
+            damage_horizon: vec![],
+            ai_tuning_override: None,
+        }
+    }
+
+    /// Build an unattributed tick event (chosen plan has no agenda_item, agenda is non-empty).
+    fn make_h3c_event(
+        actor_id: u64,
+        snapshot: storyforge::combat::ai::snapshot::BattleSnapshot,
+        agenda: Vec<storyforge::combat::ai::log::AgendaItemLog>,
+        plans: Vec<LoggedPlan>,
+    ) -> ActorTickEvent {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+        let mut event = make_event(actor_id, LoggedDecision::EndTurn, plans, None);
+        event.band = Some(PriorityBand::NormalTactical);
+        event.band_reason = Some(BandReason::Normal);
+        event.agenda = agenda;
+        event.snapshot = snapshot;
+        event.actor_id = actor_id;
+        event
+    }
+
+    #[test]
+    fn h3c_ap_mp_blocked_when_actor_has_zero_resources() {
+        use storyforge::combat::ai::intent::IntentKind;
+        use storyforge::combat::ai::snapshot::BattleSnapshot;
+        use bevy::prelude::Entity;
+
+        let actor_bits = Entity::from_raw_u32(1).expect("valid").to_bits();
+        // Actor with 0 AP and 0 MP.
+        let actor = unit_at(actor_bits, 0, 0, 0, 0, 1);
+        let mut snap = BattleSnapshot::default();
+        snap.units.push(actor);
+
+        // Chosen plan has no agenda_item; agenda non-empty with a target.
+        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        ann.agenda_item = None;
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let mut item = agenda_item_log(IntentKind::FocusTarget);
+        item.target = Some(999u64);
+        let event = make_h3c_event(actor_bits, snap, vec![item], vec![plan]);
+
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(agg.h3c_ap_mp_blocked.get("NormalTactical").copied(), Some(1));
+        assert_eq!(agg.h3c_total.get("NormalTactical").copied(), Some(1));
+        // All other buckets empty.
+        assert!(agg.h3c_no_target_in_agenda.is_empty());
+    }
+
+    #[test]
+    fn h3c_no_target_when_all_agenda_items_have_no_target() {
+        use storyforge::combat::ai::intent::IntentKind;
+        use storyforge::combat::ai::snapshot::BattleSnapshot;
+        use bevy::prelude::Entity;
+
+        let actor_bits = Entity::from_raw_u32(2).expect("valid").to_bits();
+        // Actor has AP+MP.
+        let actor = unit_at(actor_bits, 0, 0, 2, 3, 1);
+        let mut snap = BattleSnapshot::default();
+        snap.units.push(actor);
+
+        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        ann.agenda_item = None;
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        // Agenda items with target=None.
+        let item1 = agenda_item_log(IntentKind::FocusTarget); // target = None by default
+        let item2 = agenda_item_log(IntentKind::Reposition);
+        let event = make_h3c_event(actor_bits, snap, vec![item1, item2], vec![plan]);
+
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(agg.h3c_no_target_in_agenda.get("NormalTactical").copied(), Some(1));
+        assert!(agg.h3c_ap_mp_blocked.is_empty());
+    }
+
+    #[test]
+    fn h3c_no_plan_attempts_target_when_pool_skips_agenda_target() {
+        use storyforge::combat::ai::intent::IntentKind;
+        use storyforge::combat::ai::snapshot::BattleSnapshot;
+        use bevy::prelude::Entity;
+        use storyforge::core::AbilityId;
+        use hexx::Hex;
+
+        let actor_bits = Entity::from_raw_u32(3).expect("valid").to_bits();
+        let target_bits = Entity::from_raw_u32(4).expect("valid").to_bits();
+        let target_entity = Entity::try_from_bits(target_bits).expect("valid");
+
+        // Actor at (0,0) with AP+MP; target at (1,0) — within range.
+        let actor  = unit_at(actor_bits, 0, 0, 2, 3, 2);
+        let target = unit_at(target_bits, 1, 0, 2, 3, 1);
+        let mut snap = BattleSnapshot::default();
+        snap.units.push(actor);
+        snap.units.push(target);
+
+        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        ann.agenda_item = None;
+        // Plans cast a DIFFERENT entity (entity 5), not the agenda target (entity 4).
+        let other_entity = Entity::from_raw_u32(5).expect("valid");
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![PlanStep::Cast {
+                ability: AbilityId::from("strike"),
+                target: other_entity,
+                target_pos: Hex::ZERO,
+            }],
+            annotation: ann,
+        };
+
+        let mut item = agenda_item_log(IntentKind::FocusTarget);
+        item.target = Some(target_bits);
+        let _ = target_entity; // used in assertion comment
+        let event = make_h3c_event(actor_bits, snap, vec![item], vec![plan]);
+
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(agg.h3c_no_plan_attempts_target.get("NormalTactical").copied(), Some(1),
+            "pool does not attempt agenda target → NoPlanAttemptsTarget");
+    }
+
+    #[test]
+    fn h3c_only_move_plans_when_no_cast_steps_at_all() {
+        use storyforge::combat::ai::intent::IntentKind;
+        use storyforge::combat::ai::snapshot::BattleSnapshot;
+        use bevy::prelude::Entity;
+        use hexx::Hex;
+
+        let actor_bits = Entity::from_raw_u32(6).expect("valid").to_bits();
+        let target_bits = Entity::from_raw_u32(7).expect("valid").to_bits();
+
+        // Actor at (0,0); target at (1,0) in range.
+        let actor  = unit_at(actor_bits, 0, 0, 2, 3, 2);
+        let target = unit_at(target_bits, 1, 0, 2, 3, 1);
+        let mut snap = BattleSnapshot::default();
+        snap.units.push(actor);
+        snap.units.push(target);
+
+        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        ann.agenda_item = None;
+        // All plans are Move-only.
+        let plan = LoggedPlan {
+            rank: 1,
+            steps: vec![PlanStep::Move { path: vec![Hex::new(1, 0)] }],
+            annotation: ann,
+        };
+
+        let mut item = agenda_item_log(IntentKind::FocusTarget);
+        item.target = Some(target_bits);
+        let event = make_h3c_event(actor_bits, snap, vec![item], vec![plan]);
+
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(agg.h3c_only_move_plans.get("NormalTactical").copied(), Some(1),
+            "all plans are Move-only → OnlyMovePlans bucket");
+    }
+
+    #[test]
+    fn h3c_attributed_tick_not_counted() {
+        // If chosen plan has an agenda_item, H3c should not fire.
+        use storyforge::combat::ai::intent::IntentKind;
+        use storyforge::combat::ai::snapshot::BattleSnapshot;
+        use bevy::prelude::Entity;
+
+        let actor_bits = Entity::from_raw_u32(8).expect("valid").to_bits();
+        let actor = unit_at(actor_bits, 0, 0, 2, 3, 1);
+        let mut snap = BattleSnapshot::default();
+        snap.units.push(actor);
+
+        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        ann.agenda_item = Some(0); // attributed
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let item = agenda_item_log(IntentKind::FocusTarget);
+        let event = make_h3c_event(actor_bits, snap, vec![item], vec![plan]);
+
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        // H3c total should be 0 for attributed tick.
+        assert_eq!(agg.h3c_total.get("NormalTactical").copied().unwrap_or(0), 0);
     }
 }
