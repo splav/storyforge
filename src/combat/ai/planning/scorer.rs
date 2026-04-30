@@ -551,7 +551,7 @@ fn killed_intent_target(killed: &[Entity], intent: &TacticalIntent) -> bool {
 mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::factors::{PlanFactor, PlanFactorValues, StepFactor};
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
@@ -1018,7 +1018,7 @@ mod tests {
 
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let support = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-            .role(crate::combat::ai::role::AxisProfile { support: 1.0, ..Default::default() })
+            .role(crate::combat::ai::config::role::AxisProfile { support: 1.0, ..Default::default() })
             .threat(6.0)
             .build();
         let rat = UnitBuilder::new(3, Team::Player, hex_from_offset(2, 0))
@@ -1107,7 +1107,7 @@ mod tests {
         // High-value support: role=Support + strong threat drives
         // `unit_value` well above the actor's own.
         let support = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-            .role(crate::combat::ai::role::AxisProfile { support: 1.0, ..Default::default() })
+            .role(crate::combat::ai::config::role::AxisProfile { support: 1.0, ..Default::default() })
             .threat(8.0)
             .build();
         // Provoker that guarantees AoO lethal on retreat from support.
@@ -2013,7 +2013,7 @@ mod tests {
     /// so Ranged scores strictly lower for the same exposure.
     #[test]
     fn terminal_aggregator_role_weighted_distinguishes_tank_vs_ranged() {
-        use crate::combat::ai::role::AxisProfile;
+        use crate::combat::ai::config::role::AxisProfile;
         use crate::combat::ai::test_helpers::{UnitBuilder, empty_maps};
 
         let content = crate::combat::ai::test_helpers::empty_content();
@@ -2177,7 +2177,7 @@ mod tests {
         // Pure Melee actor — maximises the weight difference between discovery
         // (kill_now = 1.6) and continuation (kill_now = 1.92).
         let actor = UnitBuilder::new(1, Team::Enemy, pos)
-            .role(crate::combat::ai::role::AxisProfile {
+            .role(crate::combat::ai::config::role::AxisProfile {
                 tank: 0.0, melee: 1.0, ranged: 0.0, control: 0.0, support: 0.0,
             })
             .build();
@@ -2223,7 +2223,7 @@ mod tests {
 
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos)
-            .role(crate::combat::ai::role::AxisProfile {
+            .role(crate::combat::ai::config::role::AxisProfile {
                 tank: 0.0, melee: 1.0, ranged: 0.0, control: 0.0, support: 0.0,
             })
             .build();
@@ -2332,7 +2332,7 @@ mod tests {
     /// `factor_weights` on at least one axis (self_survival: 0.8 vs 0.56).
     #[test]
     fn factor_weights_continuation_differs_from_discovery_for_non_unit_axis() {
-        use crate::combat::ai::role::AxisProfile;
+        use crate::combat::ai::config::role::AxisProfile;
         use crate::combat::ai::test_helpers::UnitBuilder;
 
         let content = crate::combat::ai::test_helpers::empty_content();

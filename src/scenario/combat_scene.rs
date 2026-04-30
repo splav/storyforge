@@ -3,7 +3,7 @@ use crate::app_state::CombatPhase;
 use crate::content::encounters::VictoryCondition;
 use crate::content::scenarios::{active_party, SceneDef};
 use crate::combat::ai::intent::AiMemory;
-use crate::combat::ai::role::infer_profile;
+use crate::combat::ai::config::role::infer_profile;
 use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
 use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Initiative, Mana, Rage, StartingHexPos, UnitToken, VictoryTarget};

@@ -70,7 +70,7 @@ impl PlanStage for KillableGateStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::factors::{PlanFactorValues, StepFactor};
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};

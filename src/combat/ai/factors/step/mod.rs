@@ -115,7 +115,7 @@ impl StepFactor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::factors::compute_offensive_for_step;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;

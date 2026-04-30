@@ -9,7 +9,7 @@ use crate::combat::ai::repair::{
 };
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::world::tags::StatusTagCache;
-use crate::combat::ai::tuning::AiTuning;
+use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::utility::{AiDecision, ChosenInfo};
 
 /// Pre-tick: TTL decay + clear stale goals (TTL expired or Invalidating severity).

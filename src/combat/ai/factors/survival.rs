@@ -144,7 +144,7 @@ mod tests {
             .build();
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -175,7 +175,7 @@ mod tests {
             .build();
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -211,7 +211,7 @@ mod tests {
             .build();
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let mut maps = empty_maps();
         // Actor starts in danger, retreats to safety
@@ -244,7 +244,7 @@ mod tests {
             .build();
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -281,7 +281,7 @@ mod tests {
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let maps = empty_maps(); // no danger anywhere
         let reservations = Reservations::default();
@@ -330,7 +330,7 @@ mod tests {
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let mut maps = empty_maps();
         // Actor starts in high danger; retreat destination has low danger.
@@ -377,7 +377,7 @@ mod tests {
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let mut maps = empty_maps();
         // Actor starts safe, tile_b is also safe — no danger anywhere relevant.
@@ -423,7 +423,7 @@ mod tests {
             .build();
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let mut maps = empty_maps();
         // Actor in danger, tile_a is intermediate (still some danger),
@@ -465,7 +465,7 @@ mod tests {
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let maps = empty_maps(); // no danger
         let reservations = Reservations::default();

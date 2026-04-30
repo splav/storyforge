@@ -7,7 +7,7 @@
 //! next round and joins the queue with `Initiative(0)` (acts last).
 
 use crate::combat::ai::intent::AiMemory;
-use crate::combat::ai::role::infer_profile;
+use crate::combat::ai::config::role::infer_profile;
 use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::content::content_view::ActiveContent;
 use crate::game::bundles::enemy_bundle;

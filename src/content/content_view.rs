@@ -15,7 +15,7 @@ use crate::content::statuses::{parse_statuses, StatusDef, STATUSES_FILE};
 use crate::content::unit_templates::{
     parse_unit_templates, UnitTemplateDef, UNIT_TEMPLATES_FILE,
 };
-use crate::combat::ai::tuning::AiTuning;
+use crate::combat::ai::config::tuning::AiTuning;
 use crate::content::weapons::{parse_weapons, WeaponDef, WEAPONS_FILE};
 use crate::core::{AbilityId, ArmorId, StatusId, WeaponId};
 use crate::game::components::{CombatStats, Equipment};

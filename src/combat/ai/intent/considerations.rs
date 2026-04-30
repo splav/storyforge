@@ -22,7 +22,7 @@ use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::intent::{AgendaItem, IntentKind};
 use crate::combat::ai::intent::bands::BandWeights;
 use crate::combat::ai::repair::affinity::RepairAffinity;
-use crate::combat::ai::role::AxisProfile;
+use crate::combat::ai::config::role::AxisProfile;
 
 // ── IntentConsiderations ──────────────────────────────────────────────────────
 
@@ -214,7 +214,7 @@ mod tests {
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::intent::{AgendaItem, IntentKind, IntentReason};
     use crate::combat::ai::repair::affinity::RepairAffinity;
-    use crate::combat::ai::role::AxisProfile;
+    use crate::combat::ai::config::role::AxisProfile;
 
     fn item(kind: IntentKind) -> AgendaItem {
         AgendaItem {

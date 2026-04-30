@@ -16,7 +16,7 @@ use crate::combat::ai::intent::{AiMemory, IntentKind};
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::tags::{AbilityTag, AbilityTagCache, StatusTag, StatusTagCache};
-use crate::combat::ai::tuning::AiTuning;
+use crate::combat::ai::config::tuning::AiTuning;
 use crate::content::content_view::ContentView;
 
 /// Grouping struct for all read-only inputs to `compute_need_signals`.
@@ -308,7 +308,7 @@ mod tests {
     use crate::combat::ai::intent::IntentKind;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, ent, UnitBuilder};
-    use crate::combat::ai::tuning::AiTuning;
+    use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

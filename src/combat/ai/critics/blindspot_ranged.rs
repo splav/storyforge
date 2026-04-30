@@ -127,7 +127,7 @@ mod tests {
 
         let snap = BattleSnapshot::new(vec![actor.clone(), ally, enemy], 1);
         let content = empty_content();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -167,7 +167,7 @@ mod tests {
 
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
         let content = empty_content();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -192,7 +192,7 @@ mod tests {
         let enemy_pos = hex_from_offset(4, 0);
 
         let content = empty_content();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();

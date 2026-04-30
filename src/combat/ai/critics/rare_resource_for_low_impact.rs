@@ -206,7 +206,7 @@ mod tests {
         let dice = DiceExpr::new(4, 6, 0);
         content.abilities.insert(AbilityId::from("bolt"), expensive_spell("bolt", 40, dice));
 
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
         let maps = empty_maps();
@@ -249,7 +249,7 @@ mod tests {
         // Expensive spell with good impact (cost 40, actual damage = 12, expected ~7 → ratio ~1.7 clamped to 1.0).
         content.abilities.insert(AbilityId::from("effective"), expensive_spell("effective", 40, dice));
 
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
         let maps = empty_maps();
@@ -290,7 +290,7 @@ mod tests {
         let dice = DiceExpr::new(4, 6, 0);
         content.abilities.insert(AbilityId::from("bolt"), expensive_spell("bolt", 40, dice));
 
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
         let maps = empty_maps();
@@ -343,7 +343,7 @@ mod tests {
         }];
         content.abilities.insert(AbilityId::from("hard_stun"), stun);
 
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
         let maps = empty_maps();

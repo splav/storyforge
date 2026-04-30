@@ -513,7 +513,7 @@ mod tests {
         let def = fireball_def(1);
         content.abilities.insert(def.id.clone(), def);
 
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let utility = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
@@ -563,7 +563,7 @@ mod tests {
         let enemy = unit(2, Team::Player, enemy_pos, 20); // AoO-capable (was bleed trigger)
 
         let content = empty_content();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
         let mut maps = empty_maps();

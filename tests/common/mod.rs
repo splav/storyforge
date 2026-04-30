@@ -7,7 +7,7 @@ use bevy::state::app::StatesPlugin;
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
     advance_turn::{advance_turn_system, check_victory_system}, ai::debug::AiDebugState,
-    ai::difficulty::DifficultyProfile, ai::world::influence::InfluenceConfig,
+    ai::config::difficulty::DifficultyProfile, ai::world::influence::InfluenceConfig,
     ai::world::reservations::Reservations,
     apply_effects::apply_effects_system, ai::enemy_turn::enemy_ai_system,
     movement::movement_system,

@@ -1,6 +1,6 @@
 use crate::combat::ai::repair::affinity::RepairWeights;
 use crate::combat::ai::world::tags::{AbilityTag, AbilityTagCache, AbilityTagSet};
-use crate::combat::ai::tuning::AiTuning;
+use crate::combat::ai::config::tuning::AiTuning;
 use crate::content::abilities::{AoEShape, EffectDef};
 use crate::content::content_view::ContentView;
 use crate::core::AbilityId;

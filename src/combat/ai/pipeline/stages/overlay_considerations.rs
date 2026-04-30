@@ -392,7 +392,7 @@ mod tests {
     use super::*;
     use bevy::prelude::Entity;
 
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::factors::FactorTerminalScore;
     use crate::combat::ai::intent::agenda::{Agenda, AgendaItem};
     use crate::combat::ai::intent::bands::PriorityBand;

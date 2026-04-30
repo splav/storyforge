@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::combat::ai::difficulty::DifficultyProfile;
+use crate::combat::ai::config::difficulty::DifficultyProfile;
 
 #[derive(Resource, Clone)]
 pub struct GameSettings {

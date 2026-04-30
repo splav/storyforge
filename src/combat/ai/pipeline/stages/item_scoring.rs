@@ -229,7 +229,7 @@ impl PlanStage for ItemScoringStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::intent::agenda::{Agenda, AgendaItem};
     use crate::combat::ai::intent::bands::PriorityBand;

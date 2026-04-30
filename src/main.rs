@@ -12,7 +12,7 @@ use storyforge::game::messages::{
 };
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::resources::{CombatContext, CombatObjective, GameDb, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty};
-use storyforge::combat::ai::tuning::AiTuning;
+use storyforge::combat::ai::config::tuning::AiTuning;
 use storyforge::scenario;
 use storyforge::ui;
 use storyforge::ui::animation::AnimationQueue;

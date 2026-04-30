@@ -141,7 +141,7 @@ mod tests {
     /// asserts the returned `OffensiveFactors` correctly applies all policies.
     #[test]
     fn compute_offensive_reads_facts_and_applies_policy() {
-        use crate::combat::ai::difficulty::DifficultyProfile;
+        use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
@@ -214,7 +214,7 @@ mod tests {
     /// than an equivalent hit on a low-HP target.
     #[test]
     fn compute_offensive_aoe_per_entity_progression() {
-        use crate::combat::ai::difficulty::DifficultyProfile;
+        use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{ent, empty_maps, make_scoring_ctx, make_test_ctx};
@@ -302,7 +302,7 @@ mod tests {
     /// damage dealt to an ally produces more than double the penalty.
     #[test]
     fn compute_offensive_friendly_fire_super_linear() {
-        use crate::combat::ai::difficulty::DifficultyProfile;
+        use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};

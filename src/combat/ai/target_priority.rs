@@ -71,7 +71,7 @@ pub fn target_priority(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::role::AxisProfile;
+    use crate::combat::ai::config::role::AxisProfile;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{unit, UnitBuilder};
     use crate::game::components::Team;

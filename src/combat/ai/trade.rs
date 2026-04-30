@@ -313,7 +313,7 @@ pub fn trade_score(br: &TradeBreakdown, actor_value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::role::AxisProfile;
+    use crate::combat::ai::config::role::AxisProfile;
     use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, StatusApplication,

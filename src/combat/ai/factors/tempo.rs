@@ -115,7 +115,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let ctx = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -149,7 +149,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let ctx = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -187,7 +187,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let ctx = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();
@@ -231,7 +231,7 @@ mod tests {
         let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::hard();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let ctx = make_test_ctx(&content, &difficulty);
         let maps = empty_maps();
         let reservations = Reservations::default();

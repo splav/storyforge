@@ -3,10 +3,10 @@
 //! `InfluenceMaps` / `ContentView` scaffolding that every scoring-adjacent
 //! test module used to hand-roll.
 
-use crate::combat::ai::difficulty::DifficultyProfile;
+use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
 use crate::combat::ai::world::reservations::Reservations;
-use crate::combat::ai::role::AxisProfile;
+use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
 use crate::combat::ai::utility::{AiWorld, ScoringCtx};

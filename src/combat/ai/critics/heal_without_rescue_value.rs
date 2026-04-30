@@ -209,7 +209,7 @@ mod tests {
         let mut content = empty_content();
         content.abilities.insert(AbilityId::from("heal"), heal_ability("heal"));
 
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
         let maps = empty_maps();
@@ -253,7 +253,7 @@ mod tests {
 
         let mut content = empty_content();
         content.abilities.insert(AbilityId::from("heal"), heal_ability("heal"));
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let reservations = Reservations::default();
         let target_entity = Entity::from_raw_u32(2).expect("valid");
@@ -280,7 +280,7 @@ mod tests {
 
         let mut content = empty_content();
         content.abilities.insert(AbilityId::from("heal"), heal_ability("heal"));
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let reservations = Reservations::default();
         let target_entity = Entity::from_raw_u32(2).expect("valid");

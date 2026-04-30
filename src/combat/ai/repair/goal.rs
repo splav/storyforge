@@ -14,7 +14,7 @@ use crate::combat::ai::planning::types::PlanStep;
 use crate::combat::ai::repair::{PlanContinuationCheck, StatusDelta, classify_mismatch, compute_status_delta, MismatchContext};
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::world::tags::StatusTagCache;
-use crate::combat::ai::tuning::AiTuning;
+use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
@@ -397,7 +397,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::UnitBuilder;
-    use crate::combat::ai::tuning::AiTuning;
+    use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::components::Team;
     use crate::game::hex::Hex;
     use bevy::prelude::Entity;

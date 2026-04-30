@@ -1,8 +1,8 @@
 use crate::content::content_view::ContentView;
-use crate::combat::ai::role::AxisProfile;
-use crate::combat::ai::difficulty::DifficultyProfile;
+use crate::combat::ai::config::role::AxisProfile;
+use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::scoring::{applies_cc, estimate_damage_horizon, estimate_st_damage};
-use crate::combat::ai::tuning::AiTuningOverride;
+use crate::combat::ai::config::tuning::AiTuningOverride;
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
 use crate::content::races::CritFailEffect;
 use crate::core::{AbilityId, ResourceKind, StatusId};

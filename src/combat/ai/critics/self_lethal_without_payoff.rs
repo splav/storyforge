@@ -135,7 +135,7 @@ mod tests {
             .build();
 
         let content = empty_content();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
@@ -169,7 +169,7 @@ mod tests {
             .build();
 
         let content = empty_content();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
@@ -197,7 +197,7 @@ mod tests {
             .build();
 
         let content = empty_content();
-        let difficulty = crate::combat::ai::difficulty::DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();

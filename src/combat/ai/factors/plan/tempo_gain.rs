@@ -18,7 +18,7 @@ pub fn compute(plan: &TurnPlan, intent: &TacticalIntent, ctx: &ScoringCtx) -> f3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::TacticalIntent;
     use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::planning::types::TurnPlan;

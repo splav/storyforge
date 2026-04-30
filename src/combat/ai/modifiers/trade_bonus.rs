@@ -30,7 +30,7 @@ impl PlanModifier for TradeBonus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::modifiers::ModifierCtx;
     use crate::combat::ai::pipeline::StageCtx;
@@ -104,7 +104,7 @@ mod tests {
 
         // High-value support victim.
         let support = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-            .role(crate::combat::ai::role::AxisProfile { support: 1.0, ..Default::default() })
+            .role(crate::combat::ai::config::role::AxisProfile { support: 1.0, ..Default::default() })
             .threat(6.0)
             .build();
         // Low-value rat victim.

@@ -160,7 +160,7 @@ pub fn assert_v28_log_file(
     use crate::combat::ai::utility::pick_action;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::utility::AiWorld;
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
 
     let overlay = load_overlay(overlay_path)?;
     // In v28 we reinterpret plan_id as actor_id for entry selection.

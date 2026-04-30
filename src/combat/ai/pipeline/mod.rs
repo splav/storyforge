@@ -165,7 +165,7 @@ mod tests {
     /// production and test order are always identical.
     #[test]
     fn pipeline_runs_modifiers_after_repair_before_pick() {
-        use crate::combat::ai::difficulty::DifficultyProfile;
+        use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::intent::{IntentReason, TacticalIntent};
         use crate::combat::ai::modifiers::PLAN_MODIFIERS;
         use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};

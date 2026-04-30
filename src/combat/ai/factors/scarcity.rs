@@ -129,9 +129,9 @@ fn has_free_attack(active: &UnitSnapshot, content: &ContentView) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::role::AxisProfile;
+    use crate::combat::ai::config::role::AxisProfile;
     use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, unit, UnitBuilder,

@@ -15,9 +15,9 @@ pub use crate::combat::ai::planning::PickMechanics;
 use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
 use crate::content::content_view::ContentView;
 use crate::combat::ai::debug::{build_debug_snapshot, build_fallback_debug, AiDebugSnapshot};
-use crate::combat::ai::difficulty::DifficultyProfile;
+use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::world::influence::InfluenceMaps;
-use crate::combat::ai::tuning::AiTuning;
+use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::intent::{
     assign_band, AiMemory, IntentReason, TacticalIntent,
 };
@@ -567,7 +567,7 @@ mod tests {
     use crate::combat::ai::world::tags::AbilityTag;
     use crate::combat::ai::world::tags::cache::build_caches;
     use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::game::components::Team;

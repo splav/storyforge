@@ -34,7 +34,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::combat::ai::difficulty::DifficultyProfile;
+use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::intent::{AiMemory, IntentKind, IntentReason, TacticalIntent};
 use crate::combat::ai::intent::bands::{BandReason, PriorityBand};
 use crate::combat::ai::intent::considerations::IntentConsiderations;
@@ -1242,7 +1242,7 @@ mod tests {
         // Minimal AiLogEntry constructed directly to verify current schema fields
         // appear in the JSON output with the expected types. AiLogEntry has no
         // Deserialize derive (lifetime refs), so we assert via serde_json::Value.
-        use crate::combat::ai::difficulty::DifficultyProfile;
+        use crate::combat::ai::config::difficulty::DifficultyProfile;
 
         let snap = BattleSnapshot::default();
         let intent_val = TacticalIntent::ProtectSelf;
@@ -1296,7 +1296,7 @@ mod tests {
 
     #[test]
     fn difficulty_snapshot_round_trips() {
-        use crate::combat::ai::difficulty::DifficultyProfile;
+        use crate::combat::ai::config::difficulty::DifficultyProfile;
         let snap = DifficultyProfileSnapshot::from(&DifficultyProfile::hard());
         let json = serde_json::to_string(&snap).expect("serialize");
         let back: DifficultyProfileSnapshot = serde_json::from_str(&json).expect("deserialize");

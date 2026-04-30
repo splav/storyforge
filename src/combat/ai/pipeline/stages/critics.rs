@@ -65,7 +65,7 @@ impl PlanStage for CriticsStage {
 mod tests {
     use super::*;
     use crate::combat::ai::critics::{CriticHit, CriticKind, CriticReason, PlanCritic};
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};

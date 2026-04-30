@@ -38,7 +38,7 @@ impl PlanModifier for RepairBonus {
 mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::modifiers::ModifierCtx;
     use crate::combat::ai::pipeline::StageCtx;
@@ -212,7 +212,7 @@ mod tests {
     /// scale=0 → zero bonus; scale=0.4, commitment=0.4 → bonus = agg × 1.4 × 0.4.
     #[test]
     fn repair_bonus_scaled_by_threshold() {
-        use crate::combat::ai::tuning::AiTuning;
+        use crate::combat::ai::config::tuning::AiTuning;
 
         let content = crate::combat::ai::test_helpers::empty_content();
         let difficulty = DifficultyProfile::default();

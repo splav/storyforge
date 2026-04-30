@@ -1,6 +1,6 @@
 use crate::combat::ai::world::influence::InfluenceMaps;
-use crate::combat::ai::role::AxisProfile;
-use crate::combat::ai::tuning::AiTuning;
+use crate::combat::ai::config::role::AxisProfile;
+use crate::combat::ai::config::tuning::AiTuning;
 use crate::game::hex::Hex;
 
 /// Evaluate how desirable `tile` is for a unit with the given profile.
@@ -17,7 +17,7 @@ pub fn evaluate_position(tile: Hex, profile: &AxisProfile, tuning: &AiTuning, ma
 mod tests {
     use super::*;
     use crate::combat::ai::world::influence::InfluenceMap;
-    use crate::combat::ai::tuning::AiTuning;
+    use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::hex::hex_from_offset;
 
     /// Five reference profiles spanning the axes — used to pin role-agnostic

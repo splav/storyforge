@@ -26,7 +26,7 @@ use std::path::PathBuf;
 
 use bevy::prelude::Entity;
 
-use storyforge::combat::ai::difficulty::DifficultyProfile;
+use storyforge::combat::ai::config::difficulty::DifficultyProfile;
 use storyforge::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::intent::AiMemory;
 use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};

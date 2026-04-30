@@ -21,7 +21,7 @@ use crate::combat::ai::outcome::builder::hypothetical as estimate_hypothetical;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::target_priority::target_priority;
-use crate::combat::ai::tuning::AiTuning;
+use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::AoEShape;
 use crate::game::hex::Hex;
@@ -344,7 +344,7 @@ pub fn score_plans_prototype(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::difficulty::DifficultyProfile;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome};
     use crate::combat::ai::world::reservations::Reservations;

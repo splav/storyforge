@@ -453,7 +453,7 @@ mod tests {
     /// `threat`. Pins the key user-visible effect of #6-B.
     #[test]
     fn stun_value_devalues_resource_starved_target() {
-        use crate::combat::ai::role::AxisProfile;
+        use crate::combat::ai::config::role::AxisProfile;
         use crate::combat::ai::world::snapshot::AiTags;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
