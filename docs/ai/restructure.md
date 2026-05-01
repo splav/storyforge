@@ -666,7 +666,7 @@ P-track (контракты + миграция логики) и R-track (relocat
 | P4 — Intent split | P | done | parallel-safe от P0 | 2026-05-01. kinds/select/score/memory. mod.rs → 32 LOC. |
 | P6 — Replay split | P | done 2026-05-01 | parallel-safe | replay/ umbrella: mod.rs (DSL) + pipeline.rs. CLI executor остался в bin. |
 | P7 — Semantic cleanup | P | done 2026-05-01 | P3b (schema coordination) | |
-| R7 — memory/ + appraisal split | R | pending | optional, post-P7 | Может вообще не делаться. |
+| R7 — memory/ + appraisal split | R | done | optional, post-P7 | 2026-05-01. memory/ extraction + appraisal/ split (7 files) + AiTags → world/tags/. 783 passed. |
 | R-late — utility/→orchestration/, enemy_turn→system | R | pending | косметика | Когда удобно или никогда. |
 
 **Mainline P-order.** `P0 → P1 → P2 → P3a → P3b`. Критический путь, без обхода.

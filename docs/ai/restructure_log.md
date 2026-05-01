@@ -1071,3 +1071,64 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] Behavioural diff = 0: только path/import changes
 
 ---
+
+## 2026-05-01 — R7 (done)
+
+**Что сделано:**
+
+**R7-1: memory/ extraction**
+
+- `intent/memory.rs` → `memory/ai_memory.rs` (git mv).
+- `repair/goal.rs` → `memory/goal/context.rs` (git mv).
+- `repair/lifecycle.rs` → `memory/goal/lifecycle.rs` (git mv).
+- Создан `memory/goal/mod.rs` с re-exports: `GoalKind`, `StoredGoalContext`, `extract_goal_context`, `pre_tick`, `post_tick`.
+- Создан `memory/mod.rs` с re-exports: `AiMemory`, `PlanSnapshot`, `status_hash` + goal re-exports.
+- `repair/mod.rs`: убраны `pub mod goal;` и `pub mod lifecycle;`, добавлены backward-compat re-exports через `pub use crate::combat::ai::memory::goal::*`.
+- `intent/mod.rs`: убран `pub mod memory;`, добавлен backward-compat `pub use crate::combat::ai::memory::{AiMemory, PlanSnapshot, status_hash}`.
+- `enemy_turn.rs`: `repair::lifecycle as goal_lifecycle` → `memory::goal::lifecycle as goal_lifecycle`.
+- Обновлены прямые импорты `repair::goal::*` в: `repair/affinity.rs`, `pipeline/stages/repair_affinity.rs`, `pipeline/stages/modifiers/repair_bonus.rs`, `scoring/factors/aggregate.rs`, `log/mod.rs`.
+
+**R7-2: appraisal/ split**
+
+- `appraisal/mod.rs` (1084 LOC) разнесён на 7 sub-файлов.
+- `self_preserve.rs`, `continue_commitment.rs`, `finish_target.rs`, `reposition.rs`, `conserve_resource.rs`, `rescue_ally.rs`, `apply_cc.rs` — каждый содержит одну compute-функцию + тесты.
+- `mod.rs` сохраняет: `AppraisalCtx`, `NeedSignals`, `compute_need_signals` (orchestrator), `pub(crate) mod tests` (общие helpers + 2 integration теста).
+- Тесты разнесены по signal-файлам через `use super::super::tests::*`.
+- `ally_threat_proxy` re-exported как `pub(crate)` из `rescue_ally.rs` через `mod.rs`.
+
+**R7-3: AiTags consolidation**
+
+- `AiTags` bitflags (`pub struct AiTags: u16`) перемещены из `world/snapshot.rs` в новый файл `world/tags/ai_tags.rs`.
+- `world/tags/mod.rs`: добавлен `pub mod ai_tags; pub use ai_tags::AiTags;`.
+- `world/snapshot.rs`: определение удалено, добавлен `pub use crate::combat::ai::world::tags::AiTags` для backward-compat.
+- Все существующие consumers (`action_state.rs`, `plan/generator.rs`, `scoring/horizon.rs`, `log/serde_helpers.rs`, `pipeline/stages/critics/blindspot_ranged.rs`, `bin/mine_ai_logs.rs`, etc.) продолжают работать через re-export — изменения импортов не потребовались.
+
+**Комментарии / отклонения от плана:**
+
+- Структура `memory/` соответствует плану точно.
+- `repair/mod.rs` сохраняет re-exports для backward-compat: `repair::GoalKind`, `repair::StoredGoalContext`, `repair::extract_goal_context` работают как раньше. Caller-side import churn минимален.
+- `appraisal/mod.rs::tests` сделан `pub(crate)` вместо `mod`, чтобы sub-файлы могли использовать общие helpers без дублирования.
+- Два новых clippy-warnings (unused import) обнаружены и исправлены в R7-3 коммите.
+
+**Файлы, которые затронули:**
+
+R7-1: `memory/mod.rs` (new), `memory/ai_memory.rs` (mv), `memory/goal/mod.rs` (new), `memory/goal/context.rs` (mv), `memory/goal/lifecycle.rs` (mv), `combat/ai/mod.rs`, `intent/mod.rs`, `intent/select.rs`, `repair/mod.rs`, `repair/affinity.rs`, `enemy_turn.rs`, `log/mod.rs`, `pipeline/stages/repair_affinity.rs`, `pipeline/stages/modifiers/repair_bonus.rs`, `scoring/factors/aggregate.rs`.
+
+R7-2: `appraisal/mod.rs` (rewrite), `appraisal/self_preserve.rs` (new), `appraisal/continue_commitment.rs` (new), `appraisal/finish_target.rs` (new), `appraisal/reposition.rs` (new), `appraisal/conserve_resource.rs` (new), `appraisal/rescue_ally.rs` (new), `appraisal/apply_cc.rs` (new).
+
+R7-3: `world/tags/ai_tags.rs` (new), `world/tags/mod.rs`, `world/snapshot.rs`.
+
+**DoD проверка:**
+
+- [x] `src/combat/ai/memory/` существует с `{ai_memory.rs, goal/{context.rs, lifecycle.rs}}`
+- [x] `src/combat/ai/intent/memory.rs` не существует
+- [x] `src/combat/ai/repair/goal.rs` и `repair/lifecycle.rs` не существуют
+- [x] `src/combat/ai/appraisal/{mod.rs, self_preserve.rs, rescue_ally.rs, apply_cc.rs, continue_commitment.rs, finish_target.rs, reposition.rs, conserve_resource.rs}` существуют
+- [x] `src/combat/ai/world/tags/ai_tags.rs` существует, `AiTags` определён там
+- [x] `src/combat/ai/world/snapshot.rs` не содержит определение `AiTags`
+- [x] `cargo build --all-targets` — clean
+- [x] `cargo test --lib` — 783 passed (baseline)
+- [x] `cargo clippy --all-targets` — 0 новых warnings
+- [x] Behavioural diff = 0: только path/import changes
+
+---
