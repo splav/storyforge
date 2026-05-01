@@ -10,8 +10,8 @@
 //! **Offline prototype only.** Production pipeline never calls this module.
 //! Single consumer: `replay_ai_log --phase7-prototype`.
 
-use crate::combat::ai::factors::aoe_hits;
-use crate::combat::ai::factors::aoe_area;
+use crate::combat::ai::scoring::factors::aoe_hits;
+use crate::combat::ai::scoring::factors::aoe_area;
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::scorer::{compute_plan_factors, finalize_scores};

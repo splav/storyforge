@@ -659,8 +659,8 @@ P-track (контракты + миграция логики) и R-track (relocat
 | ↳ P3a.5 — Finalize → Rescore | P | done | P3a.4 | 2026-05-01. FinalizeStage sets trace.base=new_score, rescore_mode=Some(mode), clears effects. 4 new tests. |
 | ↳ P3a.6 — cleanup bridging-resets | P | done | P3a.5 | 2026-05-01. Bridging-резеты удалены из 5 стадий. Trace аккумулирует от Finalize::base. 1 new full-pipeline invariant test. 780 passed. |
 | R5 — pipeline/stages absorbs | R | done | **только после P3a** | Mixed (move + split). A: done 2026-05-01 (critics/ + modifiers/ relocated). B.1: done 2026-05-01 (sanity split). B.2: done 2026-05-01 (killable_gate merge). B.3: done 2026-05-01 (picker merge). R5 complete. |
-| P5 — Factor refactor | P | pending | **НЕ параллелить с P3a** | Оба трогают `scorer.rs` / factor leaves. |
-| R4 — factors → scoring/factors/ | R | pending | с/после P5 | Pure relocation финализированных факторов. |
+| P5 — Factor refactor | P | done | **НЕ параллелить с P3a** | 2026-05-01. Leaf consolidation. −4 flat files, −2 parity tests. 780→778. |
+| R4 — factors → scoring/factors/ | R | done | с/после P5 | 2026-05-01. Pure relocation. scoring/ umbrella теперь полное. |
 | P3b — Expose ScoreTrace to JSONL | P | pending | P3a; schema bump | |
 | R6 — planning/ → plan/ cleanup + scorer.rs split | R | pending | **после P3a + R2 + R5 + P5 + R4** | Mixed / high-risk ownership split. Hard requirement: golden replay diff = 0. |
 | P4 — Intent split | P | done | parallel-safe от P0 | 2026-05-01. kinds/select/score/memory. mod.rs → 32 LOC. |

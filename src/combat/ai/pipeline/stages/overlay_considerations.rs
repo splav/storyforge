@@ -26,7 +26,7 @@
 
 use bevy::prelude::Entity;
 
-use crate::combat::ai::factors::{
+use crate::combat::ai::scoring::factors::{
     FactorTerminalScore, PlanFactor, PlanFactorValues, TerminalFactor,
 };
 use crate::combat::ai::world::influence::InfluenceMaps;
@@ -393,7 +393,7 @@ mod tests {
     use bevy::prelude::Entity;
 
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::FactorTerminalScore;
+    use crate::combat::ai::scoring::factors::FactorTerminalScore;
     use crate::combat::ai::intent::agenda::{Agenda, AgendaItem};
     use crate::combat::ai::intent::bands::PriorityBand;
     use crate::combat::ai::intent::considerations::IntentConsiderations;

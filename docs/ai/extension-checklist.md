@@ -42,7 +42,7 @@
 | `src/combat/ai/scoring/policy/` | HP-эквивалент formulas (`damage::value`, `heal::value`, `cc::value`, `friendly_fire::penalty`) — если новый эффект нужно скорить, добавь named pure function |
 | `src/combat/ai/outcome/builder.rs::from_sim_step` | Если новый эффект должен заполнять поле `ActionOutcomeEstimate` (damage/heal/cc/etc.) |
 | `src/combat/ai/role.rs::ability_vote` | Голос за ось |
-| `src/combat/ai/factors/offensive.rs` | Обычно менять не надо — `compute_offensive` читает `outcome` vector; новые эффекты попадают через `outcome::builder::from_sim_step` |
+| `src/combat/ai/scoring/factors/offensive.rs` | Обычно менять не надо — `compute_offensive` читает `outcome` vector; новые эффекты попадают через `outcome::builder::from_sim_step` |
 
 ## Новое поле `StatusDef`
 
@@ -81,18 +81,18 @@
 | `src/content/abilities.rs` | Вариант enum + парсер |
 | `src/combat/effects_math.rs::aoe_cells` | Перечисление клеток |
 | `src/ui/hex_grid/visuals.rs::update_hex_visuals` | Preview-рендер под ховером |
-| `src/combat/ai/factors/aoe_hits.rs` | Покрытие enemies/allies (если формула нестандартная) |
+| `src/combat/ai/scoring/factors/aoe_hits.rs` | Покрытие enemies/allies (если формула нестандартная) |
 | `src/ui/ability_panel.rs::build_description` | Строка-подпись формы |
 
 ## Новый фактор scoring'а
 
 | Файл | Что |
 |---|---|
-| `src/combat/ai/factors/step/` или `factors/plan/` | Реализация фактора (per-step или plan-уровень) + регистрация в `factors/registry.rs` |
-| `src/combat/ai/factors/mod.rs` | Поле в `Factors` + нормализация (non-neg vs signed) |
+| `src/combat/ai/scoring/factors/step/` или `scoring/factors/plan/` | Реализация фактора (per-step или plan-уровень) + регистрация в `scoring/factors/registry.rs` |
+| `src/combat/ai/scoring/factors/mod.rs` | `pub use` новой функции если нужна из-за пределов `scoring/factors/` |
 | `assets/data/ai_tuning.toml` (`tables.axis_factor_weights`) | Весовая колонка на 5 ролей |
 | `src/combat/ai/planning/scorer.rs` | Агрегация по шагам плана (sum / max / discounted) |
-| `src/combat/ai/difficulty.rs` | Ручка difficulty, если фактор должен зависеть от сложности |
+| `src/combat/ai/config/difficulty.rs` | Ручка difficulty, если фактор должен зависеть от сложности |
 | [scoring.md](scoring.md) | Строка в таблице факторов |
 
 ## Новый critic / SanityCheck

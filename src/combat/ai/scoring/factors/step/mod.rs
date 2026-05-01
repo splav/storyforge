@@ -14,8 +14,8 @@ pub mod saturation;
 pub mod scarcity;
 
 use crate::combat::ai::appraisal::NeedSignals;
-use crate::combat::ai::factors::registry::{default_norm, BatchStats};
-use crate::combat::ai::factors::ScoredStep;
+use crate::combat::ai::scoring::factors::registry::{default_norm, BatchStats};
+use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::utility::ScoringCtx;
 
@@ -116,7 +116,7 @@ impl StepFactor {
 mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::compute_offensive_for_step;
+    use crate::combat::ai::scoring::factors::compute_offensive_for_step;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};

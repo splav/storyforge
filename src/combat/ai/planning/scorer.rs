@@ -25,7 +25,7 @@
 //!
 //! Picking jitter (deterministic noise) is applied in `PickBestStage`, not here.
 
-use crate::combat::ai::factors::{
+use crate::combat::ai::scoring::factors::{
     compute_plan_self_survival, compute_plan_tempo_gain,
     plan as plan_factors, step as step_factors,
     BatchStats, PlanFactor, PlanFactorValues, ScoredStep, StepFactor, TerminalFactor,
@@ -552,7 +552,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::{PlanFactor, PlanFactorValues, StepFactor};
+    use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues, StepFactor};
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;

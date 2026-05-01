@@ -1,11 +1,11 @@
 use bevy::prelude::Entity;
 use crate::content::content_view::ContentView;
-use crate::combat::ai::factors::{aoe_area, aoe_hits, StepFactor};
+use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits, StepFactor};
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::world::snapshot::{AiTags, UnitSnapshot};
-use crate::combat::ai::factors::ScoredStep;
+use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::game::hex::Hex;

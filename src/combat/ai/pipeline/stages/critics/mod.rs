@@ -360,7 +360,7 @@ mod tests {
     fn run_partial_pipeline_with_critic(
         plans: Vec<TurnPlan>,
         scores: Vec<f32>,
-        raw: Vec<crate::combat::ai::factors::PlanFactorValues>,
+        raw: Vec<crate::combat::ai::scoring::factors::PlanFactorValues>,
         adaptations: Vec<Option<crate::combat::ai::outcome::AdaptationData>>,
         actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
         snap: &BattleSnapshot,
@@ -416,7 +416,7 @@ mod tests {
 
     #[test]
     fn critics_survive_through_adaptation_path() {
-        use crate::combat::ai::factors::PlanFactorValues;
+        use crate::combat::ai::scoring::factors::PlanFactorValues;
         use crate::combat::ai::outcome::AdaptationData;
         use crate::combat::ai::adapt::AdaptationReason;
         use crate::combat::ai::planning::types::TurnPlan;

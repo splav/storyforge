@@ -31,7 +31,7 @@
 //!    to `CanFinish` and prune legit offensive-vs-target plans. See
 //!    `docs/ai_rework.md §3.1`, §3.2a.
 
-use crate::combat::ai::factors::{PlanFactorValues, StepFactor};
+use crate::combat::ai::scoring::factors::{PlanFactorValues, StepFactor};
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::outcome::ContractMaskHit;
@@ -591,7 +591,7 @@ mod algorithm_tests {
 mod stage_tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::{PlanFactorValues, StepFactor};
+    use crate::combat::ai::scoring::factors::{PlanFactorValues, StepFactor};
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::{PlanStep, TurnPlan};

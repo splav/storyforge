@@ -53,7 +53,7 @@ pub use builder::{
     step_path_danger,
 };
 
-use crate::combat::ai::factors::{PlanFactorValues, FactorTerminalScore};
+use crate::combat::ai::scoring::factors::{PlanFactorValues, FactorTerminalScore};
 use crate::combat::ai::pipeline::stages::modifiers::ModifierContribution;
 use serde::{Deserialize, Serialize};
 

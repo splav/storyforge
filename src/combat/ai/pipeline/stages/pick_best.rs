@@ -47,7 +47,7 @@
 //! - Empty agenda or `per_item` empty → legacy single-score path.
 //! - All items `!eligible` → `ann.score` stays as-is (pipeline value), `ann.agenda_item = None`.
 
-use crate::combat::ai::factors::{aoe_area, aoe_hits, BatchStats, PlanFactor, PlanFactorValues, StepFactor};
+use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits, BatchStats, PlanFactor, PlanFactorValues, StepFactor};
 use crate::combat::ai::outcome::PickInfo;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::planning::factor_contribution;
@@ -553,7 +553,7 @@ fn plan_start_tile(plan: &TurnPlan) -> Hex {
 mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::PlanFactorValues;
+    use crate::combat::ai::scoring::factors::PlanFactorValues;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::TurnPlan;
@@ -824,7 +824,7 @@ mod tests {
     /// the same path: default actor role weights × `intent_commitment`.
     /// Used to write exact-value assertions for cdot bonus.
     fn expected_w_intent() -> f32 {
-        use crate::combat::ai::factors::{PlanFactor, StepFactor};
+        use crate::combat::ai::scoring::factors::{PlanFactor, StepFactor};
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);

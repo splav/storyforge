@@ -12,9 +12,9 @@ pub const NAME: &str = "scarcity";
 pub const SIGNED: bool = true;
 
 use crate::combat::ai::appraisal::NeedSignals;
-use crate::combat::ai::factors::ScoredStep;
-use crate::combat::ai::factors::aoe_hits::aoe_hits;
-use crate::combat::ai::factors::offensive::aoe_area;
+use crate::combat::ai::scoring::factors::ScoredStep;
+use crate::combat::ai::scoring::factors::aoe_hits::aoe_hits;
+use crate::combat::ai::scoring::factors::offensive::aoe_area;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::stun_denial_value;
 use crate::combat::ai::utility::ScoringCtx;

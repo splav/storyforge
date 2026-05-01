@@ -18,7 +18,7 @@ mod retreat_trap;
 mod synergy_bonus;
 
 use crate::combat::ai::adapt::EvaluationMode;
-use crate::combat::ai::factors::{aoe_area, PlanFactor, PlanFactorValues};
+use crate::combat::ai::scoring::factors::{aoe_area, PlanFactor, PlanFactorValues};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn sanity_survives_adaptation_path() {
-        use crate::combat::ai::factors::PlanFactorValues;
+        use crate::combat::ai::scoring::factors::PlanFactorValues;
         use crate::combat::ai::outcome::AdaptationData;
         use crate::combat::ai::pipeline::stages::finalize::FinalizeStage;
         use crate::combat::ai::pipeline::PlanStage;
@@ -563,7 +563,7 @@ mod tests {
     #[test]
     fn p3a_sanity_with_hits_pushes_multipliers() {
         use crate::combat::ai::pipeline::score_trace::MultiplierKind;
-        use crate::combat::ai::factors::PlanFactorValues;
+        use crate::combat::ai::scoring::factors::PlanFactorValues;
         use crate::combat::ai::outcome::AdaptationData;
         use crate::combat::ai::adapt::AdaptationReason;
         use crate::combat::ai::pipeline::stages::finalize::FinalizeStage;

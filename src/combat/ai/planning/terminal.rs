@@ -13,7 +13,7 @@
 //! The per-axis `compute_*` free functions remain here as `pub(crate)` helpers;
 //! they are used by the `factors::terminal` leaf modules.
 
-use crate::combat::ai::factors::{FactorTerminalScore, TerminalFactor};
+use crate::combat::ai::scoring::factors::{FactorTerminalScore, TerminalFactor};
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
@@ -284,7 +284,7 @@ mod tests {
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::TerminalFactor;
+    use crate::combat::ai::scoring::factors::TerminalFactor;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

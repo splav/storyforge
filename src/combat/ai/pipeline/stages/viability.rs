@@ -31,7 +31,7 @@ impl PlanStage for ViabilityStage {
         let max_align = pool
             .annotations
             .iter()
-            .map(|a| a.factors.get_plan(crate::combat::ai::factors::PlanFactor::Intent))
+            .map(|a| a.factors.get_plan(crate::combat::ai::scoring::factors::PlanFactor::Intent))
             .fold(f32::NEG_INFINITY, f32::max);
 
         if max_align >= threshold {
@@ -120,7 +120,7 @@ impl PlanStage for ViabilityStage {
 mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::factors::{PlanFactor, PlanFactorValues};
+    use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::intent::IntentReason;
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::planning::types::TurnPlan;

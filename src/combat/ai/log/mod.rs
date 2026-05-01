@@ -297,9 +297,9 @@ pub struct PlanLogEntry<'a> {
     /// Offline tools can recalibrate weights by re-normalizing + re-scoring
     /// without rerunning sim. When `evaluation_mode = LastStand`, the `intent`
     /// slot reflects the `LastStand` rescore.
-    pub factors: &'a crate::combat::ai::factors::PlanFactorValues,
+    pub factors: &'a crate::combat::ai::scoring::factors::PlanFactorValues,
     /// Terminal-state factor decomposition (v29 named map).
-    pub terminal_factors: &'a crate::combat::ai::factors::FactorTerminalScore,
+    pub terminal_factors: &'a crate::combat::ai::scoring::factors::FactorTerminalScore,
     /// Score after ADAPTATION (and noise). Kept under the historical name
     /// `score` so v1-v5 readers stay meaningful on v6 files. For adapted
     /// plans this is the LastStand-weighted number; for non-adapted plans
@@ -479,8 +479,8 @@ pub fn plan_to_log_entry<'a>(
     plan: &'a TurnPlan,
     rank: usize,
     chosen: bool,
-    factors: &'a crate::combat::ai::factors::PlanFactorValues,
-    terminal_factors: &'a crate::combat::ai::factors::FactorTerminalScore,
+    factors: &'a crate::combat::ai::scoring::factors::PlanFactorValues,
+    terminal_factors: &'a crate::combat::ai::scoring::factors::FactorTerminalScore,
     base_score: f32,
     score: f32,
     evaluation_mode: &'a EvaluationMode,

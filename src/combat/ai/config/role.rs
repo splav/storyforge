@@ -302,7 +302,7 @@ fn tag_axis_vote(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::factors::StepFactor;
+    use crate::combat::ai::scoring::factors::StepFactor;
     use crate::combat::ai::world::tags::cache::build_caches;
     const DAMAGE_IDX: usize = StepFactor::Damage as usize;
     const HEAL_IDX: usize = StepFactor::Heal as usize;

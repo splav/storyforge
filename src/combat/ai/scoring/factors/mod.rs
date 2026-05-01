@@ -287,9 +287,9 @@ impl<'de> serde::Deserialize<'de> for PlanFactorValues {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::factors::plan::PlanFactor;
-    use crate::combat::ai::factors::step::StepFactor;
-    use crate::combat::ai::factors::terminal::TerminalFactor;
+    use crate::combat::ai::scoring::factors::plan::PlanFactor;
+    use crate::combat::ai::scoring::factors::step::StepFactor;
+    use crate::combat::ai::scoring::factors::terminal::TerminalFactor;
 
     // ── factor_kind macro metadata ────────────────────────────────────────────
 
@@ -349,11 +349,11 @@ mod tests {
         // need_modulation spot checks
         assert_eq!(
             TerminalFactor::ExposureAtEnd.need_modulation(),
-            crate::combat::ai::factors::registry::NeedAxis::SelfPreserve
+            crate::combat::ai::scoring::factors::registry::NeedAxis::SelfPreserve
         );
         assert_eq!(
             TerminalFactor::LineActionability.need_modulation(),
-            crate::combat::ai::factors::registry::NeedAxis::None
+            crate::combat::ai::scoring::factors::registry::NeedAxis::None
         );
 
         for f in TerminalFactor::iter() {

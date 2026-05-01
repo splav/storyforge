@@ -9,7 +9,7 @@ pub mod intent;
 pub mod self_survival;
 pub mod tempo_gain;
 
-use crate::combat::ai::factors::registry::{default_norm, BatchStats};
+use crate::combat::ai::scoring::factors::registry::{default_norm, BatchStats};
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::utility::ScoringCtx;

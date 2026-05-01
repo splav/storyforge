@@ -16,7 +16,7 @@ pub mod next_turn_lethality;
 pub mod pressure_spacing_zone;
 pub mod secure_kill;
 
-use crate::combat::ai::factors::registry::{default_norm, BatchStats, NeedAxis};
+use crate::combat::ai::scoring::factors::registry::{default_norm, BatchStats, NeedAxis};
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::utility::ScoringCtx;

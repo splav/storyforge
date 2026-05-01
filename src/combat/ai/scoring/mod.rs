@@ -7,6 +7,7 @@
 //! - `trade` — unit value and trade delta.
 //! - `policy` — HP-equivalent value formulas (damage, heal, CC, status).
 
+pub mod factors;
 pub mod horizon;
 pub mod policy;
 pub mod position_eval;

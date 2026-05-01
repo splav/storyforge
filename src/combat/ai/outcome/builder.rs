@@ -317,7 +317,7 @@ pub(crate) fn build_damage_facts(
     caster: &CasterContext,
     sim_damage: f32,
 ) -> DamageFacts {
-    use crate::combat::ai::factors::aoe_area;
+    use crate::combat::ai::scoring::factors::aoe_area;
     use crate::content::abilities::AoEShape;
 
     if def.aoe == AoEShape::None {
@@ -401,7 +401,7 @@ pub(crate) fn aoe_p_kill_soon(
     caster: &CasterContext,
     content: &ContentView,
 ) -> f32 {
-    use crate::combat::ai::factors::aoe_area;
+    use crate::combat::ai::scoring::factors::aoe_area;
     let area = aoe_area(def, target_pos, caster_tile);
     let any = pre_snap.units.iter()
         .filter(|u| u.is_alive() && area.contains(&u.pos) && u.team != actor_team)
@@ -431,7 +431,7 @@ pub(crate) fn build_status_facts(
     pre_snap: &BattleSnapshot,
     content: &ContentView,
 ) -> StatusFacts {
-    use crate::combat::ai::factors::aoe_area;
+    use crate::combat::ai::scoring::factors::aoe_area;
     use crate::content::abilities::AoEShape;
 
     // Collect enemies that will receive status applications.

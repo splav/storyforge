@@ -11,7 +11,7 @@
 
 use crate::combat::actions::{check_legality, ProposedAction};
 use crate::combat::ai::action_state::SnapshotActionState;
-use crate::combat::ai::factors::{aoe_area, aoe_hits};
+use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::planning::sim::SimState;
 use crate::combat::ai::outcome::builder as outcome_builder;

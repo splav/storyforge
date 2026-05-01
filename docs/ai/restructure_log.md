@@ -759,3 +759,72 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] Behavioural diff = 0: ни одна формула / control flow / литерал не изменена
 
 ---
+
+## 2026-05-01 — P5 — Factor leaf consolidation (completed)
+
+**Что сделано:**
+- `factors/step/saturation.rs`: перенесена полная реализация из flat `factors/saturation.rs`. `buff_saturation_penalty` стала private `fn`. 4 теста из flat-файла перенесены в leaf. Flat удалён (`git rm`).
+- `factors/step/scarcity.rs`: перенесена полная реализация из flat `factors/scarcity.rs`. `compute_scarcity` и `has_free_attack` стали private. 5 тестов перенесены. Flat удалён.
+- `factors/plan/self_survival.rs`: перенесена полная реализация из flat `factors/survival.rs`. `compute_plan_self_survival` осталась `pub` (cross-module consumer: `planning/scorer.rs:358`). `committed_prefix_final_pos` стала private. 8 тестов перенесены. Удалён parity test `plan_factor_compute_matches_legacy_self_survival`. Flat удалён.
+- `factors/plan/tempo_gain.rs`: перенесена полная реализация из flat `factors/tempo.rs`. `compute_plan_tempo_gain` осталась `pub` (cross-module consumers: `planning/scorer.rs:300` + `pipeline/stages/item_scoring.rs:157`). `step_tempo` и `max_offensive_range` стали private. 4 теста перенесены. Удалён parity test `plan_factor_compute_matches_legacy_tempo_gain`. Flat удалён.
+- `factors/mod.rs`: удалены `mod saturation; mod scarcity; mod survival; mod tempo;` и соответствующие `pub use`. Добавлены `pub use plan::self_survival::compute_plan_self_survival` и `pub use plan::tempo_gain::compute_plan_tempo_gain` — consumers не нуждались в изменении импортов. `aoe_hits` и `offensive` повышены до `pub(crate)` для доступа из нового `step/scarcity.rs`.
+
+**Cross-module consumers (confirmed):**
+- `compute_plan_self_survival`: `planning/scorer.rs:29,358` — `pub` сохранён.
+- `compute_plan_tempo_gain`: `planning/scorer.rs:29,300` и `pipeline/stages/item_scoring.rs:46` — `pub` сохранён.
+
+**Parity tests удалены:**
+- `plan_factor_compute_matches_legacy_self_survival`
+- `plan_factor_compute_matches_legacy_tempo_gain`
+- Итого −2 теста: 780 → 778.
+
+**Файлы, которые затронули:**
+- `src/combat/ai/factors/step/saturation.rs` (thin shim → полная реализация)
+- `src/combat/ai/factors/step/scarcity.rs` (thin shim → полная реализация)
+- `src/combat/ai/factors/plan/self_survival.rs` (thin shim + parity → полная реализация)
+- `src/combat/ai/factors/plan/tempo_gain.rs` (thin shim + parity → полная реализация)
+- `src/combat/ai/factors/mod.rs` (−4 mod −4 pub use, +2 pub use через plan::)
+- `src/combat/ai/factors/{saturation,scarcity,survival,tempo}.rs` (deleted)
+
+**DoD проверка:**
+- [x] Flat файлы удалены; каждый leaf содержит полную реализацию
+- [x] Parity тесты удалены (−2)
+- [x] `factors/mod.rs` чист от удалённых файлов
+- [x] `cargo test --lib` — 778 passed, 0 failed
+- [x] Behavioural diff = 0
+
+---
+
+## 2026-05-01 — R4 — factors/ → scoring/factors/ (completed)
+
+**Что сделано:**
+- `git mv src/combat/ai/factors src/combat/ai/scoring/factors` — whole-directory move.
+- `scoring/mod.rs`: добавлен `pub mod factors;`.
+- `combat/ai/mod.rs`: удалён `pub mod factors;`.
+- Массовая замена `crate::combat::ai::factors` → `crate::combat::ai::scoring::factors` во всей кодовой базе (perl -pi). Затронуто ~34 файла.
+
+**Комментарии:**
+- Внутренние самоссылки внутри `scoring/factors/` тоже были заменены тем же perl-проходом.
+- `aoe_hits` и `offensive` были повышены до `pub(crate)` ещё в P5.
+- Doc-тест `registry.rs::factor_kind` корректно отображается по новому пути.
+
+**Файлы, которые затронули:**
+- `src/combat/ai/scoring/factors/` (новая директория; всё из бывшего `factors/`)
+- `src/combat/ai/scoring/mod.rs` (+`pub mod factors;`)
+- `src/combat/ai/mod.rs` (−`pub mod factors;`)
+- ~34 Rust-файла (import path changes)
+- `docs/ai/extension-checklist.md` (paths к факторам обновлены)
+
+**DoD проверка:**
+- [x] `src/combat/ai/factors/` НЕ существует
+- [x] `src/combat/ai/scoring/factors/` существует со всем содержимым
+- [x] `combat/ai/mod.rs` НЕ содержит `pub mod factors;`
+- [x] `scoring/mod.rs` содержит `pub mod factors;`
+- [x] Все consumers обновлены
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 778 passed, 0 failed
+- [x] `cargo test` — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Behavioural diff = 0 (pure relocation)
+
+---

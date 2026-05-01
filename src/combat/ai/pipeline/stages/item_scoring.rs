@@ -43,8 +43,8 @@
 //! - **Empty agenda**: stage is a no-op; `per_item` stays empty.
 //! - **Empty pool**: early return.
 
-use crate::combat::ai::factors::compute_plan_tempo_gain;
-use crate::combat::ai::factors::PlanFactor;
+use crate::combat::ai::scoring::factors::compute_plan_tempo_gain;
+use crate::combat::ai::scoring::factors::PlanFactor;
 use crate::combat::ai::intent::IntentKind;
 use crate::combat::ai::intent::bands::PriorityBand;
 use crate::combat::ai::outcome::{PerItemEval, RejectReason};

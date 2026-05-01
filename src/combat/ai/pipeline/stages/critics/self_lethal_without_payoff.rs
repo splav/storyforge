@@ -14,7 +14,7 @@
 //! floored at 0.3 to preserve the plan's relative rank when all options are bad.
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
-use crate::combat::ai::factors::terminal::TerminalFactor;
+use crate::combat::ai::scoring::factors::terminal::TerminalFactor;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::pipeline::stages::sanity::plan_has_self_aoe;
 use crate::combat::ai::planning::types::TurnPlan;

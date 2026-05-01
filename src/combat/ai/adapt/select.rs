@@ -9,7 +9,7 @@
 //!   `select_evaluation_modes` + `FinalizeStage` instead.
 
 use crate::combat::ai::adapt::{Adaptation, AdaptationReason, EvaluationMode};
-use crate::combat::ai::factors::{PlanFactor, PlanFactorValues};
+use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::pipeline::stages::sanity::expected_aoo_damage;
 use crate::combat::ai::planning::scorer::rescore_with_per_plan_modes;
