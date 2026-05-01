@@ -10,6 +10,7 @@
 //! source of truth).  Use `order::run` to execute any pipeline slice.
 
 pub mod order;
+pub mod spec;
 pub mod stages;
 
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};

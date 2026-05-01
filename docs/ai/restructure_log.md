@@ -214,3 +214,39 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] Документы `docs/ai/*.md` актуальны
 
 ---
+
+## 2026-05-01 — P2 — StageSpec + pipeline validator (completed)
+
+**Что сделано:**
+- Создан `src/combat/ai/pipeline/spec.rs` (~360 LOC).
+- `AnnotationField` enum (12 вариантов), `ScoreEffect` enum (6 вариантов), `StageSpec` struct, `INITIAL_FIELDS`, `STAGE_SPECS` (12 стадий), `ValidationError` enum с `Display`, `validate_pipeline`.
+- Добавлен `pub mod spec;` в `pipeline/mod.rs`.
+- 7 тестов в `spec.rs`: 2 structural (`stage_specs_length_matches_pipeline`, `stage_specs_ids_match_pipeline_order`), 1 positive (`production_pipeline_order_is_valid`), 4 negative (MissingWriter, RescoreAfterEffect, MultipleRescore, PostScoreGateBeforeRescore).
+- Обновлён `docs/ai/pipeline.md` — добавлена секция «StageSpec и pipeline validator (P2)».
+
+**Комментарии / отклонения от плана:**
+- **Дизайн-выбор: отдельная таблица STAGE_SPECS** (не поле в StageEntry). Обоснование: spec не зависит от split PRE/POST_MASK, поэтому дублировать данные в трёх константах избыточно; `StageEntry` остаётся простым и const-constructible.
+- **PickBest читает `ScoreEffects`, не `FinalScore`**. `FinalScore` как самостоятельное поле нет смысла заводить сейчас (нет стадии, которая явно «финализирует» в отдельное поле) — это P3a concern. PickBest читает `ScoreEffects` как финальный результат.
+- **KillableGate = PostScoreGate**, как предписывает roadmap. Фактически код ставит `ann.score = NEG_INFINITY` (т.е. Mask-поведение), но roadmap директивно разделяет: «Не путай Mask и PostScoreGate — KillableGate = PostScoreGate». Spec фиксирует **планируемую** семантику, а не текущую реализацию (migration в P3a).
+- **Порядок проверок в validate_pipeline**: `PostScoreGateBeforeRescore` проверяется перед `RescoreAfterEffect`, так как это более специфичная ошибка. `PostScoreGate` исключён из `ILLEGAL_BEFORE_RESCORE` — PostScoreGate после Rescore корректно, только до Rescore — ошибка.
+- Тест `negative_reads_without_writer` использует минимальный фиктивный pipeline из 3 стадий (overlay → repair → finalize), что достаточно для проверки конкретной ошибки.
+
+**Файлы:**
+- `src/combat/ai/pipeline/spec.rs` (new, ~360 LOC)
+- `src/combat/ai/pipeline/mod.rs` (+1 строка: `pub mod spec;`)
+- `docs/ai/pipeline.md` (новая секция)
+- `docs/ai/restructure_log.md` (этот файл)
+- `docs/ai/restructure.md` (status table)
+
+**DoD проверка:**
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 749 passed (742 baseline + 7 новых)
+- [x] `cargo test` (интеграционные) — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] `STAGE_SPECS` покрывает все 12 production stages
+- [x] `validate_pipeline(STAGE_SPECS)` зелёный
+- [x] 4 negative теста (MissingWriter, RescoreAfterEffect, MultipleRescore, PostScoreGateBeforeRescore)
+- [x] `spec.rs` ≤ 400 LOC (≈360 LOC)
+- [x] `restructure_log.md` обновлён, status table обновлена
+
+---

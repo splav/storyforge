@@ -648,7 +648,7 @@ P-track (контракты + миграция логики) и R-track (relocat
 | R1 — world/config/log umbrella | R | done | parallel-safe (после P0) | 2026-05-01. Pure relocation. 3 коммита. |
 | P1 — Remove legacy AdaptationStage | P | done | P0 | 2026-05-01. +2 parity tests in mode_selection; 4 legacy deleted. |
 | R2 — adapt/ extraction | R | done | пара с P1 | 2026-05-01. planning/adaptation.rs → adapt/{mod,select}.rs. |
-| P2 — StageSpec + validator | P | pending | P0 | |
+| P2 — StageSpec + validator | P | done | P0 | 2026-05-01. spec.rs + validate_pipeline + 7 tests. |
 | R3 — scoring/ partial umbrella | R | done | после P0; не ждёт P5 | 2026-05-01. Pure relocation; без `factors/`. |
 | P3a — ScoreTrace internal migration | P | pending | P2 | |
 | R5 — pipeline/stages absorbs | R | pending | **только после P3a** | Mixed (move + split). Ранее = двойной churn. |
