@@ -217,6 +217,7 @@ AI выбирает действие для вражеских юнитов (и 
 | [extension-checklist.md](extension-checklist.md) | Поэтапный чеклист расширения mechanics (новый effect/status/ability). |
 | [replay.md](replay.md) | `replay_ai_log`, schema versions, `--assert`, regression metrics. |
 | [mining.md](mining.md) | `mine_ai_logs` — агрегированная статистика по корпусу. |
+| [tech-debt.md](tech-debt.md) | Followup roadmap: проблемы организации/логики, обнаруженные в пост-restructure-аудите. |
 | [rework/](rework/) | Архив step-планов, mining-данных, дизайн-документов. |
 
 ## Версии схем
