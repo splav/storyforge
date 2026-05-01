@@ -26,8 +26,6 @@ pub enum TacticalIntent {
     },
     /// Position to hit multiple enemies with AoE.
     SetupAOE,
-    /// Survival is unlikely — maximize last useful action (kill > cc > damage).
-    LastStand,
 }
 
 /// Intent kind without target data, for stickiness comparison.
@@ -51,7 +49,6 @@ impl TacticalIntent {
             Self::ProtectSelf => IntentKind::ProtectSelf,
             Self::ProtectAlly { .. } => IntentKind::ProtectAlly,
             Self::SetupAOE => IntentKind::SetupAOE,
-            Self::LastStand => IntentKind::LastStand,
         }
     }
 
@@ -117,14 +114,6 @@ pub enum IntentReason {
         max_align: f32,
         threshold: f32,
     },
-    /// ADAPTATION switched the chosen plan's evaluation regime. `prior`
-    /// is the reason that originally selected the global intent; `reason`
-    /// is the fact that triggered the adaptation (per-plan ExpectedSelfLethal
-    /// or global ProtectSelfNoDefensive). Boxed so the enum stays small.
-    Adapted {
-        prior: Box<IntentReason>,
-        reason: crate::combat::ai::adapt::AdaptationReason,
-    },
 }
 
 impl IntentReason {
@@ -146,7 +135,6 @@ impl IntentReason {
             Self::NoRuleDefault => "no_rule_default",
             Self::MidpanicFallback { .. } => "midpanic_fallback",
             Self::ViabilityFallback { .. } => "viability_fallback",
-            Self::Adapted { reason, .. } => reason.code(),
         }
     }
 }
@@ -191,24 +179,6 @@ impl fmt::Display for IntentReason {
                 f, "fallback from {:?}: max_align={:.2}<threshold={:.2}",
                 from, max_align, threshold,
             ),
-            Self::Adapted { prior, reason } => {
-                use crate::combat::ai::adapt::AdaptationReason;
-                match reason {
-                    AdaptationReason::ExpectedSelfLethal { aoo_dmg, actor_hp } => write!(
-                        f,
-                        "{} → LastStand (EV-lethal: aoo={:.1} ≥ hp={})",
-                        prior, aoo_dmg, actor_hp,
-                    ),
-                    AdaptationReason::ProtectSelfNoDefensive => write!(
-                        f, "{} → LastStand (no defensive plan)", prior,
-                    ),
-                    AdaptationReason::ProtectSelfFutile { pending_dot, actor_hp } => write!(
-                        f,
-                        "{} → LastStand (doomed: pending_dot={} ≥ hp={})",
-                        prior, pending_dot, actor_hp,
-                    ),
-                }
-            }
         }
     }
 }

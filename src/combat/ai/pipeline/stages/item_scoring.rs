@@ -43,6 +43,7 @@
 //! - **Empty agenda**: stage is a no-op; `per_item` stays empty.
 //! - **Empty pool**: early return.
 
+use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::scoring::factors::compute_plan_tempo_gain;
 use crate::combat::ai::scoring::factors::PlanFactor;
 use crate::combat::ai::intent::IntentKind;
@@ -151,8 +152,15 @@ impl PlanStage for ItemScoringStage {
                 .iter()
                 .map(|item| {
                     let intent = item.intent_for_scoring();
+                    // P7: LastStand items use EvaluationMode::LastStand so that
+                    // compute_plan_intent_sum routes to evaluate_last_stand_step.
+                    let item_mode = if item.kind == IntentKind::LastStand {
+                        EvaluationMode::LastStand
+                    } else {
+                        EvaluationMode::Default
+                    };
                     let intent_factor =
-                        compute_plan_intent_sum(plan, &intent, ctx.scoring);
+                        compute_plan_intent_sum(plan, &intent, ctx.scoring, item_mode);
                     let tempo_factor =
                         compute_plan_tempo_gain(plan, &intent, ctx.scoring);
 

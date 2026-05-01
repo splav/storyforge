@@ -321,7 +321,10 @@ fn goal_kind_matches_intent(kind: &GoalKind, intent: TacticalIntent) -> bool {
         (GoalKind::Pressure { target: a }, TacticalIntent::FocusTarget { target: b }) => *a == b,
         (GoalKind::DisableEnemy { target: a }, TacticalIntent::ApplyCC { target: b }) => *a == b,
         (GoalKind::HealAlly { ally: a }, TacticalIntent::ProtectAlly { ally: b }) => *a == b,
-        (GoalKind::Retreat { .. }, TacticalIntent::ProtectSelf | TacticalIntent::LastStand) => true,
+        // LastStand is now an EvaluationMode, not a TacticalIntent; adapt-triggered
+        // plans that used LastStand scoring still carry ProtectSelf intent via the
+        // global intent, so only ProtectSelf is needed here.
+        (GoalKind::Retreat { .. }, TacticalIntent::ProtectSelf) => true,
         (GoalKind::SetupAOE { .. }, TacticalIntent::SetupAOE) => true,
         (GoalKind::Reposition { .. }, TacticalIntent::Reposition) => true,
         _ => false,

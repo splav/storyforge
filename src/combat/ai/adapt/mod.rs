@@ -50,18 +50,15 @@ pub mod select;
 
 pub use select::{apply_adaptation, pending_dot_before_next_action, select_evaluation_modes};
 
-use crate::combat::ai::intent::TacticalIntent;
-
 /// Evaluation regime used when scoring the intent-column of a plan.
 ///
 /// `Default` = score under the global `TacticalIntent` selected by
-/// `select_intent`. `LastStand` = score as if the actor is committed to a
-/// "final useful action" — the `TacticalIntent::LastStand` scoring table in
-/// `intent_score()` is reused so no new scoring code is needed; this enum
-/// only selects *which* existing table to apply, per plan.
+/// `select_intent`. `LastStand` = score under the "final useful action"
+/// weighting via `evaluate_last_stand_step` in `intent_score()` — the
+/// global tactical intent is bypassed entirely.
 ///
 /// Populated by `apply_adaptation`; consumed by the scorer's per-plan
-/// intent rescore.
+/// intent rescore (passed as `mode` to `intent_score`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvaluationMode {
@@ -72,22 +69,6 @@ pub enum EvaluationMode {
     /// Used when the plan either kills the actor (per-plan) or the global
     /// intent cannot be satisfied (global ProtectSelf → no defensive).
     LastStand,
-}
-
-impl EvaluationMode {
-    /// Returns the effective intent to use for scoring this plan's
-    /// intent-column. `Default` defers to the caller's global intent;
-    /// `LastStand` always overrides to `TacticalIntent::LastStand` regardless
-    /// of what the caller passes.
-    ///
-    /// Consolidates the "which intent drives scoring?" decision in one
-    /// place so callers don't have to know the mapping.
-    pub fn effective_intent(self, global: TacticalIntent) -> TacticalIntent {
-        match self {
-            EvaluationMode::Default => global,
-            EvaluationMode::LastStand => TacticalIntent::LastStand,
-        }
-    }
 }
 
 /// Fact-based reason an individual plan's evaluation regime was switched.
@@ -180,21 +161,21 @@ impl Adaptation {
 mod tests {
     use super::*;
 
-    // ── effective_intent ─────────────────────────────────────────────────
+    // ── Adaptation helpers ────────────────────────────────────────────────
 
     #[test]
-    fn default_mode_defers_to_global_intent() {
-        let global = TacticalIntent::Reposition;
-        let got = EvaluationMode::Default.effective_intent(global);
-        assert!(matches!(got, TacticalIntent::Reposition));
+    fn adaptation_empty_is_all_default() {
+        let a = Adaptation::empty(3);
+        assert_eq!(a.modes.len(), 3);
+        assert!(a.modes.iter().all(|m| *m == EvaluationMode::Default));
+        assert!(a.reasons.iter().all(|r| r.is_none()));
+        assert!(!a.any_adapted());
     }
 
     #[test]
-    fn last_stand_mode_overrides_global() {
-        // Even if the caller passes something unrelated, LastStand pins the
-        // scoring regime — this is the whole point of the per-plan override.
-        let global = TacticalIntent::Reposition;
-        let got = EvaluationMode::LastStand.effective_intent(global);
-        assert!(matches!(got, TacticalIntent::LastStand));
+    fn any_adapted_true_when_last_stand_present() {
+        let mut a = Adaptation::empty(2);
+        a.modes[1] = EvaluationMode::LastStand;
+        assert!(a.any_adapted());
     }
 }

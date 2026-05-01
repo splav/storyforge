@@ -8,18 +8,20 @@
 pub const NAME: &str = "intent";
 pub const SIGNED: bool = true;
 
+use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::scoring::factors::aggregate::compute_plan_intent_sum;
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::utility::ScoringCtx;
 
 pub fn compute(plan: &TurnPlan, intent: &TacticalIntent, ctx: &ScoringCtx) -> f32 {
-    compute_plan_intent_sum(plan, intent, ctx)
+    compute_plan_intent_sum(plan, intent, ctx, EvaluationMode::Default)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::adapt::EvaluationMode;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::TacticalIntent;
     use crate::combat::ai::outcome::PlanAnnotation;
@@ -60,7 +62,7 @@ mod tests {
         let intent = TacticalIntent::Reposition;
 
         let via_leaf = compute(&plan, &intent, &ctx);
-        let via_legacy = compute_plan_intent_sum(&plan, &intent, &ctx);
+        let via_legacy = compute_plan_intent_sum(&plan, &intent, &ctx, EvaluationMode::Default);
         assert_eq!(
             via_leaf, via_legacy,
             "plan::intent leaf must match legacy compute_plan_intent_sum"

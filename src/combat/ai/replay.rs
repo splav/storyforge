@@ -255,7 +255,6 @@ pub fn assert_v28_log_file(
             TacticalIntent::ProtectSelf => "ProtectSelf",
             TacticalIntent::ProtectAlly { .. } => "ProtectAlly",
             TacticalIntent::SetupAOE => "SetupAOE",
-            TacticalIntent::LastStand => "LastStand",
         }
     };
 

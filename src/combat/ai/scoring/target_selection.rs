@@ -1,21 +1,24 @@
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 
-/// Pick the enemy with the highest `target_priority` relative to `active`.
+/// Pick the enemy with the highest `target_selection_score` relative to `active`.
 /// Single source of truth for "what's the most important enemy right now".
 pub fn highest_priority_enemy<'a>(
     active: &UnitSnapshot,
     snap: &'a BattleSnapshot,
 ) -> Option<&'a UnitSnapshot> {
     snap.enemies_of(active.team).max_by(|a, b| {
-        target_priority(active, a, snap)
-            .partial_cmp(&target_priority(active, b, snap))
+        target_selection_score(active, a, snap)
+            .partial_cmp(&target_selection_score(active, b, snap))
             .unwrap_or(std::cmp::Ordering::Equal)
     })
 }
 
-/// Score how important `target` is as a priority for `active`.
-/// Returns a value in 0..1 range.
-pub fn target_priority(
+/// Score how important `target` is as a selection priority relative to `active`.
+///
+/// Returns a value in 0..1 range. This is a *relative ranking* — the score
+/// of unit A cannot be compared directly to unit B from a different actor's
+/// perspective or snapshot.
+pub fn target_selection_score(
     active: &UnitSnapshot,
     target: &UnitSnapshot,
     snap: &BattleSnapshot,
@@ -87,8 +90,8 @@ mod tests {
             .build();
 
         let s = BattleSnapshot::new(vec![active.clone(), healthy.clone(), wounded.clone()], 1);
-        let ph = target_priority(&active, &healthy, &s);
-        let pw = target_priority(&active, &wounded, &s);
+        let ph = target_selection_score(&active, &healthy, &s);
+        let pw = target_selection_score(&active, &wounded, &s);
         assert!(pw > ph, "wounded target should have higher priority");
     }
 
@@ -101,8 +104,8 @@ mod tests {
         let bruiser = unit(2, Team::Enemy, hex_from_offset(3, 3));
 
         let s = BattleSnapshot::new(vec![active.clone(), support.clone(), bruiser.clone()], 1);
-        let ps = target_priority(&active, &support, &s);
-        let pb = target_priority(&active, &bruiser, &s);
+        let ps = target_selection_score(&active, &support, &s);
+        let pb = target_selection_score(&active, &bruiser, &s);
         assert!(ps > pb, "support should be higher priority than bruiser");
     }
 }

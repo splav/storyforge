@@ -4,7 +4,7 @@ use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::scoring::target_priority::{highest_priority_enemy, target_priority};
+use crate::combat::ai::scoring::target_selection::{highest_priority_enemy, target_selection_score};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::game::hex::Hex;
@@ -110,7 +110,7 @@ pub(crate) fn select_intent_normal(
             },
         );
     } else if let Some(target) = highest_priority_enemy(active, snap) {
-        let prio = target_priority(active, target, snap);
+        let prio = target_selection_score(active, target, snap);
         consider(
             TacticalIntent::FocusTarget { target: target.entity },
             0.5 + prio * 0.3,
@@ -372,7 +372,7 @@ pub fn select_intent(
                 },
             );
         } else if let Some(target) = highest_priority_enemy(active, snap) {
-            let prio = target_priority(active, target, snap);
+            let prio = target_selection_score(active, target, snap);
             consider(
                 TacticalIntent::FocusTarget { target: target.entity },
                 0.5 + prio * 0.3,
@@ -478,7 +478,8 @@ pub fn intent_viability_threshold(intent: &TacticalIntent) -> Option<f32> {
         TacticalIntent::ProtectAlly { .. } => Some(0.5),
         // Any AoE hit fraction > 0 counts.
         TacticalIntent::SetupAOE => Some(0.01),
-        TacticalIntent::ProtectSelf | TacticalIntent::LastStand => None,
+        // LastStand is now an EvaluationMode; ProtectSelf has no viability threshold.
+        TacticalIntent::ProtectSelf => None,
     }
 }
 
@@ -512,8 +513,8 @@ pub fn default_focus_target(
             .filter(|e| Some(e.entity) != exclude)
             .filter(|e| !include_reachable_only || reachable.contains(&e.entity))
             .max_by(|a, b| {
-                target_priority(active, a, snap)
-                    .partial_cmp(&target_priority(active, b, snap))
+                target_selection_score(active, a, snap)
+                    .partial_cmp(&target_selection_score(active, b, snap))
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .map(|e| e.entity)

@@ -32,7 +32,7 @@ use crate::combat::ai::scoring::factors::{
     default_norm,
 };
 use crate::combat::ai::world::influence::InfluenceMaps;
-use crate::combat::ai::intent::{cc_reach, intent_score, pursuit_move_score, TacticalIntent};
+use crate::combat::ai::intent::{cc_reach, evaluate_last_stand_step, intent_score, pursuit_move_score, TacticalIntent};
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::scoring::factors::terminal_state::terminal_state_score;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
@@ -117,7 +117,7 @@ pub fn rescore_with_intent(
     ctx: &ScoringCtx,
 ) -> Vec<f32> {
     for (p, f) in plans.iter().zip(raw.iter_mut()) {
-        f.set_plan(PlanFactor::Intent, compute_plan_intent_sum(p, intent, ctx));
+        f.set_plan(PlanFactor::Intent, compute_plan_intent_sum(p, intent, ctx, EvaluationMode::Default));
         f.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(p, intent, ctx));
     }
     finalize_scores(plans, raw, ctx)
@@ -147,9 +147,10 @@ pub fn rescore_with_per_plan_modes(
     debug_assert_eq!(plans.len(), raw.len());
     debug_assert_eq!(plans.len(), modes.len());
     for ((p, f), mode) in plans.iter().zip(raw.iter_mut()).zip(modes.iter()) {
-        let effective = mode.effective_intent(*global);
-        f.set_plan(PlanFactor::Intent, compute_plan_intent_sum(p, &effective, ctx));
-        f.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(p, &effective, ctx));
+        // Pass the mode directly: when LastStand, compute_plan_intent_sum routes
+        // to evaluate_last_stand_step; for Default it uses the global intent.
+        f.set_plan(PlanFactor::Intent, compute_plan_intent_sum(p, global, ctx, *mode));
+        f.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(p, global, ctx));
     }
     finalize_scores(plans, raw, ctx)
 }
@@ -296,7 +297,7 @@ pub fn compute_plan_factors(
     ctx: &ScoringCtx,
 ) -> PlanFactorValues {
     let mut out = compute_plan_factors_sans_intent(plan, ctx);
-    out.set_plan(PlanFactor::Intent, compute_plan_intent_sum(plan, intent, ctx));
+    out.set_plan(PlanFactor::Intent, compute_plan_intent_sum(plan, intent, ctx, EvaluationMode::Default));
     out.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(plan, intent, ctx));
     out
 }
@@ -411,7 +412,25 @@ pub fn compute_plan_intent_sum(
     plan: &TurnPlan,
     intent: &TacticalIntent,
     ctx: &ScoringCtx,
+    mode: EvaluationMode,
 ) -> f32 {
+    // LastStand evaluation regime: bypass intent-specific routing, score every
+    // step through evaluate_last_stand_step directly.
+    if mode == EvaluationMode::LastStand {
+        let base_discount = ctx.world.difficulty.plan_step_discount;
+        let mut intent_sum = 0.0f32;
+        let mut step_weight = 1.0f32;
+        for (idx, step) in plan.steps.iter().enumerate() {
+            let pre_snap = plan.pre_step_snapshot(idx, ctx.snap);
+            let Some(sim_actor) = pre_snap.unit(ctx.active.entity).cloned() else { break; };
+            let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
+            let step_ctx = ctx.with_perspective(&sim_actor, pre_snap);
+            intent_sum += evaluate_last_stand_step(&scored_step, &step_ctx) * step_weight;
+            step_weight *= base_discount;
+        }
+        return intent_sum;
+    }
+
     debug_assert!(
         plan.sim_snapshots.is_empty() || plan.sim_snapshots.len() == plan.steps.len(),
         "TurnPlan sim_snapshots must align with steps, or be empty (deserialized)",
@@ -479,7 +498,7 @@ pub fn compute_plan_intent_sum(
         if !goal_achieved {
             let step_ctx = ctx.with_perspective(&sim_actor, pre_snap);
             let step_outcome = plan.annotation.outcomes.get(idx).cloned().unwrap_or_default();
-            let iv = intent_score(intent, &scored_step, &step_ctx, &step_outcome);
+            let iv = intent_score(intent, &scored_step, &step_ctx, &step_outcome, EvaluationMode::Default);
             intent_sum += iv * step_weight;
         }
 
@@ -951,7 +970,7 @@ mod tests {
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
         let factors = compute_plan_factors_sans_intent(&deserialized_plan, &scoring_ctx);
         let _ = factors;
-        let intent_sum = compute_plan_intent_sum(&deserialized_plan, &intent, &scoring_ctx);
+        let intent_sum = compute_plan_intent_sum(&deserialized_plan, &intent, &scoring_ctx, EvaluationMode::Default);
         let _ = intent_sum;
     }
 
@@ -1129,7 +1148,10 @@ mod tests {
         let reservations = Reservations::default();
         let scoring_ctx = make_scoring_ctx(&ctx, &snap, &maps, &reservations, &actor);
 
-        let kill_intent = TacticalIntent::LastStand;
+        // P7: LastStand is now EvaluationMode::LastStand, not a TacticalIntent.
+        // Use EvaluationMode::LastStand to trigger last-stand scoring.
+        // For this test, we compare LastStand-mode scoring vs Reposition intent.
+        let last_stand_mode = EvaluationMode::LastStand;
         let passive_intent = TacticalIntent::Reposition;
 
         let cast_plan = TurnPlan {
@@ -1152,20 +1174,34 @@ mod tests {
             ..Default::default()
         };
 
-        let (kill_scores, _) = score_plans_with_raw(
-            &mut [cast_plan.clone(), idle_plan.clone()],
-            &kill_intent,
-            &scoring_ctx,
+        // P7: LastStand is now EvaluationMode::LastStand, not a TacticalIntent.
+        // Use rescore_with_per_plan_modes with all plans in LastStand mode.
+        let _ = last_stand_mode; // used below
+        let fallback_intent = TacticalIntent::Reposition; // dummy; overridden by mode
+        let (mut cast_plans_ls, mut cast_plans_passive) = (
+            [cast_plan.clone(), idle_plan.clone()],
+            [cast_plan, idle_plan],
         );
+        let (raw_ls, _) = score_plans_with_raw(&mut cast_plans_ls, &fallback_intent, &scoring_ctx);
+        let (_, mut raw_ls_vals) = {
+            let (s, r) = score_plans_with_raw(&mut cast_plans_ls, &fallback_intent, &scoring_ctx);
+            (s, r)
+        };
+        let modes_ls = vec![EvaluationMode::LastStand; 2];
+        let kill_scores = rescore_with_per_plan_modes(
+            &mut cast_plans_ls, &mut raw_ls_vals, &modes_ls, &fallback_intent, &scoring_ctx,
+        );
+        let _ = raw_ls;
+
         let (passive_scores, _) = score_plans_with_raw(
-            &mut [cast_plan, idle_plan],
+            &mut cast_plans_passive,
             &passive_intent,
             &scoring_ctx,
         );
 
         assert!(
             kill_scores[0] > passive_scores[0],
-            "kill plan under LastStand (score={}) must outscore passive intent (score={})",
+            "kill plan under LastStand mode (score={}) must outscore passive intent (score={})",
             kill_scores[0], passive_scores[0],
         );
     }
@@ -1229,9 +1265,9 @@ mod tests {
             annotation: Default::default(),
         };
 
-        let s1 = compute_plan_intent_sum(&one_step, &intent, &scoring_ctx);
-        let s2 = compute_plan_intent_sum(&two_steps, &intent, &scoring_ctx);
-        let s3 = compute_plan_intent_sum(&three_steps, &intent, &scoring_ctx);
+        let s1 = compute_plan_intent_sum(&one_step, &intent, &scoring_ctx, EvaluationMode::Default);
+        let s2 = compute_plan_intent_sum(&two_steps, &intent, &scoring_ctx, EvaluationMode::Default);
+        let s3 = compute_plan_intent_sum(&three_steps, &intent, &scoring_ctx, EvaluationMode::Default);
 
         assert!(s1 > 0.0, "single-step move toward target must score positive: {s1}");
         assert!(
@@ -1291,8 +1327,8 @@ mod tests {
             annotation: Default::default(),
         };
 
-        let s_direct = compute_plan_intent_sum(&direct, &intent, &scoring_ctx);
-        let s_roundtrip = compute_plan_intent_sum(&round_trip, &intent, &scoring_ctx);
+        let s_direct = compute_plan_intent_sum(&direct, &intent, &scoring_ctx, EvaluationMode::Default);
+        let s_roundtrip = compute_plan_intent_sum(&round_trip, &intent, &scoring_ctx, EvaluationMode::Default);
 
         assert_eq!(
             s_direct, s_roundtrip,
@@ -1370,8 +1406,8 @@ mod tests {
         };
         annotate_plan(&mut move_cast, &actor, &snap, &content, 0.0);
 
-        let s_cast_only = compute_plan_intent_sum(&pure_cast, &intent, &scoring_ctx);
-        let s_move_cast = compute_plan_intent_sum(&move_cast, &intent, &scoring_ctx);
+        let s_cast_only = compute_plan_intent_sum(&pure_cast, &intent, &scoring_ctx, EvaluationMode::Default);
+        let s_move_cast = compute_plan_intent_sum(&move_cast, &intent, &scoring_ctx, EvaluationMode::Default);
 
         assert!(
             s_cast_only > 0.0 || s_move_cast > 0.0,
@@ -1450,8 +1486,8 @@ mod tests {
         };
         annotate_plan(&mut plan_no_kill, &actor, &snap, &content, 0.0);
 
-        let s_with_kill = compute_plan_intent_sum(&plan_with_kill, &intent, &scoring_ctx);
-        let s_no_kill   = compute_plan_intent_sum(&plan_no_kill, &intent, &scoring_ctx);
+        let s_with_kill = compute_plan_intent_sum(&plan_with_kill, &intent, &scoring_ctx, EvaluationMode::Default);
+        let s_no_kill   = compute_plan_intent_sum(&plan_no_kill, &intent, &scoring_ctx, EvaluationMode::Default);
 
         // After goal is achieved (target killed), subsequent steps get no intent credit.
         // The plan where step-0 kills gets at most step-0's credit; the other plan
@@ -1532,8 +1568,8 @@ mod tests {
         };
         annotate_plan(&mut plan_short_tail, &actor, &snap, &content, 0.0);
 
-        let s_long = compute_plan_intent_sum(&plan_long_tail, &intent, &scoring_ctx);
-        let s_short = compute_plan_intent_sum(&plan_short_tail, &intent, &scoring_ctx);
+        let s_long = compute_plan_intent_sum(&plan_long_tail, &intent, &scoring_ctx, EvaluationMode::Default);
+        let s_short = compute_plan_intent_sum(&plan_short_tail, &intent, &scoring_ctx, EvaluationMode::Default);
 
         // Both plans end at same final_pos → same pursuit score → same intent sum.
         // Tail shortcut collapses both to Cast credit + single pursuit call.
@@ -1613,8 +1649,8 @@ mod tests {
             annotation: Default::default(),
         };
 
-        let s_cast_only = compute_plan_intent_sum(&cast_only, &intent, &scoring_ctx);
-        let s_round_trip = compute_plan_intent_sum(&round_trip, &intent, &scoring_ctx);
+        let s_cast_only = compute_plan_intent_sum(&cast_only, &intent, &scoring_ctx, EvaluationMode::Default);
+        let s_round_trip = compute_plan_intent_sum(&round_trip, &intent, &scoring_ctx, EvaluationMode::Default);
 
         // pursuit_move_score(cast_pos, cast_pos, target, reach) = 0: no displacement.
         // Round-trip tail earns zero post-Cast credit, equaling the cast-only plan.
@@ -1689,8 +1725,8 @@ mod tests {
         };
         annotate_plan(&mut cast_then_approach, &actor, &snap, &content, 0.0);
 
-        let s_cast_only = compute_plan_intent_sum(&cast_only, &intent, &scoring_ctx);
-        let s_approach = compute_plan_intent_sum(&cast_then_approach, &intent, &scoring_ctx);
+        let s_cast_only = compute_plan_intent_sum(&cast_only, &intent, &scoring_ctx, EvaluationMode::Default);
+        let s_approach = compute_plan_intent_sum(&cast_then_approach, &intent, &scoring_ctx, EvaluationMode::Default);
 
         // Approach tail ends closer to target → higher pursuit score → higher intent.
         assert!(
@@ -1770,8 +1806,8 @@ mod tests {
         };
         annotate_plan(&mut plan_no_kill, &actor, &snap, &content, 0.0);
 
-        let s_with_kill = compute_plan_intent_sum(&plan_with_kill, &intent, &scoring_ctx);
-        let s_no_kill   = compute_plan_intent_sum(&plan_no_kill, &intent, &scoring_ctx);
+        let s_with_kill = compute_plan_intent_sum(&plan_with_kill, &intent, &scoring_ctx, EvaluationMode::Default);
+        let s_no_kill   = compute_plan_intent_sum(&plan_no_kill, &intent, &scoring_ctx, EvaluationMode::Default);
 
         assert!(
             s_with_kill <= s_no_kill,
@@ -1851,8 +1887,8 @@ mod tests {
         };
         annotate_plan(&mut plan_one_cast, &actor, &snap, &content, 0.0);
 
-        let s_two_cast = compute_plan_intent_sum(&plan_two_cast, &intent, &scoring_ctx);
-        let s_one_cast = compute_plan_intent_sum(&plan_one_cast, &intent, &scoring_ctx);
+        let s_two_cast = compute_plan_intent_sum(&plan_two_cast, &intent, &scoring_ctx, EvaluationMode::Default);
+        let s_one_cast = compute_plan_intent_sum(&plan_one_cast, &intent, &scoring_ctx, EvaluationMode::Default);
 
         // Two-cast plan: first Cast scored per-step, then tail shortcut activates.
         // Tail = second Cast + Move → all collapsed into single pursuit(cast_pos, final_pos, target.pos).

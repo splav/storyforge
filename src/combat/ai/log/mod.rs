@@ -174,7 +174,12 @@ use crate::game::hex::Hex;
 /// give `LogError::UnsupportedSchema` — clean break.
 /// P3b: bumped to v33. `PlanAnnotation` gains `score_trace_log`
 /// (schema-additive; v32 logs without this field deserialise as `None`).
-pub const SCHEMA_VERSION: u32 = 33;
+/// P7: bumped to v34. `ActorTickEvent` gains `evaluation_mode_reason`
+/// (schema-additive; v33 logs without this field deserialise as `None`).
+/// `IntentBlock` gains `evaluation_mode_reason` (schema-additive).
+/// `TacticalIntent::LastStand` removed — was never emitted by `select_intent`.
+/// `IntentReason::Adapted` removed — replaced by parallel `evaluation_mode_reason` field.
+pub const SCHEMA_VERSION: u32 = 34;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -282,6 +287,14 @@ pub struct IntentBlock<'a> {
     /// remaining fields carry the numeric context (hp_pct, danger, eff_hp, …)
     /// that was previously only available as formatted text in `reason_text`.
     pub reason: &'a IntentReason,
+    /// P7: adaptation reason that switched the chosen plan's evaluation regime
+    /// to `LastStand`, or `None` when the chosen plan was scored under
+    /// `EvaluationMode::Default`. Previously embedded inside
+    /// `IntentReason::Adapted`; now a parallel top-level field so `reason`
+    /// carries the unmodified select_intent result and adaptation context lives
+    /// here. Schema-additive: v33 logs without this field decode as `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluation_mode_reason: Option<&'a AdaptationReason>,
 }
 
 #[derive(Serialize)]
@@ -574,9 +587,11 @@ pub fn build_entry<'a>(
     memory: &AiMemory,
     reservations_snap: ReservationsSnapshot,
 ) -> AiLogEntry<'a> {
+    // P7: LastStand is no longer a TacticalIntent variant; survival_mode_active
+    // covers ProtectSelf intents and adapt-triggered LastStand (via evaluation_mode_reason).
     let survival_mode_active = matches!(intent.intent, TacticalIntent::ProtectSelf)
         || intent.selection_kind.starts_with("protect_self")
-        || intent.selection_kind == "last_stand";
+        || intent.evaluation_mode_reason.is_some();
 
     let last_stand_active = plan_entries
         .iter()
@@ -954,6 +969,13 @@ pub struct ActorTickEvent {
     /// taunt_forced, killable, etc.). `None` on skip-path. Required by mining
     /// to distinguish reactive vs voluntary abandons via `IntentReason::code()`.
     pub intent_reason: Option<crate::combat::ai::intent::IntentReason>,
+    /// P7 (schema v34): adaptation reason that switched the chosen plan's evaluation
+    /// regime to `LastStand`, or `None` when no adaptation fired for the chosen plan.
+    /// Parallel to `intent_reason` — carries only the adaptation context that was
+    /// previously embedded in `IntentReason::Adapted`. Schema-additive: v33 without
+    /// this field decodes as `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluation_mode_reason: Option<crate::combat::ai::adapt::AdaptationReason>,
     /// Step 11.6 (schema v32): priority band assigned to the actor this tick.
     /// `None` on skip-path (no AP/MP — band was not computed).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -987,6 +1009,9 @@ pub struct ActorTickInput<'a> {
     /// `IntentReason` of the chosen plan from `pick_action`; `None` on skip-path.
     /// Threaded into `ActorTickEvent.intent_reason` for mining tools.
     pub intent_reason: Option<&'a crate::combat::ai::intent::IntentReason>,
+    /// P7: adaptation reason from `PickResult.evaluation_mode_reason`; `None` on
+    /// skip-path or when no adaptation fired for the chosen plan.
+    pub evaluation_mode_reason: Option<&'a crate::combat::ai::adapt::AdaptationReason>,
     pub debug_names: &'a std::collections::HashMap<Entity, String>,
     /// Status tag cache for severity classification in `continuation` section.
     pub status_tags: &'a crate::combat::ai::world::tags::StatusTagCache,
@@ -1064,6 +1089,7 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
         plans,
         decision,
         intent_reason: input.intent_reason.cloned(),
+        evaluation_mode_reason: input.evaluation_mode_reason.cloned(),
         continuation,
         band,
         band_reason,
@@ -1186,23 +1212,23 @@ struct SchemaHeader {
 /// Parse a single JSONL line as an [`ActorTickEvent`], rejecting old schemas
 /// with a clear error.
 ///
-/// v32 logs are schema-additive with v33: `score_trace_log` was added in v33
-/// but all other fields are identical, so v32 logs parse successfully with
-/// `score_trace_log` defaulting to `None`.
+/// v33 logs are schema-additive with v34: `evaluation_mode_reason` was added
+/// in v34 (P7) but all other fields are identical, so v33 logs parse
+/// successfully with `evaluation_mode_reason` defaulting to `None`.
 ///
 /// Returns `Err(LogError::UnsupportedSchema)` when the line carries a
-/// `schema_version` lower than 32. Tools should show this error to the user
-/// and ask for a fresh v32+ playtest.
+/// `schema_version` lower than 33. Tools should show this error to the user
+/// and ask for a fresh v33+ playtest.
 pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
     let header: SchemaHeader = serde_json::from_str(line)?;
-    // v32 is schema-additive with v33 (score_trace_log absent → None).
-    // v31 and below are hard breaks (bands/agenda fields missing).
-    const MIN_SUPPORTED: u32 = SCHEMA_VERSION - 1; // = 32
+    // v33 is schema-additive with v34 (evaluation_mode_reason absent → None).
+    // v32 and below are hard breaks (score_trace_log and earlier fields missing).
+    const MIN_SUPPORTED: u32 = SCHEMA_VERSION - 1; // = 33
     if header.schema_version < MIN_SUPPORTED {
         return Err(LogError::UnsupportedSchema {
             found: header.schema_version,
             required: SCHEMA_VERSION,
-            hint: "v31 logs pre-date bands/agenda serialisation (v32); rebuild logs from v32+ playtest",
+            hint: "v32 logs pre-date score_trace_log (v33); rebuild logs from v33+ playtest",
         });
     }
     Ok(serde_json::from_str(line)?)
@@ -1288,6 +1314,7 @@ mod tests {
                 selection_kind: "protect_self",
                 reason_text: "",
                 reason: &reason_val,
+                evaluation_mode_reason: None,
             },
             plans: vec![],
             committed_decision: DecisionBlock::EndTurn,
@@ -1395,6 +1422,7 @@ mod tests {
             skip_reason: Some("no_ap_no_mp"),
             pool: None,
             intent_reason: None,
+            evaluation_mode_reason: None,
             debug_names,
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
             band: None,
@@ -1464,6 +1492,7 @@ mod tests {
             skip_reason: None,
             pool: Some(&pool),
             intent_reason: Some(&test_reason),
+            evaluation_mode_reason: None,
             debug_names: &debug_names,
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
             band: None,
@@ -1514,6 +1543,7 @@ mod tests {
             skip_reason: None,
             pool: Some(&pool),
             intent_reason: Some(&reason),
+            evaluation_mode_reason: None,
             debug_names: &debug_names,
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
             band: None,
@@ -1536,8 +1566,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":27}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 33, .. })),
-            "v27 must produce UnsupportedSchema(found=27, required=33), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 34, .. })),
+            "v27 must produce UnsupportedSchema(found=27, required=34), got: {result:?}",
         );
     }
 
@@ -1547,8 +1577,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":26}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 33, .. })),
-            "v26 must produce UnsupportedSchema, got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 34, .. })),
+            "v26 must produce UnsupportedSchema(found=26, required=34), got: {result:?}",
         );
     }
 
@@ -1558,8 +1588,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":28}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 33, .. })),
-            "v28 must produce UnsupportedSchema(found=28, required=33), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 34, .. })),
+            "v28 must produce UnsupportedSchema(found=28, required=34), got: {result:?}",
         );
     }
 
@@ -1569,8 +1599,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":29}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 33, .. })),
-            "v29 must produce UnsupportedSchema(found=29, required=33), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 34, .. })),
+            "v29 must produce UnsupportedSchema(found=29, required=34), got: {result:?}",
         );
     }
 
@@ -1580,8 +1610,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":30}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 33, .. })),
-            "v30 must produce UnsupportedSchema(found=30, required=33), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 34, .. })),
+            "v30 must produce UnsupportedSchema(found=30, required=34), got: {result:?}",
         );
     }
 
@@ -1591,8 +1621,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":31}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 33, .. })),
-            "v31 must produce UnsupportedSchema(found=31, required=33), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 34, .. })),
+            "v31 must produce UnsupportedSchema(found=31, required=34), got: {result:?}",
         );
     }
 
@@ -1692,6 +1722,7 @@ mod tests {
             skip_reason: None,
             pool: Some(&pool),
             intent_reason: Some(&reason),
+            evaluation_mode_reason: None,
             debug_names: &debug_names,
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
             band: Some((band, band_reason)),
@@ -1729,14 +1760,39 @@ mod tests {
         assert!(restored.plans[0].annotation.score_trace_log.is_some());
     }
 
-    /// v32 corpus (without score_trace_log field) is accepted by the v33 parser.
-    /// score_trace_log defaults to None — schema-additive backward compat.
+    /// v32 corpus is now rejected (MIN_SUPPORTED = 33). v32 pre-dates
+    /// score_trace_log (added in v33) — hard break, not schema-additive.
     #[test]
-    fn schema_v32_accepted_as_additive_with_score_trace_log_none() {
-        // A minimal v32 ActorTickEvent JSON (no score_trace_log field on any plan).
+    fn schema_v32_rejected_as_pre_score_trace_log() {
         let json = r#"{
             "event_type": "actor_tick",
             "schema_version": 32,
+            "round": 1,
+            "timestamp_ms": 0,
+            "actor_id": 1,
+            "actor_name": "x",
+            "snapshot": {"units": [], "round": 0},
+            "plans": [],
+            "decision": {"kind": "end_turn"},
+            "continuation": null,
+            "band": null,
+            "band_reason": null,
+            "agenda": []
+        }"#;
+        let result = parse_actor_tick(json);
+        assert!(
+            matches!(result, Err(LogError::UnsupportedSchema { found: 32, required: 34, .. })),
+            "v32 must produce UnsupportedSchema(found=32, required=34), got: {result:?}",
+        );
+    }
+
+    /// v33 corpus (without evaluation_mode_reason field) is accepted by the v34 parser.
+    /// evaluation_mode_reason defaults to None — schema-additive backward compat.
+    #[test]
+    fn schema_v33_accepted_as_additive_with_evaluation_mode_reason_none() {
+        let json = r#"{
+            "event_type": "actor_tick",
+            "schema_version": 33,
             "round": 1,
             "timestamp_ms": 0,
             "actor_id": 1,
@@ -1749,25 +1805,24 @@ mod tests {
             "band_reason": null,
             "agenda": []
         }"#;
-        let event = parse_actor_tick(json).expect("v32 must parse as schema-additive");
-        assert_eq!(event.schema_version, 32);
+        let event = parse_actor_tick(json).expect("v33 must parse as schema-additive");
+        assert_eq!(event.schema_version, 33);
         assert_eq!(event.plans.len(), 1);
         assert!(
-            event.plans[0].annotation.score_trace_log.is_none(),
-            "score_trace_log absent in v32 → None"
+            event.evaluation_mode_reason.is_none(),
+            "evaluation_mode_reason absent in v33 → None"
         );
     }
 
-    /// v31 format must yield UnsupportedSchema with a hint mentioning bands/agenda.
+    /// v31 format must yield UnsupportedSchema with a hint mentioning v32 score_trace_log.
     #[test]
     fn schema_v31_rejected_with_clear_error() {
         let json = r#"{"event_type":"actor_tick","schema_version":31,"round":1,"timestamp_ms":0,"actor_id":1,"actor_name":"x","plans":[],"decision":{"kind":"end_turn"},"snapshot":{}}"#;
         let result = parse_actor_tick(json);
-        let Err(LogError::UnsupportedSchema { found, required, hint }) = result else {
+        let Err(LogError::UnsupportedSchema { found, required, hint: _ }) = result else {
             panic!("expected UnsupportedSchema, got: {result:?}");
         };
         assert_eq!(found, 31);
-        assert_eq!(required, 33);
-        assert!(hint.contains("bands"), "hint must mention 'bands', got: {hint}");
+        assert_eq!(required, 34);
     }
 }

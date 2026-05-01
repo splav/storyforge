@@ -95,8 +95,13 @@ pub struct PickResult {
     pub debug_snapshot: Option<AiDebugSnapshot>,
     /// Intent selected for this turn (possibly updated by ViabilityStage).
     pub intent: TacticalIntent,
-    /// Reason for intent selection.
+    /// Reason for intent selection (original select_intent reason, unmodified by adaptation).
     pub intent_reason: IntentReason,
+    /// Adaptation reason that switched the chosen plan's evaluation regime,
+    /// or `None` when the chosen plan was scored under `EvaluationMode::Default`.
+    /// Parallel to `intent_reason` but carries the *adaptation* context — these
+    /// two fields together replace the old `IntentReason::Adapted` wrapper.
+    pub evaluation_mode_reason: Option<crate::combat::ai::adapt::AdaptationReason>,
     /// Pre-adaptation (post-sanity) scores — used by the log to show
     /// pre/post-adaptation deltas. Same length as `pool`.
     pub base_scored: Vec<f32>,
@@ -225,6 +230,7 @@ pub fn pick_action(
             debug_snapshot: None,
             intent: TacticalIntent::Reposition,
             intent_reason: IntentReason::NoRuleDefault,
+            evaluation_mode_reason: None,
             base_scored: vec![],
             band: (PriorityBand::NormalTactical, BandReason::Normal),
             agenda: Agenda { band: PriorityBand::NormalTactical, items: vec![] },
@@ -318,6 +324,7 @@ pub fn pick_action(
             debug_snapshot: ds,
             intent: choice.intent,
             intent_reason: choice.reason,
+            evaluation_mode_reason: None,
             base_scored: vec![],
             band: (band, band_reason),
             agenda,
@@ -395,16 +402,15 @@ pub fn pick_action(
 
     // Compute the final intent/reason (possibly updated by ViabilityStage/ModeSelectionStage).
     let final_intent = stage_ctx.intent;
-    let mut final_reason = stage_ctx.intent_reason;
+    let final_reason = stage_ctx.intent_reason;
 
-    // If adaptation switched the chosen plan's evaluation regime, wrap reason.
-    if let Some(adapt_data) = pool.annotations.get(best_idx).and_then(|a| a.adaptation.as_ref()) {
-        let prior = std::mem::replace(&mut final_reason, IntentReason::NoRuleDefault);
-        final_reason = IntentReason::Adapted {
-            prior: Box::new(prior),
-            reason: adapt_data.reason.clone(),
-        };
-    }
+    // If adaptation switched the chosen plan's evaluation regime, capture the
+    // adaptation reason as a separate field (P7: replaces IntentReason::Adapted wrapper).
+    let evaluation_mode_reason = pool
+        .annotations
+        .get(best_idx)
+        .and_then(|a| a.adaptation.as_ref())
+        .map(|adapt_data| adapt_data.reason.clone());
 
     let best_plan = &pool.plans[best_idx];
     let (decision, _consumed) = commit_plan(best_plan, actor_pos);
@@ -435,6 +441,7 @@ pub fn pick_action(
         debug_snapshot,
         intent: final_intent,
         intent_reason: final_reason,
+        evaluation_mode_reason,
         base_scored,
         band: (band, band_reason),
         agenda,
@@ -536,6 +543,7 @@ pub fn write_decision_log_from_result(
         selection_kind: result.intent_reason.code(),
         reason_text: &reason_text,
         reason: &result.intent_reason,
+        evaluation_mode_reason: result.evaluation_mode_reason.as_ref(),
     };
 
     // gate_stats: KillableGateStage writes contract annotations but doesn't

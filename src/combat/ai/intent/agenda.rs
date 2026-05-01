@@ -24,7 +24,7 @@ use crate::combat::ai::intent::{
 use crate::combat::ai::intent::considerations::{compute_considerations, IntentConsiderations};
 use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::scoring::target_priority::target_priority;
+use crate::combat::ai::scoring::target_selection::target_selection_score;
 use crate::combat::ai::config::tuning::AiTuning;
 
 // ── AgendaItem ────────────────────────────────────────────────────────────────
@@ -74,7 +74,10 @@ impl AgendaItem {
             IntentKind::Reposition => TacticalIntent::Reposition,
             IntentKind::ProtectSelf => TacticalIntent::ProtectSelf,
             IntentKind::SetupAOE => TacticalIntent::SetupAOE,
-            IntentKind::LastStand => TacticalIntent::LastStand,
+            // LastStand is an EvaluationMode marker, not a TacticalIntent.
+            // intent_for_scoring() is overridden by EvaluationMode::LastStand
+            // in the scorer — this fallback value is never used for scoring.
+            IntentKind::LastStand => TacticalIntent::Reposition,
         }
     }
 }
@@ -164,7 +167,7 @@ fn build_forced_targeting(
     // falls back to 1.0 if the taunter is no longer in the snapshot.
     let raw_score = snap
         .unit(taunter)
-        .map(|t| target_priority(active, t, snap))
+        .map(|t| target_selection_score(active, t, snap))
         .unwrap_or(1.0);
 
     vec![AgendaItem {

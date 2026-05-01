@@ -22,7 +22,7 @@ pub use considerations::{compute_considerations, IntentConsiderations};
 pub use kinds::{IntentKind, IntentReason, TacticalIntent};
 pub use memory::{AiMemory, PlanSnapshot, status_hash};
 pub use score::{
-    cc_reach, intent_score, pursuit_move_score, IntentWeights,
+    cc_reach, evaluate_last_stand_step, intent_score, pursuit_move_score, IntentWeights,
 };
 #[allow(deprecated)]
 pub use select::{

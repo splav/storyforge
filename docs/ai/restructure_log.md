@@ -892,6 +892,78 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 
 ---
 
+## 2026-05-01 — P7 — Semantic cleanup (completed)
+
+**Предыстория:** Первая попытка прервалась на «Prompt is too long» (предыдущий агент). Большой
+прогресс был сделан (Cleanup 1–3), но `cargo build --all-targets` оставался красным с 31 ошибкой.
+Данная итерация довела work-in-progress до зелёного состояния.
+
+**Что сделано:**
+
+**Cleanup 1 — `TacticalIntent::LastStand` removed:**
+- Вариант `LastStand` удалён из `TacticalIntent` (предыдущий агент).
+- `compute_plan_intent_sum` получил параметр `mode: EvaluationMode` (предыдущий агент).
+- Тесты в `adapt/mod.rs` переписаны: `default_mode_defers_to_global_intent` / `last_stand_mode_overrides_global`
+  (проверяли удалённый метод `effective_intent`) заменены на `adaptation_empty_is_all_default` и
+  `any_adapted_true_when_last_stand_present` (тестируют `Adaptation::empty()` / `any_adapted()`).
+- 13 test call-sites `compute_plan_intent_sum` в `scoring/factors/aggregate.rs` обновлены: добавлен `EvaluationMode::Default`.
+- Исправлен unused_mut warning: `let (mut raw_ls, _)` → `let (raw_ls, _)` в `aggregate.rs:1185`.
+
+**Cleanup 2 — `IntentReason::Adapted` removed:**
+- Вариант удалён из `IntentReason` (предыдущий агент).
+- Поле `evaluation_mode_reason` добавлено в `PickResult`, `ActorTickInput`, `ActorTickEvent`
+  (предыдущий агент — structures, этот агент — missing initializers).
+- `evaluation_mode_reason: None` добавлено в 5 конструкторов:
+  - `replay_ai_log.rs:864` (`ActorTickEvent` в тесте `make_skip_event`)
+  - `mine_ai_logs.rs:2183` (`ActorTickEvent` в тесте `make_event`)
+  - `log/mod.rs:1312` (`IntentBlock` в тесте `entry_serializes_current_schema_telemetry_fields`)
+  - `log/mod.rs:1535` (`ActorTickInput` в тесте `build_logged_plans_preserves_annotation_outcomes`)
+  - `log/mod.rs:1713` (`ActorTickInput` в тесте `entry_serializes_bands_and_agenda`)
+- Тест `mode_selection_adaptation_reason_round_trips_to_intent` переписан без `IntentReason::Adapted`:
+  теперь проверяет `adapt.reason` напрямую как `ProtectSelfNoDefensive`.
+  Переименован: `mode_selection_adaptation_reason_is_protect_self_no_defensive`.
+
+**Cleanup 3 — `target_selection.rs` (переименование из `target_priority.rs`):**
+- Файл `src/combat/ai/scoring/target_selection.rs` создан (предыдущий агент, untracked).
+- `scoring/mod.rs` уже объявлял `pub mod target_selection;` (предыдущий агент).
+
+**Schema v34:**
+- `SCHEMA_VERSION` 33 → 34 (предыдущий агент).
+- Тесты schema-версий обновлены:
+  - `schema_v32_accepted_as_additive_with_score_trace_log_none` → `schema_v32_rejected_as_pre_score_trace_log`
+    (v32 теперь ниже MIN_SUPPORTED = 33).
+  - Добавлен `schema_v33_accepted_as_additive_with_evaluation_mode_reason_none`.
+  - `schema_v31_rejected_with_clear_error` обновлён: `required = 34` (было 33).
+- Snapshot-фикстуры `tests/ai_scenarios/snapshots/*/log.jsonl` обновлены:
+  - `"schema_version":32` → `"schema_version":33` (schema-additive).
+  - `intent_reason: {"kind":"adapted","prior":...,"reason":...}` трансформированы в
+    `intent_reason: <prior>` + `evaluation_mode_reason: <reason>` (Python-скрипт, 16 записей в 8 файлах).
+
+**Файлы, которые затронули:**
+- `src/combat/ai/adapt/mod.rs` — 2 теста заменены (effective_intent → Adaptation helpers)
+- `src/combat/ai/pipeline/stages/mode_selection.rs` — 1 тест переписан (Adapted → прямая проверка)
+- `src/combat/ai/scoring/factors/aggregate.rs` — 13 test calls + unused_mut fix
+- `src/combat/ai/log/mod.rs` — 3 конструктора + schema тесты обновлены
+- `src/bin/replay_ai_log.rs` — 1 конструктор
+- `src/bin/mine_ai_logs.rs` — 1 конструктор
+- `tests/ai_scenarios/snapshots/*/log.jsonl` — 8 файлов (schema bump + adapted transform)
+- `docs/ai/restructure.md` (P7 → done)
+- `docs/ai/restructure_log.md` (этот блок)
+
+**DoD проверка:**
+- [x] `cargo build --all-targets` — clean (было 31 ошибок)
+- [x] `cargo test --lib` — 783 passed, 0 failed (было 780 baseline до P7; +3 новых теста: adapt helpers + v33 additive)
+- [x] `cargo test` — зелёный (все интеграционные включая ai_scenarios)
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] `TacticalIntent::LastStand` — не используется (`git grep` exit 1)
+- [x] `IntentReason::Adapted` — не используется (`git grep` exit 1)
+- [x] `evaluation_mode_reason` присутствует в ActorTickEvent / ActorTickInput / PickResult / IntentBlock
+- [x] Schema v34: `SCHEMA_VERSION = 34`, MIN_SUPPORTED = 33, v33 additive test зелёный
+- [x] Snapshot фикстуры обновлены (v33 + adapted unwrapped)
+- [x] Behavioural diff = 0
+
+---
+
 ## 2026-05-01 — P3b — Expose ScoreTrace to JSONL / mining (completed)
 
 **Что сделано:**

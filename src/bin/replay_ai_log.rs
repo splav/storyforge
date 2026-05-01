@@ -873,6 +873,7 @@ mod tests {
             decision: LoggedDecision::Skip { reason: "no_ap_no_mp".to_owned() },
             continuation: None,
             intent_reason: None,
+            evaluation_mode_reason: None,
             band: None,
             band_reason: None,
             agenda: vec![],

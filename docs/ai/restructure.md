@@ -665,7 +665,7 @@ P-track (контракты + миграция логики) и R-track (relocat
 | R6 — planning/ → plan/ cleanup + scorer.rs split | R | done | **после P3a + R2 + R5 + P5 + R4** | 2026-05-01. planning/ → plan/ rename, scorer.rs → finalize.rs + aggregate.rs, terminal.rs → terminal_state.rs. 778 passed. |
 | P4 — Intent split | P | done | parallel-safe от P0 | 2026-05-01. kinds/select/score/memory. mod.rs → 32 LOC. |
 | P6 — Replay split | P | pending | parallel-safe | См. boundary в R-track principles. |
-| P7 — Semantic cleanup | P | pending | P3b (schema coordination) | |
+| P7 — Semantic cleanup | P | done 2026-05-01 | P3b (schema coordination) | |
 | R7 — memory/ + appraisal split | R | pending | optional, post-P7 | Может вообще не делаться. |
 | R-late — utility/→orchestration/, enemy_turn→system | R | pending | косметика | Когда удобно или никогда. |
 

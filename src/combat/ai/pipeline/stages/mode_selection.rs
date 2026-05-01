@@ -238,7 +238,9 @@ mod tests {
     /// IntentReason::Adapted built from ann.adaptation encodes the correct
     /// AdaptationReason (parity with legacy adaptation_data_round_trips_through_intent_reason).
     #[test]
-    fn mode_selection_adaptation_reason_round_trips_to_intent() {
+    fn mode_selection_adaptation_reason_is_protect_self_no_defensive() {
+        // ProtectSelf intent with no defensive plans → adaptation fires with
+        // ProtectSelfNoDefensive reason stored directly in ann.adaptation.reason.
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
@@ -259,25 +261,15 @@ mod tests {
             .adaptation
             .as_ref()
             .expect("expected adaptation");
-        let prior = IntentReason::NoRuleDefault;
-        let wrapped = IntentReason::Adapted {
-            prior: Box::new(prior),
-            reason: adapt.reason.clone(),
-        };
 
-        match wrapped {
-            IntentReason::Adapted { reason, .. } => {
-                assert!(
-                    matches!(
-                        reason,
-                        crate::combat::ai::adapt::AdaptationReason::ProtectSelfNoDefensive
-                    ),
-                    "expected ProtectSelfNoDefensive, got {:?}",
-                    reason,
-                );
-            }
-            _ => panic!("expected Adapted variant"),
-        }
+        assert!(
+            matches!(
+                adapt.reason,
+                crate::combat::ai::adapt::AdaptationReason::ProtectSelfNoDefensive
+            ),
+            "expected ProtectSelfNoDefensive, got {:?}",
+            adapt.reason,
+        );
     }
 
     // ── mode_selection_no_adaptation_when_no_trigger ──────────────────────

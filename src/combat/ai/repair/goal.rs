@@ -350,7 +350,10 @@ fn intent_to_goal_kind(
         }
         TacticalIntent::ApplyCC { target } => Some(GoalKind::DisableEnemy { target }),
         TacticalIntent::ProtectAlly { ally } => Some(GoalKind::HealAlly { ally }),
-        TacticalIntent::ProtectSelf | TacticalIntent::LastStand => {
+        // LastStand is now an EvaluationMode, not a TacticalIntent; adapt-triggered
+        // plans that used LastStand scoring may be selected under any global intent,
+        // but the goal kind here follows the global intent selection.
+        TacticalIntent::ProtectSelf => {
             Some(GoalKind::Retreat { region_anchor: final_pos })
         }
         TacticalIntent::SetupAOE => {

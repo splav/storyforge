@@ -1,5 +1,6 @@
 use bevy::prelude::Entity;
 use crate::content::content_view::ContentView;
+use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits, StepFactor};
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::position_eval::evaluate_position;
@@ -179,12 +180,66 @@ pub(crate) fn intent_offensive_value_on_target(
 ///
 /// `ProtectSelf`, `ProtectAlly`, `SetupAOE`, `LastStand` preserve their
 /// existing formulas (ported to the new signature).
+// ── LastStand step scorer ──────────────────────────────────────────────────
+
+/// Score a single step under the **LastStand** evaluation regime.
+///
+/// Used when `EvaluationMode::LastStand` is active — the actor is committed to
+/// a "final useful action" and survival considerations are secondary to impact.
+///
+/// Hierarchy: kill (CC bonus) > AoE > direct offensive > survival cast > running.
+pub fn evaluate_last_stand_step(step: &ScoredStep, step_ctx: &ScoringCtx) -> f32 {
+    let content = step_ctx.world.content;
+    let snap = step_ctx.snap;
+    let active = step_ctx.active;
+
+    let cast = match step {
+        ScoredStep::Cast { ability, target_pos, target, .. } => {
+            Some((*ability, *target_pos, *target))
+        }
+        ScoredStep::Move { .. } => None,
+    };
+
+    let Some((ability, _, target)) = cast else {
+        // LastStand wants last useful action, not running.
+        return -0.3;
+    };
+    let Some(def) = content.abilities.get(ability) else { return 0.0 };
+    let mut score = 0.0f32;
+
+    // "Direct offensive action" bonus in LastStand: covers both
+    // entity-targeted (SingleEnemy) and cell-targeted (Ground)
+    // attacks. AoE footprint gets an additional +0.3 below.
+    if matches!(def.target_type, TargetType::SingleEnemy | TargetType::Ground) {
+        score += 0.5;
+    }
+    if let Some(target_unit) = snap.unit(target) {
+        if applies_cc(def, content) && !target_unit.tags.contains(AiTags::IS_STUNNED) {
+            score += 0.8;
+        }
+    }
+    if def.aoe != AoEShape::None {
+        score += 0.3;
+    }
+    if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
+        score += 0.1;
+    }
+
+    let _ = active; // active may be used for future extensions
+    score
+}
+
 pub fn intent_score(
     intent: &TacticalIntent,
     step: &ScoredStep,
     step_ctx: &ScoringCtx,
     outcome: &ActionOutcomeEstimate,
+    mode: EvaluationMode,
 ) -> f32 {
+    // LastStand evaluation regime: bypass intent-specific scoring.
+    if mode == EvaluationMode::LastStand {
+        return evaluate_last_stand_step(step, step_ctx);
+    }
     let active = step_ctx.active;
     let snap = step_ctx.snap;
     let maps = step_ctx.maps;
@@ -306,34 +361,6 @@ pub fn intent_score(
             let hit = aoe_hits(&area, active, snap).enemies.len() as f32;
             if total > 0.0 { hit / total } else { 0.0 }
         }
-        TacticalIntent::LastStand => {
-            let Some((ability, _, target)) = cast else {
-                // LastStand wants last useful action, not running.
-                return -0.3;
-            };
-            let Some(def) = content.abilities.get(ability) else { return 0.0 };
-            let mut score = 0.0f32;
-
-            // "Direct offensive action" bonus in LastStand: covers both
-            // entity-targeted (SingleEnemy) and cell-targeted (Ground)
-            // attacks. AoE footprint gets an additional +0.3 below.
-            if matches!(def.target_type, TargetType::SingleEnemy | TargetType::Ground) {
-                score += 0.5;
-            }
-            if let Some(target_unit) = snap.unit(target) {
-                if applies_cc(def, content) && !target_unit.tags.contains(AiTags::IS_STUNNED) {
-                    score += 0.8;
-                }
-            }
-            if def.aoe != AoEShape::None {
-                score += 0.3;
-            }
-            if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
-                score += 0.1;
-            }
-
-            score
-        }
     }
 }
 
@@ -341,6 +368,7 @@ pub fn intent_score(
 #[allow(deprecated)]
 mod tests {
     use super::*;
+    use crate::combat::ai::adapt::EvaluationMode;
     use crate::combat::ai::outcome::ActionOutcomeEstimate;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
@@ -412,10 +440,10 @@ mod tests {
         let ab = AbilityId::from("melee_attack");
 
         let ctx_worse = make_scoring_ctx(&world, &snap, &maps, &reservations, &active);
-        let score_worse = intent_score(&intent, &dummy_step(worse, &ab), &ctx_worse, &ActionOutcomeEstimate::default());
+        let score_worse = intent_score(&intent, &dummy_step(worse, &ab), &ctx_worse, &ActionOutcomeEstimate::default(), EvaluationMode::Default);
 
         let ctx_better = make_scoring_ctx(&world, &snap, &maps, &reservations, &active);
-        let score_better = intent_score(&intent, &dummy_step(better, &ab), &ctx_better, &ActionOutcomeEstimate::default());
+        let score_better = intent_score(&intent, &dummy_step(better, &ab), &ctx_better, &ActionOutcomeEstimate::default(), EvaluationMode::Default);
 
         assert!(
             score_worse < 0.0,
@@ -608,7 +636,7 @@ mod tests {
 
         // Move to (4,0) — dist=1 to target, reach=3+1=4, 1<=4 → 0.8.
         let move_into_reach = ScoredStep::Move { caster_tile: hex_from_offset(4, 0) };
-        let score = intent_score(&intent, &move_into_reach, &ctx, &ActionOutcomeEstimate::default());
+        let score = intent_score(&intent, &move_into_reach, &ctx, &ActionOutcomeEstimate::default(), EvaluationMode::Default);
         assert!(
             score >= 0.5,
             "enter-reach Move must pass viability (0.5), got {score}",
@@ -711,8 +739,8 @@ mod tests {
             ..Default::default()
         };
 
-        let score_strong = intent_score(&intent, &step_strong, &ctx, &outcome_strong);
-        let score_weak = intent_score(&intent, &step_weak, &ctx, &outcome_weak);
+        let score_strong = intent_score(&intent, &step_strong, &ctx, &outcome_strong, EvaluationMode::Default);
+        let score_weak = intent_score(&intent, &step_weak, &ctx, &outcome_weak, EvaluationMode::Default);
 
         assert!(
             score_strong > score_weak,
@@ -772,7 +800,7 @@ mod tests {
             caster_tile: actor.pos,
         };
 
-        let score = intent_score(&intent, &step_wrong, &ctx, &ActionOutcomeEstimate::default());
+        let score = intent_score(&intent, &step_wrong, &ctx, &ActionOutcomeEstimate::default(), EvaluationMode::Default);
         assert!(
             score <= 0.0,
             "hitting non-focus target must yield ≤ 0 intent score, got {score}",

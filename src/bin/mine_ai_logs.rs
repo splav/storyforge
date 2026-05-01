@@ -2192,6 +2192,7 @@ mod tests {
             decision,
             continuation,
             intent_reason: None,
+            evaluation_mode_reason: None,
             band: None,
             band_reason: None,
             agenda: vec![],

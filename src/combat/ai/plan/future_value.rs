@@ -20,7 +20,7 @@ use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::outcome::builder::hypothetical as estimate_hypothetical;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::scoring::target_priority::target_priority;
+use crate::combat::ai::scoring::target_selection::target_selection_score;
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::AoEShape;
@@ -237,8 +237,8 @@ fn attack_component_intent(
             let mut enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
             if enemies.is_empty() { return 0.0; }
             enemies.sort_by(|a, b| {
-                target_priority(active, b, snap)
-                    .partial_cmp(&target_priority(active, a, snap))
+                target_selection_score(active, b, snap)
+                    .partial_cmp(&target_selection_score(active, a, snap))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
             let top_enemies = &enemies[..enemies.len().min(3)];

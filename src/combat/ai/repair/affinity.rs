@@ -124,9 +124,9 @@ fn goal_alignment(stored_kind: &GoalKind, fresh_intent: TacticalIntent) -> f32 {
         (GoalKind::HealAlly { ally: a }, TacticalIntent::ProtectAlly { ally: b }) if *a == b => {
             1.0
         }
-        // Retreat matches ProtectSelf / LastStand regardless of region
+        // Retreat matches ProtectSelf — LastStand is now an EvaluationMode, not
+        // a TacticalIntent; Retreat affinity for adapted plans is covered via ProtectSelf.
         (GoalKind::Retreat { .. }, TacticalIntent::ProtectSelf) => 0.9,
-        (GoalKind::Retreat { .. }, TacticalIntent::LastStand) => 0.9,
         // Positional goals match their own intent
         (GoalKind::SetupAOE { .. }, TacticalIntent::SetupAOE) => 0.95,
         (GoalKind::Reposition { .. }, TacticalIntent::Reposition) => 0.85,

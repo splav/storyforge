@@ -4,7 +4,7 @@ use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::scoring::target_priority::{highest_priority_enemy, target_priority};
+use crate::combat::ai::scoring::target_selection::{highest_priority_enemy, target_selection_score};
 use crate::combat::ai::scoring::factors::{PlanFactorValues, ScoredStep};
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::config::tuning::AiTuning;
@@ -454,7 +454,6 @@ fn format_intent(intent: &TacticalIntent, names: &HashMap<Entity, String>) -> St
         TacticalIntent::Reposition => "Reposition".into(),
         TacticalIntent::ProtectSelf => "ProtectSelf".into(),
         TacticalIntent::SetupAOE => "SetupAOE".into(),
-        TacticalIntent::LastStand => "LastStand".into(),
     }
 }
 
@@ -533,7 +532,7 @@ fn priority_target_debug(
     names: &HashMap<Entity, String>,
 ) -> Option<(String, f32)> {
     highest_priority_enemy(active, snap)
-        .map(|t| (name_of(t.entity, names), target_priority(active, t, snap)))
+        .map(|t| (name_of(t.entity, names), target_selection_score(active, t, snap)))
 }
 
 /// Build the AiDebugSnapshot for a normal (non-fallback) pick_action path.
