@@ -49,8 +49,9 @@ use crate::combat::ai::intent::IntentKind;
 use crate::combat::ai::intent::bands::PriorityBand;
 use crate::combat::ai::outcome::{PerItemEval, RejectReason};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
+use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
 use crate::combat::ai::planning::{
-    compute_plan_intent_sum, plan_is_defensive, plan_is_offensive_vs,
+    compute_plan_intent_sum, plan_is_offensive_vs,
 };
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::game::hex::Hex;

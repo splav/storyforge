@@ -17,7 +17,7 @@ pub mod intent;
 pub mod utility;
 
 pub use outcome::{ActionOutcomeEstimate, PlanAnnotation};
-pub use planning::{SanityHit, SanityRule};
+pub use pipeline::stages::sanity::{SanityHit, SanityRule};
 
 #[cfg(test)]
 pub(crate) mod test_helpers;

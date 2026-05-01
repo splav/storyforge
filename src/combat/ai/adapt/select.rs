@@ -11,9 +11,10 @@
 use crate::combat::ai::adapt::{Adaptation, AdaptationReason, EvaluationMode};
 use crate::combat::ai::factors::{PlanFactor, PlanFactorValues};
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::planning::sanity::expected_aoo_damage;
+use crate::combat::ai::pipeline::stages::sanity::expected_aoo_damage;
 use crate::combat::ai::planning::scorer::rescore_with_per_plan_modes;
-use crate::combat::ai::planning::{plan_is_defensive, TurnPlan};
+use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
+use crate::combat::ai::planning::TurnPlan;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::content_view::ContentView;
@@ -312,7 +313,8 @@ pub fn apply_adaptation(
 mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::planning::{sanity_adjust_plans, PlanStep};
+    use crate::combat::ai::pipeline::stages::sanity::sanity_adjust_plans;
+    use crate::combat::ai::planning::PlanStep;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{

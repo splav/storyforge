@@ -12,7 +12,7 @@ use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::outcome::ContractMaskHit;
 use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::planning::apply_protect_self_mask;
+use crate::combat::ai::pipeline::stages::sanity::apply_protect_self_mask;
 
 pub struct ProtectSelfMaskStage;
 

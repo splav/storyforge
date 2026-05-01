@@ -610,3 +610,65 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] No semantic diff: изменения в телах — только import/path строки
 
 ---
+
+## 2026-05-01 — R5.B.1 — planning/sanity.rs → pipeline/stages/sanity/ (completed)
+
+**Что сделано:**
+- `pipeline/stages/sanity.rs` → `pipeline/stages/sanity/mod.rs` (file-to-dir conversion через `git mv`). `SanityStage` + 7 P3a.3 tests перенесены.
+- Создан `pipeline/stages/sanity/healer_exposure.rs` — Rule 1: `evaluate(active, final_pos, allies) -> Vec<SanityHit>`.
+- Создан `pipeline/stages/sanity/retreat_trap.rs` — Rule 2: `evaluate(final_pos, ally_positions) -> Option<SanityHit>`.
+- Создан `pipeline/stages/sanity/synergy_bonus.rs` — Rule 3: `evaluate(active, plan, final_pos, danger, pos_eval, ctx) -> Option<SanityHit>`. Содержит приватный helper `plan_has_useful_cast`.
+- Содержимое `planning/sanity.rs` (605 LOC) вмержено в `pipeline/stages/sanity/mod.rs`: типы `SanityHit`/`SanityRule`, оркестратор `sanity_adjust_plans` (заменён inline на вызовы rule-модулей), shared helpers (`expected_aoo_damage`, `plan_is_defensive`, `apply_protect_self_mask`, `plan_has_self_aoe`), тесты из planning/sanity.rs.
+- Удалён `planning/sanity.rs` (git rm).
+- Удалены `pub mod sanity;` и `pub use sanity::{...}` из `planning/mod.rs`.
+- Обновлён `combat/ai/mod.rs`: `planning::{SanityHit, SanityRule}` → `pipeline::stages::sanity::{SanityHit, SanityRule}`.
+- 7 consumer-файлов обновлены (import paths):
+  - `scoring/trade.rs` — `planning::sanity::expected_aoo_damage` → `pipeline::stages::sanity::...`
+  - `adapt/select.rs` — `planning::sanity::expected_aoo_damage`, `planning::plan_is_defensive` → pipeline paths; тест `sanity_adjust_plans` → pipeline path
+  - `pipeline/stages/protect_self.rs` — `planning::apply_protect_self_mask` → pipeline path
+  - `pipeline/stages/critics/overcommit_into_danger.rs` — `planning::sanity::expected_aoo_damage` → pipeline path
+  - `pipeline/stages/critics/self_lethal_without_payoff.rs` — `planning::sanity::plan_has_self_aoe` → pipeline path
+  - `pipeline/stages/item_scoring.rs` — `planning::plan_is_defensive` → pipeline path
+  - `outcome/mod.rs` — `planning::sanity::SanityHit` → `pipeline::stages::sanity::SanityHit`
+  - `log/mod.rs` — `planning::SanityHit` → `pipeline::stages::sanity::SanityHit`
+
+**Shared helpers — место расположения (pipeline/stages/sanity/mod.rs top-level):**
+- `expected_aoo_damage` — `pub(crate)`, используется adapt/scoring/critics cross-layer.
+- `plan_is_defensive` — `pub`, используется adapt/select + item_scoring + protect_self.
+- `apply_protect_self_mask` — `pub`, используется protect_self stage.
+- `plan_has_self_aoe` — `pub(crate)`, используется critics/self_lethal_without_payoff.
+- `plan_has_useful_cast` — приватная, перенесена в `synergy_bonus.rs` (её единственный caller).
+
+**Комментарии / отклонения от плана:**
+- `plan_has_useful_cast` (fn-private в `planning/sanity.rs`) перенесена в `synergy_bonus.rs` как `fn plan_has_useful_cast(plan, ctx) -> bool` — её единственный caller — `synergy_bonus::evaluate`. Когезия с rule-файлом выше, чем с mod.rs.
+- При объединении тестов из staging/sanity.rs + planning/sanity.rs обнаружен конфликт: оба содержат `use crate::combat::ai::test_helpers::empty_content;` и `fn empty_content()`. Дубль удалён (локальная fn уже есть в тест-блоке).
+- Обнаружено, отложено: `expected_aoo_damage` и `apply_protect_self_mask` семантически тяготеют к отдельным слоям (scoring и protect_self соответственно). В R5.B.1 они оставлены в mod.rs (единственный разумный target для них при текущем layout). Возможные будущие moves — R6 или позднее.
+
+**Файлы, которые затронули:**
+- `src/combat/ai/pipeline/stages/sanity/` (новая директория: mod.rs + healer_exposure.rs + retreat_trap.rs + synergy_bonus.rs)
+- `src/combat/ai/planning/sanity.rs` (deleted)
+- `src/combat/ai/planning/mod.rs` (−2 строки)
+- `src/combat/ai/mod.rs` (1 строка: import path)
+- `src/combat/ai/outcome/mod.rs` (1 строка: import path)
+- `src/combat/ai/log/mod.rs` (2 строки: import path)
+- `src/combat/ai/adapt/select.rs` (3 строки: import paths)
+- `src/combat/ai/scoring/trade.rs` (1 строка)
+- `src/combat/ai/pipeline/stages/protect_self.rs` (1 строка)
+- `src/combat/ai/pipeline/stages/item_scoring.rs` (2 строки)
+- `src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs` (1 строка)
+- `src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs` (1 строка)
+
+**DoD проверка:**
+- [x] `planning/sanity.rs` не существует
+- [x] `pipeline/stages/sanity.rs` не существует (стал `pipeline/stages/sanity/mod.rs`)
+- [x] `pipeline/stages/sanity/{mod.rs, healer_exposure.rs, retreat_trap.rs, synergy_bonus.rs}` существуют
+- [x] `planning/mod.rs` НЕ re-export'ит sanity типы/функции
+- [x] Все consumer-файлы обновлены
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 780 passed, 0 failed (идентично baseline)
+- [x] `cargo test` — зелёный (lib + integration)
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Behavioural diff = 0: hit order сохранён (HealerExposure → RetreatTrap → SynergyBonus); penalty accumulation идентичен; P3a.3 тесты зелёные
+- [x] Каждый rule-файл owns one rule (cohesion criterion)
+
+---

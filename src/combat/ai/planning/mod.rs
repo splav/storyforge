@@ -9,7 +9,6 @@ pub mod generator;
 pub mod killable_gate;
 pub mod picker;
 pub mod reach;
-pub mod sanity;
 pub mod scorer;
 pub mod sim;
 pub mod terminal;
@@ -21,7 +20,6 @@ pub use generator::generate_plans;
 pub use killable_gate::{apply_killable_gate, plan_is_offensive_vs, GateStats, KillLineStrength, KILLABLE_ALPHA};
 pub use picker::{commit_plan, pick_best_plan, record_committed_reservations, PickMechanics};
 pub use reach::reach_from;
-pub use sanity::{apply_protect_self_mask, plan_is_defensive, sanity_adjust_plans, SanityHit, SanityRule};
 pub use scorer::{
     compute_plan_factors, compute_plan_intent_sum, factor_contribution, finalize_scores,
     rescore_with_intent, rescore_with_per_plan_modes, score_plans_with_raw,

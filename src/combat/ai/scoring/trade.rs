@@ -34,7 +34,7 @@
 //!   stun" proxy — coarse but actor-agnostic. A dynamic per-snapshot
 //!   average would couple `unit_value` to battle state.
 
-use crate::combat::ai::planning::sanity::expected_aoo_damage;
+use crate::combat::ai::pipeline::stages::sanity::expected_aoo_damage;
 use crate::combat::ai::planning::TurnPlan;
 use crate::combat::ai::scoring::horizon::horizon_avg;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};

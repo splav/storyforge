@@ -246,7 +246,7 @@ pub struct PlanAnnotation {
     /// Step 7.1: sanity hits applied to this plan (rule + multiplier pairs).
     /// Empty until SanityStage runs or when no rules fired.
     #[serde(default)]
-    pub sanity: Vec<crate::combat::ai::planning::sanity::SanityHit>,
+    pub sanity: Vec<crate::combat::ai::pipeline::stages::sanity::SanityHit>,
     /// Step 7.2: adaptation decision for this plan (was PlanRanking.adaptation.reasons[i]).
     /// `None` when no adaptation trigger fired for this plan.
     #[serde(default)]

@@ -11,7 +11,7 @@
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
-use crate::combat::ai::planning::sanity::expected_aoo_damage;
+use crate::combat::ai::pipeline::stages::sanity::expected_aoo_damage;
 use crate::combat::ai::planning::scorer::worst_path_danger;
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::utility::ScoringCtx;
