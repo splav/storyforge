@@ -7,7 +7,7 @@
 //! gets multiplied in place by a product of the penalty factors.
 
 use crate::combat::ai::factors::{aoe_area, PlanFactor, PlanFactorValues};
-use crate::combat::ai::planning::adaptation::EvaluationMode;
+use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::position_eval::evaluate_position;
 use crate::combat::ai::world::snapshot::{AiTags, UnitSnapshot};

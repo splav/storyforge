@@ -1,6 +1,3 @@
-/// Kept for existing unit tests (adaptation-specific tests rely on it directly).
-/// New pipeline code uses `mode_selection` + `finalize` instead.
-pub mod adaptation;
 pub mod critics;
 pub mod finalize;
 pub mod item_scoring;

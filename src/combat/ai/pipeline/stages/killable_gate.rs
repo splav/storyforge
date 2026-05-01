@@ -36,8 +36,8 @@ impl PlanStage for KillableGateStage {
             .map(|ann| {
                 ann.adaptation
                     .as_ref()
-                    .map(|_| crate::combat::ai::planning::EvaluationMode::LastStand)
-                    .unwrap_or(crate::combat::ai::planning::EvaluationMode::Default)
+                    .map(|_| crate::combat::ai::adapt::EvaluationMode::LastStand)
+                    .unwrap_or(crate::combat::ai::adapt::EvaluationMode::Default)
             })
             .collect();
 

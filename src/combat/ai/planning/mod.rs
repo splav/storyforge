@@ -4,7 +4,6 @@
 //! - `types` — `PlanStep`, `TurnPlan`, `StepOutcome`.
 //! - `sim`   — pure simulation of plan steps on a cloned snapshot.
 
-pub mod adaptation;
 pub mod future_value;
 pub mod generator;
 pub mod killable_gate;
@@ -18,7 +17,6 @@ pub mod types;
 #[cfg(test)]
 mod parity_tests;
 
-pub use adaptation::{apply_adaptation, select_evaluation_modes, Adaptation, AdaptationReason, EvaluationMode};
 pub use generator::generate_plans;
 pub use killable_gate::{apply_killable_gate, plan_is_offensive_vs, GateStats, KillLineStrength, KILLABLE_ALPHA};
 pub use picker::{commit_plan, pick_best_plan, record_committed_reservations, PickMechanics};

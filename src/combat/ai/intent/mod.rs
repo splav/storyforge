@@ -322,7 +322,7 @@ pub enum IntentReason {
     /// or global ProtectSelfNoDefensive). Boxed so the enum stays small.
     Adapted {
         prior: Box<IntentReason>,
-        reason: crate::combat::ai::planning::AdaptationReason,
+        reason: crate::combat::ai::adapt::AdaptationReason,
     },
 }
 
@@ -391,7 +391,7 @@ impl fmt::Display for IntentReason {
                 from, max_align, threshold,
             ),
             Self::Adapted { prior, reason } => {
-                use crate::combat::ai::planning::AdaptationReason;
+                use crate::combat::ai::adapt::AdaptationReason;
                 match reason {
                     AdaptationReason::ExpectedSelfLethal { aoo_dmg, actor_hp } => write!(
                         f,

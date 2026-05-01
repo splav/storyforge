@@ -1,6 +1,6 @@
 //! ModeSelectionStage — step 11.0.
 //!
-//! First half of the old `AdaptationStage` split (B3 fix). Selects an
+//! Selects an
 //! `EvaluationMode` for each plan via `select_evaluation_modes` and records
 //! the decision in `ann.adaptation`.
 //!
@@ -29,7 +29,7 @@
 
 use crate::combat::ai::outcome::AdaptationData;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::planning::select_evaluation_modes;
+use crate::combat::ai::adapt::select_evaluation_modes;
 
 pub struct ModeSelectionStage;
 
@@ -198,6 +198,85 @@ mod tests {
                 "plan[{}] should have adaptation annotation (ProtectSelfNoDefensive)",
                 i
             );
+        }
+    }
+
+    // ── mode_selection_records_original_score ────────────────────────────
+
+    /// When adaptation triggers, ann.adaptation.original_score must equal
+    /// the pre-adaptation ann.score.
+    #[test]
+    fn mode_selection_records_original_score() {
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let plans = vec![empty_plan(), empty_plan()];
+        let pre_scores = vec![0.5_f32, 0.4_f32];
+        let raw = vec![pfv_survival(0.0), pfv_survival(0.0)];
+
+        let pool = run_mode_selection(
+            plans,
+            pre_scores.clone(),
+            raw,
+            &actor,
+            &snap,
+            TacticalIntent::ProtectSelf,
+        );
+
+        for (i, ann) in pool.annotations.iter().enumerate() {
+            let data = ann.adaptation.as_ref().expect("expected adaptation");
+            assert_eq!(
+                data.original_score, pre_scores[i],
+                "original_score[{}] should match pre-adaptation score",
+                i
+            );
+        }
+    }
+
+    // ── mode_selection_adaptation_reason_round_trips_to_intent ────────────
+
+    /// IntentReason::Adapted built from ann.adaptation encodes the correct
+    /// AdaptationReason (parity with legacy adaptation_data_round_trips_through_intent_reason).
+    #[test]
+    fn mode_selection_adaptation_reason_round_trips_to_intent() {
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let plans = vec![empty_plan()];
+        let scores = vec![0.5_f32];
+        let raw = vec![pfv_survival(0.0)];
+
+        let pool = run_mode_selection(
+            plans,
+            scores,
+            raw,
+            &actor,
+            &snap,
+            TacticalIntent::ProtectSelf,
+        );
+
+        let adapt = pool.annotations[0]
+            .adaptation
+            .as_ref()
+            .expect("expected adaptation");
+        let prior = IntentReason::NoRuleDefault;
+        let wrapped = IntentReason::Adapted {
+            prior: Box::new(prior),
+            reason: adapt.reason.clone(),
+        };
+
+        match wrapped {
+            IntentReason::Adapted { reason, .. } => {
+                assert!(
+                    matches!(
+                        reason,
+                        crate::combat::ai::adapt::AdaptationReason::ProtectSelfNoDefensive
+                    ),
+                    "expected ProtectSelfNoDefensive, got {:?}",
+                    reason,
+                );
+            }
+            _ => panic!("expected Adapted variant"),
         }
     }
 

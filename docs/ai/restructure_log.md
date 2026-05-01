@@ -99,3 +99,81 @@
 - [x] `git grep` по `<Stage>Stage.apply` в `utility/mod.rs` не находит инлайн-цепочки (exit code 1)
 
 ---
+
+## 2026-05-01 — Follow-up: tags consolidation формализована в R7
+
+R1's «обнаружено, отложено» наблюдение про `AiTags` в `world/snapshot.rs` vs `AbilityTag`/`StatusTag` в `world/tags/` зафиксировано в roadmap'е:
+
+- Расширен scope `R7` в `restructure.md` — добавлен пункт **Tags consolidation** (переезд `AiTags` в `world/tags/ai_tags.rs`).
+- Указано, что эту часть R7 можно вынести как отдельный мини-slice **R7.tags** если приоритет вырастет — pinning только R1 (уже сделано), DoD `cargo test --lib` + import-churn guard.
+- Owner map обновлён: добавлена отдельная строка для `AiTag` flag (текущее место `world/snapshot.rs` → пост-R7.tags `world/tags/ai_tags.rs`); существующая строка для `AbilityTag` / `StatusTag` уточнена.
+
+Это не отдельный slice — просто формализация observation'а, чтобы он не потерялся в логе.
+
+---
+
+## 2026-05-01 — P1 — Remove legacy AdaptationStage (completed)
+
+**Что сделано:**
+- Проведён анализ parity-покрытия legacy-тестов из `pipeline/stages/adaptation.rs` относительно `mode_selection.rs` / `finalize.rs` тестов.
+- Добавлены два недостающих теста в `pipeline/stages/mode_selection.rs::tests`:
+  - `mode_selection_records_original_score` — проверяет что `ann.adaptation.original_score` совпадает с pre-adaptation `ann.score`.
+  - `mode_selection_adaptation_reason_round_trips_to_intent` — проверяет что `IntentReason::Adapted` корректно конструируется из `ann.adaptation`.
+- Удалён `src/combat/ai/pipeline/stages/adaptation.rs` (git rm).
+- Удалён `pub mod adaptation;` из `src/combat/ai/pipeline/stages/mod.rs`.
+- Обновлены комментарии, ссылавшиеся на `AdaptationStage`, в `outcome/mod.rs`, `modifiers/mod.rs`, `pipeline/stages/{critics,sanity,finalize,mode_selection}.rs`, `utility/mod.rs`.
+
+**Комментарии / отклонения от плана:**
+- Анализ покрытия показал, что 2 из 4 legacy-тестов не имели точных аналогов в mode_selection:
+  1. `adaptation_stage_records_original_score` — mode_selection тесты проверяли лишь `is_some()`, но не значение `original_score`.
+  2. `adaptation_data_round_trips_through_intent_reason` — нет аналога (тест про IntentReason round-trip).
+- После P1 счётчик тестов: 744 - 4 + 2 = 742 (4 удалены из stages/adaptation.rs, 2 добавлены в mode_selection).
+
+**Файлы:**
+- `src/combat/ai/pipeline/stages/adaptation.rs` (deleted)
+- `src/combat/ai/pipeline/stages/mod.rs` (−2 строки)
+- `src/combat/ai/pipeline/stages/mode_selection.rs` (+2 теста)
+
+**DoD проверка:**
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 742 passed, 0 failed
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] `pipeline/stages/adaptation.rs` не существует
+- [x] `git grep "AdaptationStage"` — exit code 1
+
+---
+
+## 2026-05-01 — R2 — adapt/ extraction (completed)
+
+**Что сделано:**
+- Создан top-level модуль `src/combat/ai/adapt/`:
+  - `adapt/mod.rs` — data-types: `EvaluationMode`, `AdaptationReason`, `Adaptation`. Тесты: `default_mode_defers_to_global_intent`, `last_stand_mode_overrides_global`. Re-exports `apply_adaptation`, `select_evaluation_modes`, `pending_dot_before_next_action` из `select`.
+  - `adapt/select.rs` — алгоритм: `pending_dot_before_next_action`, `plan_has_self_rescue`, `select_evaluation_modes`, `apply_adaptation` + 11 тестов поведения.
+- Перемещён `planning/adaptation.rs` → `adapt/mod.rs` (git mv), создан `adapt/select.rs` со split'ом.
+- Удалены `pub mod adaptation;` и `pub use adaptation::{...};` из `planning/mod.rs`.
+- Добавлен `pub mod adapt;` в `combat/ai/mod.rs`.
+- Обновлены import paths у 12 consumer-файлов.
+
+**Комментарии / отклонения от плана:**
+- Helpers (`pending_dot_before_next_action`, `plan_has_self_rescue`) перенесены в `select.rs` — они вызываются только из алгоритмических функций, когезия с алгоритмом выше, чем с типами.
+- Два места с inline `crate::combat::ai::planning::AdaptationReason` в `outcome/mod.rs` и `intent/mod.rs` обнаружены через cargo check (не через ast-index, т.к. не в import-строках) и исправлены.
+- Обнаружен dead-code кандидат: `apply_adaptation` после удаления `AdaptationStage` не имеет production-консьюмеров. Сохранена согласно плану (pure algorithm, тест-suite использует её напрямую). Отложено для P-track.
+
+**Файлы:**
+- `src/combat/ai/adapt/` (new: mod.rs + select.rs)
+- `src/combat/ai/planning/adaptation.rs` (deleted via git mv)
+- `src/combat/ai/planning/mod.rs`, `src/combat/ai/mod.rs`
+- 12 consumer-файлов: import paths
+- `docs/ai/adaptation.md`
+
+**DoD проверка:**
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 742 passed, 0 failed
+- [x] `cargo test` (интеграционные) — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] `planning/adaptation.rs` не существует
+- [x] `adapt/mod.rs` и `adapt/select.rs` существуют
+- [x] `git grep "planning::adaptation\|planning::AdaptationReason\|planning::EvaluationMode"` — exit code 1
+- [x] `git grep "AdaptationStage"` — exit code 1
+
+---

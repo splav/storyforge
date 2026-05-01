@@ -581,7 +581,7 @@ src/combat/ai/
 
 **Rollback rule.** Если golden diff не = 0 и причина не объяснена в PR — revert. Не складывать «follow-up fix» в тот же PR. Это самый рискованный refactor; пусть будет два PR (sometimes split + verification, sometimes split + revert) вместо одного, который оставляет неисследованный дрейф.
 
-#### R7 — `memory/` + `appraisal/` split (optional)
+#### R7 — `memory/` + `appraisal/` split + tags consolidation (optional)
 
 **Категория.** Mixed; **deferred** до post-P7 или вообще опциональный.
 
@@ -590,10 +590,13 @@ src/combat/ai/
 - `intent/mod.rs::AiMemory` (last_intent + last_goal) + `repair/goal.rs` + `repair/lifecycle.rs` → `memory/{ai_memory.rs, goal/}`.
 - `repair/affinity.rs` остаётся (читает `memory::goal`).
 - `appraisal/mod.rs` (1084 LOC) → `appraisal/{mod.rs (NeedSignals + entry), self_preserve.rs, rescue_ally.rs, apply_cc.rs, …}`.
+- **Tags consolidation:** `AiTags` (bitflags) сейчас живёт в `world/snapshot.rs`, а `AbilityTag` / `StatusTag` — в `world/tags/`. Семантически три типа тегов тяготеют к одному модулю. Действие: переехать `AiTags` в `world/tags/ai_tags.rs`, чтобы `world/tags/` стал single source of truth для всех tag-семантик. Обнаружено в R1 при переносе `snapshot.rs → world/snapshot.rs` (см. лог R1 «обнаружено, отложено»).
 
 **DoD.** Golden replay diff = 0 + cohesion criterion (один concern на файл) + `cargo test` зелёный.
 
 **Когда не делать.** Если AiMemory и goal lifecycle стабильны, никаких grow-pains нет — этот slice опускается. R7 — желаемое-но-не-обязательное.
+
+**Можно ли split'нуть tags consolidation отдельно?** Да — это самая маленькая часть R7 (один тип, ограниченный набор consumer'ов). Если приоритет tags consolidation вырастает раньше, чем у `memory/` или `appraisal/` split'ов — её можно вынести в отдельный мини-slice (условно «R7.tags»). Минимальный pinning: только safe после R1 (перемещение `world/`-зонтика, уже сделано). DoD: `cargo test --lib` + import-churn guard. Это допустимый исход — не обязательно ждать целого R7.
 
 ### R-late (низкий приоритет)
 
@@ -643,8 +646,8 @@ P-track (контракты + миграция логики) и R-track (relocat
 |---|---|---|---|---|
 | P0 — Single pipeline | P | done | — | 2026-05-01. `order.rs` + split PRE/POST_MASK runner. |
 | R1 — world/config/log umbrella | R | done | parallel-safe (после P0) | 2026-05-01. Pure relocation. 3 коммита. |
-| P1 — Remove legacy AdaptationStage | P | pending | P0 | |
-| R2 — adapt/ extraction | R | pending | пара с P1 | Pure relocation. Один PR с P1 или сразу после. |
+| P1 — Remove legacy AdaptationStage | P | done | P0 | 2026-05-01. +2 parity tests in mode_selection; 4 legacy deleted. |
+| R2 — adapt/ extraction | R | done | пара с P1 | 2026-05-01. planning/adaptation.rs → adapt/{mod,select}.rs. |
 | P2 — StageSpec + validator | P | pending | P0 | |
 | R3 — scoring/ partial umbrella | R | pending | после P0; не ждёт P5 | Pure relocation; без `factors/`. |
 | P3a — ScoreTrace internal migration | P | pending | P2 | |
@@ -697,7 +700,8 @@ P-track (контракты + миграция логики) и R-track (relocat
 | Новый outcome fact | `outcome/mod.rs` (поле в `ActionOutcomeEstimate`) + `outcome/builder.rs` (populate) | Только raw facts, без value judgement. |
 | Новая HP-equivalent value function | `scoring/policy/<name>.rs` или существующий `policy::*` модуль | Pure function `fn(facts, context) -> f32`. |
 | Новый input в snapshot | `world/snapshot.rs` или `world/influence.rs` | Read-only world view. |
-| Новый AiTag / семантический тэг | `world/tags/classify.rs` + `world/tags/cache.rs` | Single source of truth — classify.rs. |
+| Новый `AiTag` flag (bitflag) | `world/snapshot.rs` (текущее) → после R7.tags `world/tags/ai_tags.rs` | До tags consolidation `AiTags` живёт рядом с `UnitSnapshot`. После R7.tags — все три tag-типа в `world/tags/`. |
+| Новый `AbilityTag` / `StatusTag` (семантический тэг) | `world/tags/classify.rs` + `world/tags/cache.rs` | Single source of truth — classify.rs. |
 | Новая константа тюнинга | `config/tuning.rs` (`Thresholds` / `Tables` / `Difficulty`) + `assets/data/ai_tuning.toml` | Data-driven, не const в коде. |
 | Новый difficulty knob | `config/difficulty.rs` + lerp endpoints в `tuning.toml` | Data-driven. |
 | Новый AdaptationReason | `adapt/mod.rs` (variant) + `adapt/select.rs` (триггер) | Не в planning, не в pipeline/stages. |

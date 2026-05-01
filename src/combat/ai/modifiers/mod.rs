@@ -13,7 +13,7 @@
 //! `PlanModifiersStage` applies these modifiers in the `run_pool_pipeline`
 //! between `RepairAffinityStage` (which populates `ann.repair_affinity`) and
 //! `PickBestStage` (which selects the winner). Modifiers run after all rescoring
-//! stages (`ViabilityStage`, `AdaptationStage`) so they see the final
+//! stages (`ViabilityStage`, `ModeSelectionStage`, `FinalizeStage`) so they see the final
 //! `finalize_scores` output. Results are recorded in `PlanAnnotation.modifiers`
 //! for observability — one `ModifierContribution` entry per modifier.
 

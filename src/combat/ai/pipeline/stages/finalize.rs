@@ -1,6 +1,6 @@
 //! FinalizeStage — step 11.0.
 //!
-//! Second half of the old `AdaptationStage` split (B3 fix). Applies
+//! Works in tandem with `ModeSelectionStage` (the mode-selection half, B3 fix). Applies
 //! mode-aware score finalization: reads `ann.adaptation` for each plan
 //! to determine its `EvaluationMode`, then calls `rescore_with_per_plan_modes`
 //! to rewrite `ann.score` and `ann.factors` from raw intent/tempo factors.
@@ -27,7 +27,8 @@
 //!   multiply on the correct base.
 
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::planning::{rescore_with_per_plan_modes, EvaluationMode};
+use crate::combat::ai::adapt::EvaluationMode;
+use crate::combat::ai::planning::rescore_with_per_plan_modes;
 
 pub struct FinalizeStage;
 
@@ -88,7 +89,7 @@ mod tests {
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::outcome::AdaptationData;
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
-    use crate::combat::ai::planning::adaptation::AdaptationReason;
+    use crate::combat::ai::adapt::AdaptationReason;
     use crate::combat::ai::planning::types::TurnPlan;
     use crate::combat::ai::planning::score_plans_with_raw;
     use crate::combat::ai::world::reservations::Reservations;

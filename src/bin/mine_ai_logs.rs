@@ -37,7 +37,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use storyforge::combat::ai::planning::AdaptationReason;
+use storyforge::combat::ai::adapt::AdaptationReason;
 use storyforge::combat::ai::repair::{
     classify_continuation_outcome, ContinuationOutcome, FreshDecisionKind, StoredGoalContext,
 };

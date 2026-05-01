@@ -391,7 +391,7 @@ pub fn pick_action(
     // Find winning plan index from PickBestStage annotation.
     let best_idx = pool.annotations.iter().position(|a| a.chosen).unwrap_or(0);
 
-    // Compute the final intent/reason (possibly updated by ViabilityStage/AdaptationStage).
+    // Compute the final intent/reason (possibly updated by ViabilityStage/ModeSelectionStage).
     let final_intent = stage_ctx.intent;
     let mut final_reason = stage_ctx.intent_reason;
 
@@ -457,7 +457,7 @@ pub fn write_decision_log_from_result(
     memory: &AiMemory,
     reservations_snap: crate::combat::ai::log::ReservationsSnapshot,
 ) {
-    use crate::combat::ai::planning::EvaluationMode;
+    use crate::combat::ai::adapt::EvaluationMode;
 
     let plan_id = logger.next_plan_id();
     let pool = &result.pool;

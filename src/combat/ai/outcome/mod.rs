@@ -342,11 +342,11 @@ pub struct PlanAnnotation {
 }
 
 /// Adaptation reason + original (pre-adaptation) score for a single plan.
-/// Written by `AdaptationStage`; consumed by the finalizer to build
+/// Written by `ModeSelectionStage`; consumed by `FinalizeStage` to build
 /// `IntentReason::Adapted` for the winning plan.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AdaptationData {
-    pub reason: crate::combat::ai::planning::AdaptationReason,
+    pub reason: crate::combat::ai::adapt::AdaptationReason,
     /// Score this plan had immediately before adaptation rescored it.
     pub original_score: f32,
 }

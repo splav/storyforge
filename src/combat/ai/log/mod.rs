@@ -44,7 +44,8 @@ use crate::combat::ai::intent::considerations::IntentConsiderations;
 use crate::combat::ai::repair::{ContinuationSeverity, StoredGoalContext};
 use crate::combat::ai::repair::goal::GoalKind;
 use crate::combat::ai::outcome::PlanAnnotation;
-use crate::combat::ai::planning::{AdaptationReason, EvaluationMode, PlanStep, SanityHit, StepOutcome, TurnPlan};
+use crate::combat::ai::adapt::{AdaptationReason, EvaluationMode};
+use crate::combat::ai::planning::{PlanStep, SanityHit, StepOutcome, TurnPlan};
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::AiDecision;
 use crate::core::AbilityId;
@@ -309,7 +310,7 @@ pub struct PlanLogEntry<'a> {
     /// without rerunning the pipeline.
     pub base_score: f32,
     /// Which evaluation regime scored this plan's intent-column. See
-    /// `planning::adaptation::EvaluationMode`.
+    /// `adapt::EvaluationMode`.
     pub evaluation_mode: &'a EvaluationMode,
     /// Fact that triggered the mode switch for this plan, or `None` when
     /// `evaluation_mode == Default`. Parallel to `IntentReason::Adapted`,

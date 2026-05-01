@@ -186,7 +186,7 @@ mod tests {
     // ── critics_survive_through_adaptation_path (B3 regression) ──────────
     //
     // Regression test for B3 fix (step 11.0): in the old pipeline order
-    // Critics ran before AdaptationStage, which would rescore ann.score from
+    // Critics ran before FinalizeStage, which would rescore ann.score from
     // raw factors — wiping the Critics multiplier. In the new order:
     //   ModeSelection → Finalize → Sanity → Critics → ...
     // Critics run AFTER Finalize, so their multipliers survive.
@@ -257,7 +257,7 @@ mod tests {
     fn critics_survive_through_adaptation_path() {
         use crate::combat::ai::factors::PlanFactorValues;
         use crate::combat::ai::outcome::AdaptationData;
-        use crate::combat::ai::planning::adaptation::AdaptationReason;
+        use crate::combat::ai::adapt::AdaptationReason;
         use crate::combat::ai::planning::types::TurnPlan;
 
         let pos = hex_from_offset(0, 0);

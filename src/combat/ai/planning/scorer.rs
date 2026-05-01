@@ -33,7 +33,7 @@ use crate::combat::ai::factors::{
 };
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::intent::{cc_reach, intent_score, pursuit_move_score, TacticalIntent};
-use crate::combat::ai::planning::adaptation::EvaluationMode;
+use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::planning::terminal::terminal_state_score;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::estimate_st_damage;
