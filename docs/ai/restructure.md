@@ -656,7 +656,7 @@ P-track (контракты + миграция логики) и R-track (relocat
 | R4 — factors → scoring/factors/ | R | pending | с/после P5 | Pure relocation финализированных факторов. |
 | P3b — Expose ScoreTrace to JSONL | P | pending | P3a; schema bump | |
 | R6 — planning/ → plan/ cleanup + scorer.rs split | R | pending | **после P3a + R2 + R5 + P5 + R4** | Mixed / high-risk ownership split. Hard requirement: golden replay diff = 0. |
-| P4 — Intent split | P | pending | parallel-safe от P0 | Не трогает pipeline/scoring. |
+| P4 — Intent split | P | done | parallel-safe от P0 | 2026-05-01. kinds/select/score/memory. mod.rs → 32 LOC. |
 | P6 — Replay split | P | pending | parallel-safe | См. boundary в R-track principles. |
 | P7 — Semantic cleanup | P | pending | P3b (schema coordination) | |
 | R7 — memory/ + appraisal split | R | pending | optional, post-P7 | Может вообще не делаться. |

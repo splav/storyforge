@@ -250,3 +250,39 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] `restructure_log.md` обновлён, status table обновлена
 
 ---
+
+## 2026-05-01 — P4 — Intent split (completed)
+
+**Что сделано:**
+- Создан `intent/kinds.rs` — `TacticalIntent`, `IntentKind`, `IntentReason` + impl + Display.
+- Создан `intent/memory.rs` — `PlanSnapshot` + `AiMemory` + `status_hash`; тесты `snapshot_*`.
+- Создан `intent/score.rs` — `pursuit_move_score`, `cc_reach`, `IntentWeights`, `intent_offensive_value_on_target`, `intent_score`; тесты `reposition_*`, `pursuit_*`, `focus_target_*`, `cc_reach_*`, `intent_score_via_narrow_offensive_api_matches_legacy`.
+- Создан `intent/select.rs` — `IntentChoice`, `select_intent_normal`, `select_intent`, `intent_viability_threshold`, `default_focus_target`, `update_memory`; тесты `killable_requires_action_points`, `stickiness_modulated_by_continue_commitment`.
+- Переписан `intent/mod.rs` (~32 LOC): только docstring + `pub mod` + `pub use` / `pub(crate) use`.
+- Re-export `status_hash` добавлен в mod.rs (внешний consumer `repair/goal.rs` использует `crate::combat::ai::intent::status_hash`).
+
+**Комментарии / отклонения от плана:**
+- Прерывание предыдущей попытки на этапе создания `select.rs` (socket error). 3 sub-файла (`kinds.rs`, `memory.rs`, `score.rs`) были созданы в первой попытке, `mod.rs` не успел получить cleanup. Завершено второй попыткой.
+- `select_intent_normal` — `pub(crate)`, реэкспортирована через `pub(crate) use` (не `pub use`) — корректно, т.к. только внутри intent-модуля.
+- `intent_offensive_value_on_target` — `pub(crate)`, вызывается только внутри `score.rs`; не реэкспортируется из mod.rs.
+- `status_hash` — не упомянута в P4 спеке явно, но необходима для `repair/goal.rs` и `repair/lifecycle.rs` (путь `crate::combat::ai::intent::status_hash`).
+- `#[allow(deprecated)]` добавлен на pub use строку `select_intent` в mod.rs — подавляет pre-existing warning при реэкспорте deprecated символа.
+
+**Файлы:**
+- `src/combat/ai/intent/mod.rs` — 32 LOC (переписан)
+- `src/combat/ai/intent/kinds.rs` — 214 LOC (создан ранее)
+- `src/combat/ai/intent/memory.rs` — 267 LOC (создан ранее)
+- `src/combat/ai/intent/score.rs` — 994 LOC (создан ранее)
+- `src/combat/ai/intent/select.rs` — 695 LOC (создан)
+
+**DoD проверка:**
+- [x] `intent/mod.rs` ≤ 80 LOC (32 LOC)
+- [x] `intent/{kinds, select, score, memory}.rs` существуют, каждый owns одну concern
+- [x] `intent/{agenda, bands, considerations}.rs` не изменены
+- [x] `cargo test --lib` — 749 passed (точное соответствие baseline)
+- [x] `cargo build` — clean
+- [x] `cargo clippy --all-targets` — 28 warnings в тестах, все pre-existing; 0 новых
+- [x] No semantic diff: чистая релокация символов
+- [x] Внешние consumer'ы работают через `crate::combat::ai::intent::*` без изменений
+
+---
