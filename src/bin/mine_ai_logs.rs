@@ -1,11 +1,12 @@
-//! AI decision log miner — v32 schema.
+//! AI decision log miner — v33 schema (P3b).
 //!
 //! Reads all `*.jsonl` from a directory and prints aggregated metrics.
-//! Only `actor_tick` events with `schema_version == 32` are processed.
-//! Files containing a different schema version produce a clear error.
+//! `actor_tick` events with `schema_version` >= 32 are processed.
+//! v32 is schema-additive with v33: `score_trace_log` is absent → None.
 //!
 //! Class A (direct aggregation):
 //!   A1. Adaptation reason frequency per plan (from annotation.adaptation).
+//!       Also: rescore_mode from score_trace_log.rescore_mode (v33+).
 //!   A2. Intent selection_kind frequency (from decision kind + Skip path).
 //!   A3. Plan depth utilisation of the chosen plan (steps.len histogram).
 //!   A4. (removed — was plan_divergence-specific, no longer applicable)
@@ -21,8 +22,13 @@
 //!   E1. Per-modifier contribution distributions (summon_bonus, trade_bonus,
 //!       repair_bonus). Non-zero entries only; trade_bonus is sign-aware
 //!       (can be negative). Denominator: plans with at least one modifier emitted.
+//!       Also: trace-sourced E1 from score_trace_log.addends (v33+).
 //!   E2. Picking jitter (noise_applied) for chosen plans. Sign-aware reporter
 //!       (mean / min / max / abs_max). Denominator: chosen plans.
+//!
+//! Class G (critics coverage — v33+ trace source):
+//!   G2. trace-sourced per-multiplier-kind stats from score_trace_log.multipliers
+//!       for chosen plans (v33+). Parallel to legacy G1 from annotation.critics.
 //!
 //! Class H (bands & agenda — schema v32+):
 //!   H1. Band coverage: per-band tick count, winner-intent distribution,
@@ -282,6 +288,30 @@ struct Aggregate {
     h3c_total: BTreeMap<String, usize>,
     // Total ticks with band data per band (for fallback% denominator).
     h3c_band_total: BTreeMap<String, usize>,
+
+    // ── P3b: score_trace_log-sourced stats (v33+) ─────────────────────────────
+
+    // A1-trace: rescore_mode distribution from score_trace_log.rescore_mode.
+    // Key = "Default" / "LastStand" / "none" (absent). Denominator: total_plans.
+    a1_trace_rescore_mode: BTreeMap<String, usize>,
+    // Plans with score_trace_log present (v33+). Denominator for trace-sourced stats.
+    trace_plans_total: usize,
+
+    // E1-trace: addend contributions from score_trace_log.addends (v33+).
+    // Parallel to E1 from annotation.modifiers; cross-validates the two sources.
+    e1_trace_summon: Vec<f32>,
+    e1_trace_trade: Vec<f32>,
+    e1_trace_repair: Vec<f32>,
+    // Plans with at least one addend in score_trace_log (denominator for "% plans with addends").
+    e1_trace_modifier_entries: usize,
+
+    // G2: multiplier-kind breakdown from score_trace_log.multipliers (v33+).
+    // Per-kind: count of chosen plans where that kind appeared + value distribution.
+    // Key = "sanity" / "critic". Denominator: total_chosen.
+    g2_trace_multiplier_counts: BTreeMap<String, usize>,
+    g2_trace_multiplier_values: BTreeMap<String, Vec<f32>>,
+    // Chosen plans with score_trace_log present (denominator for G2).
+    g2_trace_chosen_total: usize,
 }
 
 impl Aggregate {
@@ -445,6 +475,49 @@ impl Aggregate {
                 let key = format!("{:?}", hit.critic);
                 if seen.insert(key.clone()) {
                     *self.g1_pool_per_critic.entry(key).or_default() += 1;
+                }
+            }
+        }
+
+        // ── P3b: score_trace_log-sourced stats (v33+) ─────────────────────────
+        // E1-trace + A1-trace: walk all plans in the pool.
+        for plan in &event.plans {
+            let ann = &plan.annotation;
+            if let Some(trace) = &ann.score_trace_log {
+                self.trace_plans_total += 1;
+
+                // A1-trace: rescore_mode from trace.
+                let mode_key = match trace.rescore_mode {
+                    Some(m) => format!("{m:?}"),
+                    None => "none".to_owned(),
+                };
+                *self.a1_trace_rescore_mode.entry(mode_key).or_default() += 1;
+
+                // E1-trace: addend contributions.
+                if !trace.addends.is_empty() {
+                    self.e1_trace_modifier_entries += 1;
+                }
+                for addend in &trace.addends {
+                    if addend.value.abs() > f32::EPSILON {
+                        match addend.name.as_str() {
+                            "summon_bonus" => self.e1_trace_summon.push(addend.value),
+                            "trade_bonus"  => self.e1_trace_trade.push(addend.value),
+                            "repair_bonus" => self.e1_trace_repair.push(addend.value),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        // G2: multiplier-kind stats from chosen plan's score_trace_log (v33+).
+        if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
+            if let Some(trace) = &chosen.annotation.score_trace_log {
+                self.g2_trace_chosen_total += 1;
+                for m in &trace.multipliers {
+                    let kind_key = format!("{:?}", m.kind);
+                    *self.g2_trace_multiplier_counts.entry(kind_key.clone()).or_default() += 1;
+                    self.g2_trace_multiplier_values.entry(kind_key).or_default().push(m.value);
                 }
             }
         }
@@ -1145,7 +1218,7 @@ fn main() {
 
     // ── Report ────────────────────────────────────────────────────────────────
 
-    println!("# AI mining — v32");
+    println!("# AI mining — v33 (P3b)");
     println!();
     println!(
         "Source: {} JSONL files, {} AI decisions ({} skip)",
@@ -2035,6 +2108,56 @@ fn main() {
         }
         println!();
         println!("  NOTE: unreach% not shown in H3c.3 (folded into H3c.1; see above).");
+        println!();
+    }
+
+    // ── P3b: score_trace_log-sourced stats (v33+) ────────────────────────────
+
+    if agg.trace_plans_total > 0 {
+        println!("## P3b-A1. Rescore-mode distribution (score_trace_log, v33+)");
+        println!();
+        println!("Plans with score_trace_log: {} / {}", agg.trace_plans_total, agg.total_plans);
+        println!();
+        print_freq_table(&agg.a1_trace_rescore_mode, agg.trace_plans_total);
+        println!();
+
+        println!("## P3b-E1. Addend contributions (score_trace_log, v33+)");
+        println!();
+        println!(
+            "Plans with addends: {} / {} ({:.1}%)",
+            agg.e1_trace_modifier_entries,
+            agg.trace_plans_total,
+            pct(agg.e1_trace_modifier_entries, agg.trace_plans_total),
+        );
+        println!();
+        print_signed_field("summon_bonus", &agg.e1_trace_summon, agg.trace_plans_total);
+        print_signed_field("trade_bonus",  &agg.e1_trace_trade,  agg.trace_plans_total);
+        print_signed_field("repair_bonus", &agg.e1_trace_repair, agg.trace_plans_total);
+        println!();
+
+        println!("## P3b-G2. Multiplier-kind breakdown (score_trace_log, v33+)");
+        println!();
+        println!(
+            "Chosen plans with trace: {} / {} ({:.1}%)",
+            agg.g2_trace_chosen_total,
+            agg.total_chosen,
+            pct(agg.g2_trace_chosen_total, agg.total_chosen),
+        );
+        println!();
+        for (kind, count) in &agg.g2_trace_multiplier_counts {
+            let values = agg.g2_trace_multiplier_values.get(kind).map(|v| v.as_slice()).unwrap_or(&[]);
+            let mean = if values.is_empty() { 0.0 } else { values.iter().sum::<f32>() / values.len() as f32 };
+            println!(
+                "  {:<10} hits={:>5}  ({:.1}% of trace-chosen)  mean_value={:.4}",
+                kind, count, pct(*count, agg.g2_trace_chosen_total), mean
+            );
+        }
+        if agg.g2_trace_multiplier_counts.is_empty() {
+            println!("  (no multipliers recorded)");
+        }
+        println!();
+    } else {
+        println!("## P3b stats: no v33 score_trace_log data in corpus (v32-only logs)");
         println!();
     }
 }

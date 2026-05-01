@@ -661,7 +661,7 @@ P-track (контракты + миграция логики) и R-track (relocat
 | R5 — pipeline/stages absorbs | R | done | **только после P3a** | Mixed (move + split). A: done 2026-05-01 (critics/ + modifiers/ relocated). B.1: done 2026-05-01 (sanity split). B.2: done 2026-05-01 (killable_gate merge). B.3: done 2026-05-01 (picker merge). R5 complete. |
 | P5 — Factor refactor | P | done | **НЕ параллелить с P3a** | 2026-05-01. Leaf consolidation. −4 flat files, −2 parity tests. 780→778. |
 | R4 — factors → scoring/factors/ | R | done | с/после P5 | 2026-05-01. Pure relocation. scoring/ umbrella теперь полное. |
-| P3b — Expose ScoreTrace to JSONL | P | pending | P3a; schema bump | |
+| P3b — Expose ScoreTrace to JSONL | P | done | P3a; schema bump | 2026-05-01. Schema v33, ScoreTraceLog mirror types, mine/replay updated. v32 backward compat. |
 | R6 — planning/ → plan/ cleanup + scorer.rs split | R | done | **после P3a + R2 + R5 + P5 + R4** | 2026-05-01. planning/ → plan/ rename, scorer.rs → finalize.rs + aggregate.rs, terminal.rs → terminal_state.rs. 778 passed. |
 | P4 — Intent split | P | done | parallel-safe от P0 | 2026-05-01. kinds/select/score/memory. mod.rs → 32 LOC. |
 | P6 — Replay split | P | pending | parallel-safe | См. boundary в R-track principles. |

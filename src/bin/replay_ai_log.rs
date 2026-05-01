@@ -808,7 +808,48 @@ fn print_event_plans(event: &ActorTickEvent) {
             p.annotation.score,
             plan_shape_v29(&p.steps),
         );
+        // P3b: show score_trace breakdown for the chosen plan.
+        if p.annotation.chosen {
+            print_score_trace_breakdown(p);
+        }
     }
+}
+
+/// Print `score_trace_log` breakdown for the chosen plan (verbose mode, P3b).
+fn print_score_trace_breakdown(plan: &LoggedPlan) {
+    use storyforge::combat::ai::pipeline::score_trace::MaskKind;
+
+    let Some(trace) = &plan.annotation.score_trace_log else {
+        println!("        score_trace: (not present — v32 log or trace not populated)");
+        return;
+    };
+    println!("        score_trace:");
+    println!("          base          = {:+.4}", trace.base);
+    if let Some(mode) = &trace.rescore_mode {
+        println!("          rescore_mode  = {mode:?}");
+    }
+    for m in &trace.multipliers {
+        println!("          multiplier    {:?}  × {:.4}", m.kind, m.value);
+    }
+    for a in &trace.addends {
+        println!("          addend        {:<20} {:+.4}", a.name, a.value);
+    }
+    for m in &trace.masks {
+        println!("          mask          {:?}  source={}", m.kind, m.source);
+    }
+    for g in &trace.gates {
+        println!("          gate          {:?}  source={}", g.outcome, g.source);
+    }
+    // Re-derive the final score from trace fields (diagnostic cross-check).
+    let computed: f32 = if trace.masks.iter().any(|m| matches!(m.kind, MaskKind::Poison)) {
+        f32::NEG_INFINITY
+    } else {
+        let mut s = trace.base;
+        for m in &trace.multipliers { s *= m.value; }
+        for a in &trace.addends { s += a.value; }
+        s
+    };
+    println!("          computed      = {:+.4}  (ann.score = {:+.4})", computed, plan.annotation.score);
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -822,7 +863,7 @@ mod tests {
     fn make_skip_event() -> ActorTickEvent {
         ActorTickEvent {
             event_type: "actor_tick".to_owned(),
-            schema_version: 32,
+            schema_version: 33,
             round: 1,
             timestamp_ms: 0,
             actor_id: 1,

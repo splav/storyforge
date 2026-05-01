@@ -62,7 +62,7 @@ use crate::combat::ai::intent::TacticalIntent;
 ///
 /// Populated by `apply_adaptation`; consumed by the scorer's per-plan
 /// intent rescore.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvaluationMode {
     /// Score under the global tactical intent.

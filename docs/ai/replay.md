@@ -85,6 +85,12 @@ The replay accepts schema 1–17; newer versions are rejected with a warning.
 Schemas v1–v13 produce an additional warning because their `raw_factors`
 layout differs from v14 (three axes removed in Phase 6 cleanup).
 
+*Current schema: v33 (P3b).* v32 is schema-additive with v33: `score_trace_log`
+absent in v32 logs → `None`. v31 and below are rejected (missing bands/agenda
+fields). In verbose mode (`--verbose`), the chosen plan now shows a
+`score_trace:` breakdown — base, rescore_mode, multipliers, addends, masks,
+gates, and computed final. See `docs/ai/pipeline.md` for the trace algebra.
+
 ## Running
 
 ```bash

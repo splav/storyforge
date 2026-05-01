@@ -1,14 +1,15 @@
 //! `ScoreTrace` — typed log of score-affecting effects accumulated by pipeline stages.
 //! See roadmap section "P3a" in docs/ai/restructure.md for migration context.
 //!
-//! Currently in P3a.0: types + `compute()` algebra + tests. No production stages
-//! emit hits yet — they continue to mutate `ann.score` directly. Subsequent
-//! P3a.{1..5} migrate stages one-by-one to push hits here.
+//! P3b adds `ScoreTraceLog` mirror types for JSONL serialisation.
+//! Runtime types (`ScoreTrace`, `AddendHit`, etc.) keep `&'static str` fields;
+//! the mirror types use `String` for serde compatibility.
 
 use crate::combat::ai::adapt::EvaluationMode;
 
 /// Source of a multiplier hit — for diagnostics only, not used in `compute()`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MultiplierKind {
     Sanity,
     Critic,
@@ -28,7 +29,8 @@ pub struct AddendHit {
     pub value: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MaskKind {
     /// Full poison mask: `compute()` returns `f32::NEG_INFINITY`.
     Poison,
@@ -41,7 +43,8 @@ pub struct MaskHit {
     pub source: &'static str,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GateOutcome {
     /// Stage marks the plan as gated; pick_best sees the flag.
     Reject,
@@ -51,6 +54,78 @@ pub enum GateOutcome {
 pub struct GateHit {
     pub outcome: GateOutcome,
     pub source: &'static str,
+}
+
+// ── P3b: Serialisation mirror types ───────────────────────────────────────────
+//
+// Runtime hit types use `&'static str` for zero-cost label references.
+// serde cannot deserialise `&'static str` (borrows from the stack, not the
+// input bytes), so we keep a parallel set of owned-String mirror types that
+// are used exclusively for JSONL serialisation. `ScoreTraceLog` is produced
+// by `From<&ScoreTrace>` immediately before writing; the runtime path never
+// reads it back.
+
+/// Serialisable mirror of `MultiplierHit`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MultiplierHitLog {
+    pub kind: MultiplierKind,
+    pub value: f32,
+}
+
+/// Serialisable mirror of `AddendHit`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AddendHitLog {
+    pub name: String,
+    pub value: f32,
+}
+
+/// Serialisable mirror of `MaskHit`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MaskHitLog {
+    pub kind: MaskKind,
+    pub source: String,
+}
+
+/// Serialisable mirror of `GateHit`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GateHitLog {
+    pub outcome: GateOutcome,
+    pub source: String,
+}
+
+/// Serialisable mirror of `ScoreTrace` for JSONL (P3b).
+///
+/// Produced by `From<&ScoreTrace>` immediately before writing; deserialisable
+/// for mining / replay tooling. All `skip_serializing_if` guards keep the JSON
+/// compact: empty vecs and `None` are omitted so v33 logs are readable without
+/// noise.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ScoreTraceLog {
+    #[serde(default)]
+    pub base: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rescore_mode: Option<EvaluationMode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub multipliers: Vec<MultiplierHitLog>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub addends: Vec<AddendHitLog>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub masks: Vec<MaskHitLog>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gates: Vec<GateHitLog>,
+}
+
+impl From<&ScoreTrace> for ScoreTraceLog {
+    fn from(t: &ScoreTrace) -> Self {
+        Self {
+            base: t.base,
+            rescore_mode: t.rescore_mode,
+            multipliers: t.multipliers.iter().map(|h| MultiplierHitLog { kind: h.kind, value: h.value }).collect(),
+            addends: t.addends.iter().map(|h| AddendHitLog { name: h.name.to_owned(), value: h.value }).collect(),
+            masks: t.masks.iter().map(|h| MaskHitLog { kind: h.kind, source: h.source.to_owned() }).collect(),
+            gates: t.gates.iter().map(|h| GateHitLog { outcome: h.outcome, source: h.source.to_owned() }).collect(),
+        }
+    }
 }
 
 /// Typed effect log for a single plan.
@@ -200,5 +275,64 @@ mod tests {
         assert!(trace.gates.is_empty());
         // After reset, compute() == base
         assert_eq!(trace.compute(), 10.0);
+    }
+
+    // ── P3b: ScoreTraceLog serde tests ────────────────────────────────────────
+
+    #[test]
+    fn score_trace_log_roundtrips_through_json() {
+        let mut trace = ScoreTrace { base: 10.0, ..Default::default() };
+        trace.rescore_mode = Some(EvaluationMode::Default);
+        trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.5 });
+        trace.push_addend(AddendHit { name: "summon_bonus", value: 0.3 });
+        trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "protect_self" });
+        trace.push_gate(GateHit { outcome: GateOutcome::Reject, source: "killable_gate" });
+
+        let log = ScoreTraceLog::from(&trace);
+        let json = serde_json::to_string(&log).expect("serialize");
+        let restored: ScoreTraceLog = serde_json::from_str(&json).expect("deserialize");
+
+        assert!((restored.base - 10.0).abs() < 1e-6);
+        assert_eq!(restored.rescore_mode, Some(EvaluationMode::Default));
+        assert_eq!(restored.multipliers.len(), 1);
+        assert!(matches!(restored.multipliers[0].kind, MultiplierKind::Sanity));
+        assert!((restored.multipliers[0].value - 0.5).abs() < 1e-6);
+        assert_eq!(restored.addends.len(), 1);
+        assert_eq!(restored.addends[0].name, "summon_bonus");
+        assert!((restored.addends[0].value - 0.3).abs() < 1e-6);
+        assert_eq!(restored.masks.len(), 1);
+        assert!(matches!(restored.masks[0].kind, MaskKind::Poison));
+        assert_eq!(restored.masks[0].source, "protect_self");
+        assert_eq!(restored.gates.len(), 1);
+        assert!(matches!(restored.gates[0].outcome, GateOutcome::Reject));
+        assert_eq!(restored.gates[0].source, "killable_gate");
+    }
+
+    #[test]
+    fn score_trace_log_empty_fields_omitted_in_json() {
+        // Empty vecs and None rescore_mode must not appear in JSON (skip_serializing_if).
+        let log = ScoreTraceLog { base: 5.0, ..Default::default() };
+        let json = serde_json::to_string(&log).expect("serialize");
+        let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        assert!(v.get("multipliers").is_none(), "empty multipliers should be omitted");
+        assert!(v.get("addends").is_none(), "empty addends should be omitted");
+        assert!(v.get("masks").is_none(), "empty masks should be omitted");
+        assert!(v.get("gates").is_none(), "empty gates should be omitted");
+        assert!(v.get("rescore_mode").is_none(), "None rescore_mode should be omitted");
+        assert!((v["base"].as_f64().unwrap() - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn score_trace_log_schema_additive_parses_without_field() {
+        // A PlanAnnotation JSON without score_trace_log (simulating v32 corpus)
+        // must deserialise successfully with score_trace_log == None.
+        let json = r#"{"score": 1.5}"#;
+        let ann: crate::combat::ai::outcome::PlanAnnotation =
+            serde_json::from_str(json).expect("PlanAnnotation without score_trace_log must parse");
+        assert!(
+            ann.score_trace_log.is_none(),
+            "score_trace_log must default to None when absent, got: {:?}",
+            ann.score_trace_log,
+        );
     }
 }

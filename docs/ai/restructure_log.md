@@ -891,3 +891,74 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] Behavioural diff = 0
 
 ---
+
+## 2026-05-01 — P3b — Expose ScoreTrace to JSONL / mining (completed)
+
+**Что сделано:**
+
+1. **Schema bump 32 → 33.** `SCHEMA_VERSION` в `src/combat/ai/log/mod.rs` поднят до 33. Добавлен comment.
+
+2. **`ScoreTraceLog` mirror types.** В `src/combat/ai/pipeline/score_trace.rs` добавлены:
+   - `#[derive(Serialize, Deserialize)]` к `MultiplierKind`, `MaskKind`, `GateOutcome` (runtime enums).
+   - `#[derive(Deserialize)]` к `EvaluationMode` в `src/combat/ai/adapt/mod.rs`.
+   - Mirror structs: `MultiplierHitLog`, `AddendHitLog`, `MaskHitLog`, `GateHitLog`, `ScoreTraceLog`.
+   - `impl From<&ScoreTrace> for ScoreTraceLog` — конвертирует static-str поля в owned String.
+
+3. **`PlanAnnotation` расширена** (`src/combat/ai/outcome/mod.rs`):
+   - Добавлено `score_trace_log: Option<ScoreTraceLog>` с `#[serde(default, skip_serializing_if = "Option::is_none")]`.
+   - Поле `score_trace` (runtime, `#[serde(skip)]`) сохранено.
+
+4. **Log writer заполняет `score_trace_log`** в `build_logged_plans` (`src/combat/ai/log/mod.rs`):
+   - Перед сериализацией: `annotation.score_trace_log = Some(ScoreTraceLog::from(&annotation.score_trace))`.
+
+5. **Schema-additive backward compat.** `parse_actor_tick` принимает v32 logs (schema-additive: `score_trace_log` absent → None). Strict reject порог — `< SCHEMA_VERSION - 1` (т.е. v31 и ниже отклоняются, v32 принимается). Это позволяет читать существующий v32 corpus.
+
+6. **`mine_ai_logs`** (`src/bin/mine_ai_logs.rs`):
+   - Новые поля в `Aggregate`: `a1_trace_rescore_mode`, `trace_plans_total`, `e1_trace_{summon,trade,repair}`, `e1_trace_modifier_entries`, `g2_trace_multiplier_{counts,values}`, `g2_trace_chosen_total`.
+   - Параллельное чтение из `score_trace_log` в `process_event` (не удаляя legacy reads из `annotation.{modifiers,critics,adaptation}`).
+   - Новые секции в output: `P3b-A1` (rescore mode), `P3b-E1` (trace addends), `P3b-G2` (trace multiplier kinds). Fallback: если `trace_plans_total == 0` — сообщение «v32-only logs».
+
+7. **`replay_ai_log`** (`src/bin/replay_ai_log.rs`):
+   - `print_event_plans` расширен: для chosen plan вызывается `print_score_trace_breakdown`.
+   - `print_score_trace_breakdown` выводит base, rescore_mode, multipliers, addends, masks, gates + computed final (сравнение с ann.score).
+
+8. **Тесты** (+4):
+   - `score_trace_log_roundtrips_through_json` — roundtrip через JSON.
+   - `score_trace_log_empty_fields_omitted_in_json` — пустые Vec и None опускаются.
+   - `score_trace_log_schema_additive_parses_without_field` — PlanAnnotation без поля → None.
+   - `schema_v32_accepted_as_additive_with_score_trace_log_none` — v32 JSON парсится, score_trace_log = None.
+   - Обновлены: `schema_v32_round_trip` (теперь проверяет v33 + score_trace_log populated), `schema_v31_rejected_with_clear_error` (required → 33), все `parse_v{26,27,28,29,30,31}` тесты.
+
+**Комментарии / отклонения от плана:**
+
+- Выбран Вариант A (mirror types) — `ScoreTraceLog` отдельно от runtime `ScoreTrace`. `&'static str` в runtime не тронуты.
+- `mine_ai_logs` обновлён как «parallel read» (опция b из задания), не «full simplification legacy cross-tabs»: legacy `E1/G1/A1` остаются как есть, trace-sourced данные — параллельная секция `P3b-*`. Упрощение legacy существующих cross-tabs (единый sweep по trace) отложено на следующий slice, т.к. затронет > 200 LOC и требует отдельного review.
+- Corpus: v32 принимается (schema-additive), v31 и ниже — strict reject (bands/agenda fields missing). Это forward-compatible решение для существующего v32 corpus.
+- P7 — отдельный bump (v34 если понадобится).
+
+**Файлы, которые затронули:**
+- `src/combat/ai/pipeline/score_trace.rs` (mirror types + derives + tests)
+- `src/combat/ai/adapt/mod.rs` (добавлен `Deserialize` к `EvaluationMode`)
+- `src/combat/ai/outcome/mod.rs` (`score_trace_log` поле в `PlanAnnotation`)
+- `src/combat/ai/log/mod.rs` (SCHEMA_VERSION 32→33, `build_logged_plans`, тесты)
+- `src/bin/mine_ai_logs.rs` (P3b поля в `Aggregate`, process_event, output sections)
+- `src/bin/replay_ai_log.rs` (`print_score_trace_breakdown`, тест schema_version)
+- `docs/ai/restructure.md` (P3b → done)
+- `docs/ai/restructure_log.md` (этот блок)
+
+**DoD проверка:**
+- [x] `SCHEMA_VERSION = 33` в `src/combat/ai/log/mod.rs`
+- [x] `ScoreTraceLog` + mirrors определены, derive Serialize/Deserialize
+- [x] `From<&ScoreTrace> for ScoreTraceLog` реализован
+- [x] `PlanAnnotation::score_trace_log: Option<ScoreTraceLog>` добавлено
+- [x] log writer заполняет `score_trace_log` в `build_logged_plans`
+- [x] `mine_ai_logs` читает `score_trace_log` (параллельные P3b-* секции)
+- [x] `replay_ai_log` выводит trace breakdown в verbose mode
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 782 passed (778 + 4 новых), 0 failed
+- [x] `cargo test` — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Schema-additive: v32 corpus парсится (score_trace_log → None)
+- [x] Behavioural diff = 0 для production AI (только JSONL output расширяется)
+
+---

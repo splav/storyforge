@@ -172,7 +172,9 @@ use crate::game::hex::Hex;
 /// `agenda` fields; `PlanAnnotation` gains `agenda_item` and
 /// `considerations_per_item`. v31 logs pre-date bands/agenda serialisation and
 /// give `LogError::UnsupportedSchema` — clean break.
-pub const SCHEMA_VERSION: u32 = 32;
+/// P3b: bumped to v33. `PlanAnnotation` gains `score_trace_log`
+/// (schema-additive; v32 logs without this field deserialise as `None`).
+pub const SCHEMA_VERSION: u32 = 33;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -1095,6 +1097,8 @@ fn logged_decision_from_ai(decision: &AiDecision) -> LoggedDecision {
 
 /// Sort pool plans by score descending and convert to `LoggedPlan` list.
 fn build_logged_plans(pool: &crate::combat::ai::pipeline::ScoredPool) -> Vec<LoggedPlan> {
+    use crate::combat::ai::pipeline::score_trace::ScoreTraceLog;
+
     let mut indexed: Vec<(usize, f32)> = pool
         .annotations
         .iter()
@@ -1115,6 +1119,8 @@ fn build_logged_plans(pool: &crate::combat::ai::pipeline::ScoredPool) -> Vec<Log
             // from the generator-side annotation so both halves are present.
             let mut annotation = pool.annotations[pool_idx].clone();
             annotation.outcomes = pool.plans[pool_idx].annotation.outcomes.clone();
+            // P3b: populate the serialisation mirror from the runtime trace.
+            annotation.score_trace_log = Some(ScoreTraceLog::from(&annotation.score_trace));
             LoggedPlan {
                 rank: rank_idx + 1,
                 steps: pool.plans[pool_idx].steps.clone(),
@@ -1180,12 +1186,19 @@ struct SchemaHeader {
 /// Parse a single JSONL line as an [`ActorTickEvent`], rejecting old schemas
 /// with a clear error.
 ///
+/// v32 logs are schema-additive with v33: `score_trace_log` was added in v33
+/// but all other fields are identical, so v32 logs parse successfully with
+/// `score_trace_log` defaulting to `None`.
+///
 /// Returns `Err(LogError::UnsupportedSchema)` when the line carries a
-/// `schema_version` lower than [`SCHEMA_VERSION`]. Tools should show this
-/// error to the user and ask for a fresh v32+ playtest.
+/// `schema_version` lower than 32. Tools should show this error to the user
+/// and ask for a fresh v32+ playtest.
 pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
     let header: SchemaHeader = serde_json::from_str(line)?;
-    if header.schema_version < SCHEMA_VERSION {
+    // v32 is schema-additive with v33 (score_trace_log absent → None).
+    // v31 and below are hard breaks (bands/agenda fields missing).
+    const MIN_SUPPORTED: u32 = SCHEMA_VERSION - 1; // = 32
+    if header.schema_version < MIN_SUPPORTED {
         return Err(LogError::UnsupportedSchema {
             found: header.schema_version,
             required: SCHEMA_VERSION,
@@ -1517,14 +1530,14 @@ mod tests {
 
     // ── parse_actor_tick schema version tests ─────────────────────────────────
 
-    /// v27 log line returns `UnsupportedSchema` error — clean break (required bumped to 30).
+    /// v27 log line returns `UnsupportedSchema` error — clean break.
     #[test]
     fn parse_v27_returns_unsupported_schema_error() {
         let json = r#"{"event_type":"actor_tick","schema_version":27}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 32, .. })),
-            "v27 must produce UnsupportedSchema(found=27, required=32), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 33, .. })),
+            "v27 must produce UnsupportedSchema(found=27, required=33), got: {result:?}",
         );
     }
 
@@ -1534,7 +1547,7 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":26}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 32, .. })),
+            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 33, .. })),
             "v26 must produce UnsupportedSchema, got: {result:?}",
         );
     }
@@ -1545,8 +1558,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":28}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 32, .. })),
-            "v28 must produce UnsupportedSchema(found=28, required=32), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 33, .. })),
+            "v28 must produce UnsupportedSchema(found=28, required=33), got: {result:?}",
         );
     }
 
@@ -1556,8 +1569,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":29}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 32, .. })),
-            "v29 must produce UnsupportedSchema(found=29, required=32), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 33, .. })),
+            "v29 must produce UnsupportedSchema(found=29, required=33), got: {result:?}",
         );
     }
 
@@ -1567,8 +1580,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":30}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 32, .. })),
-            "v30 must produce UnsupportedSchema(found=30, required=32), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 33, .. })),
+            "v30 must produce UnsupportedSchema(found=30, required=33), got: {result:?}",
         );
     }
 
@@ -1578,8 +1591,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":31}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 32, .. })),
-            "v31 must produce UnsupportedSchema(found=31, required=32), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 33, .. })),
+            "v31 must produce UnsupportedSchema(found=31, required=33), got: {result:?}",
         );
     }
 
@@ -1626,7 +1639,8 @@ mod tests {
     }
 
     /// v32 round-trip: tick with band/agenda/considerations_per_item serialises
-    /// and deserialises correctly. Validates the schema v32 additions atomically.
+    /// and deserialises correctly. Validates schema v32 additions and that v32
+    /// is accepted by the v33 parser (schema-additive backward compat).
     #[test]
     fn schema_v32_round_trip() {
         use crate::combat::ai::intent::bands::{BandReason, PriorityBand};
@@ -1642,7 +1656,6 @@ mod tests {
         let reason = IntentReason::NoRuleDefault;
 
         let mut plan = TurnPlan::default();
-        // Add considerations_per_item and agenda_item to the plan annotation.
         let cons = IntentConsiderations {
             urgency: 0.8, feasibility: 0.9, leverage: 0.7,
             safety: 0.6, role_affinity: 0.5, continuation_value: 0.4,
@@ -1659,7 +1672,6 @@ mod tests {
         let band = PriorityBand::NormalTactical;
         let band_reason = BandReason::Normal;
 
-        // Build an agenda with one item for the log.
         use crate::combat::ai::intent::agenda::{Agenda, AgendaItem};
         let agenda_item = AgendaItem {
             kind: IntentKind::FocusTarget,
@@ -1687,7 +1699,8 @@ mod tests {
         };
 
         let event = build_actor_tick_event(input);
-        assert_eq!(event.schema_version, 32, "must be v32");
+        // schema_version is now 33 (P3b bump).
+        assert_eq!(event.schema_version, SCHEMA_VERSION, "must be current schema version");
         assert!(event.band.is_some(), "band must be present on full path");
         assert_eq!(event.band, Some(PriorityBand::NormalTactical));
         assert_eq!(event.agenda.len(), 1, "agenda must have one item");
@@ -1695,21 +1708,54 @@ mod tests {
         assert_eq!(event.agenda[0].target, Some(99u64));
         assert!((event.agenda[0].raw_score - 1.5).abs() < 1e-6);
 
-        // Check that considerations_per_item survived into the logged plan.
+        // Check considerations_per_item and score_trace_log in the logged plan.
         assert_eq!(event.plans.len(), 1);
         let logged_ann = &event.plans[0].annotation;
         assert_eq!(logged_ann.agenda_item, Some(0u8));
         assert_eq!(logged_ann.considerations_per_item.len(), 1);
         assert!((logged_ann.considerations_per_item[0].urgency - 0.8).abs() < 1e-6);
+        // P3b: score_trace_log must be populated by build_logged_plans.
+        assert!(logged_ann.score_trace_log.is_some(), "score_trace_log must be present after P3b");
 
-        // Full JSON round-trip.
+        // Full JSON round-trip at current schema.
         let json = serde_json::to_string(&event).expect("serialize");
-        let restored: ActorTickEvent = parse_actor_tick(&json).expect("parse_actor_tick v32");
-        assert_eq!(restored.schema_version, 32);
+        let restored: ActorTickEvent = parse_actor_tick(&json).expect("parse_actor_tick current schema");
+        assert_eq!(restored.schema_version, SCHEMA_VERSION);
         assert_eq!(restored.band, Some(PriorityBand::NormalTactical));
         assert_eq!(restored.agenda.len(), 1);
         assert_eq!(restored.plans[0].annotation.agenda_item, Some(0u8));
         assert_eq!(restored.plans[0].annotation.considerations_per_item.len(), 1);
+        // score_trace_log survives the round-trip.
+        assert!(restored.plans[0].annotation.score_trace_log.is_some());
+    }
+
+    /// v32 corpus (without score_trace_log field) is accepted by the v33 parser.
+    /// score_trace_log defaults to None — schema-additive backward compat.
+    #[test]
+    fn schema_v32_accepted_as_additive_with_score_trace_log_none() {
+        // A minimal v32 ActorTickEvent JSON (no score_trace_log field on any plan).
+        let json = r#"{
+            "event_type": "actor_tick",
+            "schema_version": 32,
+            "round": 1,
+            "timestamp_ms": 0,
+            "actor_id": 1,
+            "actor_name": "x",
+            "snapshot": {"units": [], "round": 0},
+            "plans": [{"rank": 1, "steps": [], "annotation": {"score": 2.5}}],
+            "decision": {"kind": "end_turn"},
+            "continuation": null,
+            "band": null,
+            "band_reason": null,
+            "agenda": []
+        }"#;
+        let event = parse_actor_tick(json).expect("v32 must parse as schema-additive");
+        assert_eq!(event.schema_version, 32);
+        assert_eq!(event.plans.len(), 1);
+        assert!(
+            event.plans[0].annotation.score_trace_log.is_none(),
+            "score_trace_log absent in v32 → None"
+        );
     }
 
     /// v31 format must yield UnsupportedSchema with a hint mentioning bands/agenda.
@@ -1721,7 +1767,7 @@ mod tests {
             panic!("expected UnsupportedSchema, got: {result:?}");
         };
         assert_eq!(found, 31);
-        assert_eq!(required, 32);
+        assert_eq!(required, 33);
         assert!(hint.contains("bands"), "hint must mention 'bands', got: {hint}");
     }
 }
