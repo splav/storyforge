@@ -177,7 +177,7 @@ fn compute_reposition(ctx: &AppraisalCtx<'_>) -> f32 {
     let maps = ctx.maps;
     let tuning = ctx.tuning;
     let has_ap = active.action_points >= 1;
-    let cur_pos_eval = crate::combat::ai::position_eval::evaluate_position(
+    let cur_pos_eval = crate::combat::ai::scoring::position_eval::evaluate_position(
         active.pos, &active.role, tuning, maps,
     );
 
@@ -189,7 +189,7 @@ fn compute_reposition(ctx: &AppraisalCtx<'_>) -> f32 {
         .destinations
         .iter()
         .map(|&tile| {
-            let pe = crate::combat::ai::position_eval::evaluate_position(
+            let pe = crate::combat::ai::scoring::position_eval::evaluate_position(
                 tile, &active.role, tuning, maps,
             );
             (pe - cur_pos_eval).max(0.0)

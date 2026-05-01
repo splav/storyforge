@@ -1043,7 +1043,7 @@ mod tests {
             actor.pos,
             &mut rng,
         );
-        let actor_value = crate::combat::ai::trade::unit_value(&actor, world.content);
+        let actor_value = crate::combat::ai::scoring::trade::unit_value(&actor, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
         let mctx = ModifierCtx {
             stage: &stage_ctx,

@@ -6,7 +6,7 @@
 use super::{ModifierCtx, PlanModifier};
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::types::TurnPlan;
-use crate::combat::ai::trade::{trade_delta, trade_score};
+use crate::combat::ai::scoring::trade::{trade_delta, trade_score};
 
 pub struct TradeBonus;
 pub static MODIFIER: TradeBonus = TradeBonus;
@@ -38,7 +38,7 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
-    use crate::combat::ai::trade::unit_value;
+    use crate::combat::ai::scoring::trade::unit_value;
     use crate::combat::ai::utility::AiWorld;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;

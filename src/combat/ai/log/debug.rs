@@ -1,10 +1,10 @@
 #![allow(clippy::too_many_arguments)]
 use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-use crate::combat::ai::position_eval::evaluate_position;
+use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::target_priority::{highest_priority_enemy, target_priority};
+use crate::combat::ai::scoring::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::factors::{PlanFactorValues, ScoredStep};
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::config::tuning::AiTuning;

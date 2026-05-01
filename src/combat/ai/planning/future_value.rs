@@ -16,11 +16,11 @@ use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::planning::scorer::{compute_plan_factors, finalize_scores};
 use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
-use crate::combat::ai::position_eval::evaluate_position;
+use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::outcome::builder::hypothetical as estimate_hypothetical;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::target_priority::target_priority;
+use crate::combat::ai::scoring::target_priority::target_priority;
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::AoEShape;
@@ -173,7 +173,7 @@ fn attack_component_intent(
     ctx: &ScoringCtx,
     intent: &TacticalIntent,
 ) -> f32 {
-    use crate::combat::ai::policy;
+    use crate::combat::ai::scoring::policy;
 
     let content = ctx.world.content;
     let reach_budget = active.speed.max(0) + active.max_attack_range as i32;

@@ -10,16 +10,12 @@ pub mod appraisal;
 pub mod repair;
 pub mod outcome;
 pub mod planning;
-pub mod policy;
+pub mod scoring;
 pub mod replay;
 pub mod replay_assertion;
 pub mod enemy_turn;
 pub mod factors;
 pub mod intent;
-pub mod position_eval;
-pub mod scoring;
-pub mod target_priority;
-pub mod trade;
 pub mod utility;
 
 pub use outcome::{ActionOutcomeEstimate, PlanAnnotation};

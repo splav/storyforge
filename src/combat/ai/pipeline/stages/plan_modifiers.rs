@@ -17,7 +17,7 @@
 use crate::combat::ai::modifiers::{ModifierContribution, ModifierCtx, PLAN_MODIFIERS};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::planning::scorer::build_summon_dpr_cache;
-use crate::combat::ai::trade::unit_value;
+use crate::combat::ai::scoring::trade::unit_value;
 
 pub struct PlanModifiersStage;
 

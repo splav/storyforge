@@ -9,7 +9,7 @@
 use crate::combat::ai::factors::{aoe_area, PlanFactor, PlanFactorValues};
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
-use crate::combat::ai::position_eval::evaluate_position;
+use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::world::snapshot::{AiTags, UnitSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::effects_math::final_damage_f32;

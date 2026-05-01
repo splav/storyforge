@@ -464,7 +464,7 @@ pub fn write_decision_log_from_result(
     let plans = &pool.plans;
     let best_idx = result.best_idx;
 
-    let actor_value = crate::combat::ai::trade::unit_value(active, content);
+    let actor_value = crate::combat::ai::scoring::trade::unit_value(active, content);
 
     // Rank plans by final (adapted) score, keep top-10 for size budget.
     // Pre-compute evaluation modes (owned) so plan_to_log_entry borrows them
@@ -495,7 +495,7 @@ pub fn write_decision_log_from_result(
         .enumerate()
         .map(|(rank, &(idx, score))| {
             let ann = &pool.annotations[idx];
-            let br = crate::combat::ai::trade::trade_delta(
+            let br = crate::combat::ai::scoring::trade::trade_delta(
                 &plans[idx], active, snap, content,
             );
             let trade = TradeBlock {
@@ -504,7 +504,7 @@ pub fn write_decision_log_from_result(
                 lost: br.lost_value,
                 self_lost: br.self_lost,
                 self_lethal: br.self_lethal,
-                score: crate::combat::ai::trade::trade_score(&br, actor_value),
+                score: crate::combat::ai::scoring::trade::trade_score(&br, actor_value),
             };
             let adaptation_reason = ann.adaptation.as_ref().map(|d| &d.reason);
             let base_score = result.base_scored.get(idx).copied().unwrap_or(score);

@@ -36,7 +36,7 @@
 
 use crate::combat::ai::planning::sanity::expected_aoo_damage;
 use crate::combat::ai::planning::TurnPlan;
-use crate::combat::ai::scoring::horizon_avg;
+use crate::combat::ai::scoring::horizon::horizon_avg;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::content::abilities::{StatusOn, TargetType};
 use crate::content::content_view::ContentView;

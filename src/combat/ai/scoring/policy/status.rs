@@ -1,6 +1,6 @@
 //! Status effect value policies — HP-equivalent value of applied status effects.
 
-use crate::combat::ai::scoring::{horizon_window_sum, status_applications};
+use crate::combat::ai::scoring::horizon::{horizon_window_sum, status_applications};
 use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::content::abilities::AbilityDef;
 use crate::content::content_view::ContentView;
@@ -168,7 +168,7 @@ mod tests {
     /// for any (ability, target) pair.
     #[test]
     fn status_value_matches_scoring_status_score() {
-        use crate::combat::ai::scoring::status_score;
+        use crate::combat::ai::scoring::horizon::status_score;
         let content = db();
         let target = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
             .max_hp(100)

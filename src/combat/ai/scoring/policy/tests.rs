@@ -9,7 +9,7 @@
 //! 4. **Formula round-trips**: verify known-good formula derivations for
 //!    `damage::value`, `friendly_fire::penalty`.
 
-use crate::combat::ai::policy;
+use crate::combat::ai::scoring::policy;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectDef};
 use crate::content::content_view::ContentView;

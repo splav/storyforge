@@ -24,7 +24,7 @@ use crate::combat::ai::intent::{
 use crate::combat::ai::intent::considerations::{compute_considerations, IntentConsiderations};
 use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::target_priority::target_priority;
+use crate::combat::ai::scoring::target_priority::target_priority;
 use crate::combat::ai::config::tuning::AiTuning;
 
 // ── AgendaItem ────────────────────────────────────────────────────────────────

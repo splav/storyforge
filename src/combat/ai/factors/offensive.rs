@@ -29,7 +29,7 @@ pub(crate) fn compute_offensive(
     ctx: &ScoringCtx,
     outcome: &ActionOutcomeEstimate,
 ) -> OffensiveFactors {
-    use crate::combat::ai::policy;
+    use crate::combat::ai::scoring::policy;
 
     let content = ctx.world.content;
     let Some(def) = content.abilities.get(ability) else {
@@ -127,7 +127,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::combat::ai::outcome::ActionOutcomeEstimate;
-    use crate::combat::ai::policy;
+    use crate::combat::ai::scoring::policy;
     use crate::core::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;

@@ -177,3 +177,40 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] `git grep "AdaptationStage"` — exit code 1
 
 ---
+
+## 2026-05-01 — R3 — scoring/ partial umbrella (completed)
+
+**Что сделано:**
+- `scoring.rs` → `scoring/horizon.rs` (git mv; имя отражает содержимое: DPR helpers, damage horizon).
+- `target_priority.rs`, `position_eval.rs`, `trade.rs` → `scoring/`.
+- `policy/` (вся директория: cc, damage, friendly_fire, heal, status, tests, mod) → `scoring/policy/`.
+- Создан `scoring/mod.rs` с `pub mod` declarations + `//!` doc-комментарий + `pub use horizon::{...}` re-exports для обратной совместимости (7 публичных символов).
+- `combat/ai/mod.rs`: 5 строк (`policy`, `position_eval`, `scoring`, `target_priority`, `trade`) → 1 строка `pub mod scoring;`.
+- Обновлены import paths в 14 файлах: `intent/mod.rs`, `intent/agenda.rs`, `log/debug.rs`, `planning/future_value.rs`, `planning/sanity.rs`, `planning/scorer.rs`, `appraisal/mod.rs`, `factors/offensive.rs`, `modifiers/trade_bonus.rs`, `modifiers/repair_bonus.rs`, `modifiers/summon_bonus.rs`, `pipeline/stages/plan_modifiers.rs`, `utility/mod.rs`, `scoring/policy/tests.rs`.
+- Обновлены пути в docs: `docs/ai/ai.md`, `docs/ai/target-priority.md`, `docs/ai/policy.md`, `docs/ai/trade-economy.md`, `docs/ai/extension-checklist.md`.
+
+**Комментарии / отклонения от плана:**
+- Re-exports в `scoring/mod.rs` — 7 pub символов из `horizon::*`. Два символа не включены: `status_score` — `pub(crate)`, не `pub` (нельзя ре-экспортировать через `pub use`); `AbilityProjection` — приватный внутренний тип.
+- `scoring/trade.rs` — внутренний `use crate::combat::ai::scoring::horizon_avg` заменён на `use crate::combat::ai::scoring::horizon::horizon_avg` (прямой путь, избегает self-referencing через родительский re-export).
+- `scoring/policy/status.rs` — аналогично: `scoring::*` → `scoring::horizon::*`.
+- `extension-checklist.md`: заодно обновлены пути из R1/R2 которые были упущены ранее (`planning/adaptation.rs` → `adapt/select.rs`, `snapshot.rs` → `world/snapshot.rs`).
+
+**Файлы, которые затронули:**
+- `src/combat/ai/scoring/` (new dir: mod.rs + horizon.rs + target_priority.rs + position_eval.rs + trade.rs + policy/)
+- `src/combat/ai/mod.rs` (−4 строки)
+- 14 source-файлов с import path changes
+- 5 docs файлов с path changes
+
+**DoD проверка:**
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 742 passed, 0 failed (идентично baseline)
+- [x] `cargo test` — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Top-level `scoring.rs`, `target_priority.rs`, `position_eval.rs`, `trade.rs`, `policy/` — не существуют
+- [x] `scoring/{mod.rs, horizon.rs, target_priority.rs, position_eval.rs, trade.rs, policy/}` — существуют
+- [x] `src/combat/ai/mod.rs` стал короче на 4 строки (5 строк → 1)
+- [x] `git status` показывает R (renames) для всех файлов и директории policy/
+- [x] `git diff --stat` доминируют path/import changes; логика файлов не тронута
+- [x] Документы `docs/ai/*.md` актуальны
+
+---
