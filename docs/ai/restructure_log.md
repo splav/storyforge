@@ -553,3 +553,60 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] P3a (umbrella) complete: ScoreTrace internal migration done
 
 ---
+
+## 2026-05-01 — R5.A — critics/ + modifiers/ → pipeline/stages/ (completed)
+
+**Что сделано:**
+- `src/combat/ai/critics/` (7 файлов) → `src/combat/ai/pipeline/stages/critics/` (file-to-dir conversion):
+  - `pipeline/stages/critics.rs` → `pipeline/stages/critics/mod.rs` (file-to-dir conversion через `git mv`). Содержимое `combat/ai/critics/mod.rs` (trait `PlanCritic`, типы `CriticKind`, `CriticReason`, `CriticHit`, тесты serde) объединено в один `critics/mod.rs` вместе с `CriticsStage`.
+  - 6 critic-файлов (`blindspot_ranged`, `buff_into_void`, `heal_without_rescue_value`, `overcommit_into_danger`, `rare_resource_for_low_impact`, `self_lethal_without_payoff`) → `pipeline/stages/critics/<name>.rs`.
+  - Import paths в 6 файлах: `crate::combat::ai::critics::*` → `super::*` (или `crate::combat::ai::pipeline::stages::critics::*` в тест-блоках).
+- `src/combat/ai/modifiers/` (4 файла) → `src/combat/ai/pipeline/stages/modifiers/` (file-to-dir + rename):
+  - `pipeline/stages/plan_modifiers.rs` → `pipeline/stages/modifiers/mod.rs` (file-to-dir conversion + rename). Содержимое `combat/ai/modifiers/mod.rs` (trait `PlanModifier`, `ModifierCtx`, `ModifierContribution`, `PLAN_MODIFIERS`) объединено в один `modifiers/mod.rs` вместе с `PlanModifiersStage`.
+  - 3 modifier-файла (`summon_bonus`, `trade_bonus`, `repair_bonus`) → `pipeline/stages/modifiers/<name>.rs`.
+  - Import paths в 3 файлах: `crate::combat::ai::modifiers::ModifierCtx` → `crate::combat::ai::pipeline::stages::modifiers::ModifierCtx` (в тест-блоках).
+- `combat/ai/mod.rs`: удалены `pub mod critics;` и `pub mod modifiers;` (-2 строки).
+- `pipeline/stages/mod.rs`: `pub mod plan_modifiers;` → `pub mod modifiers;`.
+- 7 consumer-файлов обновлены (import path changes only):
+  - `pipeline/order.rs` — shim `apply_plan_modifiers` → `stages::modifiers::PlanModifiersStage`
+  - `pipeline/mod.rs` — тест `crate::combat::ai::modifiers::PLAN_MODIFIERS` → `pipeline::stages::modifiers::PLAN_MODIFIERS`
+  - `outcome/mod.rs` — два обновления: `modifiers::ModifierContribution` + инлайн `critics::CriticHit`
+  - `planning/scorer.rs` — тест `modifiers::{ModifierCtx, PLAN_MODIFIERS}`
+  - `src/bin/mine_ai_logs.rs` — `storyforge::combat::ai::modifiers::ModifierContribution`
+
+**Комментарии / отклонения от плана:**
+- File-to-dir conversion для critics: `critics.rs` → `critics/mod.rs` + 6 submodules. Вариант (b) из плана (объединить CriticsStage и PlanCritic trait в один mod.rs). Публичный путь `pipeline::stages::critics::CriticsStage` сохранён.
+- Обнаружена дополнительная ссылка в `outcome/mod.rs`: инлайн `crate::combat::ai::critics::CriticHit` в struct field (`pub critics: Vec<...>`) — не была покрыта `agrep` поиском, выявлена на `cargo check`. Обновлена.
+- Rename `plan_modifiers` → `modifiers` изменяет публичный путь: `pipeline::stages::plan_modifiers::PlanModifiersStage` → `pipeline::stages::modifiers::PlanModifiersStage`. Это ожидаемо по roadmap (R5 — move + rename для modifiers).
+- `PLAN_MODIFIERS` путь изменился: `crate::combat::ai::modifiers::PLAN_MODIFIERS` → `crate::combat::ai::pipeline::stages::modifiers::PLAN_MODIFIERS`. Обновлено в 3 consumer-файлах.
+
+**Файлы, которые затронули:**
+- `src/combat/ai/pipeline/stages/critics/` (новая директория: mod.rs + 6 critic-файлов)
+- `src/combat/ai/pipeline/stages/modifiers/` (новая директория: mod.rs + 3 modifier-файлов)
+- `src/combat/ai/critics/` (удалена — все файлы перенесены)
+- `src/combat/ai/modifiers/` (удалена — все файлы перенесены)
+- `src/combat/ai/mod.rs` (-2 строки)
+- `src/combat/ai/pipeline/stages/mod.rs` (1 строка: plan_modifiers → modifiers)
+- `src/combat/ai/pipeline/order.rs` (1 строка: import path)
+- `src/combat/ai/pipeline/mod.rs` (1 строка: тест import)
+- `src/combat/ai/outcome/mod.rs` (2 строки: imports)
+- `src/combat/ai/planning/scorer.rs` (1 строка: тест import)
+- `src/bin/mine_ai_logs.rs` (1 строка: import)
+- `docs/ai/critics.md` (обновлены пути)
+- `docs/ai/extension-checklist.md` (обновлены пути)
+
+**DoD проверка:**
+- [x] `combat/ai/critics/` директория не существует
+- [x] `combat/ai/modifiers/` директория не существует
+- [x] `pipeline/stages/critics.rs` файл не существует (стал `pipeline/stages/critics/mod.rs`)
+- [x] `pipeline/stages/plan_modifiers.rs` файл не существует (стал `pipeline/stages/modifiers/mod.rs`)
+- [x] `pipeline/stages/critics/mod.rs` — registers 6 critic-submodules + trait/types/CriticsStage/tests
+- [x] `pipeline/stages/modifiers/mod.rs` — registers 3 modifier-submodules + trait/types/PlanModifiersStage/tests
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 780 passed, 0 failed (идентично baseline)
+- [x] `cargo test` — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] `combat/ai/mod.rs` стал короче на 2 строки (удалены `pub mod critics;` и `pub mod modifiers;`)
+- [x] No semantic diff: изменения в телах — только import/path строки
+
+---

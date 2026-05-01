@@ -54,7 +54,7 @@ pub use builder::{
 };
 
 use crate::combat::ai::factors::{PlanFactorValues, FactorTerminalScore};
-use crate::combat::ai::modifiers::ModifierContribution;
+use crate::combat::ai::pipeline::stages::modifiers::ModifierContribution;
 use serde::{Deserialize, Serialize};
 
 // ── RejectReason ─────────────────────────────────────────────────────────────
@@ -297,7 +297,7 @@ pub struct PlanAnnotation {
     /// Schema-additive via `#[serde(default)]`; v30 logs without this field
     /// deserialise as an empty vec.
     #[serde(default)]
-    pub critics: Vec<crate::combat::ai::critics::CriticHit>,
+    pub critics: Vec<crate::combat::ai::pipeline::stages::critics::CriticHit>,
 
     // ── Step 11.4/11.6 fields ─────────────────────────────────────────────────
 

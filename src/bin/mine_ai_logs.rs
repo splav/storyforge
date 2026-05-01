@@ -2047,7 +2047,7 @@ mod tests {
     use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};
     use storyforge::combat::ai::world::snapshot::BattleSnapshot;
     use storyforge::combat::ai::outcome::{PlanAnnotation, PickInfo};
-    use storyforge::combat::ai::modifiers::ModifierContribution;
+    use storyforge::combat::ai::pipeline::stages::modifiers::ModifierContribution;
     use storyforge::combat::ai::planning::PlanStep;
     use storyforge::combat::ai::planning::PickMechanics;
 

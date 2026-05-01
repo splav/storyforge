@@ -1010,7 +1010,7 @@ mod tests {
     /// Migrated from direct `plan_trade_bonus` call → `MODIFIER.modify` (8.B.2).
     #[test]
     fn trade_bonus_favors_valuable_victim() {
-        use crate::combat::ai::modifiers::{ModifierCtx, PLAN_MODIFIERS};
+        use crate::combat::ai::pipeline::stages::modifiers::{ModifierCtx, PLAN_MODIFIERS};
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
         use crate::core::DiceRng;

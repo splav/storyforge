@@ -24,7 +24,7 @@
 //! grades ally need.
 
 use crate::combat::ai::appraisal::ally_threat_proxy;
-use crate::combat::ai::critics::{CriticHit, CriticKind, CriticReason, PlanCritic};
+use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::utility::ScoringCtx;
@@ -131,7 +131,7 @@ impl PlanCritic for HealWithoutRescueValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::critics::{CriticKind, PlanCritic};
+    use crate::combat::ai::pipeline::stages::critics::{CriticKind, PlanCritic};
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::planning::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;

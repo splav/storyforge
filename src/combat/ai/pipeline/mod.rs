@@ -169,7 +169,7 @@ mod tests {
     fn pipeline_runs_modifiers_after_repair_before_pick() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-        use crate::combat::ai::modifiers::PLAN_MODIFIERS;
+        use crate::combat::ai::pipeline::stages::modifiers::PLAN_MODIFIERS;
         use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::world::snapshot::BattleSnapshot;

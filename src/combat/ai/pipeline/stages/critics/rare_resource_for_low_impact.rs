@@ -20,7 +20,7 @@
 //!   `multiplier = (1.0 - 0.4 * (0.5 - ratio) / 0.5).max(0.5)`
 //!   → 1.0 at ratio=0.5 (boundary, doesn't fire), 0.6 at ratio=0.0, floored at 0.5.
 
-use crate::combat::ai::critics::{CriticHit, CriticKind, CriticReason, PlanCritic};
+use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
 use crate::combat::ai::utility::ScoringCtx;
@@ -126,7 +126,7 @@ impl PlanCritic for RareResourceForLowImpact {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::critics::{CriticKind, PlanCritic};
+    use crate::combat::ai::pipeline::stages::critics::{CriticKind, PlanCritic};
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::planning::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;

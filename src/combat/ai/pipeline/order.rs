@@ -107,7 +107,7 @@ fn apply_overlay_considerations(pool: &mut ScoredPool, ctx: &mut StageCtx) {
 }
 
 fn apply_plan_modifiers(pool: &mut ScoredPool, ctx: &mut StageCtx) {
-    use crate::combat::ai::pipeline::stages::plan_modifiers::PlanModifiersStage;
+    use crate::combat::ai::pipeline::stages::modifiers::PlanModifiersStage;
     PlanModifiersStage.apply(pool, ctx);
 }
 

@@ -658,7 +658,7 @@ P-track (контракты + миграция логики) и R-track (relocat
 | ↳ P3a.4 — Mask + Gate stages | P | done | P3a.3 | 2026-05-01. ProtectSelf→MaskHit Poison; KillableGate→GateHit+MaskHit double-emit. 6 new tests. |
 | ↳ P3a.5 — Finalize → Rescore | P | done | P3a.4 | 2026-05-01. FinalizeStage sets trace.base=new_score, rescore_mode=Some(mode), clears effects. 4 new tests. |
 | ↳ P3a.6 — cleanup bridging-resets | P | done | P3a.5 | 2026-05-01. Bridging-резеты удалены из 5 стадий. Trace аккумулирует от Finalize::base. 1 new full-pipeline invariant test. 780 passed. |
-| R5 — pipeline/stages absorbs | R | pending | **только после P3a** | Mixed (move + split). Ранее = двойной churn. |
+| R5 — pipeline/stages absorbs | R | partial | **только после P3a** | Mixed (move + split). A: done 2026-05-01 (critics/ + modifiers/ relocated). B: pending (sanity/picker/killable_gate splits). |
 | P5 — Factor refactor | P | pending | **НЕ параллелить с P3a** | Оба трогают `scorer.rs` / factor leaves. |
 | R4 — factors → scoring/factors/ | R | pending | с/после P5 | Pure relocation финализированных факторов. |
 | P3b — Expose ScoreTrace to JSONL | P | pending | P3a; schema bump | |

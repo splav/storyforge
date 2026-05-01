@@ -9,7 +9,7 @@
 //! two signals are independent — each represents a distinct hazard class
 //! and their worst case is what matters.
 
-use crate::combat::ai::critics::{CriticHit, CriticKind, CriticReason, PlanCritic};
+use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::sanity::expected_aoo_damage;
 use crate::combat::ai::planning::scorer::worst_path_danger;
@@ -107,7 +107,7 @@ impl PlanCritic for OvercommitIntoDanger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::critics::PlanCritic;
+    use crate::combat::ai::pipeline::stages::critics::PlanCritic;
     use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;

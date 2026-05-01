@@ -32,7 +32,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-    use crate::combat::ai::modifiers::ModifierCtx;
+    use crate::combat::ai::pipeline::stages::modifiers::ModifierCtx;
     use crate::combat::ai::pipeline::StageCtx;
     use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;

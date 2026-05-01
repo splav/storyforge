@@ -10,7 +10,7 @@
 //!
 //! Multiplier: **0.3** (identical to the original sanity rule).
 
-use crate::combat::ai::critics::{CriticHit, CriticKind, CriticReason, PlanCritic};
+use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::planning::types::TurnPlan;
 use crate::combat::ai::world::snapshot::AiTags;
@@ -86,7 +86,7 @@ impl PlanCritic for BlindspotRanged {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::critics::PlanCritic;
+    use crate::combat::ai::pipeline::stages::critics::PlanCritic;
     use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;
