@@ -1,4 +1,11 @@
-//! Overlay-based assertion for offline AI replay.
+//! Replay assertion umbrella — DSL primitives (this module) and assertion
+//! pipeline ([`pipeline`]).
+//!
+//! This module contains the overlay-based assertion DSL used by integration
+//! tests (e.g. `tests/ai_scenarios.rs`) and by the `replay_ai_log` binary.
+//! The assertion pipeline (reading JSONL, rebuilding decisions, comparing
+//! against overlays) lives in [`pipeline`] and is re-exported here for
+//! convenience.
 //!
 //! # Overlay format (`*.expected.toml`)
 //!
@@ -447,6 +454,15 @@ pub fn build_actual_decision(
         primary_effect,
     }
 }
+
+// ── Pipeline sub-module (assertion pipeline: JSONL reader + GoldenRecord) ────
+
+pub mod pipeline;
+
+pub use pipeline::{
+    assert_v28_log_file, default_overlay_path, load_overlay, AssertError, AssertOutcome,
+    GoldenRecord,
+};
 
 // ── Unit tests ───────────────────────────────────────────────────────────────
 

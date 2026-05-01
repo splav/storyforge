@@ -4,7 +4,7 @@
 //! - **Assertion pipeline** ([`assert_v28_log_file`]) reads a v28 `ActorTickEvent`
 //!   from a JSONL log, re-runs the production `pick_action` on its snapshot,
 //!   reconstructs the chosen decision via
-//!   [`replay_assertion::build_actual_decision`], and compares it against
+//!   [`super::build_actual_decision`], and compares it against
 //!   an overlay loaded from `*.expected.toml`. Returns an [`AssertOutcome`]
 //!   with both the raw decision and the pass/fail verdict.
 //!
@@ -19,9 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 
-use crate::combat::ai::replay_assertion::{
-    build_actual_decision, run_assertion, ActualDecision, AssertResult, Overlay,
-};
+use super::{build_actual_decision, run_assertion, ActualDecision, AssertResult, Overlay};
 use crate::content::content_view::ContentView;
 use crate::core::DiceRng;
 

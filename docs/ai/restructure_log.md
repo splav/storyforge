@@ -1034,3 +1034,40 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] Behavioural diff = 0 для production AI (только JSONL output расширяется)
 
 ---
+
+## 2026-05-01 — P6 — Replay tooling consolidation (completed)
+
+**Что сделано:**
+- `src/combat/ai/replay_assertion.rs` → `src/combat/ai/replay/mod.rs` (assertion DSL primitives).
+- `src/combat/ai/replay.rs` → `src/combat/ai/replay/pipeline.rs` (assertion pipeline).
+- `replay/mod.rs`: добавлен `//!` doc-комментарий, `pub mod pipeline;`, re-exports (`assert_v28_log_file`, `default_overlay_path`, `load_overlay`, `AssertError`, `AssertOutcome`, `GoldenRecord`).
+- `replay/pipeline.rs`: импорт `crate::combat::ai::replay_assertion::*` → `super::*`.
+- `combat/ai/mod.rs`: строка `pub mod replay_assertion;` удалена (теперь sub-модуль replay).
+- 3 consumer-файла обновлены: `tests/ai_scenarios.rs`, `src/bin/replay_ai_log.rs`, `src/combat/ai/replay/pipeline.rs`.
+- CLI executor остался в `bin/replay_ai_log.rs` — не перемещался.
+
+**Комментарии / отклонения от плана:**
+- Roadmap описывал вынос executor в bin как основную задачу P6 — это уже было сделано ранее. Реальная работа: консолидация двух top-level файлов в зонтик `replay/`.
+- Layout выбран: `mod.rs` = DSL (основной публичный интерфейс), `pipeline.rs` = assertion pipeline. Вариант A (file-to-dir) без третьего файла `assertion.rs` — достаточно двух.
+
+**Файлы, которые затронули:**
+- `src/combat/ai/replay/` (new dir: mod.rs + pipeline.rs — via git mv)
+- `src/combat/ai/mod.rs` (−1 строка)
+- `tests/ai_scenarios.rs` (consolidated import)
+- `src/bin/replay_ai_log.rs` (consolidated import)
+
+**DoD проверка:**
+- [x] `src/combat/ai/replay.rs` (top-level) не существует
+- [x] `src/combat/ai/replay_assertion.rs` (top-level) не существует
+- [x] `src/combat/ai/replay/` существует: mod.rs (DSL) + pipeline.rs (pipeline)
+- [x] `combat::ai::replay::{Overlay, Expectation, AssertResult, build_actual_decision, run_assertion, print_assertion_failure}` доступны
+- [x] `combat::ai::replay::{AssertOutcome, AssertError, assert_v28_log_file, GoldenRecord, load_overlay, default_overlay_path}` доступны (re-exported из pipeline)
+- [x] CLI parsing / argparse / file I/O / exit codes — только в `src/bin/replay_ai_log.rs`
+- [x] `cargo build --all-targets` — clean
+- [x] `cargo build --bin replay_ai_log` — clean
+- [x] `cargo test --lib` — 783 passed, 0 failed (baseline не изменился)
+- [x] `cargo test` — зелёный
+- [x] `cargo clippy --all-targets` — 1 pre-existing warning; 0 новых
+- [x] Behavioural diff = 0: только path/import changes
+
+---

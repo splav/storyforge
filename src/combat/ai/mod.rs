@@ -10,7 +10,6 @@ pub mod outcome;
 pub mod plan;
 pub mod scoring;
 pub mod replay;
-pub mod replay_assertion;
 pub mod enemy_turn;
 pub mod intent;
 pub mod utility;

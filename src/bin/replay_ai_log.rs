@@ -32,9 +32,8 @@ use storyforge::combat::ai::intent::AiMemory;
 use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};
 use storyforge::combat::ai::plan::PlanStep;
 use storyforge::combat::ai::replay::{
-    assert_v28_log_file, default_overlay_path, GoldenRecord,
+    assert_v28_log_file, default_overlay_path, print_assertion_failure, AssertResult, GoldenRecord,
 };
-use storyforge::combat::ai::replay_assertion::{print_assertion_failure, AssertResult};
 use storyforge::combat::ai::world::reservations::Reservations;
 use storyforge::combat::ai::world::tags::cache::build_caches;
 use storyforge::combat::ai::utility::{AiDecision, AiWorld, pick_action};
