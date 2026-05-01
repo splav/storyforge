@@ -12,25 +12,17 @@
 //!
 //! ## Module layout
 //! - `registry`   — `factor_kind!` macro, `BatchStats`, `NeedAxis`, `default_norm`.
-//! - `step/`      — 7 per-step leaf modules + `StepFactor` enum.
-//! - `plan/`      — 3 plan-level leaf modules + `PlanFactor` enum.
+//! - `step/`      — 7 per-step leaf modules + `StepFactor` enum (each leaf owns its implementation).
+//! - `plan/`      — 3 plan-level leaf modules + `PlanFactor` enum (each leaf owns its implementation).
 //! - `terminal/`  — 8 terminal leaf modules + `TerminalFactor` enum + `TerminalScore` wrapper.
 //! - `offensive`  — shared `compute_offensive` helper (used by step leaves), `aoe_area`.
-//! - `scarcity`   — `compute_scarcity` (used by `step::scarcity`).
-//! - `saturation` — `buff_saturation_penalty` (used by `step::saturation`).
 //! - `adjustments`— reservation nerfs + crit-fail expected-value adjustment.
-//! - `tempo`      — `compute_plan_tempo_gain`.
-//! - `survival`   — `compute_plan_self_survival`.
 
 mod adjustments;
-mod aoe_hits;
-mod offensive;
-mod saturation;
-mod scarcity;
-mod survival;
-mod tempo;
+pub(crate) mod aoe_hits;
+pub(crate) mod offensive;
 
-// ── New registry modules (commit 1) ──────────────────────────────────────────
+// ── Registry modules ──────────────────────────────────────────────────────────
 pub mod plan;
 pub mod registry;
 pub mod step;
@@ -39,9 +31,8 @@ pub mod terminal;
 pub use adjustments::crit_fail_adjusted;
 pub use aoe_hits::{aoe_hits, AoeHits};
 pub use offensive::aoe_area;
-pub use saturation::buff_saturation_penalty;
-pub use survival::compute_plan_self_survival;
-pub use tempo::compute_plan_tempo_gain;
+pub use plan::self_survival::compute_plan_self_survival;
+pub use plan::tempo_gain::compute_plan_tempo_gain;
 
 // ── Registry re-exports (commit 1) ───────────────────────────────────────────
 pub use plan::PlanFactor;
