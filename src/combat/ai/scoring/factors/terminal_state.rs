@@ -16,7 +16,7 @@
 use crate::combat::ai::scoring::factors::{FactorTerminalScore, TerminalFactor};
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot};
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 
 /// Compute the terminal-state score for a plan from its final sim snapshot.
 ///

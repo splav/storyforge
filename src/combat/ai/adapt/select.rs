@@ -16,7 +16,7 @@ use crate::combat::ai::scoring::factors::aggregate::rescore_with_per_plan_modes;
 use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
 use crate::combat::ai::plan::TurnPlan;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::content_view::ContentView;
 
 /// Sum of damage the actor is guaranteed to take from active status

@@ -11,9 +11,9 @@ pub mod outcome;
 pub mod plan;
 pub mod scoring;
 pub mod replay;
-pub mod enemy_turn;
+pub mod system;
 pub mod intent;
-pub mod utility;
+pub mod orchestration;
 
 pub use outcome::{ActionOutcomeEstimate, PlanAnnotation};
 pub use pipeline::stages::sanity::{SanityHit, SanityRule};

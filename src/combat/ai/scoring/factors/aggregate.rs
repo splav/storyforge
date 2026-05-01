@@ -37,7 +37,7 @@ use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::scoring::factors::terminal_state::terminal_state_score;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::estimate_st_damage;
-use crate::combat::ai::utility::{AiWorld, ScoringCtx};
+use crate::combat::ai::orchestration::{AiWorld, ScoringCtx};
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::core::modifier;
 use crate::game::components::Abilities;

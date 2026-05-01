@@ -18,7 +18,7 @@ use crate::combat::ai::outcome::builder as outcome_builder;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::AiWorld;
+use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 use crate::core::AbilityId;
 use crate::game::hex::Hex;

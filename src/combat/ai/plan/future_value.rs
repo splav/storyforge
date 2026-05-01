@@ -22,7 +22,7 @@ use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::scoring::target_selection::target_selection_score;
 use crate::combat::ai::config::tuning::AiTuning;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::abilities::AoEShape;
 use crate::game::hex::Hex;
 

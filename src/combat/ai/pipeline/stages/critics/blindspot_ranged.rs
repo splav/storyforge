@@ -14,7 +14,7 @@ use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::world::snapshot::AiTags;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::game::hex::has_los;
 use std::collections::HashSet;
 

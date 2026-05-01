@@ -19,7 +19,7 @@
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::core::StatusId;
 use bevy::prelude::Entity;
 

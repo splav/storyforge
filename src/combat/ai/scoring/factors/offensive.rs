@@ -8,7 +8,7 @@
 
 use super::{crit_fail_adjusted, OffensiveFactors};
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::effects_math::aoe_cells;
 use crate::content::abilities::{AbilityDef, EffectDef};
 use crate::core::AbilityId;

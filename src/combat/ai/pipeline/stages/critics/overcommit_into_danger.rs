@@ -14,7 +14,7 @@ use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::pipeline::stages::sanity::expected_aoo_damage;
 use crate::combat::ai::scoring::factors::aggregate::worst_path_danger;
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 
 // ── Public types ──────────────────────────────────────────────────────────────
 

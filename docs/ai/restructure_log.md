@@ -1132,3 +1132,43 @@ R7-3: `world/tags/ai_tags.rs` (new), `world/tags/mod.rs`, `world/snapshot.rs`.
 - [x] Behavioural diff = 0: только path/import changes
 
 ---
+
+## 2026-05-01 — R-late (done)
+
+**Что сделано:**
+
+- `git mv src/combat/ai/utility/ src/combat/ai/orchestration/` — директория переименована.
+- `git mv src/combat/ai/enemy_turn.rs src/combat/ai/system.rs` — файл переименован.
+- `src/combat/ai/mod.rs`: `pub mod utility;` → `pub mod orchestration;`, `pub mod enemy_turn;` → `pub mod system;`.
+- Массовая замена `crate::combat::ai::utility::` → `crate::combat::ai::orchestration::` в ~55 файлах (все `use`-строки и инлайн qualified paths).
+- `storyforge::combat::ai::utility::` → `storyforge::combat::ai::orchestration::` в `src/bin/replay_ai_log.rs`.
+- `src/combat/pipeline.rs`: `super::ai::enemy_turn::pact_ai_system` и `enemy_ai_system` → `super::ai::system::*`.
+- `src/combat/command_input.rs`: `ai::enemy_turn::has_ai_control_status` → `ai::system::has_ai_control_status`.
+- `tests/common/mod.rs`: `ai::enemy_turn::enemy_ai_system` → `ai::system::enemy_ai_system`.
+
+**Комментарии / отклонения от плана:**
+
+- Чистая косметика: zero semantic diff. Все файлы остались на месте, только пути изменились.
+- Consumer-файлов обновлено: ~57 (55 для utility, 4 для enemy_turn, включая пересечения).
+
+**Файлы, которые затронули:**
+
+`src/combat/ai/mod.rs`, `src/combat/ai/orchestration/{mod.rs, fallback.rs}` (переименованы), `src/combat/ai/system.rs` (переименован), `src/combat/pipeline.rs`, `src/combat/command_input.rs`, `tests/common/mod.rs`, `src/bin/replay_ai_log.rs`, плюс ~50 внутренних AI-файлов с `use crate::combat::ai::utility::`.
+
+**DoD проверка:**
+
+- [x] `src/combat/ai/utility/` не существует
+- [x] `src/combat/ai/orchestration/` существует с тем же содержимым
+- [x] `src/combat/ai/enemy_turn.rs` не существует
+- [x] `src/combat/ai/system.rs` существует
+- [x] `combat/ai/mod.rs` содержит `pub mod orchestration;` и `pub mod system;` (без utility/enemy_turn)
+- [x] Все consumers обновлены
+- [x] `cargo build --all-targets` — clean
+- [x] `cargo test --lib` — 783 passed
+- [x] `cargo test` — зелёный (12 integration + 0 doc failures)
+- [x] `cargo clippy --all-targets` — 0 новых warnings
+- [x] Behavioural diff = 0: только path/import changes
+
+**Реструктуризация AI полностью завершена.** Все 15 slice'ов (P0–P7 + R1–R7 + R-late) выполнены. Target layout из `restructure.md` достигнут.
+
+---

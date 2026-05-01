@@ -9,7 +9,7 @@ use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
-use crate::combat::ai::utility::{AiWorld, ScoringCtx};
+use crate::combat::ai::orchestration::{AiWorld, ScoringCtx};
 use crate::content::abilities::CasterContext;
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;

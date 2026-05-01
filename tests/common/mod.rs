@@ -9,7 +9,7 @@ use storyforge::combat::{
     advance_turn::{advance_turn_system, check_victory_system}, ai::log::debug::AiDebugState,
     ai::config::difficulty::DifficultyProfile, ai::world::influence::InfluenceConfig,
     ai::world::reservations::Reservations,
-    apply_effects::apply_effects_system, ai::enemy_turn::enemy_ai_system,
+    apply_effects::apply_effects_system, ai::system::enemy_ai_system,
     movement::movement_system,
     phases::phase_transition_system,
     resolution::resolve_action_system,

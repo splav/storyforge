@@ -48,7 +48,7 @@ use crate::combat::ai::adapt::{AdaptationReason, EvaluationMode};
 use crate::combat::ai::pipeline::stages::sanity::SanityHit;
 use crate::combat::ai::plan::{PlanStep, StepOutcome, TurnPlan};
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::AiDecision;
+use crate::combat::ai::orchestration::AiDecision;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 
@@ -412,10 +412,10 @@ impl From<&AiDecision> for DecisionBlock {
                 target_pos: [target_pos.x, target_pos.y],
             },
             AiDecision::Move { path: p, origin } => match origin {
-                crate::combat::ai::utility::MoveOrigin::BestPlan => {
+                crate::combat::ai::orchestration::MoveOrigin::BestPlan => {
                     Self::MoveOnlyRetreat { path: path(p) }
                 }
-                crate::combat::ai::utility::MoveOrigin::Fallback => {
+                crate::combat::ai::orchestration::MoveOrigin::Fallback => {
                     Self::MoveCloser { path: path(p) }
                 }
             },

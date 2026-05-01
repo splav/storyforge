@@ -11,7 +11,7 @@ use super::context::extract_goal_context;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::world::tags::StatusTagCache;
 use crate::combat::ai::config::tuning::AiTuning;
-use crate::combat::ai::utility::{AiDecision, ChosenInfo};
+use crate::combat::ai::orchestration::{AiDecision, ChosenInfo};
 
 /// Pre-tick: TTL decay + clear stale goals (TTL expired or Invalidating severity).
 /// Called by the orchestrator BEFORE `pick_action`. Idempotent on stale memory.
@@ -110,7 +110,7 @@ mod tests {
     use crate::combat::ai::plan::types::{TurnPlan, PlanStep};
     use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::utility::ChosenInfo;
+    use crate::combat::ai::orchestration::ChosenInfo;
     use crate::game::hex::hex_from_offset;
     use crate::game::components::Team;
 
@@ -275,7 +275,7 @@ mod tests {
 
         let decision = AiDecision::Move {
             path: vec![dest],
-            origin: crate::combat::ai::utility::MoveOrigin::BestPlan,
+            origin: crate::combat::ai::orchestration::MoveOrigin::BestPlan,
         };
         let c = chosen_move(target, dest);
         let mut memory = AiMemory::default();

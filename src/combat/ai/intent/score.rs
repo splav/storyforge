@@ -7,7 +7,7 @@ use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::world::snapshot::{AiTags, UnitSnapshot};
 use crate::combat::ai::scoring::factors::ScoredStep;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::game::hex::Hex;
 use super::kinds::TacticalIntent;

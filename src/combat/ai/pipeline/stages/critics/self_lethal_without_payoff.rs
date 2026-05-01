@@ -18,7 +18,7 @@ use crate::combat::ai::scoring::factors::terminal::TerminalFactor;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::pipeline::stages::sanity::plan_has_self_aoe;
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

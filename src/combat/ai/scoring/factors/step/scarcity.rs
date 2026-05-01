@@ -17,7 +17,7 @@ use crate::combat::ai::scoring::factors::aoe_hits::aoe_hits;
 use crate::combat::ai::scoring::factors::offensive::aoe_area;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::stun_denial_value;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::world::snapshot::{AiTags, UnitSnapshot};
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ContentView;
@@ -160,7 +160,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, unit, UnitBuilder,
     };
-    use crate::combat::ai::utility::AiWorld;
+    use crate::combat::ai::orchestration::AiWorld;
     use crate::content::content_view::ContentView;
     use crate::core::AbilityId;
     use crate::game::components::Team;

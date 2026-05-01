@@ -12,7 +12,7 @@ use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::world::snapshot::build_snapshot;
 use crate::combat::ai::intent::update_memory;
 use crate::combat::ai::pipeline::stages::pick_best::record_committed_reservations;
-use crate::combat::ai::utility::{
+use crate::combat::ai::orchestration::{
     pick_action, AiDecision, AiWorld, ChosenInfo,
 };
 use crate::content::settings::GameSettings;

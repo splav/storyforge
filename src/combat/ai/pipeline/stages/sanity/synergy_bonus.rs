@@ -4,7 +4,7 @@
 
 use crate::combat::ai::pipeline::stages::sanity::{SanityHit, SanityRule};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::game::hex::Hex;
 

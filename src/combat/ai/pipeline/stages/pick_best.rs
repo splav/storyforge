@@ -53,7 +53,7 @@ use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::scoring::factors::aggregate::factor_contribution;
 use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::utility::{AiDecision, AiWorld, MoveOrigin};
+use crate::combat::ai::orchestration::{AiDecision, AiWorld, MoveOrigin};
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::content::abilities::{AoEShape, TargetType};

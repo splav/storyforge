@@ -1,7 +1,7 @@
 //! Reservation-based coordination adjustments + crit-fail expected-value.
 
 use super::{OffensiveFactors, ScoredStep};
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::abilities::AbilityDef;
 use crate::content::races::CritFailEffect;
 use crate::core::ResourceKind;

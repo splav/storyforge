@@ -52,7 +52,7 @@ pub use terminal::{TerminalFactor, TerminalScore as FactorTerminalScore};
 
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;

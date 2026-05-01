@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 use crate::content::content_view::ActiveContent;
-use crate::combat::ai::enemy_turn::has_ai_control_status;
+use crate::combat::ai::system::has_ai_control_status;
 use crate::content::abilities::{EffectDef, TargetType};
 use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, StatusEffects, Team};
 use crate::game::messages::{EndTurn, UseAbility};

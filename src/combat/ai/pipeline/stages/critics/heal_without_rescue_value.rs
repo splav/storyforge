@@ -27,7 +27,7 @@ use crate::combat::ai::appraisal::ally_threat_proxy;
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::abilities::EffectDef;
 
 // ── Constants ─────────────────────────────────────────────────────────────────

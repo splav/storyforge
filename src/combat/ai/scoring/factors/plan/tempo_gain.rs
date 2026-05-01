@@ -16,7 +16,7 @@ pub const SIGNED: bool = true;
 
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::abilities::TargetType;
 use crate::game::hex::Hex;
 

@@ -142,7 +142,7 @@ mod tests {
     }
 
     fn ctx_for_actor<'w, 's>(
-        scoring: &'s crate::combat::ai::utility::ScoringCtx<'w, 's>,
+        scoring: &'s crate::combat::ai::orchestration::ScoringCtx<'w, 's>,
         intent: TacticalIntent,
         reason: IntentReason,
         actor_pos: crate::game::hex::Hex,

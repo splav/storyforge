@@ -32,7 +32,7 @@ pub use self_lethal_without_payoff::SelfLethalWithoutPayoff;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
@@ -231,7 +231,7 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
-    use crate::combat::ai::utility::ScoringCtx;
+    use crate::combat::ai::orchestration::ScoringCtx;
     use crate::core::DiceRng;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -249,7 +249,7 @@ mod tests {
     }
 
     fn make_stage_ctx<'w, 's>(
-        scoring: &'s crate::combat::ai::utility::ScoringCtx<'w, 's>,
+        scoring: &'s crate::combat::ai::orchestration::ScoringCtx<'w, 's>,
         rng: &'s mut DiceRng,
         pos: crate::game::hex::Hex,
     ) -> StageCtx<'w, 's> {

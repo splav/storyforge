@@ -17,7 +17,7 @@ use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::scoring::factors::registry::{default_norm, BatchStats};
 use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 
 crate::factor_kind! {
     name: StepFactor,

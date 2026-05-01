@@ -15,7 +15,7 @@ use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::plan::types::PlanStep;
 use crate::combat::ai::scoring::status_applications;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::utility::AiWorld;
+use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext};
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;

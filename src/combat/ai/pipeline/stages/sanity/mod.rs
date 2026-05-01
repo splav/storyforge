@@ -22,7 +22,7 @@ use crate::combat::ai::scoring::factors::{aoe_area, PlanFactor, PlanFactorValues
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::combat::effects_math::final_damage_f32;
 use crate::content::abilities::AoEShape;

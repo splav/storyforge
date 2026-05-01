@@ -12,7 +12,7 @@ pub mod tempo_gain;
 use crate::combat::ai::scoring::factors::registry::{default_norm, BatchStats};
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 
 crate::factor_kind! {
     name: PlanFactor,

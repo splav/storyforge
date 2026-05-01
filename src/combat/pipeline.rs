@@ -59,7 +59,7 @@ impl Plugin for CombatPipelinePlugin {
         .add_systems(
             Update,
             (
-                super::ai::enemy_turn::pact_ai_system,
+                super::ai::system::pact_ai_system,
                 command_input::player_command_system,
             )
                 .chain()
@@ -67,7 +67,7 @@ impl Plugin for CombatPipelinePlugin {
         )
         .add_systems(
             Update,
-            super::ai::enemy_turn::enemy_ai_system.in_set(CombatStep::Command),
+            super::ai::system::enemy_ai_system.in_set(CombatStep::Command),
         )
         .add_systems(
             Update,

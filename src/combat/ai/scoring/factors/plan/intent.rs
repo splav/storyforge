@@ -12,7 +12,7 @@ use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::scoring::factors::aggregate::compute_plan_intent_sum;
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 
 pub fn compute(plan: &TurnPlan, intent: &TacticalIntent, ctx: &ScoringCtx) -> f32 {
     compute_plan_intent_sum(plan, intent, ctx, EvaluationMode::Default)

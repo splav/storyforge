@@ -14,7 +14,7 @@ pub const SIGNED: bool = true;
 use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::content::abilities::StatusOn;
 use crate::content::content_view::ContentView;

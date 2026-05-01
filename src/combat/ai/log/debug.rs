@@ -8,7 +8,7 @@ use crate::combat::ai::scoring::target_selection::{highest_priority_enemy, targe
 use crate::combat::ai::scoring::factors::{PlanFactorValues, ScoredStep};
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::config::tuning::AiTuning;
-use crate::combat::ai::utility::{AiDecision, PickMechanics};
+use crate::combat::ai::orchestration::{AiDecision, PickMechanics};
 use crate::game::hex::{hex_to_offset, Hex};
 use crate::game::resources::{UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
@@ -701,8 +701,8 @@ fn decision_debug(
         }
         AiDecision::Move { path, origin } => {
             let label = match origin {
-                crate::combat::ai::utility::MoveOrigin::BestPlan => "MoveOnly",
-                crate::combat::ai::utility::MoveOrigin::Fallback => "MoveCloser",
+                crate::combat::ai::orchestration::MoveOrigin::BestPlan => "MoveOnly",
+                crate::combat::ai::orchestration::MoveOrigin::Fallback => "MoveCloser",
             };
             let dest = path.last().copied().unwrap_or(actor_pos);
             let prefix = match fallback_reason {

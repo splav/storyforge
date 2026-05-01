@@ -18,7 +18,7 @@ use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::intent::agenda::Agenda;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 use crate::core::rng::DiceRng;
 use crate::game::hex::Hex;
 

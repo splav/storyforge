@@ -155,9 +155,9 @@ pub fn assert_v28_log_file(
     inf_cfg: &InfluenceConfig,
 ) -> Result<AssertOutcome, AssertError> {
     use crate::combat::ai::log::{parse_actor_tick, ActorTickEvent, LoggedDecision};
-    use crate::combat::ai::utility::pick_action;
+    use crate::combat::ai::orchestration::pick_action;
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::utility::AiWorld;
+    use crate::combat::ai::orchestration::AiWorld;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
 
     let overlay = load_overlay(overlay_path)?;

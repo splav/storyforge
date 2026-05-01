@@ -9,7 +9,7 @@ pub const SIGNED: bool = false;
 use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::scoring::factors::{compute_offensive_for_step, ScoredStep};
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
-use crate::combat::ai::utility::ScoringCtx;
+use crate::combat::ai::orchestration::ScoringCtx;
 
 pub fn compute(
     ctx: &ScoringCtx,

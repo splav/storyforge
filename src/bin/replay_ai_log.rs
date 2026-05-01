@@ -36,7 +36,7 @@ use storyforge::combat::ai::replay::{
 };
 use storyforge::combat::ai::world::reservations::Reservations;
 use storyforge::combat::ai::world::tags::cache::build_caches;
-use storyforge::combat::ai::utility::{AiDecision, AiWorld, pick_action};
+use storyforge::combat::ai::orchestration::{AiDecision, AiWorld, pick_action};
 use storyforge::content::content_view::ContentView;
 use storyforge::core::DiceRng;
 use storyforge::game::hex::Hex;
