@@ -426,3 +426,44 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] `ProtectSelfMask`, `KillableGate`, `Finalize`, `PickBest` — не изменены
 
 ---
+
+## 2026-05-01 — P3a.4 — ProtectSelfMask + KillableGate → trace.masks/gates (completed)
+
+**Что сделано:**
+- `ProtectSelfMaskStage::apply()` пушит `MaskHit { kind: MaskKind::Poison, source: "protect_self" }` для каждого замаскированного плана. Bridging: `ann.score_trace = ScoreTrace { base: pre_scores[i], ..Default::default() }` внутри if-блока (только для masked планов). `debug_assert_eq!(ann.score_trace.compute(), f32::NEG_INFINITY)` — инвариант на masked plans.
+- `KillableGateStage::apply()` пушит **double-emit** для каждого gated плана: `GateHit { outcome: GateOutcome::Reject, source: "killable_gate" }` + `MaskHit { kind: MaskKind::Poison, source: "killable_gate" }`. Bridging аналогичен ProtectSelf. `debug_assert_eq!(ann.score_trace.compute(), f32::NEG_INFINITY)` — инвариант.
+- `ann.score = NEG_INFINITY` и `ann.contract = Some(ContractMaskHit { ... })` сохранены в обеих стадиях — behavioural diff = 0.
+- 3 новых теста в `pipeline/stages/protect_self.rs::tests`:
+  - `p3a_protect_self_mask_emits_mask_hit` — non-defensive plan: `masks.len()==1`, kind=Poison, source="protect_self", `gates.is_empty()`.
+  - `p3a_protect_self_mask_no_hit_when_defensive` — defensive plan: `masks.is_empty()`, score unchanged=0.5.
+  - `p3a_protect_self_mask_invariant` — masked plan: `ann.score == NEG_INFINITY && trace.compute() == NEG_INFINITY`.
+- 3 новых теста в `pipeline/stages/killable_gate.rs::tests`:
+  - `p3a_killable_gate_emits_gate_and_mask_hits` — gated plan: `gates.len()==1`, outcome=Reject, source="killable_gate", `masks.len()==1`, kind=Poison, `is_gated()==true`.
+  - `p3a_killable_gate_no_hit_when_intent_not_focus_target` — Reposition intent: `gates.is_empty()`, `masks.is_empty()`.
+  - `p3a_killable_gate_compute_returns_neg_infinity` — gated plan: `trace.compute() == NEG_INFINITY`.
+
+**Комментарии / отклонения от плана:**
+- **Выбран Option A** (double-emit для KillableGate): GateHit + MaskHit Poison. GateHit — корректная семантика (соответствует PostScoreGate classification в STAGE_SPECS и roadmap'е). MaskHit Poison — необходим для поддержания инварианта `ann.score == trace.compute()`, пока KillableGate всё ещё ставит NEG_INFINITY. Только-GateHit вариант (без MaskHit) был бы некорректен: `trace.compute()` вернул бы finite значение при NEG_INFINITY score, ломая инвариант.
+- **KillableGate: семантическая расщеплённость** — стадия классифицирована как `PostScoreGate` в STAGE_SPECS (и в roadmap'е), но по текущей реализации ведёт себя как Mask (ставит NEG_INFINITY). Double-emit отражает оба аспекта: roadmap-семантику через GateHit и фактическое поведение через MaskHit Poison. Переход на чистый Gate-behavior (флаг вместо NEG_INFINITY, удаление MaskHit Poison) — будущий slice после P3a.6.
+- **Invariant assert — только для masked/gated планов**: для finite-pre → finite-post планов assert не запускается. Это сделано намеренно: для не-masked/не-gated планов `score_trace` остаётся в upstream-состоянии (default с base=0 от предыдущих стадий), и `trace.compute()` не равен `ann.score`. Assert внутри `if new_score == NEG_INFINITY` блока — корректная область видимости.
+
+**Файлы:**
+- `src/combat/ai/pipeline/stages/protect_self.rs` — миграция apply() + 3 теста
+- `src/combat/ai/pipeline/stages/killable_gate.rs` — миграция apply() + 3 теста
+- `docs/ai/pipeline.md` (обновлена секция ScoreTrace)
+- `docs/ai/restructure_log.md` (этот файл)
+- `docs/ai/restructure.md` (status table)
+
+**DoD проверка:**
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 775 passed (769 + 6 новых)
+- [x] `cargo test` (интеграционные) — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Behavioural diff = 0: `ann.score = NEG_INFINITY` и `ann.contract` сохранены bit-identical
+- [x] Existing тесты `protect_self_mask_*` (3 шт) и `killable_gate_*` (3 шт) — зелёные без изменений
+- [x] Existing тесты P3a.0/1/2/3 — без regressions
+- [x] Только два файла стадий тронуты: `protect_self.rs` и `killable_gate.rs`
+- [x] `STAGE_SPECS` не изменены
+- [x] `FinalizeStage`, `PickBest`, `SanityStage`, `CriticsStage`, `PlanModifiersStage` — не изменены
+
+---

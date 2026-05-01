@@ -10,6 +10,7 @@
 
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::outcome::ContractMaskHit;
+use crate::combat::ai::pipeline::score_trace::{GateHit, GateOutcome, MaskHit, MaskKind, ScoreTrace};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::planning::apply_killable_gate;
 
@@ -59,6 +60,23 @@ impl PlanStage for KillableGateStage {
                     mask: "killable_gate".into(),
                     original_score: pre_scores[i],
                 });
+
+                // P3a.4: double-emit — GateHit (semantic intent, PostScoreGate classification)
+                // + MaskHit Poison (maintains invariant ann.score == trace.compute() while
+                // KillableGate still sets NEG_INFINITY). When KillableGate transitions to
+                // pure gate-flag behaviour, MaskHit Poison will be removed.
+                ann.score_trace = ScoreTrace { base: pre_scores[i], ..Default::default() };
+                ann.score_trace.push_gate(GateHit {
+                    outcome: GateOutcome::Reject,
+                    source: "killable_gate",
+                });
+                ann.score_trace.push_mask(MaskHit {
+                    kind: MaskKind::Poison,
+                    source: "killable_gate",
+                });
+
+                // Invariant: for gated plans, ann.score == compute() == NEG_INFINITY.
+                debug_assert_eq!(ann.score_trace.compute(), f32::NEG_INFINITY);
             }
             ann.score = new_score;
         }
@@ -221,5 +239,116 @@ mod tests {
         for ann in &pool.annotations {
             assert!(ann.contract.is_none(), "no contract annotation when gate does not fire");
         }
+    }
+
+    // ── P3a.4: ScoreTrace emission ────────────────────────────────────────────
+
+    #[test]
+    fn p3a_killable_gate_emits_gate_and_mask_hits() {
+        // Non-offensive plan under FocusTarget with kill signal → GateHit + MaskHit Poison.
+        let pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(2, 0);
+        let target_entity = ent(2);
+
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos).hp(1).max_hp(10).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+
+        let offensive_plan = TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: AbilityId::from("attack"),
+                target: target_entity,
+                target_pos,
+            }],
+            final_pos: pos,
+            ..TurnPlan::default()
+        };
+        let non_offensive_plan = TurnPlan {
+            steps: vec![PlanStep::Move { path: vec![hex_from_offset(1, 0)] }],
+            final_pos: hex_from_offset(1, 0),
+            ..TurnPlan::default()
+        };
+
+        let plans = vec![offensive_plan, non_offensive_plan];
+        let scores = vec![0.5_f32, 0.6_f32];
+        let raw = vec![
+            pfv_kill_now(1.0),
+            PlanFactorValues::default(),
+        ];
+
+        let pool = run_stage(
+            plans, scores, raw,
+            TacticalIntent::FocusTarget { target: target_entity },
+            &snap, &actor,
+        );
+
+        let trace = &pool.annotations[1].score_trace;
+        assert_eq!(trace.gates.len(), 1, "exactly one GateHit expected");
+        assert_eq!(trace.gates[0].outcome, crate::combat::ai::pipeline::score_trace::GateOutcome::Reject);
+        assert_eq!(trace.gates[0].source, "killable_gate");
+        assert_eq!(trace.masks.len(), 1, "exactly one MaskHit Poison expected");
+        assert_eq!(trace.masks[0].kind, crate::combat::ai::pipeline::score_trace::MaskKind::Poison);
+        assert!(trace.is_gated(), "is_gated() must return true for gated plan");
+    }
+
+    #[test]
+    fn p3a_killable_gate_no_hit_when_intent_not_focus_target() {
+        // Reposition intent → stage skips entirely; trace.gates and trace.masks empty.
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+
+        let plans = vec![TurnPlan::default()];
+        let scores = vec![0.5_f32];
+        let raw = vec![pfv_kill_now(1.0)];
+
+        let pool = run_stage(plans, scores, raw, TacticalIntent::Reposition, &snap, &actor);
+
+        let trace = &pool.annotations[0].score_trace;
+        assert!(trace.gates.is_empty(), "no GateHit for non-FocusTarget intent");
+        assert!(trace.masks.is_empty(), "no MaskHit for non-FocusTarget intent");
+    }
+
+    #[test]
+    fn p3a_killable_gate_compute_returns_neg_infinity() {
+        // Gated plan: trace.compute() == NEG_INFINITY (due to Poison mask).
+        let pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(2, 0);
+        let target_entity = ent(2);
+
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos).hp(1).max_hp(10).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+
+        let offensive_plan = TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: AbilityId::from("attack"),
+                target: target_entity,
+                target_pos,
+            }],
+            final_pos: pos,
+            ..TurnPlan::default()
+        };
+        let non_offensive_plan = TurnPlan {
+            steps: vec![PlanStep::Move { path: vec![hex_from_offset(1, 0)] }],
+            final_pos: hex_from_offset(1, 0),
+            ..TurnPlan::default()
+        };
+
+        let plans = vec![offensive_plan, non_offensive_plan];
+        let scores = vec![0.5_f32, 0.6_f32];
+        let raw = vec![pfv_kill_now(1.0), PlanFactorValues::default()];
+
+        let pool = run_stage(
+            plans, scores, raw,
+            TacticalIntent::FocusTarget { target: target_entity },
+            &snap, &actor,
+        );
+
+        assert_eq!(
+            pool.annotations[1].score_trace.compute(),
+            f32::NEG_INFINITY,
+            "trace.compute() must be NEG_INFINITY for gated plan"
+        );
     }
 }

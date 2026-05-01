@@ -89,13 +89,15 @@ struct StageSpec {
 
 `src/combat/ai/pipeline/score_trace.rs` — типизированный лог score-affecting effects, накапливаемых стадиями pipeline'а. Реализовано в P3a.0, миграция стадий — P3a.{1..5}.
 
-**Статус: P3a.3 done — SanityStage emits MultiplierHits with kind=Sanity.**
+**Статус: P3a.4 done — ProtectSelfMaskStage и KillableGateStage эмитят Mask/Gate hits.**
 
 - `PlanModifiersStage` (P3a.1) пушит `AddendHit` в `score_trace.addends` для каждого из 3 modifier'ов.
 - `CriticsStage` (P3a.2) пушит `MultiplierHit { kind: Critic, value }` в `score_trace.multipliers` для каждого critic hit.
 - `SanityStage` (P3a.3) пушит `MultiplierHit { kind: Sanity, value }` в `score_trace.multipliers` для каждого `SanityHit`. Snapshot entry scores снимается до вызова `sanity_adjust_plans` для корректного bridging. Masked планы (`entry_score = NEG_INFINITY`) — invariant assert пропускается.
+- `ProtectSelfMaskStage` (P3a.4) пушит `MaskHit { kind: Poison, source: "protect_self" }` для каждого замаскированного плана. Bridging: `score_trace = { base: pre_score, ..default }` внутри if-блока.
+- `KillableGateStage` (P3a.4) пушит **double-emit**: `GateHit { outcome: Reject, source: "killable_gate" }` (семантический сигнал, соответствует PostScoreGate classification в STAGE_SPECS) и `MaskHit { kind: Poison, source: "killable_gate" }` (поддерживает инвариант `ann.score == trace.compute()` пока стадия всё ещё ставит NEG_INFINITY). Переход на чистый Gate-behavior (флаг без NEG_INFINITY) — будущий slice.
 
-Bridging (partial migration phase): каждая мигрированная стадия полностью сбрасывает trace (`ScoreTrace { base: ann.score, ..Default::default() }`) на входе, чтобы не наследовать multipliers/addends от предыдущих мигрированных стадий. Trace отражает только эффекты **последней мигрированной стадии**. Полный накопленный trace будет после P3a.6 (Finalize + cleanup). Инвариант `ann.score == trace.compute()` проверяется `debug_assert` (только для `is_finite()` entry score). Остальные стадии (ProtectSelf, KillableGate, Finalize) продолжают мутировать `ann.score` напрямую — они мигрируют в P3a.{4..5}.
+Bridging (partial migration phase): каждая мигрированная стадия полностью сбрасывает trace (`ScoreTrace { base: ann.score, ..Default::default() }`) на входе, чтобы не наследовать эффекты от предыдущих мигрированных стадий. Trace отражает только эффекты **последней мигрированной стадии**. Полный накопленный trace будет после P3a.6 (cleanup). Инвариант `ann.score == trace.compute()` проверяется `debug_assert` только для masked/gated планов (finite-pre → NEG_INFINITY-post); для finite-pre → finite-post планов не проверяется. `FinalizeStage` мигрирует в P3a.5.
 
 ### Структура
 

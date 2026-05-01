@@ -10,6 +10,7 @@
 
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::outcome::ContractMaskHit;
+use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind, ScoreTrace};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::planning::apply_protect_self_mask;
 
@@ -53,6 +54,17 @@ impl PlanStage for ProtectSelfMaskStage {
                     mask: "protect_self".into(),
                     original_score: pre_scores[i],
                 });
+
+                // P3a.4: emit MaskHit for the poisoned plan.
+                // Bridging: set base = pre_score so compute() == NEG_INFINITY via Poison mask.
+                ann.score_trace = ScoreTrace { base: pre_scores[i], ..Default::default() };
+                ann.score_trace.push_mask(MaskHit {
+                    kind: MaskKind::Poison,
+                    source: "protect_self",
+                });
+
+                // Invariant: for masked plans, ann.score == compute() == NEG_INFINITY.
+                debug_assert_eq!(ann.score_trace.compute(), f32::NEG_INFINITY);
             }
             ann.score = new_score;
         }
@@ -171,5 +183,53 @@ mod tests {
         for ann in &pool.annotations {
             assert!(ann.contract.is_none(), "no contract annotation when all plans are defensive");
         }
+    }
+
+    // ── P3a.4: ScoreTrace emission ────────────────────────────────────────────
+
+    #[test]
+    fn p3a_protect_self_mask_emits_mask_hit() {
+        // Non-defensive plan under ProtectSelf intent → MaskHit Poison emitted.
+        let plans = vec![TurnPlan::default()];
+        let scores = vec![0.5_f32];
+        let raw = vec![pfv_survival(0.0)]; // survival=0.0 → non-defensive
+
+        let pool = run_stage(plans, scores, raw, TacticalIntent::ProtectSelf);
+
+        let trace = &pool.annotations[0].score_trace;
+        assert_eq!(trace.masks.len(), 1, "exactly one MaskHit expected");
+        assert_eq!(trace.masks[0].kind, crate::combat::ai::pipeline::score_trace::MaskKind::Poison);
+        assert_eq!(trace.masks[0].source, "protect_self");
+        assert!(trace.gates.is_empty(), "no GateHit expected for ProtectSelf mask");
+    }
+
+    #[test]
+    fn p3a_protect_self_mask_no_hit_when_defensive() {
+        // Defensive plan (survival ≥ epsilon) → score unchanged, trace.masks empty.
+        let plans = vec![TurnPlan::default()];
+        let scores = vec![0.5_f32];
+        let raw = vec![pfv_survival(0.5)]; // survival=0.5 → defensive
+
+        let pool = run_stage(plans, scores, raw, TacticalIntent::ProtectSelf);
+
+        let ann = &pool.annotations[0];
+        assert!(ann.score.is_finite() && (ann.score - 0.5).abs() < 1e-6,
+            "defensive plan score should be unchanged: got {}", ann.score);
+        assert!(ann.score_trace.masks.is_empty(), "no MaskHit expected for defensive plan");
+    }
+
+    #[test]
+    fn p3a_protect_self_mask_invariant() {
+        // Masked plan: ann.score == NEG_INFINITY, trace.compute() == NEG_INFINITY.
+        let plans = vec![TurnPlan::default()];
+        let scores = vec![0.7_f32];
+        let raw = vec![pfv_survival(0.0)]; // non-defensive → will be masked
+
+        let pool = run_stage(plans, scores, raw, TacticalIntent::ProtectSelf);
+
+        let ann = &pool.annotations[0];
+        assert_eq!(ann.score, f32::NEG_INFINITY, "masked plan score must be NEG_INFINITY");
+        assert_eq!(ann.score_trace.compute(), f32::NEG_INFINITY,
+            "trace.compute() must equal NEG_INFINITY for masked plan");
     }
 }
