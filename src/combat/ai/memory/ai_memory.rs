@@ -3,7 +3,7 @@ use crate::combat::ai::repair::{classify_mismatch, compute_status_delta, Mismatc
 use crate::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
 use crate::combat::ai::world::tags::StatusTagCache;
 use crate::game::hex::Hex;
-use super::kinds::IntentKind;
+use crate::combat::ai::intent::IntentKind;
 
 // ── Plan freeze: stored plan + invalidation snapshot ──────────────────────
 

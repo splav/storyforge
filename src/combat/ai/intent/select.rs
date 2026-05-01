@@ -9,7 +9,7 @@ use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::game::hex::Hex;
 use super::kinds::{IntentKind, IntentReason, TacticalIntent};
-use super::memory::AiMemory;
+use crate::combat::ai::memory::AiMemory;
 
 // ── Intent selection result ─────────────────────────────────────────────────
 

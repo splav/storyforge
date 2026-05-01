@@ -2,11 +2,12 @@
 //! orchestrator (`enemy_turn.rs`). Not wired into the plan pipeline
 //! (see §7.3 plan: lifecycle = explicit module, not a stage).
 
-use crate::combat::ai::intent::AiMemory;
+use crate::combat::ai::memory::AiMemory;
 use crate::combat::ai::repair::{
-    ContinuationSeverity, classify_continuation_outcome, extract_goal_context,
+    ContinuationSeverity, classify_continuation_outcome,
     is_abandoned_outcome, FreshDecisionKind,
 };
+use super::context::extract_goal_context;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::world::tags::StatusTagCache;
 use crate::combat::ai::config::tuning::AiTuning;
@@ -107,7 +108,7 @@ mod tests {
     use bevy::prelude::Entity;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::plan::types::{TurnPlan, PlanStep};
-    use crate::combat::ai::repair::goal::{GoalKind, StoredGoalContext};
+    use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::utility::ChosenInfo;
     use crate::game::hex::hex_from_offset;

@@ -42,7 +42,7 @@ use crate::combat::ai::intent::{AiMemory, IntentKind, IntentReason, TacticalInte
 use crate::combat::ai::intent::bands::{BandReason, PriorityBand};
 use crate::combat::ai::intent::considerations::IntentConsiderations;
 use crate::combat::ai::repair::{ContinuationSeverity, StoredGoalContext};
-use crate::combat::ai::repair::goal::GoalKind;
+use crate::combat::ai::memory::goal::GoalKind;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::adapt::{AdaptationReason, EvaluationMode};
 use crate::combat::ai::pipeline::stages::sanity::SanityHit;

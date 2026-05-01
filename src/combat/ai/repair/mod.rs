@@ -5,13 +5,12 @@
 /// into semantic severity levels, enabling downstream logic (6.3+) to reason
 /// about whether a stored goal is still achievable rather than treating every
 /// state change as a reason to replan from scratch.
-pub mod goal;
-pub use goal::{GoalKind, StoredGoalContext, extract_goal_context};
+// goal.rs and lifecycle.rs have moved to memory/goal/.
+// Re-export for backward-compat so existing callers (`repair::GoalKind`, etc.) continue to work.
+pub use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext, extract_goal_context};
 
 pub mod affinity;
 pub use affinity::{RepairAffinity, RepairWeights, compute_repair_affinity};
-
-pub mod lifecycle;
 
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::world::snapshot::ActiveStatusView;

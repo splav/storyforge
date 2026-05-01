@@ -660,7 +660,7 @@ mod tests {
     }
 
     fn make_stored_goal() -> crate::combat::ai::repair::StoredGoalContext {
-        use crate::combat::ai::repair::goal::{GoalKind, StoredGoalContext};
+        use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
         use crate::game::hex::Hex;
         StoredGoalContext {
             kind: GoalKind::Pressure {

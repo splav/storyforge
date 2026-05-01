@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::plan::types::PlanStep;
-use crate::combat::ai::repair::goal::{GoalKind, StoredGoalContext};
+use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
 use crate::combat::ai::repair::ContinuationSeverity;
 use crate::game::hex::Hex;
 
@@ -201,7 +201,7 @@ fn ttl_factor(stored: &StoredGoalContext, current_round: u32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::repair::goal::{GoalKind, StoredGoalContext};
+    use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
     use crate::core::AbilityId;
     use crate::game::hex::Hex;
     use bevy::prelude::Entity;

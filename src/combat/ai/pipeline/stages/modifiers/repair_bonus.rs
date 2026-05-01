@@ -70,7 +70,7 @@ mod tests {
         target: bevy::prelude::Entity,
         pos: Hex,
     ) -> crate::combat::ai::repair::StoredGoalContext {
-        use crate::combat::ai::repair::goal::GoalKind;
+        use crate::combat::ai::memory::goal::GoalKind;
         use crate::combat::ai::repair::StoredGoalContext;
         StoredGoalContext {
             kind: GoalKind::Finish { target },

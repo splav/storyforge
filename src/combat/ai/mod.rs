@@ -6,6 +6,7 @@ pub mod adapt;
 pub mod pipeline;
 pub mod appraisal;
 pub mod repair;
+pub mod memory;
 pub mod outcome;
 pub mod plan;
 pub mod scoring;
