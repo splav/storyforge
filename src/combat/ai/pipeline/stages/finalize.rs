@@ -27,6 +27,7 @@
 //!   multiply on the correct base.
 
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
+use crate::combat::ai::pipeline::score_trace::ScoreTrace;
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::planning::rescore_with_per_plan_modes;
 
@@ -67,14 +68,34 @@ impl PlanStage for FinalizeStage {
             ctx.scoring,
         );
 
-        // Write back scores and updated factors.
-        for (ann, (new_score, new_raw)) in pool
+        // Write back scores, updated factors, and trace (P3a.5: Rescore semantics).
+        for (i, (ann, (new_score, new_raw))) in pool
             .annotations
             .iter_mut()
             .zip(new_scores.into_iter().zip(raw_factors.into_iter()))
+            .enumerate()
         {
             ann.score = new_score;
             ann.factors = new_raw;
+
+            // P3a.5: Rescore semantics — base = new_score, rescore_mode = mode, effects cleared.
+            // FinalizeStage is the ONLY stage with ScoreEffect::Rescore (see STAGE_SPECS).
+            // Any upstream effects accumulated in trace before Finalize are considered stale.
+            ann.score_trace = ScoreTrace {
+                base: new_score,
+                rescore_mode: Some(modes[i]),
+                ..Default::default()
+            };
+
+            // Invariant: ann.score == trace.compute() (base only, no effects).
+            if new_score.is_finite() {
+                debug_assert!(
+                    (ann.score - ann.score_trace.compute()).abs() < 1e-5,
+                    "P3a.5 invariant violated: plan[{i}] ann.score={} vs compute()={}",
+                    ann.score,
+                    ann.score_trace.compute(),
+                );
+            }
         }
     }
 }
@@ -223,5 +244,151 @@ mod tests {
             (after_score - initial_score).abs() < 1e-5,
             "Default-mode finalize should be idempotent: initial={initial_score}, after={after_score}"
         );
+    }
+
+    // ── P3a.5 tests ────────────────────────────────────────────────────────────
+
+    /// After FinalizeStage, trace.base == ann.score and rescore_mode = Default.
+    /// All effect vecs must be empty (only base is set).
+    #[test]
+    fn p3a_finalize_sets_trace_base_to_new_score() {
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(20).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+
+        let pool = run_finalize(
+            vec![empty_plan()],
+            vec![0.5_f32],
+            vec![PlanFactorValues::default()],
+            vec![None],
+            &actor,
+            &snap,
+            TacticalIntent::Reposition,
+        );
+
+        let ann = &pool.annotations[0];
+        assert!(
+            (ann.score - ann.score_trace.base).abs() < 1e-5,
+            "trace.base must equal ann.score: score={}, base={}",
+            ann.score,
+            ann.score_trace.base,
+        );
+        assert_eq!(ann.score_trace.rescore_mode, Some(EvaluationMode::Default));
+        assert!(ann.score_trace.multipliers.is_empty());
+        assert!(ann.score_trace.addends.is_empty());
+        assert!(ann.score_trace.masks.is_empty());
+        assert!(ann.score_trace.gates.is_empty());
+        assert!(
+            (ann.score_trace.compute() - ann.score).abs() < 1e-5,
+            "compute() must equal ann.score: compute={}, score={}",
+            ann.score_trace.compute(),
+            ann.score,
+        );
+    }
+
+    /// Upstream trace effects set BEFORE FinalizeStage must be cleared after it runs.
+    /// base is overwritten with new_score, not preserved from the stale upstream value.
+    #[test]
+    fn p3a_finalize_clears_upstream_effects() {
+        use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
+
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(20).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+
+        let maps = empty_maps();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let mut rng = DiceRng::default();
+        let mut ctx = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            actor.pos,
+            &mut rng,
+        );
+
+        let mut pool = ScoredPool::new(vec![empty_plan()]);
+        let ann = &mut pool.annotations[0];
+        ann.score = 0.8_f32;
+        ann.factors = PlanFactorValues::default();
+        ann.adaptation = None;
+        // Inject stale upstream trace state.
+        ann.score_trace = crate::combat::ai::pipeline::score_trace::ScoreTrace {
+            base: 999.0,
+            ..Default::default()
+        };
+        ann.score_trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.5 });
+
+        FinalizeStage.apply(&mut pool, &mut ctx);
+
+        let ann = &pool.annotations[0];
+        // Old base (999.0) must be gone; base = new_score from rescore.
+        assert!(
+            (ann.score_trace.base - ann.score).abs() < 1e-5,
+            "base must be new_score, not stale 999.0: base={}, score={}",
+            ann.score_trace.base,
+            ann.score,
+        );
+        assert!(ann.score_trace.multipliers.is_empty(), "upstream multipliers must be cleared");
+        assert!((ann.score_trace.compute() - ann.score).abs() < 1e-5);
+    }
+
+    /// Two plans — one with LastStand adaptation, one without.
+    /// rescore_mode must reflect the per-plan mode.
+    #[test]
+    fn p3a_finalize_records_rescore_mode_per_plan() {
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(5).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+
+        let adaptation_last_stand = Some(AdaptationData {
+            reason: AdaptationReason::ProtectSelfNoDefensive,
+            original_score: 0.5,
+        });
+
+        let pool = run_finalize(
+            vec![empty_plan(), empty_plan()],
+            vec![0.5_f32, 0.8_f32],
+            vec![PlanFactorValues::default(), PlanFactorValues::default()],
+            vec![adaptation_last_stand, None],
+            &actor,
+            &snap,
+            TacticalIntent::Reposition,
+        );
+
+        assert_eq!(
+            pool.annotations[0].score_trace.rescore_mode,
+            Some(EvaluationMode::LastStand),
+            "plan with adaptation must have LastStand rescore_mode"
+        );
+        assert_eq!(
+            pool.annotations[1].score_trace.rescore_mode,
+            Some(EvaluationMode::Default),
+            "plan without adaptation must have Default rescore_mode"
+        );
+    }
+
+    /// Empty pool: FinalizeStage must return immediately without panicking.
+    #[test]
+    fn p3a_finalize_empty_pool_no_op() {
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(20).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+
+        let pool = run_finalize(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            &actor,
+            &snap,
+            TacticalIntent::Reposition,
+        );
+
+        assert!(pool.is_empty(), "pool must remain empty");
     }
 }

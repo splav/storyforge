@@ -467,3 +467,44 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] `FinalizeStage`, `PickBest`, `SanityStage`, `CriticsStage`, `PlanModifiersStage` — не изменены
 
 ---
+
+## 2026-05-01 — P3a.5 — Finalize → Rescore (sets trace.base, clears effects) (completed)
+
+**Что сделано:**
+- `FinalizeStage::apply()` теперь устанавливает `ann.score_trace = ScoreTrace { base: new_score, rescore_mode: Some(modes[i]), ..Default::default() }` для каждого плана после rescoring.
+- `ann.score = new_score` и `ann.factors = new_raw` сохранены — behavioural diff = 0.
+- `debug_assert!((ann.score - ann.score_trace.compute()).abs() < 1e-5)` — только для `new_score.is_finite()` (защита от ложных срабатываний на NaN/Infinity).
+- `rescore_mode` теперь заполнен (`Some(EvaluationMode::Default)` или `Some(EvaluationMode::LastStand)`) — диагностический сигнал о режиме rescoring.
+- Это ЕДИНСТВЕННАЯ стадия с `ScoreEffect::Rescore` (см. STAGE_SPECS). Upstream effects до Finalize считаются устаревшими и очищаются struct-literal присваиванием (эквивалентно `reset_effects() + base = new_score`).
+- 4 новых теста в `pipeline/stages/finalize.rs::tests`:
+  - `p3a_finalize_sets_trace_base_to_new_score` — trace.base == ann.score, rescore_mode = Default, все vecs пусты, compute() == ann.score.
+  - `p3a_finalize_clears_upstream_effects` — стale upstream trace (base=999.0, multiplier=0.5) очищается; base = new_score; multipliers.is_empty().
+  - `p3a_finalize_records_rescore_mode_per_plan` — два плана (LastStand + Default); rescore_mode соответствует per-plan mode.
+  - `p3a_finalize_empty_pool_no_op` — empty pool не паникует, is_empty() == true после apply.
+
+**Комментарии / отклонения от плана:**
+- Это последняя миграция стадий в P3a. Следующий шаг (P3a.6) убирает bridging-резеты (`ScoreTrace { base: ann.score, ..Default::default() }`) из немигрированных-upstream-стадий (Sanity, Critics, ProtectSelfMask, KillableGate, PlanModifiers) и валидирует full-pipeline equivalence. После P3a.6 trace будет аккумулировать все эффекты pipeline'а: base (Finalize) → multipliers (Sanity, Critics) → addends (Modifiers) → mask/gate (ProtectSelf, KillableGate).
+- Struct-literal присваивание (`ann.score_trace = ScoreTrace { ... }`) явно и корректно документирует rescore-семантику — проще и нагляднее чем `reset_effects() + base = new_score`.
+- P3a.5 не меняет `if pool.is_empty() { return; }` early return — сохранён как было.
+
+**Файлы, которые затронули:**
+- `src/combat/ai/pipeline/stages/finalize.rs` — единственный изменённый файл стадии (+1 import, +~30 строк в apply, +4 теста)
+- `docs/ai/pipeline.md` (секция ScoreTrace: статус P3a.5 done, описание FinalizeStage migration)
+- `docs/ai/restructure_log.md` (этот файл)
+- `docs/ai/restructure.md` (status table)
+
+**DoD проверка:**
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 779 passed (775 + 4 новых)
+- [x] `cargo test` (интеграционные) — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Behavioural diff = 0: `ann.score = new_score` и `ann.factors = new_raw` сохранены bit-identical
+- [x] Existing тесты `finalize_applies_per_plan_modes` и `finalize_default_mode_idempotent` — зелёные без изменений
+- [x] Existing тесты P3a.0/1/2/3/4 — без regressions (775 → 779, +4 только finalize)
+- [x] Только один файл стадий тронут: `pipeline/stages/finalize.rs`
+- [x] `STAGE_SPECS` не изменены
+- [x] `if pool.is_empty() { return; }` сохранён
+- [x] debug_assert только для `new_score.is_finite()`
+- [x] `rescore_mode` заполнен: `Some(EvaluationMode::Default)` или `Some(EvaluationMode::LastStand)`
+
+---
