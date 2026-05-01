@@ -87,18 +87,21 @@ struct StageSpec {
 
 ## ScoreTrace — typed effect log (P3a)
 
-`src/combat/ai/pipeline/score_trace.rs` — типизированный лог score-affecting effects, накапливаемых стадиями pipeline'а. Реализовано в P3a.0, миграция стадий — P3a.{1..5}.
+`src/combat/ai/pipeline/score_trace.rs` — типизированный лог score-affecting effects, накапливаемых стадиями pipeline'а. Реализовано в P3a.0, миграция стадий — P3a.{1..5}, cleanup bridging-резетов — P3a.6.
 
-**Статус: P3a.5 done — все стадии мигрированы; следующий шаг P3a.6 убирает bridging-резеты и верифицирует full-pipeline equivalence.**
+**Статус: P3a complete (P3a.6 done 2026-05-01) — trace аккумулирует через pipeline; behavioural diff = 0, schema не тронута.**
 
-- `PlanModifiersStage` (P3a.1) пушит `AddendHit` в `score_trace.addends` для каждого из 3 modifier'ов.
-- `CriticsStage` (P3a.2) пушит `MultiplierHit { kind: Critic, value }` в `score_trace.multipliers` для каждого critic hit.
-- `SanityStage` (P3a.3) пушит `MultiplierHit { kind: Sanity, value }` в `score_trace.multipliers` для каждого `SanityHit`. Snapshot entry scores снимается до вызова `sanity_adjust_plans` для корректного bridging. Masked планы (`entry_score = NEG_INFINITY`) — invariant assert пропускается.
-- `ProtectSelfMaskStage` (P3a.4) пушит `MaskHit { kind: Poison, source: "protect_self" }` для каждого замаскированного плана. Bridging: `score_trace = { base: pre_score, ..default }` внутри if-блока.
-- `KillableGateStage` (P3a.4) пушит **double-emit**: `GateHit { outcome: Reject, source: "killable_gate" }` (семантический сигнал, соответствует PostScoreGate classification в STAGE_SPECS) и `MaskHit { kind: Poison, source: "killable_gate" }` (поддерживает инвариант `ann.score == trace.compute()` пока стадия всё ещё ставит NEG_INFINITY). Переход на чистый Gate-behavior (флаг без NEG_INFINITY) — будущий slice.
-- `FinalizeStage` (P3a.5) — **Rescore semantics**: устанавливает `score_trace = ScoreTrace { base: new_score, rescore_mode: Some(mode), ..Default::default() }`. Это единственная стадия с `ScoreEffect::Rescore` (см. STAGE_SPECS). Любые upstream effects до Finalize считаются устаревшими и очищаются. `rescore_mode` фиксирует `EvaluationMode` (Default или LastStand) использованный при rescoring — диагностический сигнал. Инвариант `ann.score == trace.compute()` проверяется `debug_assert` для всех конечных (`is_finite()`) scores.
+Накопление через production pipeline:
+- `FinalizeStage` (P3a.5) — **Rescore**: устанавливает `score_trace = ScoreTrace { base: new_score, rescore_mode: Some(mode), ..Default::default() }`. Единственная стадия с `ScoreEffect::Rescore`. Очищает любые upstream effects. `rescore_mode` фиксирует `EvaluationMode` (Default или LastStand).
+- `SanityStage` (P3a.3) пушит `MultiplierHit { kind: Sanity, value }` поверх trace для каждого `SanityHit`. Masked планы (`entry_score = NEG_INFINITY`) — assert пропускается.
+- `CriticsStage` (P3a.2) пушит `MultiplierHit { kind: Critic, value }` поверх trace для каждого critic hit.
+- `ProtectSelfMaskStage` (P3a.4) пушит `MaskHit { kind: Poison, source: "protect_self" }` для каждого замаскированного плана.
+- `KillableGateStage` (P3a.4) пушит **double-emit**: `GateHit { outcome: Reject }` + `MaskHit { kind: Poison }`. Переход на чистый Gate-behavior (флаг без NEG_INFINITY) — будущий slice.
+- `PlanModifiersStage` (P3a.1) пушит `AddendHit` для каждого из 3 modifier'ов.
 
-Bridging (partial migration phase): каждая мигрированная стадия кроме FinalizeStage полностью сбрасывает trace (`ScoreTrace { base: ann.score, ..Default::default() }`) на входе, чтобы не наследовать эффекты от предыдущих мигрированных стадий. После P3a.5 trace отражает effects **последней мигрированной стадии** (Finalize), поэтому содержит только `base + rescore_mode`. Полный накопленный trace (base → multipliers → addends) будет доступен после P3a.6 (cleanup bridging-резетов).
+После каждой стадии инвариант `ann.score == trace.compute()` проверяется `debug_assert`. Тест `p3a_full_pipeline_trace_compute_equals_ann_score` в `pipeline/mod.rs` верифицирует invariant после полного PRODUCTION_PIPELINE.
+
+**P3a.6 cleanup**: bridging-резеты (`ScoreTrace { base: ann.score, ..Default::default() }`) удалены из всех 5 мигрированных стадий (plan_modifiers, critics, sanity, protect_self, killable_gate). Ранее резеты были нужны при partial-migration: каждая стадия discardила чужие upstream-эффекты. Теперь trace аккумулирует естественно через весь pipeline начиная с Finalize::base.
 
 ### Структура
 
@@ -131,4 +134,4 @@ struct ScoreTrace {
 
 `PlanAnnotation.score_trace` добавлено в P3a.0 с `#[serde(skip)]`. Поле `ann.score` остаётся как cached `trace.compute()` результат и не удаляется; JSONL schema не меняется до P3b.
 
-`ScoreTrace::reset_effects()` очищает все Vec'ы (multipliers/addends/masks/gates) без изменения `base` — будет вызываться `FinalizeStage` при rescore в P3a.5.
+`ScoreTrace::reset_effects()` очищает все Vec'ы (multipliers/addends/masks/gates) без изменения `base` — вызывается `FinalizeStage` при rescore (через struct-literal assignment с `..Default::default()`).

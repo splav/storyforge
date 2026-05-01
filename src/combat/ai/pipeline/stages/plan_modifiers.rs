@@ -14,10 +14,11 @@
 //! contract masks applied by `ProtectSelfMaskStage` / `KillableGateStage`
 //! are not disturbed.
 //!
-//! **P3a.1:** Each modifier contribution is also pushed as an `AddendHit` into
-//! `ann.score_trace`. Bridging: `trace.base` is set to the incoming `ann.score`
-//! on entry (upstream stages are not yet migrated and mutate `ann.score`
-//! directly). After the modifier loop, `ann.score == trace.compute()`.
+//! **P3a.1 / P3a.6:** Each modifier contribution is also pushed as an
+//! `AddendHit` into `ann.score_trace`. After P3a.6 cleanup the trace
+//! accumulates over the full pipeline: `FinalizeStage` sets `trace.base`,
+//! downstream stages (Sanity, Critics, Modifiers) push hits on top.
+//! Invariant after apply: `ann.score == trace.compute()`.
 
 use crate::combat::ai::modifiers::{ModifierContribution, ModifierCtx, PLAN_MODIFIERS};
 use crate::combat::ai::pipeline::score_trace::AddendHit;
@@ -53,16 +54,9 @@ impl PlanStage for PlanModifiersStage {
                 continue;
             }
 
-            // P3a.1 bridging (fixed in P3a.2): upstream stages are not yet migrated
-            // and mutate ann.score directly. Fully reset the trace to discard any
-            // upstream multipliers, then set base = current score, so that
-            // trace.compute() == ann.score after the modifier loop.
-            // Cleaned up in P3a.6 once all upstream stages are migrated.
-            ann.score_trace = crate::combat::ai::pipeline::score_trace::ScoreTrace {
-                base: ann.score,
-                ..Default::default()
-            };
-
+            // P3a.6: bridging-reset removed. FinalizeStage (upstream) sets
+            // trace.base; this stage only pushes addend hits on top of the
+            // accumulated trace. Invariant: ann.score == trace.compute().
             for m in PLAN_MODIFIERS {
                 let contribution = m.modify(plan, ann, &mctx);
                 ann.modifiers.push(ModifierContribution {

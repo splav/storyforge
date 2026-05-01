@@ -508,3 +508,48 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] `rescore_mode` заполнен: `Some(EvaluationMode::Default)` или `Some(EvaluationMode::LastStand)`
 
 ---
+
+## 2026-05-01 — P3a.6 — cleanup bridging-resets + full-pipeline trace equivalence (completed)
+
+**Что сделано:**
+- Убраны bridging-резеты (`ann.score_trace = ScoreTrace { base: ..., ..Default::default() }`) из всех 5 мигрированных стадий: `plan_modifiers.rs`, `critics.rs`, `sanity.rs`, `protect_self.rs`, `killable_gate.rs`.
+- Удалены неиспользуемые `ScoreTrace`-импорты из `critics.rs`, `protect_self.rs`, `killable_gate.rs`.
+- Переменная `applied_count` в `critics.rs` удалена (нужна была только для conditional assert, теперь assert всегда для finite).
+- Unit-тест helpers в изменённых стадиях обновлены — инициализируют `ann.score_trace.base = score` перед прямым вызовом `apply()` без Finalize upstream:
+  - `critics.rs`: `make_pool_with_scores` — добавлено `ann.score_trace.base = score`.
+  - `sanity.rs`: `apply_sanity_to_two_plans` — добавлено `ann.score_trace.base = score`; `p3a_sanity_invariant_holds_for_all_finite_plans` — inline init; `p3a_sanity_masked_plan_trace_unchanged_or_only_base` — обновлён: init только для finite plan, убран assert на `trace.base == NEG_INFINITY` (bridging его создавал, теперь нет).
+  - `protect_self.rs` / `killable_gate.rs`: `run_stage` — добавлено `if score.is_finite() { ann.score_trace.base = score }`.
+- `p3a_modifiers_*` тесты (используют `run(PRODUCTION_PIPELINE, ...)`) — не тронуты: Finalize устанавливает base в production пути.
+- Добавлен новый тест `p3a_full_pipeline_trace_compute_equals_ann_score` в `pipeline/mod.rs::tests`: прогоняет PRODUCTION_PIPELINE и проверяет `ann.score == trace.compute()` для всех finite-score планов.
+
+**Комментарии / отклонения от плана:**
+- `protect_self.rs` и `killable_gate.rs`: bridging был только внутри `if new_score == NEG_INFINITY` блока (не на входе стадии). После удаления `trace.compute() == NEG_INFINITY` сохраняется через `push_mask(Poison)` независимо от `trace.base` — Poison mask в `compute()` даёт early return NEG_INFINITY. Invariant assert `debug_assert_eq!(trace.compute(), NEG_INFINITY)` сохранён.
+- `p3a_sanity_masked_plan_trace_unchanged_or_only_base`: убран assert `trace.base == NEG_INFINITY` — это было артефактом bridging (bridging устанавливал base=NEG_INFINITY для masked плана). После cleanup для masked плана в isolation `trace.base` = 0.0 (default) или значение из setup. В production Finalize устанавливает finite base до того как план будет замаскирован.
+- **Golden replay verification**: corpus в `logs/` содержит 121 JSONL файл, но replay-binary требует schema v27–v31; старые файлы — v22 (слишком старые), новые — v32 (too new). Verification отложена. Полагаемся на: behavioural тесты (ann.score/factors/contract/sanity/critics/modifiers bit-identical) + новый invariant-тест через full PRODUCTION_PIPELINE. No control-flow или formula изменений в production-коде — только удаление trace-reset строк.
+
+**Файлы, которые затронули:**
+- `src/combat/ai/pipeline/stages/plan_modifiers.rs` — удалён bridging-резет
+- `src/combat/ai/pipeline/stages/critics.rs` — удалён bridging-резет; `make_pool_with_scores` обновлён
+- `src/combat/ai/pipeline/stages/sanity.rs` — удалён bridging-резет; 3 теста обновлены
+- `src/combat/ai/pipeline/stages/protect_self.rs` — удалён bridging-резет; `run_stage` обновлён
+- `src/combat/ai/pipeline/stages/killable_gate.rs` — удалён bridging-резет; `run_stage` обновлён
+- `src/combat/ai/pipeline/mod.rs` — добавлен тест `p3a_full_pipeline_trace_compute_equals_ann_score`
+- `docs/ai/pipeline.md` (секция ScoreTrace: P3a complete, накопление через pipeline)
+- `docs/ai/restructure_log.md` (этот файл)
+- `docs/ai/restructure.md` (status table)
+
+**DoD проверка:**
+- [x] Bridging-резеты убраны из 5 файлов
+- [x] Unit tests обновлены: `score_trace.base` инициализируется в setup'ах
+- [x] Новый тест `p3a_full_pipeline_trace_compute_equals_ann_score` — зелёный
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 780 passed (779 + 1 новый), 0 failed
+- [x] `cargo test` (интеграционные) — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Behavioural diff = 0: `ann.score`, `ann.factors`, `ann.contract`, `ann.sanity`, `ann.critics`, `ann.modifiers`, `ann.adaptation`, `ann.chosen` — bit-identical с pre-P3a.6
+- [x] STAGE_SPECS не изменены
+- [x] JSONL schema не тронута (P3a — no schema bump)
+- [x] Golden replay: verification отложена — corpus schema mismatch (v22 old / v32 new vs. required v27–v31); полагаемся на unit + full-pipeline invariant тест
+- [x] P3a (umbrella) complete: ScoreTrace internal migration done
+
+---

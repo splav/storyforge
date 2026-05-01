@@ -10,7 +10,7 @@
 
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::outcome::ContractMaskHit;
-use crate::combat::ai::pipeline::score_trace::{GateHit, GateOutcome, MaskHit, MaskKind, ScoreTrace};
+use crate::combat::ai::pipeline::score_trace::{GateHit, GateOutcome, MaskHit, MaskKind};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::planning::apply_killable_gate;
 
@@ -61,11 +61,10 @@ impl PlanStage for KillableGateStage {
                     original_score: pre_scores[i],
                 });
 
-                // P3a.4: double-emit — GateHit (semantic intent, PostScoreGate classification)
-                // + MaskHit Poison (maintains invariant ann.score == trace.compute() while
-                // KillableGate still sets NEG_INFINITY). When KillableGate transitions to
-                // pure gate-flag behaviour, MaskHit Poison will be removed.
-                ann.score_trace = ScoreTrace { base: pre_scores[i], ..Default::default() };
+                // P3a.4 / P3a.6: double-emit on the accumulated trace —
+                // GateHit (PostScoreGate classification) + MaskHit Poison
+                // (maintains compute() == NEG_INFINITY while KillableGate still
+                // sets NEG_INFINITY). Bridging-reset removed.
                 ann.score_trace.push_gate(GateHit {
                     outcome: GateOutcome::Reject,
                     source: "killable_gate",
@@ -128,6 +127,10 @@ mod tests {
         for (ann, (score, raw_f)) in pool.annotations.iter_mut().zip(scores.into_iter().zip(raw.into_iter())) {
             ann.score = score;
             ann.factors = raw_f;
+            // P3a.6: initialise trace.base so the stage runs without Finalize upstream.
+            if score.is_finite() {
+                ann.score_trace.base = score;
+            }
         }
         KillableGateStage.apply(&mut pool, &mut ctx);
         pool

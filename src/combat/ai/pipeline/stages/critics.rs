@@ -48,16 +48,13 @@ impl PlanStage for CriticsStage {
     }
 
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
-        use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind, ScoreTrace};
+        use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
 
         for (plan, ann) in pool.plans.iter().zip(pool.annotations.iter_mut()) {
-            // P3a.2 partial-migration bridging: fully reset trace and treat
-            // current ann.score as the new base, discarding any upstream trace
-            // state. Cleaned up in P3a.6 once all stages are migrated.
+            // P3a.6: bridging-reset removed. FinalizeStage (upstream) sets
+            // trace.base; this stage pushes multiplier hits on top of the
+            // accumulated trace. Invariant: ann.score == trace.compute().
             let entry_score = ann.score;
-            ann.score_trace = ScoreTrace { base: entry_score, ..Default::default() };
-
-            let mut applied_count = 0;
 
             for c in &self.critics {
                 if let Some(hit) = c.evaluate(plan, ann, ctx.scoring) {
@@ -67,17 +64,16 @@ impl PlanStage for CriticsStage {
                         value: hit.multiplier,
                     });
                     ann.critics.push(hit);
-                    applied_count += 1;
                 }
             }
 
             // Invariant: ann.score == trace.compute() after this stage.
             // Only checked for finite entry scores to avoid NaN corner cases
-            // (e.g. NEG_INFINITY × 0.0 = NaN in some formulations).
-            if applied_count > 0 && entry_score.is_finite() {
+            // (e.g. NEG_INFINITY × 0.0 = NaN).
+            if entry_score.is_finite() {
                 debug_assert!(
                     (ann.score - ann.score_trace.compute()).abs() < 1e-5,
-                    "P3a.2 invariant violated: ann.score={} vs compute()={}",
+                    "P3a.6 invariant violated: ann.score={} vs compute()={}",
                     ann.score,
                     ann.score_trace.compute(),
                 );
@@ -110,6 +106,9 @@ mod tests {
         let mut pool = ScoredPool::new(plans);
         for (ann, score) in pool.annotations.iter_mut().zip(scores.into_iter()) {
             ann.score = score;
+            // P3a.6: initialise trace.base so the stage runs without Finalize upstream.
+            // In production, FinalizeStage sets this; unit tests call the stage directly.
+            ann.score_trace.base = score;
         }
         pool
     }
@@ -340,8 +339,8 @@ mod tests {
         );
     }
 
-    /// entry_score=1.0, multiplier=0.5: trace.base == 1.0 (synced from entry
-    /// score) and trace.compute() == 0.5 == ann.score.
+    /// entry_score=1.0, multiplier=0.5: trace.base == 1.0 (initialised in setup,
+    /// mirrors Finalize's role) and trace.compute() == 0.5 == ann.score.
     #[test]
     fn p3a_critics_trace_base_synced_from_score() {
         let stage = CriticsStage {

@@ -15,10 +15,10 @@ impl PlanStage for SanityStage {
     }
 
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
-        use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind, ScoreTrace};
+        use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
 
-        // Snapshot entry scores BEFORE sanity_adjust_plans mutates them — needed
-        // for bridging (trace.base must equal the pre-sanity score).
+        // Snapshot entry scores BEFORE sanity_adjust_plans mutates them —
+        // needed to detect masked plans (NEG_INFINITY) for the invariant guard.
         let entry_scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
 
         let mut scores: Vec<f32> = entry_scores.clone();
@@ -32,10 +32,9 @@ impl PlanStage for SanityStage {
         {
             ann.score = new_score;
 
-            // P3a partial-migration bridging: fully reset trace and treat
-            // current entry score as the new base, discarding any upstream
-            // trace state. Cleaned up in P3a.6 once all stages are migrated.
-            ann.score_trace = ScoreTrace { base: entry_scores[i], ..Default::default() };
+            // P3a.6: bridging-reset removed. FinalizeStage (upstream) sets
+            // trace.base; this stage pushes multiplier hits on top of the
+            // accumulated trace.
             for hit in &hits {
                 ann.score_trace.push_multiplier(MultiplierHit {
                     kind: MultiplierKind::Sanity,
@@ -50,7 +49,7 @@ impl PlanStage for SanityStage {
             if entry_scores[i].is_finite() {
                 debug_assert!(
                     (ann.score - ann.score_trace.compute()).abs() < 1e-5,
-                    "P3a.3 invariant violated: plan[{i}] ann.score={} vs compute()={}",
+                    "P3a.6 invariant violated: plan[{i}] ann.score={} vs compute()={}",
                     ann.score,
                     ann.score_trace.compute(),
                 );
@@ -118,6 +117,9 @@ mod tests {
         let mut pool = ScoredPool::new(plans);
         for (ann, score) in pool.annotations.iter_mut().zip(scores.into_iter()) {
             ann.score = score;
+            // P3a.6: initialise trace.base so the stage runs without Finalize upstream.
+            // In production, FinalizeStage sets this; unit tests call the stage directly.
+            ann.score_trace.base = score;
         }
         SanityStage.apply(&mut pool, &mut ctx);
         pool
@@ -428,6 +430,8 @@ mod tests {
         let mut pool = ScoredPool::new(plans);
         for (ann, score) in pool.annotations.iter_mut().zip([0.9_f32, 0.7_f32, 0.5_f32]) {
             ann.score = score;
+            // P3a.6: initialise trace.base so the stage runs without Finalize upstream.
+            ann.score_trace.base = score;
         }
         SanityStage.apply(&mut pool, &mut ctx);
 
@@ -446,8 +450,10 @@ mod tests {
     }
 
     /// A plan with ann.score = NEG_INFINITY (masked plan).
-    /// After apply: ann.score stays NEG_INFINITY, trace.base = NEG_INFINITY,
-    /// invariant assert is skipped (entry.is_finite() == false), no panic.
+    /// After apply: ann.score stays NEG_INFINITY, invariant assert is skipped
+    /// (entry.is_finite() == false), no panic. Sanity hits remain empty.
+    /// P3a.6: trace.base is NOT set by this stage (Finalize would set it in
+    /// production); in isolation the masked plan's trace.base stays as-is.
     #[test]
     fn p3a_sanity_masked_plan_trace_unchanged_or_only_base() {
         let dest_a = hex_from_offset(1, 0);
@@ -482,22 +488,19 @@ mod tests {
         // plan[0] is masked, plan[1] is normal.
         pool.annotations[0].score = f32::NEG_INFINITY;
         pool.annotations[1].score = 0.6;
+        // P3a.6: initialise trace.base for the finite plan only.
+        pool.annotations[1].score_trace.base = 0.6;
 
         // Must not panic.
         SanityStage.apply(&mut pool, &mut ctx);
 
-        // plan[0]: score stays NEG_INFINITY; trace.base = NEG_INFINITY;
+        // plan[0]: score stays NEG_INFINITY;
         // sanity hits remain empty (sanity_adjust_plans skips non-finite).
         let masked = &pool.annotations[0];
         assert_eq!(
             masked.score,
             f32::NEG_INFINITY,
             "masked plan score must remain NEG_INFINITY",
-        );
-        assert_eq!(
-            masked.score_trace.base,
-            f32::NEG_INFINITY,
-            "masked plan trace.base must be NEG_INFINITY",
         );
         assert!(
             masked.sanity.is_empty(),

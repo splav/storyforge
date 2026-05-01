@@ -650,13 +650,14 @@ P-track (контракты + миграция логики) и R-track (relocat
 | R2 — adapt/ extraction | R | done | пара с P1 | 2026-05-01. planning/adaptation.rs → adapt/{mod,select}.rs. |
 | P2 — StageSpec + validator | P | done | P0 | 2026-05-01. spec.rs + validate_pipeline + 7 tests. |
 | R3 — scoring/ partial umbrella | R | done | после P0; не ждёт P5 | 2026-05-01. Pure relocation; без `factors/`. |
-| P3a — ScoreTrace internal migration | P | in-progress (P3a.5 done) | P2 | Split на 7 sub-steps: P3a.0-P3a.5 ✓, P3a.6 cleanup pending |
+| P3a — ScoreTrace internal migration | P | done | P2 | 2026-05-01. All 7 sub-steps complete. Trace accumulates through pipeline; behavioural diff = 0; no schema bump. |
 | ↳ P3a.0 — ScoreTrace types + compute() | P | done | P2 | 2026-05-01. types-only, behavioural diff = 0. |
 | ↳ P3a.1 — Modifiers → trace.addends | P | done | P3a.0 | 2026-05-01. PlanModifiersStage emits AddendHits. Bridging fixed in P3a.2. debug_assert invariant. |
 | ↳ P3a.2 — Critics → trace.multipliers | P | done | P3a.1 | 2026-05-01. CriticsStage emits MultiplierHits. Retroactive bridging fix in P3a.1 (full reset). |
 | ↳ P3a.3 — Sanity → trace.multipliers | P | done | P3a.2 | 2026-05-01. SanityStage emits MultiplierHits with kind=Sanity. 4 new tests. |
 | ↳ P3a.4 — Mask + Gate stages | P | done | P3a.3 | 2026-05-01. ProtectSelf→MaskHit Poison; KillableGate→GateHit+MaskHit double-emit. 6 new tests. |
-| ↳ P3a.5 — Finalize → Rescore | P | done | P3a.4 | 2026-05-01. FinalizeStage sets trace.base=new_score, rescore_mode=Some(mode), clears effects. 4 new tests. Last stage migration; P3a.6 next (cleanup bridging). |
+| ↳ P3a.5 — Finalize → Rescore | P | done | P3a.4 | 2026-05-01. FinalizeStage sets trace.base=new_score, rescore_mode=Some(mode), clears effects. 4 new tests. |
+| ↳ P3a.6 — cleanup bridging-resets | P | done | P3a.5 | 2026-05-01. Bridging-резеты удалены из 5 стадий. Trace аккумулирует от Finalize::base. 1 new full-pipeline invariant test. 780 passed. |
 | R5 — pipeline/stages absorbs | R | pending | **только после P3a** | Mixed (move + split). Ранее = двойной churn. |
 | P5 — Factor refactor | P | pending | **НЕ параллелить с P3a** | Оба трогают `scorer.rs` / factor leaves. |
 | R4 — factors → scoring/factors/ | R | pending | с/после P5 | Pure relocation финализированных факторов. |

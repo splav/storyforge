@@ -10,7 +10,7 @@
 
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::outcome::ContractMaskHit;
-use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind, ScoreTrace};
+use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::planning::apply_protect_self_mask;
 
@@ -55,9 +55,8 @@ impl PlanStage for ProtectSelfMaskStage {
                     original_score: pre_scores[i],
                 });
 
-                // P3a.4: emit MaskHit for the poisoned plan.
-                // Bridging: set base = pre_score so compute() == NEG_INFINITY via Poison mask.
-                ann.score_trace = ScoreTrace { base: pre_scores[i], ..Default::default() };
+                // P3a.4 / P3a.6: push MaskHit on the accumulated trace.
+                // FinalizeStage (upstream) already set trace.base; bridging-reset removed.
                 ann.score_trace.push_mask(MaskHit {
                     kind: MaskKind::Poison,
                     source: "protect_self",
@@ -123,6 +122,10 @@ mod tests {
         for (ann, (score, raw_f)) in pool.annotations.iter_mut().zip(scores.into_iter().zip(raw.into_iter())) {
             ann.score = score;
             ann.factors = raw_f;
+            // P3a.6: initialise trace.base so the stage runs without Finalize upstream.
+            if score.is_finite() {
+                ann.score_trace.base = score;
+            }
         }
         ProtectSelfMaskStage.apply(&mut pool, &mut ctx);
         pool

@@ -226,4 +226,64 @@ mod tests {
         assert_eq!(chosen.modifiers[1].name, "trade_bonus");
         assert_eq!(chosen.modifiers[2].name, "repair_bonus");
     }
+
+    /// P3a.6 verification: after the full PRODUCTION_PIPELINE, the invariant
+    /// `ann.score == ann.score_trace.compute()` holds for every finite-score plan.
+    ///
+    /// This is the critical equivalence check: trace accumulates through the
+    /// pipeline starting from `FinalizeStage::base`, and every downstream stage
+    /// pushes hits on top. If any stage still carries a bridging-reset or fails
+    /// to push a hit, this test will catch the drift.
+    #[test]
+    fn p3a_full_pipeline_trace_compute_equals_ann_score() {
+        use crate::combat::ai::config::difficulty::DifficultyProfile;
+        use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+        use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};
+        use crate::combat::ai::world::reservations::Reservations;
+        use crate::combat::ai::world::snapshot::BattleSnapshot;
+        use crate::combat::ai::test_helpers::{
+            empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+        };
+        use crate::core::DiceRng;
+        use crate::game::components::Team;
+        use crate::game::hex::hex_from_offset;
+
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let maps = empty_maps();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let mut rng = DiceRng::default();
+        let mut ctx = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            actor.pos,
+            &mut rng,
+        );
+
+        let mut pool = ScoredPool::new(vec![
+            crate::combat::ai::planning::types::TurnPlan::default(),
+            crate::combat::ai::planning::types::TurnPlan::default(),
+        ]);
+        pool.annotations[0].score = 1.0;
+        pool.annotations[1].score = 0.5;
+
+        run(PRODUCTION_PIPELINE, &mut pool, &mut ctx);
+
+        for (i, ann) in pool.annotations.iter().enumerate() {
+            if ann.score.is_finite() {
+                let computed = ann.score_trace.compute();
+                assert!(
+                    (ann.score - computed).abs() < 1e-5,
+                    "P3a.6: plan[{i}] ann.score={} vs trace.compute()={} — invariant violated",
+                    ann.score,
+                    computed,
+                );
+            }
+        }
+    }
 }
