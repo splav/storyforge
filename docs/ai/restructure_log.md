@@ -354,3 +354,40 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] `Sanity`, `Critics`, `ProtectSelfMask`, `KillableGate`, `Finalize` — не изменены
 
 ---
+
+## 2026-05-01 — P3a.2 — Critics → trace.multipliers (completed)
+
+**Что сделано:**
+- `CriticsStage::apply()` теперь пушит `MultiplierHit { kind: MultiplierKind::Critic, value: hit.multiplier }` в `ann.score_trace.multipliers` для каждого critic hit.
+- Bridging: `ann.score_trace = ScoreTrace { base: ann.score, ..Default::default() }` на входе в план-loop — полный сброс trace + синхронизация base с текущим ann.score (discards upstream trace state).
+- `ann.score *= hit.multiplier` сохранён — behavioural diff = 0.
+- `ann.critics.push(hit)` сохранён — observability канал не тронут.
+- `debug_assert!` на invariant `(ann.score - trace.compute()).abs() < 1e-5` — только когда `applied_count > 0 && entry_score.is_finite()` (избегает NaN при NEG_INFINITY × 0.0 corner-кейсе).
+- **Retroactive fix P3a.1 bridging** в `plan_modifiers.rs`: строка `ann.score_trace.base = ann.score;` заменена на полное пересбрасывание `ann.score_trace = ScoreTrace { base: ann.score, ..Default::default() }`. Без этого накопленные critic-multipliers из предыдущей стадии нарушали бы invariant `ann.score == trace.compute()` в PlanModifiersStage.
+- 4 новых теста в `pipeline/stages/critics.rs::tests`:
+  - `p3a_critics_push_multipliers_to_trace` — один hit; `trace.multipliers.len() == 1`, kind=Critic, value=0.5.
+  - `p3a_critics_trace_base_synced_from_score` — entry=1.0, multiplier=0.5; `trace.base == 1.0`, `trace.compute() == 0.5 == ann.score`.
+  - `p3a_critics_invariant_score_equals_compute_with_multiple_hits` — два critic'а [0.5, 0.8]; entry=1.0; `ann.score ≈ 0.4`, `trace.compute() ≈ 0.4`.
+  - `p3a_critics_no_hits_leave_trace_with_only_base` — пустой critics list; `trace.base == entry_score`, `multipliers.len() == 0`.
+
+**Комментарии / отклонения от плана:**
+- Bridging-механизм P3a.1 содержал скрытый баг: `ann.score_trace.base = ann.score` не очищал существующие мультипликаторы в trace. После миграции Critics (P3a.2) critic-multipliers присутствовали бы в trace на входе в PlanModifiersStage, нарушая invariant. Fix применён retroactively — P3a.1 тесты остались зелёными.
+- trace отражает только эффекты **последней мигрированной стадии** (partial migration phase). Начиная с P3a.6 (Finalize + full cleanup) trace будет аккумулировать все стадии через `reset_effects()`.
+- Тест `critics_survive_through_adaptation_path` использует partial pipeline (Finalize → Critics). После P3a.2 bridging-сброс в Critics перезаписывает trace после Finalize — это ожидаемое поведение для partial migration.
+
+**Файлы:**
+- `src/combat/ai/pipeline/stages/critics.rs` — миграция apply() + 4 теста
+- `src/combat/ai/pipeline/stages/plan_modifiers.rs` — retroactive bridging fix (1 строка → 5 строк)
+
+**DoD проверка:**
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 765 passed (761 + 4)
+- [x] `cargo test` (интеграционные) — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Behavioural diff = 0: `ann.score *= hit.multiplier` сохранён; bit-identical с pre-P3a.2 для всех планов
+- [x] Existing тесты `critics_*` (3 шт) — зелёные без изменений ассертов
+- [x] Existing тесты `p3a_modifiers_*` (4 шт) — зелёные без изменений ассертов
+- [x] Только два файла стадий тронуты: `critics.rs` и `plan_modifiers.rs`
+- [x] `Sanity`, `ProtectSelfMask`, `KillableGate`, `Finalize`, `PickBest` — не изменены
+
+---

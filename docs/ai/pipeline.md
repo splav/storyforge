@@ -89,7 +89,12 @@ struct StageSpec {
 
 `src/combat/ai/pipeline/score_trace.rs` — типизированный лог score-affecting effects, накапливаемых стадиями pipeline'а. Реализовано в P3a.0, миграция стадий — P3a.{1..5}.
 
-**Статус: P3a.1 done — PlanModifiersStage emits AddendHits.** `PlanModifiersStage` пушит `AddendHit` в `score_trace.addends` для каждого из 3 modifier'ов (summon_bonus, trade_bonus, repair_bonus) на non-masked планах. Bridging: `trace.base ← ann.score` на входе в стадию (upstream стадии ещё не мигрированы). Инвариант `ann.score == trace.compute()` проверяется `debug_assert` после modifier-loop'а. Остальные стадии (Critics, Sanity, ProtectSelf, KillableGate, Finalize) продолжают мутировать `ann.score` напрямую — они мигрируют в P3a.{2..5}.
+**Статус: P3a.2 done — CriticsStage emits MultiplierHits.**
+
+- `PlanModifiersStage` (P3a.1) пушит `AddendHit` в `score_trace.addends` для каждого из 3 modifier'ов.
+- `CriticsStage` (P3a.2) пушит `MultiplierHit { kind: Critic, value }` в `score_trace.multipliers` для каждого critic hit.
+
+Bridging (partial migration phase): каждая мигрированная стадия полностью сбрасывает trace (`ScoreTrace { base: ann.score, ..Default::default() }`) на входе, чтобы не наследовать multipliers/addends от предыдущих мигрированных стадий. Trace отражает только эффекты **последней мигрированной стадии**. Полный накопленный trace будет после P3a.6 (Finalize + cleanup). Инвариант `ann.score == trace.compute()` проверяется `debug_assert` (только для `is_finite()` entry score). Остальные стадии (Sanity, ProtectSelf, KillableGate, Finalize) продолжают мутировать `ann.score` напрямую — они мигрируют в P3a.{3..5}.
 
 ### Структура
 

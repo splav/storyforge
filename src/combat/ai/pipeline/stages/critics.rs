@@ -48,12 +48,39 @@ impl PlanStage for CriticsStage {
     }
 
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
+        use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind, ScoreTrace};
+
         for (plan, ann) in pool.plans.iter().zip(pool.annotations.iter_mut()) {
+            // P3a.2 partial-migration bridging: fully reset trace and treat
+            // current ann.score as the new base, discarding any upstream trace
+            // state. Cleaned up in P3a.6 once all stages are migrated.
+            let entry_score = ann.score;
+            ann.score_trace = ScoreTrace { base: entry_score, ..Default::default() };
+
+            let mut applied_count = 0;
+
             for c in &self.critics {
                 if let Some(hit) = c.evaluate(plan, ann, ctx.scoring) {
                     ann.score *= hit.multiplier;
+                    ann.score_trace.push_multiplier(MultiplierHit {
+                        kind: MultiplierKind::Critic,
+                        value: hit.multiplier,
+                    });
                     ann.critics.push(hit);
+                    applied_count += 1;
                 }
+            }
+
+            // Invariant: ann.score == trace.compute() after this stage.
+            // Only checked for finite entry scores to avoid NaN corner cases
+            // (e.g. NEG_INFINITY × 0.0 = NaN in some formulations).
+            if applied_count > 0 && entry_score.is_finite() {
+                debug_assert!(
+                    (ann.score - ann.score_trace.compute()).abs() < 1e-5,
+                    "P3a.2 invariant violated: ann.score={} vs compute()={}",
+                    ann.score,
+                    ann.score_trace.compute(),
+                );
             }
         }
     }
@@ -288,5 +315,142 @@ mod tests {
             0.5,
         );
         // Assertions are inside run_partial_pipeline_with_critic.
+    }
+
+    // ── P3a.2 — ScoreTrace integration tests ─────────────────────────────────
+
+    /// Mock critic fires with multiplier 0.5; trace must contain exactly one
+    /// MultiplierHit with kind=Critic and value=0.5 after apply().
+    #[test]
+    fn p3a_critics_push_multipliers_to_trace() {
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
+
+        let stage = CriticsStage {
+            critics: vec![Box::new(AlwaysHitCritic { multiplier: 0.5 })],
+        };
+        let pool = apply_critics_to_pool(stage, make_pool_with_scores(vec![1.0]));
+
+        let trace = &pool.annotations[0].score_trace;
+        assert_eq!(trace.multipliers.len(), 1, "expected exactly one multiplier hit");
+        assert_eq!(trace.multipliers[0].kind, MultiplierKind::Critic);
+        assert!(
+            (trace.multipliers[0].value - 0.5).abs() < 1e-6,
+            "multiplier value must be 0.5, got {}",
+            trace.multipliers[0].value
+        );
+    }
+
+    /// entry_score=1.0, multiplier=0.5: trace.base == 1.0 (synced from entry
+    /// score) and trace.compute() == 0.5 == ann.score.
+    #[test]
+    fn p3a_critics_trace_base_synced_from_score() {
+        let stage = CriticsStage {
+            critics: vec![Box::new(AlwaysHitCritic { multiplier: 0.5 })],
+        };
+        let pool = apply_critics_to_pool(stage, make_pool_with_scores(vec![1.0]));
+
+        let ann = &pool.annotations[0];
+        assert!(
+            (ann.score_trace.base - 1.0).abs() < 1e-6,
+            "trace.base must be synced to entry score 1.0, got {}",
+            ann.score_trace.base
+        );
+        let computed = ann.score_trace.compute();
+        assert!(
+            (computed - 0.5).abs() < 1e-6,
+            "trace.compute() must equal 0.5, got {computed}"
+        );
+        assert!(
+            (ann.score - computed).abs() < 1e-6,
+            "ann.score must equal trace.compute(): {} vs {computed}",
+            ann.score
+        );
+    }
+
+    struct FixedMultiplierCritic {
+        multiplier: f32,
+    }
+
+    impl PlanCritic for FixedMultiplierCritic {
+        fn name(&self) -> &'static str {
+            "fixed_multiplier"
+        }
+        fn evaluate(
+            &self,
+            _plan: &TurnPlan,
+            _ann: &PlanAnnotation,
+            _ctx: &ScoringCtx,
+        ) -> Option<CriticHit> {
+            use crate::combat::ai::critics::overcommit_into_danger::OvercommitSource;
+            Some(CriticHit {
+                critic: CriticKind::OvercommitIntoDanger,
+                multiplier: self.multiplier,
+                reason: CriticReason::OvercommitIntoDanger {
+                    source: OvercommitSource::SurvivalPath,
+                    ratio: 0.5,
+                },
+            })
+        }
+    }
+
+    /// Two critics [0.5, 0.8]; entry=1.0: ann.score ≈ 0.4, trace.compute() ≈ 0.4,
+    /// both multiplier hits present in push order.
+    #[test]
+    fn p3a_critics_invariant_score_equals_compute_with_multiple_hits() {
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
+
+        let stage = CriticsStage {
+            critics: vec![
+                Box::new(FixedMultiplierCritic { multiplier: 0.5 }),
+                Box::new(FixedMultiplierCritic { multiplier: 0.8 }),
+            ],
+        };
+        let pool = apply_critics_to_pool(stage, make_pool_with_scores(vec![1.0]));
+
+        let ann = &pool.annotations[0];
+        // 1.0 * 0.5 * 0.8 = 0.4
+        assert!(
+            (ann.score - 0.4).abs() < 1e-5,
+            "expected score 0.4 after two multipliers, got {}", ann.score
+        );
+        let computed = ann.score_trace.compute();
+        assert!(
+            (computed - 0.4).abs() < 1e-5,
+            "trace.compute() must equal 0.4, got {computed}"
+        );
+        assert_eq!(ann.score_trace.multipliers.len(), 2, "expected 2 multiplier hits");
+        assert_eq!(ann.score_trace.multipliers[0].kind, MultiplierKind::Critic);
+        assert!(
+            (ann.score_trace.multipliers[0].value - 0.5).abs() < 1e-6,
+            "first multiplier value must be 0.5"
+        );
+        assert!(
+            (ann.score_trace.multipliers[1].value - 0.8).abs() < 1e-6,
+            "second multiplier value must be 0.8"
+        );
+    }
+
+    /// Empty critics list: trace.base == entry_score, multipliers empty,
+    /// trace.compute() == entry_score.
+    #[test]
+    fn p3a_critics_no_hits_leave_trace_with_only_base() {
+        let entry_score = 0.75_f32;
+        let stage = CriticsStage { critics: vec![] };
+        let pool = apply_critics_to_pool(stage, make_pool_with_scores(vec![entry_score]));
+
+        let ann = &pool.annotations[0];
+        assert!(
+            (ann.score_trace.base - entry_score).abs() < 1e-6,
+            "trace.base must equal entry_score={entry_score}, got {}",
+            ann.score_trace.base
+        );
+        assert!(
+            ann.score_trace.multipliers.is_empty(),
+            "multipliers must be empty when no critics fired"
+        );
+        assert!(
+            (ann.score_trace.compute() - entry_score).abs() < 1e-6,
+            "trace.compute() must equal entry_score={entry_score}"
+        );
     }
 }

@@ -53,10 +53,15 @@ impl PlanStage for PlanModifiersStage {
                 continue;
             }
 
-            // P3a.1 bridging: upstream stages are not yet migrated and mutate
-            // ann.score directly. Accept the current score as trace.base so
-            // that trace.compute() == ann.score after the modifier loop.
-            ann.score_trace.base = ann.score;
+            // P3a.1 bridging (fixed in P3a.2): upstream stages are not yet migrated
+            // and mutate ann.score directly. Fully reset the trace to discard any
+            // upstream multipliers, then set base = current score, so that
+            // trace.compute() == ann.score after the modifier loop.
+            // Cleaned up in P3a.6 once all upstream stages are migrated.
+            ann.score_trace = crate::combat::ai::pipeline::score_trace::ScoreTrace {
+                base: ann.score,
+                ..Default::default()
+            };
 
             for m in PLAN_MODIFIERS {
                 let contribution = m.modify(plan, ann, &mctx);
