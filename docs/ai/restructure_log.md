@@ -321,3 +321,36 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] Внешние consumer'ы работают через `crate::combat::ai::intent::*` без изменений
 
 ---
+
+## 2026-05-01 — P3a.1 — Modifiers → trace.addends (completed)
+
+**Что сделано:**
+- `PlanModifiersStage::apply()` теперь пушит `AddendHit` в `ann.score_trace.addends` для каждого из 3 modifier'ов на non-masked планах.
+- Bridging: `ann.score_trace.base = ann.score` на входе в стадию — принимает текущий accumulated score как baseline (upstream стадии ещё не мигрированы и мутируют `ann.score` напрямую).
+- `ann.score += contribution` сохранён — downstream readers (PickBest) работают без изменений.
+- `debug_assert!((ann.score - ann.score_trace.compute()).abs() < 1e-5)` после modifier-loop'а на каждом non-masked плане.
+- Masked планы (`!ann.score.is_finite()`) пропускаются — trace остаётся `Default`.
+- 4 новых теста в `pipeline/stages/plan_modifiers.rs::tests`:
+  - `p3a_modifiers_push_addends_to_trace` — `trace.addends.len() == PLAN_MODIFIERS.len()`, имена в order'е.
+  - `p3a_modifiers_trace_base_synced_from_score` — `trace.compute() == ann.score`.
+  - `p3a_modifiers_invariant_score_equals_compute` — 3 non-masked плана, invariant по всем.
+  - `p3a_modifiers_masked_plan_trace_unchanged` — masked план: `base=0, addends.len()=0`.
+
+**Комментарии / отклонения от плана:**
+- `p3a_modifiers_masked_plan_trace_unchanged` вызывает `PlanModifiersStage.apply()` напрямую (не `run(PRODUCTION_PIPELINE, ...)`), потому что `PickBestStage` перезаписывает `ann.score` на masked-планах при прогоне полного pipeline. Прямой вызов более точен: тест проверяет именно семантику этой стадии, а не полного pipeline'а.
+- Остальные 3 теста используют `run(PRODUCTION_PIPELINE, ...)` — результат `score_trace` проверяется, а не `ann.score` после PickBest.
+
+**Файлы:**
+- `src/combat/ai/pipeline/stages/plan_modifiers.rs` — единственный изменённый файл стадии
+
+**DoD проверка:**
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 761 passed (757 + 4)
+- [x] `cargo test` — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Behavioural diff = 0: `ann.score += contribution` сохранён; downstream readers не тронуты
+- [x] Existing тесты `plan_modifiers_stage_*` (3 шт) — зелёные без изменений
+- [x] Только один файл стадии тронут: `pipeline/stages/plan_modifiers.rs`
+- [x] `Sanity`, `Critics`, `ProtectSelfMask`, `KillableGate`, `Finalize` — не изменены
+
+---

@@ -89,7 +89,7 @@ struct StageSpec {
 
 `src/combat/ai/pipeline/score_trace.rs` — типизированный лог score-affecting effects, накапливаемых стадиями pipeline'а. Реализовано в P3a.0, миграция стадий — P3a.{1..5}.
 
-**Статус: P3a.0 — types-only.** Структура присутствует в `PlanAnnotation.score_trace` (`#[serde(skip)]`), но production-стадии ещё не пушат в неё hits. Они продолжают мутировать `ann.score` напрямую. Каждый следующий sub-step P3a.{1..5} мигрирует один класс стадий.
+**Статус: P3a.1 done — PlanModifiersStage emits AddendHits.** `PlanModifiersStage` пушит `AddendHit` в `score_trace.addends` для каждого из 3 modifier'ов (summon_bonus, trade_bonus, repair_bonus) на non-masked планах. Bridging: `trace.base ← ann.score` на входе в стадию (upstream стадии ещё не мигрированы). Инвариант `ann.score == trace.compute()` проверяется `debug_assert` после modifier-loop'а. Остальные стадии (Critics, Sanity, ProtectSelf, KillableGate, Finalize) продолжают мутировать `ann.score` напрямую — они мигрируют в P3a.{2..5}.
 
 ### Структура
 
