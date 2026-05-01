@@ -6,7 +6,6 @@
 
 pub mod future_value;
 pub mod generator;
-pub mod killable_gate;
 pub mod picker;
 pub mod reach;
 pub mod scorer;
@@ -17,7 +16,6 @@ pub mod types;
 mod parity_tests;
 
 pub use generator::generate_plans;
-pub use killable_gate::{apply_killable_gate, plan_is_offensive_vs, GateStats, KillLineStrength, KILLABLE_ALPHA};
 pub use picker::{commit_plan, pick_best_plan, record_committed_reservations, PickMechanics};
 pub use reach::reach_from;
 pub use scorer::{

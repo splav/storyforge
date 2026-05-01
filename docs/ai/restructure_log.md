@@ -672,3 +672,46 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] Каждый rule-файл owns one rule (cohesion criterion)
 
 ---
+
+## 2026-05-01 — R5.B.2 — planning/killable_gate.rs → pipeline/stages/killable_gate/mod.rs (completed)
+
+**Что сделано:**
+- `pipeline/stages/killable_gate.rs` → `pipeline/stages/killable_gate/mod.rs` (file-to-dir conversion через `git mv`).
+- Содержимое `planning/killable_gate.rs` (510 LOC) вмержено в новый `mod.rs`:
+  - Типы: `KillLineStrength`, `GateStats`, `KILLABLE_ALPHA`.
+  - Функции: `plan_is_offensive_vs`, `apply_killable_gate`.
+  - `use`-импорты из обоих источников объединены в один блок (дублей нет).
+  - `KillableGateStage` + `impl PlanStage` — без изменений.
+- Тесты объединены в два именованных sub-модуля:
+  - `mod algorithm_tests` — 9 тестов из `planning/killable_gate.rs::tests` (pure алгоритм).
+  - `mod stage_tests` — 6 тестов из `pipeline/stages/killable_gate.rs::tests` (stage + P3a.4).
+  - Конфликтов имён helpers не было: `algorithm_tests` содержит `empty_plan`, `cast_plan`, `cast_plan_at`, `move_plan`, `snap_with_target`, `default_modes`, `factors_with`; `stage_tests` содержит `run_stage`, `pfv_kill_now`.
+- Удалён `planning/killable_gate.rs` (git rm).
+- Удалены `pub mod killable_gate;` и `pub use killable_gate::{...};` из `planning/mod.rs`.
+- 2 consumer-файла обновлены:
+  - `pipeline/stages/killable_gate/mod.rs` — удалён `use crate::combat::ai::planning::apply_killable_gate;` (теперь в том же модуле); убраны дублирующие imports из `stages/killable_gate.rs::tests` (`use super::*` покрывает все типы).
+  - `pipeline/stages/item_scoring.rs` — `use crate::combat::ai::planning::{compute_plan_intent_sum, plan_is_offensive_vs}` → два отдельных импорта: `pipeline::stages::killable_gate::plan_is_offensive_vs` и `planning::compute_plan_intent_sum`.
+
+**Комментарии / отклонения от плана:**
+- `pipeline/order.rs` не требовал изменений: thin shim `apply_killable_gate` использует `KillableGateStage.apply()`, а не `planning::apply_killable_gate` напрямую.
+- Два sub-модуля тестов (`algorithm_tests` / `stage_tests`) выбраны вместо одного `mod tests`: в `algorithm_tests` `empty_plan()` и `cast_plan()` используют фикстуры без FocusTarget-setup, а `stage_tests` использует `run_stage()` с полным `StageCtx`. Объединение в один модуль потребовало бы prefixing helpers или careful conflict audit.
+
+**Файлы, которые затронули:**
+- `src/combat/ai/pipeline/stages/killable_gate/mod.rs` (новая директория; итог ~550 LOC)
+- `src/combat/ai/planning/killable_gate.rs` (deleted)
+- `src/combat/ai/planning/mod.rs` (−2 строки)
+- `src/combat/ai/pipeline/stages/item_scoring.rs` (import split: 1 строка → 2 строки)
+
+**DoD проверка:**
+- [x] `planning/killable_gate.rs` не существует
+- [x] `pipeline/stages/killable_gate.rs` (файл) не существует (стал `pipeline/stages/killable_gate/mod.rs`)
+- [x] `pipeline/stages/killable_gate/mod.rs` существует и содержит: типы, функции, KillableGateStage, `algorithm_tests` + `stage_tests`
+- [x] `planning/mod.rs` НЕ re-export'ит killable_gate символы
+- [x] Consumers обновлены: `item_scoring.rs` путь plan_is_offensive_vs обновлён
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 780 passed, 0 failed (точное соответствие baseline)
+- [x] `cargo test` — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Behavioural diff = 0: ни одна формула / control flow / литерал не изменена
+
+---
