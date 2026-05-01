@@ -29,7 +29,6 @@ pub(super) fn compute_self_preserve(ctx: &AppraisalCtx<'_>) -> f32 {
 mod tests {
     use super::*;
     use crate::combat::ai::memory::AiMemory;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
     use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::components::Team;

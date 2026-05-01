@@ -1,16 +1,19 @@
-//! AI semantic tags for abilities and statuses (step 9.A).
+//! AI semantic tags for abilities, statuses, and per-unit combat state.
 //!
 //! Tags are *derived* projections of ability/status shape, computed once at
 //! content load time and cached. The classifier is pure: same shape → same
 //! tags. See `docs/ai_rework_step9_plan.md` for the full spec.
 //!
-//! In 9.A nothing in production reads tags — they're written into
-//! `PlanAnnotation.effective_ai_tags` for diagnostics only.
-//! Consumers (role, appraisal, repair) come in 9.B.
+//! Sub-modules:
+//! - `cache`    — `AbilityTagCache`, `StatusTagCache`.
+//! - `classify` — tag derivation from content shapes.
+//! - `ai_tags`  — `AiTags` bitflags (formerly in `world/snapshot.rs`; moved R7).
 
+pub mod ai_tags;
 pub mod cache;
 pub mod classify;
 
+pub use ai_tags::AiTags;
 pub use cache::{AbilityTagCache, StatusTagCache};
 pub use classify::{derive_ability_tags, derive_status_tags, StatusTagLookup};
 

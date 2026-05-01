@@ -85,7 +85,7 @@ pub fn compute_need_signals(ctx: &AppraisalCtx<'_>) -> NeedSignals {
 pub(crate) mod tests {
     use super::*;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, ent, UnitBuilder};
+    use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
     use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
