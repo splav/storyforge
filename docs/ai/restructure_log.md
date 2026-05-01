@@ -251,6 +251,41 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 
 ---
 
+## 2026-05-01 — P3a.0 — ScoreTrace types + compute() (completed)
+
+**Что сделано:**
+- Создан `src/combat/ai/pipeline/score_trace.rs` (~175 LOC): типы (`MultiplierHit`, `AddendHit`, `MaskHit`, `GateHit`, `MaskKind`, `GateOutcome`, `MultiplierKind`), структура `ScoreTrace` с `#[derive(Default)]`, метод `compute()`, builder-helpers, `reset_effects()`, 8 unit-тестов на алгебру.
+- Добавлен `pub mod score_trace;` в `src/combat/ai/pipeline/mod.rs`.
+- В `PlanAnnotation` (outcome/mod.rs) добавлено поле `score_trace: ScoreTrace` с `#[serde(skip)]` (no schema bump).
+- Обновлён `docs/ai/pipeline.md` — секция «ScoreTrace — typed effect log (P3a)».
+
+**Комментарии / отклонения:**
+- Это первый sub-step из 7 в split'е P3a (P3a.0 — P3a.5 + финализация). Следующий — P3a.1 (миграция modifiers stage к `push_addend`).
+- Поведенческий diff = 0: ни одна стадия ещё не пушит в trace; `ann.score` мутируется по-прежнему.
+- `EvaluationMode` импортируется из `adapt::EvaluationMode` (путь зафиксирован в R2).
+- Поле `score_trace` размещено в конце `PlanAnnotation` после `reject_reasons_per_item` — логически рядом с `#[serde(skip)]` полями `score_initial` и `per_item`, при этом в отдельной `// ── P3a fields ──` секции для явного маркирования.
+
+**Файлы:**
+- `src/combat/ai/pipeline/score_trace.rs` (new, ~175 LOC)
+- `src/combat/ai/pipeline/mod.rs` (+1 строка: `pub mod score_trace;`)
+- `src/combat/ai/outcome/mod.rs` (+14 строк: поле + P3a-секция + комментарий)
+- `docs/ai/pipeline.md` (новая секция)
+- `docs/ai/restructure_log.md` (этот файл)
+- `docs/ai/restructure.md` (status table)
+
+**DoD проверка:**
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 757 passed (749 baseline + 8 новых тестов на compute())
+- [x] `cargo test` (интеграционные) — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] `score_trace.rs` существует с 8 тестами на алгебру
+- [x] `pipeline/mod.rs` регистрирует `pub mod score_trace;`
+- [x] `PlanAnnotation` имеет поле `score_trace` с `#[serde(skip)]`
+- [x] `pipeline/stages/*.rs` — git diff пустой (production стадии не тронуты)
+- [x] No semantic diff: pipeline behavior unchanged
+
+---
+
 ## 2026-05-01 — P4 — Intent split (completed)
 
 **Что сделано:**

@@ -339,6 +339,16 @@ pub struct PlanAnnotation {
     /// Schema-additive: v32 logs without this field deserialise as empty vec.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reject_reasons_per_item: Vec<Option<RejectReason>>,
+
+    // ── P3a fields ────────────────────────────────────────────────────────────
+
+    /// P3a: typed log of score-affecting effects accumulated during pipeline.
+    /// Currently P3a.0: structurally present, not yet populated by stages.
+    /// Migration progress: P3a.{1..5} — each migrates one stage class to push
+    /// hits here.
+    /// Not serialised in P3a (no schema bump); P3b adds JSONL exposure.
+    #[serde(skip)]
+    pub score_trace: crate::combat::ai::pipeline::score_trace::ScoreTrace,
 }
 
 /// Adaptation reason + original (pre-adaptation) score for a single plan.

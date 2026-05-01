@@ -84,3 +84,42 @@ struct StageSpec {
 `PreScoreGate` до `Rescore` разрешено (`Viability` живёт до `Finalize`).
 
 Тест `production_pipeline_order_is_valid` запускает `validate_pipeline(STAGE_SPECS)` — ошибка порядка стадий = падение теста, не runtime-баг.
+
+## ScoreTrace — typed effect log (P3a)
+
+`src/combat/ai/pipeline/score_trace.rs` — типизированный лог score-affecting effects, накапливаемых стадиями pipeline'а. Реализовано в P3a.0, миграция стадий — P3a.{1..5}.
+
+**Статус: P3a.0 — types-only.** Структура присутствует в `PlanAnnotation.score_trace` (`#[serde(skip)]`), но production-стадии ещё не пушат в неё hits. Они продолжают мутировать `ann.score` напрямую. Каждый следующий sub-step P3a.{1..5} мигрирует один класс стадий.
+
+### Структура
+
+```rust
+struct ScoreTrace {
+    base: f32,                         // ScoreBase: результат Finalize/Rescore
+    rescore_mode: Option<EvaluationMode>,
+    multipliers: Vec<MultiplierHit>,   // sanity, critics
+    addends:     Vec<AddendHit>,       // modifiers (summon/trade/repair_bonus)
+    masks:       Vec<MaskHit>,         // protect_self → Poison
+    gates:       Vec<GateHit>,         // killable_gate (post-score)
+}
+```
+
+Каждый `*Hit` — thin struct с kind/value/source для диагностики.
+
+### compute() алгебра
+
+Канонический порядок применения, зафиксированный в коде:
+
+1. Если есть `Mask` с `Poison` → return `f32::NEG_INFINITY` (early exit).
+2. `score = base`
+3. `score *= ∏ multipliers` (в порядке push'а — sanity → critics)
+4. `score += Σ addends` (modifiers, аддитивны)
+5. `Gate` с `Reject` → маркирует план как gated (`is_gated() = true`), не затрагивает score.
+
+Этот порядок **сохраняет текущую семантику** pipeline'а: multipliers применяются до addends, masks — до всего; gates — флаги, не занули.
+
+### Интеграция с PlanAnnotation
+
+`PlanAnnotation.score_trace` добавлено в P3a.0 с `#[serde(skip)]`. Поле `ann.score` остаётся как cached `trace.compute()` результат и не удаляется; JSONL schema не меняется до P3b.
+
+`ScoreTrace::reset_effects()` очищает все Vec'ы (multipliers/addends/masks/gates) без изменения `base` — будет вызываться `FinalizeStage` при rescore в P3a.5.
