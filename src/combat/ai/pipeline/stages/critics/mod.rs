@@ -31,7 +31,7 @@ pub use self_lethal_without_payoff::SelfLethalWithoutPayoff;
 
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::utility::ScoringCtx;
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ mod tests {
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
-    use crate::combat::ai::planning::types::TurnPlan;
+    use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
@@ -419,7 +419,7 @@ mod tests {
         use crate::combat::ai::scoring::factors::PlanFactorValues;
         use crate::combat::ai::outcome::AdaptationData;
         use crate::combat::ai::adapt::AdaptationReason;
-        use crate::combat::ai::planning::types::TurnPlan;
+        use crate::combat::ai::plan::types::TurnPlan;
 
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();

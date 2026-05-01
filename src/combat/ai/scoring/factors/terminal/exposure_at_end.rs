@@ -5,8 +5,8 @@
 pub const NAME: &str = "exposure_at_end";
 pub const SIGNED: bool = false;
 
-use crate::combat::ai::planning::terminal::compute_exposure_at_end;
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::scoring::factors::terminal_state::compute_exposure_at_end;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::utility::ScoringCtx;
 

@@ -9,8 +9,8 @@ pub const NAME: &str = "intent";
 pub const SIGNED: bool = true;
 
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::planning::scorer::compute_plan_intent_sum;
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::scoring::factors::aggregate::compute_plan_intent_sum;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::utility::ScoringCtx;
 
 pub fn compute(plan: &TurnPlan, intent: &TacticalIntent, ctx: &ScoringCtx) -> f32 {
@@ -23,7 +23,7 @@ mod tests {
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::TacticalIntent;
     use crate::combat::ai::outcome::PlanAnnotation;
-    use crate::combat::ai::planning::types::TurnPlan;
+    use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};

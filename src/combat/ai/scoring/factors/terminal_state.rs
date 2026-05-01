@@ -14,7 +14,7 @@
 //! they are used by the `factors::terminal` leaf modules.
 
 use crate::combat::ai::scoring::factors::{FactorTerminalScore, TerminalFactor};
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 
@@ -277,7 +277,7 @@ pub(crate) fn compute_pressure_spacing_zone(plan: &TurnPlan, ctx: &ScoringCtx) -
 mod tests {
     use super::*;
 
-    use crate::combat::ai::planning::types::TurnPlan;
+    use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot};
     use crate::combat::ai::test_helpers::{
@@ -379,7 +379,7 @@ mod tests {
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
         let plan = idle_plan(actor_pos, snap.clone());
-        let exposure = crate::combat::ai::planning::terminal::compute_exposure_at_end(&plan, &ctx);
+        let exposure = compute_exposure_at_end(&plan, &ctx);
         assert!(
             exposure > 0.0,
             "exposure_at_end must be > 0 when final position is in enemy threat zone (danger=0.6), got {exposure}"
@@ -401,7 +401,7 @@ mod tests {
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
         let plan = idle_plan(actor_pos, snap.clone());
-        let exposure = crate::combat::ai::planning::terminal::compute_exposure_at_end(&plan, &ctx);
+        let exposure = compute_exposure_at_end(&plan, &ctx);
         assert_eq!(
             exposure, 0.0,
             "exposure_at_end must be 0 in safe backline (danger map = 0)"

@@ -30,7 +30,7 @@ use storyforge::combat::ai::config::difficulty::DifficultyProfile;
 use storyforge::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::intent::AiMemory;
 use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};
-use storyforge::combat::ai::planning::PlanStep;
+use storyforge::combat::ai::plan::PlanStep;
 use storyforge::combat::ai::replay::{
     assert_v28_log_file, default_overlay_path, GoldenRecord,
 };
@@ -182,7 +182,7 @@ fn golden_from_v28_event(
 
 fn decision_fields(
     decision: &AiDecision,
-    plans: &[storyforge::combat::ai::planning::TurnPlan],
+    plans: &[storyforge::combat::ai::plan::TurnPlan],
     best_idx: usize,
 ) -> (String, Option<String>, Option<u64>, [i32; 2]) {
     let end_pos = plans.get(best_idx).map(|p| [p.final_pos.x, p.final_pos.y]).unwrap_or([0, 0]);
@@ -714,7 +714,7 @@ fn collect_metrics_from_event(
     active: &storyforge::combat::ai::world::snapshot::UnitSnapshot,
     metrics: &mut Metrics,
 ) {
-    use storyforge::combat::ai::planning::CommittedPrefix;
+    use storyforge::combat::ai::plan::CommittedPrefix;
 
     let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) else {
         return;
@@ -724,7 +724,7 @@ fn collect_metrics_from_event(
     }).unwrap_or(active.pos);
 
     // Move-only wasted.
-    let plan = storyforge::combat::ai::planning::TurnPlan {
+    let plan = storyforge::combat::ai::plan::TurnPlan {
         steps: chosen.steps.clone(),
         final_pos: chosen_final_pos,
         residual_ap: 0,

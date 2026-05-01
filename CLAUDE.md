@@ -76,8 +76,9 @@ Bevy ECS тактическая RPG. Состояния: `AppState` (Boot → St
 | [Architecture](docs/architecture.md) | Модули, состояния, карта файлов, зависимости |
 | [Combat Pipeline](docs/combat-pipeline.md) | 10 систем цепочки, поток сообщений, детали каждой системы |
 | [Mechanics](docs/mechanics.md) | Характеристики, урон, лечение, мана/ярость, статусы, инициатива |
-| [AI](docs/ai.md) | Роли, скоринг, сложность, snapshot, карты влияния, debug overlay |
-| [AI Replay](docs/ai-replay.md) | Оффлайн-реплей `logs/*.jsonl`: `cargo run --bin replay_ai_log -- <file>` — пересчёт скоров/sanity текущим кодом, поиск изменившихся решений |
+| [AI](docs/ai/ai.md) | Обзор + ссылки на per-layer доки (decision-cycle, scoring, intent, critics, …) |
+| [AI Replay](docs/ai/replay.md) | Оффлайн-реплей `logs/*.jsonl`: `cargo run --bin replay_ai_log -- <file>` — пересчёт скоров/sanity текущим кодом, поиск изменившихся решений |
+| [AI Mining](docs/ai/mining.md) | Агрегированная статистика по логам: `cargo run --release --bin mine_ai_logs -- --dir logs/` — band coverage, agenda win-rate, continuation outcomes |
 | [Content Guide](docs/content-guide.md) | Как добавлять способности, статусы, оружие, классы, встречи, сценарии |
 | [Hex Grid](docs/hex-grid.md) | Координаты even-r, соседи, расстояние, pathfinding, правила движения |
 | [World](docs/world.md) | Описание мира, фракции, система магии |

@@ -17,7 +17,7 @@ use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::scoring::factors::terminal::TerminalFactor;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::pipeline::stages::sanity::plan_has_self_aoe;
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::utility::ScoringCtx;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::pipeline::stages::critics::{CriticKind, PlanCritic};
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
-    use crate::combat::ai::planning::types::TurnPlan;
+    use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};

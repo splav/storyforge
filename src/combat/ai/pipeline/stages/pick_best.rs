@@ -50,8 +50,8 @@
 use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits, BatchStats, PlanFactor, PlanFactorValues, StepFactor};
 use crate::combat::ai::outcome::PickInfo;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::planning::factor_contribution;
-use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
+use crate::combat::ai::scoring::factors::aggregate::factor_contribution;
+use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::utility::{AiDecision, AiWorld, MoveOrigin};
 use crate::combat::ai::world::reservations::Reservations;
@@ -556,7 +556,7 @@ mod tests {
     use crate::combat::ai::scoring::factors::PlanFactorValues;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
-    use crate::combat::ai::planning::types::TurnPlan;
+    use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
@@ -692,7 +692,7 @@ mod tests {
     /// Migrates the invariant tested in `scorer.rs::noise_is_plan_order_invariant`.
     #[test]
     fn pick_jitter_is_plan_order_invariant() {
-        use crate::combat::ai::planning::types::{PlanStep, StepOutcome};
+        use crate::combat::ai::plan::types::{PlanStep, StepOutcome};
 
         let difficulty = DifficultyProfile::easy();
         assert!(difficulty.score_noise() > 0.0, "precondition");
@@ -1263,7 +1263,7 @@ mod tests {
     /// is determined by the jitter — not by insertion order. Jitter runs before argmax.
     #[test]
     fn pipeline_pick_runs_jitter_before_argmax() {
-        use crate::combat::ai::planning::types::{PlanStep, StepOutcome};
+        use crate::combat::ai::plan::types::{PlanStep, StepOutcome};
 
         let difficulty = DifficultyProfile::easy();
         assert!(difficulty.score_noise() > 0.0, "precondition");

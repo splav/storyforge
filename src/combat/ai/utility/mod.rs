@@ -4,7 +4,7 @@
 //! - `fallback` — moves used when no plan candidates survive beam search.
 //!
 //! Scoring stages and plan selection live in `combat::ai::pipeline`.
-//! Plan generation, scoring formulas, and sanity live in `combat::ai::planning`.
+//! Plan generation lives in `combat::ai::plan`.
 
 #![allow(clippy::too_many_arguments)]
 
@@ -25,7 +25,7 @@ use crate::combat::ai::intent::agenda::Agenda;
 use crate::combat::ai::intent::bands::{BandReason, PriorityBand};
 use crate::combat::ai::log::{self, AiLogger, IntentBlock, TradeBlock};
 use crate::combat::ai::pipeline::stages::pick_best::commit_plan;
-use crate::combat::ai::planning::{
+use crate::combat::ai::plan::{
     generate_plans, TurnPlan,
 };
 use crate::combat::ai::world::reservations::Reservations;
@@ -157,6 +157,7 @@ pub struct AiWorld<'a> {
 /// Two lifetime parameters because perspective `(active, snap)` can be swapped
 /// mid-plan when scoring against a sim'd state — `with_perspective` returns
 /// a fresh `ScoringCtx` reusing the world refs but with a shorter `'p`.
+#[derive(Clone, Copy)]
 pub struct ScoringCtx<'w, 'p> {
     pub world: &'w AiWorld<'w>,
     pub maps: &'w InfluenceMaps,
@@ -336,7 +337,7 @@ pub fn pick_action(
 
     // ── Phase pipeline ─────────────────────────────────────────────────
     let (initial_scored, initial_raw) = {
-        crate::combat::ai::planning::score_plans_with_raw(
+        crate::combat::ai::plan::score_plans_with_raw(
             &mut plans, &choice.intent, &scoring_ctx,
         )
     };
@@ -355,7 +356,7 @@ pub fn pick_action(
             .steps
             .iter()
             .filter_map(|step| match step {
-                crate::combat::ai::planning::types::PlanStep::Cast { ability, .. } => {
+                crate::combat::ai::plan::types::PlanStep::Cast { ability, .. } => {
                     Some(world.ability_tags.effective(ability))
                 }
                 _ => None,

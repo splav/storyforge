@@ -10,7 +10,7 @@ use bevy::prelude::Entity;
 use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
-use crate::combat::ai::planning::types::PlanStep;
+use crate::combat::ai::plan::types::PlanStep;
 use crate::combat::ai::repair::{PlanContinuationCheck, StatusDelta, classify_mismatch, compute_status_delta, MismatchContext};
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::world::tags::StatusTagCache;

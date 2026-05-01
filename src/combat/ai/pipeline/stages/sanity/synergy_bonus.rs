@@ -3,7 +3,7 @@
 //! Encourages retreat-and-help combos. Multiplicative so it does not flip sign.
 
 use crate::combat::ai::pipeline::stages::sanity::{SanityHit, SanityRule};
-use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::game::hex::Hex;

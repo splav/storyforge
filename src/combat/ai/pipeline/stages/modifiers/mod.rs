@@ -37,8 +37,8 @@ pub mod trade_bonus;
 
 use crate::combat::ai::pipeline::score_trace::AddendHit;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::planning::scorer::build_summon_dpr_cache;
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::scoring::factors::aggregate::build_summon_dpr_cache;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::repair::RepairWeights;
 use crate::combat::ai::scoring::trade::unit_value;
@@ -176,7 +176,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::pipeline::ScoredPool;
-    use crate::combat::ai::planning::types::TurnPlan;
+    use crate::combat::ai::plan::types::TurnPlan;
 
     /// A masked plan (score == NEG_INFINITY) must be skipped:
     /// `ann.modifiers` stays empty and `ann.score` stays NEG_INFINITY.

@@ -37,7 +37,7 @@ use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::outcome::ContractMaskHit;
 use crate::combat::ai::pipeline::score_trace::{GateHit, GateOutcome, MaskHit, MaskKind};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use bevy::prelude::Entity;
 
@@ -245,7 +245,7 @@ impl PlanStage for KillableGateStage {
 mod algorithm_tests {
     use super::*;
     use crate::combat::ai::adapt::EvaluationMode;
-    use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{ent, UnitBuilder};
     use crate::core::AbilityId;
@@ -594,7 +594,7 @@ mod stage_tests {
     use crate::combat::ai::scoring::factors::{PlanFactorValues, StepFactor};
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
-    use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{

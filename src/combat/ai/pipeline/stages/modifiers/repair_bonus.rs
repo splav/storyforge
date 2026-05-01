@@ -6,7 +6,7 @@
 
 use super::{ModifierCtx, PlanModifier};
 use crate::combat::ai::outcome::PlanAnnotation;
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::plan::types::TurnPlan;
 
 pub struct RepairBonus;
 pub static MODIFIER: RepairBonus = RepairBonus;
@@ -42,7 +42,7 @@ mod tests {
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::stages::modifiers::ModifierCtx;
     use crate::combat::ai::pipeline::StageCtx;
-    use crate::combat::ai::planning::types::TurnPlan;
+    use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::repair::RepairAffinity;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;

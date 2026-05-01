@@ -68,7 +68,7 @@ fn extract_cast_triples_from_line(
     content: &ContentView,
 ) -> Vec<(AbilityDef, UnitSnapshot, CasterContext)> {
     use crate::combat::ai::log::ActorTickEvent;
-    use crate::combat::ai::planning::types::PlanStep;
+    use crate::combat::ai::plan::types::PlanStep;
 
     let Ok(event) = serde_json::from_str::<ActorTickEvent>(line) else {
         return vec![];

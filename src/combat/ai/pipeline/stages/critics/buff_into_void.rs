@@ -18,7 +18,7 @@
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
-use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::core::StatusId;
 use bevy::prelude::Entity;
@@ -111,7 +111,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::pipeline::stages::critics::{CriticKind, PlanCritic};
     use crate::combat::ai::outcome::PlanAnnotation;
-    use crate::combat::ai::planning::types::TurnPlan;
+    use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot};
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};

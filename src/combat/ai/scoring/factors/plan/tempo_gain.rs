@@ -15,7 +15,7 @@ pub const NAME: &str = "tempo_gain";
 pub const SIGNED: bool = true;
 
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::TargetType;
 use crate::game::hex::Hex;
@@ -86,7 +86,7 @@ fn max_offensive_range(ctx: &ScoringCtx) -> i32 {
 mod tests {
     use super::*;
     use crate::combat::ai::intent::TacticalIntent;
-    use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
+    use crate::combat::ai::plan::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};

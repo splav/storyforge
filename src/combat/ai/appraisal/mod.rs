@@ -184,7 +184,7 @@ fn compute_reposition(ctx: &AppraisalCtx<'_>) -> f32 {
     // BFS over reachable tiles (movement_points budget) to find the best
     // position improvement. Uses the same reach helper as the planner so
     // passability / stop rules are consistent.
-    let reach = crate::combat::ai::planning::reach::reach_from(snap, active);
+    let reach = crate::combat::ai::plan::reach::reach_from(snap, active);
     let best_position_improvement = reach
         .destinations
         .iter()

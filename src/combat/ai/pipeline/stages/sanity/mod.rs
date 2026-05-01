@@ -20,7 +20,7 @@ mod synergy_bonus;
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::scoring::factors::{aoe_area, PlanFactor, PlanFactorValues};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
@@ -319,7 +319,7 @@ mod tests {
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
-    use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
@@ -455,7 +455,7 @@ mod tests {
         use crate::combat::ai::pipeline::stages::finalize::FinalizeStage;
         use crate::combat::ai::pipeline::PlanStage;
         use crate::combat::ai::adapt::AdaptationReason;
-        use crate::combat::ai::planning::types::TurnPlan;
+        use crate::combat::ai::plan::types::TurnPlan;
 
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
@@ -568,7 +568,7 @@ mod tests {
         use crate::combat::ai::adapt::AdaptationReason;
         use crate::combat::ai::pipeline::stages::finalize::FinalizeStage;
         use crate::combat::ai::pipeline::PlanStage;
-        use crate::combat::ai::planning::types::TurnPlan;
+        use crate::combat::ai::plan::types::TurnPlan;
 
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();

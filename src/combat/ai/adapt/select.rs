@@ -12,9 +12,9 @@ use crate::combat::ai::adapt::{Adaptation, AdaptationReason, EvaluationMode};
 use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::pipeline::stages::sanity::expected_aoo_damage;
-use crate::combat::ai::planning::scorer::rescore_with_per_plan_modes;
+use crate::combat::ai::scoring::factors::aggregate::rescore_with_per_plan_modes;
 use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
-use crate::combat::ai::planning::TurnPlan;
+use crate::combat::ai::plan::TurnPlan;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::content_view::ContentView;
@@ -314,7 +314,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::pipeline::stages::sanity::sanity_adjust_plans;
-    use crate::combat::ai::planning::PlanStep;
+    use crate::combat::ai::plan::PlanStep;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
@@ -536,7 +536,7 @@ mod tests {
             final_pos: actor_post.pos,
             residual_ap: 0,
             residual_mp: 0,
-            outcomes: vec![crate::combat::ai::planning::types::StepOutcome::default()],
+            outcomes: vec![crate::combat::ai::plan::types::StepOutcome::default()],
             partial_score: 0.0,
             sim_snapshots: vec![post_snap],
             annotation: Default::default(),

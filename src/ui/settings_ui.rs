@@ -3,7 +3,7 @@
 use super::button::{spawn_standard_button, ButtonStyle};
 use crate::app_state::AppState;
 use crate::content::settings::{DifficultyPreset, GameSettings};
-use crate::combat::ai::difficulty::DifficultyProfile;
+use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::game::resources::{CampaignState, GameDb, ScenarioState};
 use crate::persistence::{save_repo, settings_repo, PersistencePaths};
 use crate::ui::modal::{PendingPrompt, PromptKind};

@@ -106,7 +106,7 @@ mod tests {
     use super::*;
     use bevy::prelude::Entity;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-    use crate::combat::ai::planning::types::{TurnPlan, PlanStep};
+    use crate::combat::ai::plan::types::{TurnPlan, PlanStep};
     use crate::combat::ai::repair::goal::{GoalKind, StoredGoalContext};
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::utility::ChosenInfo;

@@ -4,8 +4,8 @@
 pub const NAME: &str = "next_turn_lethality";
 pub const SIGNED: bool = false;
 
-use crate::combat::ai::planning::terminal::compute_next_turn_lethality;
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::scoring::factors::terminal_state::compute_next_turn_lethality;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::utility::ScoringCtx;
 

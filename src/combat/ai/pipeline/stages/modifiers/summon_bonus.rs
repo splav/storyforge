@@ -5,7 +5,7 @@
 
 use super::{ModifierCtx, PlanModifier};
 use crate::combat::ai::outcome::PlanAnnotation;
-use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::content::abilities::EffectDef;
 
 pub struct SummonBonus;
@@ -69,7 +69,7 @@ mod tests {
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::stages::modifiers::ModifierCtx;
     use crate::combat::ai::pipeline::StageCtx;
-    use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};

@@ -53,7 +53,7 @@ mod tests {
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
-    use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::repair::goal::{GoalKind, StoredGoalContext};
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;

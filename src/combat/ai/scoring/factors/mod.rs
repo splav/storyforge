@@ -23,16 +23,26 @@ pub(crate) mod aoe_hits;
 pub(crate) mod offensive;
 
 // ── Registry modules ──────────────────────────────────────────────────────────
+pub mod aggregate;
 pub mod plan;
 pub mod registry;
 pub mod step;
 pub mod terminal;
+pub mod terminal_state;
 
 pub use adjustments::crit_fail_adjusted;
 pub use aoe_hits::{aoe_hits, AoeHits};
 pub use offensive::aoe_area;
 pub use plan::self_survival::compute_plan_self_survival;
 pub use plan::tempo_gain::compute_plan_tempo_gain;
+
+// ── Aggregate re-exports ─────────────────────────────────────────────────────
+pub use aggregate::{
+    build_summon_dpr_cache, compute_plan_factors, compute_plan_factors_sans_intent,
+    compute_plan_intent_sum, factor_contribution, finalize_scores, rescore_with_intent,
+    rescore_with_per_plan_modes, score_plans_with_raw, worst_path_danger,
+};
+pub use terminal_state::terminal_state_score;
 
 // ── Registry re-exports (commit 1) ───────────────────────────────────────────
 pub use plan::PlanFactor;
@@ -41,7 +51,7 @@ pub use step::StepFactor;
 pub use terminal::{TerminalFactor, TerminalScore as FactorTerminalScore};
 
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
-use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
+use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;

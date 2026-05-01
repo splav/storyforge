@@ -6,8 +6,8 @@
 pub const NAME: &str = "pressure_spacing_zone";
 pub const SIGNED: bool = false;
 
-use crate::combat::ai::planning::terminal::compute_pressure_spacing_zone;
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::scoring::factors::terminal_state::compute_pressure_spacing_zone;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::utility::ScoringCtx;
 

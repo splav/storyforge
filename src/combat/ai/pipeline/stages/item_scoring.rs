@@ -51,8 +51,8 @@ use crate::combat::ai::outcome::{PerItemEval, RejectReason};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
 use crate::combat::ai::pipeline::stages::killable_gate::plan_is_offensive_vs;
-use crate::combat::ai::planning::compute_plan_intent_sum;
-use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::scoring::factors::aggregate::compute_plan_intent_sum;
+use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::game::hex::Hex;
 
 pub struct ItemScoringStage;
@@ -237,7 +237,7 @@ mod tests {
     use crate::combat::ai::intent::IntentKind;
     use crate::combat::ai::outcome::{PlanAnnotation, ViabilityResult};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
-    use crate::combat::ai::planning::types::TurnPlan;
+    use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::{

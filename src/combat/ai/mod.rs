@@ -7,7 +7,7 @@ pub mod pipeline;
 pub mod appraisal;
 pub mod repair;
 pub mod outcome;
-pub mod planning;
+pub mod plan;
 pub mod scoring;
 pub mod replay;
 pub mod replay_assertion;

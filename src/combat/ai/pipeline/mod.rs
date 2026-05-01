@@ -17,7 +17,7 @@ pub mod stages;
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::intent::agenda::Agenda;
 use crate::combat::ai::outcome::PlanAnnotation;
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::utility::ScoringCtx;
 use crate::core::rng::DiceRng;
 use crate::game::hex::Hex;
@@ -135,7 +135,7 @@ pub trait PlanStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::planning::types::TurnPlan;
+    use crate::combat::ai::plan::types::TurnPlan;
 
     fn dummy_pool(n: usize) -> ScoredPool {
         let plans = vec![TurnPlan::default(); n];
@@ -266,8 +266,8 @@ mod tests {
         );
 
         let mut pool = ScoredPool::new(vec![
-            crate::combat::ai::planning::types::TurnPlan::default(),
-            crate::combat::ai::planning::types::TurnPlan::default(),
+            crate::combat::ai::plan::types::TurnPlan::default(),
+            crate::combat::ai::plan::types::TurnPlan::default(),
         ]);
         pool.annotations[0].score = 1.0;
         pool.annotations[1].score = 0.5;

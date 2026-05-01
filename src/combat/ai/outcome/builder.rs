@@ -12,7 +12,7 @@
 
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
-use crate::combat::ai::planning::types::PlanStep;
+use crate::combat::ai::plan::types::PlanStep;
 use crate::combat::ai::scoring::status_applications;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::AiWorld;
@@ -40,7 +40,7 @@ use crate::game::components::Team;
 #[allow(clippy::too_many_arguments)]
 pub fn from_sim_step(
     step: &PlanStep,
-    outcome: &crate::combat::ai::planning::types::StepOutcome,
+    outcome: &crate::combat::ai::plan::types::StepOutcome,
     step_damage: f32,
     pre_snap: &BattleSnapshot,
     caster: &CasterContext,

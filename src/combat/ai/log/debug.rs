@@ -6,7 +6,7 @@ use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::scoring::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::scoring::factors::{PlanFactorValues, ScoredStep};
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::utility::{AiDecision, PickMechanics};
 use crate::game::hex::{hex_to_offset, Hex};

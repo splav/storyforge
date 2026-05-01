@@ -10,7 +10,7 @@ use crate::combat::ai::intent::{
 };
 use crate::combat::ai::outcome::ViabilityResult;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::planning::{rescore_with_intent};
+use crate::combat::ai::scoring::factors::aggregate::rescore_with_intent;
 
 pub struct ViabilityStage;
 
@@ -123,7 +123,7 @@ mod tests {
     use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::intent::IntentReason;
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
-    use crate::combat::ai::planning::types::TurnPlan;
+    use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};

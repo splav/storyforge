@@ -3,7 +3,7 @@ use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::scoring::factors::ScoredStep;
-use crate::combat::ai::planning::types::TurnPlan;
+use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::scoring::target_priority::{highest_priority_enemy, target_priority};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};

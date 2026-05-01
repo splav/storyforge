@@ -35,7 +35,7 @@ use crate::combat::ai::intent::considerations::IntentConsiderations;
 use crate::combat::ai::intent::IntentKind;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::game::hex::Hex;
 
@@ -402,7 +402,7 @@ mod tests {
         ActionOutcomeEstimate, PerItemEval, PlanAnnotation, ViabilityResult,
     };
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
-    use crate::combat::ai::planning::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{

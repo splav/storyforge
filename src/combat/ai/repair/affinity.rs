@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::planning::types::PlanStep;
+use crate::combat::ai::plan::types::PlanStep;
 use crate::combat::ai::repair::goal::{GoalKind, StoredGoalContext};
 use crate::combat::ai::repair::ContinuationSeverity;
 use crate::game::hex::Hex;

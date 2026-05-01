@@ -35,7 +35,7 @@
 //!   average would couple `unit_value` to battle state.
 
 use crate::combat::ai::pipeline::stages::sanity::expected_aoo_damage;
-use crate::combat::ai::planning::TurnPlan;
+use crate::combat::ai::plan::TurnPlan;
 use crate::combat::ai::scoring::horizon::horizon_avg;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::content::abilities::{StatusOn, TargetType};
@@ -292,7 +292,7 @@ fn prefix_is_move_shaped(plan: &TurnPlan, prefix_len: usize) -> bool {
     plan.steps
         .iter()
         .take(prefix_len)
-        .any(|s| matches!(s, crate::combat::ai::planning::PlanStep::Move { .. }))
+        .any(|s| matches!(s, crate::combat::ai::plan::PlanStep::Move { .. }))
 }
 
 /// Post-normalisation scoring contribution of a [`TradeBreakdown`]:
@@ -568,7 +568,7 @@ mod tests {
     // falls back to `initial_snap` across all steps, which is the same safe
     // fallback deserialized plans use. Direct, no sim wiring needed.
 
-    use crate::combat::ai::planning::{PlanStep, StepOutcome, TurnPlan};
+    use crate::combat::ai::plan::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use bevy::prelude::Entity;
 

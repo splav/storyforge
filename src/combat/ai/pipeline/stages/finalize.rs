@@ -29,7 +29,7 @@
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::pipeline::score_trace::ScoreTrace;
 use crate::combat::ai::adapt::EvaluationMode;
-use crate::combat::ai::planning::rescore_with_per_plan_modes;
+use crate::combat::ai::scoring::factors::aggregate::rescore_with_per_plan_modes;
 
 pub struct FinalizeStage;
 
@@ -111,8 +111,8 @@ mod tests {
     use crate::combat::ai::outcome::AdaptationData;
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::adapt::AdaptationReason;
-    use crate::combat::ai::planning::types::TurnPlan;
-    use crate::combat::ai::planning::score_plans_with_raw;
+    use crate::combat::ai::plan::types::TurnPlan;
+    use crate::combat::ai::scoring::factors::aggregate::score_plans_with_raw;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{

@@ -4,7 +4,7 @@
 
 use super::{AiDecision, MoveOrigin};
 use crate::combat::ai::world::influence::InfluenceMaps;
-use crate::combat::ai::planning::reach_from;
+use crate::combat::ai::plan::reach_from;
 use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
 use crate::game::hex::Hex;
 

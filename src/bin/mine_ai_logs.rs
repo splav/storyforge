@@ -614,7 +614,7 @@ impl Aggregate {
                                     // when there are no Cast plans at all).
                                     let any_cast = event.plans.iter().any(|p| {
                                         p.steps.iter().any(|s| matches!(s,
-                                            storyforge::combat::ai::planning::PlanStep::Cast { .. }
+                                            storyforge::combat::ai::plan::PlanStep::Cast { .. }
                                         ))
                                     });
                                     if !any_cast {
@@ -623,7 +623,7 @@ impl Aggregate {
                                         // Bucket 4: Cast plans exist, but none target agenda entity.
                                         let any_plan_targets = event.plans.iter().any(|p| {
                                             p.steps.iter().any(|s| matches!(s,
-                                                storyforge::combat::ai::planning::PlanStep::Cast { target, .. }
+                                                storyforge::combat::ai::plan::PlanStep::Cast { target, .. }
                                                 if target.to_bits() == target_bits
                                             ))
                                         });
@@ -639,7 +639,7 @@ impl Aggregate {
                                 // fall through to OnlyMovePlans / Unclassified.
                                 let any_cast = event.plans.iter().any(|p| {
                                     p.steps.iter().any(|s| matches!(s,
-                                        storyforge::combat::ai::planning::PlanStep::Cast { .. }
+                                        storyforge::combat::ai::plan::PlanStep::Cast { .. }
                                     ))
                                 });
                                 if !any_cast {
@@ -2048,7 +2048,7 @@ mod tests {
     use storyforge::combat::ai::world::snapshot::BattleSnapshot;
     use storyforge::combat::ai::outcome::{PlanAnnotation, PickInfo};
     use storyforge::combat::ai::pipeline::stages::modifiers::ModifierContribution;
-    use storyforge::combat::ai::planning::PlanStep;
+    use storyforge::combat::ai::plan::PlanStep;
     use storyforge::combat::ai::pipeline::stages::pick_best::PickMechanics;
 
     fn make_event(

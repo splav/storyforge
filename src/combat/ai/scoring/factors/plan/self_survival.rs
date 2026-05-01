@@ -16,7 +16,7 @@ pub const NAME: &str = "self_survival";
 pub const SIGNED: bool = false;
 
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::planning::types::{CommittedPrefix, PlanStep, TurnPlan};
+use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::utility::ScoringCtx;
 use crate::content::abilities::{EffectDef, StatusOn, TargetType};
 use crate::game::hex::Hex;
@@ -119,7 +119,7 @@ fn committed_prefix_final_pos(plan: &TurnPlan, actor_pos: Hex) -> Hex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::planning::types::{PlanStep, StepOutcome, TurnPlan};
+    use crate::combat::ai::plan::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};

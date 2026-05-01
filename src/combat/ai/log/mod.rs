@@ -46,7 +46,7 @@ use crate::combat::ai::repair::goal::GoalKind;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::adapt::{AdaptationReason, EvaluationMode};
 use crate::combat::ai::pipeline::stages::sanity::SanityHit;
-use crate::combat::ai::planning::{PlanStep, StepOutcome, TurnPlan};
+use crate::combat::ai::plan::{PlanStep, StepOutcome, TurnPlan};
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::utility::AiDecision;
 use crate::core::AbilityId;
@@ -1427,7 +1427,7 @@ mod tests {
     #[test]
     fn build_actor_tick_event_full_has_chosen_annotation() {
         use crate::combat::ai::pipeline::ScoredPool;
-        use crate::combat::ai::planning::types::TurnPlan;
+        use crate::combat::ai::plan::types::TurnPlan;
 
         // Build a minimal pool with two plans; second plan is chosen.
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
@@ -1476,7 +1476,7 @@ mod tests {
     fn build_logged_plans_preserves_annotation_outcomes() {
         use crate::combat::ai::outcome::ActionOutcomeEstimate;
         use crate::combat::ai::pipeline::ScoredPool;
-        use crate::combat::ai::planning::types::TurnPlan;
+        use crate::combat::ai::plan::types::TurnPlan;
 
         // Build a plan whose generator-side annotation has one outcome entry.
         let mut plan = TurnPlan::default();
@@ -1633,7 +1633,7 @@ mod tests {
         use crate::combat::ai::intent::considerations::IntentConsiderations;
         use crate::combat::ai::intent::{IntentKind, IntentReason};
         use crate::combat::ai::pipeline::ScoredPool;
-        use crate::combat::ai::planning::types::TurnPlan;
+        use crate::combat::ai::plan::types::TurnPlan;
 
         let snap = BattleSnapshot::default();
         let debug_names = std::collections::HashMap::new();

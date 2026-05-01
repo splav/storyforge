@@ -828,3 +828,66 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] Behavioural diff = 0 (pure relocation)
 
 ---
+
+## R6 — `planning/` → `plan/` cleanup + `scorer.rs` ownership-split
+
+**Дата:** 2026-05-01
+
+**Статус:** done
+
+**Контекст:** Предыдущий агент выполнил `git mv planning/ plan/` для оставшихся файлов
+(future_value, generator, mod, parity_tests, reach, sim, types) и разнёс `planning/scorer.rs`
+на два таргета: `scoring/factors/aggregate.rs` и `pipeline/stages/finalize.rs`.
+Также `planning/terminal.rs` → `scoring/factors/terminal_state.rs`.
+Работа прервалась с 30 compile errors («Prompt is too long»). Данный коммит завершает R6.
+
+**Что сделано:**
+- Массовая замена `crate::combat::ai::planning::` → `crate::combat::ai::plan::` во всех consumers
+  (perl -pi): `pipeline/stages/critics/`, `pipeline/stages/killable_gate/`, `pipeline/stages/modifiers/`,
+  `pipeline/stages/sanity/`, `pipeline/stages/overlay_considerations.rs`, `pipeline/mod.rs`,
+  `repair/affinity.rs`, `outcome/builder.rs`, `adapt/select.rs`, `log/mod.rs`, `scoring/trade.rs`,
+  `scoring/factors/mod.rs`, `scoring/factors/plan/tempo_gain.rs`, `intent/select.rs`,
+  `replay_assertion.rs`, `appraisal/mod.rs`, `plan/future_value.rs`, `scoring/policy/tests.rs`,
+  `pipeline/stages/pick_best.rs`, `scoring/factors/plan/intent.rs`, `scoring/factors/plan/self_survival.rs`.
+- `scoring/factors/aggregate.rs`: зарегистрирован как `pub mod aggregate;` в `scoring/factors/mod.rs`
+  (уже был добавлен предыдущим агентом). Функция `build_summon_dpr_cache` повышена с `pub(crate)` до `pub`
+  для корректного re-export через `pub use aggregate::build_summon_dpr_cache`.
+- `scoring/factors/terminal_state.rs`: зарегистрирован как `pub mod terminal_state;` (аналогично).
+- `utility/mod.rs`: добавлен `#[derive(Clone, Copy)]` к `ScoringCtx` — все поля refs + Copy,
+  требовалось для тестов `aggregate.rs` которые копировали контекст со swap `last_goal`.
+- Тесты в `aggregate.rs` (созданные предыдущим агентом с ошибками):
+  - `StoredGoal`/`StoredGoalKind` → `StoredGoalContext` из `repair::goal` (правильный тип).
+  - `AiRole::Bruiser/Tank/Ranged` → `AxisProfile { melee/tank/ranged: 1.0, ..Default::default() }`.
+  - `RepairAffinity::SeverityInvalidating` → `RepairAffinity { severity_factor: 0.0, .. }`.
+  - `Entity::from_raw(99)` → `Entity::from_raw_u32(99).expect(..)`.
+  - 3 семантически неправильных теста (`round_trip_pure_move_intent_no_credit`,
+    `cast_plus_roundtrip_tail_no_credit`, `trade_bonus_favors_valuable_victim`) — восстановлены из
+    оригинального `planning/scorer.rs`.
+- Убраны новые warnings: unused import `NeedSignals`, unused variable `intent` → `_intent`,
+  `useless_vec` в тесте.
+
+**Комментарии:**
+- Перерыв между первой и второй попыткой R6 — «Prompt is too long» у предыдущего агента.
+- `ScoringCtx: Clone + Copy` — минимальное изменение, не влияет на runtime semantics.
+- Behavioural diff = 0: только переименования путей + фиксы неправильных типов в тестах нового файла.
+
+**Файлы, которые затронули:**
+- ~30 Rust-файлов (import path `planning` → `plan`)
+- `src/combat/ai/scoring/factors/aggregate.rs` (новый, untracked → tracked через `mod.rs`)
+- `src/combat/ai/scoring/factors/terminal_state.rs` (новый, untracked → tracked)
+- `src/combat/ai/utility/mod.rs` (`#[derive(Clone, Copy)]` на `ScoringCtx`)
+- `docs/ai/restructure.md` (R6 → done)
+- `docs/ai/restructure_log.md` (этот блок)
+
+**DoD проверка:**
+- [x] `src/combat/ai/planning/` НЕ существует (только `plan/`)
+- [x] `scoring/factors/aggregate.rs` существует и зарегистрирован в `mod.rs`
+- [x] `scoring/factors/terminal_state.rs` существует и зарегистрирован в `mod.rs`
+- [x] Все consumers обновлены (`planning::` → `plan::`)
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 778 passed, 0 failed
+- [x] `cargo test` — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Behavioural diff = 0
+
+---
