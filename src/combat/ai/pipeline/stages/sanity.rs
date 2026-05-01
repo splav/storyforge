@@ -15,11 +15,46 @@ impl PlanStage for SanityStage {
     }
 
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
-        let mut scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
+        use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind, ScoreTrace};
+
+        // Snapshot entry scores BEFORE sanity_adjust_plans mutates them — needed
+        // for bridging (trace.base must equal the pre-sanity score).
+        let entry_scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
+
+        let mut scores: Vec<f32> = entry_scores.clone();
         let breakdown = sanity_adjust_plans(&mut scores, &pool.plans, ctx.scoring);
-        for (ann, (new_score, hits)) in pool.annotations.iter_mut().zip(scores.into_iter().zip(breakdown.into_iter())) {
+
+        for (i, (ann, (new_score, hits))) in pool
+            .annotations
+            .iter_mut()
+            .zip(scores.into_iter().zip(breakdown.into_iter()))
+            .enumerate()
+        {
             ann.score = new_score;
+
+            // P3a partial-migration bridging: fully reset trace and treat
+            // current entry score as the new base, discarding any upstream
+            // trace state. Cleaned up in P3a.6 once all stages are migrated.
+            ann.score_trace = ScoreTrace { base: entry_scores[i], ..Default::default() };
+            for hit in &hits {
+                ann.score_trace.push_multiplier(MultiplierHit {
+                    kind: MultiplierKind::Sanity,
+                    value: hit.multiplier,
+                });
+            }
             ann.sanity = hits;
+
+            // Invariant: ann.score == trace.compute() for finite plans.
+            // Skip masked plans (entry_score = NEG_INFINITY) — sanity_adjust_plans
+            // leaves them unmutated, and NEG_INFINITY corner cases can produce NaN.
+            if entry_scores[i].is_finite() {
+                debug_assert!(
+                    (ann.score - ann.score_trace.compute()).abs() < 1e-5,
+                    "P3a.3 invariant violated: plan[{i}] ann.score={} vs compute()={}",
+                    ann.score,
+                    ann.score_trace.compute(),
+                );
+            }
         }
     }
 }
@@ -224,5 +259,262 @@ mod tests {
                 finalized = finalized,
             );
         }
+    }
+
+    // ── P3a.3 — ScoreTrace integration tests ─────────────────────────────────
+
+    /// Clean plan (full HP, no danger, 2-plan pool): no rules fire.
+    /// After apply: trace.base == entry_score, multipliers.len() == 0,
+    /// trace.compute() == entry_score.
+    #[test]
+    fn p3a_sanity_no_hits_trace_has_only_base() {
+        let dest_a = hex_from_offset(1, 0);
+        let dest_b = hex_from_offset(2, 0);
+        let plans = vec![
+            make_move_plan(vec![dest_a]),
+            make_move_plan(vec![dest_b]),
+        ];
+        let entry_scores = vec![0.7_f32, 0.5_f32];
+        let pool = apply_sanity_to_two_plans(plans, entry_scores.clone(), 20, 20, None);
+
+        for (i, ann) in pool.annotations.iter().enumerate() {
+            let entry = entry_scores[i];
+            assert!(
+                (ann.score_trace.base - entry).abs() < 1e-6,
+                "plan[{i}]: trace.base must equal entry_score={entry}, got {}",
+                ann.score_trace.base,
+            );
+            assert!(
+                ann.score_trace.multipliers.is_empty(),
+                "plan[{i}]: multipliers must be empty when no sanity rules fire, got {:?}",
+                ann.score_trace.multipliers,
+            );
+            assert!(
+                (ann.score_trace.compute() - entry).abs() < 1e-6,
+                "plan[{i}]: trace.compute() must equal entry_score={entry}, got {}",
+                ann.score_trace.compute(),
+            );
+        }
+    }
+
+    /// Reuse sanity_survives_adaptation_path setup to verify per-plan invariants
+    /// introduced by P3a.3:
+    ///   - multipliers.len() == sanity.len()  (1-to-1 mapping)
+    ///   - each multiplier has kind=Sanity and value == sanity[j].multiplier
+    ///   - compute() == ann.score (with ε=1e-5)
+    ///
+    /// Triggers may or may not fire (depends on rules); the invariants hold in
+    /// both cases: no-hit → both vecs empty, hit → both vecs non-empty.
+    #[test]
+    fn p3a_sanity_with_hits_pushes_multipliers() {
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
+        use crate::combat::ai::factors::PlanFactorValues;
+        use crate::combat::ai::outcome::AdaptationData;
+        use crate::combat::ai::adapt::AdaptationReason;
+        use crate::combat::ai::pipeline::stages::finalize::FinalizeStage;
+        use crate::combat::ai::pipeline::PlanStage;
+        use crate::combat::ai::planning::types::TurnPlan;
+
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let maps = empty_maps();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let mut rng = DiceRng::default();
+        let mut ctx = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            pos,
+            &mut rng,
+        );
+
+        let plans = vec![TurnPlan::default(), TurnPlan::default()];
+        let mut pool = ScoredPool::new(plans);
+        for (ann, (&score, adaptation)) in pool.annotations.iter_mut().zip(
+            [0.8_f32, 0.6_f32].iter().zip([
+                Some(AdaptationData {
+                    reason: AdaptationReason::ProtectSelfNoDefensive,
+                    original_score: 0.8,
+                }),
+                None,
+            ])
+        ) {
+            ann.score = score;
+            ann.factors = PlanFactorValues::default();
+            ann.adaptation = adaptation;
+        }
+
+        FinalizeStage.apply(&mut pool, &mut ctx);
+        SanityStage.apply(&mut pool, &mut ctx);
+
+        for (i, ann) in pool.annotations.iter().enumerate() {
+            // 1-to-1: multipliers vec and sanity vec must have the same length.
+            assert_eq!(
+                ann.score_trace.multipliers.len(),
+                ann.sanity.len(),
+                "plan[{i}]: trace.multipliers.len()={} != sanity.len()={}",
+                ann.score_trace.multipliers.len(),
+                ann.sanity.len(),
+            );
+            // Each multiplier hit must have kind=Sanity and match the sanity value.
+            for (j, (mhit, shit)) in ann
+                .score_trace
+                .multipliers
+                .iter()
+                .zip(ann.sanity.iter())
+                .enumerate()
+            {
+                assert_eq!(
+                    mhit.kind,
+                    MultiplierKind::Sanity,
+                    "plan[{i}] multiplier[{j}]: expected kind=Sanity",
+                );
+                assert!(
+                    (mhit.value - shit.multiplier).abs() < 1e-6,
+                    "plan[{i}] multiplier[{j}]: value={} != sanity.multiplier={}",
+                    mhit.value,
+                    shit.multiplier,
+                );
+            }
+            // compute() == ann.score.
+            assert!(
+                (ann.score - ann.score_trace.compute()).abs() < 1e-5,
+                "plan[{i}]: compute()={} != ann.score={}",
+                ann.score_trace.compute(),
+                ann.score,
+            );
+        }
+    }
+
+    /// On a pool of 3 plans (all finite scores), after apply: for every plan
+    /// (ann.score - trace.compute()).abs() < 1e-5.
+    #[test]
+    fn p3a_sanity_invariant_holds_for_all_finite_plans() {
+        let dest_a = hex_from_offset(1, 0);
+        let dest_b = hex_from_offset(2, 0);
+        let dest_c = hex_from_offset(3, 0);
+        let plans = vec![
+            make_move_plan(vec![dest_a]),
+            make_move_plan(vec![dest_b]),
+            make_move_plan(vec![dest_c]),
+        ];
+
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos)
+            .hp(20)
+            .max_hp(20)
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let maps = empty_maps();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let mut rng = DiceRng::default();
+        let mut ctx = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            pos,
+            &mut rng,
+        );
+
+        let mut pool = ScoredPool::new(plans);
+        for (ann, score) in pool.annotations.iter_mut().zip([0.9_f32, 0.7_f32, 0.5_f32]) {
+            ann.score = score;
+        }
+        SanityStage.apply(&mut pool, &mut ctx);
+
+        for (i, ann) in pool.annotations.iter().enumerate() {
+            assert!(
+                ann.score.is_finite(),
+                "plan[{i}]: score must remain finite, got {}", ann.score,
+            );
+            assert!(
+                (ann.score - ann.score_trace.compute()).abs() < 1e-5,
+                "plan[{i}]: invariant violated — ann.score={} vs compute()={}",
+                ann.score,
+                ann.score_trace.compute(),
+            );
+        }
+    }
+
+    /// A plan with ann.score = NEG_INFINITY (masked plan).
+    /// After apply: ann.score stays NEG_INFINITY, trace.base = NEG_INFINITY,
+    /// invariant assert is skipped (entry.is_finite() == false), no panic.
+    #[test]
+    fn p3a_sanity_masked_plan_trace_unchanged_or_only_base() {
+        let dest_a = hex_from_offset(1, 0);
+        let dest_b = hex_from_offset(2, 0);
+
+        let pos = hex_from_offset(0, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, pos)
+            .hp(20)
+            .max_hp(20)
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let maps = empty_maps();
+        let content = empty_content();
+        let difficulty = DifficultyProfile::default();
+        let world = make_test_ctx(&content, &difficulty);
+        let reservations = Reservations::default();
+        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let mut rng = DiceRng::default();
+        let mut ctx = StageCtx::new(
+            &scoring,
+            TacticalIntent::Reposition,
+            IntentReason::NoRuleDefault,
+            pos,
+            &mut rng,
+        );
+
+        let plans = vec![
+            make_move_plan(vec![dest_a]),
+            make_move_plan(vec![dest_b]),
+        ];
+        let mut pool = ScoredPool::new(plans);
+        // plan[0] is masked, plan[1] is normal.
+        pool.annotations[0].score = f32::NEG_INFINITY;
+        pool.annotations[1].score = 0.6;
+
+        // Must not panic.
+        SanityStage.apply(&mut pool, &mut ctx);
+
+        // plan[0]: score stays NEG_INFINITY; trace.base = NEG_INFINITY;
+        // sanity hits remain empty (sanity_adjust_plans skips non-finite).
+        let masked = &pool.annotations[0];
+        assert_eq!(
+            masked.score,
+            f32::NEG_INFINITY,
+            "masked plan score must remain NEG_INFINITY",
+        );
+        assert_eq!(
+            masked.score_trace.base,
+            f32::NEG_INFINITY,
+            "masked plan trace.base must be NEG_INFINITY",
+        );
+        assert!(
+            masked.sanity.is_empty(),
+            "masked plan must have no sanity hits, got {:?}", masked.sanity,
+        );
+
+        // plan[1]: finite plan invariant holds.
+        let normal = &pool.annotations[1];
+        assert!(
+            normal.score.is_finite(),
+            "normal plan score must remain finite",
+        );
+        assert!(
+            (normal.score - normal.score_trace.compute()).abs() < 1e-5,
+            "normal plan invariant violated: score={} vs compute()={}",
+            normal.score,
+            normal.score_trace.compute(),
+        );
     }
 }

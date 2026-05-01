@@ -391,3 +391,38 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] `Sanity`, `ProtectSelfMask`, `KillableGate`, `Finalize`, `PickBest` — не изменены
 
 ---
+
+## 2026-05-01 — P3a.3 — Sanity → trace.multipliers (completed)
+
+**Что сделано:**
+- `SanityStage::apply()` теперь пушит `MultiplierHit { kind: MultiplierKind::Sanity, value: hit.multiplier }` в `ann.score_trace.multipliers` для каждого `SanityHit` параллельно сохранению `ann.sanity = hits`.
+- Bridging: snapshot entry scores снимается ДО вызова `sanity_adjust_plans` (она мутирует scores in-place); затем `ann.score_trace = ScoreTrace { base: entry_scores[i], ..Default::default() }` — полный сброс per-plan с синхронизацией base на pre-sanity score.
+- `ann.score = new_score` и `ann.sanity = hits` сохранены — behavioural diff = 0.
+- `debug_assert!(ann.score == trace.compute(), ε < 1e-5)` — только для `entry_scores[i].is_finite()` (masked планы с NEG_INFINITY пропускаются — invariant не запускается).
+- 4 новых теста в `pipeline/stages/sanity.rs::tests`:
+  - `p3a_sanity_no_hits_trace_has_only_base` — clean plan (нет правил); `trace.base == entry_score`, `multipliers.len() == 0`, `compute() == entry_score`.
+  - `p3a_sanity_with_hits_pushes_multipliers` — через FinalizeStage → SanityStage setup; 1-to-1 соответствие `multipliers[j].kind == Sanity`, `multipliers[j].value == sanity[j].multiplier`, `compute() == ann.score`.
+  - `p3a_sanity_invariant_holds_for_all_finite_plans` — pool из 3 планов; для каждого `(ann.score - trace.compute()).abs() < 1e-5`.
+  - `p3a_sanity_masked_plan_trace_unchanged_or_only_base` — plan с `NEG_INFINITY`; no panic, score остаётся NEG_INFINITY, `sanity.is_empty()`, invariant assert пропущен.
+
+**Комментарии / отклонения от плана:**
+- Snapshot entry_scores берётся до `sanity_adjust_plans` (не после), т.к. функция мутирует scores in-place — без pre-snapshot bridging base оказался бы post-sanity значением, нарушая `trace.compute() == ann.score`.
+- `p3a_sanity_with_hits_pushes_multipliers` использует FinalizeStage + SanityStage setup (аналог `sanity_survives_adaptation_path`), а не standalone trigger — реальные sanity-правила (HealerExposure, RetreatTrap, SynergyBonus) трудно вызвать без сложного multi-unit setup. Тест проверяет 1-to-1 корреляцию и `compute()` invariant вне зависимости от того, сработало ли правило.
+- `p3a_sanity_invariant_holds_for_all_finite_plans` использует прямой вызов `SanityStage.apply()` на 3-plan pool без FinalizeStage — `sanity_adjust_plans` имеет early-return для `len <= 1`, поэтому pool из 3 планов гарантирует прогон rule-loop'а (хотя с healthy actor в safe tile правила всё равно не сработают — invariant проверяется и без hits).
+- Bridging-паттерн идентичен P3a.2 (`critics.rs`) — полный reset `ScoreTrace { base, ..default() }` + push hits в order'е.
+
+**Файлы:**
+- `src/combat/ai/pipeline/stages/sanity.rs` — единственный изменённый файл стадии
+
+**DoD проверка:**
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 769 passed (765 + 4)
+- [x] `cargo test` (интеграционные) — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Behavioural diff = 0: `ann.score = new_score` и `ann.sanity = hits` сохранены; bit-identical с pre-P3a.3
+- [x] Existing тесты `sanity_stage_*` (3 шт) — зелёные без изменений ассертов
+- [x] Existing тесты P3a.0/1/2 — без regressions
+- [x] Только один файл стадий тронут: `pipeline/stages/sanity.rs`
+- [x] `ProtectSelfMask`, `KillableGate`, `Finalize`, `PickBest` — не изменены
+
+---

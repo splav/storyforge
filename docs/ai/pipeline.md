@@ -89,12 +89,13 @@ struct StageSpec {
 
 `src/combat/ai/pipeline/score_trace.rs` — типизированный лог score-affecting effects, накапливаемых стадиями pipeline'а. Реализовано в P3a.0, миграция стадий — P3a.{1..5}.
 
-**Статус: P3a.2 done — CriticsStage emits MultiplierHits.**
+**Статус: P3a.3 done — SanityStage emits MultiplierHits with kind=Sanity.**
 
 - `PlanModifiersStage` (P3a.1) пушит `AddendHit` в `score_trace.addends` для каждого из 3 modifier'ов.
 - `CriticsStage` (P3a.2) пушит `MultiplierHit { kind: Critic, value }` в `score_trace.multipliers` для каждого critic hit.
+- `SanityStage` (P3a.3) пушит `MultiplierHit { kind: Sanity, value }` в `score_trace.multipliers` для каждого `SanityHit`. Snapshot entry scores снимается до вызова `sanity_adjust_plans` для корректного bridging. Masked планы (`entry_score = NEG_INFINITY`) — invariant assert пропускается.
 
-Bridging (partial migration phase): каждая мигрированная стадия полностью сбрасывает trace (`ScoreTrace { base: ann.score, ..Default::default() }`) на входе, чтобы не наследовать multipliers/addends от предыдущих мигрированных стадий. Trace отражает только эффекты **последней мигрированной стадии**. Полный накопленный trace будет после P3a.6 (Finalize + cleanup). Инвариант `ann.score == trace.compute()` проверяется `debug_assert` (только для `is_finite()` entry score). Остальные стадии (Sanity, ProtectSelf, KillableGate, Finalize) продолжают мутировать `ann.score` напрямую — они мигрируют в P3a.{3..5}.
+Bridging (partial migration phase): каждая мигрированная стадия полностью сбрасывает trace (`ScoreTrace { base: ann.score, ..Default::default() }`) на входе, чтобы не наследовать multipliers/addends от предыдущих мигрированных стадий. Trace отражает только эффекты **последней мигрированной стадии**. Полный накопленный trace будет после P3a.6 (Finalize + cleanup). Инвариант `ann.score == trace.compute()` проверяется `debug_assert` (только для `is_finite()` entry score). Остальные стадии (ProtectSelf, KillableGate, Finalize) продолжают мутировать `ann.score` напрямую — они мигрируют в P3a.{4..5}.
 
 ### Структура
 
