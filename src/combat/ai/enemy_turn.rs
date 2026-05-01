@@ -11,7 +11,7 @@ use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::world::snapshot::build_snapshot;
 use crate::combat::ai::intent::update_memory;
-use crate::combat::ai::planning::record_committed_reservations;
+use crate::combat::ai::pipeline::stages::pick_best::record_committed_reservations;
 use crate::combat::ai::utility::{
     pick_action, AiDecision, AiWorld, ChosenInfo,
 };
@@ -275,7 +275,7 @@ fn run_ai_turn(
     // Reservations — record committed prefix for this tick.
     if !result.pool.is_empty() {
         let best_plan = &result.pool.plans[best_idx];
-        let (_, consumed) = crate::combat::ai::planning::commit_plan(best_plan, actor_pos);
+        let (_, consumed) = crate::combat::ai::pipeline::stages::pick_best::commit_plan(best_plan, actor_pos);
         record_committed_reservations(
             best_plan, consumed, actor_snap, &world, &snap, reservations, actor_pos,
         );

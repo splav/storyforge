@@ -376,7 +376,7 @@ pub struct ContractMaskHit {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PickInfo {
     /// Top-K window, mercy flag, chosen position in the ranked pool.
-    pub mechanics: crate::combat::ai::planning::PickMechanics,
+    pub mechanics: crate::combat::ai::pipeline::stages::pick_best::PickMechanics,
     /// Deterministic jitter added to this plan's score before argmax.
     /// Written in 8.C commit 2 when `apply_pick_jitter` is wired in.
     /// Zero for pre-8.C logs (forward-compat via `#[serde(default)]`).

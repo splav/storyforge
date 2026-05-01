@@ -2049,7 +2049,7 @@ mod tests {
     use storyforge::combat::ai::outcome::{PlanAnnotation, PickInfo};
     use storyforge::combat::ai::pipeline::stages::modifiers::ModifierContribution;
     use storyforge::combat::ai::planning::PlanStep;
-    use storyforge::combat::ai::planning::PickMechanics;
+    use storyforge::combat::ai::pipeline::stages::pick_best::PickMechanics;
 
     fn make_event(
         actor_id: u64,

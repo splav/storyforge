@@ -10,7 +10,7 @@
 
 mod fallback;
 
-pub use crate::combat::ai::planning::PickMechanics;
+pub use crate::combat::ai::pipeline::stages::pick_best::PickMechanics;
 
 use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
 use crate::content::content_view::ContentView;
@@ -24,8 +24,9 @@ use crate::combat::ai::intent::{
 use crate::combat::ai::intent::agenda::Agenda;
 use crate::combat::ai::intent::bands::{BandReason, PriorityBand};
 use crate::combat::ai::log::{self, AiLogger, IntentBlock, TradeBlock};
+use crate::combat::ai::pipeline::stages::pick_best::commit_plan;
 use crate::combat::ai::planning::{
-    commit_plan, generate_plans, TurnPlan,
+    generate_plans, TurnPlan,
 };
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};

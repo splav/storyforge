@@ -715,3 +715,47 @@ R1's «обнаружено, отложено» наблюдение про `AiT
 - [x] Behavioural diff = 0: ни одна формула / control flow / литерал не изменена
 
 ---
+
+## 2026-05-01 — R5.B.3 — planning/picker.rs → pipeline/stages/pick_best.rs (completed)
+
+**Что сделано:**
+- Содержимое `planning/picker.rs` (342 LOC) вмержено в `pipeline/stages/pick_best.rs`:
+  - `PickMechanics` struct (pub) — добавлен после use-блока, перед `PickBestStage`.
+  - `commit_plan`, `mercy_cruelty` (private), `pick_best_plan`, `record_committed_reservations` — добавлены в секцию «Picker API (consolidated from planning/picker.rs)».
+  - Import `pick_best_plan` из `planning` убран из строки 50 (теперь в том же файле); добавлены новые imports: `CommittedPrefix`, `PlanStep`, `applies_cc`, `AiDecision`, `AiWorld`, `MoveOrigin`, `Reservations`, `BattleSnapshot`, `UnitSnapshot`, `AoEShape`, `TargetType`, `DiceRng`, `aoe_area`, `aoe_hits`.
+- 5 тестов из `planning/picker.rs::tests` добавлены как `mod commit_plan_tests` внутри `pick_best.rs::tests`.
+- `PickInfo.mechanics` в `outcome/mod.rs` обновлён: `planning::PickMechanics` → `pipeline::stages::pick_best::PickMechanics`.
+- Удалён `planning/picker.rs` (git rm).
+- Удалены `pub mod picker;` и `pub use picker::{...};` из `planning/mod.rs`.
+- 4 consumer-файла обновлены (Опция A — utility re-exports обновлены на новый source, внешние consumers не тронуты):
+  - `enemy_turn.rs` — `planning::record_committed_reservations` → `pipeline::stages::pick_best::record_committed_reservations`; `planning::commit_plan` (inline path) → `pipeline::stages::pick_best::commit_plan`.
+  - `utility/mod.rs` — `planning::PickMechanics` re-export → `pipeline::stages::pick_best::PickMechanics`; `planning::commit_plan` import → `pipeline::stages::pick_best::commit_plan`.
+  - `bin/mine_ai_logs.rs` — `planning::PickMechanics` → `pipeline::stages::pick_best::PickMechanics`.
+  - `outcome/mod.rs` — inline type path для `PickInfo::mechanics` обновлён.
+
+**Комментарии / отклонения от плана:**
+- `pick_best_plan` оставлена `pub` — internal consumer это `PickBestStage.apply()` в том же файле, pub не вредит.
+- `utility/mod.rs` re-export `PickMechanics` сохранён (Опция A): `log/debug.rs` и другие consumers продолжают использовать `utility::PickMechanics` без изменений.
+- Тест count остался 780: тесты из picker.rs попали в pick_best.rs::tests::commit_plan_tests, граф не изменился.
+
+**Файлы, которые затронули:**
+- `src/combat/ai/pipeline/stages/pick_best.rs` (~1080 → 1417 LOC)
+- `src/combat/ai/planning/picker.rs` (deleted)
+- `src/combat/ai/planning/mod.rs` (−2 строки: `pub mod picker;` и re-export)
+- `src/combat/ai/outcome/mod.rs` (1 строка: inline type path)
+- `src/combat/ai/utility/mod.rs` (2 строки: PickMechanics re-export + commit_plan import)
+- `src/combat/ai/enemy_turn.rs` (2 строки: record_committed_reservations + commit_plan paths)
+- `src/bin/mine_ai_logs.rs` (1 строка: PickMechanics import)
+
+**DoD проверка:**
+- [x] `planning/picker.rs` не существует
+- [x] `pipeline/stages/pick_best.rs` содержит: PickMechanics, commit_plan, mercy_cruelty, pick_best_plan, record_committed_reservations, commit_plan_tests sub-mod, плюс существующий PickBestStage код
+- [x] `planning/mod.rs` НЕ re-export'ит picker символы
+- [x] Consumers обновлены: все ссылки на `planning::picker::*` идут через `pipeline::stages::pick_best::*` (или через utility-re-exports)
+- [x] `cargo build` — clean
+- [x] `cargo test --lib` — 780 passed, 0 failed (точное соответствие baseline)
+- [x] `cargo test` — зелёный
+- [x] `cargo clippy --all-targets` — 28 warnings, все pre-existing; 0 новых
+- [x] Behavioural diff = 0: ни одна формула / control flow / литерал не изменена
+
+---

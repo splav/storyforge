@@ -6,7 +6,6 @@
 
 pub mod future_value;
 pub mod generator;
-pub mod picker;
 pub mod reach;
 pub mod scorer;
 pub mod sim;
@@ -16,7 +15,6 @@ pub mod types;
 mod parity_tests;
 
 pub use generator::generate_plans;
-pub use picker::{commit_plan, pick_best_plan, record_committed_reservations, PickMechanics};
 pub use reach::reach_from;
 pub use scorer::{
     compute_plan_factors, compute_plan_intent_sum, factor_contribution, finalize_scores,
