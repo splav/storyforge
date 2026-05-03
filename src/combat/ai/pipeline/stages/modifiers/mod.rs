@@ -35,6 +35,10 @@ pub mod repair_bonus;
 pub mod summon_bonus;
 pub mod trade_bonus;
 
+use crate::combat::ai::pipeline::effects::{
+    apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
+};
+use crate::combat::ai::pipeline::order::StageId;
 use crate::combat::ai::pipeline::score_trace::AddendHit;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::scoring::factors::aggregate::build_summon_dpr_cache;
@@ -119,17 +123,15 @@ pub static PLAN_MODIFIERS: &[&dyn PlanModifier] = &[
 
 pub struct PlanModifiersStage;
 
-impl PlanStage for PlanModifiersStage {
-    fn name(&self) -> &'static str {
-        "plan_modifiers"
+impl ScoreEffectStage for PlanModifiersStage {
+    fn id(&self) -> StageId {
+        StageId::PlanModifiers
     }
 
-    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
-        // Build summon DPR cache once for the pool. Empty when no plan summons.
+    fn compute_effects(&self, ctx: &StageCtx, pool: &ScoredPool) -> Vec<EmittedEffect> {
+        // Per-pool setup — migrated from the old apply() body.
         let summon_dpr = build_summon_dpr_cache(&pool.plans, ctx.scoring.world);
-        // Actor's own unit_value is plan-independent — compute once per pool.
         let actor_value = unit_value(ctx.scoring.active, ctx.scoring.world.content);
-        // Role repair weights — computed once, shared across all modifier calls.
         let repair_weights = ctx.scoring.active.role.repair_weights(ctx.scoring.world.tuning);
 
         let mctx = ModifierCtx {
@@ -139,33 +141,35 @@ impl PlanStage for PlanModifiersStage {
             repair_weights,
         };
 
-        for (plan, ann) in pool.plans.iter().zip(pool.annotations.iter_mut()) {
+        let mut emitted = Vec::new();
+        for (plan_index, (plan, ann)) in pool.plans.iter().zip(pool.annotations.iter()).enumerate() {
             // Skip plans masked by ProtectSelf / KillableGate (score == NEG_INFINITY).
             if !ann.score.is_finite() {
                 continue;
             }
-
-            // P3a.6: bridging-reset removed. FinalizeStage (upstream) sets
-            // trace.base; this stage only pushes addend hits on top of the
-            // accumulated trace. Invariant: ann.score == trace.compute().
             for m in PLAN_MODIFIERS {
                 let contribution = m.modify(plan, ann, &mctx);
-                ann.modifiers.push(ModifierContribution {
-                    name: m.name().into(),
-                    contribution,
+                emitted.push(EmittedEffect {
+                    plan_index,
+                    hit: ScoreHit::Addend(AddendHit { name: m.name(), value: contribution }),
+                    observability: Some(EffectObservation::Modifier(ModifierContribution {
+                        name: m.name().into(),
+                        contribution,
+                    })),
                 });
-                ann.score_trace.push_addend(AddendHit { name: m.name(), value: contribution });
-                ann.score += contribution;
             }
-
-            // Invariant: after the modifier loop, ann.score == trace.compute().
-            debug_assert!(
-                (ann.score - ann.score_trace.compute()).abs() < 1e-5,
-                "P3a.1 invariant violated: ann.score={} trace.compute()={}",
-                ann.score,
-                ann.score_trace.compute()
-            );
         }
+        emitted
+    }
+}
+
+impl PlanStage for PlanModifiersStage {
+    fn name(&self) -> &'static str {
+        "plan_modifiers"
+    }
+
+    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
+        apply_score_effect_stage(self, pool, ctx);
     }
 }
 
@@ -343,12 +347,20 @@ mod tests {
         }
     }
 
-    /// A masked plan (NEG_INFINITY score) must leave score_trace at default:
-    /// base=0, addends empty. ann.score stays NEG_INFINITY.
-    /// Calls PlanModifiersStage directly (not PRODUCTION_PIPELINE) to avoid
-    /// downstream stages that may rewrite ann.score on masked plans.
+    /// A masked plan (score=NEG_INFINITY with a Poison mask in trace) must not
+    /// receive modifier addends. After apply(), score_trace.addends stays empty
+    /// and ann.score stays NEG_INFINITY (recomputed from trace via Poison mask).
+    ///
+    /// The drive-loop calls `recompute_score_from_trace()` for all plans — for
+    /// this to preserve NEG_INFINITY the plan's trace must carry a Poison mask
+    /// (which `ScoreTrace::compute()` detects and returns NEG_INFINITY for).
+    /// This mirrors production: ProtectSelfMaskStage / KillableGateStage emit
+    /// `ScoreHit::Mask(MaskHit { kind: MaskKind::Poison, .. })` before
+    /// PlanModifiersStage runs.
     #[test]
     fn p3a_modifiers_masked_plan_trace_unchanged() {
+        use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
+
         // ── 1. Test data ──
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
         let plans = vec![TurnPlan::default()];
@@ -356,13 +368,16 @@ mod tests {
         // ── 2. Harness ──
         let h = StageTestHarness::new(actor);
 
-        // ── 3. Pool ──
+        // ── 3. Pool — masked plan: score=NEG_INFINITY + Poison mask in trace.
+        //    This mirrors the post-ProtectSelfMaskStage / KillableGateStage state.
         let mut pool = PoolBuilder::new(plans)
             .scores(&[f32::NEG_INFINITY])
+            .customize(|anns| {
+                anns[0].score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test" });
+            })
             .build();
 
-        // ── 4. Act — call the stage directly to avoid PRODUCTION_PIPELINE's
-        //        PickBest rewriting score on masked plans.
+        // ── 4. Act — call the stage directly.
         h.run(|ctx| PlanModifiersStage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──

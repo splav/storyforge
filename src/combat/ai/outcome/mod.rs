@@ -283,8 +283,11 @@ pub struct PlanAnnotation {
     /// Empty until that stage runs; populated in canonical PLAN_MODIFIERS order
     /// [summon_bonus, trade_bonus, repair_bonus]. Sum equals the score delta
     /// produced by the stage. Pure observability — does not influence picking.
+    ///
+    /// `pub(crate)`: written only via `apply_effect` in `pipeline::effects` drive-loop.
+    /// External crates (bins) must not write directly — use the engine.
     #[serde(default)]
-    pub modifiers: Vec<ModifierContribution>,
+    pub(crate) modifiers: Vec<ModifierContribution>,
     /// Step 9.A: per-Cast-step effective AI tags (cache lookup with override applied).
     /// Length equals the number of Cast steps in the plan; Move steps contribute nothing.
     /// Diagnostic only — no consumer reads this in 9.A. Consumers come in 9.B.
@@ -358,6 +361,24 @@ pub struct PlanAnnotation {
 }
 
 impl PlanAnnotation {
+    /// Read-only access to per-modifier contributions for external consumers
+    /// (e.g. `mine_ai_logs` bin). Writing is restricted to the drive-loop via
+    /// `apply_effect`.
+    pub fn modifiers(&self) -> &[crate::combat::ai::pipeline::stages::modifiers::ModifierContribution] {
+        &self.modifiers
+    }
+
+    /// Builder-style initialiser for test fixtures that need pre-populated
+    /// modifier contributions. Production code should never call this — use
+    /// the pipeline drive-loop instead.
+    pub fn with_modifiers(
+        mut self,
+        modifiers: Vec<crate::combat::ai::pipeline::stages::modifiers::ModifierContribution>,
+    ) -> Self {
+        self.modifiers = modifiers;
+        self
+    }
+
     /// Apply one score effect: push hit into `score_trace`, push observability
     /// into legacy field. Validates pairing — invalid combos panic.
     ///

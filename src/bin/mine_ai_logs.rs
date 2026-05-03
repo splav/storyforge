@@ -386,10 +386,10 @@ impl Aggregate {
 
         // E1: modifier contributions — walk all plans in pool.
         for plan in &event.plans {
-            if !plan.annotation.modifiers.is_empty() {
+            if !plan.annotation.modifiers().is_empty() {
                 self.e1_total_modifier_entries += 1;
             }
-            for mc in &plan.annotation.modifiers {
+            for mc in plan.annotation.modifiers() {
                 if mc.contribution.abs() > f32::EPSILON {
                     match mc.name.as_str() {
                         "summon_bonus" => self.e1_summon_bonus.push(mc.contribution),
@@ -2200,7 +2200,8 @@ mod tests {
     }
 
     fn plan_chosen(steps_len: usize) -> LoggedPlan {
-        let ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         let steps = (0..steps_len)
             .map(|_| PlanStep::Move { path: vec![] })
             .collect();
@@ -2324,15 +2325,12 @@ mod tests {
     }
 
     fn plan_with_modifiers(chosen: bool, modifiers: Vec<ModifierContribution>) -> LoggedPlan {
-        let ann = PlanAnnotation {
-            chosen,
-            modifiers,
-            pick: if chosen {
-                Some(PickInfo { mechanics: PickMechanics::default(), noise_applied: 0.0 })
-            } else {
-                None
-            },
-            ..Default::default()
+        let mut ann = PlanAnnotation::default().with_modifiers(modifiers);
+        ann.chosen = chosen;
+        ann.pick = if chosen {
+            Some(PickInfo { mechanics: PickMechanics::default(), noise_applied: 0.0 })
+        } else {
+            None
         };
         LoggedPlan {
             rank: 1,
@@ -2342,11 +2340,9 @@ mod tests {
     }
 
     fn plan_with_noise(noise: f32) -> LoggedPlan {
-        let ann = PlanAnnotation {
-            chosen: true,
-            pick: Some(PickInfo { mechanics: PickMechanics::default(), noise_applied: noise }),
-            ..Default::default()
-        };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
+        ann.pick = Some(PickInfo { mechanics: PickMechanics::default(), noise_applied: noise });
         LoggedPlan {
             rank: 1,
             steps: vec![PlanStep::Move { path: vec![] }],
@@ -2436,11 +2432,9 @@ mod tests {
     // ── F1: AI tags coverage ──────────────────────────────────────────────────
 
     fn plan_with_tags(tags: Vec<storyforge::combat::ai::world::tags::AbilityTagSet>) -> LoggedPlan {
-        let ann = PlanAnnotation {
-            chosen: true,
-            effective_ai_tags: tags,
-            ..Default::default()
-        };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
+        ann.effective_ai_tags = tags;
         LoggedPlan {
             rank: 1,
             steps: vec![PlanStep::Move { path: vec![] }],
@@ -2489,11 +2483,9 @@ mod tests {
         let mut tags = AbilityTagSet::empty();
         tags.insert_tag(AbilityTag::Offensive);
         // Non-chosen plan: chosen=false
-        let ann = PlanAnnotation {
-            chosen: false,
-            effective_ai_tags: vec![tags],
-            ..Default::default()
-        };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = false;
+        ann.effective_ai_tags = vec![tags];
         let unchosen = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
         let event = make_event(1, LoggedDecision::EndTurn, vec![unchosen], None);
 
@@ -2629,7 +2621,8 @@ mod tests {
         use storyforge::combat::ai::intent::IntentKind;
 
         // Chosen plan with agenda_item = 1.
-        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         ann.agenda_item = Some(1);
         let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
 
@@ -2725,7 +2718,8 @@ mod tests {
     fn h3a_unattributed_classified_as_no_items_when_agenda_empty() {
         use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
 
-        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         ann.agenda_item = None; // no attribution
         let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
 
@@ -2750,7 +2744,8 @@ mod tests {
         use storyforge::combat::ai::intent::IntentKind;
 
         // Plan without reject_reasons_per_item (empty = pre-11.7 log).
-        let ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
 
         let event = make_event_with_band(
@@ -2771,7 +2766,8 @@ mod tests {
         use storyforge::combat::ai::intent::IntentKind;
         use storyforge::combat::ai::outcome::RejectReason;
 
-        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         ann.reject_reasons_per_item = vec![Some(RejectReason::NotDefensive)];
         let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
 
@@ -2862,7 +2858,8 @@ mod tests {
         snap.units.push(actor);
 
         // Chosen plan has no agenda_item; agenda non-empty with a target.
-        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         ann.agenda_item = None;
         let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
 
@@ -2891,7 +2888,8 @@ mod tests {
         let mut snap = BattleSnapshot::default();
         snap.units.push(actor);
 
-        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         ann.agenda_item = None;
         let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
 
@@ -2926,7 +2924,8 @@ mod tests {
         snap.units.push(actor);
         snap.units.push(target);
 
-        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         ann.agenda_item = None;
         // Plans cast a DIFFERENT entity (entity 5), not the agenda target (entity 4).
         let other_entity = Entity::from_raw_u32(5).expect("valid");
@@ -2969,7 +2968,8 @@ mod tests {
         snap.units.push(actor);
         snap.units.push(target);
 
-        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         ann.agenda_item = None;
         // All plans are Move-only.
         let plan = LoggedPlan {
@@ -3001,7 +3001,8 @@ mod tests {
         let mut snap = BattleSnapshot::default();
         snap.units.push(actor);
 
-        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         ann.agenda_item = Some(0); // attributed
         let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
 
@@ -3054,7 +3055,8 @@ mod tests {
             urgency: 0.0, feasibility: 1.0, leverage: 0.4,
             safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
         };
-        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         ann.considerations_per_item = vec![cons_focus, cons_protect];
 
         let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
@@ -3108,7 +3110,8 @@ mod tests {
             safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
         };
 
-        let mut ann = PlanAnnotation { chosen: true, ..Default::default() };
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
         ann.considerations_per_item = vec![make_cons(0.6), make_cons(0.3)];
         let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
 
