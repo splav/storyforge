@@ -357,6 +357,65 @@ pub struct PlanAnnotation {
     pub score_trace_log: Option<crate::combat::ai::pipeline::score_trace::ScoreTraceLog>,
 }
 
+impl PlanAnnotation {
+    /// Apply one score effect: push hit into `score_trace`, push observability
+    /// into legacy field. Validates pairing — invalid combos panic.
+    ///
+    /// Pairing rules:
+    ///   - `Multiplier` ↔ `Sanity` | `Critic` | `None`
+    ///   - `Addend` ↔ `Modifier` | `None`
+    ///   - `Mask` ↔ `Contract` | `None`
+    ///   - `Gate` ↔ `None`
+    ///
+    /// Sole writer of `score_trace` and legacy observability; called only by
+    /// `pipeline::effects::apply_score_effect_stage`.
+    pub(crate) fn apply_effect(
+        &mut self,
+        effect: &crate::combat::ai::pipeline::effects::AppliedEffect,
+    ) {
+        use crate::combat::ai::pipeline::effects::{EffectObservation, ScoreHit};
+
+        // Pairing validation — invalid pairs are programmer error, panic.
+        match (&effect.hit, &effect.observability) {
+            (
+                ScoreHit::Multiplier(_),
+                Some(EffectObservation::Sanity(_) | EffectObservation::Critic(_)) | None,
+            ) => {}
+            (ScoreHit::Addend(_), Some(EffectObservation::Modifier(_)) | None) => {}
+            (ScoreHit::Mask(_), Some(EffectObservation::Contract(_)) | None) => {}
+            (ScoreHit::Gate(_), None) => {}
+            _ => panic!(
+                "invalid score effect pairing: source={:?} hit={:?} obs={:?}",
+                effect.source, effect.hit, effect.observability,
+            ),
+        }
+
+        // Push hit into score_trace.
+        match &effect.hit {
+            ScoreHit::Multiplier(h) => self.score_trace.push_multiplier(*h),
+            ScoreHit::Addend(h) => self.score_trace.push_addend(*h),
+            ScoreHit::Mask(h) => self.score_trace.push_mask(*h),
+            ScoreHit::Gate(h) => self.score_trace.push_gate(*h),
+        }
+
+        // Push observability into legacy field.
+        if let Some(obs) = &effect.observability {
+            match obs {
+                EffectObservation::Modifier(c) => self.modifiers.push(c.clone()),
+                EffectObservation::Sanity(h) => self.sanity.push(h.clone()),
+                EffectObservation::Critic(h) => self.critics.push(h.clone()),
+                EffectObservation::Contract(h) => self.contract = Some(h.clone()),
+            }
+        }
+    }
+
+    /// Recompute cached `score` from `score_trace.compute()`. Called by the
+    /// drive-loop at the end of each score-effect stage.
+    pub(crate) fn recompute_score_from_trace(&mut self) {
+        self.score = self.score_trace.compute();
+    }
+}
+
 /// Adaptation reason + original (pre-adaptation) score for a single plan.
 /// Written by `ModeSelectionStage`; consumed by `FinalizeStage` to build
 /// `IntentReason::Adapted` for the winning plan.

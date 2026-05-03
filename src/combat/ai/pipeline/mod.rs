@@ -9,6 +9,7 @@
 //! The production stage order lives in `order::PRODUCTION_PIPELINE` (single
 //! source of truth).  Use `order::run` to execute any pipeline slice.
 
+pub mod effects;
 pub mod order;
 pub mod score_trace;
 pub mod spec;
