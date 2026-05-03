@@ -81,13 +81,13 @@ plans with **raw** + normalised factors, and the committed decision.
   v16 logs deserialize with all three fields defaulting via `#[serde(default)]`
   (`difficulty` → `None`, `ai_memory` → `None`, `reservations` → empty).
 
-The replay accepts schema 1–17; newer versions are rejected with a warning.
-Schemas v1–v13 produce an additional warning because their `raw_factors`
-layout differs from v14 (three axes removed in Phase 6 cleanup).
-
-*Current schema: v33 (P3b).* v32 is schema-additive with v33: `score_trace_log`
-absent in v32 logs → `None`. v31 and below are rejected (missing bands/agenda
-fields). In verbose mode (`--verbose`), the chosen plan now shows a
+*Current schema: v34.* The replay accepts only `SCHEMA_VERSION` and
+`SCHEMA_VERSION - 1` (currently v33–v34); older logs are rejected. Schema
+bumps are frequent enough that maintaining backward-compat for arbitrary
+older corpora is not worth the complexity — instead the workflow is
+**continuous re-capture** (see `--capture-golden` below). v33 differs from
+v34 only in pre-Phase-0 helper relocations; `score_trace_log` is fully
+typed in both. In verbose mode (`--verbose`), the chosen plan shows a
 `score_trace:` breakdown — base, rescore_mode, multipliers, addends, masks,
 gates, and computed final. See `docs/ai/pipeline.md` for the trace algebra.
 
@@ -463,6 +463,39 @@ Entries from schemas without the required fields (e.g. v1–v5 lack
 `adaptation_reason`) are handled gracefully: the field defaults to `None`, so
 they simply don't contribute to `panic_total`. No explicit "partial" marking
 is needed.
+
+### Golden baseline (`--capture-golden` / `--compare-golden`)
+
+The metrics summary is human-readable; the golden baseline is the
+**machine-checkable** equivalent. It freezes the current pipeline's
+decisions on a corpus into a JSONL of `GoldenRecord`s, and a follow-up
+`--compare-golden` run errors out on any divergence — exactly what
+behavior-preserving refactors need as a DoD.
+
+```bash
+# Freeze a baseline against the bundled scenario fixtures (v33+):
+cargo run --release --bin replay_ai_log -- \
+    --capture-golden tests/baselines/baseline_v34.jsonl \
+    tests/ai_scenarios/snapshots/*/log.jsonl
+
+# After a behavior-preserving change — must print "0 / N diverged":
+cargo run --release --bin replay_ai_log -- \
+    --compare-golden tests/baselines/baseline_v34.jsonl \
+    tests/ai_scenarios/snapshots/*/log.jsonl
+```
+
+A copy of this guard lives as the `golden_baseline_zero_diff` integration
+test (`tests/golden_smoke.rs`) — it skips with an instruction message if
+the baseline file is missing, and fails the build on non-zero divergence.
+
+After every `SCHEMA_VERSION` bump or any intentional behavior change:
+
+1. recapture into `tests/baselines/baseline_v<N>.jsonl`,
+2. update the path in `tests/golden_smoke.rs::baseline_path`,
+3. delete the stale `logs/baseline_v<N-1>.jsonl`.
+
+See `docs/ai/extension-checklist.md` for the full SCHEMA_VERSION-bump
+checklist.
 
 ## Intended workflow
 
