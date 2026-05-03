@@ -10,7 +10,8 @@
 //! prerequisite that proves the trait works on both world models.
 
 use crate::combat::actions::{ActionState, ActorView};
-use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot};
+use crate::combat::ai::world::snapshot::BattleSnapshot;
+use crate::combat::ai::world::tags::AiTags;
 use crate::content::content_view::ContentView;
 use crate::core::AbilityId;
 use crate::game::components::Team;

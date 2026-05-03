@@ -5,7 +5,8 @@
 //! `SanityHit { rule: HealerExposure, multiplier: 0.5 }`.
 
 use crate::combat::ai::pipeline::stages::sanity::SanityHit;
-use crate::combat::ai::world::snapshot::{AiTags, UnitSnapshot};
+use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::combat::ai::world::tags::AiTags;
 use crate::game::hex::Hex;
 
 use super::SanityRule;

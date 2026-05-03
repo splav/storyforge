@@ -17,7 +17,8 @@
 mod tests {
     use crate::combat::ai::plan::sim::SimState;
     use crate::combat::ai::plan::types::PlanStep;
-    use crate::combat::ai::world::snapshot::{ActiveStatusView, AiTags, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
     use crate::combat::effects_math::final_damage_f32;
     use crate::combat::effects_outcome::{

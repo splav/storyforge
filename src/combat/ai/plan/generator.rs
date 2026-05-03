@@ -17,7 +17,8 @@ use crate::combat::ai::plan::sim::SimState;
 use crate::combat::ai::outcome::builder as outcome_builder;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 use crate::core::AbilityId;
@@ -1028,7 +1029,7 @@ mod tests {
     // are covered at the `check_legality` layer (actions/mod.rs + arch
     // D.a) and end-to-end via `generate_plans_*` tests below.
 
-    use crate::combat::ai::world::snapshot::AiTags as Tags;
+    use crate::combat::ai::world::tags::AiTags as Tags;
     use crate::content::abilities::{StatusApplication, StatusOn};
     use crate::content::statuses::StatusDef;
     use crate::core::StatusId;

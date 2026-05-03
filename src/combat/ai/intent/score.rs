@@ -5,7 +5,8 @@ use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits, StepFactor};
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::world::snapshot::{AiTags, UnitSnapshot};
+use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
@@ -371,7 +372,8 @@ mod tests {
     use crate::combat::ai::adapt::EvaluationMode;
     use crate::combat::ai::outcome::ActionOutcomeEstimate;
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };

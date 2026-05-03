@@ -3,8 +3,7 @@
 //! ## Layout
 //! - `mod.rs` — `SanityStage` (pipeline stage), `SanityHit`, `SanityRule` types,
 //!   `sanity_adjust_plans` orchestrator, shared helpers
-//!   (`expected_aoo_damage`, `plan_is_defensive`, `apply_protect_self_mask`,
-//!   `plan_has_self_aoe`).
+//!   (`expected_aoo_damage`, `plan_is_defensive`, `plan_has_self_aoe`).
 //! - `healer_exposure.rs` — Rule 1: non-healer abandoning unguarded healer.
 //! - `retreat_trap.rs` — Rule 2: final tile with < 2 open neighbours.
 //! - `synergy_bonus.rs` — Rule 3: reposition to safer tile + useful cast.
@@ -17,14 +16,12 @@ mod healer_exposure;
 mod retreat_trap;
 mod synergy_bonus;
 
-use crate::combat::ai::adapt::EvaluationMode;
-use crate::combat::ai::scoring::factors::{aoe_area, PlanFactor, PlanFactorValues};
+use crate::combat::ai::scoring::factors::aoe_area;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
-use crate::combat::effects_math::final_damage_f32;
 use crate::content::abilities::AoEShape;
 use crate::game::hex::Hex;
 use std::collections::HashSet;
@@ -200,54 +197,6 @@ pub fn sanity_adjust_plans(
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/// Sum of expected AoO damage the plan would take across all provoking
-/// transitions. For each melee enemy with reactions and a damage estimate,
-/// scan the plan's movement path for the first `was_adj && !still_adj`
-/// transition (one AoO per enemy per round) and accrue its expected damage
-/// against the actor's armor + vulnerability. Returns 0.0 if no provokers
-/// are triggered — fast path for typical non-adjacent moves.
-/// Visible to the adaptation layer — the `ExpectedSelfLethal` trigger
-/// compares this against `active.hp`. Kept here because the
-/// non-lethal multiplicative penalty (inside `sanity_adjust_plans`) uses
-/// the same number.
-pub(crate) fn expected_aoo_damage(
-    active: &UnitSnapshot,
-    plan: &TurnPlan,
-    enemies: &[&UnitSnapshot],
-) -> f32 {
-    let mut total = 0.0f32;
-    let mitigation = (active.armor + active.armor_bonus) as f32;
-    let vuln = active.damage_taken_bonus as f32;
-    for e in enemies {
-        if e.reactions_left <= 0 {
-            continue;
-        }
-        let Some(raw) = e.aoo_expected_damage else { continue };
-        // Scan: does the path ever leave adjacency with this enemy?
-        let mut prev = active.pos;
-        let mut triggered = false;
-        for step in &plan.steps {
-            let PlanStep::Move { path } = step else { continue };
-            for &h in path {
-                if prev.unsigned_distance_to(e.pos) == 1
-                    && h.unsigned_distance_to(e.pos) != 1
-                {
-                    triggered = true;
-                    break;
-                }
-                prev = h;
-            }
-            if triggered {
-                break;
-            }
-        }
-        if triggered {
-            total += final_damage_f32(raw, mitigation, vuln, /* pierces_armor */ false);
-        }
-    }
-    total
-}
-
 pub(crate) fn plan_has_self_aoe(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
     let content = ctx.world.content;
     plan.walk_with_caster(ctx.active.pos).any(|(_, step, caster_pos)| {
@@ -273,44 +222,6 @@ pub fn plan_is_defensive(self_survival: f32, epsilon: f32) -> bool {
     self_survival >= epsilon
 }
 
-/// Mask non-defensive plans to `-∞` under `ProtectSelf` intent — contract
-/// enforcement. A plan opt-out from the ProtectSelf contract is expressed
-/// via `EvaluationMode != Default` (set upstream in `apply_adaptation`
-/// when the contract is globally unsatisfiable → `ProtectSelfNoDefensive`
-/// switches every plan's mode to `LastStand`). Plans in non-Default mode
-/// are left alone by this mask.
-///
-/// Returns true if at least one plan was observed to be defensive. The
-/// "no defensive plan at all" case is now handled by ADAPTATION one step
-/// upstream — by the time this function runs, that case has already
-/// switched all plans to `LastStand` mode, so every plan will skip the
-/// mask. The return value is retained for callers that want to observe
-/// contract satisfiability, but no longer triggers a LastStand rescore
-/// inside this function.
-pub fn apply_protect_self_mask(
-    scores: &mut [f32],
-    raw: &[PlanFactorValues],
-    modes: &[EvaluationMode],
-    epsilon: f32,
-) -> bool {
-    debug_assert_eq!(raw.len(), modes.len());
-    let mut any_defensive = false;
-    for (i, f) in raw.iter().enumerate() {
-        // Plans that adaptation moved to a non-Default mode have opted
-        // out of the ProtectSelf contract; the mask does not apply to
-        // them.
-        if !matches!(modes.get(i), Some(EvaluationMode::Default)) {
-            continue;
-        }
-        if plan_is_defensive(f.get_plan(PlanFactor::SelfSurvival), epsilon) {
-            any_defensive = true;
-        } else if i < scores.len() {
-            scores[i] = f32::NEG_INFINITY;
-        }
-    }
-    any_defensive
-}
-
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -320,6 +231,7 @@ mod tests {
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
+    use crate::combat::ai::scoring::horizon::expected_aoo_damage;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;

@@ -162,7 +162,7 @@ impl Lcg {
 
 fn random_target(rng: &mut Lcg) -> UnitSnapshot {
     use crate::combat::ai::config::role::AxisProfile;
-    use crate::combat::ai::world::snapshot::AiTags;
+    use crate::combat::ai::world::tags::AiTags;
     let hp = rng.next_range(1, 100);
     let max_hp = hp + rng.next_range(0, 50);
     let threat = rng.next_range(1, 20) as f32;

@@ -8,11 +8,51 @@
 //! Writes `annotation.contract = Some(ContractMaskHit { mask: "protect_self", … })`
 //! for every plan whose score is set to -∞ by the mask.
 
+use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::outcome::ContractMaskHit;
 use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
-use crate::combat::ai::pipeline::stages::sanity::apply_protect_self_mask;
+use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
+use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
+
+/// Mask non-defensive plans to `-∞` under `ProtectSelf` intent — contract
+/// enforcement. A plan opt-out from the ProtectSelf contract is expressed
+/// via `EvaluationMode != Default` (set upstream in `apply_adaptation`
+/// when the contract is globally unsatisfiable → `ProtectSelfNoDefensive`
+/// switches every plan's mode to `LastStand`). Plans in non-Default mode
+/// are left alone by this mask.
+///
+/// Returns true if at least one plan was observed to be defensive. The
+/// "no defensive plan at all" case is now handled by ADAPTATION one step
+/// upstream — by the time this function runs, that case has already
+/// switched all plans to `LastStand` mode, so every plan will skip the
+/// mask. The return value is retained for callers that want to observe
+/// contract satisfiability, but no longer triggers a LastStand rescore
+/// inside this function.
+pub(super) fn apply_protect_self_mask(
+    scores: &mut [f32],
+    raw: &[PlanFactorValues],
+    modes: &[EvaluationMode],
+    epsilon: f32,
+) -> bool {
+    debug_assert_eq!(raw.len(), modes.len());
+    let mut any_defensive = false;
+    for (i, f) in raw.iter().enumerate() {
+        // Plans that adaptation moved to a non-Default mode have opted
+        // out of the ProtectSelf contract; the mask does not apply to
+        // them.
+        if !matches!(modes.get(i), Some(EvaluationMode::Default)) {
+            continue;
+        }
+        if plan_is_defensive(f.get_plan(PlanFactor::SelfSurvival), epsilon) {
+            any_defensive = true;
+        } else if i < scores.len() {
+            scores[i] = f32::NEG_INFINITY;
+        }
+    }
+    any_defensive
+}
 
 pub struct ProtectSelfMaskStage;
 

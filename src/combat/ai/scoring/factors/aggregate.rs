@@ -43,11 +43,11 @@ use crate::core::modifier;
 use crate::game::components::Abilities;
 use bevy::prelude::Entity;
 
-/// Per-factor contribution used both in `finalize_scores` (Pass 1) and in
+/// Per-factor contribution used both in `aggregate_factors_to_score` (Pass 1) and in
 /// `PickBestStage` (step 11.4 additive composition).
 ///
 /// Returns `default_norm(raw_value, stats, signed) × weight` — the exact
-/// quantity that `finalize_scores` adds to a plan's score for one factor.
+/// quantity that `aggregate_factors_to_score` adds to a plan's score for one factor.
 /// Exposing it here keeps both callsites mathematically identical.
 pub fn factor_contribution(raw_value: f32, stats: &BatchStats, signed: bool, weight: f32) -> f32 {
     default_norm(raw_value, stats, signed) * weight
@@ -100,7 +100,7 @@ pub fn score_plans_with_raw(
         .iter()
         .map(|p| compute_plan_factors(p, intent, ctx))
         .collect();
-    let scores = finalize_scores(plans, &raw, ctx);
+    let scores = aggregate_factors_to_score(plans, &raw, ctx);
     (scores, raw)
 }
 
@@ -120,7 +120,7 @@ pub fn rescore_with_intent(
         f.set_plan(PlanFactor::Intent, compute_plan_intent_sum(p, intent, ctx, EvaluationMode::Default));
         f.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(p, intent, ctx));
     }
-    finalize_scores(plans, raw, ctx)
+    aggregate_factors_to_score(plans, raw, ctx)
 }
 
 /// Recompute scores with **per-plan** evaluation modes. Each plan's
@@ -130,7 +130,7 @@ pub fn rescore_with_intent(
 ///
 /// Used by the ADAPTATION layer, which flags per-plan overrides
 /// (`ExpectedSelfLethal`) without altering other plans' evaluation. Global
-/// normalisation in `finalize_scores` runs once across the mixed
+/// normalisation in `aggregate_factors_to_score` runs once across the mixed
 /// intent-column values, so adapted and non-adapted plans remain
 /// comparable in a single batch-normalised space.
 ///
@@ -152,13 +152,13 @@ pub fn rescore_with_per_plan_modes(
         f.set_plan(PlanFactor::Intent, compute_plan_intent_sum(p, global, ctx, *mode));
         f.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(p, global, ctx));
     }
-    finalize_scores(plans, raw, ctx)
+    aggregate_factors_to_score(plans, raw, ctx)
 }
 
 /// Batch-normalise raw factors, apply role weights + difficulty multipliers.
 /// Returns pre-modifier, pre-noise scores. `PlanModifiersStage` добавляет
 /// modifiers; `PickBestStage` добавляет jitter.
-pub fn finalize_scores(
+pub fn aggregate_factors_to_score(
     plans: &mut [TurnPlan],
     raw: &[PlanFactorValues],
     ctx: &ScoringCtx,
@@ -576,7 +576,8 @@ mod tests {
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::plan::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::make_scoring_ctx;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
@@ -1919,7 +1920,7 @@ mod tests {
 
         // inert_plan: no steps, final_pos = actor.pos (same as initial).
         let raw = vec![PlanFactorValues::default()];
-        let scores = finalize_scores(&mut [inert_plan(pos)], &raw, &ctx);
+        let scores = aggregate_factors_to_score(&mut [inert_plan(pos)], &raw, &ctx);
         // Score == 0: no factors, no terminal contribution on a zero-threat board.
         // We can't assert == 0.0 exactly (terminal axes may fire), but we can
         // assert it's a finite number.
@@ -1961,8 +1962,8 @@ mod tests {
         let raw = vec![PlanFactorValues::default()];
         let raw2 = vec![PlanFactorValues::default()];
 
-        let score_no_preserve   = finalize_scores(&mut [inert_plan(final_pos)], &raw, &ctx_a)[0];
-        let score_high_preserve = finalize_scores(&mut [inert_plan(final_pos)], &raw2, &ctx_b)[0];
+        let score_no_preserve   = aggregate_factors_to_score(&mut [inert_plan(final_pos)], &raw, &ctx_a)[0];
+        let score_high_preserve = aggregate_factors_to_score(&mut [inert_plan(final_pos)], &raw2, &ctx_b)[0];
 
         // With empty influence maps, danger = 0 everywhere. Terminal axis values
         // depend on the board state; this test pins "finite score" not a specific
@@ -2007,8 +2008,8 @@ mod tests {
         let raw_tank   = vec![PlanFactorValues::default()];
         let raw_ranged = vec![PlanFactorValues::default()];
 
-        let score_tank   = finalize_scores(&mut [inert_plan(final_pos)], &raw_tank, &ctx_t)[0];
-        let score_ranged = finalize_scores(&mut [inert_plan(final_pos)], &raw_ranged, &ctx_r)[0];
+        let score_tank   = aggregate_factors_to_score(&mut [inert_plan(final_pos)], &raw_tank, &ctx_t)[0];
+        let score_ranged = aggregate_factors_to_score(&mut [inert_plan(final_pos)], &raw_ranged, &ctx_r)[0];
 
         // Tank and Ranged use different terminal weight tables. The scores will
         // differ unless both tables are identical — which they aren't. We pin
@@ -2044,11 +2045,11 @@ mod tests {
         // Plan with severity-invalidating RepairAffinity (severity_factor=0.0 kills the bonus).
         let mut plan = inert_plan(pos);
         plan.annotation.repair_affinity = RepairAffinity { severity_factor: 0.0, goal_alignment: 1.0, ..Default::default() };
-        let score_invalidating = finalize_scores(&mut [plan.clone()], &raw, &ctx)[0];
+        let score_invalidating = aggregate_factors_to_score(&mut [plan.clone()], &raw, &ctx)[0];
 
         // Plan with zero affinity (no repair).
         plan.annotation.repair_affinity = RepairAffinity::default();
-        let score_zero_affinity = finalize_scores(&mut [plan.clone()], &raw, &ctx)[0];
+        let score_zero_affinity = aggregate_factors_to_score(&mut [plan.clone()], &raw, &ctx)[0];
 
         // RepairAffinity::SeverityInvalidating penalises the plan.
         // For a single-plan pool (batch normalisation won't help), the exact
@@ -2061,7 +2062,7 @@ mod tests {
     }
 
     #[test]
-    fn finalize_scores_no_longer_writes_noise() {
+    fn aggregate_factors_to_score_no_longer_writes_noise() {
         let pos = hex_from_offset(0, 0);
         let actor = unit(1, Team::Enemy, pos);
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
@@ -2072,16 +2073,16 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
-        // Two identical inert plans — noise-free: finalize_scores must produce
+        // Two identical inert plans — noise-free: aggregate_factors_to_score must produce
         // equal scores for both (deterministic per-plan hash, not per-call).
         let raw_slice = [PlanFactorValues::default(), PlanFactorValues::default()];
-        let score_a = finalize_scores(&mut [inert_plan(pos)], &raw_slice[..1], &ctx)[0];
-        let _score_b = finalize_scores(&mut [inert_plan(pos)], &raw_slice[..1], &ctx)[0];
+        let score_a = aggregate_factors_to_score(&mut [inert_plan(pos)], &raw_slice[..1], &ctx)[0];
+        let _score_b = aggregate_factors_to_score(&mut [inert_plan(pos)], &raw_slice[..1], &ctx)[0];
 
-        let score_a2 = finalize_scores(&mut [inert_plan(pos)], &raw_slice[..1], &ctx)[0];
+        let score_a2 = aggregate_factors_to_score(&mut [inert_plan(pos)], &raw_slice[..1], &ctx)[0];
         assert!(
             (score_a - score_a2).abs() < 1e-10,
-            "finalize_scores must be deterministic: {score_a} vs {score_a2}",
+            "aggregate_factors_to_score must be deterministic: {score_a} vs {score_a2}",
         );
     }
 
@@ -2106,8 +2107,8 @@ mod tests {
 
         let raw_slice = vec![PlanFactorValues::default()];
 
-        let score_no_goal   = finalize_scores(&mut [inert_plan(pos)], &raw_slice, &base_ctx)[0];
-        let score_with_goal = finalize_scores(&mut [inert_plan(pos)], &raw_slice, &ctx_with_goal)[0];
+        let score_no_goal   = aggregate_factors_to_score(&mut [inert_plan(pos)], &raw_slice, &base_ctx)[0];
+        let score_with_goal = aggregate_factors_to_score(&mut [inert_plan(pos)], &raw_slice, &ctx_with_goal)[0];
 
         // With an empty factor vector, scores will likely be 0.0 for both.
         // The important thing is both are finite and the call compiles/runs.
@@ -2131,7 +2132,7 @@ mod tests {
 
         // Intent slice with all-zero factors and a goal-absent context.
         let raw_slice = vec![PlanFactorValues::default()];
-        let score_no_goal = finalize_scores(&mut [inert_plan(pos)], &raw_slice, &ctx)[0];
+        let score_no_goal = aggregate_factors_to_score(&mut [inert_plan(pos)], &raw_slice, &ctx)[0];
 
         // The test pins "discovery path runs without panic and returns finite".
         assert!(score_no_goal.is_finite(), "no-goal discovery path must produce finite score");
@@ -2158,7 +2159,7 @@ mod tests {
         let ctx_with_goal = ScoringCtx { last_goal: Some(&stored_goal), ..base_ctx };
 
         let raw = vec![PlanFactorValues::default(), PlanFactorValues::default()];
-        let mut scores = finalize_scores(&mut [inert_plan(pos), inert_plan(pos)], &raw, &ctx_with_goal);
+        let mut scores = aggregate_factors_to_score(&mut [inert_plan(pos), inert_plan(pos)], &raw, &ctx_with_goal);
 
         // Both plans identical — scores should be equal.
         assert!(
@@ -2194,12 +2195,12 @@ mod tests {
         let mut raw_nonzero = PlanFactorValues::default();
         raw_nonzero.set(StepFactor::Damage, 1.0);
 
-        let score_no_goal = finalize_scores(
+        let score_no_goal = aggregate_factors_to_score(
             &mut [inert_plan(pos)],
             &[raw_nonzero],
             &base_ctx,
         )[0];
-        let score_with_goal = finalize_scores(
+        let score_with_goal = aggregate_factors_to_score(
             &mut [inert_plan(pos)],
             &[raw_nonzero],
             &ctx_with_goal,

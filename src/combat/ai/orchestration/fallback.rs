@@ -5,7 +5,8 @@
 use super::{AiDecision, MoveOrigin};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::plan::reach_from;
-use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::tags::AiTags;
 use crate::game::hex::Hex;
 
 pub(super) fn fallback_move(

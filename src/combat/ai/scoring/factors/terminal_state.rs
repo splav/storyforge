@@ -15,7 +15,8 @@
 
 use crate::combat::ai::scoring::factors::{FactorTerminalScore, TerminalFactor};
 use crate::combat::ai::plan::types::TurnPlan;
-use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot};
+use crate::combat::ai::world::snapshot::BattleSnapshot;
+use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::orchestration::ScoringCtx;
 
 /// Compute the terminal-state score for a plan from its final sim snapshot.
@@ -279,7 +280,8 @@ mod tests {
 
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot};
+    use crate::combat::ai::world::snapshot::BattleSnapshot;
+    use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
     };

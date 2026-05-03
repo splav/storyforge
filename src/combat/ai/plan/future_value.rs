@@ -14,7 +14,7 @@ use crate::combat::ai::scoring::factors::aoe_hits;
 use crate::combat::ai::scoring::factors::aoe_area;
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::scoring::factors::aggregate::{compute_plan_factors, finalize_scores};
+use crate::combat::ai::scoring::factors::aggregate::{compute_plan_factors, aggregate_factors_to_score};
 use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::outcome::builder::hypothetical as estimate_hypothetical;
@@ -317,8 +317,8 @@ pub fn score_plans_prototype(
         .map(|p| compute_plan_factors(p, intent, ctx))
         .collect();
 
-    // Batch-normalize prefix factors (finalize_scores is batch-wise).
-    let prefix_scores = finalize_scores(&mut prefix_plans, &prefix_factors, ctx);
+    // Batch-normalize prefix factors (aggregate_factors_to_score is batch-wise).
+    let prefix_scores = aggregate_factors_to_score(&mut prefix_plans, &prefix_factors, ctx);
 
     // Add γ × FutureValue for each plan's committed position.
     prefix_scores
@@ -348,7 +348,7 @@ mod tests {
     use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
     use crate::combat::ai::plan::types::{PlanStep, StepOutcome};
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::AiTags;
+    use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::{make_scoring_ctx, make_test_ctx, UnitBuilder};
     use crate::content::abilities::CasterContext;
     use crate::core::DiceExpr;

@@ -2802,7 +2802,7 @@ mod tests {
         use storyforge::combat::ai::world::snapshot::UnitSnapshot;
         use storyforge::content::abilities::CasterContext;
         use storyforge::combat::ai::config::role::AxisProfile;
-        use storyforge::combat::ai::world::snapshot::AiTags;
+        use storyforge::combat::ai::world::tags::AiTags;
         use storyforge::game::components::Team;
         use storyforge::content::races::CritFailEffect;
         use bevy::prelude::Entity;

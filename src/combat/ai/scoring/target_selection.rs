@@ -1,4 +1,5 @@
-use crate::combat::ai::world::snapshot::{AiTags, BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::tags::AiTags;
 
 /// Pick the enemy with the highest `target_selection_score` relative to `active`.
 /// Single source of truth for "what's the most important enemy right now".

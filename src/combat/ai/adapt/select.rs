@@ -11,7 +11,7 @@
 use crate::combat::ai::adapt::{Adaptation, AdaptationReason, EvaluationMode};
 use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
 use crate::combat::ai::intent::TacticalIntent;
-use crate::combat::ai::pipeline::stages::sanity::expected_aoo_damage;
+use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::scoring::factors::aggregate::rescore_with_per_plan_modes;
 use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
 use crate::combat::ai::plan::TurnPlan;

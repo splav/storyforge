@@ -1,4 +1,5 @@
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, AiTags};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::tags::AiTags;
 use crate::game::components::Team;
 use crate::game::hex::{can_stop_on, hex_from_offset, is_passable, Hex, GRID_ROWS, row_cols};
 use crate::game::pathfinding::reachable_cells;
@@ -297,7 +298,7 @@ fn build_escape(
 mod tests {
     use super::*;
     use crate::game::hex::in_bounds;
-    use crate::combat::ai::world::snapshot::AiTags;
+    use crate::combat::ai::world::tags::AiTags;
     use crate::game::hex::hex_from_offset;
 
     fn all_cell_count() -> usize {

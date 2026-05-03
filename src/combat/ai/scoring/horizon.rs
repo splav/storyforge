@@ -1,3 +1,5 @@
+use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
+use crate::combat::effects_math::final_damage_f32;
 use crate::content::content_view::ContentView;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::content::abilities::{AbilityDef, CasterContext, TargetType};
@@ -284,6 +286,54 @@ pub(crate) fn status_score(
         .sum()
 }
 
+/// Sum of expected AoO damage the plan would take across all provoking
+/// transitions. For each melee enemy with reactions and a damage estimate,
+/// scan the plan's movement path for the first `was_adj && !still_adj`
+/// transition (one AoO per enemy per round) and accrue its expected damage
+/// against the actor's armor + vulnerability. Returns 0.0 if no provokers
+/// are triggered — fast path for typical non-adjacent moves.
+/// Visible to the adaptation layer — the `ExpectedSelfLethal` trigger
+/// compares this against `active.hp`. Kept here because the
+/// non-lethal multiplicative penalty (inside `sanity_adjust_plans`) uses
+/// the same number.
+pub(crate) fn expected_aoo_damage(
+    active: &UnitSnapshot,
+    plan: &TurnPlan,
+    enemies: &[&UnitSnapshot],
+) -> f32 {
+    let mut total = 0.0f32;
+    let mitigation = (active.armor + active.armor_bonus) as f32;
+    let vuln = active.damage_taken_bonus as f32;
+    for e in enemies {
+        if e.reactions_left <= 0 {
+            continue;
+        }
+        let Some(raw) = e.aoo_expected_damage else { continue };
+        // Scan: does the path ever leave adjacency with this enemy?
+        let mut prev = active.pos;
+        let mut triggered = false;
+        for step in &plan.steps {
+            let PlanStep::Move { path } = step else { continue };
+            for &h in path {
+                if prev.unsigned_distance_to(e.pos) == 1
+                    && h.unsigned_distance_to(e.pos) != 1
+                {
+                    triggered = true;
+                    break;
+                }
+                prev = h;
+            }
+            if triggered {
+                break;
+            }
+        }
+        if triggered {
+            total += final_damage_f32(raw, mitigation, vuln, /* pierces_armor */ false);
+        }
+    }
+    total
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -454,7 +504,7 @@ mod tests {
     #[test]
     fn stun_value_devalues_resource_starved_target() {
         use crate::combat::ai::config::role::AxisProfile;
-        use crate::combat::ai::world::snapshot::AiTags;
+        use crate::combat::ai::world::tags::AiTags;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
 

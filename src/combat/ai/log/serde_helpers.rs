@@ -85,7 +85,7 @@ pub mod entity_vec {
 
 pub mod ai_tags {
     use super::*;
-    use crate::combat::ai::world::snapshot::AiTags;
+    use crate::combat::ai::world::tags::AiTags;
 
     pub fn serialize<S: Serializer>(t: &AiTags, s: S) -> Result<S::Ok, S::Error> {
         t.bits().serialize(s)

@@ -7,8 +7,9 @@
 //! offline predictor used by the planner for scoring candidate sequences.
 
 use crate::combat::ai::world::snapshot::{
-    refresh_status_aggregates, ActiveStatusView, AiTags, BattleSnapshot, UnitSnapshot,
+    refresh_status_aggregates, ActiveStatusView, BattleSnapshot, UnitSnapshot,
 };
+use crate::combat::ai::world::tags::AiTags;
 use crate::combat::effects_math::final_damage_f32;
 use crate::combat::effects_outcome::{
     compute_ability_outcome, AbilityOutcome, ExpectedValue, OutcomePrimary,

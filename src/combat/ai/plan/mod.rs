@@ -28,6 +28,6 @@ pub use types::{CommittedPrefix, PlanStep, StepOutcome, TurnPlan};
 // still work without churn. These now live in scoring/factors/aggregate.
 pub use crate::combat::ai::scoring::factors::aggregate::{
     build_summon_dpr_cache, compute_plan_factors, compute_plan_factors_sans_intent,
-    compute_plan_intent_sum, factor_contribution, finalize_scores, rescore_with_intent,
+    compute_plan_intent_sum, factor_contribution, aggregate_factors_to_score, rescore_with_intent,
     rescore_with_per_plan_modes, score_plans_with_raw, worst_path_danger,
 };

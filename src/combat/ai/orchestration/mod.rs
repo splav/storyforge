@@ -162,7 +162,7 @@ pub struct AiWorld<'a> {
 /// Two lifetime parameters because perspective `(active, snap)` can be swapped
 /// mid-plan when scoring against a sim'd state — `with_perspective` returns
 /// a fresh `ScoringCtx` reusing the world refs but with a shorter `'p`.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct ScoringCtx<'w, 'p> {
     pub world: &'w AiWorld<'w>,
     pub maps: &'w InfluenceMaps,

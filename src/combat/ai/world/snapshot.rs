@@ -11,14 +11,10 @@ use crate::game::components::{
 };
 use crate::game::hex::Hex;
 use crate::game::resources::HexPositions;
+use crate::combat::ai::world::tags::AiTags;
 use bevy::prelude::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
-
-// AiTags definition moved to world/tags/ai_tags.rs (R7 tags consolidation).
-// Re-exported here for backward-compat so callers using
-// `combat::ai::world::snapshot::AiTags` continue to work.
-pub use crate::combat::ai::world::tags::AiTags;
 
 // ── Snapshot types ────────────────────────────────────────────────────────────
 

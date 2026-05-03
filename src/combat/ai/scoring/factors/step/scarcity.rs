@@ -18,7 +18,8 @@ use crate::combat::ai::scoring::factors::offensive::aoe_area;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::stun_denial_value;
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::world::snapshot::{AiTags, UnitSnapshot};
+use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::combat::ai::world::tags::AiTags;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ContentView;
 
