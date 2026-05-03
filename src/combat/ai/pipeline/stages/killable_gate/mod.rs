@@ -740,7 +740,7 @@ mod stage_tests {
         );
 
         // plan 1 should be masked and annotated
-        assert_eq!(pool.annotations[1].score, f32::NEG_INFINITY, "non-offensive plan should be gated");
+        assert!(!pool.annotations[1].is_selectable(), "non-offensive plan should be gated");
         let contract = pool.annotations[1].contract()
             .expect("expected contract annotation for gated plan");
         assert_eq!(contract.mask, "killable_gate".to_string());
@@ -854,8 +854,8 @@ mod stage_tests {
     }
 
     #[test]
-    fn p3a_killable_gate_compute_returns_neg_infinity() {
-        // Gated plan: trace.compute() == NEG_INFINITY (due to Poison mask).
+    fn p3a_killable_gate_masked_plan_not_selectable() {
+        // Gated plan: is_masked() && is_gated(), score is finite (Step 3).
         // Uses run_stage_with_snap — needs 2-unit snap.
         let pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
@@ -890,10 +890,11 @@ mod stage_tests {
             &snap, &actor,
         );
 
-        assert_eq!(
-            pool.annotations[1].score_trace.compute(),
-            f32::NEG_INFINITY,
-            "trace.compute() must be NEG_INFINITY for gated plan"
-        );
+        let ann = &pool.annotations[1];
+        assert!(ann.score_trace.is_masked(), "mask must be recorded in trace for gated plan");
+        assert!(ann.score_trace.is_gated(), "gate must be recorded in trace for gated plan");
+        assert!(!ann.is_selectable(), "gated plan must not be selectable");
+        // score is finite after Step 3 cutover (compute() ignores masks)
+        assert!(ann.score.is_finite(), "score is finite after Step 3 cutover");
     }
 }

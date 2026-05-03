@@ -188,21 +188,20 @@ mod tests {
 
     // ── Pure data tests (no StageCtx needed) ────────────────────────────────
 
-    /// A masked plan (score == NEG_INFINITY) must be skipped:
-    /// `ann.modifiers` stays empty and `ann.score` stays NEG_INFINITY.
+    /// A masked plan (!is_selectable()) must be skipped:
+    /// `ann.modifiers` stays empty for masked plans.
     #[test]
     fn plan_modifiers_stage_skips_masked_plans() {
-        let mut plan = TurnPlan::default();
-        plan.annotation.score = f32::NEG_INFINITY;
-        let mut pool = ScoredPool::new(vec![plan]);
-        pool.annotations[0].score = f32::NEG_INFINITY;
+        use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
 
-        // We can't call apply() without a real StageCtx, so we test the loop
-        // invariant directly: the stage should skip plans where !score.is_finite().
-        // This test verifies that NEG_INFINITY is correctly identified as non-finite.
-        assert!(!f32::NEG_INFINITY.is_finite(), "NEG_INFINITY must not be finite");
-        assert!(pool.annotations[0].modifiers.is_empty());
-        assert_eq!(pool.annotations[0].score, f32::NEG_INFINITY);
+        let pool = ScoredPool::new(vec![TurnPlan::default()]);
+        // Annotate with a Poison mask → is_selectable() returns false.
+        // This verifies the skip predicate without calling apply().
+        let mut ann = pool.annotations[0].clone();
+        ann.score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test" });
+
+        assert!(!ann.is_selectable(), "masked plan must not be selectable");
+        assert!(ann.modifiers.is_empty(), "modifiers must be empty before stage runs");
     }
 
     /// Verify that ScoredPool correctly initialises annotations with default score (0.0).
@@ -347,13 +346,11 @@ mod tests {
         }
     }
 
-    /// A masked plan (score=NEG_INFINITY with a Poison mask in trace) must not
-    /// receive modifier addends. After apply(), score_trace.addends stays empty
-    /// and ann.score stays NEG_INFINITY (recomputed from trace via Poison mask).
+    /// A masked plan (Poison mask in trace) must not receive modifier addends.
+    /// After apply(), score_trace.addends stays empty and is_selectable() stays false.
+    /// score is finite (Step 3: compute() ignores masks) — selectability is
+    /// communicated via trace flags, not score magnitude.
     ///
-    /// The drive-loop calls `recompute_score_from_trace()` for all plans — for
-    /// this to preserve NEG_INFINITY the plan's trace must carry a Poison mask
-    /// (which `ScoreTrace::compute()` detects and returns NEG_INFINITY for).
     /// This mirrors production: ProtectSelfMaskStage / KillableGateStage emit
     /// `ScoreHit::Mask(MaskHit { kind: MaskKind::Poison, .. })` before
     /// PlanModifiersStage runs.
@@ -368,10 +365,9 @@ mod tests {
         // ── 2. Harness ──
         let h = StageTestHarness::new(actor);
 
-        // ── 3. Pool — masked plan: score=NEG_INFINITY + Poison mask in trace.
+        // ── 3. Pool — masked plan with Poison mask in trace.
         //    This mirrors the post-ProtectSelfMaskStage / KillableGateStage state.
         let mut pool = PoolBuilder::new(plans)
-            .scores(&[f32::NEG_INFINITY])
             .customize(|anns| {
                 anns[0].score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test" });
             })
@@ -382,8 +378,11 @@ mod tests {
 
         // ── 5. Assert ──
         let ann = &pool.annotations[0];
-        assert_eq!(ann.score, f32::NEG_INFINITY, "masked plan score must stay NEG_INFINITY");
+        assert!(ann.score_trace.is_masked(), "mask must remain in trace");
+        assert!(!ann.is_selectable(), "masked plan must not be selectable");
         assert_eq!(ann.score_trace.base, 0.0, "masked plan trace.base must stay 0");
         assert!(ann.score_trace.addends.is_empty(), "masked plan trace.addends must stay empty");
+        // score is finite after Step 3 cutover
+        assert!(ann.score.is_finite(), "score is finite after Step 3 cutover");
     }
 }

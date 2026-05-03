@@ -196,7 +196,7 @@ mod tests {
         assert!(pool.annotations[0].contract().is_none(), "no contract annotation for defensive plan");
 
         // plan 1: non-defensive → masked + annotation
-        assert_eq!(pool.annotations[1].score, f32::NEG_INFINITY, "non-defensive plan should be masked");
+        assert!(!pool.annotations[1].is_selectable(), "non-defensive plan should be masked");
         let contract = pool.annotations[1].contract()
             .expect("expected contract annotation for non-defensive plan");
         assert_eq!(contract.mask, "protect_self".to_string());
@@ -308,8 +308,9 @@ mod tests {
 
         // ── 5. Assert ──
         let ann = &pool.annotations[0];
-        assert_eq!(ann.score, f32::NEG_INFINITY, "masked plan score must be NEG_INFINITY");
-        assert_eq!(ann.score_trace.compute(), f32::NEG_INFINITY,
-            "trace.compute() must equal NEG_INFINITY for masked plan");
+        assert!(ann.score_trace.is_masked(), "mask must be recorded in trace");
+        assert!(!ann.is_selectable(), "masked plan must not be selectable");
+        // score is finite after Step 3 cutover (compute() ignores masks)
+        assert!(ann.score.is_finite(), "score is finite after Step 3 cutover");
     }
 }

@@ -816,7 +816,7 @@ fn print_event_plans(event: &ActorTickEvent) {
 
 /// Print `score_trace_log` breakdown for the chosen plan (verbose mode, P3b).
 fn print_score_trace_breakdown(plan: &LoggedPlan) {
-    use storyforge::combat::ai::pipeline::score_trace::MaskKind;
+    use storyforge::combat::ai::pipeline::score_trace::{GateOutcome, MaskKind};
 
     let Some(trace) = &plan.annotation.score_trace_log else {
         println!("        score_trace: (not present — v32 log or trace not populated)");
@@ -839,16 +839,16 @@ fn print_score_trace_breakdown(plan: &LoggedPlan) {
     for g in &trace.gates {
         println!("          gate          {:?}  source={}", g.outcome, g.source);
     }
-    // Re-derive the final score from trace fields (diagnostic cross-check).
-    let computed: f32 = if trace.masks.iter().any(|m| matches!(m.kind, MaskKind::Poison)) {
-        f32::NEG_INFINITY
-    } else {
+    // Re-derive the final score from trace fields (Phase 3 Step 3: always finite).
+    let computed: f32 = {
         let mut s = trace.base;
         for m in &trace.multipliers { s *= m.value; }
         for a in &trace.addends { s += a.value; }
         s
     };
-    println!("          computed      = {:+.4}  (ann.score = {:+.4})", computed, plan.annotation.score());
+    let masked_flag = if trace.masks.iter().any(|m| matches!(m.kind, MaskKind::Poison)) { " [MASKED]" } else { "" };
+    let gated_flag = if trace.gates.iter().any(|g| matches!(g.outcome, GateOutcome::Reject)) { " [GATED]" } else { "" };
+    println!("          computed      = {:+.4}{}{} (ann.score = {:+.4})", computed, masked_flag, gated_flag, plan.annotation.score());
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

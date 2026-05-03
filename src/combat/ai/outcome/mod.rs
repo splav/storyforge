@@ -548,9 +548,8 @@ impl PlanAnnotation {
     }
 
     /// Phase 3: derive selection key from trace flags + cached score.
-    /// Currently `score` may be NEG_INFINITY for masked/gated plans (until
-    /// Step 3 cutover); SelectionKey relies on trace flags, not score, so
-    /// it works correctly across the migration.
+    /// `score` is always finite (Step 3 cutover complete); SelectionKey
+    /// relies on trace flags for selectability, not score magnitude.
     pub(crate) fn selection_key(&self) -> crate::combat::ai::pipeline::effects::SelectionKey {
         crate::combat::ai::pipeline::effects::SelectionKey {
             selectable: self.is_selectable(),

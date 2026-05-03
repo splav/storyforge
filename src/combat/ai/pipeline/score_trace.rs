@@ -148,12 +148,15 @@ pub struct ScoreTrace {
 }
 
 impl ScoreTrace {
-    /// Compute the final score from the effect log.
-    /// See struct doc-comment for canonical order.
+    /// Finite numeric score: base × ∏multipliers + Σaddends.
+    ///
+    /// **Always finite** — masks/gates are NOT taken into account.
+    /// Selectability is communicated via `is_masked()` / `is_gated()` and
+    /// consumed by `SelectionKey`.
+    ///
+    /// Phase 3 Step 3: poison logic removed. Mask/Gate hits are pure
+    /// observability + selectability flags, not score modifiers.
     pub fn compute(&self) -> f32 {
-        if self.masks.iter().any(|m| matches!(m.kind, MaskKind::Poison)) {
-            return f32::NEG_INFINITY;
-        }
         let mut score = self.base;
         for m in &self.multipliers {
             score *= m.value;
@@ -173,23 +176,6 @@ impl ScoreTrace {
     /// `true` if any Gate has marked this plan as rejected.
     pub fn is_gated(&self) -> bool {
         self.gates.iter().any(|g| matches!(g.outcome, GateOutcome::Reject))
-    }
-
-    /// Finite numeric score: base × ∏multipliers + Σaddends.
-    /// **Always finite** — masks/gates are NOT taken into account here.
-    /// Use `selection_key()` on PlanAnnotation to determine selectability.
-    ///
-    /// Phase 3 plan: Step 3 will replace `compute()` with this. For now both
-    /// coexist — `compute()` keeps poison semantics for backward compatibility.
-    pub fn numeric_score(&self) -> f32 {
-        let mut score = self.base;
-        for m in &self.multipliers {
-            score *= m.value;
-        }
-        for a in &self.addends {
-            score += a.value;
-        }
-        score
     }
 
     // Builder-style helpers — will be called by stages in P3a.{1..5}.
@@ -253,13 +239,15 @@ mod tests {
     }
 
     #[test]
-    fn compute_poison_mask_returns_neg_infinity() {
+    fn compute_ignores_masks() {
         let mut trace = ScoreTrace { base: 10.0, ..Default::default() };
         trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "protect_self" });
         trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.5 });
         trace.push_addend(AddendHit { name: "test_bonus", value: 5.0 });
-        // Poison mask short-circuits all other effects
-        assert_eq!(trace.compute(), f32::NEG_INFINITY);
+        // Mask does not affect compute() — score = 10.0 * 0.5 + 5.0 = 10.0
+        assert!((trace.compute() - 10.0).abs() < 1e-6);
+        // Mask is recorded in trace flags
+        assert!(trace.is_masked(), "mask must be recorded in trace");
     }
 
     #[test]
@@ -359,20 +347,7 @@ mod tests {
         );
     }
 
-    // ── Phase 3 Step 1: numeric_score / is_masked ─────────────────────────────
-
-    #[test]
-    fn numeric_score_ignores_masks() {
-        let mut trace = ScoreTrace { base: 1.0, ..Default::default() };
-        trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.5 });
-        trace.push_addend(AddendHit { name: "test", value: 0.1 });
-        trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test_mask" });
-
-        // numeric_score: 1.0 × 0.5 + 0.1 = 0.6 (mask ignored)
-        assert!((trace.numeric_score() - 0.6).abs() < 1e-6);
-        // compute: still poisons → NEG_INFINITY
-        assert_eq!(trace.compute(), f32::NEG_INFINITY);
-    }
+    // ── Phase 3 Step 3: is_masked ─────────────────────────────────────────────
 
     #[test]
     fn is_masked_detects_any_mask() {

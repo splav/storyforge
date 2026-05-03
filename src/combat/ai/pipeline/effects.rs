@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn mask_effect_makes_score_neg_inf() {
+    fn mask_effect_marks_trace_as_masked() {
         let actor = make_actor();
         let h = StageTestHarness::new(actor);
         h.run(|ctx| {
@@ -285,11 +285,10 @@ mod tests {
 
             let ann = &pool.annotations[0];
             assert_eq!(ann.score_trace.masks.len(), 1, "mask pushed to trace");
-            assert_eq!(
-                ann.score,
-                f32::NEG_INFINITY,
-                "score == NEG_INFINITY after poison mask"
-            );
+            assert!(ann.score_trace.is_masked(), "plan must be marked as masked in trace");
+            // score is now finite (compute() ignores masks)
+            assert!(ann.score.is_finite(), "score is finite after Step 3 cutover");
+            assert!(!ann.is_selectable(), "masked plan must not be selectable");
         });
     }
 
@@ -331,8 +330,11 @@ mod tests {
             let ann = &pool.annotations[0];
             assert_eq!(ann.score_trace.masks.len(), 1, "mask in trace");
             assert_eq!(ann.score_trace.gates.len(), 1, "gate in trace");
-            assert_eq!(ann.score, f32::NEG_INFINITY, "score == NEG_INFINITY");
+            assert!(ann.score_trace.is_masked(), "is_masked() == true");
             assert!(ann.score_trace.is_gated(), "is_gated() == true");
+            // score is finite after Step 3 cutover
+            assert!(ann.score.is_finite(), "score is finite after Step 3 cutover");
+            assert!(!ann.is_selectable(), "masked+gated plan must not be selectable");
         });
     }
 

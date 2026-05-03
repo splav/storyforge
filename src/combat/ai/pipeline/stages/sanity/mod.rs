@@ -547,12 +547,13 @@ mod tests {
         }
     }
 
-    /// A plan masked via a trace Mask hit (NEG_INFINITY via trace, not raw field write).
-    /// In the new effect-engine pipeline, masked plans carry a `MaskHit` in their
-    /// `score_trace` — set by `ProtectSelfMask`/`KillableGate` which run AFTER Sanity.
-    /// This test simulates that by pre-populating the mask hit directly so
-    /// `score_trace.compute()` returns NEG_INFINITY and `recompute_score_from_trace()`
-    /// preserves it. Sanity hits must remain empty for a masked plan.
+    /// A plan masked via a trace Mask hit must not receive sanity multipliers.
+    /// After apply(), sanity hits remain empty and is_masked() stays true.
+    /// score is finite after Step 3 (compute() ignores masks); selectability
+    /// is communicated via trace flags, not score magnitude.
+    ///
+    /// Note: in production Sanity runs BEFORE ProtectSelfMask/KillableGate, so
+    /// this situation doesn't arise naturally — but the test guards the invariant.
     #[test]
     fn p3a_sanity_masked_plan_trace_unchanged_or_only_base() {
         use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
@@ -569,9 +570,11 @@ mod tests {
         // ── 3. Pool — plan[0] masked via trace Mask hit, plan[1] normal ──
         let mut pool = PoolBuilder::new(plans)
             .customize(|anns| {
-                // Mask plan[0] through trace so recompute_score_from_trace()
-                // returns NEG_INFINITY (mirrors how ProtectSelfMask would do it).
+                // Mask plan[0] through trace — is_selectable() returns false.
                 anns[0].score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test" });
+                // Set score to NEG_INFINITY so the throwaway-scores vec in
+                // sanity_adjust_plans still skips it via !is_finite() (sanity
+                // internal skip — not changed in Step 3).
                 anns[0].score = f32::NEG_INFINITY;
                 anns[1].score = 0.6;
                 // P3a.6: initialise trace.base for the finite plan only.
@@ -583,17 +586,22 @@ mod tests {
         h.run(|ctx| SanityStage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
-        // plan[0]: score stays NEG_INFINITY (compute() sees the Mask hit);
-        // sanity hits remain empty (sanity_adjust_plans skips non-finite).
+        // plan[0]: mask flag stays, sanity hits empty (sanity_adjust_plans skips
+        // plans with !score.is_finite() in its throwaway scores buffer).
         let masked = &pool.annotations[0];
-        assert_eq!(
-            masked.score,
-            f32::NEG_INFINITY,
-            "masked plan score must remain NEG_INFINITY",
+        assert!(
+            masked.score_trace.is_masked(),
+            "mask must remain in trace",
         );
+        assert!(!masked.is_selectable(), "masked plan must not be selectable");
         assert!(
             masked.sanity.is_empty(),
             "masked plan must have no sanity hits, got {:?}", masked.sanity,
+        );
+        // score is finite after Step 3 (recompute_score_from_trace uses finite compute())
+        assert!(
+            masked.score.is_finite(),
+            "score is finite after Step 3 cutover, got {}", masked.score,
         );
 
         // plan[1]: finite plan invariant holds.
