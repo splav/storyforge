@@ -11,6 +11,10 @@
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::outcome::ContractMaskHit;
+use crate::combat::ai::pipeline::effects::{
+    apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
+};
+use crate::combat::ai::pipeline::order::StageId;
 use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
@@ -56,15 +60,15 @@ pub(super) fn apply_protect_self_mask(
 
 pub struct ProtectSelfMaskStage;
 
-impl PlanStage for ProtectSelfMaskStage {
-    fn name(&self) -> &'static str {
-        "protect_self_mask"
+impl ScoreEffectStage for ProtectSelfMaskStage {
+    fn id(&self) -> StageId {
+        StageId::ProtectSelfMask
     }
 
-    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
+    fn compute_effects(&self, ctx: &StageCtx, pool: &ScoredPool) -> Vec<EmittedEffect> {
         // Internal predicate — only active under ProtectSelf intent.
         if !matches!(ctx.intent, TacticalIntent::ProtectSelf) {
-            return;
+            return Vec::new();
         }
 
         let epsilon = ctx.scoring.world.tuning.thresholds.self_survival_epsilon;
@@ -78,8 +82,8 @@ impl PlanStage for ProtectSelfMaskStage {
             .map(|ann| {
                 ann.adaptation
                     .as_ref()
-                    .map(|_| crate::combat::ai::adapt::EvaluationMode::LastStand)
-                    .unwrap_or(crate::combat::ai::adapt::EvaluationMode::Default)
+                    .map(|_| EvaluationMode::LastStand)
+                    .unwrap_or(EvaluationMode::Default)
             })
             .collect();
 
@@ -87,26 +91,33 @@ impl PlanStage for ProtectSelfMaskStage {
         let mut scores: Vec<f32> = pre_scores.clone();
         apply_protect_self_mask(&mut scores, &raw_factors, &modes, epsilon);
 
-        // Write back updated scores and contract annotations.
-        for (i, (ann, new_score)) in pool.annotations.iter_mut().zip(scores.into_iter()).enumerate() {
-            if new_score == f32::NEG_INFINITY && pre_scores[i].is_finite() {
-                ann.contract = Some(ContractMaskHit {
-                    mask: "protect_self".into(),
-                    original_score: pre_scores[i],
+        let mut emitted = Vec::new();
+        for (plan_index, new_score) in scores.into_iter().enumerate() {
+            if new_score == f32::NEG_INFINITY && pre_scores[plan_index].is_finite() {
+                emitted.push(EmittedEffect {
+                    plan_index,
+                    hit: ScoreHit::Mask(MaskHit {
+                        kind: MaskKind::Poison,
+                        source: "protect_self",
+                    }),
+                    observability: Some(EffectObservation::Contract(ContractMaskHit {
+                        mask: "protect_self".into(),
+                        original_score: pre_scores[plan_index],
+                    })),
                 });
-
-                // P3a.4 / P3a.6: push MaskHit on the accumulated trace.
-                // FinalizeStage (upstream) already set trace.base; bridging-reset removed.
-                ann.score_trace.push_mask(MaskHit {
-                    kind: MaskKind::Poison,
-                    source: "protect_self",
-                });
-
-                // Invariant: for masked plans, ann.score == compute() == NEG_INFINITY.
-                debug_assert_eq!(ann.score_trace.compute(), f32::NEG_INFINITY);
             }
-            ann.score = new_score;
         }
+        emitted
+    }
+}
+
+impl PlanStage for ProtectSelfMaskStage {
+    fn name(&self) -> &'static str {
+        "protect_self_mask"
+    }
+
+    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
+        apply_score_effect_stage(self, pool, ctx);
     }
 }
 
@@ -153,7 +164,7 @@ mod tests {
 
         // ── 5. Assert ──
         assert_eq!(pool.annotations[0].score, 0.5, "score should be untouched for non-ProtectSelf intent");
-        assert!(pool.annotations[0].contract.is_none(), "no contract annotation expected");
+        assert!(pool.annotations[0].contract().is_none(), "no contract annotation expected");
     }
 
     // ── mask writes contract annotation ───────────────────────────────────────
@@ -182,11 +193,11 @@ mod tests {
         // ── 5. Assert ──
         // plan 0: defensive → score unchanged, no annotation
         assert!(pool.annotations[0].score.is_finite(), "defensive plan should not be masked");
-        assert!(pool.annotations[0].contract.is_none(), "no contract annotation for defensive plan");
+        assert!(pool.annotations[0].contract().is_none(), "no contract annotation for defensive plan");
 
         // plan 1: non-defensive → masked + annotation
         assert_eq!(pool.annotations[1].score, f32::NEG_INFINITY, "non-defensive plan should be masked");
-        let contract = pool.annotations[1].contract.as_ref()
+        let contract = pool.annotations[1].contract()
             .expect("expected contract annotation for non-defensive plan");
         assert_eq!(contract.mask, "protect_self".to_string());
         assert_eq!(contract.original_score, 0.7_f32);
@@ -214,7 +225,7 @@ mod tests {
 
         // ── 5. Assert ──
         for ann in &pool.annotations {
-            assert!(ann.contract.is_none(), "no contract annotation when all plans are defensive");
+            assert!(ann.contract().is_none(), "no contract annotation when all plans are defensive");
         }
     }
 

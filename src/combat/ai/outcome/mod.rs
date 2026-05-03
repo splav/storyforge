@@ -256,8 +256,11 @@ pub struct PlanAnnotation {
     pub adaptation: Option<AdaptationData>,
     /// Step 7.2: contract mask applied to this plan (ProtectSelf or KillableGate masking).
     /// `None` when no mask applied.
+    ///
+    /// `pub(crate)`: written only via `apply_effect` in `pipeline::effects` drive-loop.
+    /// External consumers use the `contract()` getter.
     #[serde(default)]
-    pub contract: Option<ContractMaskHit>,
+    pub(crate) contract: Option<ContractMaskHit>,
     /// Step 7.4: final aggregated score for this plan after all pipeline stages.
     /// Default 0.0. Written by scoring stages (replaces ScoredPool.scored).
     ///
@@ -418,6 +421,21 @@ impl PlanAnnotation {
         sanity: Vec<crate::combat::ai::pipeline::stages::sanity::SanityHit>,
     ) -> Self {
         self.sanity = sanity;
+        self
+    }
+
+    /// Read-only access to the contract mask hit for external consumers
+    /// (e.g. `mine_ai_logs` bin, tests). Writing is restricted to the drive-loop via
+    /// `apply_effect`.
+    pub fn contract(&self) -> Option<&ContractMaskHit> {
+        self.contract.as_ref()
+    }
+
+    /// Builder-style initialiser for test fixtures that need a pre-populated
+    /// contract mask hit. Production code should never call this — use the
+    /// pipeline drive-loop instead.
+    pub fn with_contract(mut self, contract: ContractMaskHit) -> Self {
+        self.contract = Some(contract);
         self
     }
 

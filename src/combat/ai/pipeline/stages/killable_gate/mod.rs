@@ -677,7 +677,7 @@ mod stage_tests {
 
         // ── 5. Assert ──
         assert_eq!(pool.annotations[0].score, 0.5, "score should be untouched for non-FocusTarget intent");
-        assert!(pool.annotations[0].contract.is_none(), "no contract annotation expected");
+        assert!(pool.annotations[0].contract().is_none(), "no contract annotation expected");
     }
 
     // ── gate writes annotation when pruning ───────────────────────────────────
@@ -726,14 +726,14 @@ mod stage_tests {
 
         // plan 1 should be masked and annotated
         assert_eq!(pool.annotations[1].score, f32::NEG_INFINITY, "non-offensive plan should be gated");
-        let contract = pool.annotations[1].contract.as_ref()
+        let contract = pool.annotations[1].contract()
             .expect("expected contract annotation for gated plan");
         assert_eq!(contract.mask, "killable_gate".to_string());
         assert_eq!(contract.original_score, 0.6_f32);
 
         // plan 0 should be untouched
         assert!(pool.annotations[0].score.is_finite(), "offensive plan should survive gate");
-        assert!(pool.annotations[0].contract.is_none(), "no contract annotation for offensive plan");
+        assert!(pool.annotations[0].contract().is_none(), "no contract annotation for offensive plan");
     }
 
     #[test]
@@ -760,7 +760,7 @@ mod stage_tests {
         );
 
         for ann in &pool.annotations {
-            assert!(ann.contract.is_none(), "no contract annotation when gate does not fire");
+            assert!(ann.contract().is_none(), "no contract annotation when gate does not fire");
         }
     }
 
