@@ -143,8 +143,8 @@ impl ScoreEffectStage for PlanModifiersStage {
 
         let mut emitted = Vec::new();
         for (plan_index, (plan, ann)) in pool.plans.iter().zip(pool.annotations.iter()).enumerate() {
-            // Skip plans masked by ProtectSelf / KillableGate (score == NEG_INFINITY).
-            if !ann.score.is_finite() {
+            // Skip plans masked by ProtectSelf / KillableGate.
+            if !ann.is_selectable() {
                 continue;
             }
             for m in PLAN_MODIFIERS {

@@ -50,6 +50,7 @@
 use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits, BatchStats, PlanFactor, PlanFactorValues, StepFactor};
 use crate::combat::ai::outcome::PickInfo;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
+use crate::combat::ai::pipeline::effects::SelectionKey;
 use crate::combat::ai::scoring::factors::aggregate::factor_contribution;
 use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
@@ -156,7 +157,7 @@ fn mercy_cruelty(raw: &PlanFactorValues) -> f32 {
 /// to justify a dual streaming-vs-materialize path. Prod callers ignore the
 /// mechanics; debug overlay reads it.
 pub fn pick_best_plan(
-    scored: &[f32],
+    keys: &[SelectionKey],
     raw_factors: &[PlanFactorValues],
     ctx: &AiWorld,
     rng: &mut DiceRng,
@@ -174,53 +175,58 @@ pub fn pick_best_plan(
         chosen_pos,
     };
 
-    if scored.is_empty() {
+    if keys.is_empty() {
         return (0, make_mech(top_k_req, false, vec![], 0));
     }
 
-    let mut ranked: Vec<(usize, f32)> = scored.iter().copied().enumerate().collect();
-    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    // Sort by SelectionKey desc — selectable plans first, then by score within bucket.
+    let mut ranked: Vec<(usize, SelectionKey)> = keys.iter().copied().enumerate().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1));
 
-    let best_score = ranked[0].1;
+    let best = ranked[0].1;
+    let best_score = best.score;
     let mut mercy_applied = false;
-    if m > 0.0 && best_score.is_finite() {
+    // Mercy only triggers if best is selectable (preserves old `is_finite()` semantics).
+    if m > 0.0 && best.selectable {
         let mercy_end = ranked
             .iter()
-            .position(|(_, s)| !s.is_finite() || *s < best_score - m)
+            .position(|(_, k)| !k.selectable || k.score < best_score - m)
             .unwrap_or(ranked.len());
         if mercy_end > 1 {
             let mut windowed: Vec<(usize, f32)> = ranked[..mercy_end]
                 .iter()
-                .map(|&(i, s)| (i, s - m * mercy_cruelty(&raw_factors[i])))
+                .map(|&(i, k)| (i, k.score - m * mercy_cruelty(&raw_factors[i])))
                 .collect();
             windowed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            for (slot, item) in windowed.into_iter().enumerate() {
-                ranked[slot] = item;
+            // Update ranked: keep SelectionKey selectable=true (mercy doesn't change bucket),
+            // only the score field changes.
+            for (slot, (idx, new_score)) in windowed.into_iter().enumerate() {
+                ranked[slot] = (idx, SelectionKey { selectable: true, score: new_score });
             }
             mercy_applied = true;
         }
     }
 
-    let k = top_k_req.max(1).min(ranked.len());
-    let best_after = ranked[0].1;
+    let k_top = top_k_req.max(1).min(ranked.len());
+    let best_after = ranked[0].1.score;
 
     let pool: Vec<(usize, f32)> = ranked
         .iter()
-        .take(k)
-        .filter(|(_, s)| s.is_finite() && *s >= best_after - window)
-        .map(|&(i, s)| (i, s))
+        .take(k_top)
+        .filter(|(_, k)| k.selectable && k.score >= best_after - window)
+        .map(|&(i, k)| (i, k.score))
         .collect();
 
     if pool.is_empty() {
         return (
             ranked[0].0,
-            make_mech(k, mercy_applied, vec![(ranked[0].0, ranked[0].1)], 0),
+            make_mech(k_top, mercy_applied, vec![(ranked[0].0, ranked[0].1.score)], 0),
         );
     }
     // `roll_d(N)` returns `1..=N`; shift to a 0-based index.
     let chosen_pos = (rng.roll_d(pool.len() as u32) - 1) as usize;
     let chosen_idx = pool[chosen_pos].0;
-    (chosen_idx, make_mech(k, mercy_applied, pool, chosen_pos))
+    (chosen_idx, make_mech(k_top, mercy_applied, pool, chosen_pos))
 }
 
 /// Record reservations for the **committed** prefix of the winning plan so
@@ -459,10 +465,10 @@ impl PlanStage for PickBestStage {
         // ── Jitter + argmax (shared path) ─────────────────────────────────────
         let noise_per_plan = apply_pick_jitter(pool, ctx);
 
-        let scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
+        let keys: Vec<SelectionKey> = pool.annotations.iter().map(|a| a.selection_key()).collect();
         let raw_factors: Vec<_> = pool.annotations.iter().map(|a| a.factors).collect();
 
-        let (best_idx, mech) = pick_best_plan(&scores, &raw_factors, ctx.scoring.world, ctx.rng);
+        let (best_idx, mech) = pick_best_plan(&keys, &raw_factors, ctx.scoring.world, ctx.rng);
 
         pool.annotations[best_idx].chosen = true;
         pool.annotations[best_idx].pick = Some(PickInfo {
@@ -495,13 +501,13 @@ fn apply_pick_jitter(pool: &mut ScoredPool, ctx: &StageCtx) -> Vec<f32> {
     let (s_min, s_max) = pool
         .annotations
         .iter()
-        .map(|a| a.score)
-        .filter(|s| s.is_finite())
+        .filter(|ann| ann.is_selectable())
+        .map(|ann| ann.score)
         .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), s| {
             (lo.min(s), hi.max(s))
         });
 
-    // Spec semantics: early return if no finite scores (all masked).
+    // Spec semantics: early return if no selectable scores (all masked).
     if !s_min.is_finite() || !s_max.is_finite() {
         return noise_per_plan;
     }
@@ -518,7 +524,7 @@ fn apply_pick_jitter(pool: &mut ScoredPool, ctx: &StageCtx) -> Vec<f32> {
         .zip(pool.annotations.iter_mut())
         .enumerate()
     {
-        if !ann.score.is_finite() {
+        if !ann.is_selectable() {
             continue;
         }
         let n = plan_noise_internal(plan, round, actor, effective_amp);
