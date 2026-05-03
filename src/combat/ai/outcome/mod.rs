@@ -245,8 +245,11 @@ pub struct PlanAnnotation {
     pub viability: ViabilityResult,
     /// Step 7.1: sanity hits applied to this plan (rule + multiplier pairs).
     /// Empty until SanityStage runs or when no rules fired.
+    ///
+    /// `pub(crate)`: written only via `apply_effect` in `pipeline::effects` drive-loop.
+    /// External consumers use the `sanity()` getter.
     #[serde(default)]
-    pub sanity: Vec<crate::combat::ai::pipeline::stages::sanity::SanityHit>,
+    pub(crate) sanity: Vec<crate::combat::ai::pipeline::stages::sanity::SanityHit>,
     /// Step 7.2: adaptation decision for this plan (was PlanRanking.adaptation.reasons[i]).
     /// `None` when no adaptation trigger fired for this plan.
     #[serde(default)]
@@ -397,6 +400,24 @@ impl PlanAnnotation {
         critics: Vec<crate::combat::ai::pipeline::stages::critics::CriticHit>,
     ) -> Self {
         self.critics = critics;
+        self
+    }
+
+    /// Read-only access to per-sanity hits for external consumers
+    /// (e.g. replay / mining bins). Writing is restricted to the drive-loop via
+    /// `apply_effect`.
+    pub fn sanity(&self) -> &[crate::combat::ai::pipeline::stages::sanity::SanityHit] {
+        &self.sanity
+    }
+
+    /// Builder-style initialiser for test fixtures that need pre-populated
+    /// sanity hits. Production code should never call this — use the pipeline
+    /// drive-loop instead.
+    pub fn with_sanity(
+        mut self,
+        sanity: Vec<crate::combat::ai::pipeline::stages::sanity::SanityHit>,
+    ) -> Self {
+        self.sanity = sanity;
         self
     }
 

@@ -18,6 +18,11 @@ mod synergy_bonus;
 
 use crate::combat::ai::scoring::factors::aoe_area;
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
+use crate::combat::ai::pipeline::effects::{
+    apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
+};
+use crate::combat::ai::pipeline::order::StageId;
+use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::orchestration::ScoringCtx;
@@ -68,52 +73,43 @@ pub struct SanityHit {
 
 pub struct SanityStage;
 
+impl ScoreEffectStage for SanityStage {
+    fn id(&self) -> StageId {
+        StageId::Sanity
+    }
+
+    fn compute_effects(&self, ctx: &StageCtx, pool: &ScoredPool) -> Vec<EmittedEffect> {
+        // sanity_adjust_plans wants &mut [f32] for score adjustments.
+        // We need only the breakdown — score mutations are discarded
+        // (drive-loop recomputes score from trace).
+        let mut throwaway_scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
+        let breakdown = sanity_adjust_plans(&mut throwaway_scores, &pool.plans, ctx.scoring);
+
+        let mut emitted = Vec::new();
+        for (plan_index, hits) in breakdown.into_iter().enumerate() {
+            for hit in hits {
+                let multiplier = hit.multiplier;
+                emitted.push(EmittedEffect {
+                    plan_index,
+                    hit: ScoreHit::Multiplier(MultiplierHit {
+                        kind: MultiplierKind::Sanity,
+                        value: multiplier,
+                    }),
+                    observability: Some(EffectObservation::Sanity(hit)),
+                });
+            }
+        }
+        emitted
+    }
+}
+
 impl PlanStage for SanityStage {
     fn name(&self) -> &'static str {
         "sanity"
     }
 
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
-        use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
-
-        // Snapshot entry scores BEFORE sanity_adjust_plans mutates them —
-        // needed to detect masked plans (NEG_INFINITY) for the invariant guard.
-        let entry_scores: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
-
-        let mut scores: Vec<f32> = entry_scores.clone();
-        let breakdown = sanity_adjust_plans(&mut scores, &pool.plans, ctx.scoring);
-
-        for (i, (ann, (new_score, hits))) in pool
-            .annotations
-            .iter_mut()
-            .zip(scores.into_iter().zip(breakdown.into_iter()))
-            .enumerate()
-        {
-            ann.score = new_score;
-
-            // P3a.6: bridging-reset removed. FinalizeStage (upstream) sets
-            // trace.base; this stage pushes multiplier hits on top of the
-            // accumulated trace.
-            for hit in &hits {
-                ann.score_trace.push_multiplier(MultiplierHit {
-                    kind: MultiplierKind::Sanity,
-                    value: hit.multiplier,
-                });
-            }
-            ann.sanity = hits;
-
-            // Invariant: ann.score == trace.compute() for finite plans.
-            // Skip masked plans (entry_score = NEG_INFINITY) — sanity_adjust_plans
-            // leaves them unmutated, and NEG_INFINITY corner cases can produce NaN.
-            if entry_scores[i].is_finite() {
-                debug_assert!(
-                    (ann.score - ann.score_trace.compute()).abs() < 1e-5,
-                    "P3a.6 invariant violated: plan[{i}] ann.score={} vs compute()={}",
-                    ann.score,
-                    ann.score_trace.compute(),
-                );
-            }
-        }
+        apply_score_effect_stage(self, pool, ctx);
     }
 }
 
@@ -551,13 +547,16 @@ mod tests {
         }
     }
 
-    /// A plan with ann.score = NEG_INFINITY (masked plan).
-    /// After apply: ann.score stays NEG_INFINITY, invariant assert is skipped
-    /// (entry.is_finite() == false), no panic. Sanity hits remain empty.
-    /// P3a.6: trace.base is NOT set by this stage (Finalize would set it in
-    /// production); in isolation the masked plan's trace.base stays as-is.
+    /// A plan masked via a trace Mask hit (NEG_INFINITY via trace, not raw field write).
+    /// In the new effect-engine pipeline, masked plans carry a `MaskHit` in their
+    /// `score_trace` — set by `ProtectSelfMask`/`KillableGate` which run AFTER Sanity.
+    /// This test simulates that by pre-populating the mask hit directly so
+    /// `score_trace.compute()` returns NEG_INFINITY and `recompute_score_from_trace()`
+    /// preserves it. Sanity hits must remain empty for a masked plan.
     #[test]
     fn p3a_sanity_masked_plan_trace_unchanged_or_only_base() {
+        use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
+
         // ── 1. Test data ──
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
         let dest_a = hex_from_offset(1, 0);
@@ -567,9 +566,12 @@ mod tests {
         // ── 2. Harness ──
         let h = StageTestHarness::new(actor);
 
-        // ── 3. Pool — plan[0] masked (NEG_INFINITY), plan[1] normal ──
+        // ── 3. Pool — plan[0] masked via trace Mask hit, plan[1] normal ──
         let mut pool = PoolBuilder::new(plans)
             .customize(|anns| {
+                // Mask plan[0] through trace so recompute_score_from_trace()
+                // returns NEG_INFINITY (mirrors how ProtectSelfMask would do it).
+                anns[0].score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test" });
                 anns[0].score = f32::NEG_INFINITY;
                 anns[1].score = 0.6;
                 // P3a.6: initialise trace.base for the finite plan only.
@@ -581,7 +583,7 @@ mod tests {
         h.run(|ctx| SanityStage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
-        // plan[0]: score stays NEG_INFINITY;
+        // plan[0]: score stays NEG_INFINITY (compute() sees the Mask hit);
         // sanity hits remain empty (sanity_adjust_plans skips non-finite).
         let masked = &pool.annotations[0];
         assert_eq!(
