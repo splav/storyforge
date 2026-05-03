@@ -293,7 +293,9 @@ mod tests {
     }
 
     #[test]
-    fn gate_plus_mask_double_emit_preserved() {
+    fn multiple_effects_on_same_plan_all_apply() {
+        // Engine capability test: multiple hits on the same plan_index are
+        // each recorded in trace. Both Mask and Gate can coexist on a plan.
         let actor = make_actor();
         let h = StageTestHarness::new(actor);
         h.run(|ctx| {
@@ -302,7 +304,6 @@ mod tests {
                 .trace_base_eq_score()
                 .build();
 
-            // Imitate KillableGate double-emit: Mask + Gate on the same plan.
             let stage = TestStage {
                 id: StageId::KillableGate,
                 effects: vec![
@@ -310,7 +311,7 @@ mod tests {
                         plan_index: 0,
                         hit: ScoreHit::Mask(MaskHit {
                             kind: MaskKind::Poison,
-                            source: "killable_gate",
+                            source: "test_stage",
                         }),
                         observability: None,
                     },
@@ -318,7 +319,7 @@ mod tests {
                         plan_index: 0,
                         hit: ScoreHit::Gate(GateHit {
                             outcome: GateOutcome::Reject,
-                            source: "killable_gate",
+                            source: "test_stage",
                         }),
                         observability: None,
                     },

@@ -39,7 +39,7 @@ use crate::combat::ai::pipeline::effects::{
     apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
 };
 use crate::combat::ai::pipeline::order::StageId;
-use crate::combat::ai::pipeline::score_trace::{GateHit, GateOutcome, MaskHit, MaskKind};
+use crate::combat::ai::pipeline::score_trace::{GateHit, GateOutcome};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::world::snapshot::BattleSnapshot;
@@ -216,21 +216,17 @@ impl ScoreEffectStage for KillableGateStage {
 
         let mut emitted = Vec::new();
         for (plan_index, new_score) in scores.into_iter().enumerate() {
-            if new_score == f32::NEG_INFINITY && pre_scores[plan_index].is_finite() {
-                // PRESERVE current double-emit behavior (Phase 3 fixes this):
-                // Gate first, then Mask — same push order as old code.
+            if new_score == f32::NEG_INFINITY {
+                // Phase 3 Step 4: emit only Gate (with Contract observation).
+                // Old behavior was double-emit (Gate + Mask) to preserve
+                // compute() poison; with compute() now finite (Step 3), Gate
+                // alone is the selectability signal via SelectionKey.
+                // Contract carries ContractMaskHit for legacy JSONL/
+                // observability until Phase 4 schema cleanup.
                 emitted.push(EmittedEffect {
                     plan_index,
                     hit: ScoreHit::Gate(GateHit {
                         outcome: GateOutcome::Reject,
-                        source: "killable_gate",
-                    }),
-                    observability: None,
-                });
-                emitted.push(EmittedEffect {
-                    plan_index,
-                    hit: ScoreHit::Mask(MaskHit {
-                        kind: MaskKind::Poison,
                         source: "killable_gate",
                     }),
                     observability: Some(EffectObservation::Contract(ContractMaskHit {
@@ -739,7 +735,7 @@ mod stage_tests {
             &snap, &actor,
         );
 
-        // plan 1 should be masked and annotated
+        // plan 1 should be gated and annotated
         assert!(!pool.annotations[1].is_selectable(), "non-offensive plan should be gated");
         let contract = pool.annotations[1].contract()
             .expect("expected contract annotation for gated plan");
@@ -782,8 +778,9 @@ mod stage_tests {
     // ── P3a.4: ScoreTrace emission ────────────────────────────────────────────
 
     #[test]
-    fn p3a_killable_gate_emits_gate_and_mask_hits() {
-        // Non-offensive plan under FocusTarget with kill signal → GateHit + MaskHit Poison.
+    fn p3a_killable_gate_emits_gate_hit_only() {
+        // Non-offensive plan under FocusTarget with kill signal → GateHit only (Phase 3 Step 4).
+        // Old double-emit (Gate + MaskHit Poison) is gone; Gate alone signals non-selectability.
         // Uses run_stage_with_snap — needs 2-unit snap.
         let pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
@@ -822,9 +819,9 @@ mod stage_tests {
         assert_eq!(trace.gates.len(), 1, "exactly one GateHit expected");
         assert_eq!(trace.gates[0].outcome, crate::combat::ai::pipeline::score_trace::GateOutcome::Reject);
         assert_eq!(trace.gates[0].source, "killable_gate");
-        assert_eq!(trace.masks.len(), 1, "exactly one MaskHit Poison expected");
-        assert_eq!(trace.masks[0].kind, crate::combat::ai::pipeline::score_trace::MaskKind::Poison);
+        assert!(trace.masks.is_empty(), "no MaskHit after Phase 3 Step 4 single-emit");
         assert!(trace.is_gated(), "is_gated() must return true for gated plan");
+        assert!(!trace.is_masked(), "is_masked() must be false — only Gate is emitted");
     }
 
     #[test]
@@ -854,8 +851,8 @@ mod stage_tests {
     }
 
     #[test]
-    fn p3a_killable_gate_masked_plan_not_selectable() {
-        // Gated plan: is_masked() && is_gated(), score is finite (Step 3).
+    fn p3a_killable_gate_gated_plan_not_selectable() {
+        // Gated plan: is_gated() true, is_masked() false, score is finite (Step 3+4).
         // Uses run_stage_with_snap — needs 2-unit snap.
         let pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
@@ -891,10 +888,10 @@ mod stage_tests {
         );
 
         let ann = &pool.annotations[1];
-        assert!(ann.score_trace.is_masked(), "mask must be recorded in trace for gated plan");
         assert!(ann.score_trace.is_gated(), "gate must be recorded in trace for gated plan");
+        assert!(!ann.score_trace.is_masked(), "no mask in trace — Phase 3 Step 4 emits Gate only");
         assert!(!ann.is_selectable(), "gated plan must not be selectable");
-        // score is finite after Step 3 cutover (compute() ignores masks)
+        // score is finite after Step 3 cutover (compute() ignores gates)
         assert!(ann.score.is_finite(), "score is finite after Step 3 cutover");
     }
 }

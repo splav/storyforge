@@ -508,6 +508,16 @@ impl PlanAnnotation {
         use crate::combat::ai::pipeline::effects::{EffectObservation, ScoreHit};
 
         // Pairing validation — invalid pairs are programmer error, panic.
+        //
+        // Legal pairs:
+        //   Multiplier ↔ Sanity | Critic | None
+        //   Addend     ↔ Modifier | None
+        //   Mask       ↔ Contract | None
+        //   Gate       ↔ Contract | None
+        //
+        // Gate ↔ Contract: KillableGate (Phase 3 Step 4+) emits a single Gate
+        // hit with Contract observation — Contract carries the ContractMaskHit
+        // for legacy JSONL/observability until Phase 4 schema cleanup.
         match (&effect.hit, &effect.observability) {
             (
                 ScoreHit::Multiplier(_),
@@ -515,7 +525,7 @@ impl PlanAnnotation {
             ) => {}
             (ScoreHit::Addend(_), Some(EffectObservation::Modifier(_)) | None) => {}
             (ScoreHit::Mask(_), Some(EffectObservation::Contract(_)) | None) => {}
-            (ScoreHit::Gate(_), None) => {}
+            (ScoreHit::Gate(_), Some(EffectObservation::Contract(_)) | None) => {}
             _ => panic!(
                 "invalid score effect pairing: source={:?} hit={:?} obs={:?}",
                 effect.source, effect.hit, effect.observability,
