@@ -598,13 +598,24 @@ mod stage_tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder, ent,
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
+        StageTestHarness, UnitBuilder, ent,
     };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use crate::core::{AbilityId, DiceRng};
 
-    fn run_stage(
+    fn pfv_kill_now(v: f32) -> PlanFactorValues {
+        let mut f = PlanFactorValues::default();
+        f.set(StepFactor::KillNow, v);
+        f
+    }
+
+    // Helper for tests that need a custom multi-unit BattleSnapshot (actor + target).
+    // These cannot use StageTestHarness directly because the harness builds a
+    // solo-actor snapshot; inject snap/actor inline.
+    // TODO: migrate to StageTestHarness in Phase 5 when harness gains snap injection.
+    fn run_stage_with_snap(
         plans: Vec<TurnPlan>,
         scores: Vec<f32>,
         raw: Vec<PlanFactorValues>,
@@ -626,40 +637,45 @@ mod stage_tests {
             actor.pos,
             &mut rng,
         );
-        let mut pool = ScoredPool::new(plans);
-        for (ann, (score, raw_f)) in pool.annotations.iter_mut().zip(scores.into_iter().zip(raw.into_iter())) {
-            ann.score = score;
-            ann.factors = raw_f;
-            // P3a.6: initialise trace.base so the stage runs without Finalize upstream.
-            if score.is_finite() {
-                ann.score_trace.base = score;
-            }
-        }
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&scores)
+            .factors(raw)
+            .customize(|anns| {
+                for ann in anns.iter_mut() {
+                    if ann.score.is_finite() {
+                        ann.score_trace.base = ann.score;
+                    }
+                }
+            })
+            .build();
         KillableGateStage.apply(&mut pool, &mut ctx);
         pool
-    }
-
-    fn pfv_kill_now(v: f32) -> PlanFactorValues {
-        let mut f = PlanFactorValues::default();
-        f.set(StepFactor::KillNow, v);
-        f
     }
 
     // ── internal predicate ────────────────────────────────────────────────────
 
     #[test]
     fn killable_gate_skips_when_intent_not_focus_target() {
-        // Reposition intent → stage is a no-op; scores unchanged, no annotation.
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
         let plans = vec![TurnPlan::default()];
-        let scores = vec![0.5_f32];
-        let raw = vec![PlanFactorValues::default()];
 
-        let pool = run_stage(plans, scores, raw, TacticalIntent::Reposition, &snap, &actor);
+        // ── 2. Harness ──
+        // Reposition intent → stage is a no-op; scores unchanged, no annotation.
+        let h = StageTestHarness::new(actor);
+        // intent is Reposition by default
 
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.5])
+            .factors(vec![PlanFactorValues::default()])
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| KillableGateStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         assert_eq!(pool.annotations[0].score, 0.5, "score should be untouched for non-FocusTarget intent");
         assert!(pool.annotations[0].contract.is_none(), "no contract annotation expected");
     }
@@ -669,7 +685,7 @@ mod stage_tests {
     #[test]
     fn killable_gate_writes_contract_when_active() {
         // FocusTarget with a CanFinish plan (kill_now=1.0) and a non-offensive plan.
-        // The gate should prune the non-offensive plan and write the annotation.
+        // Uses run_stage_with_snap — needs 2-unit snap (actor + target).
         let pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
         let target_entity = ent(2);
@@ -698,11 +714,11 @@ mod stage_tests {
         let plans = vec![offensive_plan, non_offensive_plan];
         let scores = vec![0.5_f32, 0.6_f32];
         let raw = vec![
-            pfv_kill_now(1.0),       // CanFinish
+            pfv_kill_now(1.0),           // CanFinish
             PlanFactorValues::default(), // no kill signal
         ];
 
-        let pool = run_stage(
+        let pool = run_stage_with_snap(
             plans, scores, raw,
             TacticalIntent::FocusTarget { target: target_entity },
             &snap, &actor,
@@ -723,6 +739,7 @@ mod stage_tests {
     #[test]
     fn killable_gate_no_annotation_when_gate_does_not_fire() {
         // FocusTarget but no kill signal → gate returns early, no annotations.
+        // Uses run_stage_with_snap — needs 2-unit snap.
         let pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
         let target_entity = ent(2);
@@ -736,7 +753,7 @@ mod stage_tests {
         // No kill_now, no pressure-level damage → gate returns early.
         let raw = vec![PlanFactorValues::default(), PlanFactorValues::default()];
 
-        let pool = run_stage(
+        let pool = run_stage_with_snap(
             plans, scores, raw,
             TacticalIntent::FocusTarget { target: target_entity },
             &snap, &actor,
@@ -752,72 +769,7 @@ mod stage_tests {
     #[test]
     fn p3a_killable_gate_emits_gate_and_mask_hits() {
         // Non-offensive plan under FocusTarget with kill signal → GateHit + MaskHit Poison.
-        let pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(2, 0);
-        let target_entity = ent(2);
-
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let target = UnitBuilder::new(2, Team::Player, target_pos).hp(1).max_hp(10).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
-
-        let offensive_plan = TurnPlan {
-            steps: vec![PlanStep::Cast {
-                ability: AbilityId::from("attack"),
-                target: target_entity,
-                target_pos,
-            }],
-            final_pos: pos,
-            ..TurnPlan::default()
-        };
-        let non_offensive_plan = TurnPlan {
-            steps: vec![PlanStep::Move { path: vec![hex_from_offset(1, 0)] }],
-            final_pos: hex_from_offset(1, 0),
-            ..TurnPlan::default()
-        };
-
-        let plans = vec![offensive_plan, non_offensive_plan];
-        let scores = vec![0.5_f32, 0.6_f32];
-        let raw = vec![
-            pfv_kill_now(1.0),
-            PlanFactorValues::default(),
-        ];
-
-        let pool = run_stage(
-            plans, scores, raw,
-            TacticalIntent::FocusTarget { target: target_entity },
-            &snap, &actor,
-        );
-
-        let trace = &pool.annotations[1].score_trace;
-        assert_eq!(trace.gates.len(), 1, "exactly one GateHit expected");
-        assert_eq!(trace.gates[0].outcome, crate::combat::ai::pipeline::score_trace::GateOutcome::Reject);
-        assert_eq!(trace.gates[0].source, "killable_gate");
-        assert_eq!(trace.masks.len(), 1, "exactly one MaskHit Poison expected");
-        assert_eq!(trace.masks[0].kind, crate::combat::ai::pipeline::score_trace::MaskKind::Poison);
-        assert!(trace.is_gated(), "is_gated() must return true for gated plan");
-    }
-
-    #[test]
-    fn p3a_killable_gate_no_hit_when_intent_not_focus_target() {
-        // Reposition intent → stage skips entirely; trace.gates and trace.masks empty.
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-
-        let plans = vec![TurnPlan::default()];
-        let scores = vec![0.5_f32];
-        let raw = vec![pfv_kill_now(1.0)];
-
-        let pool = run_stage(plans, scores, raw, TacticalIntent::Reposition, &snap, &actor);
-
-        let trace = &pool.annotations[0].score_trace;
-        assert!(trace.gates.is_empty(), "no GateHit for non-FocusTarget intent");
-        assert!(trace.masks.is_empty(), "no MaskHit for non-FocusTarget intent");
-    }
-
-    #[test]
-    fn p3a_killable_gate_compute_returns_neg_infinity() {
-        // Gated plan: trace.compute() == NEG_INFINITY (due to Poison mask).
+        // Uses run_stage_with_snap — needs 2-unit snap.
         let pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
         let target_entity = ent(2);
@@ -845,7 +797,79 @@ mod stage_tests {
         let scores = vec![0.5_f32, 0.6_f32];
         let raw = vec![pfv_kill_now(1.0), PlanFactorValues::default()];
 
-        let pool = run_stage(
+        let pool = run_stage_with_snap(
+            plans, scores, raw,
+            TacticalIntent::FocusTarget { target: target_entity },
+            &snap, &actor,
+        );
+
+        let trace = &pool.annotations[1].score_trace;
+        assert_eq!(trace.gates.len(), 1, "exactly one GateHit expected");
+        assert_eq!(trace.gates[0].outcome, crate::combat::ai::pipeline::score_trace::GateOutcome::Reject);
+        assert_eq!(trace.gates[0].source, "killable_gate");
+        assert_eq!(trace.masks.len(), 1, "exactly one MaskHit Poison expected");
+        assert_eq!(trace.masks[0].kind, crate::combat::ai::pipeline::score_trace::MaskKind::Poison);
+        assert!(trace.is_gated(), "is_gated() must return true for gated plan");
+    }
+
+    #[test]
+    fn p3a_killable_gate_no_hit_when_intent_not_focus_target() {
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let plans = vec![TurnPlan::default()];
+
+        // ── 2. Harness ──
+        // Reposition intent → stage skips entirely; trace.gates and trace.masks empty.
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.5])
+            .factors(vec![pfv_kill_now(1.0)])
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| KillableGateStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
+        let trace = &pool.annotations[0].score_trace;
+        assert!(trace.gates.is_empty(), "no GateHit for non-FocusTarget intent");
+        assert!(trace.masks.is_empty(), "no MaskHit for non-FocusTarget intent");
+    }
+
+    #[test]
+    fn p3a_killable_gate_compute_returns_neg_infinity() {
+        // Gated plan: trace.compute() == NEG_INFINITY (due to Poison mask).
+        // Uses run_stage_with_snap — needs 2-unit snap.
+        let pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(2, 0);
+        let target_entity = ent(2);
+
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos).hp(1).max_hp(10).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+
+        let offensive_plan = TurnPlan {
+            steps: vec![PlanStep::Cast {
+                ability: AbilityId::from("attack"),
+                target: target_entity,
+                target_pos,
+            }],
+            final_pos: pos,
+            ..TurnPlan::default()
+        };
+        let non_offensive_plan = TurnPlan {
+            steps: vec![PlanStep::Move { path: vec![hex_from_offset(1, 0)] }],
+            final_pos: hex_from_offset(1, 0),
+            ..TurnPlan::default()
+        };
+
+        let plans = vec![offensive_plan, non_offensive_plan];
+        let scores = vec![0.5_f32, 0.6_f32];
+        let raw = vec![pfv_kill_now(1.0), PlanFactorValues::default()];
+
+        let pool = run_stage_with_snap(
             plans, scores, raw,
             TacticalIntent::FocusTarget { target: target_entity },
             &snap, &actor,

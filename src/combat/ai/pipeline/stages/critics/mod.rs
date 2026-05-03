@@ -224,66 +224,42 @@ impl PlanStage for CriticsStage {
 mod tests {
     use super::*;
     use crate::combat::ai::outcome::PlanAnnotation;
-    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::intent::{IntentReason, TacticalIntent};
     use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::plan::types::TurnPlan;
-    use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::combat::ai::test_helpers::{
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
+        StageTestHarness, UnitBuilder,
+    };
     use crate::combat::ai::orchestration::ScoringCtx;
     use crate::core::DiceRng;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
-    fn make_pool_with_scores(scores: Vec<f32>) -> ScoredPool {
-        let plans: Vec<TurnPlan> = scores.iter().map(|_| TurnPlan::default()).collect();
-        let mut pool = ScoredPool::new(plans);
-        for (ann, score) in pool.annotations.iter_mut().zip(scores.into_iter()) {
-            ann.score = score;
-            // P3a.6: initialise trace.base so the stage runs without Finalize upstream.
-            // In production, FinalizeStage sets this; unit tests call the stage directly.
-            ann.score_trace.base = score;
-        }
-        pool
-    }
-
-    fn make_stage_ctx<'w, 's>(
-        scoring: &'s crate::combat::ai::orchestration::ScoringCtx<'w, 's>,
-        rng: &'s mut DiceRng,
-        pos: crate::game::hex::Hex,
-    ) -> StageCtx<'w, 's> {
-        StageCtx::new(scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, rng)
-    }
-
-    fn apply_critics_to_pool(
-        stage: CriticsStage,
-        mut pool: ScoredPool,
-    ) -> ScoredPool {
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = make_stage_ctx(&scoring, &mut rng, pos);
-        stage.apply(&mut pool, &mut ctx);
-        pool
-    }
-
     // ── empty critics vec — no-op ──────────────────────────────────────────
 
     #[test]
     fn critics_stage_no_op_when_empty() {
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let plans = vec![TurnPlan::default(), TurnPlan::default()];
+
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
         // CriticsStage::first_wave() has no critics — scores and annotations
         // must be unchanged after apply().
         let stage = CriticsStage::first_wave();
-        let pool = apply_critics_to_pool(stage, make_pool_with_scores(vec![0.8, 0.5]));
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.8, 0.5])
+            .trace_base_eq_score()
+            .build();
 
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         assert_eq!(pool.annotations[0].score, 0.8, "score must not change with empty critics");
         assert_eq!(pool.annotations[1].score, 0.5, "score must not change with empty critics");
         for ann in &pool.annotations {
@@ -325,13 +301,26 @@ mod tests {
 
     #[test]
     fn critics_stage_writes_hit_and_multiplies_score() {
-        // A mock critic that always fires with multiplier 0.5.
-        // After apply: score halved, ann.critics has exactly one entry.
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let plans = vec![TurnPlan::default()];
+
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
         let stage = CriticsStage {
             critics: vec![Box::new(AlwaysHitCritic { multiplier: 0.5 })],
         };
-        let pool = apply_critics_to_pool(stage, make_pool_with_scores(vec![1.0]));
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
 
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert — score halved, exactly one critic hit ──
         let ann = &pool.annotations[0];
         assert!(
             (ann.score - 0.5).abs() < 1e-6,
@@ -363,29 +352,24 @@ mod tests {
         raw: Vec<crate::combat::ai::scoring::factors::PlanFactorValues>,
         adaptations: Vec<Option<crate::combat::ai::outcome::AdaptationData>>,
         actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
-        snap: &BattleSnapshot,
+        snap: &crate::combat::ai::world::snapshot::BattleSnapshot,
         intent: TacticalIntent,
         critic_multiplier: f32,
     ) -> ScoredPool {
         let maps = empty_maps();
         let content = empty_content();
-        let difficulty = DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
+        let reservations = crate::combat::ai::world::reservations::Reservations::default();
         let scoring = make_scoring_ctx(&world, snap, &maps, &reservations, actor);
         let mut rng = DiceRng::default();
         let mut ctx = StageCtx::new(&scoring, intent, IntentReason::NoRuleDefault, actor.pos, &mut rng);
 
-        let mut pool = ScoredPool::new(plans);
-        for (ann, ((score, raw_f), adaptation)) in pool
-            .annotations
-            .iter_mut()
-            .zip(scores.into_iter().zip(raw.into_iter()).zip(adaptations.into_iter()))
-        {
-            ann.score = score;
-            ann.factors = raw_f;
-            ann.adaptation = adaptation;
-        }
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&scores)
+            .factors(raw)
+            .adaptations(adaptations)
+            .build();
 
         // Run partial pipeline: ModeSelection already ran (adaptation is pre-injected),
         // so we start from FinalizeStage then Critics.
@@ -416,14 +400,14 @@ mod tests {
 
     #[test]
     fn critics_survive_through_adaptation_path() {
-        use crate::combat::ai::scoring::factors::PlanFactorValues;
-        use crate::combat::ai::outcome::AdaptationData;
         use crate::combat::ai::adapt::AdaptationReason;
-        use crate::combat::ai::plan::types::TurnPlan;
+        use crate::combat::ai::outcome::AdaptationData;
+        use crate::combat::ai::scoring::factors::PlanFactorValues;
 
+        // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = crate::combat::ai::world::snapshot::BattleSnapshot::new(vec![actor.clone()], 1);
 
         // Two plans: one with LastStand adaptation, one with Default (no adaptation).
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
@@ -438,6 +422,7 @@ mod tests {
         ];
 
         // Both plans must have critics multiplier applied after Finalize.
+        // Assertions are inside run_partial_pipeline_with_critic.
         run_partial_pipeline_with_critic(
             plans,
             scores,
@@ -448,7 +433,6 @@ mod tests {
             TacticalIntent::Reposition,
             0.5,
         );
-        // Assertions are inside run_partial_pipeline_with_critic.
     }
 
     // ── P3a.2 — ScoreTrace integration tests ─────────────────────────────────
@@ -459,11 +443,23 @@ mod tests {
     fn p3a_critics_push_multipliers_to_trace() {
         use crate::combat::ai::pipeline::score_trace::MultiplierKind;
 
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let plans = vec![TurnPlan::default()];
+
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
         let stage = CriticsStage {
             critics: vec![Box::new(AlwaysHitCritic { multiplier: 0.5 })],
         };
-        let pool = apply_critics_to_pool(stage, make_pool_with_scores(vec![1.0]));
+        let mut pool = PoolBuilder::new(plans).scores(&[1.0]).trace_base_eq_score().build();
 
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         let trace = &pool.annotations[0].score_trace;
         assert_eq!(trace.multipliers.len(), 1, "expected exactly one multiplier hit");
         assert_eq!(trace.multipliers[0].kind, MultiplierKind::Critic);
@@ -478,11 +474,23 @@ mod tests {
     /// mirrors Finalize's role) and trace.compute() == 0.5 == ann.score.
     #[test]
     fn p3a_critics_trace_base_synced_from_score() {
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let plans = vec![TurnPlan::default()];
+
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
         let stage = CriticsStage {
             critics: vec![Box::new(AlwaysHitCritic { multiplier: 0.5 })],
         };
-        let pool = apply_critics_to_pool(stage, make_pool_with_scores(vec![1.0]));
+        let mut pool = PoolBuilder::new(plans).scores(&[1.0]).trace_base_eq_score().build();
 
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         let ann = &pool.annotations[0];
         assert!(
             (ann.score_trace.base - 1.0).abs() < 1e-6,
@@ -533,14 +541,26 @@ mod tests {
     fn p3a_critics_invariant_score_equals_compute_with_multiple_hits() {
         use crate::combat::ai::pipeline::score_trace::MultiplierKind;
 
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let plans = vec![TurnPlan::default()];
+
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
         let stage = CriticsStage {
             critics: vec![
                 Box::new(FixedMultiplierCritic { multiplier: 0.5 }),
                 Box::new(FixedMultiplierCritic { multiplier: 0.8 }),
             ],
         };
-        let pool = apply_critics_to_pool(stage, make_pool_with_scores(vec![1.0]));
+        let mut pool = PoolBuilder::new(plans).scores(&[1.0]).trace_base_eq_score().build();
 
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         let ann = &pool.annotations[0];
         // 1.0 * 0.5 * 0.8 = 0.4
         assert!(
@@ -568,10 +588,25 @@ mod tests {
     /// trace.compute() == entry_score.
     #[test]
     fn p3a_critics_no_hits_leave_trace_with_only_base() {
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
         let entry_score = 0.75_f32;
-        let stage = CriticsStage { critics: vec![] };
-        let pool = apply_critics_to_pool(stage, make_pool_with_scores(vec![entry_score]));
+        let plans = vec![TurnPlan::default()];
 
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
+        let stage = CriticsStage { critics: vec![] };
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[entry_score])
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         let ann = &pool.annotations[0];
         assert!(
             (ann.score_trace.base - entry_score).abs() < 1e-6,

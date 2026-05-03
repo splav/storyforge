@@ -249,7 +249,8 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
+        StageTestHarness, UnitBuilder,
     };
     use crate::core::DiceRng;
     use crate::game::components::Team;
@@ -305,7 +306,9 @@ mod tests {
         }
     }
 
-    /// Run stage with a given actor position, explicit snapshot, and annotations.
+    /// Run stage with a custom snapshot and pre-built annotations.
+    /// Used when tests need actors or targets beyond the default solo-actor snap.
+    /// TODO: migrate to StageTestHarness in Phase 5 when harness gains snap injection.
     fn run_stage_with_snap(
         plans: Vec<TurnPlan>,
         annotations: Vec<PlanAnnotation>,
@@ -335,14 +338,19 @@ mod tests {
     }
 
     fn run_stage(plans: Vec<TurnPlan>, agenda: &Agenda) -> ScoredPool {
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let mut annotations = vec![PlanAnnotation::default(); plans.len()];
-        for ann in annotations.iter_mut() {
-            ann.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
-        }
-        run_stage_with_snap(plans, annotations, agenda, actor, snap)
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let n = plans.len();
+        let mut h = StageTestHarness::new(actor);
+        h.agenda = Some(agenda.clone());
+        let mut pool = PoolBuilder::new(plans)
+            .customize(|anns| {
+                for ann in anns.iter_mut().take(n) {
+                    ann.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
+                }
+            })
+            .build();
+        h.run(|ctx| ItemScoringStage.apply(&mut pool, ctx));
+        pool
     }
 
     #[test]

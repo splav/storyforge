@@ -68,19 +68,12 @@ impl PlanStage for ModeSelectionStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
-    use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-    use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
+    use crate::combat::ai::intent::TacticalIntent;
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-    };
+    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::core::DiceRng;
 
     fn empty_plan() -> TurnPlan {
         TurnPlan::default()
@@ -100,66 +93,33 @@ mod tests {
         f
     }
 
-    /// Run ModeSelectionStage on a pool with given actor and return the pool.
-    fn run_mode_selection(
-        plans: Vec<TurnPlan>,
-        scores: Vec<f32>,
-        raw: Vec<PlanFactorValues>,
-        actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
-        snap: &BattleSnapshot,
-        intent: TacticalIntent,
-    ) -> ScoredPool {
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, snap, &maps, &reservations, actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            intent,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        );
-        let mut pool = ScoredPool::new(plans);
-        for (ann, (score, raw_f)) in pool
-            .annotations
-            .iter_mut()
-            .zip(scores.into_iter().zip(raw.into_iter()))
-        {
-            ann.score = score;
-            ann.factors = raw_f;
-        }
-        ModeSelectionStage.apply(&mut pool, &mut ctx);
-        pool
-    }
-
     // ── mode_selection_does_not_mutate_score ──────────────────────────────
 
     /// ModeSelectionStage must not change ann.score for any plan, including
     /// those that triggered LastStand mode.
     #[test]
     fn mode_selection_does_not_mutate_score() {
-        // ProtectSelf with no defensive plan → ProtectSelfNoDefensive triggers.
+        // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        // One plan that would trigger LastStand (no survival), one Default-mode plan.
         let plans = vec![empty_plan(), empty_plan()];
-        let pre_scores = vec![0.7_f32, 0.3_f32];
+        let pre_scores = [0.7_f32, 0.3_f32];
         let raw = vec![pfv_survival(0.0), pfv_survival(0.0)];
 
-        let pool = run_mode_selection(
-            plans,
-            pre_scores.clone(),
-            raw,
-            &actor,
-            &snap,
-            TacticalIntent::ProtectSelf,
-        );
+        // ── 2. Harness ──
+        let mut h = StageTestHarness::new(actor);
+        h.intent = TacticalIntent::ProtectSelf;
 
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&pre_scores)
+            .factors(raw)
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| ModeSelectionStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         for (i, ann) in pool.annotations.iter().enumerate() {
             assert_eq!(
                 ann.score, pre_scores[i],
@@ -175,23 +135,27 @@ mod tests {
     /// ModeSelectionStage.
     #[test]
     fn mode_selection_writes_adaptation_for_laststand_plans() {
+        // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         // ProtectSelf with no defensive options → all plans get LastStand.
         let plans = vec![empty_plan(), move_plan(hex_from_offset(1, 0))];
-        let scores = vec![0.5, 0.4];
         let raw = vec![pfv_survival(0.0), pfv_survival(0.0)];
 
-        let pool = run_mode_selection(
-            plans,
-            scores,
-            raw,
-            &actor,
-            &snap,
-            TacticalIntent::ProtectSelf,
-        );
+        // ── 2. Harness ──
+        let mut h = StageTestHarness::new(actor);
+        h.intent = TacticalIntent::ProtectSelf;
 
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.5, 0.4])
+            .factors(raw)
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| ModeSelectionStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         for (i, ann) in pool.annotations.iter().enumerate() {
             assert!(
                 ann.adaptation.is_some(),
@@ -207,22 +171,27 @@ mod tests {
     /// the pre-adaptation ann.score.
     #[test]
     fn mode_selection_records_original_score() {
+        // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let plans = vec![empty_plan(), empty_plan()];
-        let pre_scores = vec![0.5_f32, 0.4_f32];
+        let pre_scores = [0.5_f32, 0.4_f32];
         let raw = vec![pfv_survival(0.0), pfv_survival(0.0)];
 
-        let pool = run_mode_selection(
-            plans,
-            pre_scores.clone(),
-            raw,
-            &actor,
-            &snap,
-            TacticalIntent::ProtectSelf,
-        );
+        // ── 2. Harness ──
+        let mut h = StageTestHarness::new(actor);
+        h.intent = TacticalIntent::ProtectSelf;
 
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&pre_scores)
+            .factors(raw)
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| ModeSelectionStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         for (i, ann) in pool.annotations.iter().enumerate() {
             let data = ann.adaptation.as_ref().expect("expected adaptation");
             assert_eq!(
@@ -233,30 +202,34 @@ mod tests {
         }
     }
 
-    // ── mode_selection_adaptation_reason_round_trips_to_intent ────────────
+    // ── mode_selection_adaptation_reason_is_protect_self_no_defensive ────
 
     /// IntentReason::Adapted built from ann.adaptation encodes the correct
     /// AdaptationReason (parity with legacy adaptation_data_round_trips_through_intent_reason).
     #[test]
     fn mode_selection_adaptation_reason_is_protect_self_no_defensive() {
+        // ── 1. Test data ──
         // ProtectSelf intent with no defensive plans → adaptation fires with
         // ProtectSelfNoDefensive reason stored directly in ann.adaptation.reason.
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let plans = vec![empty_plan()];
-        let scores = vec![0.5_f32];
         let raw = vec![pfv_survival(0.0)];
 
-        let pool = run_mode_selection(
-            plans,
-            scores,
-            raw,
-            &actor,
-            &snap,
-            TacticalIntent::ProtectSelf,
-        );
+        // ── 2. Harness ──
+        let mut h = StageTestHarness::new(actor);
+        h.intent = TacticalIntent::ProtectSelf;
 
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.5])
+            .factors(raw)
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| ModeSelectionStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         let adapt = pool.annotations[0]
             .adaptation
             .as_ref()
@@ -278,27 +251,29 @@ mod tests {
     /// no adaptation annotation written.
     #[test]
     fn mode_selection_no_adaptation_when_no_trigger() {
+        // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(20).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let plans = vec![move_plan(hex_from_offset(1, 0))];
-        let scores = vec![0.5];
-        let raw = vec![PlanFactorValues::default()];
 
-        let pool = run_mode_selection(
-            plans,
-            scores,
-            raw,
-            &actor,
-            &snap,
-            TacticalIntent::Reposition,
-        );
+        // ── 2. Harness ──
+        let mut h = StageTestHarness::new(actor);
+        h.intent = TacticalIntent::Reposition;
 
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.5])
+            .factors(vec![PlanFactorValues::default()])
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| ModeSelectionStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         assert!(
             pool.annotations[0].adaptation.is_none(),
             "expected no adaptation when no trigger fires"
         );
-        // Score must also be unchanged.
         assert_eq!(pool.annotations[0].score, 0.5);
     }
 }

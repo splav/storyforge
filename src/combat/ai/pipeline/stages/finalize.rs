@@ -105,62 +105,19 @@ impl PlanStage for FinalizeStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::scoring::factors::PlanFactorValues;
-    use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-    use crate::combat::ai::outcome::AdaptationData;
-    use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::adapt::AdaptationReason;
+    use crate::combat::ai::outcome::AdaptationData;
     use crate::combat::ai::plan::types::TurnPlan;
-    use crate::combat::ai::scoring::factors::aggregate::score_plans_with_raw;
-    use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
+    use crate::combat::ai::scoring::factors::{aggregate::score_plans_with_raw, PlanFactorValues};
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
+        StageTestHarness, UnitBuilder,
     };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::core::DiceRng;
 
     fn empty_plan() -> TurnPlan {
         TurnPlan::default()
-    }
-
-    fn run_finalize(
-        plans: Vec<TurnPlan>,
-        scores: Vec<f32>,
-        raw: Vec<PlanFactorValues>,
-        adaptations: Vec<Option<AdaptationData>>,
-        actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
-        snap: &BattleSnapshot,
-        intent: TacticalIntent,
-    ) -> ScoredPool {
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, snap, &maps, &reservations, actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            intent,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        );
-        let mut pool = ScoredPool::new(plans);
-        for (ann, ((score, raw_f), adaptation)) in pool
-            .annotations
-            .iter_mut()
-            .zip(scores.into_iter().zip(raw.into_iter()).zip(adaptations.into_iter()))
-        {
-            ann.score = score;
-            ann.factors = raw_f;
-            ann.adaptation = adaptation;
-        }
-        FinalizeStage.apply(&mut pool, &mut ctx);
-        pool
     }
 
     // ── finalize_applies_per_plan_modes ────────────────────────────────────
@@ -171,30 +128,28 @@ mod tests {
     /// ModeSelectionStage.
     #[test]
     fn finalize_applies_per_plan_modes() {
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
         let plans = vec![empty_plan()];
-        let scores = vec![0.5_f32];
-        let raw = vec![PlanFactorValues::default()];
 
-        // Inject a LastStand adaptation annotation.
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
         let adaptation = Some(AdaptationData {
             reason: AdaptationReason::ProtectSelfNoDefensive,
             original_score: 0.5,
         });
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.5])
+            .factors(vec![PlanFactorValues::default()])
+            .adaptations(vec![adaptation])
+            .build();
 
-        let pool = run_finalize(
-            plans,
-            scores,
-            raw,
-            vec![adaptation],
-            &actor,
-            &snap,
-            TacticalIntent::Reposition,
-        );
+        // ── 4. Act ──
+        h.run(|ctx| FinalizeStage.apply(&mut pool, ctx));
 
+        // ── 5. Assert ──
         // FinalizeStage rewrites ann.score from raw factors; the key invariant
         // here is that the adaptation annotation is NOT cleared (it is written
         // by ModeSelectionStage and consumed later for debug logging).
@@ -211,34 +166,37 @@ mod tests {
     /// same factors → same result from finalize_scores).
     #[test]
     fn finalize_default_mode_idempotent() {
+        // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(20).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-
-        // Compute the initial Default-mode score.
+        let actor = UnitBuilder::new(1, Team::Enemy, pos).full_hp(20).build();
+        // Compute the initial Default-mode score using the same context as
+        // the harness builds internally.
+        let snap = crate::combat::ai::world::snapshot::BattleSnapshot::new(vec![actor.clone()], 1);
         let maps = empty_maps();
         let content = empty_content();
-        let difficulty = DifficultyProfile::default();
+        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
+        let reservations = crate::combat::ai::world::reservations::Reservations::default();
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let intent = TacticalIntent::Reposition;
+        let intent = crate::combat::ai::intent::TacticalIntent::Reposition;
         let mut plans = vec![empty_plan()];
         let (initial_scores, initial_raw) =
             score_plans_with_raw(&mut plans, &intent, &scoring);
         let initial_score = initial_scores[0];
 
-        // Run FinalizeStage with that same initial score/factors, no adaptation.
-        let pool = run_finalize(
-            vec![empty_plan()],
-            vec![initial_score],
-            vec![initial_raw[0]],
-            vec![None],
-            &actor,
-            &snap,
-            intent,
-        );
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(vec![empty_plan()])
+            .scores(&[initial_score])
+            .factors(vec![initial_raw[0]])
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| FinalizeStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         let after_score = pool.annotations[0].score;
         assert!(
             (after_score - initial_score).abs() < 1e-5,
@@ -252,20 +210,23 @@ mod tests {
     /// All effect vecs must be empty (only base is set).
     #[test]
     fn p3a_finalize_sets_trace_base_to_new_score() {
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(20).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
+        let plans = vec![empty_plan()];
 
-        let pool = run_finalize(
-            vec![empty_plan()],
-            vec![0.5_f32],
-            vec![PlanFactorValues::default()],
-            vec![None],
-            &actor,
-            &snap,
-            TacticalIntent::Reposition,
-        );
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.5])
+            .factors(vec![PlanFactorValues::default()])
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| FinalizeStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         let ann = &pool.annotations[0];
         assert!(
             (ann.score - ann.score_trace.base).abs() < 1e-5,
@@ -292,39 +253,33 @@ mod tests {
     fn p3a_finalize_clears_upstream_effects() {
         use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
 
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(20).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
+        let plans = vec![empty_plan()];
 
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        );
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
-        let mut pool = ScoredPool::new(vec![empty_plan()]);
-        let ann = &mut pool.annotations[0];
-        ann.score = 0.8_f32;
-        ann.factors = PlanFactorValues::default();
-        ann.adaptation = None;
-        // Inject stale upstream trace state.
-        ann.score_trace = crate::combat::ai::pipeline::score_trace::ScoreTrace {
-            base: 999.0,
-            ..Default::default()
-        };
-        ann.score_trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.5 });
+        // ── 3. Pool — inject stale upstream trace via customize() ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.8])
+            .factors(vec![PlanFactorValues::default()])
+            .customize(|anns| {
+                anns[0].score_trace = crate::combat::ai::pipeline::score_trace::ScoreTrace {
+                    base: 999.0,
+                    ..Default::default()
+                };
+                anns[0].score_trace.push_multiplier(MultiplierHit {
+                    kind: MultiplierKind::Sanity,
+                    value: 0.5,
+                });
+            })
+            .build();
 
-        FinalizeStage.apply(&mut pool, &mut ctx);
+        // ── 4. Act ──
+        h.run(|ctx| FinalizeStage.apply(&mut pool, ctx));
 
+        // ── 5. Assert ──
         let ann = &pool.annotations[0];
         // Old base (999.0) must be gone; base = new_score from rescore.
         assert!(
@@ -341,25 +296,28 @@ mod tests {
     /// rescore_mode must reflect the per-plan mode.
     #[test]
     fn p3a_finalize_records_rescore_mode_per_plan() {
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(5).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(5).max_hp(20).build();
+        let plans = vec![empty_plan(), empty_plan()];
 
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
         let adaptation_last_stand = Some(AdaptationData {
             reason: AdaptationReason::ProtectSelfNoDefensive,
             original_score: 0.5,
         });
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.5, 0.8])
+            .factors(vec![PlanFactorValues::default(), PlanFactorValues::default()])
+            .adaptations(vec![adaptation_last_stand, None])
+            .build();
 
-        let pool = run_finalize(
-            vec![empty_plan(), empty_plan()],
-            vec![0.5_f32, 0.8_f32],
-            vec![PlanFactorValues::default(), PlanFactorValues::default()],
-            vec![adaptation_last_stand, None],
-            &actor,
-            &snap,
-            TacticalIntent::Reposition,
-        );
+        // ── 4. Act ──
+        h.run(|ctx| FinalizeStage.apply(&mut pool, ctx));
 
+        // ── 5. Assert ──
         assert_eq!(
             pool.annotations[0].score_trace.rescore_mode,
             Some(EvaluationMode::LastStand),
@@ -375,20 +333,19 @@ mod tests {
     /// Empty pool: FinalizeStage must return immediately without panicking.
     #[test]
     fn p3a_finalize_empty_pool_no_op() {
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(20).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
 
-        let pool = run_finalize(
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            &actor,
-            &snap,
-            TacticalIntent::Reposition,
-        );
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(vec![]).build();
+
+        // ── 4. Act ──
+        h.run(|ctx| FinalizeStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         assert!(pool.is_empty(), "pool must remain empty");
     }
 }

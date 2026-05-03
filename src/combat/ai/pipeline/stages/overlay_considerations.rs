@@ -406,7 +406,7 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, StageTestHarness, UnitBuilder,
     };
     use crate::core::DiceRng;
     use crate::game::components::Team;
@@ -434,31 +434,18 @@ mod tests {
         annotations: Vec<PlanAnnotation>,
         agenda: &Agenda,
     ) -> ScoredPool {
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        )
-        .with_agenda(agenda);
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let mut h = StageTestHarness::new(actor);
+        h.agenda = Some(agenda.clone());
         let mut pool = ScoredPool::new(plans);
         pool.annotations = annotations;
-        OverlayConsiderationsStage.apply(&mut pool, &mut ctx);
+        h.run(|ctx| OverlayConsiderationsStage.apply(&mut pool, ctx));
         pool
     }
 
     /// Run overlay with a custom snap (e.g. containing specific target units).
+    /// Kept inline: needs a multi-unit snap beyond what the harness builds.
+    /// TODO: migrate to StageTestHarness in Phase 5 when harness gains snap injection.
     fn run_overlay_with_snap(
         plans: Vec<TurnPlan>,
         annotations: Vec<PlanAnnotation>,

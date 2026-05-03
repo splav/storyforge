@@ -136,7 +136,9 @@ mod tests {
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::combat::ai::test_helpers::{
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+    };
     use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
     use crate::core::{AbilityId, DiceExpr};
     use crate::game::components::Team;
@@ -179,9 +181,7 @@ mod tests {
             residual_ap: 0,
             residual_mp: 3,
             outcomes: vec![Default::default()],
-            partial_score: 0.0,
-            sim_snapshots: Vec::new(),
-            annotation: Default::default(),
+            ..TurnPlan::default()
         };
         let mut ann = PlanAnnotation::default();
         ann.outcomes.push(ActionOutcomeEstimate {
@@ -195,10 +195,12 @@ mod tests {
 
     #[test]
     fn heal_without_rescue_fires_on_canonical_case() {
+        // ── 1. Test data ──
         // Target: hp=28/30 (93% — above HP_NEED_GATE), no enemies → threat_proxy=0
         // → rescue_need ≈ 0 → fires with worst-case multiplier (1 - MAX_PENALTY = 0.4).
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let target = UnitBuilder::new(2, Team::Enemy, target_pos)
@@ -206,9 +208,11 @@ mod tests {
             .max_hp(30)
             .build();
 
+        let (plan, ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 3.0);
+
+        // ── 2. Context ──
         let mut content = empty_content();
         content.abilities.insert(AbilityId::from("heal"), heal_ability("heal"));
-
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
@@ -216,14 +220,14 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
 
-        let target_entity = Entity::from_raw_u32(2).expect("valid");
-        let (plan, ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 3.0);
-
+        // ── 3. Pool (N/A — critic tested via evaluate()) ──
+        // ── 4. Act ──
         let hit = HealWithoutRescueValue
             .evaluate(&plan, &ann, &ctx)
             .expect("must fire: healthy ally + no threat");
+
+        // ── 5. Assert ──
         assert_eq!(hit.critic, CriticKind::HealWithoutRescueValue);
-        // Penalty must be in [floor, 1.0): no threat → low rescue_need → harsh.
         assert!(
             hit.multiplier < 1.0 && hit.multiplier >= 1.0 - MAX_PENALTY - 1e-6,
             "multiplier {} must be in [{}, 1.0)",
@@ -242,26 +246,32 @@ mod tests {
 
     #[test]
     fn heal_without_rescue_passes_on_clean_plan() {
+        // ── 1. Test data ──
         // Target hp=15/30=50% (< HP_NEED_GATE=0.6) → wounded ally, heal justified.
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
+
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let low_hp_target = UnitBuilder::new(2, Team::Enemy, target_pos)
             .hp(15)
             .max_hp(30)
             .build();
 
+        let (plan, ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 10.0);
+
+        // ── 2. Context ──
         let mut content = empty_content();
         content.abilities.insert(AbilityId::from("heal"), heal_ability("heal"));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let target_entity = Entity::from_raw_u32(2).expect("valid");
-
         let snap = BattleSnapshot::new(vec![caster.clone(), low_hp_target], 1);
         let maps = empty_maps();
+        let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
-        let (plan, ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 10.0);
+
+        // ── 3. Pool (N/A — critic tested via evaluate()) ──
+        // ── 4. Act + 5. Assert ──
         assert!(
             HealWithoutRescueValue.evaluate(&plan, &ann, &ctx).is_none(),
             "must not fire: HP 50% < HP_NEED_GATE = {HP_NEED_GATE}",
@@ -272,20 +282,23 @@ mod tests {
 
     #[test]
     fn heal_without_rescue_severity_scales_with_input() {
+        // ── 1. Test data ──
         // The HP-need gate at 0.6: just above → fires; just below → passes.
         // Multiplier with empty_maps is near-floor (no enemies → threat_proxy=0).
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
+
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
 
+        // ── 2. Context (shared) ──
         let mut content = empty_content();
         content.abilities.insert(AbilityId::from("heal"), heal_ability("heal"));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let reservations = Reservations::default();
-        let target_entity = Entity::from_raw_u32(2).expect("valid");
 
-        // hp_pct ≈ 0.767 (23/30, > HP_NEED_GATE) → fires.
+        // ── 3+4. Plans and act — fires case (hp_pct ≈ 0.77) ──
         let target_fires = UnitBuilder::new(2, Team::Enemy, target_pos)
             .hp(23)
             .max_hp(30)
@@ -295,12 +308,8 @@ mod tests {
         let ctx_f = make_scoring_ctx(&world, &snap_f, &maps_f, &reservations, &caster);
         let (plan_f, ann_f) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 3.0);
         let hit_f = HealWithoutRescueValue.evaluate(&plan_f, &ann_f, &ctx_f);
-        assert!(hit_f.is_some(), "hp_pct ≈ 0.77 must fire");
-        let m_f = hit_f.unwrap().multiplier;
-        assert!((1.0 - MAX_PENALTY..1.0).contains(&m_f),
-            "multiplier {m_f} should be in [{}, 1.0)", 1.0 - MAX_PENALTY);
 
-        // hp_pct = 0.5 (15/30, < HP_NEED_GATE) → does not fire.
+        // 3+4. Plans and act — passes case (hp_pct = 0.5) ──
         let target_passes = UnitBuilder::new(2, Team::Enemy, target_pos)
             .hp(15)
             .max_hp(30)
@@ -309,8 +318,16 @@ mod tests {
         let maps_p = empty_maps();
         let ctx_p = make_scoring_ctx(&world, &snap_p, &maps_p, &reservations, &caster);
         let (plan_p, ann_p) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 8.0);
+        let hit_p = HealWithoutRescueValue.evaluate(&plan_p, &ann_p, &ctx_p);
+
+        // ── 5. Assert ──
+        assert!(hit_f.is_some(), "hp_pct ≈ 0.77 must fire");
+        let m_f = hit_f.unwrap().multiplier;
+        assert!((1.0 - MAX_PENALTY..1.0).contains(&m_f),
+            "multiplier {m_f} should be in [{}, 1.0)", 1.0 - MAX_PENALTY);
+
         assert!(
-            HealWithoutRescueValue.evaluate(&plan_p, &ann_p, &ctx_p).is_none(),
+            hit_p.is_none(),
             "hp_pct = 0.5 (< HP_NEED_GATE) must not fire",
         );
     }

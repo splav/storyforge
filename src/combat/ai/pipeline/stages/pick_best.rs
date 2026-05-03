@@ -560,39 +560,24 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
+        StageTestHarness, UnitBuilder,
     };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use crate::core::DiceRng;
 
+    // ── run_pick: no trace_base_eq_score — PickBest does not read score_trace ─
+
     fn run_pick(scores: Vec<f32>) -> ScoredPool {
         let n = scores.len();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
         let plans = vec![TurnPlan::default(); n];
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            pos,
-            &mut rng,
-        );
-
-        let mut pool = ScoredPool::new(plans);
-        for (ann, score) in pool.annotations.iter_mut().zip(scores.into_iter()) {
-            ann.score = score;
-            ann.factors = PlanFactorValues::default();
-        }
-        PickBestStage.apply(&mut pool, &mut ctx);
+        let h = StageTestHarness::new(actor);
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&scores)
+            .build();
+        h.run(|ctx| PickBestStage.apply(&mut pool, ctx));
         pool
     }
 
@@ -622,7 +607,8 @@ mod tests {
     // ── apply_pick_jitter tests ───────────────────────────────────────────────
 
     /// Build a pool with given scores and run apply_pick_jitter.
-    /// Returns (noise_vec, pool) where pool.annotations[i].score is post-jitter.
+    /// Returns (noise_vec, post_scores) where post_scores[i] is score post-jitter.
+    /// Kept inline: requires a custom DifficultyProfile — harness always uses default.
     fn run_jitter(
         plans: Vec<TurnPlan>,
         scores: Vec<f32>,
@@ -852,33 +838,16 @@ mod tests {
         agenda: &Agenda,
     ) -> ScoredPool {
         let n = pre_scores.len();
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
         let plans = vec![TurnPlan::default(); n];
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            pos,
-            &mut rng,
-        ).with_agenda(agenda);
-
-        let mut pool = ScoredPool::new(plans);
-        for (i, ann) in pool.annotations.iter_mut().enumerate() {
-            ann.score = pre_scores[i];
-            ann.score_initial = score_initials[i];
-            ann.factors = PlanFactorValues::default();
-            ann.per_item = per_items[i].clone();
-        }
-        PickBestStage.apply(&mut pool, &mut ctx);
+        let mut h = StageTestHarness::new(actor);
+        h.agenda = Some(agenda.clone());
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&pre_scores)
+            .score_initials(&score_initials)
+            .per_items(per_items)
+            .build();
+        h.run(|ctx| PickBestStage.apply(&mut pool, ctx));
         pool
     }
 

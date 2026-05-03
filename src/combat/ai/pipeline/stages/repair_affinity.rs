@@ -58,7 +58,7 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder, ent,
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder, UnitBuilder, ent,
     };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -83,6 +83,10 @@ mod tests {
         }
     }
 
+    /// Run stage with an optional stored goal.
+    /// Cannot use StageTestHarness: needs scoring.last_goal injection which the
+    /// harness doesn't expose (last_goal lives in ScoringCtx, not on StageCtx fields).
+    /// TODO: migrate to StageTestHarness in Phase 5 if last_goal injection is added.
     fn run_stage_with_goal(
         plans: Vec<TurnPlan>,
         intent: TacticalIntent,
@@ -105,21 +109,21 @@ mod tests {
             actor.pos,
             &mut rng,
         );
-        let mut pool = ScoredPool::new(plans);
-        for ann in pool.annotations.iter_mut() {
-            ann.score = 0.5;
-        }
+        let n = plans.len();
+        let mut pool = PoolBuilder::new(plans).scores(&vec![0.5; n]).build();
         RepairAffinityStage.apply(&mut pool, &mut ctx);
         pool
     }
 
     #[test]
     fn repair_affinity_stage_no_op_when_no_stored_goal() {
+        // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
+
+        // ── 2–4. Act (helper handles setup) ──
         let pool = run_stage_with_goal(
             plans,
             TacticalIntent::Reposition,
@@ -128,6 +132,7 @@ mod tests {
             None,
         );
 
+        // ── 5. Assert ──
         // No stored goal → annotations stay at default (all-zero).
         for ann in &pool.annotations {
             let aff = &ann.repair_affinity;
@@ -138,6 +143,7 @@ mod tests {
 
     #[test]
     fn repair_affinity_stage_populates_annotation() {
+        // ── 1. Test data ──
         let target = ent(2);
         let pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
@@ -145,7 +151,6 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
         let target_unit = UnitBuilder::new(2, Team::Player, target_pos).hp(8).build();
         let snap = BattleSnapshot::new(vec![actor.clone(), target_unit], 1);
-
         let stored = stored_finish(target, 0);
 
         // Plan that pursues the same FocusTarget → should get goal_alignment > 0
@@ -159,6 +164,7 @@ mod tests {
             ..TurnPlan::default()
         };
 
+        // ── 2–4. Act (helper handles setup) ──
         let pool = run_stage_with_goal(
             vec![plan],
             TacticalIntent::FocusTarget { target },
@@ -167,6 +173,7 @@ mod tests {
             Some(&stored),
         );
 
+        // ── 5. Assert ──
         let aff = &pool.annotations[0].repair_affinity;
         assert!(aff.goal_alignment > 0.0, "same-target FocusTarget plan must have goal_alignment > 0");
         assert!(aff.confidence > 0.0, "confidence must be copied from stored goal");

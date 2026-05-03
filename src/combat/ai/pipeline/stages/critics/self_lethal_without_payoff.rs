@@ -112,12 +112,11 @@ impl PlanCritic for SelfLethalWithoutPayoff {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::pipeline::stages::critics::{CriticKind, PlanCritic};
-    use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
+    use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticsStage};
+    use crate::combat::ai::pipeline::PlanStage;
+    use crate::combat::ai::outcome::ActionOutcomeEstimate;
     use crate::combat::ai::plan::types::TurnPlan;
-    use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -125,35 +124,41 @@ mod tests {
 
     #[test]
     fn self_lethal_fires_on_canonical_case() {
+        // ── 1. Test data ──
         // Actor: max_hp=30. Self-damage = 12 (40% of max_hp > 30% threshold).
-        // Payoff = 0 (no enemy_damage, no kill, no rescue).
-        // → critic fires.
+        // Payoff = 0 (no enemy_damage, no kill, no rescue) → critic fires.
         let actor_pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .hp(30)
             .max_hp(30)
             .build();
+        let plans = vec![TurnPlan::default()];
 
-        let content = empty_content();
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
-        let plan = TurnPlan::default();
-        let mut ann = PlanAnnotation::default();
-        ann.outcomes.push(ActionOutcomeEstimate {
-            self_damage: 12.0, // 40% of max_hp
-            enemy_damage: 0.0,
-            p_kill_now: 0.0,
-            ..Default::default()
-        });
+        // ── 3. Pool ──
+        let stage = CriticsStage { critics: vec![Box::new(SelfLethalWithoutPayoff)] };
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .customize(|anns| {
+                anns[0].outcomes.push(ActionOutcomeEstimate {
+                    self_damage: 12.0, // 40% of max_hp
+                    enemy_damage: 0.0,
+                    p_kill_now: 0.0,
+                    ..Default::default()
+                });
+            })
+            .build();
 
-        let result = SelfLethalWithoutPayoff.evaluate(&plan, &ann, &ctx);
-        assert!(result.is_some(), "critic must fire when self_damage>30% and payoff=0");
-        let hit = result.unwrap();
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
+        let ann = &pool.annotations[0];
+        assert_eq!(ann.critics.len(), 1, "critic must fire when self_damage>30% and payoff=0");
+        let hit = &ann.critics[0];
         assert_eq!(hit.critic, CriticKind::SelfLethalWithoutPayoff);
         assert!(hit.multiplier < 1.0, "multiplier must penalise, got {}", hit.multiplier);
     }
@@ -162,32 +167,39 @@ mod tests {
 
     #[test]
     fn self_lethal_passes_on_clean_plan() {
+        // ── 1. Test data ──
         let actor_pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .hp(30)
             .max_hp(30)
             .build();
+        let plans = vec![TurnPlan::default()];
 
-        let content = empty_content();
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
-        // No self-damage in outcomes.
-        let plan = TurnPlan::default();
-        let ann = PlanAnnotation::default();
+        // ── 3. Pool (no self_damage in outcomes) ──
+        let stage = CriticsStage { critics: vec![Box::new(SelfLethalWithoutPayoff)] };
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
 
-        let result = SelfLethalWithoutPayoff.evaluate(&plan, &ann, &ctx);
-        assert!(result.is_none(), "critic must not fire with zero self-damage");
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
+        assert!(
+            pool.annotations[0].critics.is_empty(),
+            "critic must not fire with zero self-damage"
+        );
     }
 
     // ── severity scales with input ────────────────────────────────────────────
 
     #[test]
     fn self_lethal_severity_scales_with_input() {
+        // ── 1. Test data ──
         // Compare two plans: mild self-damage (35% max_hp) vs severe (80% max_hp).
         // Both have zero payoff so both fire; severe must produce lower multiplier.
         let actor_pos = hex_from_offset(0, 0);
@@ -196,36 +208,46 @@ mod tests {
             .max_hp(100)
             .build();
 
-        let content = empty_content();
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        // ── 2. Harness (shared) ──
+        let h = StageTestHarness::new(actor);
 
-        let plan = TurnPlan::default();
+        // ── 3. Pools ──
+        let stage_mild = CriticsStage { critics: vec![Box::new(SelfLethalWithoutPayoff)] };
+        let mut pool_mild = PoolBuilder::new(vec![TurnPlan::default()])
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .customize(|anns| {
+                anns[0].outcomes.push(ActionOutcomeEstimate {
+                    self_damage: 35.0, // 35% of 100 max_hp
+                    ..Default::default()
+                });
+            })
+            .build();
 
-        let mut ann_mild = PlanAnnotation::default();
-        ann_mild.outcomes.push(ActionOutcomeEstimate {
-            self_damage: 35.0, // 35% of 100 max_hp
-            ..Default::default()
+        let stage_severe = CriticsStage { critics: vec![Box::new(SelfLethalWithoutPayoff)] };
+        let mut pool_severe = PoolBuilder::new(vec![TurnPlan::default()])
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .customize(|anns| {
+                anns[0].outcomes.push(ActionOutcomeEstimate {
+                    self_damage: 80.0, // 80% of 100 max_hp
+                    ..Default::default()
+                });
+            })
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| {
+            stage_mild.apply(&mut pool_mild, ctx);
+            stage_severe.apply(&mut pool_severe, ctx);
         });
 
-        let mut ann_severe = PlanAnnotation::default();
-        ann_severe.outcomes.push(ActionOutcomeEstimate {
-            self_damage: 80.0, // 80% of 100 max_hp
-            ..Default::default()
-        });
+        // ── 5. Assert ──
+        assert!(!pool_mild.annotations[0].critics.is_empty(), "mild case must fire");
+        assert!(!pool_severe.annotations[0].critics.is_empty(), "severe case must fire");
 
-        let hit_mild = SelfLethalWithoutPayoff.evaluate(&plan, &ann_mild, &ctx);
-        let hit_severe = SelfLethalWithoutPayoff.evaluate(&plan, &ann_severe, &ctx);
-
-        assert!(hit_mild.is_some(), "mild case must fire");
-        assert!(hit_severe.is_some(), "severe case must fire");
-
-        let mult_mild = hit_mild.unwrap().multiplier;
-        let mult_severe = hit_severe.unwrap().multiplier;
+        let mult_mild = pool_mild.annotations[0].critics[0].multiplier;
+        let mult_severe = pool_severe.annotations[0].critics[0].multiplier;
         assert!(
             mult_severe < mult_mild,
             "severe penalty ({mult_severe}) must be stricter than mild ({mult_mild})"

@@ -107,12 +107,11 @@ impl PlanCritic for OvercommitIntoDanger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::pipeline::stages::critics::PlanCritic;
-    use crate::combat::ai::outcome::PlanAnnotation;
+    use crate::combat::ai::config::difficulty::DifficultyProfile;
+    use crate::combat::ai::pipeline::stages::critics::CriticsStage;
+    use crate::combat::ai::pipeline::PlanStage;
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -121,11 +120,7 @@ mod tests {
             steps: vec![PlanStep::Move { path: path.clone() }],
             final_pos: *path.last().unwrap(),
             residual_ap: 1,
-            residual_mp: 0,
-            outcomes: vec![],
-            partial_score: 0.0,
-            sim_snapshots: Vec::new(),
-            annotation: Default::default(),
+            ..TurnPlan::default()
         }
     }
 
@@ -133,31 +128,37 @@ mod tests {
 
     #[test]
     fn overcommit_fires_on_canonical_case() {
+        // ── 1. Test data ──
         // Actor: low HP (5/30, hp_pct ≈ 0.17) moves through a tile with
         // danger=0.9. Expected: critic fires with SurvivalPath source.
         let actor_pos = hex_from_offset(3, 3);
         let dest_pos = hex_from_offset(2, 3);
+
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .hp(5)
             .max_hp(30)
             .build();
+        let plans = vec![move_plan(vec![dest_pos])];
 
-        let content = empty_content();
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let mut maps = empty_maps();
-        maps.danger.add(dest_pos, 0.9);
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        // ── 2. Harness ──
+        let mut h = StageTestHarness::new(actor);
+        h.difficulty = DifficultyProfile::hard();
+        h.maps.danger.add(dest_pos, 0.9);
 
-        let plan = move_plan(vec![dest_pos]);
-        let ann = PlanAnnotation::default();
-        let critic = OvercommitIntoDanger;
+        // ── 3. Pool ──
+        let stage = CriticsStage { critics: vec![Box::new(OvercommitIntoDanger)] };
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
 
-        let result = critic.evaluate(&plan, &ann, &ctx);
-        assert!(result.is_some(), "critic must fire for low-HP actor on high-danger path");
-        let hit = result.unwrap();
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
+        let ann = &pool.annotations[0];
+        assert_eq!(ann.critics.len(), 1, "critic must fire for low-HP actor on high-danger path");
+        let hit = &ann.critics[0];
         assert_eq!(hit.critic, CriticKind::OvercommitIntoDanger);
         assert!(hit.multiplier < 1.0, "multiplier must be a penalty (< 1.0), got {}", hit.multiplier);
         if let CriticReason::OvercommitIntoDanger { source, .. } = hit.reason {
@@ -171,67 +172,90 @@ mod tests {
 
     #[test]
     fn overcommit_passes_on_clean_plan() {
+        // ── 1. Test data ──
         // Actor: full HP, moves to a safe tile, no nearby melee enemies.
         let actor_pos = hex_from_offset(0, 0);
         let dest_pos = hex_from_offset(1, 0);
+
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .hp(20)
             .max_hp(20)
             .build();
+        let plans = vec![move_plan(vec![dest_pos])];
 
-        let content = empty_content();
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps(); // all danger = 0.0
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor); // all danger = 0.0, default difficulty
 
-        let plan = move_plan(vec![dest_pos]);
-        let ann = PlanAnnotation::default();
-        let result = OvercommitIntoDanger.evaluate(&plan, &ann, &ctx);
-        assert!(result.is_none(), "critic must not fire for full-HP actor on safe path");
+        // ── 3. Pool ──
+        let stage = CriticsStage { critics: vec![Box::new(OvercommitIntoDanger)] };
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
+        assert!(
+            pool.annotations[0].critics.is_empty(),
+            "critic must not fire for full-HP actor on safe path"
+        );
     }
 
     // ── severity scales with input ────────────────────────────────────────────
 
     #[test]
     fn overcommit_severity_scales_with_input() {
+        // ── 1. Test data ──
         // Compares two setups: moderate (hp=12, danger=0.6) vs severe (hp=4, danger=0.9).
         // Severe must produce a strictly lower (more punishing) multiplier.
         let actor_pos = hex_from_offset(3, 3);
         let dest_pos = hex_from_offset(2, 3);
+        let plan = vec![move_plan(vec![dest_pos])];
 
-        let content = empty_content();
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let plan = move_plan(vec![dest_pos]);
-        let ann = PlanAnnotation::default();
-
-        // ── Moderate: hp=12/30 (hp_need≈0.33), danger=0.6 (excess=0.1) ─────
+        // ── Moderate: hp=12/30 (hp_need≈0.33), danger=0.6 (excess=0.1) ──────
+        // ── 2. Harness (moderate) ──
         let actor_mod = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .hp(12).max_hp(30).build();
-        let snap_mod = BattleSnapshot::new(vec![actor_mod.clone()], 1);
-        let mut maps_mod = empty_maps();
-        maps_mod.danger.add(dest_pos, 0.6);
-        let ctx_mod = make_scoring_ctx(&world, &snap_mod, &maps_mod, &reservations, &actor_mod);
-        let hit_mod = OvercommitIntoDanger.evaluate(&plan, &ann, &ctx_mod);
+        let mut h_mod = StageTestHarness::new(actor_mod);
+        h_mod.difficulty = DifficultyProfile::hard();
+        h_mod.maps.danger.add(dest_pos, 0.6);
 
-        // ── Severe: hp=4/30 (hp_need≈0.78), danger=0.9 (excess=0.4) ────────
+        // ── 3. Pool (moderate) ──
+        let stage_mod = CriticsStage { critics: vec![Box::new(OvercommitIntoDanger)] };
+        let mut pool_mod = PoolBuilder::new(plan.clone())
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act (moderate) ──
+        h_mod.run(|ctx| stage_mod.apply(&mut pool_mod, ctx));
+
+        // ── Severe: hp=4/30 (hp_need≈0.78), danger=0.9 (excess=0.4) ─────────
+        // ── 2. Harness (severe) ──
         let actor_sev = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .hp(4).max_hp(30).build();
-        let snap_sev = BattleSnapshot::new(vec![actor_sev.clone()], 1);
-        let mut maps_sev = empty_maps();
-        maps_sev.danger.add(dest_pos, 0.9);
-        let ctx_sev = make_scoring_ctx(&world, &snap_sev, &maps_sev, &reservations, &actor_sev);
-        let hit_sev = OvercommitIntoDanger.evaluate(&plan, &ann, &ctx_sev);
+        let mut h_sev = StageTestHarness::new(actor_sev);
+        h_sev.difficulty = DifficultyProfile::hard();
+        h_sev.maps.danger.add(dest_pos, 0.9);
 
-        assert!(hit_mod.is_some(), "moderate case must fire");
-        assert!(hit_sev.is_some(), "severe case must fire");
+        // ── 3. Pool (severe) ──
+        let stage_sev = CriticsStage { critics: vec![Box::new(OvercommitIntoDanger)] };
+        let mut pool_sev = PoolBuilder::new(plan)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
 
-        let mult_mod = hit_mod.unwrap().multiplier;
-        let mult_sev = hit_sev.unwrap().multiplier;
+        // ── 4. Act (severe) ──
+        h_sev.run(|ctx| stage_sev.apply(&mut pool_sev, ctx));
+
+        // ── 5. Assert ──
+        assert!(!pool_mod.annotations[0].critics.is_empty(), "moderate case must fire");
+        assert!(!pool_sev.annotations[0].critics.is_empty(), "severe case must fire");
+
+        let mult_mod = pool_mod.annotations[0].critics[0].multiplier;
+        let mult_sev = pool_sev.annotations[0].critics[0].multiplier;
         assert!(
             mult_sev < mult_mod,
             "severe penalty ({mult_sev}) must be stricter than moderate ({mult_mod})"

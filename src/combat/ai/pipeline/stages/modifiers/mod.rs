@@ -176,7 +176,13 @@ mod tests {
     use super::*;
     use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::pipeline::ScoredPool;
+    use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};
     use crate::combat::ai::plan::types::TurnPlan;
+    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
+    use crate::game::components::Team;
+    use crate::game::hex::hex_from_offset;
+
+    // ── Pure data tests (no StageCtx needed) ────────────────────────────────
 
     /// A masked plan (score == NEG_INFINITY) must be skipped:
     /// `ann.modifiers` stays empty and `ann.score` stays NEG_INFINITY.
@@ -236,49 +242,29 @@ mod tests {
 
     // ── P3a.1 — ScoreTrace integration tests ─────────────────────────────────
     //
-    // These tests exercise PlanModifiersStage.apply() via PRODUCTION_PIPELINE,
-    // matching the pattern in pipeline/mod.rs::pipeline_runs_modifiers_after_repair_before_pick.
+    // These tests exercise PlanModifiersStage.apply() via PRODUCTION_PIPELINE.
 
     /// After apply(), each non-masked plan has exactly PLAN_MODIFIERS.len()
     /// addend hits in score_trace, in PLAN_MODIFIERS order.
     #[test]
     fn p3a_modifiers_push_addends_to_trace() {
-        use crate::combat::ai::config::difficulty::DifficultyProfile;
-        use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-        use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};
-        use crate::combat::ai::pipeline::StageCtx;
-        use crate::combat::ai::test_helpers::{
-            empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-        };
-        use crate::combat::ai::world::reservations::Reservations;
-        use crate::combat::ai::world::snapshot::BattleSnapshot;
-        use crate::core::DiceRng;
-        use crate::game::components::Team;
-        use crate::game::hex::hex_from_offset;
-
+        // ── 1. Test data ──
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        );
+        let plans = vec![TurnPlan::default(), TurnPlan::default()];
 
-        let mut pool = ScoredPool::new(vec![TurnPlan::default(), TurnPlan::default()]);
-        pool.annotations[0].score = 1.0;
-        pool.annotations[1].score = 0.5;
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
-        run(PRODUCTION_PIPELINE, &mut pool, &mut ctx);
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0, 0.5])
+            .trace_base_eq_score()
+            .build();
 
+        // ── 4. Act ──
+        h.run(|ctx| run(PRODUCTION_PIPELINE, &mut pool, ctx));
+
+        // ── 5. Assert ──
         for (i, ann) in pool.annotations.iter().enumerate() {
             assert_eq!(
                 ann.score_trace.addends.len(),
@@ -298,41 +284,23 @@ mod tests {
     /// Verified via trace.compute() == ann.score.
     #[test]
     fn p3a_modifiers_trace_base_synced_from_score() {
-        use crate::combat::ai::config::difficulty::DifficultyProfile;
-        use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-        use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};
-        use crate::combat::ai::pipeline::StageCtx;
-        use crate::combat::ai::test_helpers::{
-            empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-        };
-        use crate::combat::ai::world::reservations::Reservations;
-        use crate::combat::ai::world::snapshot::BattleSnapshot;
-        use crate::core::DiceRng;
-        use crate::game::components::Team;
-        use crate::game::hex::hex_from_offset;
-
+        // ── 1. Test data ──
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        );
+        let plans = vec![TurnPlan::default()];
 
-        let mut pool = ScoredPool::new(vec![TurnPlan::default()]);
-        pool.annotations[0].score = 2.5;
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
-        run(PRODUCTION_PIPELINE, &mut pool, &mut ctx);
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[2.5])
+            .trace_base_eq_score()
+            .build();
 
+        // ── 4. Act ──
+        h.run(|ctx| run(PRODUCTION_PIPELINE, &mut pool, ctx));
+
+        // ── 5. Assert ──
         let ann = &pool.annotations[0];
         let computed = ann.score_trace.compute();
         assert!(
@@ -345,43 +313,23 @@ mod tests {
     /// Pool of 3 non-masked plans: ann.score == trace.compute() for each.
     #[test]
     fn p3a_modifiers_invariant_score_equals_compute() {
-        use crate::combat::ai::config::difficulty::DifficultyProfile;
-        use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-        use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};
-        use crate::combat::ai::pipeline::StageCtx;
-        use crate::combat::ai::test_helpers::{
-            empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-        };
-        use crate::combat::ai::world::reservations::Reservations;
-        use crate::combat::ai::world::snapshot::BattleSnapshot;
-        use crate::core::DiceRng;
-        use crate::game::components::Team;
-        use crate::game::hex::hex_from_offset;
-
+        // ── 1. Test data ──
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        );
+        let plans = vec![TurnPlan::default(); 3];
 
-        let mut pool = ScoredPool::new(vec![TurnPlan::default(); 3]);
-        pool.annotations[0].score = 1.0;
-        pool.annotations[1].score = 3.5;
-        pool.annotations[2].score = -0.5;
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
-        run(PRODUCTION_PIPELINE, &mut pool, &mut ctx);
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0, 3.5, -0.5])
+            .trace_base_eq_score()
+            .build();
 
+        // ── 4. Act ──
+        h.run(|ctx| run(PRODUCTION_PIPELINE, &mut pool, ctx));
+
+        // ── 5. Assert ──
         for (i, ann) in pool.annotations.iter().enumerate() {
             if !ann.score.is_finite() {
                 continue;
@@ -401,42 +349,23 @@ mod tests {
     /// downstream stages that may rewrite ann.score on masked plans.
     #[test]
     fn p3a_modifiers_masked_plan_trace_unchanged() {
-        use crate::combat::ai::config::difficulty::DifficultyProfile;
-        use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-        use crate::combat::ai::pipeline::PlanStage;
-        use crate::combat::ai::pipeline::StageCtx;
-        use crate::combat::ai::test_helpers::{
-            empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-        };
-        use crate::combat::ai::world::reservations::Reservations;
-        use crate::combat::ai::world::snapshot::BattleSnapshot;
-        use crate::core::DiceRng;
-        use crate::game::components::Team;
-        use crate::game::hex::hex_from_offset;
-
+        // ── 1. Test data ──
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        );
+        let plans = vec![TurnPlan::default()];
 
-        let mut pool = ScoredPool::new(vec![TurnPlan::default()]);
-        pool.annotations[0].score = f32::NEG_INFINITY;
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
-        // Call the stage directly to avoid PRODUCTION_PIPELINE's PickBest rewriting score.
-        PlanModifiersStage.apply(&mut pool, &mut ctx);
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[f32::NEG_INFINITY])
+            .build();
 
+        // ── 4. Act — call the stage directly to avoid PRODUCTION_PIPELINE's
+        //        PickBest rewriting score on masked plans.
+        h.run(|ctx| PlanModifiersStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         let ann = &pool.annotations[0];
         assert_eq!(ann.score, f32::NEG_INFINITY, "masked plan score must stay NEG_INFINITY");
         assert_eq!(ann.score_trace.base, 0.0, "masked plan trace.base must stay 0");

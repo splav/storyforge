@@ -4,6 +4,12 @@
 //! test module used to hand-roll.
 
 use crate::combat::ai::config::difficulty::DifficultyProfile;
+use crate::combat::ai::intent::agenda::Agenda;
+use crate::combat::ai::intent::{IntentReason, TacticalIntent};
+use crate::combat::ai::outcome::{AdaptationData, PerItemEval, PlanAnnotation};
+use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
+use crate::combat::ai::plan::types::TurnPlan;
+use crate::combat::ai::scoring::factors::PlanFactorValues;
 use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::config::role::AxisProfile;
@@ -14,7 +20,7 @@ use crate::combat::ai::orchestration::{AiWorld, ScoringCtx};
 use crate::content::abilities::CasterContext;
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;
-use crate::core::AbilityId;
+use crate::core::{AbilityId, DiceRng};
 use crate::game::components::Team;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
@@ -268,5 +274,238 @@ pub(crate) fn empty_content() -> ContentView {
         factions: HashMap::new(),
         paths: HashMap::new(),
         ..ContentView::default()
+    }
+}
+
+// ── StageTestHarness ───────────────────────────────────────────────────────
+
+/// Universal context for stage unit tests.  All fields are public — configure
+/// via direct field mutation after `new()`.  Call `.run(|ctx| ...)` to build
+/// the full `StageCtx` (incl. `ScoringCtx`, `BattleSnapshot`, `DiceRng`) in
+/// a closure scope whose lifetime stays local to the call.
+///
+/// # Design
+///
+/// The harness owns `actor`, `maps`, `reservations`, etc.  Inside `run` these
+/// are borrowed to build the `ScoringCtx` stack; `body` receives a
+/// `&mut StageCtx` whose lifetime is bound to that stack — no lifetimes leak
+/// out of the call.
+///
+/// # Test structure (5 sections)
+///
+/// Every stage unit test follows this template:
+///
+/// ```ignore
+/// #[test]
+/// fn name() {
+///     // ── 1. Test data ──
+///     let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+///     let plans = vec![TurnPlan::default(), TurnPlan::default()];
+///
+///     // ── 2. Harness ──
+///     let mut h = StageTestHarness::new(actor);
+///     // Optional tweaks: h.intent = TacticalIntent::FocusTarget;
+///     //                  h.maps.danger.add(tile, 1.0);
+///     //                  h.agenda = Some(my_agenda);
+///
+///     // ── 3. Pool ──
+///     let mut pool = PoolBuilder::new(plans)
+///         .scores(&[0.5, 0.4])
+///         .trace_base_eq_score() // required for downstream score-effect stages
+///         .build();
+///
+///     // ── 4. Act ──
+///     h.run(|ctx| SanityStage.apply(&mut pool, ctx));
+///
+///     // ── 5. Assert ──
+///     for ann in &pool.annotations { assert!(ann.sanity.is_empty()); }
+/// }
+/// ```
+pub(crate) struct StageTestHarness {
+    pub actor: UnitSnapshot,
+    pub intent: TacticalIntent,
+    pub intent_reason: IntentReason,
+    pub maps: InfluenceMaps,
+    pub difficulty: DifficultyProfile,
+    pub reservations: Reservations,
+    pub agenda: Option<Agenda>,
+    /// Extra units placed in the `BattleSnapshot` alongside the actor.
+    /// Use when the stage under test reads `ctx.scoring.snap.units` (e.g.,
+    /// critics that look for enemies or allies in the snapshot).
+    pub extra_units: Vec<UnitSnapshot>,
+}
+
+impl StageTestHarness {
+    /// Sane defaults: solo-actor `BattleSnapshot`, empty maps, default
+    /// difficulty, empty reservations, `intent = Reposition`,
+    /// `intent_reason = NoRuleDefault`, no agenda.
+    pub fn new(actor: UnitSnapshot) -> Self {
+        Self {
+            actor,
+            intent: TacticalIntent::Reposition,
+            intent_reason: IntentReason::NoRuleDefault,
+            maps: empty_maps(),
+            difficulty: DifficultyProfile::default(),
+            reservations: Reservations::default(),
+            agenda: None,
+            extra_units: vec![],
+        }
+    }
+
+    /// Build the full context stack and run `body` with a `&mut StageCtx`.
+    ///
+    /// Internally builds: `ContentView` → `AiWorld` → `BattleSnapshot` →
+    /// `ScoringCtx` → `DiceRng` → `StageCtx`.  If `self.agenda` is `Some`,
+    /// attaches it via `StageCtx::with_agenda` before handing ctx to `body`.
+    /// Returns whatever `body` returns.
+    pub fn run<R>(&self, body: impl FnOnce(&mut StageCtx) -> R) -> R {
+        let content = empty_content();
+        let world = make_test_ctx(&content, &self.difficulty);
+        let mut snap_units = vec![self.actor.clone()];
+        snap_units.extend(self.extra_units.iter().cloned());
+        let snap = BattleSnapshot::new(snap_units, 1);
+        let scoring = make_scoring_ctx(&world, &snap, &self.maps, &self.reservations, &self.actor);
+        let mut rng = DiceRng::default();
+        let mut ctx = StageCtx::new(
+            &scoring,
+            self.intent,
+            self.intent_reason.clone(),
+            self.actor.pos,
+            &mut rng,
+        );
+        if let Some(ref agenda) = self.agenda {
+            ctx = ctx.with_agenda(agenda);
+        }
+        body(&mut ctx)
+    }
+}
+
+// ── PoolBuilder ───────────────────────────────────────────────────────────
+
+/// Fluent builder for `ScoredPool` — sets per-`PlanAnnotation` fields via
+/// orthogonal, chainable setters.  Each per-plan setter asserts that the
+/// supplied slice length matches the number of plans.
+///
+/// Use `customize()` as an escape hatch when the standard setters are not
+/// expressive enough.
+///
+/// # Example
+///
+/// ```ignore
+/// let pool = PoolBuilder::new(plans)
+///     .scores(&[0.8, 0.5])
+///     .trace_base_eq_score() // must come after scores()
+///     .factors(vec![pfv_a, pfv_b])
+///     .build();
+/// ```
+pub(crate) struct PoolBuilder {
+    pool: ScoredPool,
+}
+
+impl PoolBuilder {
+    /// Initialise from a plan list.  All annotations are zero-filled
+    /// (`PlanAnnotation::default()`).
+    pub fn new(plans: Vec<TurnPlan>) -> Self {
+        Self { pool: ScoredPool::new(plans) }
+    }
+
+    /// Set `ann.score` for each plan.
+    pub fn scores(mut self, scores: &[f32]) -> Self {
+        assert_eq!(
+            scores.len(),
+            self.pool.plans.len(),
+            "PoolBuilder::scores — slice length {} != plans len {}",
+            scores.len(),
+            self.pool.plans.len()
+        );
+        for (ann, &s) in self.pool.annotations.iter_mut().zip(scores.iter()) {
+            ann.score = s;
+        }
+        self
+    }
+
+    /// Set `ann.score_initial` for each plan.
+    pub fn score_initials(mut self, initials: &[f32]) -> Self {
+        assert_eq!(
+            initials.len(),
+            self.pool.plans.len(),
+            "PoolBuilder::score_initials — slice length {} != plans len {}",
+            initials.len(),
+            self.pool.plans.len()
+        );
+        for (ann, &v) in self.pool.annotations.iter_mut().zip(initials.iter()) {
+            ann.score_initial = v;
+        }
+        self
+    }
+
+    /// Set `ann.factors` for each plan.
+    pub fn factors(mut self, factors: Vec<PlanFactorValues>) -> Self {
+        assert_eq!(
+            factors.len(),
+            self.pool.plans.len(),
+            "PoolBuilder::factors — vec length {} != plans len {}",
+            factors.len(),
+            self.pool.plans.len()
+        );
+        for (ann, f) in self.pool.annotations.iter_mut().zip(factors.into_iter()) {
+            ann.factors = f;
+        }
+        self
+    }
+
+    /// Set `ann.adaptation` for each plan.
+    pub fn adaptations(mut self, adaptations: Vec<Option<AdaptationData>>) -> Self {
+        assert_eq!(
+            adaptations.len(),
+            self.pool.plans.len(),
+            "PoolBuilder::adaptations — vec length {} != plans len {}",
+            adaptations.len(),
+            self.pool.plans.len()
+        );
+        for (ann, a) in self.pool.annotations.iter_mut().zip(adaptations.into_iter()) {
+            ann.adaptation = a;
+        }
+        self
+    }
+
+    /// Set `ann.per_item` for each plan.
+    pub fn per_items(mut self, items: Vec<Vec<PerItemEval>>) -> Self {
+        assert_eq!(
+            items.len(),
+            self.pool.plans.len(),
+            "PoolBuilder::per_items — vec length {} != plans len {}",
+            items.len(),
+            self.pool.plans.len()
+        );
+        for (ann, v) in self.pool.annotations.iter_mut().zip(items.into_iter()) {
+            ann.per_item = v;
+        }
+        self
+    }
+
+    /// Copy current `ann.score` into `ann.score_trace.base` for every plan.
+    ///
+    /// Call this **after** `scores()`.  Mirrors what `FinalizeStage` does in
+    /// production so that downstream score-effect stages (Sanity, Critics,
+    /// ProtectSelf, KillableGate) see a non-zero `trace.base` when run in
+    /// isolation.
+    pub fn trace_base_eq_score(mut self) -> Self {
+        for ann in self.pool.annotations.iter_mut() {
+            ann.score_trace.base = ann.score;
+        }
+        self
+    }
+
+    /// Escape hatch: arbitrary mutation of the annotation slice after all
+    /// field setters have run.
+    pub fn customize(mut self, f: impl FnOnce(&mut [PlanAnnotation])) -> Self {
+        f(&mut self.pool.annotations);
+        self
+    }
+
+    /// Consume the builder and return the finished `ScoredPool`.
+    pub fn build(self) -> ScoredPool {
+        self.pool
     }
 }

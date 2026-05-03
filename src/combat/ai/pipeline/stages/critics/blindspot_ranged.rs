@@ -86,13 +86,11 @@ impl PlanCritic for BlindspotRanged {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::pipeline::stages::critics::PlanCritic;
-    use crate::combat::ai::outcome::PlanAnnotation;
+    use crate::combat::ai::pipeline::stages::critics::CriticsStage;
+    use crate::combat::ai::pipeline::PlanStage;
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::world::tags::AiTags;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -101,11 +99,7 @@ mod tests {
             steps: vec![PlanStep::Move { path: vec![dest] }],
             final_pos: dest,
             residual_ap: 1,
-            residual_mp: 0,
-            outcomes: vec![],
-            partial_score: 0.0,
-            sim_snapshots: Vec::new(),
-            annotation: Default::default(),
+            ..TurnPlan::default()
         }
     }
 
@@ -115,8 +109,8 @@ mod tests {
     fn blindspot_fires_on_canonical_case() {
         // RANGED actor ends at (0,0). Enemy at (4,0), blocked by an ally at (2,0).
         // The ally occupies the line between actor and enemy — no LoS.
+        // ── 1. Test data ──
         let actor_pos = hex_from_offset(0, 0);
-        let final_pos = hex_from_offset(0, 0); // stays in place
         let ally_pos = hex_from_offset(2, 0);
         let enemy_pos = hex_from_offset(4, 0);
 
@@ -126,20 +120,26 @@ mod tests {
         let ally = UnitBuilder::new(2, Team::Enemy, ally_pos).build();
         let enemy = UnitBuilder::new(3, Team::Player, enemy_pos).build();
 
-        let snap = BattleSnapshot::new(vec![actor.clone(), ally, enemy], 1);
-        let content = empty_content();
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let plans = vec![move_plan(actor_pos)]; // stays in place
 
-        let plan = move_plan(final_pos);
-        let ann = PlanAnnotation::default();
-        let result = BlindspotRanged.evaluate(&plan, &ann, &ctx);
+        // ── 2. Harness ──
+        let mut h = StageTestHarness::new(actor);
+        h.extra_units = vec![ally, enemy];
 
-        assert!(result.is_some(), "critic must fire: RANGED with no LoS to enemy");
-        let hit = result.unwrap();
+        // ── 3. Pool ──
+        let stage = CriticsStage { critics: vec![Box::new(BlindspotRanged)] };
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
+        let ann = &pool.annotations[0];
+        assert_eq!(ann.critics.len(), 1, "critic must fire: RANGED with no LoS to enemy");
+        let hit = &ann.critics[0];
         assert_eq!(hit.critic, CriticKind::BlindspotRanged);
         assert!(
             (hit.multiplier - BLINDSPOT_MULTIPLIER).abs() < 1e-6,
@@ -157,8 +157,8 @@ mod tests {
     #[test]
     fn blindspot_passes_on_clean_plan() {
         // RANGED actor ends at (0,0). Enemy at (3,0) with no blocker in between.
+        // ── 1. Test data ──
         let actor_pos = hex_from_offset(0, 0);
-        let final_pos = hex_from_offset(0, 0);
         let enemy_pos = hex_from_offset(3, 0);
 
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
@@ -166,59 +166,88 @@ mod tests {
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
 
-        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
-        let content = empty_content();
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let plans = vec![move_plan(actor_pos)];
 
-        let plan = move_plan(final_pos);
-        let ann = PlanAnnotation::default();
-        let result = BlindspotRanged.evaluate(&plan, &ann, &ctx);
+        // ── 2. Harness ──
+        let mut h = StageTestHarness::new(actor);
+        h.extra_units = vec![enemy];
 
-        assert!(result.is_none(), "critic must not fire: RANGED with clear LoS to enemy");
+        // ── 3. Pool ──
+        let stage = CriticsStage { critics: vec![Box::new(BlindspotRanged)] };
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
+        assert!(
+            pool.annotations[0].critics.is_empty(),
+            "critic must not fire: RANGED with clear LoS to enemy"
+        );
     }
 
     // ── gate conditions as "scaling" contract ─────────────────────────────────
 
     #[test]
     fn blindspot_severity_scales_with_input() {
-        // 1) Non-RANGED actor without LoS → None (gate: RANGED tag required).
-        // 2) RANGED actor with no enemies → None (gate: enemies required).
+        // 1) Non-RANGED actor without LoS → no critic hit (gate: RANGED tag required).
+        // 2) RANGED actor with no enemies → no critic hit (gate: enemies required).
         let actor_pos = hex_from_offset(0, 0);
-        let final_pos = hex_from_offset(0, 0);
         let ally_blocker_pos = hex_from_offset(2, 0);
         let enemy_pos = hex_from_offset(4, 0);
+        let plan = vec![move_plan(actor_pos)];
 
-        let content = empty_content();
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ann = PlanAnnotation::default();
-        let plan = move_plan(final_pos);
-
-        // Case 1: melee actor (no RANGED tag), enemy blocked → must return None.
+        // ── Case 1: melee actor (no RANGED tag), enemy blocked → no hit ─────
+        // ── 1. Test data ──
         let melee_actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
         let ally = UnitBuilder::new(2, Team::Enemy, ally_blocker_pos).build();
         let enemy = UnitBuilder::new(3, Team::Player, enemy_pos).build();
-        let snap_melee = BattleSnapshot::new(vec![melee_actor.clone(), ally, enemy], 1);
-        let ctx_melee = make_scoring_ctx(&world, &snap_melee, &maps, &reservations, &melee_actor);
+
+        // ── 2. Harness ──
+        let mut h1 = StageTestHarness::new(melee_actor);
+        h1.extra_units = vec![ally, enemy];
+
+        // ── 3. Pool ──
+        let stage = CriticsStage { critics: vec![Box::new(BlindspotRanged)] };
+        let mut pool1 = PoolBuilder::new(plan.clone())
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act ──
+        h1.run(|ctx| stage.apply(&mut pool1, ctx));
+
+        // ── 5. Assert ──
         assert!(
-            BlindspotRanged.evaluate(&plan, &ann, &ctx_melee).is_none(),
+            pool1.annotations[0].critics.is_empty(),
             "non-RANGED actor must not trigger blindspot critic"
         );
 
-        // Case 2: RANGED actor with empty enemy list → must return None.
+        // ── Case 2: RANGED actor with no enemies → no hit ─────────────────
+        // ── 1. Test data ──
         let ranged_actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .tags(AiTags::RANGED)
             .build();
-        let snap_no_enemies = BattleSnapshot::new(vec![ranged_actor.clone()], 1);
-        let ctx_no_enemies = make_scoring_ctx(&world, &snap_no_enemies, &maps, &reservations, &ranged_actor);
+
+        // ── 2. Harness ──
+        let h2 = StageTestHarness::new(ranged_actor); // no extra_units → no enemies
+
+        // ── 3. Pool ──
+        let stage2 = CriticsStage { critics: vec![Box::new(BlindspotRanged)] };
+        let mut pool2 = PoolBuilder::new(plan)
+            .scores(&[1.0])
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act ──
+        h2.run(|ctx| stage2.apply(&mut pool2, ctx));
+
+        // ── 5. Assert ──
         assert!(
-            BlindspotRanged.evaluate(&plan, &ann, &ctx_no_enemies).is_none(),
+            pool2.annotations[0].critics.is_empty(),
             "RANGED actor with no enemies must not trigger blindspot critic"
         );
     }

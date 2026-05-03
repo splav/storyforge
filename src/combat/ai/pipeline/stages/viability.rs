@@ -119,65 +119,43 @@ impl PlanStage for ViabilityStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::intent::IntentReason;
-    use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::plan::types::TurnPlan;
-    use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::core::DiceRng;
 
-    fn pool_with_intent_factor(factor: f32) -> ScoredPool {
-        let plan = TurnPlan::default();
-        let mut pool = ScoredPool::new(vec![plan]);
+    fn pool_with_intent_factor(factor: f32) -> crate::combat::ai::pipeline::ScoredPool {
         let mut f = PlanFactorValues::default();
         f.set_plan(PlanFactor::Intent, factor);
-        pool.annotations[0].factors = f;
-        pool.annotations[0].score = 0.5;
-        pool
-    }
-
-    fn ctx_for_actor<'w, 's>(
-        scoring: &'s crate::combat::ai::orchestration::ScoringCtx<'w, 's>,
-        intent: TacticalIntent,
-        reason: IntentReason,
-        actor_pos: crate::game::hex::Hex,
-        rng: &'s mut DiceRng,
-    ) -> StageCtx<'w, 's> {
-        StageCtx::new(scoring, intent, reason, actor_pos, rng)
+        PoolBuilder::new(vec![TurnPlan::default()])
+            .scores(&[0.5])
+            .factors(vec![f])
+            .build()
     }
 
     // ── above threshold: no-op ─────────────────────────────────────────────
 
     #[test]
     fn viability_stage_above_threshold_is_noop() {
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
         // Reposition threshold is 0.01. intent_factor=0.5 >> threshold → passes.
         let mut pool = pool_with_intent_factor(0.5);
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = ctx_for_actor(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        );
 
-        ViabilityStage.apply(&mut pool, &mut ctx);
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
-        assert!(matches!(ctx.intent, TacticalIntent::Reposition));
-        assert!(matches!(ctx.intent_reason, IntentReason::NoRuleDefault));
+        // ── 4. Act — capture ctx post-state ──
+        let (post_intent, post_reason) = h.run(|ctx| {
+            ViabilityStage.apply(&mut pool, ctx);
+            (ctx.intent.clone(), ctx.intent_reason.clone())
+        });
+
+        // ── 5. Assert ──
+        assert!(matches!(post_intent, TacticalIntent::Reposition));
+        assert!(matches!(post_reason, IntentReason::NoRuleDefault));
         assert!(pool.annotations[0].viability.passed);
         // adjusted_score equals the pre-viability score (0.5)
         assert_eq!(pool.annotations[0].viability.adjusted_score, 0.5);
@@ -187,33 +165,26 @@ mod tests {
 
     #[test]
     fn viability_stage_switches_intent_on_midpanic() {
+        // ── 1. Test data ──
         // Low HP + high danger + zero intent alignment → midpanic branch.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(3).max_hp(20).build();
         let mut pool = pool_with_intent_factor(0.0);
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(3).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let mut maps = empty_maps();
-        maps.danger.add(pos, 1.0);
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = ctx_for_actor(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            pos,
-            &mut rng,
-        );
 
-        ViabilityStage.apply(&mut pool, &mut ctx);
+        // ── 2. Harness ──
+        let mut h = StageTestHarness::new(actor);
+        h.maps.danger.add(hex_from_offset(0, 0), 1.0);
 
-        assert!(matches!(ctx.intent, TacticalIntent::ProtectSelf), "expected ProtectSelf");
+        // ── 4. Act ──
+        let (post_intent, post_reason) = h.run(|ctx| {
+            ViabilityStage.apply(&mut pool, ctx);
+            (ctx.intent.clone(), ctx.intent_reason.clone())
+        });
+
+        // ── 5. Assert ──
+        assert!(matches!(post_intent, TacticalIntent::ProtectSelf), "expected ProtectSelf");
         assert!(
-            matches!(ctx.intent_reason, IntentReason::MidpanicFallback { .. }),
-            "expected MidpanicFallback, got {:?}", ctx.intent_reason,
+            matches!(post_reason, IntentReason::MidpanicFallback { .. }),
+            "expected MidpanicFallback, got {:?}", post_reason,
         );
         // swap occurred → passed=false
         assert!(!pool.annotations[0].viability.passed);
@@ -223,27 +194,17 @@ mod tests {
 
     #[test]
     fn viability_stage_writes_annotation_section() {
-        // Any call must populate pool.annotations[i].viability.
-        let mut pool = pool_with_intent_factor(0.5);
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
+        // ── 1. Test data ──
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = ctx_for_actor(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        );
+        let mut pool = pool_with_intent_factor(0.5);
 
-        ViabilityStage.apply(&mut pool, &mut ctx);
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
+        // ── 4. Act ──
+        h.run(|ctx| ViabilityStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         // viability field must be set (not the zero-default with adjusted_score=0.0
         // from the ScoredPool::new initializer — above-threshold path writes the
         // pre-viability score 0.5).
@@ -255,35 +216,23 @@ mod tests {
 
     #[test]
     fn viability_stage_no_enemies_keeps_intent() {
+        // ── 1. Test data ──
         // Zero intent alignment, no enemies to fall back to → no swap.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
         let mut pool = pool_with_intent_factor(0.0);
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
-            .hp(20).max_hp(20)
-            .build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = ctx_for_actor(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        );
 
-        ViabilityStage.apply(&mut pool, &mut ctx);
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
-        assert!(matches!(ctx.intent, TacticalIntent::Reposition));
+        // ── 4. Act ──
+        let post_intent = h.run(|ctx| {
+            ViabilityStage.apply(&mut pool, ctx);
+            ctx.intent.clone()
+        });
+
+        // ── 5. Assert ──
+        assert!(matches!(post_intent, TacticalIntent::Reposition));
         // no swap → passed=true
         assert!(pool.annotations[0].viability.passed);
-    }
-
-    fn empty_content() -> crate::content::content_view::ContentView {
-        crate::combat::ai::test_helpers::empty_content()
     }
 }

@@ -227,17 +227,11 @@ pub fn plan_is_defensive(self_survival: f32, epsilon: f32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-    use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::scoring::horizon::expected_aoo_damage;
-    use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
-    use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
+    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
-    use crate::core::DiceRng;
 
     fn make_move_plan(path: Vec<Hex>) -> TurnPlan {
         let final_pos = path.last().copied().unwrap_or_else(|| hex_from_offset(0, 0));
@@ -248,61 +242,29 @@ mod tests {
         }
     }
 
-    fn apply_sanity_to_two_plans(
-        plans: Vec<TurnPlan>,
-        scores: Vec<f32>,
-        actor_hp: i32,
-        actor_max_hp: i32,
-        danger_on_final: Option<(Hex, f32)>,
-    ) -> ScoredPool {
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos)
-            .hp(actor_hp)
-            .max_hp(actor_max_hp)
-            .build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let mut maps = empty_maps();
-        if let Some((tile, val)) = danger_on_final {
-            maps.danger.add(tile, val);
-        }
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            pos,
-            &mut rng,
-        );
-
-        let mut pool = ScoredPool::new(plans);
-        for (ann, score) in pool.annotations.iter_mut().zip(scores.into_iter()) {
-            ann.score = score;
-            // P3a.6: initialise trace.base so the stage runs without Finalize upstream.
-            // In production, FinalizeStage sets this; unit tests call the stage directly.
-            ann.score_trace.base = score;
-        }
-        SanityStage.apply(&mut pool, &mut ctx);
-        pool
-    }
-
     // ── no hits on a clean plan ────────────────────────────────────────────
 
     #[test]
     fn sanity_stage_no_hits_leaves_annotation_empty() {
-        // Two plans, full HP, no danger — no sanity rule fires.
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
-        let plans = vec![
-            make_move_plan(vec![dest_a]),
-            make_move_plan(vec![dest_b]),
-        ];
-        let pool = apply_sanity_to_two_plans(plans, vec![0.5, 0.4], 20, 20, None);
+        let plans = vec![make_move_plan(vec![dest_a]), make_move_plan(vec![dest_b])];
 
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.5, 0.4])
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| SanityStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         for ann in &pool.annotations {
             assert!(
                 ann.sanity.is_empty(),
@@ -318,20 +280,26 @@ mod tests {
 
     #[test]
     fn sanity_stage_no_hits_for_low_hp_danger_tile() {
-        // Low-HP actor on a danger tile: before step 10.1 this triggered
-        // the Survival sanity rule. After 10.4, the enum no longer has
-        // Survival — this test pins that the annotation stays empty.
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(2).max_hp(20).build();
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
-        let plans = vec![
-            make_move_plan(vec![dest_a]),
-            make_move_plan(vec![dest_b]),
-        ];
-        // 2/20 HP = 10%; danger tile on destination of plan 0.
-        let pool = apply_sanity_to_two_plans(
-            plans, vec![0.5, 0.4], 2, 20, Some((dest_a, 1.0)),
-        );
+        let plans = vec![make_move_plan(vec![dest_a]), make_move_plan(vec![dest_b])];
 
+        // ── 2. Harness — danger tile on destination of plan 0 ──
+        let mut h = StageTestHarness::new(actor);
+        h.maps.danger.add(dest_a, 1.0);
+
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.5, 0.4])
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| SanityStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         // No sanity rule should fire — the only active rules are
         // HealerExposure, RetreatTrap, SynergyBonus, none of which
         // trigger in this solo-actor scenario.
@@ -362,54 +330,39 @@ mod tests {
 
     #[test]
     fn sanity_survives_adaptation_path() {
-        use crate::combat::ai::scoring::factors::PlanFactorValues;
+        use crate::combat::ai::adapt::AdaptationReason;
         use crate::combat::ai::outcome::AdaptationData;
         use crate::combat::ai::pipeline::stages::finalize::FinalizeStage;
         use crate::combat::ai::pipeline::PlanStage;
-        use crate::combat::ai::adapt::AdaptationReason;
-        use crate::combat::ai::plan::types::TurnPlan;
+        use crate::combat::ai::scoring::factors::PlanFactorValues;
 
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            pos,
-            &mut rng,
-        );
-
-        // Two plans: one with LastStand adaptation injected, one Default.
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
-        let mut pool = ScoredPool::new(plans);
-        let pre_scores = [0.8_f32, 0.6_f32];
-        for (ann, (&score, adaptation)) in pool.annotations.iter_mut().zip(
-            pre_scores.iter().zip([
-                Some(AdaptationData {
-                    reason: AdaptationReason::ProtectSelfNoDefensive,
-                    original_score: 0.8,
-                }),
-                None,
-            ])
-        ) {
-            ann.score = score;
-            ann.factors = PlanFactorValues::default();
-            ann.adaptation = adaptation;
-        }
 
-        // Run Finalize then Sanity (mirroring new pipeline order).
-        FinalizeStage.apply(&mut pool, &mut ctx);
-        let scores_after_finalize: Vec<f32> = pool.annotations.iter().map(|a| a.score).collect();
-        SanityStage.apply(&mut pool, &mut ctx);
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
+        // ── 3. Pool ──
+        let adaptation = Some(AdaptationData {
+            reason: AdaptationReason::ProtectSelfNoDefensive,
+            original_score: 0.8,
+        });
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.8, 0.6])
+            .factors(vec![PlanFactorValues::default(), PlanFactorValues::default()])
+            .adaptations(vec![adaptation, None])
+            .build();
+
+        // ── 4. Act — Finalize then Sanity (mirroring production pipeline order) ──
+        let scores_after_finalize: Vec<f32> = h.run(|ctx| {
+            FinalizeStage.apply(&mut pool, ctx);
+            let scores = pool.annotations.iter().map(|a| a.score).collect();
+            SanityStage.apply(&mut pool, ctx);
+            scores
+        });
+
+        // ── 5. Assert ──
         // SanityStage either leaves scores unchanged (no rule fired) or
         // applies multipliers. Either way: scores must be ≤ finalized score
         // (sanity is non-additive, only penalty/bonus ≤1 or mild bonus).
@@ -435,15 +388,26 @@ mod tests {
     /// trace.compute() == entry_score.
     #[test]
     fn p3a_sanity_no_hits_trace_has_only_base() {
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
-        let plans = vec![
-            make_move_plan(vec![dest_a]),
-            make_move_plan(vec![dest_b]),
-        ];
-        let entry_scores = vec![0.7_f32, 0.5_f32];
-        let pool = apply_sanity_to_two_plans(plans, entry_scores.clone(), 20, 20, None);
+        let plans = vec![make_move_plan(vec![dest_a]), make_move_plan(vec![dest_b])];
 
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
+        let entry_scores = [0.7_f32, 0.5_f32];
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&entry_scores)
+            .trace_base_eq_score()
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| SanityStage.apply(&mut pool, ctx));
+
+        // ── 5. Assert ──
         for (i, ann) in pool.annotations.iter().enumerate() {
             let entry = entry_scores[i];
             assert!(
@@ -474,51 +438,38 @@ mod tests {
     /// both cases: no-hit → both vecs empty, hit → both vecs non-empty.
     #[test]
     fn p3a_sanity_with_hits_pushes_multipliers() {
-        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
-        use crate::combat::ai::scoring::factors::PlanFactorValues;
-        use crate::combat::ai::outcome::AdaptationData;
         use crate::combat::ai::adapt::AdaptationReason;
+        use crate::combat::ai::outcome::AdaptationData;
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
         use crate::combat::ai::pipeline::stages::finalize::FinalizeStage;
         use crate::combat::ai::pipeline::PlanStage;
-        use crate::combat::ai::plan::types::TurnPlan;
+        use crate::combat::ai::scoring::factors::PlanFactorValues;
 
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            pos,
-            &mut rng,
-        );
-
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).hp(10).max_hp(20).build();
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
-        let mut pool = ScoredPool::new(plans);
-        for (ann, (&score, adaptation)) in pool.annotations.iter_mut().zip(
-            [0.8_f32, 0.6_f32].iter().zip([
-                Some(AdaptationData {
-                    reason: AdaptationReason::ProtectSelfNoDefensive,
-                    original_score: 0.8,
-                }),
-                None,
-            ])
-        ) {
-            ann.score = score;
-            ann.factors = PlanFactorValues::default();
-            ann.adaptation = adaptation;
-        }
 
-        FinalizeStage.apply(&mut pool, &mut ctx);
-        SanityStage.apply(&mut pool, &mut ctx);
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
 
+        // ── 3. Pool ──
+        let adaptation = Some(AdaptationData {
+            reason: AdaptationReason::ProtectSelfNoDefensive,
+            original_score: 0.8,
+        });
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.8, 0.6])
+            .factors(vec![PlanFactorValues::default(), PlanFactorValues::default()])
+            .adaptations(vec![adaptation, None])
+            .build();
+
+        // ── 4. Act ──
+        h.run(|ctx| {
+            FinalizeStage.apply(&mut pool, ctx);
+            SanityStage.apply(&mut pool, ctx);
+        });
+
+        // ── 5. Assert ──
         for (i, ann) in pool.annotations.iter().enumerate() {
             // 1-to-1: multipliers vec and sanity vec must have the same length.
             assert_eq!(
@@ -562,6 +513,8 @@ mod tests {
     /// (ann.score - trace.compute()).abs() < 1e-5.
     #[test]
     fn p3a_sanity_invariant_holds_for_all_finite_plans() {
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
         let dest_c = hex_from_offset(3, 0);
@@ -571,35 +524,19 @@ mod tests {
             make_move_plan(vec![dest_c]),
         ];
 
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos)
-            .hp(20)
-            .max_hp(20)
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool ──
+        let mut pool = PoolBuilder::new(plans)
+            .scores(&[0.9, 0.7, 0.5])
+            .trace_base_eq_score()
             .build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            pos,
-            &mut rng,
-        );
 
-        let mut pool = ScoredPool::new(plans);
-        for (ann, score) in pool.annotations.iter_mut().zip([0.9_f32, 0.7_f32, 0.5_f32]) {
-            ann.score = score;
-            // P3a.6: initialise trace.base so the stage runs without Finalize upstream.
-            ann.score_trace.base = score;
-        }
-        SanityStage.apply(&mut pool, &mut ctx);
+        // ── 4. Act ──
+        h.run(|ctx| SanityStage.apply(&mut pool, ctx));
 
+        // ── 5. Assert ──
         for (i, ann) in pool.annotations.iter().enumerate() {
             assert!(
                 ann.score.is_finite(),
@@ -621,44 +558,29 @@ mod tests {
     /// production); in isolation the masked plan's trace.base stays as-is.
     #[test]
     fn p3a_sanity_masked_plan_trace_unchanged_or_only_base() {
+        // ── 1. Test data ──
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).full_hp(20).build();
         let dest_a = hex_from_offset(1, 0);
         let dest_b = hex_from_offset(2, 0);
+        let plans = vec![make_move_plan(vec![dest_a]), make_move_plan(vec![dest_b])];
 
-        let pos = hex_from_offset(0, 0);
-        let actor = UnitBuilder::new(1, Team::Enemy, pos)
-            .hp(20)
-            .max_hp(20)
+        // ── 2. Harness ──
+        let h = StageTestHarness::new(actor);
+
+        // ── 3. Pool — plan[0] masked (NEG_INFINITY), plan[1] normal ──
+        let mut pool = PoolBuilder::new(plans)
+            .customize(|anns| {
+                anns[0].score = f32::NEG_INFINITY;
+                anns[1].score = 0.6;
+                // P3a.6: initialise trace.base for the finite plan only.
+                anns[1].score_trace.base = 0.6;
+            })
             .build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            pos,
-            &mut rng,
-        );
 
-        let plans = vec![
-            make_move_plan(vec![dest_a]),
-            make_move_plan(vec![dest_b]),
-        ];
-        let mut pool = ScoredPool::new(plans);
-        // plan[0] is masked, plan[1] is normal.
-        pool.annotations[0].score = f32::NEG_INFINITY;
-        pool.annotations[1].score = 0.6;
-        // P3a.6: initialise trace.base for the finite plan only.
-        pool.annotations[1].score_trace.base = 0.6;
+        // ── 4. Act ──
+        h.run(|ctx| SanityStage.apply(&mut pool, ctx));
 
-        // Must not panic.
-        SanityStage.apply(&mut pool, &mut ctx);
-
+        // ── 5. Assert ──
         // plan[0]: score stays NEG_INFINITY;
         // sanity hits remain empty (sanity_adjust_plans skips non-finite).
         let masked = &pool.annotations[0];

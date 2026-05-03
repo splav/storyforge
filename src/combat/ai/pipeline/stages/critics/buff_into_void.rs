@@ -114,7 +114,9 @@ mod tests {
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot};
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::combat::ai::test_helpers::{
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+    };
     use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType};
     use crate::core::{AbilityId, StatusId};
     use crate::game::components::Team;
@@ -156,9 +158,7 @@ mod tests {
             residual_ap: 0,
             residual_mp: 3,
             outcomes: vec![Default::default()],
-            partial_score: 0.0,
-            sim_snapshots: Vec::new(),
-            annotation: Default::default(),
+            ..TurnPlan::default()
         }
     }
 
@@ -166,10 +166,12 @@ mod tests {
 
     #[test]
     fn buff_into_void_fires_on_canonical_case() {
+        // ── 1. Test data ──
         // Target already has "shield" status active.
         // Caster casts an ability that applies "shield" again → critic must fire.
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let mut target = UnitBuilder::new(2, Team::Enemy, target_pos).build();
@@ -179,12 +181,11 @@ mod tests {
             dot_per_tick: 0,
         }];
 
-        let mut content = empty_content();
-        content.abilities.insert(
-            AbilityId::from("buff_shield"),
-            buff_ability("buff_shield", "shield"),
-        );
+        let plan = cast_plan("buff_shield", target_entity, target_pos);
 
+        // ── 2. Harness (custom content needed — evaluate() called directly) ──
+        let mut content = empty_content();
+        content.abilities.insert(AbilityId::from("buff_shield"), buff_ability("buff_shield", "shield"));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
@@ -192,11 +193,13 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
 
-        let target_entity = Entity::from_raw_u32(2).expect("valid");
-        let plan = cast_plan("buff_shield", target_entity, target_pos);
+        // ── 3. Pool (N/A — critic tested via evaluate()) ──
         let ann = PlanAnnotation::default();
 
+        // ── 4. Act ──
         let result = BuffIntoVoid.evaluate(&plan, &ann, &ctx);
+
+        // ── 5. Assert ──
         assert!(result.is_some(), "critic must fire when target already has the status");
         let hit = result.unwrap();
         assert_eq!(hit.critic, CriticKind::BuffIntoVoid);
@@ -215,19 +218,20 @@ mod tests {
 
     #[test]
     fn buff_into_void_passes_on_clean_plan() {
+        // ── 1. Test data ──
         // Target has no statuses — applying "shield" is useful.
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
-        let target = UnitBuilder::new(2, Team::Enemy, target_pos).build(); // no statuses
+        let target = UnitBuilder::new(2, Team::Enemy, target_pos).build();
 
+        let plan = cast_plan("buff_shield", target_entity, target_pos);
+
+        // ── 2. Harness (custom content needed — evaluate() called directly) ──
         let mut content = empty_content();
-        content.abilities.insert(
-            AbilityId::from("buff_shield"),
-            buff_ability("buff_shield", "shield"),
-        );
-
+        content.abilities.insert(AbilityId::from("buff_shield"), buff_ability("buff_shield", "shield"));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
@@ -235,11 +239,13 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
 
-        let target_entity = Entity::from_raw_u32(2).expect("valid");
-        let plan = cast_plan("buff_shield", target_entity, target_pos);
+        // ── 3. Pool (N/A — critic tested via evaluate()) ──
         let ann = PlanAnnotation::default();
 
+        // ── 4. Act ──
         let result = BuffIntoVoid.evaluate(&plan, &ann, &ctx);
+
+        // ── 5. Assert ──
         assert!(result.is_none(), "critic must not fire when target has no such status");
     }
 
@@ -247,24 +253,20 @@ mod tests {
 
     #[test]
     fn buff_into_void_severity_scales_with_input() {
+        // ── 1. Test data ──
         // Two cast steps in the plan applying the same status to the same target.
         // First cast: target has no status → passes.
         // Second cast: first cast already recorded status → critic fires.
-        //
-        // This also verifies the None boundary (single cast, no existing status)
-        // vs Some boundary (second cast of same status in same plan).
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(2, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let target = UnitBuilder::new(2, Team::Enemy, target_pos).build();
 
+        // ── 2. Harness (custom content needed — evaluate() called directly) ──
         let mut content = empty_content();
-        content.abilities.insert(
-            AbilityId::from("buff_shield"),
-            buff_ability("buff_shield", "shield"),
-        );
-
+        content.abilities.insert(AbilityId::from("buff_shield"), buff_ability("buff_shield", "shield"));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
@@ -272,16 +274,8 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
 
-        let target_entity = Entity::from_raw_u32(2).expect("valid");
-
-        // Single cast — no prior applications, no existing status → None.
+        // ── 3. Plans ──
         let single_plan = cast_plan("buff_shield", target_entity, target_pos);
-        assert!(
-            BuffIntoVoid.evaluate(&single_plan, &PlanAnnotation::default(), &ctx).is_none(),
-            "single cast with no existing status must not fire",
-        );
-
-        // Double cast — second step duplicates the first → Some.
         let double_plan = TurnPlan {
             steps: vec![
                 PlanStep::Cast {
@@ -299,16 +293,26 @@ mod tests {
             residual_ap: 0,
             residual_mp: 3,
             outcomes: vec![Default::default(), Default::default()],
-            partial_score: 0.0,
-            sim_snapshots: Vec::new(),
-            annotation: Default::default(),
+            ..TurnPlan::default()
         };
-        let result = BuffIntoVoid.evaluate(&double_plan, &PlanAnnotation::default(), &ctx);
+        let ann = PlanAnnotation::default();
+
+        // ── 4. Act ──
+        let result_single = BuffIntoVoid.evaluate(&single_plan, &ann, &ctx);
+        let result_double = BuffIntoVoid.evaluate(&double_plan, &ann, &ctx);
+
+        // ── 5. Assert ──
+        // Single cast with no existing status → None (no boundary hit).
         assert!(
-            result.is_some(),
+            result_single.is_none(),
+            "single cast with no existing status must not fire",
+        );
+        // Double cast — second step duplicates the first → Some.
+        assert!(
+            result_double.is_some(),
             "second cast of same status must trigger buff_into_void critic",
         );
-        if let Some(hit) = result {
+        if let Some(hit) = result_double {
             if let CriticReason::BuffIntoVoid { target_already_buffed, .. } = hit.reason {
                 assert!(
                     !target_already_buffed,

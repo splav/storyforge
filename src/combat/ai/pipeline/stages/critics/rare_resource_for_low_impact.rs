@@ -131,8 +131,12 @@ mod tests {
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
-    use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType};
+    use crate::combat::ai::test_helpers::{
+        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+    };
+    use crate::content::abilities::{
+        AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
+    };
     use crate::core::{AbilityId, DiceExpr, ResourceKind};
     use crate::content::abilities::ResourceCost;
     use crate::game::components::Team;
@@ -175,9 +179,7 @@ mod tests {
             residual_ap: 0,
             residual_mp: 3,
             outcomes: vec![Default::default()],
-            partial_score: 0.0,
-            sim_snapshots: Vec::new(),
-            annotation: Default::default(),
+            ..TurnPlan::default()
         };
         let mut ann = PlanAnnotation::default();
         ann.outcomes.push(ActionOutcomeEstimate {
@@ -191,21 +193,24 @@ mod tests {
 
     #[test]
     fn rare_resource_fires_on_canonical_case() {
+        // ── 1. Test data ──
         // Spell: mana_cost=40, dice=4d6 (expected ~14). Actual enemy_damage=2.
         // impact_ratio = 2/14 ≈ 0.14 < 0.5 → critic must fire.
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(3, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos)
             .caster_ctx(CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None })
             .build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
 
-        let mut content = empty_content();
-        // Expected damage: 4d6 + 0 = ~14 expected.
-        let dice = DiceExpr::new(4, 6, 0);
-        content.abilities.insert(AbilityId::from("bolt"), expensive_spell("bolt", 40, dice));
+        let (plan, ann) = cast_plan_with_outcome("bolt", target_entity, target_pos, 2.0);
 
+        // ── 2. Context ──
+        let mut content = empty_content();
+        let dice = DiceExpr::new(4, 6, 0); // Expected damage: 4d6 + 0 = ~14 expected.
+        content.abilities.insert(AbilityId::from("bolt"), expensive_spell("bolt", 40, dice));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
@@ -213,10 +218,11 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
 
-        let target_entity = Entity::from_raw_u32(2).expect("valid");
-        let (plan, ann) = cast_plan_with_outcome("bolt", target_entity, target_pos, 2.0);
-
+        // ── 3. Pool (N/A — critic tested via evaluate()) ──
+        // ── 4. Act ──
         let result = RareResourceForLowImpact.evaluate(&plan, &ann, &ctx);
+
+        // ── 5. Assert ──
         assert!(result.is_some(), "critic must fire: high mana cost with negligible damage");
         let hit = result.unwrap();
         assert_eq!(hit.critic, CriticKind::RareResourceForLowImpact);
@@ -234,21 +240,21 @@ mod tests {
 
     #[test]
     fn rare_resource_passes_on_clean_plan() {
+        // ── 1. Test data ──
         // Case 1: spell with mana_cost=10 (below threshold) — must not fire.
         // Case 2: expensive spell that actually deals close-to-expected damage — must not fire.
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(3, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
 
+        // ── 2. Context ──
         let mut content = empty_content();
         let dice = DiceExpr::new(2, 6, 0); // expected ~7
-        // Cheap spell (cost 10 < 30 threshold).
         content.abilities.insert(AbilityId::from("cheap"), expensive_spell("cheap", 10, dice.clone()));
-        // Expensive spell with good impact (cost 40, actual damage = 12, expected ~7 → ratio ~1.7 clamped to 1.0).
         content.abilities.insert(AbilityId::from("effective"), expensive_spell("effective", 40, dice));
-
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
@@ -256,17 +262,16 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
 
-        let target_entity = Entity::from_raw_u32(2).expect("valid");
-
-        // Cheap spell.
+        // ── 3. Plans ──
         let (plan_cheap, ann_cheap) = cast_plan_with_outcome("cheap", target_entity, target_pos, 0.0);
+        // Expensive but effective spell (actual damage well above threshold).
+        let (plan_eff, ann_eff) = cast_plan_with_outcome("effective", target_entity, target_pos, 12.0);
+
+        // ── 4+5. Act + Assert ──
         assert!(
             RareResourceForLowImpact.evaluate(&plan_cheap, &ann_cheap, &ctx).is_none(),
             "cheap spell must not fire",
         );
-
-        // Expensive but effective spell (actual damage well above threshold).
-        let (plan_eff, ann_eff) = cast_plan_with_outcome("effective", target_entity, target_pos, 12.0);
         assert!(
             RareResourceForLowImpact.evaluate(&plan_eff, &ann_eff, &ctx).is_none(),
             "expensive but effective spell must not fire",
@@ -277,19 +282,20 @@ mod tests {
 
     #[test]
     fn rare_resource_severity_scales_with_input() {
+        // ── 1. Test data ──
         // Two plans: very low impact (ratio≈0.07) vs moderate low impact (ratio≈0.35).
         // Very-low must produce strictly lower multiplier than moderate-low.
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(3, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
 
+        // ── 2. Context ──
         let mut content = empty_content();
-        // dice=4d6 expected ~14
-        let dice = DiceExpr::new(4, 6, 0);
+        let dice = DiceExpr::new(4, 6, 0); // expected ~14
         content.abilities.insert(AbilityId::from("bolt"), expensive_spell("bolt", 40, dice));
-
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
@@ -297,16 +303,17 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
 
-        let target_entity = Entity::from_raw_u32(2).expect("valid");
-
+        // ── 3. Plans ──
         // Very low impact: actual_damage=1 (ratio ≈ 1/14 ≈ 0.07).
         let (plan_vl, ann_vl) = cast_plan_with_outcome("bolt", target_entity, target_pos, 1.0);
         // Moderate low impact: actual_damage=5 (ratio ≈ 5/14 ≈ 0.36).
         let (plan_ml, ann_ml) = cast_plan_with_outcome("bolt", target_entity, target_pos, 5.0);
 
+        // ── 4. Act ──
         let hit_vl = RareResourceForLowImpact.evaluate(&plan_vl, &ann_vl, &ctx);
         let hit_ml = RareResourceForLowImpact.evaluate(&plan_ml, &ann_ml, &ctx);
 
+        // ── 5. Assert ──
         assert!(hit_vl.is_some(), "very-low-impact case must fire");
         assert!(hit_ml.is_some(), "moderate-low-impact case must fire");
 
@@ -322,17 +329,22 @@ mod tests {
 
     #[test]
     fn rare_resource_skips_status_only_abilities() {
+        // ── 1. Test data ──
         // Expensive status-only ability (cost=40, no damage). The critic must
-        // not fire — value is in the status, not in damage. Wasted-buff cases
-        // are handled by BuffIntoVoid; status-value critics live in a future wave.
+        // not fire — value is in the status, not in damage.
         use crate::content::abilities::{StatusApplication, StatusOn};
         use crate::core::StatusId;
 
         let caster_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(3, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
+
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
 
+        let (plan, ann) = cast_plan_with_outcome("hard_stun", target_entity, target_pos, 0.0);
+
+        // ── 2. Context ──
         let mut content = empty_content();
         let mut stun = expensive_spell("hard_stun", 40, DiceExpr::new(0, 0, 0));
         stun.effect = EffectDef::None;
@@ -342,7 +354,6 @@ mod tests {
             duration_rounds: 2,
         }];
         content.abilities.insert(AbilityId::from("hard_stun"), stun);
-
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
         let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
@@ -350,9 +361,8 @@ mod tests {
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
 
-        let target_entity = Entity::from_raw_u32(2).expect("valid");
-        let (plan, ann) = cast_plan_with_outcome("hard_stun", target_entity, target_pos, 0.0);
-
+        // ── 3. Pool (N/A) ──
+        // ── 4+5. Act + Assert ──
         assert!(
             RareResourceForLowImpact.evaluate(&plan, &ann, &ctx).is_none(),
             "expensive status-only ability must not fire — damage is not its value axis",
