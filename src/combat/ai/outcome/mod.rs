@@ -262,7 +262,15 @@ pub struct PlanAnnotation {
     #[serde(default)]
     pub(crate) contract: Option<ContractMaskHit>,
     /// Step 7.4: final aggregated score for this plan after all pipeline stages.
-    /// Default 0.0. Written by scoring stages (replaces ScoredPool.scored).
+    /// Default 0.0.
+    ///
+    /// Written by:
+    ///   - `recompute_score_from_trace` — drive-loop engine writer for all score-effect stages
+    ///   - `FinalizeStage` — rescore write (non-effect path)
+    ///   - `PickBestStage` — agenda composition write
+    ///   - `ViabilityStage` — rescore write
+    ///   - `pick_action` — initial score write from `score_plans_with_raw`
+    /// All writers are intra-crate. External consumers use the `score()` getter.
     ///
     /// Serde wrapped because contract masks (ProtectSelf, KillableGate) set
     /// score = `f32::NEG_INFINITY` to sentinel-mask plans. JSON cannot represent
@@ -272,7 +280,7 @@ pub struct PlanAnnotation {
     /// (decoded as `f32::MIN`). Production semantics preserved — runtime never
     /// round-trips score through JSON.
     #[serde(default, with = "crate::combat::ai::log::serde_helpers::f32_finite")]
-    pub score: f32,
+    pub(crate) score: f32,
     /// Step 7.4: factor decomposition for this plan (v29 named map).
     /// Written by the initial scoring pass. Default PlanFactorValues::default().
     #[serde(default)]
@@ -373,6 +381,28 @@ pub struct PlanAnnotation {
 }
 
 impl PlanAnnotation {
+    /// Final aggregated score for this plan (Copy — returned by value).
+    ///
+    /// The canonical value after the full pipeline. For masked plans this returns
+    /// `f32::NEG_INFINITY`; for pre-pipeline plans it returns 0.0 (default).
+    pub fn score(&self) -> f32 {
+        self.score
+    }
+
+    /// Set the plan score from intra-crate pipeline stages outside the engine
+    /// drive-loop (`FinalizeStage`, `PickBestStage`, `ViabilityStage`, `pick_action`).
+    /// The drive-loop uses `recompute_score_from_trace` instead.
+    pub(crate) fn set_score(&mut self, score: f32) {
+        self.score = score;
+    }
+
+    /// Builder-style score initialiser for test fixtures and external struct
+    /// construction (e.g. bins that construct `PlanAnnotation` literals).
+    pub fn with_score(mut self, score: f32) -> Self {
+        self.score = score;
+        self
+    }
+
     /// Read-only access to per-modifier contributions for external consumers
     /// (e.g. `mine_ai_logs` bin). Writing is restricted to the drive-loop via
     /// `apply_effect`.

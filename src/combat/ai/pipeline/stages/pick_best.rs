@@ -446,7 +446,7 @@ impl PlanStage for PickBestStage {
                             .collect();
 
                         if let Some((best_score, best_idx)) = best_composed {
-                            ann.score = best_score;
+                            ann.set_score(best_score);
                             ann.agenda_item = Some(best_idx);
                         }
                         // If no eligible item: ann.score stays (pipeline value),
@@ -522,7 +522,7 @@ fn apply_pick_jitter(pool: &mut ScoredPool, ctx: &StageCtx) -> Vec<f32> {
             continue;
         }
         let n = plan_noise_internal(plan, round, actor, effective_amp);
-        ann.score += n;
+        ann.set_score(ann.score + n);
         noise_per_plan[i] = n;
     }
 

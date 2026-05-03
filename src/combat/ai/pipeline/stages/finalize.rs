@@ -75,7 +75,7 @@ impl PlanStage for FinalizeStage {
             .zip(new_scores.into_iter().zip(raw_factors.into_iter()))
             .enumerate()
         {
-            ann.score = new_score;
+            ann.set_score(new_score);
             ann.factors = new_raw;
 
             // P3a.5: Rescore semantics — base = new_score, rescore_mode = mode, effects cleared.
@@ -90,9 +90,9 @@ impl PlanStage for FinalizeStage {
             // Invariant: ann.score == trace.compute() (base only, no effects).
             if new_score.is_finite() {
                 debug_assert!(
-                    (ann.score - ann.score_trace.compute()).abs() < 1e-5,
+                    (ann.score() - ann.score_trace.compute()).abs() < 1e-5,
                     "P3a.5 invariant violated: plan[{i}] ann.score={} vs compute()={}",
-                    ann.score,
+                    ann.score(),
                     ann.score_trace.compute(),
                 );
             }

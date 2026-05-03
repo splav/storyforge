@@ -96,7 +96,7 @@ impl PlanStage for ViabilityStage {
                     scoring,
                 );
                 for (ann, (new_score, new_raw)) in pool.annotations.iter_mut().zip(new_scores.into_iter().zip(raw_factors.into_iter())) {
-                    ann.score = new_score;
+                    ann.set_score(new_score);
                     ann.factors = new_raw;
                 }
                 true

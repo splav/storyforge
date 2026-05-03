@@ -804,7 +804,7 @@ fn print_event_plans(event: &ActorTickEvent) {
             "      #{}{} score={:+.2}  {}",
             p.rank,
             if p.annotation.chosen { "*" } else { " " },
-            p.annotation.score,
+            p.annotation.score(),
             plan_shape_v29(&p.steps),
         );
         // P3b: show score_trace breakdown for the chosen plan.
@@ -848,7 +848,7 @@ fn print_score_trace_breakdown(plan: &LoggedPlan) {
         for a in &trace.addends { s += a.value; }
         s
     };
-    println!("          computed      = {:+.4}  (ann.score = {:+.4})", computed, plan.annotation.score);
+    println!("          computed      = {:+.4}  (ann.score = {:+.4})", computed, plan.annotation.score());
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

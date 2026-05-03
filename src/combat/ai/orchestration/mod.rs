@@ -350,7 +350,7 @@ pub fn pick_action(
     };
     let mut pool = ScoredPool::new(plans);
     for (ann, (score, raw)) in pool.annotations.iter_mut().zip(initial_scored.into_iter().zip(initial_raw.into_iter())) {
-        ann.score = score;
+        ann.set_score(score);
         ann.score_initial = score; // Step 11.4: snapshot pre-pipeline score for multiplier_ratio.
         ann.factors = raw;
     }

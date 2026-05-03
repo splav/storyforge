@@ -419,7 +419,7 @@ impl PoolBuilder {
             self.pool.plans.len()
         );
         for (ann, &s) in self.pool.annotations.iter_mut().zip(scores.iter()) {
-            ann.score = s;
+            ann.set_score(s);
         }
         self
     }
