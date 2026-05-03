@@ -19,6 +19,48 @@ use crate::combat::ai::pipeline::stages::modifiers::ModifierContribution;
 use crate::combat::ai::pipeline::stages::sanity::SanityHit;
 use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
 
+/// Plan ranking key for PickBest. Phase 3 Step 1: pure addition; not yet
+/// used by PickBest (Step 2 migrates pick_best_plan to consume this).
+///
+/// Two-bucket semantics — see `docs/ai/tech-debt.md` § A2 / Phase 3 plan:
+///   - `selectable=true`  → eligible for normal ranking; mercy/jitter apply
+///   - `selectable=false` → masked OR gated; only used as fallback when no
+///                          selectable plans exist
+///
+/// Within each bucket plans are ordered by `score` descending. Phase 3 does
+/// NOT introduce priority ordering between masked and gated plans (separate
+/// 3-bucket variant is a Phase 5 policy choice).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SelectionKey {
+    pub selectable: bool,
+    pub score: f32,
+}
+
+impl Eq for SelectionKey {}
+
+impl Ord for SelectionKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Bucket priority first: selectable wins over not-selectable.
+        match (self.selectable, other.selectable) {
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            _ => {
+                // Same bucket — order by score descending (so .max() / sort gives best first).
+                // partial_cmp returns None for NaN; treat as Equal for stability.
+                self.score
+                    .partial_cmp(&other.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }
+        }
+    }
+}
+
+impl PartialOrd for SelectionKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// One score-affecting hit. Pushed into `ann.score_trace` by drive-loop.
 #[derive(Clone, Debug)]
 pub enum ScoreHit {
@@ -320,5 +362,25 @@ mod tests {
 
             apply_score_effect_stage(&stage, &mut pool, ctx);
         });
+    }
+
+    // ── Phase 3 Step 1: SelectionKey ordering ─────────────────────────────────
+
+    #[test]
+    fn selection_key_selectable_beats_not_selectable() {
+        let s = SelectionKey { selectable: true, score: 0.1 };
+        let n = SelectionKey { selectable: false, score: 100.0 };
+        assert!(s > n, "selectable always beats not-selectable regardless of score");
+    }
+
+    #[test]
+    fn selection_key_within_bucket_orders_by_score_desc() {
+        let a = SelectionKey { selectable: true, score: 0.5 };
+        let b = SelectionKey { selectable: true, score: 0.3 };
+        assert!(a > b, "within selectable bucket: higher score wins");
+
+        let c = SelectionKey { selectable: false, score: 0.5 };
+        let d = SelectionKey { selectable: false, score: 0.3 };
+        assert!(c > d, "within not-selectable bucket: higher score still wins");
     }
 }

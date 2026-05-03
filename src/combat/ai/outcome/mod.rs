@@ -546,6 +546,23 @@ impl PlanAnnotation {
     pub(crate) fn recompute_score_from_trace(&mut self) {
         self.score = self.score_trace.compute();
     }
+
+    /// Phase 3: derive selection key from trace flags + cached score.
+    /// Currently `score` may be NEG_INFINITY for masked/gated plans (until
+    /// Step 3 cutover); SelectionKey relies on trace flags, not score, so
+    /// it works correctly across the migration.
+    pub(crate) fn selection_key(&self) -> crate::combat::ai::pipeline::effects::SelectionKey {
+        crate::combat::ai::pipeline::effects::SelectionKey {
+            selectable: self.is_selectable(),
+            score: self.score,
+        }
+    }
+
+    /// `true` if the plan has neither Mask nor Gate hits in trace —
+    /// i.e. is eligible for normal scoring/picking.
+    pub(crate) fn is_selectable(&self) -> bool {
+        !self.score_trace.is_masked() && !self.score_trace.is_gated()
+    }
 }
 
 /// Adaptation reason + original (pre-adaptation) score for a single plan.
@@ -682,5 +699,71 @@ mod tests {
         assert!(decoded.effective_ai_tags[0].contains_tag(AbilityTag::Offensive));
         assert!(decoded.effective_ai_tags[1].contains_tag(AbilityTag::Rescue));
         assert!(!decoded.effective_ai_tags[0].contains_tag(AbilityTag::Rescue));
+    }
+
+    // ── Phase 3 Step 1: is_selectable / selection_key ─────────────────────────
+
+    #[test]
+    fn annotation_default_is_selectable() {
+        let ann = PlanAnnotation::default();
+        assert!(ann.is_selectable(), "default annotation has no masks/gates — selectable");
+        let key = ann.selection_key();
+        assert!(key.selectable);
+        assert_eq!(key.score, ann.score());
+    }
+
+    #[test]
+    fn annotation_with_mask_is_not_selectable() {
+        use crate::combat::ai::pipeline::effects::{AppliedEffect, ScoreHit};
+        use crate::combat::ai::pipeline::order::StageId;
+        use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
+
+        let mut ann = PlanAnnotation::default();
+        ann.apply_effect(&AppliedEffect {
+            source: StageId::ProtectSelfMask,
+            plan_index: 0,
+            hit: ScoreHit::Mask(MaskHit { kind: MaskKind::Poison, source: "protect_self" }),
+            observability: None,
+        });
+        assert!(!ann.is_selectable(), "masked plan is not selectable");
+        assert!(!ann.selection_key().selectable);
+    }
+
+    #[test]
+    fn annotation_with_gate_only_is_not_selectable() {
+        use crate::combat::ai::pipeline::effects::{AppliedEffect, ScoreHit};
+        use crate::combat::ai::pipeline::order::StageId;
+        use crate::combat::ai::pipeline::score_trace::{GateHit, GateOutcome};
+
+        let mut ann = PlanAnnotation::default();
+        ann.apply_effect(&AppliedEffect {
+            source: StageId::KillableGate,
+            plan_index: 0,
+            hit: ScoreHit::Gate(GateHit { outcome: GateOutcome::Reject, source: "killable_gate" }),
+            observability: None,
+        });
+        assert!(!ann.is_selectable(), "gated plan is not selectable");
+        assert!(!ann.selection_key().selectable);
+    }
+
+    #[test]
+    fn annotation_with_multiplier_only_is_selectable() {
+        use crate::combat::ai::pipeline::effects::{AppliedEffect, EffectObservation, ScoreHit};
+        use crate::combat::ai::pipeline::order::StageId;
+        use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
+        use crate::combat::ai::pipeline::stages::sanity::{SanityHit, SanityRule};
+
+        let mut ann = PlanAnnotation::with_score(PlanAnnotation::default(), 1.0);
+        ann.apply_effect(&AppliedEffect {
+            source: StageId::Sanity,
+            plan_index: 0,
+            hit: ScoreHit::Multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.8 }),
+            observability: Some(EffectObservation::Sanity(SanityHit {
+                rule: SanityRule::HealerExposure,
+                multiplier: 0.8,
+            })),
+        });
+        assert!(ann.is_selectable(), "multiplier-only plan remains selectable");
+        assert!(ann.selection_key().selectable);
     }
 }

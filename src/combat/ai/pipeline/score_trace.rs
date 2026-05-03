@@ -164,9 +164,32 @@ impl ScoreTrace {
         score
     }
 
+    /// `true` if any Mask hit is present (regardless of kind).
+    /// Phase 3 Step 1: pure helper for new SelectionKey path.
+    pub fn is_masked(&self) -> bool {
+        !self.masks.is_empty()
+    }
+
     /// `true` if any Gate has marked this plan as rejected.
     pub fn is_gated(&self) -> bool {
         self.gates.iter().any(|g| matches!(g.outcome, GateOutcome::Reject))
+    }
+
+    /// Finite numeric score: base × ∏multipliers + Σaddends.
+    /// **Always finite** — masks/gates are NOT taken into account here.
+    /// Use `selection_key()` on PlanAnnotation to determine selectability.
+    ///
+    /// Phase 3 plan: Step 3 will replace `compute()` with this. For now both
+    /// coexist — `compute()` keeps poison semantics for backward compatibility.
+    pub fn numeric_score(&self) -> f32 {
+        let mut score = self.base;
+        for m in &self.multipliers {
+            score *= m.value;
+        }
+        for a in &self.addends {
+            score += a.value;
+        }
+        score
     }
 
     // Builder-style helpers — will be called by stages in P3a.{1..5}.
@@ -334,5 +357,28 @@ mod tests {
             "score_trace_log must default to None when absent, got: {:?}",
             ann.score_trace_log,
         );
+    }
+
+    // ── Phase 3 Step 1: numeric_score / is_masked ─────────────────────────────
+
+    #[test]
+    fn numeric_score_ignores_masks() {
+        let mut trace = ScoreTrace { base: 1.0, ..Default::default() };
+        trace.push_multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.5 });
+        trace.push_addend(AddendHit { name: "test", value: 0.1 });
+        trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test_mask" });
+
+        // numeric_score: 1.0 × 0.5 + 0.1 = 0.6 (mask ignored)
+        assert!((trace.numeric_score() - 0.6).abs() < 1e-6);
+        // compute: still poisons → NEG_INFINITY
+        assert_eq!(trace.compute(), f32::NEG_INFINITY);
+    }
+
+    #[test]
+    fn is_masked_detects_any_mask() {
+        let mut trace = ScoreTrace::default();
+        assert!(!trace.is_masked());
+        trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "x" });
+        assert!(trace.is_masked());
     }
 }
