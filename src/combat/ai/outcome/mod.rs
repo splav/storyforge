@@ -272,14 +272,9 @@ pub struct PlanAnnotation {
     ///   - `pick_action` — initial score write from `score_plans_with_raw`
     /// All writers are intra-crate. External consumers use the `score()` getter.
     ///
-    /// Serde wrapped because contract masks (ProtectSelf, KillableGate) set
-    /// score = `f32::NEG_INFINITY` to sentinel-mask plans. JSON cannot represent
-    /// non-finite floats; serde_json writes them as `null` and then fails to
-    /// read back. The `f32_finite` adapter maps NEG_INFINITY → `f32::MIN`
-    /// (-3.4e38) on write; on read accepts both finite numbers and `null`
-    /// (decoded as `f32::MIN`). Production semantics preserved — runtime never
-    /// round-trips score through JSON.
-    #[serde(default, with = "crate::combat::ai::log::serde_helpers::f32_finite")]
+    /// Phase 3: score is always finite after pipeline (SelectionKey carries
+    /// masked/gated state). Standard serde serialization applies.
+    #[serde(default)]
     pub(crate) score: f32,
     /// Step 7.4: factor decomposition for this plan (v29 named map).
     /// Written by the initial scoring pass. Default PlanFactorValues::default().
