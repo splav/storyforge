@@ -138,8 +138,8 @@ mod tests {
 
         // ── 5. Assert ──
         let ann = &pool.annotations[0];
-        assert_eq!(ann.critics.len(), 1, "critic must fire: RANGED with no LoS to enemy");
-        let hit = &ann.critics[0];
+        assert_eq!(ann.critics().len(), 1, "critic must fire: RANGED with no LoS to enemy");
+        let hit = &ann.critics()[0];
         assert_eq!(hit.critic, CriticKind::BlindspotRanged);
         assert!(
             (hit.multiplier - BLINDSPOT_MULTIPLIER).abs() < 1e-6,
@@ -184,7 +184,7 @@ mod tests {
 
         // ── 5. Assert ──
         assert!(
-            pool.annotations[0].critics.is_empty(),
+            pool.annotations[0].critics().is_empty(),
             "critic must not fire: RANGED with clear LoS to enemy"
         );
     }
@@ -222,7 +222,7 @@ mod tests {
 
         // ── 5. Assert ──
         assert!(
-            pool1.annotations[0].critics.is_empty(),
+            pool1.annotations[0].critics().is_empty(),
             "non-RANGED actor must not trigger blindspot critic"
         );
 
@@ -247,7 +247,7 @@ mod tests {
 
         // ── 5. Assert ──
         assert!(
-            pool2.annotations[0].critics.is_empty(),
+            pool2.annotations[0].critics().is_empty(),
             "RANGED actor with no enemies must not trigger blindspot critic"
         );
     }

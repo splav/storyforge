@@ -30,6 +30,11 @@ pub use rare_resource_for_low_impact::RareResourceForLowImpact;
 pub use self_lethal_without_payoff::SelfLethalWithoutPayoff;
 
 use crate::combat::ai::outcome::PlanAnnotation;
+use crate::combat::ai::pipeline::effects::{
+    apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
+};
+use crate::combat::ai::pipeline::order::StageId;
+use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::orchestration::ScoringCtx;
@@ -178,43 +183,38 @@ impl CriticsStage {
     }
 }
 
+impl ScoreEffectStage for CriticsStage {
+    fn id(&self) -> StageId {
+        StageId::Critics
+    }
+
+    fn compute_effects(&self, ctx: &StageCtx, pool: &ScoredPool) -> Vec<EmittedEffect> {
+        let mut emitted = Vec::new();
+        for (plan_index, (plan, ann)) in pool.plans.iter().zip(pool.annotations.iter()).enumerate() {
+            for c in &self.critics {
+                if let Some(hit) = c.evaluate(plan, ann, ctx.scoring) {
+                    emitted.push(EmittedEffect {
+                        plan_index,
+                        hit: ScoreHit::Multiplier(MultiplierHit {
+                            kind: MultiplierKind::Critic,
+                            value: hit.multiplier,
+                        }),
+                        observability: Some(EffectObservation::Critic(hit)),
+                    });
+                }
+            }
+        }
+        emitted
+    }
+}
+
 impl PlanStage for CriticsStage {
     fn name(&self) -> &'static str {
         "critics"
     }
 
     fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
-        use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
-
-        for (plan, ann) in pool.plans.iter().zip(pool.annotations.iter_mut()) {
-            // P3a.6: bridging-reset removed. FinalizeStage (upstream) sets
-            // trace.base; this stage pushes multiplier hits on top of the
-            // accumulated trace. Invariant: ann.score == trace.compute().
-            let entry_score = ann.score;
-
-            for c in &self.critics {
-                if let Some(hit) = c.evaluate(plan, ann, ctx.scoring) {
-                    ann.score *= hit.multiplier;
-                    ann.score_trace.push_multiplier(MultiplierHit {
-                        kind: MultiplierKind::Critic,
-                        value: hit.multiplier,
-                    });
-                    ann.critics.push(hit);
-                }
-            }
-
-            // Invariant: ann.score == trace.compute() after this stage.
-            // Only checked for finite entry scores to avoid NaN corner cases
-            // (e.g. NEG_INFINITY × 0.0 = NaN).
-            if entry_score.is_finite() {
-                debug_assert!(
-                    (ann.score - ann.score_trace.compute()).abs() < 1e-5,
-                    "P3a.6 invariant violated: ann.score={} vs compute()={}",
-                    ann.score,
-                    ann.score_trace.compute(),
-                );
-            }
-        }
+        apply_score_effect_stage(self, pool, ctx);
     }
 }
 
@@ -264,8 +264,8 @@ mod tests {
         assert_eq!(pool.annotations[1].score, 0.5, "score must not change with empty critics");
         for ann in &pool.annotations {
             assert!(
-                ann.critics.is_empty(),
-                "no critic hits expected for empty stage, got {:?}", ann.critics,
+                ann.critics().is_empty(),
+                "no critic hits expected for empty stage, got {:?}", ann.critics(),
             );
         }
     }
@@ -327,10 +327,10 @@ mod tests {
             "expected score 0.5 after 0.5× multiplier, got {}", ann.score,
         );
         assert_eq!(
-            ann.critics.len(), 1,
-            "expected exactly one critic hit, got {:?}", ann.critics,
+            ann.critics().len(), 1,
+            "expected exactly one critic hit, got {:?}", ann.critics(),
         );
-        assert_eq!(ann.critics[0].critic, CriticKind::OvercommitIntoDanger);
+        assert_eq!(ann.critics()[0].critic, CriticKind::OvercommitIntoDanger);
     }
 
     // ── critics_survive_through_adaptation_path (B3 regression) ──────────
@@ -628,7 +628,7 @@ mod tests {
     #[test]
     fn plan_annotation_critics_default_empty() {
         assert!(
-            PlanAnnotation::default().critics.is_empty(),
+            PlanAnnotation::default().critics().is_empty(),
             "PlanAnnotation::default() must have an empty critics vec",
         );
     }

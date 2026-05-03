@@ -427,7 +427,7 @@ impl Aggregate {
             // G1 (chosen-plan stats): for each critic that fired, increment
             // the hit count and record the multiplier.
             let mut overcommit_in_chosen = false;
-            for hit in &chosen.annotation.critics {
+            for hit in chosen.annotation.critics() {
                 let key = format!("{:?}", hit.critic);
                 *self.g1_critic_hit_counts.entry(key.clone()).or_default() += 1;
                 self.g1_critic_multipliers.entry(key.clone()).or_default().push(hit.multiplier);
@@ -466,12 +466,12 @@ impl Aggregate {
         // in the pool, plus per-critic pool fire rate (Variant A).
         for plan in &event.plans {
             self.g1_pool_total += 1;
-            if !plan.annotation.critics.is_empty() {
+            if !plan.annotation.critics().is_empty() {
                 self.g1_pool_with_any_critic += 1;
             }
             // A: per-critic pool count. Each critic counted at most once per plan.
             let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-            for hit in &plan.annotation.critics {
+            for hit in plan.annotation.critics() {
                 let key = format!("{:?}", hit.critic);
                 if seen.insert(key.clone()) {
                     *self.g1_pool_per_critic.entry(key).or_default() += 1;

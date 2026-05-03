@@ -157,8 +157,8 @@ mod tests {
 
         // ── 5. Assert ──
         let ann = &pool.annotations[0];
-        assert_eq!(ann.critics.len(), 1, "critic must fire for low-HP actor on high-danger path");
-        let hit = &ann.critics[0];
+        assert_eq!(ann.critics().len(), 1, "critic must fire for low-HP actor on high-danger path");
+        let hit = &ann.critics()[0];
         assert_eq!(hit.critic, CriticKind::OvercommitIntoDanger);
         assert!(hit.multiplier < 1.0, "multiplier must be a penalty (< 1.0), got {}", hit.multiplier);
         if let CriticReason::OvercommitIntoDanger { source, .. } = hit.reason {
@@ -198,7 +198,7 @@ mod tests {
 
         // ── 5. Assert ──
         assert!(
-            pool.annotations[0].critics.is_empty(),
+            pool.annotations[0].critics().is_empty(),
             "critic must not fire for full-HP actor on safe path"
         );
     }
@@ -251,11 +251,11 @@ mod tests {
         h_sev.run(|ctx| stage_sev.apply(&mut pool_sev, ctx));
 
         // ── 5. Assert ──
-        assert!(!pool_mod.annotations[0].critics.is_empty(), "moderate case must fire");
-        assert!(!pool_sev.annotations[0].critics.is_empty(), "severe case must fire");
+        assert!(!pool_mod.annotations[0].critics().is_empty(), "moderate case must fire");
+        assert!(!pool_sev.annotations[0].critics().is_empty(), "severe case must fire");
 
-        let mult_mod = pool_mod.annotations[0].critics[0].multiplier;
-        let mult_sev = pool_sev.annotations[0].critics[0].multiplier;
+        let mult_mod = pool_mod.annotations[0].critics()[0].multiplier;
+        let mult_sev = pool_sev.annotations[0].critics()[0].multiplier;
         assert!(
             mult_sev < mult_mod,
             "severe penalty ({mult_sev}) must be stricter than moderate ({mult_mod})"

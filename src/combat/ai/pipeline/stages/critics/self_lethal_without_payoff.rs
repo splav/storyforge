@@ -157,8 +157,8 @@ mod tests {
 
         // ── 5. Assert ──
         let ann = &pool.annotations[0];
-        assert_eq!(ann.critics.len(), 1, "critic must fire when self_damage>30% and payoff=0");
-        let hit = &ann.critics[0];
+        assert_eq!(ann.critics().len(), 1, "critic must fire when self_damage>30% and payoff=0");
+        let hit = &ann.critics()[0];
         assert_eq!(hit.critic, CriticKind::SelfLethalWithoutPayoff);
         assert!(hit.multiplier < 1.0, "multiplier must penalise, got {}", hit.multiplier);
     }
@@ -190,7 +190,7 @@ mod tests {
 
         // ── 5. Assert ──
         assert!(
-            pool.annotations[0].critics.is_empty(),
+            pool.annotations[0].critics().is_empty(),
             "critic must not fire with zero self-damage"
         );
     }
@@ -243,11 +243,11 @@ mod tests {
         });
 
         // ── 5. Assert ──
-        assert!(!pool_mild.annotations[0].critics.is_empty(), "mild case must fire");
-        assert!(!pool_severe.annotations[0].critics.is_empty(), "severe case must fire");
+        assert!(!pool_mild.annotations[0].critics().is_empty(), "mild case must fire");
+        assert!(!pool_severe.annotations[0].critics().is_empty(), "severe case must fire");
 
-        let mult_mild = pool_mild.annotations[0].critics[0].multiplier;
-        let mult_severe = pool_severe.annotations[0].critics[0].multiplier;
+        let mult_mild = pool_mild.annotations[0].critics()[0].multiplier;
+        let mult_severe = pool_severe.annotations[0].critics()[0].multiplier;
         assert!(
             mult_severe < mult_mild,
             "severe penalty ({mult_severe}) must be stricter than mild ({mult_mild})"

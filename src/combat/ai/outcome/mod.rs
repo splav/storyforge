@@ -299,8 +299,11 @@ pub struct PlanAnnotation {
     /// Empty until CriticsStage runs or when no critics fired.
     /// Schema-additive via `#[serde(default)]`; v30 logs without this field
     /// deserialise as an empty vec.
+    ///
+    /// `pub(crate)`: written only via `apply_effect` in `pipeline::effects` drive-loop.
+    /// External consumers use the `critics()` getter.
     #[serde(default)]
-    pub critics: Vec<crate::combat::ai::pipeline::stages::critics::CriticHit>,
+    pub(crate) critics: Vec<crate::combat::ai::pipeline::stages::critics::CriticHit>,
 
     // ── Step 11.4/11.6 fields ─────────────────────────────────────────────────
 
@@ -376,6 +379,24 @@ impl PlanAnnotation {
         modifiers: Vec<crate::combat::ai::pipeline::stages::modifiers::ModifierContribution>,
     ) -> Self {
         self.modifiers = modifiers;
+        self
+    }
+
+    /// Read-only access to per-critic hits for external consumers
+    /// (e.g. replay / mining bins). Writing is restricted to the drive-loop via
+    /// `apply_effect`.
+    pub fn critics(&self) -> &[crate::combat::ai::pipeline::stages::critics::CriticHit] {
+        &self.critics
+    }
+
+    /// Builder-style initialiser for test fixtures that need pre-populated
+    /// critic hits. Production code should never call this — use the pipeline
+    /// drive-loop instead.
+    pub fn with_critics(
+        mut self,
+        critics: Vec<crate::combat::ai::pipeline::stages::critics::CriticHit>,
+    ) -> Self {
+        self.critics = critics;
         self
     }
 
