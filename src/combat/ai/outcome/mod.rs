@@ -356,8 +356,11 @@ pub struct PlanAnnotation {
 
     /// P3a: typed log of score-affecting effects accumulated during pipeline.
     /// Not serialised (runtime-only); see `score_trace_log` for the JSONL mirror.
+    ///
+    /// `pub(crate)`: written only via `apply_effect` / `FinalizeStage` inside the
+    /// pipeline. External consumers use the `score_trace()` getter.
     #[serde(skip)]
-    pub score_trace: crate::combat::ai::pipeline::score_trace::ScoreTrace,
+    pub(crate) score_trace: crate::combat::ai::pipeline::score_trace::ScoreTrace,
 
     /// P3b: serialised mirror of `score_trace` for JSONL (schema v33).
     ///
@@ -436,6 +439,24 @@ impl PlanAnnotation {
     /// pipeline drive-loop instead.
     pub fn with_contract(mut self, contract: ContractMaskHit) -> Self {
         self.contract = Some(contract);
+        self
+    }
+
+    /// Read-only access to the accumulated score trace for external consumers
+    /// (e.g. replay / mining bins, tests). Writing is restricted to the pipeline
+    /// (`apply_effect`, `FinalizeStage`).
+    pub fn score_trace(&self) -> &crate::combat::ai::pipeline::score_trace::ScoreTrace {
+        &self.score_trace
+    }
+
+    /// Builder-style initialiser for test fixtures that need a pre-populated
+    /// score trace. Production code should never call this — use the pipeline
+    /// drive-loop instead.
+    pub fn with_score_trace(
+        mut self,
+        trace: crate::combat::ai::pipeline::score_trace::ScoreTrace,
+    ) -> Self {
+        self.score_trace = trace;
         self
     }
 

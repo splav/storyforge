@@ -35,6 +35,10 @@ use crate::combat::ai::scoring::factors::{PlanFactorValues, StepFactor};
 use crate::combat::ai::intent::TacticalIntent;
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::outcome::ContractMaskHit;
+use crate::combat::ai::pipeline::effects::{
+    apply_score_effect_stage, EffectObservation, EmittedEffect, ScoreEffectStage, ScoreHit,
+};
+use crate::combat::ai::pipeline::order::StageId;
 use crate::combat::ai::pipeline::score_trace::{GateHit, GateOutcome, MaskHit, MaskKind};
 use crate::combat::ai::pipeline::{PlanStage, ScoredPool, StageCtx};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
@@ -173,15 +177,15 @@ pub fn apply_killable_gate(
 
 pub struct KillableGateStage;
 
-impl PlanStage for KillableGateStage {
-    fn name(&self) -> &'static str {
-        "killable_gate"
+impl ScoreEffectStage for KillableGateStage {
+    fn id(&self) -> StageId {
+        StageId::KillableGate
     }
 
-    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
+    fn compute_effects(&self, ctx: &StageCtx, pool: &ScoredPool) -> Vec<EmittedEffect> {
         // Internal predicate — only active under FocusTarget intent.
         if !matches!(ctx.intent, TacticalIntent::FocusTarget { .. }) {
-            return;
+            return Vec::new();
         }
 
         // Snapshot scores before the gate mutates them.
@@ -210,32 +214,43 @@ impl PlanStage for KillableGateStage {
             ctx.scoring.snap,
         );
 
-        // Write back updated scores and contract annotations.
-        for (i, (ann, new_score)) in pool.annotations.iter_mut().zip(scores.into_iter()).enumerate() {
-            if new_score == f32::NEG_INFINITY && pre_scores[i].is_finite() {
-                ann.contract = Some(ContractMaskHit {
-                    mask: "killable_gate".into(),
-                    original_score: pre_scores[i],
+        let mut emitted = Vec::new();
+        for (plan_index, new_score) in scores.into_iter().enumerate() {
+            if new_score == f32::NEG_INFINITY && pre_scores[plan_index].is_finite() {
+                // PRESERVE current double-emit behavior (Phase 3 fixes this):
+                // Gate first, then Mask — same push order as old code.
+                emitted.push(EmittedEffect {
+                    plan_index,
+                    hit: ScoreHit::Gate(GateHit {
+                        outcome: GateOutcome::Reject,
+                        source: "killable_gate",
+                    }),
+                    observability: None,
                 });
-
-                // P3a.4 / P3a.6: double-emit on the accumulated trace —
-                // GateHit (PostScoreGate classification) + MaskHit Poison
-                // (maintains compute() == NEG_INFINITY while KillableGate still
-                // sets NEG_INFINITY). Bridging-reset removed.
-                ann.score_trace.push_gate(GateHit {
-                    outcome: GateOutcome::Reject,
-                    source: "killable_gate",
+                emitted.push(EmittedEffect {
+                    plan_index,
+                    hit: ScoreHit::Mask(MaskHit {
+                        kind: MaskKind::Poison,
+                        source: "killable_gate",
+                    }),
+                    observability: Some(EffectObservation::Contract(ContractMaskHit {
+                        mask: "killable_gate".into(),
+                        original_score: pre_scores[plan_index],
+                    })),
                 });
-                ann.score_trace.push_mask(MaskHit {
-                    kind: MaskKind::Poison,
-                    source: "killable_gate",
-                });
-
-                // Invariant: for gated plans, ann.score == compute() == NEG_INFINITY.
-                debug_assert_eq!(ann.score_trace.compute(), f32::NEG_INFINITY);
             }
-            ann.score = new_score;
         }
+        emitted
+    }
+}
+
+impl PlanStage for KillableGateStage {
+    fn name(&self) -> &'static str {
+        "killable_gate"
+    }
+
+    fn apply(&self, pool: &mut ScoredPool, ctx: &mut StageCtx) {
+        apply_score_effect_stage(self, pool, ctx);
     }
 }
 
