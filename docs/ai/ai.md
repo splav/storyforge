@@ -54,14 +54,14 @@ AI выбирает действие для вражеских юнитов (и 
 4. **Finalize** — Rescore: переписывает `ann.score` из raw factors с учётом `mode`. Обнуляет `score_trace.base`, `rescore_mode`.
 5. **Sanity** — Multiplier: 3 правила (`HealerExposure`, `RetreatTrap`, `SynergyBonus`) → push в `score_trace.multipliers`.
 6. **Critics** — Multiplier: 6 первой волны (`OvercommitIntoDanger`, `SelfLethalWithoutPayoff`, `BlindspotRanged`, `BuffIntoVoid`, `RareResourceForLowImpact`, `HealWithoutRescueValue`) → `score_trace.multipliers`.
-7. **ProtectSelfMask** — Mask: ставит `score = -∞` для не-defensive планов под `ProtectSelf` → `score_trace.masks` (Poison).
-8. **KillableGate** — PostScoreGate: gate-флаг + Mask Poison.
+7. **ProtectSelfMask** — Mask: пушит `MaskHit { kind: Poison, source: "protect_self" }` в `score_trace.masks` для не-defensive планов под `ProtectSelf`. Selectability — через `ScoreTrace::is_masked()`. `ann.score` остаётся финитным (Phase 3).
+8. **KillableGate** — Gate: пушит `GateHit { outcome: Reject }` в `score_trace.gates` для FocusTarget-планов, не атакующих цель. Selectability — через `ScoreTrace::is_gated()`. После Phase 3 — Gate-only emit, без Mask.
 9. **RepairAffinity** — пишет `ann.repair_affinity` (vs `memory.last_goal`).
 10. **OverlayConsiderations** — per-item considerations overlay (плотность boards / влияние).
 11. **PlanModifiers** — Addend: `summon_bonus`, `trade_bonus`, `repair_bonus` → `score_trace.addends`.
-12. **PickBest** — argmax по `score_trace.compute()` + jitter; ставит `ann.chosen`.
+12. **PickBest** — argmax по `SelectionKey { selectable, score }` (2-bucket: selectable plans first, masked/gated — fallback) + jitter; ставит `ann.chosen`.
 
-После каждой стадии invariant: `ann.score == score_trace.compute()` для finite-score планов.
+`ann.score` всегда финитен (Phase 3). Drive-loop (`pipeline/effects.rs::apply_score_effect_stage`) — sole writer `score_trace` + cached `ann.score = trace.compute()` после каждой score-effect стадии. Стадии возвращают `Vec<EmittedEffect>` через `ScoreEffectStage` trait, не мутируют annotation напрямую. Selectability — через `ScoreTrace::is_masked()` / `is_gated()`, **не** через `score.is_finite()`.
 
 `StageSpec` в `pipeline/spec.rs` фиксирует `reads/writes/score_effect` для каждой стадии в типах. Validator runs в тесте `production_pipeline_order_is_valid` — runtime-error если порядок стадий нарушает контракты (Rescore после Multiplier и т.п.).
 
@@ -134,7 +134,7 @@ AI выбирает действие для вражеских юнитов (и 
 | `scoring/position_eval.rs` | Position quality evaluation. |
 | `scoring/trade.rs` | `unit_value`, `trade_delta`, economic exchange scoring. |
 | `scoring/policy/` | HP-equivalent value functions: `damage`, `heal`, `cc`, `status`, `friendly_fire`. |
-| `scoring/factors/aggregate.rs` | `score_plans_with_raw`, `finalize_scores`, `compute_plan_factors`, `rescore_with_per_plan_modes`. Pool aggregation primitives. |
+| `scoring/factors/aggregate.rs` | `score_plans_with_raw`, `aggregate_factors_to_score`, `compute_plan_factors`, `rescore_with_per_plan_modes`. Pool aggregation primitives. |
 | `scoring/factors/terminal_state.rs` | `terminal_state_score` + 8 terminal-axes (exposure_at_end, secure_kill, ally_rescue, board_control_gain, next_turn_lethality, line_actionability, density_value, pressure_spacing_zone). |
 | `scoring/factors/step/` | Per-step factor leaves: `cc`, `damage`, `heal`, `kill_now`, `kill_promised`, `saturation`, `scarcity`. |
 | `scoring/factors/plan/` | Plan-level factor leaves: `intent`, `self_survival`, `tempo_gain`. |
@@ -148,7 +148,8 @@ AI выбирает действие для вражеских юнитов (и 
 |---|---|
 | `pipeline/order.rs` | `StageId`, `StageEntry`, `PRODUCTION_PIPELINE` (single source of truth для порядка стадий), `run` runner. Сплит `PRE_MASK`/`POST_MASK` для `base_scored` snapshot между двумя половинами. |
 | `pipeline/spec.rs` | `StageSpec`, `ScoreEffect`, `AnnotationField`, `STAGE_SPECS`, `validate_pipeline`. |
-| `pipeline/score_trace.rs` | `ScoreTrace` runtime + `ScoreTraceLog` JSONL mirror + `compute()` algebra. |
+| `pipeline/score_trace.rs` | `ScoreTrace` runtime (`MultiplierHit { kind, value, detail: Option<MultiplierDetail> }`, `MaskHit { kind, source, original_score: Option<f32> }`, `AddendHit`, `GateHit`) + `ScoreTraceLog` JSONL mirror + `compute()` (always finite — Phase 3) + `is_masked()`/`is_gated()` selectability flags. |
+| `pipeline/effects.rs` | Score Effect Engine: `ScoreHit`, `EffectObservation`, `EmittedEffect`, `AppliedEffect`, `ScoreEffectStage` trait, `apply_score_effect_stage` drive-loop (sole writer score_trace + cached score), `SelectionKey { selectable, score }` for PickBest. |
 | `pipeline/mod.rs` | `StageCtx`, `ScoredPool`, `PlanStage` trait. |
 | `pipeline/stages/{viability, item_scoring, mode_selection, finalize, protect_self, repair_affinity, overlay_considerations, pick_best}.rs` | Single-purpose stages. |
 | `pipeline/stages/sanity/` | `SanityStage` + `{healer_exposure, retreat_trap, synergy_bonus}.rs` (one rule per file). |
@@ -161,7 +162,7 @@ AI выбирает действие для вражеских юнитов (и 
 | Модуль | Назначение |
 |---|---|
 | `log/mod.rs` | `ActorTickEvent`, `LoggedDecision`, `LoggedPlan`, `SCHEMA_VERSION`. JSONL writer. |
-| `log/serde_helpers.rs` | Serde адаптеры (`f32_finite`, entity wrapping). |
+| `log/serde_helpers.rs` | Serde адаптеры (entity wrapping). `f32_finite` adapter удалён в Phase 3 (`ann.score` всегда финитен). |
 | `log/debug.rs` | Debug overlay + console log. |
 | `replay/mod.rs` | Assertion DSL: `Overlay`, `Expectation`, `AssertResult`, `build_actual_decision`. |
 | `replay/pipeline.rs` | `assert_v28_log_file`, `GoldenRecord`, file-level assertion pipeline. |

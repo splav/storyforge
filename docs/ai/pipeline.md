@@ -85,23 +85,21 @@ struct StageSpec {
 
 Тест `production_pipeline_order_is_valid` запускает `validate_pipeline(STAGE_SPECS)` — ошибка порядка стадий = падение теста, не runtime-баг.
 
-## ScoreTrace — typed effect log (P3a)
+## ScoreTrace — typed effect log
 
-`src/combat/ai/pipeline/score_trace.rs` — типизированный лог score-affecting effects, накапливаемых стадиями pipeline'а. Реализовано в P3a.0, миграция стадий — P3a.{1..5}, cleanup bridging-резетов — P3a.6.
+`src/combat/ai/pipeline/score_trace.rs` — типизированный лог score-affecting effects, накапливаемых стадиями pipeline'а. Single source of truth для score state и selectability.
 
-**Статус: P3a complete (P3a.6 done 2026-05-01) — trace аккумулирует через pipeline; behavioural diff = 0, schema не тронута.**
+**Архитектурный статус:** Phase 2 (R8-lite) централизовала запись в drive-loop (`pipeline/effects.rs::apply_score_effect_stage`). Phase 3 убрала NEG_INFINITY-as-mask-channel: `compute()` всегда финитен, selectability через `is_masked()`/`is_gated()` + `SelectionKey`. TLE обогатил per-hit detail (SanityRule, CriticKind+CriticReason, mask original_score) — legacy mirror fields в `PlanAnnotation` удалены.
 
-Накопление через production pipeline:
-- `FinalizeStage` (P3a.5) — **Rescore**: устанавливает `score_trace = ScoreTrace { base: new_score, rescore_mode: Some(mode), ..Default::default() }`. Единственная стадия с `ScoreEffect::Rescore`. Очищает любые upstream effects. `rescore_mode` фиксирует `EvaluationMode` (Default или LastStand).
-- `SanityStage` (P3a.3) пушит `MultiplierHit { kind: Sanity, value }` поверх trace для каждого `SanityHit`. Masked планы (`entry_score = NEG_INFINITY`) — assert пропускается.
-- `CriticsStage` (P3a.2) пушит `MultiplierHit { kind: Critic, value }` поверх trace для каждого critic hit.
-- `ProtectSelfMaskStage` (P3a.4) пушит `MaskHit { kind: Poison, source: "protect_self" }` для каждого замаскированного плана.
-- `KillableGateStage` (P3a.4) пушит **double-emit**: `GateHit { outcome: Reject }` + `MaskHit { kind: Poison }`. Переход на чистый Gate-behavior (флаг без NEG_INFINITY) — будущий slice.
-- `PlanModifiersStage` (P3a.1) пушит `AddendHit` для каждого из 3 modifier'ов.
+Накопление через production pipeline (стадии возвращают `Vec<EmittedEffect>` через `ScoreEffectStage` trait, drive-loop аккумулирует):
+- `FinalizeStage` — устанавливает `score_trace = ScoreTrace { base: new_score, rescore_mode: Some(mode), ..Default::default() }` (rescore через `aggregate_factors_to_score`). Очищает upstream effects. `rescore_mode` фиксирует `EvaluationMode` (Default или LastStand). Это единственная стадия вне ScoreEffectStage trait — она сама пишет, не через drive-loop.
+- `SanityStage` emit'ит `Multiplier(MultiplierHit { kind: Sanity, value, detail: Some(Sanity{rule}) })` + `EffectObservation::Sanity(SanityHit)`. Drive-loop derives detail из observation.
+- `CriticsStage` emit'ит `Multiplier(MultiplierHit { kind: Critic, value, detail: Some(Critic{critic, reason}) })` + `EffectObservation::Critic(CriticHit)`.
+- `ProtectSelfMaskStage` emit'ит `Mask(MaskHit { kind: Poison, source: "protect_self", original_score })` + `EffectObservation::Contract(ContractMaskHit)`. Plan остаётся в pool с финитным score; `is_masked() = true` → PickBest dispreferreds.
+- `KillableGateStage` emit'ит **только** `Gate(GateHit { outcome: Reject, source: "killable_gate" })` + `EffectObservation::Contract(...)`. Phase 3 Step 4 убрал double-emit Mask.
+- `PlanModifiersStage` emit'ит `Addend(AddendHit { name, value })` + `EffectObservation::Modifier(ModifierContribution)` для каждого из 3 modifier'ов.
 
-После каждой стадии инвариант `ann.score == trace.compute()` проверяется `debug_assert`. Тест `p3a_full_pipeline_trace_compute_equals_ann_score` в `pipeline/mod.rs` верифицирует invariant после полного PRODUCTION_PIPELINE.
-
-**P3a.6 cleanup**: bridging-резеты (`ScoreTrace { base: ann.score, ..Default::default() }`) удалены из всех 5 мигрированных стадий (plan_modifiers, critics, sanity, protect_self, killable_gate). Ранее резеты были нужны при partial-migration: каждая стадия discardила чужие upstream-эффекты. Теперь trace аккумулирует естественно через весь pipeline начиная с Finalize::base.
+После каждой score-effect стадии drive-loop вызывает `recompute_score_from_trace()` для всех annotations — invariant `ann.score == trace.compute()` держится by construction. Тест `pipeline_runs_modifiers_after_repair_before_pick` верифицирует pipeline через PRODUCTION_PIPELINE.
 
 ### Структура
 
@@ -120,15 +118,13 @@ struct ScoreTrace {
 
 ### compute() алгебра
 
-Канонический порядок применения, зафиксированный в коде:
+После Phase 3 — **всегда финитный**, без poison-логики:
 
-1. Если есть `Mask` с `Poison` → return `f32::NEG_INFINITY` (early exit).
-2. `score = base`
-3. `score *= ∏ multipliers` (в порядке push'а — sanity → critics)
-4. `score += Σ addends` (modifiers, аддитивны)
-5. `Gate` с `Reject` → маркирует план как gated (`is_gated() = true`), не затрагивает score.
+1. `score = base`
+2. `score *= ∏ multipliers` (в порядке push'а — sanity → critics)
+3. `score += Σ addends` (modifiers, аддитивны)
 
-Этот порядок **сохраняет текущую семантику** pipeline'а: multipliers применяются до addends, masks — до всего; gates — флаги, не занули.
+Mask и Gate — НЕ модификаторы score, а selectability flags. Проверяются через `ScoreTrace::is_masked()` / `is_gated()` и `PlanAnnotation::is_selectable()` / `selection_key()`. PickBest сортирует через `SelectionKey { selectable, score }` — selectable plans ranked перед masked/gated независимо от score.
 
 ### Интеграция с PlanAnnotation
 

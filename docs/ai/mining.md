@@ -1,6 +1,6 @@
 # AI Log Mining
 
-*Источник: `src/bin/mine_ai_logs.rs` (≈3100 строк), schema v33 (P3b). v32 логи принимаются как schema-additive (поле `score_trace_log` отсутствует → None).*
+*Источник: `src/bin/mine_ai_logs.rs` (≈3100 строк). Текущая schema v34. Mining читает enriched `score_trace_log` как primary; v33/v34 логи без TLE-1 detail — graceful degradation (Critic/Sanity per-kind stats недоступны). v32 логи принимаются schema-additive (`score_trace_log` отсутствует → None; mining использует только metadata stats).*
 
 `mine_ai_logs` — оффлайн-утилита, которая агрегирует JSONL-логи AI и печатает статистику по корпусу. Используется для оценки эффективности решений AI: какие интенты часто переключаются впустую, какие критики срабатывают зря, как ведут себя бэнды и агенда. Каждая секция ориентирована на конкретный сигнал — patологию или гипотезу о патологии.
 

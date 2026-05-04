@@ -187,7 +187,7 @@ Rules:
 
 ### Scope limitation
 
-Assert mode re-runs the existing replay pipeline (`finalize_scores` →
+Assert mode re-runs the existing replay pipeline (`aggregate_factors_to_score` →
 `sanity_adjust_plans` → `pick_best_plan`) with `DifficultyProfile` and
 `Reservations` restored from the v17+ snapshots. **Intent selection is not
 re-run** — the logged intent is taken as input. This is enough to catch

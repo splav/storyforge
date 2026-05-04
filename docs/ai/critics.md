@@ -2,7 +2,7 @@
 
 *Источник: `src/combat/ai/pipeline/stages/critics/` (R5.A: перенесено из `src/combat/ai/critics/`).*
 
-После step 7-stages pipeline'а планы проходят через `CriticsStage` (`pipeline/stages/critics/mod.rs`), который применяет `Vec<Box<dyn PlanCritic>>` — каждый critic читает структурированные секции `PlanAnnotation` (outcomes, terminal, repair_affinity) и возвращает `Option<CriticHit>`. Hit умножает `ann.score *= multiplier` и пишется в `ann.critics: Vec<CriticHit>` для логов. Композиция в `CriticsStage::first_wave()` — code-driven (не TOML).
+После step 7-stages pipeline'а планы проходят через `CriticsStage` (`pipeline/stages/critics/mod.rs`), который применяет `Vec<Box<dyn PlanCritic>>` — каждый critic читает структурированные секции `PlanAnnotation` (outcomes, terminal, repair_affinity) и возвращает `Option<CriticHit>`. CriticsStage реализует `ScoreEffectStage` — emit'ит `EmittedEffect { hit: ScoreHit::Multiplier(...), observability: Some(EffectObservation::Critic(hit)) }` через drive-loop. Drive-loop derives detail (`MultiplierDetail::Critic { critic, reason }`) из observation и пушит в `score_trace.multipliers`; `ann.score` пересчитывается через `recompute_score_from_trace()`. Composition в `CriticsStage::first_wave()` — code-driven (не TOML).
 
 Pipeline order (step 11.4): `Viability → ItemScoring → ModeSelection → Finalize → Sanity → Critics → ProtectSelfMask → KillableGate → RepairAffinity → OverlayConsiderations → PlanModifiers → PickBest`.
 
