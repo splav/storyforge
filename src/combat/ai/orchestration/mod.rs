@@ -517,6 +517,23 @@ pub fn write_decision_log_from_result(
             };
             let adaptation_reason = ann.adaptation.as_ref().map(|d| &d.reason);
             let base_score = result.base_scored.get(idx).copied().unwrap_or(score);
+            // Derive sanity hits from score_trace (TLE-3a: legacy ann.sanity removed).
+            let sanity_breakdown: Vec<crate::combat::ai::pipeline::stages::sanity::SanityHit> = {
+                use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
+                ann.score_trace.multipliers.iter()
+                    .filter(|m| matches!(m.kind, MultiplierKind::Sanity))
+                    .filter_map(|m| {
+                        if let Some(MultiplierDetail::Sanity { rule }) = &m.detail {
+                            Some(crate::combat::ai::pipeline::stages::sanity::SanityHit {
+                                rule: *rule,
+                                multiplier: m.value,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            };
             log::plan_to_log_entry(
                 &plans[idx],
                 rank + 1,
@@ -528,7 +545,7 @@ pub fn write_decision_log_from_result(
                 &evaluation_modes[idx],
                 adaptation_reason,
                 trade,
-                &ann.sanity,
+                sanity_breakdown,
             )
         })
         .collect();
@@ -546,13 +563,13 @@ pub fn write_decision_log_from_result(
         evaluation_mode_reason: result.evaluation_mode_reason.as_ref(),
     };
 
-    // gate_stats: KillableGateStage writes contract annotations but doesn't
-    // directly expose applied/pruned_count. Derive from annotations.
+    // gate_stats: KillableGateStage emits GateHit(source="killable_gate") into score_trace.
+    // Derive applied/pruned_count from score_trace.gates (TLE-3a: legacy contract field removed).
     let gate_applied = pool.annotations.iter().any(|a| {
-        a.contract.as_ref().map(|c| c.mask == "killable_gate").unwrap_or(false)
+        a.score_trace.gates.iter().any(|g| g.source == "killable_gate")
     });
     let gate_pruned_count = pool.annotations.iter().filter(|a| {
-        a.contract.as_ref().map(|c| c.mask == "killable_gate").unwrap_or(false)
+        a.score_trace.gates.iter().any(|g| g.source == "killable_gate")
     }).count();
 
     let entry = log::build_entry(

@@ -156,11 +156,18 @@ mod tests {
         h.run(|ctx| stage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
+        use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
         let ann = &pool.annotations[0];
-        assert_eq!(ann.critics().len(), 1, "critic must fire when self_damage>30% and payoff=0");
-        let hit = &ann.critics()[0];
-        assert_eq!(hit.critic, CriticKind::SelfLethalWithoutPayoff);
-        assert!(hit.multiplier < 1.0, "multiplier must penalise, got {}", hit.multiplier);
+        let critic_hits: Vec<_> = ann.score_trace.multipliers.iter()
+            .filter(|m| matches!(m.kind, MultiplierKind::Critic))
+            .collect();
+        assert_eq!(critic_hits.len(), 1, "critic must fire when self_damage>30% and payoff=0");
+        assert!(critic_hits[0].value < 1.0, "multiplier must penalise, got {}", critic_hits[0].value);
+        if let Some(MultiplierDetail::Critic { critic, .. }) = &critic_hits[0].detail {
+            assert_eq!(*critic, CriticKind::SelfLethalWithoutPayoff);
+        } else {
+            panic!("critic hit must carry Critic detail, got {:?}", critic_hits[0].detail);
+        }
     }
 
     // ── passes on clean plan (no self-damage) ─────────────────────────────────
@@ -189,8 +196,9 @@ mod tests {
         h.run(|ctx| stage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
         assert!(
-            pool.annotations[0].critics().is_empty(),
+            pool.annotations[0].score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Critic)),
             "critic must not fire with zero self-damage"
         );
     }
@@ -243,11 +251,16 @@ mod tests {
         });
 
         // ── 5. Assert ──
-        assert!(!pool_mild.annotations[0].critics().is_empty(), "mild case must fire");
-        assert!(!pool_severe.annotations[0].critics().is_empty(), "severe case must fire");
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
+        let critic_mild = pool_mild.annotations[0].score_trace.multipliers.iter()
+            .find(|m| matches!(m.kind, MultiplierKind::Critic));
+        let critic_severe = pool_severe.annotations[0].score_trace.multipliers.iter()
+            .find(|m| matches!(m.kind, MultiplierKind::Critic));
+        assert!(critic_mild.is_some(), "mild case must fire");
+        assert!(critic_severe.is_some(), "severe case must fire");
 
-        let mult_mild = pool_mild.annotations[0].critics()[0].multiplier;
-        let mult_severe = pool_severe.annotations[0].critics()[0].multiplier;
+        let mult_mild = critic_mild.unwrap().value;
+        let mult_severe = critic_severe.unwrap().value;
         assert!(
             mult_severe < mult_mild,
             "severe penalty ({mult_severe}) must be stricter than mild ({mult_mild})"

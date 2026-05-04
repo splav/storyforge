@@ -210,22 +210,22 @@ mod tests {
         assert_eq!(chosen_count, 1, "exactly one plan must be chosen");
 
         // Every non-masked plan (both plans here) should have exactly PLAN_MODIFIERS.len()
-        // modifier entries populated by PlanModifiersStage.
+        // addend hits in score_trace, populated by PlanModifiersStage.
         let expected_modifier_count = PLAN_MODIFIERS.len();
         for (i, ann) in pool.annotations.iter().enumerate() {
             assert_eq!(
-                ann.modifiers.len(),
+                ann.score_trace.addends.len(),
                 expected_modifier_count,
-                "plan[{i}] must have {expected_modifier_count} modifier entries, got {}",
-                ann.modifiers.len()
+                "plan[{i}] must have {expected_modifier_count} addend entries in trace, got {}",
+                ann.score_trace.addends.len()
             );
         }
 
-        // Modifier names must appear in canonical PLAN_MODIFIERS order.
+        // Addend names must appear in canonical PLAN_MODIFIERS order.
         let chosen = pool.annotations.iter().find(|a| a.chosen).unwrap();
-        assert_eq!(chosen.modifiers[0].name, "summon_bonus");
-        assert_eq!(chosen.modifiers[1].name, "trade_bonus");
-        assert_eq!(chosen.modifiers[2].name, "repair_bonus");
+        assert_eq!(chosen.score_trace.addends[0].name, "summon_bonus");
+        assert_eq!(chosen.score_trace.addends[1].name, "trade_bonus");
+        assert_eq!(chosen.score_trace.addends[2].name, "repair_bonus");
     }
 
     /// P3a.6 verification: after the full PRODUCTION_PIPELINE, the invariant
@@ -288,95 +288,4 @@ mod tests {
         }
     }
 
-    /// Legacy observability fields (`modifiers` / `sanity` / `critics`) are
-    /// derived mirrors of `score_trace` populated atomically by the engine.
-    /// This test catches any regression where a stage bypasses the engine
-    /// and pushes to one channel without the other.
-    ///
-    /// Phase 4 / TLE plan: once `score_trace_log` is enriched to subsume
-    /// the per-effect detail (SanityRule, CriticReason, etc.), the legacy
-    /// fields become removable; until then this guard pins the mirror
-    /// invariant.
-    #[test]
-    fn legacy_observability_mirrors_score_trace_after_pipeline() {
-        use crate::combat::ai::config::difficulty::DifficultyProfile;
-        use crate::combat::ai::intent::{IntentReason, TacticalIntent};
-        use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};
-        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
-        use crate::combat::ai::world::reservations::Reservations;
-        use crate::combat::ai::world::snapshot::BattleSnapshot;
-        use crate::combat::ai::test_helpers::{
-            empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-        };
-        use crate::core::DiceRng;
-        use crate::game::components::Team;
-        use crate::game::hex::hex_from_offset;
-
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
-        let maps = empty_maps();
-        let content = empty_content();
-        let difficulty = DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-        let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = DiceRng::default();
-        let mut ctx = StageCtx::new(
-            &scoring,
-            TacticalIntent::Reposition,
-            IntentReason::NoRuleDefault,
-            actor.pos,
-            &mut rng,
-        );
-
-        let mut pool = ScoredPool::new(vec![
-            crate::combat::ai::plan::types::TurnPlan::default(),
-            crate::combat::ai::plan::types::TurnPlan::default(),
-        ]);
-        pool.annotations[0].set_score(1.0);
-        pool.annotations[1].set_score(0.5);
-
-        run(PRODUCTION_PIPELINE, &mut pool, &mut ctx);
-
-        for (i, ann) in pool.annotations.iter().enumerate() {
-            if !ann.is_selectable() {
-                continue; // skip masked/gated plans — Modifiers stage skips them
-            }
-            let trace = &ann.score_trace;
-
-            assert_eq!(
-                trace.addends.len(),
-                ann.modifiers().len(),
-                "plan[{i}]: trace.addends.len()={} ≠ modifiers.len()={} — engine pairing broken",
-                trace.addends.len(),
-                ann.modifiers().len(),
-            );
-
-            let sanity_mults = trace
-                .multipliers
-                .iter()
-                .filter(|m| matches!(m.kind, MultiplierKind::Sanity))
-                .count();
-            assert_eq!(
-                sanity_mults,
-                ann.sanity().len(),
-                "plan[{i}]: Sanity multiplier count={} ≠ sanity.len()={}",
-                sanity_mults,
-                ann.sanity().len(),
-            );
-
-            let critic_mults = trace
-                .multipliers
-                .iter()
-                .filter(|m| matches!(m.kind, MultiplierKind::Critic))
-                .count();
-            assert_eq!(
-                critic_mults,
-                ann.critics().len(),
-                "plan[{i}]: Critic multiplier count={} ≠ critics.len()={}",
-                critic_mults,
-                ann.critics().len(),
-            );
-        }
-    }
 }

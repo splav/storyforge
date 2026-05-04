@@ -156,15 +156,23 @@ mod tests {
         h.run(|ctx| stage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
+        use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
         let ann = &pool.annotations[0];
-        assert_eq!(ann.critics().len(), 1, "critic must fire for low-HP actor on high-danger path");
-        let hit = &ann.critics()[0];
-        assert_eq!(hit.critic, CriticKind::OvercommitIntoDanger);
-        assert!(hit.multiplier < 1.0, "multiplier must be a penalty (< 1.0), got {}", hit.multiplier);
-        if let CriticReason::OvercommitIntoDanger { source, .. } = hit.reason {
-            assert_eq!(source, OvercommitSource::SurvivalPath);
+        let critic_hits: Vec<_> = ann.score_trace.multipliers.iter()
+            .filter(|m| matches!(m.kind, MultiplierKind::Critic))
+            .collect();
+        assert_eq!(critic_hits.len(), 1, "critic must fire for low-HP actor on high-danger path");
+        let hit = critic_hits[0];
+        assert!(hit.value < 1.0, "multiplier must be a penalty (< 1.0), got {}", hit.value);
+        if let Some(MultiplierDetail::Critic { critic, reason }) = &hit.detail {
+            assert_eq!(*critic, CriticKind::OvercommitIntoDanger);
+            if let CriticReason::OvercommitIntoDanger { source, .. } = reason {
+                assert_eq!(*source, OvercommitSource::SurvivalPath);
+            } else {
+                panic!("expected OvercommitIntoDanger reason, got {:?}", reason);
+            }
         } else {
-            panic!("expected OvercommitIntoDanger reason, got {:?}", hit.reason);
+            panic!("critic hit must carry Critic detail, got {:?}", hit.detail);
         }
     }
 
@@ -197,8 +205,9 @@ mod tests {
         h.run(|ctx| stage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
         assert!(
-            pool.annotations[0].critics().is_empty(),
+            pool.annotations[0].score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Critic)),
             "critic must not fire for full-HP actor on safe path"
         );
     }
@@ -251,11 +260,16 @@ mod tests {
         h_sev.run(|ctx| stage_sev.apply(&mut pool_sev, ctx));
 
         // ── 5. Assert ──
-        assert!(!pool_mod.annotations[0].critics().is_empty(), "moderate case must fire");
-        assert!(!pool_sev.annotations[0].critics().is_empty(), "severe case must fire");
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
+        let critic_mult_mod = pool_mod.annotations[0].score_trace.multipliers.iter()
+            .find(|m| matches!(m.kind, MultiplierKind::Critic));
+        let critic_mult_sev = pool_sev.annotations[0].score_trace.multipliers.iter()
+            .find(|m| matches!(m.kind, MultiplierKind::Critic));
+        assert!(critic_mult_mod.is_some(), "moderate case must fire");
+        assert!(critic_mult_sev.is_some(), "severe case must fire");
 
-        let mult_mod = pool_mod.annotations[0].critics()[0].multiplier;
-        let mult_sev = pool_sev.annotations[0].critics()[0].multiplier;
+        let mult_mod = critic_mult_mod.unwrap().value;
+        let mult_sev = critic_mult_sev.unwrap().value;
         assert!(
             mult_sev < mult_mod,
             "severe penalty ({mult_sev}) must be stricter than moderate ({mult_mod})"

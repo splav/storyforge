@@ -385,11 +385,10 @@ impl Aggregate {
         }
 
         // E1: modifier contributions — walk all plans in pool.
-        // Primary: score_trace_log.addends (v33+ logs, TLE-1+).
-        // Fallback: annotation.modifiers() for v32/v33 logs without trace.
+        // v33+ logs carry score_trace_log.addends (TLE-1+).
+        // v33/v34 logs without score_trace_log are silently skipped (no trace, no stats).
         for plan in &event.plans {
             if let Some(trace) = &plan.annotation.score_trace_log {
-                // Primary path: enriched trace.
                 if !trace.addends.is_empty() {
                     self.e1_total_modifier_entries += 1;
                 }
@@ -403,71 +402,8 @@ impl Aggregate {
                         }
                     }
                 }
-            } else {
-                // Fallback: v32 logs without score_trace_log — read legacy.
-                // After TLE-3 (legacy fields removed from JSONL), this branch is dead.
-                if !plan.annotation.modifiers().is_empty() {
-                    self.e1_total_modifier_entries += 1;
-                }
-                for mc in plan.annotation.modifiers() {
-                    if mc.contribution.abs() > f32::EPSILON {
-                        match mc.name.as_str() {
-                            "summon_bonus" => self.e1_summon_bonus.push(mc.contribution),
-                            "trade_bonus"  => self.e1_trade_bonus.push(mc.contribution),
-                            "repair_bonus" => self.e1_repair_bonus.push(mc.contribution),
-                            _ => {}
-                        }
-                    }
-                }
             }
-        }
-
-        // Shadow-compare invariant: when both trace and legacy channels are populated,
-        // their counts must agree. Fires only in debug builds; runs only when both sides
-        // are non-empty (trace absent or legacy absent → fallback chain, not a mismatch).
-        // After TLE-3 (legacy removed from JSONL), this assert naturally disappears.
-        #[cfg(debug_assertions)]
-        for plan in &event.plans {
-            use storyforge::combat::ai::pipeline::score_trace::MultiplierKind;
-            if let Some(trace) = &plan.annotation.score_trace_log {
-                let trace_addends = trace.addends.len();
-                let legacy_modifiers = plan.annotation.modifiers().len();
-                if trace_addends > 0 && legacy_modifiers > 0 {
-                    debug_assert_eq!(
-                        trace_addends, legacy_modifiers,
-                        "shadow-compare: trace.addends.len()={} vs legacy modifiers.len()={}",
-                        trace_addends, legacy_modifiers
-                    );
-                }
-
-                let trace_critic_mults = trace
-                    .multipliers
-                    .iter()
-                    .filter(|m| matches!(m.kind, MultiplierKind::Critic))
-                    .count();
-                let legacy_critics = plan.annotation.critics().len();
-                if trace_critic_mults > 0 && legacy_critics > 0 {
-                    debug_assert_eq!(
-                        trace_critic_mults, legacy_critics,
-                        "shadow-compare: trace Critic multipliers={} vs legacy critics.len()={}",
-                        trace_critic_mults, legacy_critics
-                    );
-                }
-
-                let trace_sanity_mults = trace
-                    .multipliers
-                    .iter()
-                    .filter(|m| matches!(m.kind, MultiplierKind::Sanity))
-                    .count();
-                let legacy_sanity = plan.annotation.sanity().len();
-                if trace_sanity_mults > 0 && legacy_sanity > 0 {
-                    debug_assert_eq!(
-                        trace_sanity_mults, legacy_sanity,
-                        "shadow-compare: trace Sanity multipliers={} vs legacy sanity.len()={}",
-                        trace_sanity_mults, legacy_sanity
-                    );
-                }
-            }
+            // v33/v34 logs predate TLE-1 enrichment — modifier stats unavailable, silently skip.
         }
 
         // E2: picking jitter — collect noise_applied from chosen plan only.
@@ -528,18 +464,8 @@ impl Aggregate {
                 } else {
                     false
                 };
-                // Fallback: v32 / older v33 logs without Critic detail — read legacy.
-                // After TLE-3 (legacy fields removed from JSONL), this branch is dead.
-                if !used_trace {
-                    for hit in chosen.annotation.critics() {
-                        let key = format!("{:?}", hit.critic);
-                        *self.g1_critic_hit_counts.entry(key.clone()).or_default() += 1;
-                        self.g1_critic_multipliers.entry(key.clone()).or_default().push(hit.multiplier);
-                        if key == "OvercommitIntoDanger" {
-                            overcommit_in_chosen = true;
-                        }
-                    }
-                }
+                // v33/v34 logs predate TLE-1 enrichment — critic detail unavailable, silently skip.
+                let _ = used_trace;
             }
 
             // E: chosen-plan totals by decision_kind + Overcommit cross-tab.
@@ -570,19 +496,32 @@ impl Aggregate {
 
         // G1 (pool-wide): count how often any critic fires across all plans
         // in the pool, plus per-critic pool fire rate (Variant A).
+        // v33+ logs carry score_trace_log with Critic multipliers (TLE-1+).
+        // v33/v34 logs without trace are silently skipped — critic stats unavailable.
         for plan in &event.plans {
             self.g1_pool_total += 1;
-            if !plan.annotation.critics().is_empty() {
-                self.g1_pool_with_any_critic += 1;
-            }
-            // A: per-critic pool count. Each critic counted at most once per plan.
-            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-            for hit in plan.annotation.critics() {
-                let key = format!("{:?}", hit.critic);
-                if seen.insert(key.clone()) {
-                    *self.g1_pool_per_critic.entry(key).or_default() += 1;
+            if let Some(trace) = &plan.annotation.score_trace_log {
+                use storyforge::combat::ai::pipeline::score_trace::MultiplierKind;
+                let has_critic = trace.multipliers.iter().any(|m| matches!(m.kind, MultiplierKind::Critic));
+                if has_critic {
+                    self.g1_pool_with_any_critic += 1;
+                }
+                // A: per-critic pool count. Each critic counted at most once per plan.
+                use storyforge::combat::ai::pipeline::score_trace::MultiplierDetail;
+                let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+                for mh in &trace.multipliers {
+                    if !matches!(mh.kind, MultiplierKind::Critic) { continue; }
+                    let Some(detail) = &mh.detail else { continue; };
+                    let key = match detail {
+                        MultiplierDetail::Critic { critic, .. } => format!("{:?}", critic),
+                        _ => continue,
+                    };
+                    if seen.insert(key.clone()) {
+                        *self.g1_pool_per_critic.entry(key).or_default() += 1;
+                    }
                 }
             }
+            // v33/v34 logs predate TLE-1 enrichment — critic stats unavailable, silently skip.
         }
 
         // ── P3b: score_trace_log-sourced stats (v33+) ─────────────────────────
@@ -2276,7 +2215,7 @@ mod tests {
     use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};
     use storyforge::combat::ai::world::snapshot::BattleSnapshot;
     use storyforge::combat::ai::outcome::{PlanAnnotation, PickInfo};
-    use storyforge::combat::ai::pipeline::stages::modifiers::ModifierContribution;
+    use storyforge::combat::ai::pipeline::score_trace::{AddendHitLog, ScoreTraceLog};
     use storyforge::combat::ai::plan::PlanStep;
     use storyforge::combat::ai::pipeline::stages::pick_best::PickMechanics;
 
@@ -2430,14 +2369,23 @@ mod tests {
         assert!((pct(1, 4) - 25.0).abs() < 1e-9);
     }
 
-    fn plan_with_modifiers(chosen: bool, modifiers: Vec<ModifierContribution>) -> LoggedPlan {
-        let mut ann = PlanAnnotation::default().with_modifiers(modifiers);
+    /// Build a plan whose modifier contributions are expressed via `score_trace_log.addends`
+    /// (the primary path, TLE-1+). `addends` entries are `(name, value)` pairs.
+    fn plan_with_trace_addends(chosen: bool, addends: Vec<(&'static str, f32)>) -> LoggedPlan {
+        let mut ann = PlanAnnotation::default();
         ann.chosen = chosen;
         ann.pick = if chosen {
             Some(PickInfo { mechanics: PickMechanics::default(), noise_applied: 0.0 })
         } else {
             None
         };
+        ann.score_trace_log = Some(ScoreTraceLog {
+            addends: addends
+                .into_iter()
+                .map(|(name, value)| AddendHitLog { name: name.to_owned(), value })
+                .collect(),
+            ..Default::default()
+        });
         LoggedPlan {
             rank: 1,
             steps: vec![PlanStep::Move { path: vec![] }],
@@ -2457,15 +2405,11 @@ mod tests {
     }
 
     #[test]
-    fn mine_v29_corpus_produces_modifier_section() {
-        let modifiers = vec![
-            ModifierContribution { name: "summon_bonus".to_owned(), contribution: 5.0 },
-            ModifierContribution { name: "trade_bonus".to_owned(), contribution: -2.0 },
-        ];
+    fn mine_v33_corpus_produces_modifier_section() {
         let event = make_event(
             1,
             LoggedDecision::EndTurn,
-            vec![plan_with_modifiers(true, modifiers)],
+            vec![plan_with_trace_addends(true, vec![("summon_bonus", 5.0), ("trade_bonus", -2.0)])],
             None,
         );
 
@@ -2497,22 +2441,18 @@ mod tests {
 
     #[test]
     fn mine_e1_skips_zero_contributions() {
-        // Zero-value contributions must not be collected.
-        let modifiers = vec![
-            ModifierContribution { name: "summon_bonus".to_owned(), contribution: 0.0 },
-            ModifierContribution { name: "repair_bonus".to_owned(), contribution: 3.0 },
-        ];
+        // Zero-value addends must not be collected.
         let event = make_event(
             1,
             LoggedDecision::EndTurn,
-            vec![plan_with_modifiers(false, modifiers)],
+            vec![plan_with_trace_addends(false, vec![("summon_bonus", 0.0), ("repair_bonus", 3.0)])],
             None,
         );
 
         let mut agg = Aggregate::default();
         agg.process_event("f.jsonl", &event);
 
-        // Plan had modifiers (non-empty vec) → counted.
+        // Plan had addends (non-empty vec) → counted.
         assert_eq!(agg.e1_total_modifier_entries, 1);
         assert!(agg.e1_summon_bonus.is_empty(), "zero contribution skipped");
         assert_eq!(agg.e1_repair_bonus, vec![3.0]);

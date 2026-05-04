@@ -688,7 +688,7 @@ mod stage_tests {
 
         // ── 5. Assert ──
         assert_eq!(pool.annotations[0].score, 0.5, "score should be untouched for non-FocusTarget intent");
-        assert!(pool.annotations[0].contract().is_none(), "no contract annotation expected");
+        assert!(pool.annotations[0].score_trace.gates.is_empty(), "no gate hits expected for non-FocusTarget intent");
     }
 
     // ── gate writes annotation when pruning ───────────────────────────────────
@@ -735,16 +735,19 @@ mod stage_tests {
             &snap, &actor,
         );
 
-        // plan 1 should be gated and annotated
+        // plan 1 should be gated via score_trace (TLE-3a: legacy contract field removed)
         assert!(!pool.annotations[1].is_selectable(), "non-offensive plan should be gated");
-        let contract = pool.annotations[1].contract()
-            .expect("expected contract annotation for gated plan");
-        assert_eq!(contract.mask, "killable_gate".to_string());
-        assert_eq!(contract.original_score, 0.6_f32);
+        assert!(
+            pool.annotations[1].score_trace.gates.iter().any(|g| g.source == "killable_gate"),
+            "expected killable_gate GateHit in score_trace for gated plan"
+        );
 
         // plan 0 should be untouched
         assert!(pool.annotations[0].score.is_finite(), "offensive plan should survive gate");
-        assert!(pool.annotations[0].contract().is_none(), "no contract annotation for offensive plan");
+        assert!(
+            pool.annotations[0].score_trace.gates.iter().all(|g| g.source != "killable_gate"),
+            "no killable_gate GateHit for offensive plan"
+        );
     }
 
     #[test]
@@ -771,7 +774,10 @@ mod stage_tests {
         );
 
         for ann in &pool.annotations {
-            assert!(ann.contract().is_none(), "no contract annotation when gate does not fire");
+            assert!(
+                ann.score_trace.gates.iter().all(|g| g.source != "killable_gate"),
+                "no killable_gate GateHit when gate does not fire"
+            );
         }
     }
 

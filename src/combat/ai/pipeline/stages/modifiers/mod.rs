@@ -18,16 +18,15 @@
 //!
 //! For each plan the stage iterates `PLAN_MODIFIERS` in fixed order
 //! `[summon_bonus, trade_bonus, repair_bonus]`, accumulates the signed
-//! additive contribution into `ann.score`, and records each contribution in
-//! `ann.modifiers` for observability.
+//! additive contribution into `ann.score`, and records each contribution as
+//! an `AddendHit` in `ann.score_trace` for observability.
 //!
 //! Masked plans (`ann.score == NEG_INFINITY`) are skipped entirely so that
 //! contract masks applied by `ProtectSelfMaskStage` / `KillableGateStage`
 //! are not disturbed.
 //!
-//! **P3a.1 / P3a.6:** Each modifier contribution is also pushed as an
-//! `AddendHit` into `ann.score_trace`. After P3a.6 cleanup the trace
-//! accumulates over the full pipeline: `FinalizeStage` sets `trace.base`,
+//! Each modifier contribution is pushed as an `AddendHit` into `ann.score_trace`.
+//! The trace accumulates over the full pipeline: `FinalizeStage` sets `trace.base`,
 //! downstream stages (Sanity, Critics, Modifiers) push hits on top.
 //! Invariant after apply: `ann.score == trace.compute()`.
 
@@ -112,7 +111,7 @@ pub struct ModifierContribution {
 ///
 /// Order is fixed: `[summon_bonus, trade_bonus, repair_bonus]`.
 /// `PlanModifiersStage` applies them left-to-right; the same order
-/// appears in `PlanAnnotation.modifiers` entries.
+/// appears in `score_trace.addends` entries.
 pub static PLAN_MODIFIERS: &[&dyn PlanModifier] = &[
     &summon_bonus::MODIFIER,
     &trade_bonus::MODIFIER,

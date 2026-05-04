@@ -189,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn addend_effect_updates_trace_and_modifiers_and_score() {
+    fn addend_effect_updates_trace_and_score() {
         let actor = make_actor();
         let h = StageTestHarness::new(actor);
         h.run(|ctx| {
@@ -215,7 +215,6 @@ mod tests {
 
             let ann = &pool.annotations[0];
             assert_eq!(ann.score_trace.addends.len(), 1, "addend pushed to trace");
-            assert_eq!(ann.modifiers.len(), 1, "modifier pushed to legacy field");
             assert!(
                 (ann.score - (1.0 + addend_value)).abs() < 1e-6,
                 "score == base + addend: got {}",
@@ -254,7 +253,6 @@ mod tests {
 
             let ann = &pool.annotations[0];
             assert_eq!(ann.score_trace.multipliers.len(), 1, "multiplier pushed to trace");
-            assert_eq!(ann.sanity.len(), 1, "sanity hit pushed to legacy field");
             assert!(
                 (ann.score - 0.5).abs() < 1e-6,
                 "score == base * 0.5: got {}",

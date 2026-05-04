@@ -263,10 +263,11 @@ mod tests {
         // ── 5. Assert ──
         assert_eq!(pool.annotations[0].score, 0.8, "score must not change with empty critics");
         assert_eq!(pool.annotations[1].score, 0.5, "score must not change with empty critics");
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
         for ann in &pool.annotations {
             assert!(
-                ann.critics().is_empty(),
-                "no critic hits expected for empty stage, got {:?}", ann.critics(),
+                ann.score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Critic)),
+                "no critic multipliers expected for empty stage",
             );
         }
     }
@@ -327,11 +328,16 @@ mod tests {
             (ann.score - 0.5).abs() < 1e-6,
             "expected score 0.5 after 0.5× multiplier, got {}", ann.score,
         );
-        assert_eq!(
-            ann.critics().len(), 1,
-            "expected exactly one critic hit, got {:?}", ann.critics(),
-        );
-        assert_eq!(ann.critics()[0].critic, CriticKind::OvercommitIntoDanger);
+        use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
+        let critic_mults: Vec<_> = ann.score_trace.multipliers.iter()
+            .filter(|m| matches!(m.kind, MultiplierKind::Critic))
+            .collect();
+        assert_eq!(critic_mults.len(), 1, "expected exactly one critic multiplier in trace");
+        if let Some(MultiplierDetail::Critic { critic, .. }) = &critic_mults[0].detail {
+            assert_eq!(*critic, CriticKind::OvercommitIntoDanger);
+        } else {
+            panic!("critic multiplier must carry Critic detail, got {:?}", critic_mults[0].detail);
+        }
     }
 
     // ── critics_survive_through_adaptation_path (B3 regression) ──────────
@@ -628,9 +634,11 @@ mod tests {
 
     #[test]
     fn plan_annotation_critics_default_empty() {
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
+        let ann = PlanAnnotation::default();
         assert!(
-            PlanAnnotation::default().critics().is_empty(),
-            "PlanAnnotation::default() must have an empty critics vec",
+            ann.score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Critic)),
+            "PlanAnnotation::default() must have no critic multipliers in trace",
         );
     }
 

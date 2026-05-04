@@ -54,7 +54,6 @@ pub use builder::{
 };
 
 use crate::combat::ai::scoring::factors::{PlanFactorValues, FactorTerminalScore};
-use crate::combat::ai::pipeline::stages::modifiers::ModifierContribution;
 use serde::{Deserialize, Serialize};
 
 // ── RejectReason ─────────────────────────────────────────────────────────────
@@ -264,24 +263,10 @@ pub struct PlanAnnotation {
     /// run yet or the gate did not apply to this intent.
     #[serde(default)]
     pub viability: ViabilityResult,
-    /// Step 7.1: sanity hits applied to this plan (rule + multiplier pairs).
-    /// Empty until SanityStage runs or when no rules fired.
-    ///
-    /// `pub(crate)`: written only via `apply_effect` in `pipeline::effects` drive-loop.
-    /// External consumers use the `sanity()` getter.
-    #[serde(default)]
-    pub(crate) sanity: Vec<crate::combat::ai::pipeline::stages::sanity::SanityHit>,
     /// Step 7.2: adaptation decision for this plan (was PlanRanking.adaptation.reasons[i]).
     /// `None` when no adaptation trigger fired for this plan.
     #[serde(default)]
     pub adaptation: Option<AdaptationData>,
-    /// Step 7.2: contract mask applied to this plan (ProtectSelf or KillableGate masking).
-    /// `None` when no mask applied.
-    ///
-    /// `pub(crate)`: written only via `apply_effect` in `pipeline::effects` drive-loop.
-    /// External consumers use the `contract()` getter.
-    #[serde(default)]
-    pub(crate) contract: Option<ContractMaskHit>,
     /// Step 7.4: final aggregated score for this plan after all pipeline stages.
     /// Default 0.0.
     ///
@@ -309,15 +294,6 @@ pub struct PlanAnnotation {
     /// `None` for non-chosen plans. Set by `PickBestStage`.
     #[serde(default)]
     pub pick: Option<PickInfo>,
-    /// Step 8.B: per-modifier additive contributions applied in PlanModifiersStage.
-    /// Empty until that stage runs; populated in canonical PLAN_MODIFIERS order
-    /// [summon_bonus, trade_bonus, repair_bonus]. Sum equals the score delta
-    /// produced by the stage. Pure observability — does not influence picking.
-    ///
-    /// `pub(crate)`: written only via `apply_effect` in `pipeline::effects` drive-loop.
-    /// External crates (bins) must not write directly — use the engine.
-    #[serde(default)]
-    pub(crate) modifiers: Vec<ModifierContribution>,
     /// Step 9.A: per-Cast-step effective AI tags (cache lookup with override applied).
     /// Length equals the number of Cast steps in the plan; Move steps contribute nothing.
     /// Diagnostic only — no consumer reads this in 9.A. Consumers come in 9.B.
@@ -325,16 +301,6 @@ pub struct PlanAnnotation {
     /// deserialise as an empty vec.
     #[serde(default)]
     pub effective_ai_tags: Vec<crate::combat::ai::world::tags::AbilityTagSet>,
-    /// Step 10.0: critic hits applied to this plan (critic + multiplier + reason triples).
-    /// Empty until CriticsStage runs or when no critics fired.
-    /// Schema-additive via `#[serde(default)]`; v30 logs without this field
-    /// deserialise as an empty vec.
-    ///
-    /// `pub(crate)`: written only via `apply_effect` in `pipeline::effects` drive-loop.
-    /// External consumers use the `critics()` getter.
-    #[serde(default)]
-    pub(crate) critics: Vec<crate::combat::ai::pipeline::stages::critics::CriticHit>,
-
     // ── Step 11.4/11.6 fields ─────────────────────────────────────────────────
 
     /// Score immediately after the initial `score_plans_with_raw` pass,
@@ -419,75 +385,6 @@ impl PlanAnnotation {
         self
     }
 
-    /// Read-only access to per-modifier contributions for external consumers
-    /// (e.g. `mine_ai_logs` bin). Writing is restricted to the drive-loop via
-    /// `apply_effect`.
-    pub fn modifiers(&self) -> &[crate::combat::ai::pipeline::stages::modifiers::ModifierContribution] {
-        &self.modifiers
-    }
-
-    /// Builder-style initialiser for test fixtures that need pre-populated
-    /// modifier contributions. Production code should never call this — use
-    /// the pipeline drive-loop instead.
-    pub fn with_modifiers(
-        mut self,
-        modifiers: Vec<crate::combat::ai::pipeline::stages::modifiers::ModifierContribution>,
-    ) -> Self {
-        self.modifiers = modifiers;
-        self
-    }
-
-    /// Read-only access to per-critic hits for external consumers
-    /// (e.g. replay / mining bins). Writing is restricted to the drive-loop via
-    /// `apply_effect`.
-    pub fn critics(&self) -> &[crate::combat::ai::pipeline::stages::critics::CriticHit] {
-        &self.critics
-    }
-
-    /// Builder-style initialiser for test fixtures that need pre-populated
-    /// critic hits. Production code should never call this — use the pipeline
-    /// drive-loop instead.
-    pub fn with_critics(
-        mut self,
-        critics: Vec<crate::combat::ai::pipeline::stages::critics::CriticHit>,
-    ) -> Self {
-        self.critics = critics;
-        self
-    }
-
-    /// Read-only access to per-sanity hits for external consumers
-    /// (e.g. replay / mining bins). Writing is restricted to the drive-loop via
-    /// `apply_effect`.
-    pub fn sanity(&self) -> &[crate::combat::ai::pipeline::stages::sanity::SanityHit] {
-        &self.sanity
-    }
-
-    /// Builder-style initialiser for test fixtures that need pre-populated
-    /// sanity hits. Production code should never call this — use the pipeline
-    /// drive-loop instead.
-    pub fn with_sanity(
-        mut self,
-        sanity: Vec<crate::combat::ai::pipeline::stages::sanity::SanityHit>,
-    ) -> Self {
-        self.sanity = sanity;
-        self
-    }
-
-    /// Read-only access to the contract mask hit for external consumers
-    /// (e.g. `mine_ai_logs` bin, tests). Writing is restricted to the drive-loop via
-    /// `apply_effect`.
-    pub fn contract(&self) -> Option<&ContractMaskHit> {
-        self.contract.as_ref()
-    }
-
-    /// Builder-style initialiser for test fixtures that need a pre-populated
-    /// contract mask hit. Production code should never call this — use the
-    /// pipeline drive-loop instead.
-    pub fn with_contract(mut self, contract: ContractMaskHit) -> Self {
-        self.contract = Some(contract);
-        self
-    }
-
     /// Read-only access to the accumulated score trace for external consumers
     /// (e.g. replay / mining bins, tests). Writing is restricted to the pipeline
     /// (`apply_effect`, `FinalizeStage`).
@@ -506,8 +403,7 @@ impl PlanAnnotation {
         self
     }
 
-    /// Apply one score effect: push hit into `score_trace`, push observability
-    /// into legacy field. Validates pairing — invalid combos panic.
+    /// Apply one score effect: push hit into `score_trace`. Validates pairing — invalid combos panic.
     ///
     /// Pairing rules:
     ///   - `Multiplier` ↔ `Sanity` | `Critic` | `None`
@@ -515,7 +411,10 @@ impl PlanAnnotation {
     ///   - `Mask` ↔ `Contract` | `None`
     ///   - `Gate` ↔ `None`
     ///
-    /// Sole writer of `score_trace` and legacy observability; called only by
+    /// `EffectObservation` is used as a derivation source (detail/original_score)
+    /// but is no longer stored in legacy fields (removed in TLE-3a).
+    ///
+    /// Sole writer of `score_trace`; called only by
     /// `pipeline::effects::apply_score_effect_stage`.
     pub(crate) fn apply_effect(
         &mut self,
@@ -594,15 +493,6 @@ impl PlanAnnotation {
             ScoreHit::Gate(h) => self.score_trace.push_gate(*h),
         }
 
-        // Push observability into legacy fields (unchanged for TLE-1; TLE-3 removes these).
-        if let Some(obs) = &effect.observability {
-            match obs {
-                EffectObservation::Modifier(c) => self.modifiers.push(c.clone()),
-                EffectObservation::Sanity(h) => self.sanity.push(h.clone()),
-                EffectObservation::Critic(h) => self.critics.push(h.clone()),
-                EffectObservation::Contract(h) => self.contract = Some(h.clone()),
-            }
-        }
     }
 
     /// Recompute cached `score` from `score_trace.compute()`. Called by the

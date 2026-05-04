@@ -165,7 +165,7 @@ mod tests {
 
         // ── 5. Assert ──
         assert_eq!(pool.annotations[0].score, 0.5, "score should be untouched for non-ProtectSelf intent");
-        assert!(pool.annotations[0].contract().is_none(), "no contract annotation expected");
+        assert!(pool.annotations[0].score_trace.masks.is_empty(), "no mask expected for non-ProtectSelf intent");
     }
 
     // ── mask writes contract annotation ───────────────────────────────────────
@@ -192,16 +192,20 @@ mod tests {
         h.run(|ctx| ProtectSelfMaskStage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
-        // plan 0: defensive → score unchanged, no annotation
+        // plan 0: defensive → score unchanged, no mask in trace
         assert!(pool.annotations[0].score.is_finite(), "defensive plan should not be masked");
-        assert!(pool.annotations[0].contract().is_none(), "no contract annotation for defensive plan");
+        assert!(pool.annotations[0].score_trace.masks.is_empty(), "no mask hit for defensive plan");
 
-        // plan 1: non-defensive → masked + annotation
+        // plan 1: non-defensive → masked in trace
         assert!(!pool.annotations[1].is_selectable(), "non-defensive plan should be masked");
-        let contract = pool.annotations[1].contract()
-            .expect("expected contract annotation for non-defensive plan");
-        assert_eq!(contract.mask, "protect_self".to_string());
-        assert_eq!(contract.original_score, 0.7_f32);
+        assert!(
+            pool.annotations[1].score_trace.masks.iter().any(|m| m.source == "protect_self"),
+            "expected protect_self MaskHit in score_trace for non-defensive plan"
+        );
+        // original_score carried via MaskHit.original_score (TLE-1 enrichment)
+        let mask_hit = pool.annotations[1].score_trace.masks.iter()
+            .find(|m| m.source == "protect_self").unwrap();
+        assert_eq!(mask_hit.original_score, Some(0.7_f32));
     }
 
     #[test]
@@ -226,7 +230,7 @@ mod tests {
 
         // ── 5. Assert ──
         for ann in &pool.annotations {
-            assert!(ann.contract().is_none(), "no contract annotation when all plans are defensive");
+            assert!(ann.score_trace.masks.is_empty(), "no mask hits when all plans are defensive");
         }
     }
 

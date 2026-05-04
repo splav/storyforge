@@ -346,7 +346,7 @@ pub struct PlanLogEntry<'a> {
     /// Empty when no sanity rules fired for this plan.
     /// v15 logs without this field deserialize via `#[serde(default)]`
     /// to an empty slice.
-    pub sanity_breakdown: &'a [SanityHit],
+    pub sanity_breakdown: Vec<SanityHit>,
     /// Per-step outcome annotations (step 4.5, schema v19). Each entry contains
     /// an `ActionOutcomeEstimate` for the corresponding plan step. v18 logs
     /// deserialize via `#[serde(default)]` → empty annotation.
@@ -501,7 +501,7 @@ pub fn plan_to_log_entry<'a>(
     evaluation_mode: &'a EvaluationMode,
     adaptation_reason: Option<&'a AdaptationReason>,
     trade: TradeBlock,
-    sanity_breakdown: &'a [SanityHit],
+    sanity_breakdown: Vec<SanityHit>,
 ) -> PlanLogEntry<'a> {
     PlanLogEntry {
         rank,
@@ -1642,25 +1642,14 @@ mod tests {
         assert_eq!(parsed.actor_id, event.actor_id);
     }
 
-    /// A `PlanAnnotation` serialised without the `modifiers` field (i.e. a v29
-    /// log entry written before step 8.B landed) must deserialise successfully
-    /// and yield an empty `modifiers` Vec.
-    ///
-    /// This pins the `#[serde(default)]` on `PlanAnnotation.modifiers` — if
-    /// someone accidentally removes the attribute, this test will fail.
+    /// v29/v32/v33 logs contain legacy fields (`modifiers`, `sanity`, `critics`, `contract`)
+    /// that are absent from TLE-3a structs. Serde ignore-unknown ensures backward compat.
     #[test]
-    fn actor_tick_v29_loaded_without_modifiers_field_yields_empty_vec() {
-        // Minimal PlanAnnotation JSON that has no `modifiers` key.
-        // All other optional fields are also omitted — their `#[serde(default)]`
-        // attributes handle that.
-        let json = r#"{"score": 1.5}"#;
+    fn annotation_with_legacy_fields_deserialises_via_ignore_unknown() {
+        // JSON that includes fields removed in TLE-3a. Serde must silently ignore them.
+        let json = r#"{"score": 1.5, "modifiers": [], "sanity": [], "critics": [], "contract": null}"#;
         let ann: crate::combat::ai::outcome::PlanAnnotation =
-            serde_json::from_str(json).expect("PlanAnnotation without modifiers must parse");
-        assert!(
-            ann.modifiers.is_empty(),
-            "modifiers must default to empty Vec when absent from JSON, got: {:?}",
-            ann.modifiers
-        );
+            serde_json::from_str(json).expect("PlanAnnotation with legacy fields must parse");
         assert!(
             (ann.score - 1.5_f32).abs() < 1e-6,
             "score must be preserved: {}",

@@ -137,18 +137,26 @@ mod tests {
         h.run(|ctx| stage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
+        use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
         let ann = &pool.annotations[0];
-        assert_eq!(ann.critics().len(), 1, "critic must fire: RANGED with no LoS to enemy");
-        let hit = &ann.critics()[0];
-        assert_eq!(hit.critic, CriticKind::BlindspotRanged);
+        let critic_hits: Vec<_> = ann.score_trace.multipliers.iter()
+            .filter(|m| matches!(m.kind, MultiplierKind::Critic))
+            .collect();
+        assert_eq!(critic_hits.len(), 1, "critic must fire: RANGED with no LoS to enemy");
+        let hit = critic_hits[0];
         assert!(
-            (hit.multiplier - BLINDSPOT_MULTIPLIER).abs() < 1e-6,
-            "multiplier must be {BLINDSPOT_MULTIPLIER}, got {}", hit.multiplier
+            (hit.value - BLINDSPOT_MULTIPLIER).abs() < 1e-6,
+            "multiplier must be {BLINDSPOT_MULTIPLIER}, got {}", hit.value
         );
-        if let CriticReason::BlindspotRanged { enemies_visible } = hit.reason {
-            assert_eq!(enemies_visible, 0);
+        if let Some(MultiplierDetail::Critic { critic, reason }) = &hit.detail {
+            assert_eq!(*critic, CriticKind::BlindspotRanged);
+            if let CriticReason::BlindspotRanged { enemies_visible } = reason {
+                assert_eq!(*enemies_visible, 0);
+            } else {
+                panic!("expected BlindspotRanged reason, got {:?}", reason);
+            }
         } else {
-            panic!("expected BlindspotRanged reason, got {:?}", hit.reason);
+            panic!("critic multiplier must carry Critic detail, got {:?}", hit.detail);
         }
     }
 
@@ -183,8 +191,9 @@ mod tests {
         h.run(|ctx| stage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
         assert!(
-            pool.annotations[0].critics().is_empty(),
+            pool.annotations[0].score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Critic)),
             "critic must not fire: RANGED with clear LoS to enemy"
         );
     }
@@ -221,8 +230,9 @@ mod tests {
         h1.run(|ctx| stage.apply(&mut pool1, ctx));
 
         // ── 5. Assert ──
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
         assert!(
-            pool1.annotations[0].critics().is_empty(),
+            pool1.annotations[0].score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Critic)),
             "non-RANGED actor must not trigger blindspot critic"
         );
 
@@ -247,7 +257,7 @@ mod tests {
 
         // ── 5. Assert ──
         assert!(
-            pool2.annotations[0].critics().is_empty(),
+            pool2.annotations[0].score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Critic)),
             "RANGED actor with no enemies must not trigger blindspot critic"
         );
     }

@@ -264,9 +264,8 @@ mod tests {
         // ── 5. Assert ──
         for ann in &pool.annotations {
             assert!(
-                ann.sanity.is_empty(),
-                "expected no sanity hits for healthy actor in safe tile, got {:?}",
-                ann.sanity,
+                ann.score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Sanity)),
+                "expected no sanity multipliers in trace for healthy actor in safe tile",
             );
         }
     }
@@ -302,9 +301,8 @@ mod tests {
         // trigger in this solo-actor scenario.
         for ann in &pool.annotations {
             assert!(
-                ann.sanity.is_empty(),
-                "no sanity hits expected for low-HP actor in danger tile (Survival is now a critic), got {:?}",
-                ann.sanity,
+                ann.score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Sanity)),
+                "no sanity multipliers expected for low-HP actor in danger tile (Survival is now a critic)",
             );
         }
     }
@@ -468,32 +466,16 @@ mod tests {
 
         // ── 5. Assert ──
         for (i, ann) in pool.annotations.iter().enumerate() {
-            // 1-to-1: multipliers vec and sanity vec must have the same length.
-            assert_eq!(
-                ann.score_trace.multipliers.len(),
-                ann.sanity.len(),
-                "plan[{i}]: trace.multipliers.len()={} != sanity.len()={}",
-                ann.score_trace.multipliers.len(),
-                ann.sanity.len(),
-            );
-            // Each multiplier hit must have kind=Sanity and match the sanity value.
-            for (j, (mhit, shit)) in ann
-                .score_trace
-                .multipliers
-                .iter()
-                .zip(ann.sanity.iter())
-                .enumerate()
-            {
+            // Every multiplier hit must have kind=Sanity and detail present.
+            for (j, mhit) in ann.score_trace.multipliers.iter().enumerate() {
                 assert_eq!(
                     mhit.kind,
                     MultiplierKind::Sanity,
                     "plan[{i}] multiplier[{j}]: expected kind=Sanity",
                 );
                 assert!(
-                    (mhit.value - shit.multiplier).abs() < 1e-6,
-                    "plan[{i}] multiplier[{j}]: value={} != sanity.multiplier={}",
-                    mhit.value,
-                    shit.multiplier,
+                    mhit.detail.is_some(),
+                    "plan[{i}] multiplier[{j}]: Sanity hit must carry detail (TLE-1 invariant)",
                 );
             }
             // compute() == ann.score.
@@ -587,7 +569,7 @@ mod tests {
         h.run(|ctx| SanityStage.apply(&mut pool, ctx));
 
         // ── 5. Assert ──
-        // plan[0]: mask flag stays, sanity hits empty (sanity_adjust_plans skips
+        // plan[0]: mask flag stays, sanity multipliers empty (sanity_adjust_plans skips
         // plans with !score.is_finite() in its throwaway scores buffer).
         let masked = &pool.annotations[0];
         assert!(
@@ -596,8 +578,8 @@ mod tests {
         );
         assert!(!masked.is_selectable(), "masked plan must not be selectable");
         assert!(
-            masked.sanity.is_empty(),
-            "masked plan must have no sanity hits, got {:?}", masked.sanity,
+            masked.score_trace.multipliers.is_empty(),
+            "masked plan must have no sanity multipliers in trace",
         );
         // score is finite after Step 3 (recompute_score_from_trace uses finite compute())
         assert!(
