@@ -385,18 +385,87 @@ impl Aggregate {
         }
 
         // E1: modifier contributions — walk all plans in pool.
+        // Primary: score_trace_log.addends (v33+ logs, TLE-1+).
+        // Fallback: annotation.modifiers() for v32/v33 logs without trace.
         for plan in &event.plans {
-            if !plan.annotation.modifiers().is_empty() {
-                self.e1_total_modifier_entries += 1;
-            }
-            for mc in plan.annotation.modifiers() {
-                if mc.contribution.abs() > f32::EPSILON {
-                    match mc.name.as_str() {
-                        "summon_bonus" => self.e1_summon_bonus.push(mc.contribution),
-                        "trade_bonus"  => self.e1_trade_bonus.push(mc.contribution),
-                        "repair_bonus" => self.e1_repair_bonus.push(mc.contribution),
-                        _ => {}
+            if let Some(trace) = &plan.annotation.score_trace_log {
+                // Primary path: enriched trace.
+                if !trace.addends.is_empty() {
+                    self.e1_total_modifier_entries += 1;
+                }
+                for addend in &trace.addends {
+                    if addend.value.abs() > f32::EPSILON {
+                        match addend.name.as_str() {
+                            "summon_bonus" => self.e1_summon_bonus.push(addend.value),
+                            "trade_bonus"  => self.e1_trade_bonus.push(addend.value),
+                            "repair_bonus" => self.e1_repair_bonus.push(addend.value),
+                            _ => {}
+                        }
                     }
+                }
+            } else {
+                // Fallback: v32 logs without score_trace_log — read legacy.
+                // After TLE-3 (legacy fields removed from JSONL), this branch is dead.
+                if !plan.annotation.modifiers().is_empty() {
+                    self.e1_total_modifier_entries += 1;
+                }
+                for mc in plan.annotation.modifiers() {
+                    if mc.contribution.abs() > f32::EPSILON {
+                        match mc.name.as_str() {
+                            "summon_bonus" => self.e1_summon_bonus.push(mc.contribution),
+                            "trade_bonus"  => self.e1_trade_bonus.push(mc.contribution),
+                            "repair_bonus" => self.e1_repair_bonus.push(mc.contribution),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        // Shadow-compare invariant: when both trace and legacy channels are populated,
+        // their counts must agree. Fires only in debug builds; runs only when both sides
+        // are non-empty (trace absent or legacy absent → fallback chain, not a mismatch).
+        // After TLE-3 (legacy removed from JSONL), this assert naturally disappears.
+        #[cfg(debug_assertions)]
+        for plan in &event.plans {
+            use storyforge::combat::ai::pipeline::score_trace::MultiplierKind;
+            if let Some(trace) = &plan.annotation.score_trace_log {
+                let trace_addends = trace.addends.len();
+                let legacy_modifiers = plan.annotation.modifiers().len();
+                if trace_addends > 0 && legacy_modifiers > 0 {
+                    debug_assert_eq!(
+                        trace_addends, legacy_modifiers,
+                        "shadow-compare: trace.addends.len()={} vs legacy modifiers.len()={}",
+                        trace_addends, legacy_modifiers
+                    );
+                }
+
+                let trace_critic_mults = trace
+                    .multipliers
+                    .iter()
+                    .filter(|m| matches!(m.kind, MultiplierKind::Critic))
+                    .count();
+                let legacy_critics = plan.annotation.critics().len();
+                if trace_critic_mults > 0 && legacy_critics > 0 {
+                    debug_assert_eq!(
+                        trace_critic_mults, legacy_critics,
+                        "shadow-compare: trace Critic multipliers={} vs legacy critics.len()={}",
+                        trace_critic_mults, legacy_critics
+                    );
+                }
+
+                let trace_sanity_mults = trace
+                    .multipliers
+                    .iter()
+                    .filter(|m| matches!(m.kind, MultiplierKind::Sanity))
+                    .count();
+                let legacy_sanity = plan.annotation.sanity().len();
+                if trace_sanity_mults > 0 && legacy_sanity > 0 {
+                    debug_assert_eq!(
+                        trace_sanity_mults, legacy_sanity,
+                        "shadow-compare: trace Sanity multipliers={} vs legacy sanity.len()={}",
+                        trace_sanity_mults, legacy_sanity
+                    );
                 }
             }
         }
@@ -426,13 +495,50 @@ impl Aggregate {
 
             // G1 (chosen-plan stats): for each critic that fired, increment
             // the hit count and record the multiplier.
+            // Primary: score_trace_log Critic multipliers (TLE-1+, detail present).
+            // Fallback: annotation.critics() for older logs.
             let mut overcommit_in_chosen = false;
-            for hit in chosen.annotation.critics() {
-                let key = format!("{:?}", hit.critic);
-                *self.g1_critic_hit_counts.entry(key.clone()).or_default() += 1;
-                self.g1_critic_multipliers.entry(key.clone()).or_default().push(hit.multiplier);
-                if key == "OvercommitIntoDanger" {
-                    overcommit_in_chosen = true;
+            {
+                use storyforge::combat::ai::pipeline::score_trace::{
+                    MultiplierKind, MultiplierDetail,
+                };
+                let used_trace = if let Some(trace) = &chosen.annotation.score_trace_log {
+                    // Check whether we have at least one Critic multiplier with detail.
+                    let has_detailed_critic = trace.multipliers.iter().any(|m| {
+                        matches!(m.kind, MultiplierKind::Critic) && m.detail.is_some()
+                    });
+                    if has_detailed_critic {
+                        for mh in &trace.multipliers {
+                            if !matches!(mh.kind, MultiplierKind::Critic) { continue; }
+                            let Some(detail) = &mh.detail else { continue; };
+                            let critic_key = match detail {
+                                MultiplierDetail::Critic { critic, .. } => format!("{:?}", critic),
+                                _ => continue,
+                            };
+                            *self.g1_critic_hit_counts.entry(critic_key.clone()).or_default() += 1;
+                            self.g1_critic_multipliers.entry(critic_key.clone()).or_default().push(mh.value);
+                            if critic_key == "OvercommitIntoDanger" {
+                                overcommit_in_chosen = true;
+                            }
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                // Fallback: v32 / older v33 logs without Critic detail — read legacy.
+                // After TLE-3 (legacy fields removed from JSONL), this branch is dead.
+                if !used_trace {
+                    for hit in chosen.annotation.critics() {
+                        let key = format!("{:?}", hit.critic);
+                        *self.g1_critic_hit_counts.entry(key.clone()).or_default() += 1;
+                        self.g1_critic_multipliers.entry(key.clone()).or_default().push(hit.multiplier);
+                        if key == "OvercommitIntoDanger" {
+                            overcommit_in_chosen = true;
+                        }
+                    }
                 }
             }
 

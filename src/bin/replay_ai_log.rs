@@ -816,7 +816,7 @@ fn print_event_plans(event: &ActorTickEvent) {
 
 /// Print `score_trace_log` breakdown for the chosen plan (verbose mode, P3b).
 fn print_score_trace_breakdown(plan: &LoggedPlan) {
-    use storyforge::combat::ai::pipeline::score_trace::{GateOutcome, MaskKind};
+    use storyforge::combat::ai::pipeline::score_trace::{GateOutcome, MaskKind, MultiplierDetail};
 
     let Some(trace) = &plan.annotation.score_trace_log else {
         println!("        score_trace: (not present — v32 log or trace not populated)");
@@ -828,13 +828,24 @@ fn print_score_trace_breakdown(plan: &LoggedPlan) {
         println!("          rescore_mode  = {mode:?}");
     }
     for m in &trace.multipliers {
-        println!("          multiplier    {:?}  × {:.4}", m.kind, m.value);
+        // Enrich with detail when available (TLE-1+).
+        let detail_str = match &m.detail {
+            Some(MultiplierDetail::Sanity { rule }) => format!("[{rule:?}]"),
+            Some(MultiplierDetail::Critic { critic, .. }) => format!("[{critic:?}]"),
+            None => String::new(),
+        };
+        println!("          multiplier    {:?}{}  × {:.4}", m.kind, detail_str, m.value);
     }
     for a in &trace.addends {
         println!("          addend        {:<20} {:+.4}", a.name, a.value);
     }
     for m in &trace.masks {
-        println!("          mask          {:?}  source={}", m.kind, m.source);
+        // Show original_score when available (TLE-1+).
+        let orig_str = m
+            .original_score
+            .map(|s| format!(" (was {:+.4})", s))
+            .unwrap_or_default();
+        println!("          mask          {:?}  source={}{}", m.kind, m.source, orig_str);
     }
     for g in &trace.gates {
         println!("          gate          {:?}  source={}", g.outcome, g.source);
