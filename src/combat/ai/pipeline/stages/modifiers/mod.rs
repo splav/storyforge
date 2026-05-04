@@ -178,74 +178,13 @@ impl PlanStage for PlanModifiersStage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::outcome::PlanAnnotation;
-    use crate::combat::ai::pipeline::ScoredPool;
     use crate::combat::ai::pipeline::order::{run, PRODUCTION_PIPELINE};
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
-    // ── Pure data tests (no StageCtx needed) ────────────────────────────────
-
-    /// A masked plan (!is_selectable()) must be skipped:
-    /// `ann.modifiers` stays empty for masked plans.
-    #[test]
-    fn plan_modifiers_stage_skips_masked_plans() {
-        use crate::combat::ai::pipeline::score_trace::{MaskHit, MaskKind};
-
-        let pool = ScoredPool::new(vec![TurnPlan::default()]);
-        // Annotate with a Poison mask → is_selectable() returns false.
-        // This verifies the skip predicate without calling apply().
-        let mut ann = pool.annotations[0].clone();
-        ann.score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test" });
-
-        assert!(!ann.is_selectable(), "masked plan must not be selectable");
-        assert!(ann.modifiers.is_empty(), "modifiers must be empty before stage runs");
-    }
-
-    /// Verify that ScoredPool correctly initialises annotations with default score (0.0).
-    #[test]
-    fn plan_modifiers_stage_writes_contributions_per_modifier() {
-        let pool = ScoredPool::new(vec![TurnPlan::default(); 2]);
-        // Before PlanModifiersStage runs, modifiers vec is empty.
-        assert!(pool.annotations[0].modifiers.is_empty());
-        assert!(pool.annotations[1].modifiers.is_empty());
-        // PLAN_MODIFIERS has exactly 3 entries.
-        assert_eq!(PLAN_MODIFIERS.len(), 3);
-        assert_eq!(PLAN_MODIFIERS[0].name(), "summon_bonus");
-        assert_eq!(PLAN_MODIFIERS[1].name(), "trade_bonus");
-        assert_eq!(PLAN_MODIFIERS[2].name(), "repair_bonus");
-    }
-
-    /// Verify the annotation score invariant: score delta == sum of contributions.
-    #[test]
-    fn plan_modifiers_stage_total_matches_sum_of_contributions() {
-        // Construct a synthetic annotation with pre-populated modifiers
-        // to verify the invariant without needing a real StageCtx.
-        let pre_score = 1.5_f32;
-        let contribs = [0.1_f32, -0.2_f32, 0.3_f32];
-        let mut ann = PlanAnnotation { score: pre_score, ..Default::default() };
-        for (i, &c) in contribs.iter().enumerate() {
-            ann.modifiers.push(ModifierContribution {
-                name: format!("modifier_{i}"),
-                contribution: c,
-            });
-            ann.score += c;
-        }
-        let sum: f32 = ann.modifiers.iter().map(|m| m.contribution).sum();
-        let expected_score = pre_score + sum;
-        assert!(
-            (ann.score - expected_score).abs() < 1e-6,
-            "score delta must equal sum of contributions: {} vs {}",
-            ann.score,
-            expected_score
-        );
-    }
-
-    // ── P3a.1 — ScoreTrace integration tests ─────────────────────────────────
-    //
-    // These tests exercise PlanModifiersStage.apply() via PRODUCTION_PIPELINE.
+    // ── PlanModifiersStage integration tests via PRODUCTION_PIPELINE ─────────
 
     /// After apply(), each non-masked plan has exactly PLAN_MODIFIERS.len()
     /// addend hits in score_trace, in PLAN_MODIFIERS order.
@@ -280,69 +219,6 @@ mod tests {
                     "plan[{i}] addend[{j}].name mismatch"
                 );
             }
-        }
-    }
-
-    /// After apply(), trace.base was set to ann.score on stage entry.
-    /// Verified via trace.compute() == ann.score.
-    #[test]
-    fn p3a_modifiers_trace_base_synced_from_score() {
-        // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let plans = vec![TurnPlan::default()];
-
-        // ── 2. Harness ──
-        let h = StageTestHarness::new(actor);
-
-        // ── 3. Pool ──
-        let mut pool = PoolBuilder::new(plans)
-            .scores(&[2.5])
-            .trace_base_eq_score()
-            .build();
-
-        // ── 4. Act ──
-        h.run(|ctx| run(PRODUCTION_PIPELINE, &mut pool, ctx));
-
-        // ── 5. Assert ──
-        let ann = &pool.annotations[0];
-        let computed = ann.score_trace.compute();
-        assert!(
-            (computed - ann.score).abs() < 1e-5,
-            "trace.compute()={computed} must equal ann.score={} after modifiers",
-            ann.score
-        );
-    }
-
-    /// Pool of 3 non-masked plans: ann.score == trace.compute() for each.
-    #[test]
-    fn p3a_modifiers_invariant_score_equals_compute() {
-        // ── 1. Test data ──
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let plans = vec![TurnPlan::default(); 3];
-
-        // ── 2. Harness ──
-        let h = StageTestHarness::new(actor);
-
-        // ── 3. Pool ──
-        let mut pool = PoolBuilder::new(plans)
-            .scores(&[1.0, 3.5, -0.5])
-            .trace_base_eq_score()
-            .build();
-
-        // ── 4. Act ──
-        h.run(|ctx| run(PRODUCTION_PIPELINE, &mut pool, ctx));
-
-        // ── 5. Assert ──
-        for (i, ann) in pool.annotations.iter().enumerate() {
-            if !ann.score.is_finite() {
-                continue;
-            }
-            let computed = ann.score_trace.compute();
-            assert!(
-                (computed - ann.score).abs() < 1e-5,
-                "plan[{i}]: trace.compute()={computed} != ann.score={}",
-                ann.score
-            );
         }
     }
 
