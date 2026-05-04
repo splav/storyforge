@@ -548,15 +548,53 @@ impl PlanAnnotation {
             ),
         }
 
-        // Push hit into score_trace.
+        // Push hit into score_trace, deriving enriched detail from the paired observation.
+        use crate::combat::ai::pipeline::score_trace::{MaskHit, MultiplierDetail, MultiplierHit, MultiplierKind};
         match &effect.hit {
-            ScoreHit::Multiplier(h) => self.score_trace.push_multiplier(*h),
+            ScoreHit::Multiplier(h) => {
+                // Derive detail from paired observation; pairing already validated above.
+                let detail = match &effect.observability {
+                    Some(EffectObservation::Sanity(s)) => {
+                        Some(MultiplierDetail::Sanity { rule: s.rule })
+                    }
+                    Some(EffectObservation::Critic(c)) => {
+                        Some(MultiplierDetail::Critic {
+                            critic: c.critic,
+                            reason: c.reason.clone(),
+                        })
+                    }
+                    _ => None,
+                };
+                // TLE-1 invariant: Sanity/Critic multiplier MUST carry detail.
+                // Phase 4 / TLE-3 type-enforces via sum-type.
+                debug_assert!(
+                    !matches!(h.kind, MultiplierKind::Sanity | MultiplierKind::Critic)
+                        || detail.is_some(),
+                    "Multiplier kind={:?} must carry detail (paired observation required)",
+                    h.kind,
+                );
+                self.score_trace.push_multiplier(MultiplierHit {
+                    kind: h.kind,
+                    value: h.value,
+                    detail,
+                });
+            }
             ScoreHit::Addend(h) => self.score_trace.push_addend(*h),
-            ScoreHit::Mask(h) => self.score_trace.push_mask(*h),
+            ScoreHit::Mask(h) => {
+                let original_score = match &effect.observability {
+                    Some(EffectObservation::Contract(c)) => Some(c.original_score),
+                    _ => None,
+                };
+                self.score_trace.push_mask(MaskHit {
+                    kind: h.kind,
+                    source: h.source,
+                    original_score,
+                });
+            }
             ScoreHit::Gate(h) => self.score_trace.push_gate(*h),
         }
 
-        // Push observability into legacy field.
+        // Push observability into legacy fields (unchanged for TLE-1; TLE-3 removes these).
         if let Some(obs) = &effect.observability {
             match obs {
                 EffectObservation::Modifier(c) => self.modifiers.push(c.clone()),
@@ -747,7 +785,7 @@ mod tests {
         ann.apply_effect(&AppliedEffect {
             source: StageId::ProtectSelfMask,
             plan_index: 0,
-            hit: ScoreHit::Mask(MaskHit { kind: MaskKind::Poison, source: "protect_self" }),
+            hit: ScoreHit::Mask(MaskHit { kind: MaskKind::Poison, source: "protect_self", original_score: None }),
             observability: None,
         });
         assert!(!ann.is_selectable(), "masked plan is not selectable");
@@ -782,7 +820,7 @@ mod tests {
         ann.apply_effect(&AppliedEffect {
             source: StageId::Sanity,
             plan_index: 0,
-            hit: ScoreHit::Multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.8 }),
+            hit: ScoreHit::Multiplier(MultiplierHit { kind: MultiplierKind::Sanity, value: 0.8, detail: None }),
             observability: Some(EffectObservation::Sanity(SanityHit {
                 rule: SanityRule::HealerExposure,
                 multiplier: 0.8,

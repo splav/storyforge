@@ -94,6 +94,7 @@ impl ScoreEffectStage for SanityStage {
                     hit: ScoreHit::Multiplier(MultiplierHit {
                         kind: MultiplierKind::Sanity,
                         value: multiplier,
+                        detail: None,
                     }),
                     observability: Some(EffectObservation::Sanity(hit)),
                 });
@@ -571,7 +572,7 @@ mod tests {
         let mut pool = PoolBuilder::new(plans)
             .customize(|anns| {
                 // Mask plan[0] through trace — is_selectable() returns false.
-                anns[0].score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test" });
+                anns[0].score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test", original_score: None });
                 // Set score to NEG_INFINITY so the throwaway-scores vec in
                 // sanity_adjust_plans still skips it via !is_finite() (sanity
                 // internal skip — not changed in Step 3).

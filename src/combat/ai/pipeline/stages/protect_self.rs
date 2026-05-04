@@ -99,6 +99,7 @@ impl ScoreEffectStage for ProtectSelfMaskStage {
                     hit: ScoreHit::Mask(MaskHit {
                         kind: MaskKind::Poison,
                         source: "protect_self",
+                        original_score: None,
                     }),
                     observability: Some(EffectObservation::Contract(ContractMaskHit {
                         mask: "protect_self".into(),

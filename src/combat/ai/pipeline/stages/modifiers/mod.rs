@@ -245,7 +245,7 @@ mod tests {
         //    This mirrors the post-ProtectSelfMaskStage / KillableGateStage state.
         let mut pool = PoolBuilder::new(plans)
             .customize(|anns| {
-                anns[0].score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test" });
+                anns[0].score_trace.push_mask(MaskHit { kind: MaskKind::Poison, source: "test", original_score: None });
             })
             .build();
 

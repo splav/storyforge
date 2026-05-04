@@ -272,6 +272,7 @@ mod tests {
                 anns[0].score_trace.push_multiplier(MultiplierHit {
                     kind: MultiplierKind::Sanity,
                     value: 0.5,
+                    detail: None,
                 });
             })
             .build();

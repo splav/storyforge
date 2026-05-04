@@ -198,6 +198,7 @@ impl ScoreEffectStage for CriticsStage {
                         hit: ScoreHit::Multiplier(MultiplierHit {
                             kind: MultiplierKind::Critic,
                             value: hit.multiplier,
+                            detail: None,
                         }),
                         observability: Some(EffectObservation::Critic(hit)),
                     });

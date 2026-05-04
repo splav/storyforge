@@ -241,6 +241,7 @@ mod tests {
                     hit: ScoreHit::Multiplier(MultiplierHit {
                         kind: MultiplierKind::Sanity,
                         value: 0.5,
+                        detail: None,
                     }),
                     observability: Some(EffectObservation::Sanity(SanityHit {
                         rule: SanityRule::HealerExposure,
@@ -276,7 +277,7 @@ mod tests {
                 id: StageId::ProtectSelfMask,
                 effects: vec![EmittedEffect {
                     plan_index: 0,
-                    hit: ScoreHit::Mask(MaskHit { kind: MaskKind::Poison, source: "test" }),
+                    hit: ScoreHit::Mask(MaskHit { kind: MaskKind::Poison, source: "test", original_score: None }),
                     observability: None,
                 }],
             };
@@ -312,6 +313,7 @@ mod tests {
                         hit: ScoreHit::Mask(MaskHit {
                             kind: MaskKind::Poison,
                             source: "test_stage",
+                            original_score: None,
                         }),
                         observability: None,
                     },
