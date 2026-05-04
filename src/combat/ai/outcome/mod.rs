@@ -221,6 +221,27 @@ impl Default for ViabilityResult {
 
 /// Per-plan annotation bundle. Grows as pipeline stages accrue data
 /// (outcome in wave 1; critics / band / agenda in later waves).
+///
+/// # Score-effect observability invariant (Phase 2 / Phase 3)
+///
+/// Score-effect fields (`score`, `score_trace`, `modifiers`, `sanity`,
+/// `critics`, `contract`) are written **exclusively** by the drive-loop in
+/// `pipeline::effects::apply_score_effect_stage` via [`Self::apply_effect`]
+/// and [`Self::recompute_score_from_trace`]. Stages do not mutate these
+/// fields directly; they emit `EmittedEffect` values that the drive-loop
+/// applies atomically.
+///
+/// As a consequence, the `modifiers` / `sanity` / `critics` / `contract`
+/// legacy fields are **derived mirrors** of `score_trace`, not independent
+/// observability sources. They carry a slightly richer per-effect detail
+/// (e.g. `SanityRule`, `CriticReason`) which is why they are retained for
+/// mining and replay diagnostics; once `score_trace_log` is enriched to
+/// subsume that detail (see tech-debt § TLE / Phase 4), they become
+/// removable in a schema bump.
+///
+/// The pairing rules in [`Self::apply_effect`] enforce that every legacy
+/// observation is paired with the corresponding `ScoreHit` push, so the
+/// channels cannot drift.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PlanAnnotation {
     /// One ActionOutcomeEstimate per plan step, same length as TurnPlan.steps
