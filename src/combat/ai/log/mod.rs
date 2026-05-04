@@ -179,7 +179,10 @@ use crate::game::hex::Hex;
 /// `IntentBlock` gains `evaluation_mode_reason` (schema-additive).
 /// `TacticalIntent::LastStand` removed — was never emitted by `select_intent`.
 /// `IntentReason::Adapted` removed — replaced by parallel `evaluation_mode_reason` field.
-pub const SCHEMA_VERSION: u32 = 34;
+/// v35: `ActorTickEvent` and `ActorTickInput` gain `chosen_intent: Option<TacticalIntent>`
+/// (step 11 / mining C6). Schema-additive: v34 and v33 logs without this field
+/// deserialise as `None` via `#[serde(default)]`.
+pub const SCHEMA_VERSION: u32 = 35;
 
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
@@ -976,6 +979,16 @@ pub struct ActorTickEvent {
     /// this field decodes as `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evaluation_mode_reason: Option<crate::combat::ai::adapt::AdaptationReason>,
+    /// v35 (schema v35): `TacticalIntent` selected by `pick_action` for the chosen plan.
+    /// Populated on the full path; `None` on skip-path.
+    ///
+    /// Used by mining step C6 (`approximate_fresh_intent` tier 1) to avoid the
+    /// heuristic Move/EndTurn→Reposition false-positive that was the root cause of
+    /// ~50 spurious voluntary-abandon classifications per corpus run.
+    ///
+    /// Schema-additive: v34 and v33 logs without this field deserialise as `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chosen_intent: Option<crate::combat::ai::intent::TacticalIntent>,
     /// Step 11.6 (schema v32): priority band assigned to the actor this tick.
     /// `None` on skip-path (no AP/MP — band was not computed).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1012,6 +1025,9 @@ pub struct ActorTickInput<'a> {
     /// P7: adaptation reason from `PickResult.evaluation_mode_reason`; `None` on
     /// skip-path or when no adaptation fired for the chosen plan.
     pub evaluation_mode_reason: Option<&'a crate::combat::ai::adapt::AdaptationReason>,
+    /// v35: `TacticalIntent` selected by `pick_action`; `None` on skip-path.
+    /// Copied verbatim into `ActorTickEvent.chosen_intent` for mining C6.
+    pub chosen_intent: Option<crate::combat::ai::intent::TacticalIntent>,
     pub debug_names: &'a std::collections::HashMap<Entity, String>,
     /// Status tag cache for severity classification in `continuation` section.
     pub status_tags: &'a crate::combat::ai::world::tags::StatusTagCache,
@@ -1090,6 +1106,7 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
         decision,
         intent_reason: input.intent_reason.cloned(),
         evaluation_mode_reason: input.evaluation_mode_reason.cloned(),
+        chosen_intent: input.chosen_intent,
         continuation,
         band,
         band_reason,
@@ -1212,18 +1229,18 @@ struct SchemaHeader {
 /// Parse a single JSONL line as an [`ActorTickEvent`], rejecting old schemas
 /// with a clear error.
 ///
-/// v33 logs are schema-additive with v34: `evaluation_mode_reason` was added
-/// in v34 (P7) but all other fields are identical, so v33 logs parse
-/// successfully with `evaluation_mode_reason` defaulting to `None`.
+/// v33 and v34 logs are schema-additive with v35:
+/// - v34 lacks `chosen_intent` (added in v35) → decodes as `None`.
+/// - v33 lacks both `chosen_intent` and `evaluation_mode_reason` → both `None`.
 ///
 /// Returns `Err(LogError::UnsupportedSchema)` when the line carries a
 /// `schema_version` lower than 33. Tools should show this error to the user
 /// and ask for a fresh v33+ playtest.
 pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
     let header: SchemaHeader = serde_json::from_str(line)?;
-    // v33 is schema-additive with v34 (evaluation_mode_reason absent → None).
+    // v33 and v34 are schema-additive with v35 (new fields absent → None).
     // v32 and below are hard breaks (score_trace_log and earlier fields missing).
-    const MIN_SUPPORTED: u32 = SCHEMA_VERSION - 1; // = 33
+    const MIN_SUPPORTED: u32 = 33;
     if header.schema_version < MIN_SUPPORTED {
         return Err(LogError::UnsupportedSchema {
             found: header.schema_version,
@@ -1423,6 +1440,7 @@ mod tests {
             pool: None,
             intent_reason: None,
             evaluation_mode_reason: None,
+            chosen_intent: None,
             debug_names,
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
             band: None,
@@ -1493,6 +1511,7 @@ mod tests {
             pool: Some(&pool),
             intent_reason: Some(&test_reason),
             evaluation_mode_reason: None,
+            chosen_intent: None,
             debug_names: &debug_names,
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
             band: None,
@@ -1544,6 +1563,7 @@ mod tests {
             pool: Some(&pool),
             intent_reason: Some(&reason),
             evaluation_mode_reason: None,
+            chosen_intent: None,
             debug_names: &debug_names,
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
             band: None,
@@ -1566,8 +1586,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":27}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 34, .. })),
-            "v27 must produce UnsupportedSchema(found=27, required=34), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 35, .. })),
+            "v27 must produce UnsupportedSchema(found=27, required=35), got: {result:?}",
         );
     }
 
@@ -1577,8 +1597,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":26}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 34, .. })),
-            "v26 must produce UnsupportedSchema(found=26, required=34), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 35, .. })),
+            "v26 must produce UnsupportedSchema(found=26, required=35), got: {result:?}",
         );
     }
 
@@ -1588,8 +1608,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":28}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 34, .. })),
-            "v28 must produce UnsupportedSchema(found=28, required=34), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 35, .. })),
+            "v28 must produce UnsupportedSchema(found=28, required=35), got: {result:?}",
         );
     }
 
@@ -1599,8 +1619,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":29}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 34, .. })),
-            "v29 must produce UnsupportedSchema(found=29, required=34), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 35, .. })),
+            "v29 must produce UnsupportedSchema(found=29, required=35), got: {result:?}",
         );
     }
 
@@ -1610,8 +1630,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":30}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 34, .. })),
-            "v30 must produce UnsupportedSchema(found=30, required=34), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 35, .. })),
+            "v30 must produce UnsupportedSchema(found=30, required=35), got: {result:?}",
         );
     }
 
@@ -1621,8 +1641,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":31}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 34, .. })),
-            "v31 must produce UnsupportedSchema(found=31, required=34), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 35, .. })),
+            "v31 must produce UnsupportedSchema(found=31, required=35), got: {result:?}",
         );
     }
 
@@ -1712,6 +1732,7 @@ mod tests {
             pool: Some(&pool),
             intent_reason: Some(&reason),
             evaluation_mode_reason: None,
+            chosen_intent: None,
             debug_names: &debug_names,
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
             band: Some((band, band_reason)),
@@ -1770,8 +1791,8 @@ mod tests {
         }"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 32, required: 34, .. })),
-            "v32 must produce UnsupportedSchema(found=32, required=34), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 32, required: 35, .. })),
+            "v32 must produce UnsupportedSchema(found=32, required=35), got: {result:?}",
         );
     }
 
@@ -1812,6 +1833,6 @@ mod tests {
             panic!("expected UnsupportedSchema, got: {result:?}");
         };
         assert_eq!(found, 31);
-        assert_eq!(required, 34);
+        assert_eq!(required, 35);
     }
 }

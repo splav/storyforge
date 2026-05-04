@@ -48,13 +48,44 @@ use storyforge::combat::ai::repair::{
     classify_continuation_outcome, ContinuationOutcome, FreshDecisionKind, StoredGoalContext,
 };
 use storyforge::combat::ai::intent::{IntentKind, TacticalIntent};
-use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, StoredGoalContextSnapshot};
+use storyforge::combat::ai::log::{ActorTickEvent, AgendaItemLog, LoggedDecision, LoggedPlan, StoredGoalContextSnapshot};
 use storyforge::combat::ai::world::tags::AbilityTag;
 
 // ── Session actor key ─────────────────────────────────────────────────────────
 
 /// One session = one JSONL file (= one combat).
 type SessionActorKey = (String, u64); // (filename, actor_id)
+
+// ── IntentSource tier enum ────────────────────────────────────────────────────
+
+/// Source tier used to reconstruct `fresh_intent` in C6 analysis.
+///
+/// Tier ordering (1 = most precise):
+///   1. `ChosenIntentField`   — v35+ `chosen_intent` field present.
+///   2. `AgendaItemIndex`     — `chosen.annotation.agenda_item` points to a valid item.
+///   3. `AgendaZeroFallback`  — agenda non-empty, fall back to `agenda[0]`.
+///   4. `DecisionTargetMatch` — Cast/MoveAndCast: target entity matches stored goal.
+///   5. `Heuristic`           — all above unavailable; default to `Reposition`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum IntentSource {
+    ChosenIntentField,
+    AgendaItemIndex,
+    AgendaZeroFallback,
+    DecisionTargetMatch,
+    Heuristic,
+}
+
+impl IntentSource {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ChosenIntentField   => "ChosenIntentField (v35+)",
+            Self::AgendaItemIndex     => "AgendaItemIndex   (tier 2)",
+            Self::AgendaZeroFallback  => "AgendaZeroFallback (tier 3)",
+            Self::DecisionTargetMatch => "DecisionTargetMatch (tier 4)",
+            Self::Heuristic           => "Heuristic           (tier 5)",
+        }
+    }
+}
 
 // ── H3c bucket enum ───────────────────────────────────────────────────────────
 
@@ -112,6 +143,11 @@ struct Aggregate {
     cont_severity_counts: BTreeMap<String, usize>,
     cont_goal_kind_counts: BTreeMap<String, usize>,
     total_with_continuation: usize,
+    // Skip ticks where a stored goal was present — tracked separately from
+    // decision-bearing continuation ticks (actor had no AP/MP, goal stays).
+    cont_skip_with_stored: usize,
+    // Intent reconstruction tier coverage (mining quality).
+    intent_source_counts: BTreeMap<IntentSource, usize>,
 
     // Skip-path signals
     skip_total: usize,
@@ -328,6 +364,10 @@ impl Aggregate {
             self.skip_total += 1;
             if event.continuation.is_some() {
                 self.skip_with_stored_goal += 1;
+                // Track skip-with-stored separately from decision-bearing ticks.
+                // Do NOT call process_continuation here — skip ticks are not
+                // classified into preserved/abandoned; they get their own bucket.
+                self.cont_skip_with_stored += 1;
             }
             // B5: record skip tick for timeline
             let key: SessionActorKey = (session.to_owned(), event.actor_id);
@@ -335,8 +375,6 @@ impl Aggregate {
             let order = *counter;
             *counter += 1;
             self.actor_timelines.entry(key).or_default().push((order, decision_kind.to_owned()));
-            // C6 for skip path
-            self.process_continuation(event, FreshDecisionKind::EndTurn);
             return;
         }
 
@@ -806,8 +844,11 @@ impl Aggregate {
         // Reconstruct StoredGoalContext from the log snapshot for classify_continuation_outcome.
         let stored_goal = StoredGoalContext::from(&cont.stored_goal);
 
-        // Approximate the fresh TacticalIntent from decision + stored goal context.
-        let fresh_intent = approximate_fresh_intent(&event.decision, &cont.stored_goal);
+        // Approximate the fresh TacticalIntent — tier-aware reconstruction.
+        let chosen = event.plans.iter().find(|p| p.annotation.chosen);
+        let (fresh_intent, intent_source) =
+            approximate_fresh_intent(event, chosen, &cont.stored_goal);
+        *self.intent_source_counts.entry(intent_source).or_default() += 1;
 
         // fresh_reason: read from event.intent_reason (full structured reason).
         // None on skip-path; classify as NoRuleDefault (voluntary if goal abandoned).
@@ -980,21 +1021,85 @@ fn fresh_decision_kind(d: &LoggedDecision) -> FreshDecisionKind {
 /// Reactive-vs-voluntary classification reads `event.intent_reason` directly
 /// (full structured `IntentReason`), so the miner correctly distinguishes
 /// `GoalAbandonedReactive { source: ... }` from `GoalAbandonedVoluntary`.
+/// Build a `TacticalIntent` from an `AgendaItemLog` using `kind` + `target`.
+///
+/// `Entity::try_from_bits` converts `target` bits; falls back to a
+/// target-less intent variant when bits are invalid or absent.
+fn tactical_intent_from_agenda_item(item: &AgendaItemLog) -> TacticalIntent {
+    use bevy::prelude::Entity;
+    let target_entity = item.target.and_then(Entity::try_from_bits);
+    match item.kind {
+        IntentKind::FocusTarget => {
+            if let Some(t) = target_entity {
+                TacticalIntent::FocusTarget { target: t }
+            } else {
+                TacticalIntent::Reposition
+            }
+        }
+        IntentKind::ApplyCC => {
+            if let Some(t) = target_entity {
+                TacticalIntent::ApplyCC { target: t }
+            } else {
+                TacticalIntent::Reposition
+            }
+        }
+        IntentKind::ProtectAlly => {
+            if let Some(t) = target_entity {
+                TacticalIntent::ProtectAlly { ally: t }
+            } else {
+                TacticalIntent::Reposition
+            }
+        }
+        IntentKind::Reposition  => TacticalIntent::Reposition,
+        IntentKind::ProtectSelf => TacticalIntent::ProtectSelf,
+        IntentKind::SetupAOE    => TacticalIntent::SetupAOE,
+        IntentKind::LastStand   => TacticalIntent::Reposition, // LastStand has no TacticalIntent variant
+    }
+}
+
+/// Reconstruct the fresh `TacticalIntent` for a tick that has a stored goal,
+/// returning the intent together with the resolution tier used.
+///
+/// Tier order:
+///   1. `event.chosen_intent` (v35+ field) — most precise.
+///   2. `chosen.annotation.agenda_item` points to a valid `event.agenda` entry.
+///   3. `event.agenda` is non-empty → use `agenda[0]`.
+///   4. Cast/MoveAndCast: target matches stored goal entity (existing heuristic).
+///   5. Fallback → `Reposition` + `Heuristic`.
 fn approximate_fresh_intent(
-    decision: &LoggedDecision,
+    event: &ActorTickEvent,
+    chosen: Option<&LoggedPlan>,
     stored_goal: &StoredGoalContextSnapshot,
-) -> TacticalIntent {
+) -> (TacticalIntent, IntentSource) {
     use bevy::prelude::Entity;
 
-    let stored_target = stored_goal.target_id.and_then(Entity::try_from_bits);
+    // Tier 1: v35+ chosen_intent field.
+    if let Some(intent) = event.chosen_intent {
+        return (intent, IntentSource::ChosenIntentField);
+    }
 
-    match decision {
+    // Tier 2: chosen plan's agenda_item index → agenda entry.
+    if let Some(plan) = chosen {
+        if let Some(idx) = plan.annotation.agenda_item {
+            if let Some(item) = event.agenda.get(idx as usize) {
+                return (tactical_intent_from_agenda_item(item), IntentSource::AgendaItemIndex);
+            }
+        }
+    }
+
+    // Tier 3: agenda non-empty → use agenda[0].
+    if let Some(item) = event.agenda.first() {
+        return (tactical_intent_from_agenda_item(item), IntentSource::AgendaZeroFallback);
+    }
+
+    // Tier 4: Cast/MoveAndCast — existing target-match heuristic.
+    let stored_target = stored_goal.target_id.and_then(Entity::try_from_bits);
+    match &event.decision {
         LoggedDecision::Cast { target, .. } | LoggedDecision::MoveAndCast { target, .. } => {
             let Some(fresh) = Entity::try_from_bits(*target) else {
-                return TacticalIntent::Reposition;
+                return (TacticalIntent::Reposition, IntentSource::Heuristic);
             };
-            // If targeting the same entity as the stored goal, reproduce the stored intent kind.
-            if Some(fresh) == stored_target {
+            let intent = if Some(fresh) == stored_target {
                 match stored_goal.kind.as_str() {
                     "finish" | "pressure" => TacticalIntent::FocusTarget { target: fresh },
                     "disable_enemy" => TacticalIntent::ApplyCC { target: fresh },
@@ -1002,13 +1107,12 @@ fn approximate_fresh_intent(
                     _ => TacticalIntent::FocusTarget { target: fresh },
                 }
             } else {
-                // Targeting a different entity — classify as FocusTarget to that entity.
                 TacticalIntent::FocusTarget { target: fresh }
-            }
+            };
+            (intent, IntentSource::DecisionTargetMatch)
         }
-        LoggedDecision::Move { .. }
-        | LoggedDecision::EndTurn
-        | LoggedDecision::Skip { .. } => TacticalIntent::Reposition,
+        // Tier 5: Move/EndTurn/Skip with no agenda info → Reposition heuristic.
+        _ => (TacticalIntent::Reposition, IntentSource::Heuristic),
     }
 }
 
@@ -1317,32 +1421,42 @@ fn main() {
     // C6: Continuation analysis
     println!("## C6. Continuation analysis (derived via classify_continuation_outcome)");
     println!();
-    let n = agg.total_with_continuation;
+    // Primary denominator: decision-bearing ticks with stored goal (excludes skip).
+    let stored_subset = agg.cont_method_delivered
+        + agg.cont_in_transit
+        + agg.cont_abandoned_voluntary
+        + agg.cont_abandoned_invalidating
+        + agg.cont_abandoned_ttl_expired
+        + agg.cont_abandoned_reactive.values().sum::<usize>();
+    let n_total = agg.total_decisions;
     let cont_preserved_combined = agg.cont_method_delivered + agg.cont_in_transit;
     let cont_abandoned_reactive_total: usize = agg.cont_abandoned_reactive.values().sum();
-    println!("Total ticks analysed: {n}");
-    println!("  (outcome derived from raw log data — no pre-classified strings)");
-    println!("  (reactive vs voluntary derived from event.intent_reason — full structured.)");
+
+    println!("Total ticks analysed: {n_total}");
+    println!("Ticks with stored goal (excluding skip): {stored_subset}");
     println!();
-    if n == 0 {
-        println!("  (no ticks found)");
+
+    if stored_subset == 0 {
+        println!("  (no decision-bearing stored-goal ticks found)");
     } else {
+        println!("  ### Over decision-bearing stored-goal subset (n={stored_subset}, primary metric)");
+        println!();
         println!(
-            "  goal_preserved | method_delivered : {:>6.1}%  ({})  [target: >=10%]",
-            pct(agg.cont_method_delivered, n), agg.cont_method_delivered,
+            "  goal_preserved | method_delivered : {:>6.1}%  ({})  [target: >=20%]",
+            pct(agg.cont_method_delivered, stored_subset), agg.cont_method_delivered,
         );
         println!(
             "  goal_preserved | in_transit       : {:>6.1}%  ({})",
-            pct(agg.cont_in_transit, n), agg.cont_in_transit,
+            pct(agg.cont_in_transit, stored_subset), agg.cont_in_transit,
         );
         println!(
-            "  goal_preserved (combined)         : {:>6.1}%  ({})  [target: >=60%]",
-            pct(cont_preserved_combined, n), cont_preserved_combined,
+            "  goal_preserved (combined)         : {:>6.1}%  ({})  [target: >=70%]",
+            pct(cont_preserved_combined, stored_subset), cont_preserved_combined,
         );
         println!();
         println!(
             "  goal_abandoned | reactive         : {:>6.1}%  ({})",
-            pct(cont_abandoned_reactive_total, n), cont_abandoned_reactive_total,
+            pct(cont_abandoned_reactive_total, stored_subset), cont_abandoned_reactive_total,
         );
         {
             let mut reactive_rows: Vec<(&str, usize)> = agg
@@ -1352,35 +1466,60 @@ fn main() {
                 .collect();
             reactive_rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
             for (src, count) in &reactive_rows {
-                println!("    {:<34} {:>4}  ({:5.1}%)", src, count, pct(*count, n));
+                println!("    {:<34} {:>4}  ({:5.1}%)", src, count, pct(*count, stored_subset));
             }
         }
         println!(
-            "  goal_abandoned | voluntary        : {:>6.1}%  ({})  [target: <=10%, REAL commitment failure]",
-            pct(agg.cont_abandoned_voluntary, n), agg.cont_abandoned_voluntary,
+            "  goal_abandoned | voluntary        : {:>6.1}%  ({})  [target: <=15%]",
+            pct(agg.cont_abandoned_voluntary, stored_subset), agg.cont_abandoned_voluntary,
         );
         println!(
             "  goal_abandoned | invalidating     : {:>6.1}%  ({})",
-            pct(agg.cont_abandoned_invalidating, n), agg.cont_abandoned_invalidating,
+            pct(agg.cont_abandoned_invalidating, stored_subset), agg.cont_abandoned_invalidating,
         );
         println!(
             "  goal_abandoned | ttl_expired      : {:>6.1}%  ({})",
-            pct(agg.cont_abandoned_ttl_expired, n), agg.cont_abandoned_ttl_expired,
+            pct(agg.cont_abandoned_ttl_expired, stored_subset), agg.cont_abandoned_ttl_expired,
         );
-        println!(
-            "  no_stored_goal                    : {:>6.1}%  ({})",
-            pct(agg.cont_no_stored, n), agg.cont_no_stored,
-        );
-        if !agg.cont_severity_counts.is_empty() {
-            println!();
-            println!("  severity distribution:");
-            print_freq_table(&agg.cont_severity_counts, agg.total_with_continuation);
+    }
+    println!();
+
+    // Side buckets (over total ticks)
+    println!("  ### Side buckets");
+    println!();
+    println!(
+        "  goal_skip_no_action               : {:>6.1}%  ({})  [over total ticks]",
+        pct(agg.cont_skip_with_stored, n_total), agg.cont_skip_with_stored,
+    );
+    println!(
+        "  no_stored_goal                    : {:>6.1}%  ({})  [over total ticks]",
+        pct(agg.cont_no_stored, n_total), agg.cont_no_stored,
+    );
+    println!();
+
+    // Intent reconstruction tier coverage
+    let intent_total: usize = agg.intent_source_counts.values().sum();
+    if intent_total > 0 {
+        println!("  ### Intent reconstruction tier coverage (mining quality)");
+        println!();
+        for (tier, count) in &agg.intent_source_counts {
+            println!(
+                "  {:<38} {:>5}  ({:5.1}%)",
+                tier.label(), count, pct(*count, intent_total),
+            );
         }
-        if !agg.cont_goal_kind_counts.is_empty() {
-            println!();
-            println!("  goal_kind distribution:");
-            print_freq_table(&agg.cont_goal_kind_counts, n);
-        }
+        println!();
+    }
+
+    if !agg.cont_severity_counts.is_empty() {
+        println!("  severity distribution:");
+        print_freq_table(&agg.cont_severity_counts, agg.total_with_continuation);
+        println!();
+    }
+    if !agg.cont_goal_kind_counts.is_empty() {
+        println!("  goal_kind distribution:");
+        print_freq_table(&agg.cont_goal_kind_counts, stored_subset);
+        println!();
     }
     println!();
 
@@ -2238,6 +2377,7 @@ mod tests {
             continuation,
             intent_reason: None,
             evaluation_mode_reason: None,
+            chosen_intent: None,
             band: None,
             band_reason: None,
             agenda: vec![],
@@ -3176,5 +3316,233 @@ mod tests {
         let values: Vec<f32> = agg.h1_leverage_reposition.clone();
         assert!(values.contains(&0.6_f32) || values.iter().any(|&v| (v - 0.6).abs() < 1e-6));
         assert!(values.iter().any(|&v| (v - 0.3).abs() < 1e-6));
+    }
+
+    // ── C6 / approximate_fresh_intent tier tests ──────────────────────────────
+
+    /// Helper: minimal StoredGoalContextSnapshot for C6 tests.
+    fn make_stored_goal(kind: &str, target_bits: Option<u64>) -> storyforge::combat::ai::log::StoredGoalContextSnapshot {
+        storyforge::combat::ai::log::StoredGoalContextSnapshot {
+            kind: kind.to_owned(),
+            target_id: target_bits,
+            region_anchor: [0, 0],
+            region_radius: 2,
+            planned_ability: None,
+            ttl: 3,
+            confidence: 0.8,
+            created_round: 1,
+            expected_actor_pos: [0, 0],
+            actor_hp_at_store: 20,
+            actor_rage_at_store: 0,
+            actor_status_hash: 0,
+            actor_statuses_at_store: vec![],
+            target_hp_at_store: 10,
+            target_pos_at_store: [1, 0],
+        }
+    }
+
+    /// Helper: make event with chosen_intent set (v35 path).
+    fn make_event_with_chosen_intent(
+        decision: LoggedDecision,
+        chosen_intent: Option<TacticalIntent>,
+        agenda: Vec<AgendaItemLog>,
+        plans: Vec<LoggedPlan>,
+        continuation: Option<storyforge::combat::ai::log::ContinuationLogSection>,
+    ) -> ActorTickEvent {
+        let mut event = make_event(1, decision, plans, continuation);
+        event.chosen_intent = chosen_intent;
+        event.agenda = agenda;
+        event
+    }
+
+    /// Tier 1: chosen_intent field present → used directly, source = ChosenIntentField.
+    #[test]
+    fn approximate_fresh_intent_uses_chosen_intent_field_when_present() {
+        use bevy::prelude::Entity;
+        let target = Entity::from_bits(42);
+        let stored = make_stored_goal("pressure", Some(target.to_bits()));
+        let cont = storyforge::combat::ai::log::ContinuationLogSection {
+            stored_goal: stored.clone(), severity: None, age: 1,
+        };
+        let focus_intent = TacticalIntent::FocusTarget { target };
+        let event = make_event_with_chosen_intent(
+            LoggedDecision::Move { path: vec![] },
+            Some(focus_intent),
+            vec![],
+            vec![],
+            Some(cont),
+        );
+
+        let (intent, source) = approximate_fresh_intent(&event, None, &stored);
+        assert_eq!(source, IntentSource::ChosenIntentField);
+        assert!(matches!(intent, TacticalIntent::FocusTarget { target: t } if t == target));
+    }
+
+    /// Tier 2: no chosen_intent, but chosen plan's agenda_item points to a valid entry.
+    #[test]
+    fn approximate_fresh_intent_uses_agenda_item_index() {
+        use bevy::prelude::Entity;
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
+        use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+
+        let target = Entity::from_bits(99);
+        let stored = make_stored_goal("pressure", Some(target.to_bits()));
+        let cont = storyforge::combat::ai::log::ContinuationLogSection {
+            stored_goal: stored.clone(), severity: None, age: 1,
+        };
+
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
+        ann.agenda_item = Some(0);
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let agenda_item = AgendaItemLog {
+            kind: IntentKind::FocusTarget,
+            target: Some(target.to_bits()),
+            raw_score: 1.0,
+            considerations: IntentConsiderations::default(),
+            reason: IntentReason::NoRuleDefault,
+        };
+
+        let event = make_event_with_chosen_intent(
+            LoggedDecision::Move { path: vec![] },
+            None,
+            vec![agenda_item],
+            vec![plan.clone()],
+            Some(cont),
+        );
+
+        let chosen = event.plans.iter().find(|p| p.annotation.chosen);
+        let (intent, source) = approximate_fresh_intent(&event, chosen, &stored);
+        assert_eq!(source, IntentSource::AgendaItemIndex);
+        assert!(matches!(intent, TacticalIntent::FocusTarget { target: t } if t == target));
+    }
+
+    /// Tier 3: no chosen_intent, no agenda_item attribution, but agenda non-empty → agenda[0].
+    #[test]
+    fn approximate_fresh_intent_falls_back_to_agenda_zero() {
+        use bevy::prelude::Entity;
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
+        use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+
+        let target = Entity::from_bits(77);
+        let stored = make_stored_goal("pressure", None);
+        let cont = storyforge::combat::ai::log::ContinuationLogSection {
+            stored_goal: stored.clone(), severity: None, age: 1,
+        };
+
+        let agenda_item = AgendaItemLog {
+            kind: IntentKind::FocusTarget,
+            target: Some(target.to_bits()),
+            raw_score: 1.0,
+            considerations: IntentConsiderations::default(),
+            reason: IntentReason::NoRuleDefault,
+        };
+        // chosen plan has no agenda_item attribution
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
+        ann.agenda_item = None;
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let event = make_event_with_chosen_intent(
+            LoggedDecision::Move { path: vec![] },
+            None,
+            vec![agenda_item],
+            vec![plan.clone()],
+            Some(cont),
+        );
+
+        let chosen = event.plans.iter().find(|p| p.annotation.chosen);
+        let (intent, source) = approximate_fresh_intent(&event, chosen, &stored);
+        assert_eq!(source, IntentSource::AgendaZeroFallback);
+        assert!(matches!(intent, TacticalIntent::FocusTarget { target: t } if t == target));
+    }
+
+    /// Tier 5: all None and agenda empty → Reposition + Heuristic.
+    #[test]
+    fn approximate_fresh_intent_heuristic_fallback() {
+        let stored = make_stored_goal("pressure", None);
+        let cont = storyforge::combat::ai::log::ContinuationLogSection {
+            stored_goal: stored.clone(), severity: None, age: 1,
+        };
+
+        let event = make_event_with_chosen_intent(
+            LoggedDecision::Move { path: vec![] },
+            None,
+            vec![], // empty agenda
+            vec![],
+            Some(cont),
+        );
+
+        let (intent, source) = approximate_fresh_intent(&event, None, &stored);
+        assert_eq!(source, IntentSource::Heuristic);
+        assert_eq!(intent, TacticalIntent::Reposition);
+    }
+
+    /// Skip event with stored goal → increments cont_skip_with_stored,
+    /// does NOT affect voluntary/preserved counters.
+    #[test]
+    fn c6_skip_with_stored_does_not_classify() {
+        let stored = make_stored_goal("pressure", Some(1));
+        let cont = storyforge::combat::ai::log::ContinuationLogSection {
+            stored_goal: stored, severity: None, age: 1,
+        };
+        let event = make_event(
+            1,
+            LoggedDecision::Skip { reason: "no_ap_no_mp".to_owned() },
+            vec![],
+            Some(cont),
+        );
+
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &event);
+
+        assert_eq!(agg.cont_skip_with_stored, 1, "skip with stored increments cont_skip_with_stored");
+        assert_eq!(agg.cont_abandoned_voluntary, 0, "no voluntary increment for skip");
+        assert_eq!(agg.cont_method_delivered, 0, "no preserved increment for skip");
+        assert_eq!(agg.cont_in_transit, 0, "no in_transit increment for skip");
+    }
+
+    /// Move with matching FocusTarget agenda item → classified as in_transit, not voluntary.
+    ///
+    /// Regression guard for the false-positive that caused ~50 voluntary-abandon
+    /// misclassifications per corpus run before tier-2/3 was implemented.
+    #[test]
+    fn c6_voluntary_no_longer_false_positive_on_move_with_matching_agenda() {
+        use bevy::prelude::Entity;
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
+        use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+
+        let target = Entity::from_bits(42);
+        let stored = make_stored_goal("pressure", Some(target.to_bits()));
+        let cont = storyforge::combat::ai::log::ContinuationLogSection {
+            stored_goal: stored, severity: None, age: 1,
+        };
+
+        let agenda_item = AgendaItemLog {
+            kind: IntentKind::FocusTarget,
+            target: Some(target.to_bits()),
+            raw_score: 1.5,
+            considerations: IntentConsiderations::default(),
+            reason: IntentReason::NoRuleDefault,
+        };
+
+        // chosen_intent is None (simulates v34 log without field),
+        // but agenda[0] = FocusTarget(T1) which matches the stored goal pressure(T1).
+        let event = make_event_with_chosen_intent(
+            LoggedDecision::Move { path: vec![] },
+            None,
+            vec![agenda_item],
+            vec![],
+            Some(cont),
+        );
+
+        let mut agg = Aggregate::default();
+        agg.process_event("f.jsonl", &event);
+
+        assert_eq!(agg.cont_abandoned_voluntary, 0,
+            "Move with matching FocusTarget agenda must NOT be classified as voluntary abandon");
+        assert!(agg.cont_in_transit > 0 || agg.cont_method_delivered > 0,
+            "should be classified as preserved (in_transit or method_delivered)");
     }
 }
