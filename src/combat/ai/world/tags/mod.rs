@@ -14,7 +14,7 @@ pub mod cache;
 pub mod classify;
 
 pub use ai_tags::AiTags;
-pub use cache::{AbilityTagCache, StatusTagCache};
+pub use cache::{AbilityTagCache, StatusBonuses, StatusTagCache};
 pub use classify::{derive_ability_tags, derive_status_tags, StatusTagLookup};
 
 use serde::{Deserialize, Serialize};

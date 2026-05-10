@@ -1,0 +1,608 @@
+//! Parity tests: AI sim vs real combat for canonical scenarios.
+//!
+//! Step 12.0: skeleton + sentinel test only. Per-drift parity tests are
+//! added incrementally:
+//!   - 12.1 (status reflow): `parity_haste_speed_real_vs_sim`,
+//!     `parity_armor_buff_mitigation_real_vs_sim`
+//!   - 12.2 (AoO): `parity_aoo_real_vs_sim`,
+//!     `parity_aoo_decrements_reactions_real_vs_sim`
+//!   - 12.3 (rage): `parity_rage_real_vs_sim`, `parity_rage_aoe_real_vs_sim`
+
+/// Summary of differences between the AI sim and real combat for a single
+/// scenario run.
+#[derive(Debug, Default)]
+pub struct ParityReport {
+    /// HP difference (sim − real); 0 means identical.
+    pub hp_drift: i32,
+    /// Position differed between sim and real.
+    pub pos_drift: bool,
+    /// Status list differed between sim and real.
+    pub statuses_drift: bool,
+    /// Rage difference (sim − real); 0 means identical.
+    pub rage_drift: i32,
+    /// Speed difference (sim − real); 0 means identical.
+    pub speed_drift: i32,
+}
+
+impl ParityReport {
+    pub fn is_clean(&self) -> bool {
+        self.hp_drift == 0
+            && !self.pos_drift
+            && !self.statuses_drift
+            && self.rage_drift == 0
+            && self.speed_drift == 0
+    }
+}
+
+/// Run a named parity scenario and return the diff report.
+///
+/// Step 12.0: stub — always returns a clean report.
+/// Real implementations added per-drift in steps 12.1–12.3.
+pub fn run_parity_scenario(_name: &str) -> ParityReport {
+    ParityReport::default()
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn parity_no_op_scenario_zero_drift() {
+    let report = run_parity_scenario("no_op");
+    assert!(report.is_clean(), "no-op scenario must have zero drift, got {:?}", report);
+}
+
+/// Parity check: after a haste status (speed_bonus=+2) is applied, the sim's
+/// `unit.speed` equals `base_speed + 2`.
+///
+/// **Sim-side only.** The real combat pipeline does not update the `Speed` ECS
+/// component when a status is applied mid-round — it computes the bonus in
+/// `build_snapshot` at snapshot-construction time. A full real-vs-sim test
+/// would require constructing a Bevy world with the unit + haste status and
+/// calling `build_snapshot`, then running the sim and comparing.
+///
+/// TODO(12.1): Extend to full Bevy integration once the `effects_app` +
+/// `ApplyStatus` plumbing is wired for AI-snapshot comparison. See
+/// `tests/statuses.rs` for the real-combat harness pattern.
+#[test]
+fn parity_haste_speed_real_vs_sim() {
+    use storyforge::combat::ai::plan::sim::SimState;
+    use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::tags::{StatusTagCache, StatusTagSet};
+    use storyforge::combat::ai::world::tags::cache::StatusBonuses;
+    use storyforge::core::StatusId;
+    use storyforge::game::components::Team;
+    use storyforge::game::hex::hex_from_offset;
+    use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication, StatusOn, TargetType};
+    use storyforge::core::AbilityId;
+
+    // Build a cache with "haste" → speed_bonus=+2.
+    let mut cache = StatusTagCache::default();
+    let haste_id = StatusId::from("haste");
+    cache.map.insert(haste_id.clone(), StatusTagSet::empty());
+    cache.bonuses.insert(haste_id.clone(), StatusBonuses { speed_bonus: 2, armor_bonus: 0, damage_taken_bonus: 0 });
+
+    // Build a self-haste ability.
+    let haste_def = AbilityDef {
+        id: AbilityId::from("cast_haste"),
+        name: "Haste".into(),
+        target_type: TargetType::Myself,
+        range: AbilityRange { min: 0, max: 0 },
+        effect: EffectDef::None,
+        costs: Vec::new(),
+        cost_ap: 1,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        statuses: vec![StatusApplication {
+            status: haste_id.clone(),
+            duration_rounds: 2,
+            on: StatusOn::Target,
+        }],
+        magic_domains: Vec::new(),
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+
+    use storyforge::content::content_view::ContentView;
+    use storyforge::content::statuses::StatusDef;
+    use std::collections::HashMap;
+
+    let haste_status = StatusDef {
+        id: haste_id.clone(),
+        name: "Haste".into(),
+        armor_bonus: 0,
+        damage_taken_bonus: 0,
+        skips_turn: false,
+        forces_targeting: false,
+        dot_dice: None,
+        blocks_mana_abilities: false,
+        speed_bonus: 2,
+        hp_percent_dot: 0,
+        ai_controlled: false,
+        causes_disadvantage: false,
+        buff_class: None,
+    };
+
+    let mut content = ContentView {
+        abilities: HashMap::new(),
+        keyed_abilities: Vec::new(),
+        statuses: HashMap::new(),
+        weapons: HashMap::new(),
+        armor: HashMap::new(),
+        classes: HashMap::new(),
+        unit_templates: HashMap::new(),
+        races: HashMap::new(),
+        factions: HashMap::new(),
+        paths: HashMap::new(),
+        ..ContentView::default()
+    };
+    content.abilities.insert(haste_def.id.clone(), haste_def.clone());
+    content.statuses.insert(haste_id.clone(), haste_status);
+
+    // Build cache from content so all bonuses are correct.
+    use storyforge::combat::ai::world::tags::cache::build_caches;
+    let (status_tag_cache, _) = build_caches(&content);
+
+    // Actor: base_speed=3, speed=3.
+    use bevy::prelude::Entity;
+    let actor = UnitSnapshot {
+        entity: Entity::from_raw_u32(1).expect("valid"),
+        team: Team::Player,
+        role: Default::default(),
+        pos: hex_from_offset(0, 0),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 2, max_ap: 2,
+        movement_points: 3,
+        base_speed: 3,
+        speed: 3,
+        mana: None, rage: None, energy: None,
+        abilities: vec![haste_def.id.clone()],
+        threat: 0.0,
+        tags: storyforge::combat::ai::world::tags::AiTags::empty(),
+        max_attack_range: 0,
+        summoner: None,
+        reactions_left: 0,
+        aoo_expected_damage: None,
+        statuses: Vec::new(),
+        caster_ctx: CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+    let actor_id = actor.entity;
+    let snap = BattleSnapshot::new(vec![actor], 1);
+
+    // --- Sim side ---
+    let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tag_cache);
+    sim.apply_step(
+        &PlanStep::Cast {
+            ability: haste_def.id.clone(),
+            target: actor_id,
+            target_pos: hex_from_offset(0, 0),
+        },
+        &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+        &content,
+        false,
+    );
+
+    let actor_after = sim.snapshot.unit(actor_id).expect("actor present after cast");
+    assert_eq!(
+        actor_after.speed, 5,
+        "after haste (speed_bonus=+2), speed should be base(3)+bonus(2)=5, got {}",
+        actor_after.speed,
+    );
+    assert_eq!(actor_after.base_speed, 3, "base_speed unchanged by status");
+}
+
+/// Parity check: after a stone_skin buff (armor_bonus=+5) is applied to a
+/// target, the sim computes damage correctly (raw - armor - 5).
+///
+/// **Sim-side only.** See `parity_haste_speed_real_vs_sim` for the
+/// rationale — full Bevy ECS integration is deferred.
+///
+/// TODO(12.1): Extend to full Bevy integration (apply buff + real damage
+/// event) once the real-vs-sim harness is wired. See `tests/effects.rs`
+/// and `tests/statuses.rs` for the real-combat harness pattern.
+#[test]
+fn parity_armor_buff_mitigation_real_vs_sim() {
+    use storyforge::combat::ai::plan::sim::SimState;
+    use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::tags::AiTags;
+    use storyforge::combat::effects_math::final_damage_f32;
+    use storyforge::core::StatusId;
+    use storyforge::game::components::Team;
+    use storyforge::game::hex::hex_from_offset;
+    use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication, StatusOn, TargetType};
+    use storyforge::core::{AbilityId, DiceExpr};
+    use storyforge::content::statuses::StatusDef;
+    use storyforge::content::content_view::ContentView;
+    use std::collections::HashMap;
+
+    let stone_skin_id = StatusId::from("stone_skin");
+
+    // stone_skin: armor_bonus=+5.
+    let stone_skin_def = StatusDef {
+        id: stone_skin_id.clone(),
+        name: "Stone Skin".into(),
+        armor_bonus: 5,
+        damage_taken_bonus: 0,
+        skips_turn: false,
+        forces_targeting: false,
+        dot_dice: None,
+        blocks_mana_abilities: false,
+        speed_bonus: 0,
+        hp_percent_dot: 0,
+        ai_controlled: false,
+        causes_disadvantage: false,
+        buff_class: None,
+    };
+
+    // Buff ability: SingleEnemy (so it reaches a target in tests).
+    let buff_def = AbilityDef {
+        id: AbilityId::from("stone_skin_cast"),
+        name: "Stone Skin".into(),
+        target_type: TargetType::SingleEnemy,
+        range: AbilityRange { min: 0, max: 3 },
+        effect: EffectDef::None,
+        costs: Vec::new(),
+        cost_ap: 1,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        statuses: vec![StatusApplication {
+            status: stone_skin_id.clone(),
+            duration_rounds: 3,
+            on: StatusOn::Target,
+        }],
+        magic_domains: Vec::new(),
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+
+    // Damage ability: 1d6 (EV=3.5→4) + str_mod=4 → raw=8.
+    let atk_def = AbilityDef {
+        id: AbilityId::from("strike"),
+        name: "Strike".into(),
+        target_type: TargetType::SingleEnemy,
+        range: AbilityRange { min: 0, max: 3 },
+        effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        costs: Vec::new(),
+        cost_ap: 1,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        statuses: Vec::new(),
+        magic_domains: Vec::new(),
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+
+    let mut content = ContentView {
+        abilities: HashMap::new(),
+        keyed_abilities: Vec::new(),
+        statuses: HashMap::new(),
+        weapons: HashMap::new(),
+        armor: HashMap::new(),
+        classes: HashMap::new(),
+        unit_templates: HashMap::new(),
+        races: HashMap::new(),
+        factions: HashMap::new(),
+        paths: HashMap::new(),
+        ..ContentView::default()
+    };
+    content.abilities.insert(buff_def.id.clone(), buff_def.clone());
+    content.abilities.insert(atk_def.id.clone(), atk_def.clone());
+    content.statuses.insert(stone_skin_id.clone(), stone_skin_def);
+
+    use storyforge::combat::ai::world::tags::cache::build_caches;
+    let (status_tag_cache, _) = build_caches(&content);
+
+    use bevy::prelude::Entity;
+
+    let buffer = UnitSnapshot {
+        entity: Entity::from_raw_u32(1).expect("valid"),
+        team: Team::Enemy,
+        role: Default::default(),
+        pos: hex_from_offset(0, 0),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 2, max_ap: 2,
+        movement_points: 3, base_speed: 3, speed: 3,
+        mana: None, rage: None, energy: None,
+        abilities: vec![buff_def.id.clone()],
+        threat: 0.0,
+        tags: AiTags::empty(),
+        max_attack_range: 3,
+        summoner: None,
+        reactions_left: 0,
+        aoo_expected_damage: None,
+        statuses: Vec::new(),
+        caster_ctx: CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+    let target = UnitSnapshot {
+        entity: Entity::from_raw_u32(2).expect("valid"),
+        team: Team::Player,
+        role: Default::default(),
+        pos: hex_from_offset(1, 0),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 0, max_ap: 0,
+        movement_points: 0, base_speed: 3, speed: 3,
+        mana: None, rage: None, energy: None,
+        abilities: Vec::new(),
+        threat: 0.0,
+        tags: AiTags::empty(),
+        max_attack_range: 0,
+        summoner: None,
+        reactions_left: 0,
+        aoo_expected_damage: None,
+        statuses: Vec::new(),
+        caster_ctx: Default::default(),
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+    let attacker = UnitSnapshot {
+        entity: Entity::from_raw_u32(3).expect("valid"),
+        team: Team::Enemy,
+        role: Default::default(),
+        pos: hex_from_offset(2, 0),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 2, max_ap: 2,
+        movement_points: 3, base_speed: 3, speed: 3,
+        mana: None, rage: None, energy: None,
+        abilities: vec![atk_def.id.clone()],
+        threat: 5.0,
+        tags: AiTags::empty(),
+        max_attack_range: 3,
+        summoner: None,
+        reactions_left: 0,
+        aoo_expected_damage: None,
+        statuses: Vec::new(),
+        caster_ctx: CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None },
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+
+    let buffer_id = buffer.entity;
+    let target_id = target.entity;
+    let attacker_id = attacker.entity;
+
+    let snap = BattleSnapshot::new(vec![buffer, target, attacker], 1);
+
+    // Step 1: apply stone_skin to target.
+    let mut sim = SimState::from_snapshot(&snap, buffer_id, &status_tag_cache);
+    sim.apply_step(
+        &PlanStep::Cast {
+            ability: buff_def.id.clone(),
+            target: target_id,
+            target_pos: hex_from_offset(1, 0),
+        },
+        &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+        &content,
+        false,
+    );
+
+    // Verify armor_bonus refreshed.
+    assert_eq!(
+        sim.snapshot.unit(target_id).unwrap().armor_bonus, 5,
+        "target armor_bonus must be 5 after stone_skin",
+    );
+
+    // Step 2: attacker strikes target (swap actor).
+    sim.actor = attacker_id;
+    let atk_outcome = sim.apply_step(
+        &PlanStep::Cast {
+            ability: atk_def.id.clone(),
+            target: target_id,
+            target_pos: hex_from_offset(1, 0),
+        },
+        &CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None },
+        &content,
+        false,
+    );
+
+    // raw = ceil(EV(1d6)) + str_mod(4) = 4 + 4 = 8. armor_bonus=5. Dealt = max(1, 8-5) = 3.
+    let expected_dealt = final_damage_f32(8.0, 5.0, 0.0, false);
+    assert!(
+        (atk_outcome.damage - expected_dealt).abs() < 0.01,
+        "sim damage {:.2} should equal formula {:.2} (raw=8, armor_bonus=5)",
+        atk_outcome.damage,
+        expected_dealt,
+    );
+
+    let target_hp = sim.snapshot.unit(target_id).unwrap().hp;
+    assert_eq!(target_hp, 20 - expected_dealt as i32,
+        "target HP should be 20 - {} = {}", expected_dealt as i32, 20 - expected_dealt as i32);
+}
+
+/// Parity check (12.2): sim AoO damage matches `final_damage_f32` formula.
+///
+/// Actor at (3,3), enemy with AoO raw=6 at (4,3) — adjacent. Actor moves to
+/// (2,3) leaving adjacency. Sim must record `outcome.self_damage ==
+/// final_damage_f32(6.0, mitigation, vuln, false)`.
+///
+/// **Sim-side only.** Real-combat AoO integration requires the full Bevy
+/// movement pipeline + `Reactions` component. See `tests/aoo.rs` for the
+/// real-combat AoO harness; that test verifies the identical formula.
+///
+/// TODO(12.2): Wire full real-vs-sim comparison once `run_parity_scenario`
+/// drives both sides end-to-end.
+#[test]
+fn parity_aoo_real_vs_sim() {
+    use storyforge::combat::ai::plan::sim::SimState;
+    use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+    use storyforge::combat::effects_math::final_damage_f32;
+    use storyforge::game::components::Team;
+    use storyforge::game::hex::hex_from_offset;
+    use storyforge::content::abilities::CasterContext;
+    use storyforge::content::content_view::ContentView;
+
+    let raw_aoo = 6.0f32;
+    let actor_armor = 2;
+    let mitigation = actor_armor as f32;
+    let vuln = 0.0f32;
+
+    let actor = UnitSnapshot {
+        entity: bevy::prelude::Entity::from_raw_u32(1).expect("valid"),
+        team: Team::Enemy,
+        role: Default::default(),
+        pos: hex_from_offset(3, 3),
+        hp: 20, max_hp: 20,
+        armor: actor_armor, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 1, max_ap: 1,
+        movement_points: 3, base_speed: 3, speed: 3,
+        mana: None, rage: None, energy: None,
+        abilities: Vec::new(),
+        threat: 0.0,
+        tags: AiTags::empty(),
+        max_attack_range: 1,
+        summoner: None,
+        reactions_left: 0,
+        aoo_expected_damage: None,
+        statuses: Vec::new(),
+        caster_ctx: Default::default(),
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+    let enemy = UnitSnapshot {
+        entity: bevy::prelude::Entity::from_raw_u32(2).expect("valid"),
+        team: Team::Player,
+        role: Default::default(),
+        pos: hex_from_offset(4, 3),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 0, max_ap: 0,
+        movement_points: 0, base_speed: 3, speed: 3,
+        mana: None, rage: None, energy: None,
+        abilities: Vec::new(),
+        threat: 5.0,
+        tags: AiTags::empty(),
+        max_attack_range: 1,
+        summoner: None,
+        reactions_left: 1,
+        aoo_expected_damage: Some(raw_aoo),
+        statuses: Vec::new(),
+        caster_ctx: Default::default(),
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+    let actor_id = actor.entity;
+    let snap = BattleSnapshot::new(vec![actor, enemy], 1);
+
+    let status_tags = StatusTagCache::default();
+    let content = ContentView::default();
+    let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tags);
+    let outcome = sim.apply_step(
+        &PlanStep::Move { path: vec![hex_from_offset(2, 3)] },
+        &CasterContext::default(),
+        // content not needed for a Move step — pass empty.
+        &content,
+        false,
+    );
+
+    let expected = final_damage_f32(raw_aoo, mitigation, vuln, false);
+    assert!(
+        (outcome.self_damage - expected).abs() < 0.01,
+        "sim AoO self_damage {:.2} must equal formula {:.2} (raw={raw_aoo}, armor={actor_armor})",
+        outcome.self_damage,
+        expected,
+    );
+}
+
+/// Parity check (12.2): after one Move that provokes AoO, enemy reactions_left
+/// is decremented to 0 in the sim snapshot — mirroring real combat where
+/// `Reactions` is decremented on each AoO.
+///
+/// **Sim-side only.** See `parity_aoo_real_vs_sim` for rationale.
+///
+/// TODO(12.2): Extend to full Bevy integration with `Reactions` component
+/// verification after a real MoveUnit pipeline run. See `tests/aoo.rs`.
+#[test]
+fn parity_aoo_decrements_reactions_real_vs_sim() {
+    use storyforge::combat::ai::plan::sim::SimState;
+    use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+    use storyforge::content::content_view::ContentView;
+    use storyforge::game::components::Team;
+    use storyforge::game::hex::hex_from_offset;
+    use storyforge::content::abilities::CasterContext;
+
+    let actor = UnitSnapshot {
+        entity: bevy::prelude::Entity::from_raw_u32(1).expect("valid"),
+        team: Team::Enemy,
+        role: Default::default(),
+        pos: hex_from_offset(3, 3),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 1, max_ap: 1,
+        movement_points: 3, base_speed: 3, speed: 3,
+        mana: None, rage: None, energy: None,
+        abilities: Vec::new(),
+        threat: 0.0,
+        tags: AiTags::empty(),
+        max_attack_range: 1,
+        summoner: None,
+        reactions_left: 0,
+        aoo_expected_damage: None,
+        statuses: Vec::new(),
+        caster_ctx: Default::default(),
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+    let enemy = UnitSnapshot {
+        entity: bevy::prelude::Entity::from_raw_u32(2).expect("valid"),
+        team: Team::Player,
+        role: Default::default(),
+        pos: hex_from_offset(4, 3),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 0, max_ap: 0,
+        movement_points: 0, base_speed: 3, speed: 3,
+        mana: None, rage: None, energy: None,
+        abilities: Vec::new(),
+        threat: 5.0,
+        tags: AiTags::empty(),
+        max_attack_range: 1,
+        summoner: None,
+        reactions_left: 1,
+        aoo_expected_damage: Some(5.0),
+        statuses: Vec::new(),
+        caster_ctx: Default::default(),
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+    let actor_id = actor.entity;
+    let enemy_id = enemy.entity;
+    let snap = BattleSnapshot::new(vec![actor, enemy], 1);
+
+    let status_tags = StatusTagCache::default();
+    let content = ContentView::default();
+    let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tags);
+    sim.apply_step(
+        &PlanStep::Move { path: vec![hex_from_offset(2, 3)] },
+        &CasterContext::default(),
+        &content,
+        false,
+    );
+
+    assert_eq!(
+        sim.snapshot.unit(enemy_id).unwrap().reactions_left,
+        0,
+        "enemy reactions_left must be 0 after one provoked AoO",
+    );
+}

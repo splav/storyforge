@@ -120,6 +120,7 @@ impl UnitBuilder {
                 action_points: 1,
                 max_ap: 1,
                 movement_points: 3,
+                base_speed: 3,
                 speed: 3,
                 mana: None,
                 rage: None,
@@ -163,6 +164,7 @@ impl UnitBuilder {
         self
     }
     pub fn speed(mut self, speed: i32) -> Self {
+        self.inner.base_speed = speed;
         self.inner.speed = speed;
         self.inner.movement_points = speed;
         self

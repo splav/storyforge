@@ -6,6 +6,7 @@ use crate::content::abilities::{AbilityDef, CasterContext, TargetType};
 use crate::content::statuses::StatusDef;
 use crate::core::ResourceKind;
 use crate::game::components::Abilities;
+use crate::game::hex::Hex;
 
 /// True if the ability applies any status that skips the target's turn
 /// (stun, paralyse, sleep…). Single source of truth for "is this CC?".
@@ -286,6 +287,47 @@ pub(crate) fn status_score(
         .sum()
 }
 
+/// One AoO hit triggered by a single Move step.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AooHit {
+    /// Index into the `enemies` slice passed to `scan_aoo_hits_for_step`.
+    pub enemy_idx: usize,
+    /// Pre-mitigation expected damage (from `enemy.aoo_expected_damage`).
+    pub raw_damage: f32,
+}
+
+/// Scan a single Move-step path for adjacency-leaving transitions vs each
+/// enemy with `reactions_left > 0` and `aoo_expected_damage = Some(_)`.
+/// `start_pos` is the actor's position **before** this step.
+///
+/// Returns one hit per provoked enemy (each enemy AoO's at most once per
+/// step, even if the path leaves and re-enters adjacency).
+pub(crate) fn scan_aoo_hits_for_step(
+    start_pos: Hex,
+    path: &[Hex],
+    enemies: &[&UnitSnapshot],
+) -> Vec<AooHit> {
+    let mut hits = Vec::new();
+    for (enemy_idx, e) in enemies.iter().enumerate() {
+        if e.reactions_left <= 0 {
+            continue;
+        }
+        let Some(raw) = e.aoo_expected_damage else { continue };
+        // Walk the path: detect first transition that leaves adjacency with
+        // this enemy (prev adjacent, next not). Each enemy triggers at most
+        // once per step.
+        let mut prev = start_pos;
+        for &h in path {
+            if prev.unsigned_distance_to(e.pos) == 1 && h.unsigned_distance_to(e.pos) != 1 {
+                hits.push(AooHit { enemy_idx, raw_damage: raw });
+                break;
+            }
+            prev = h;
+        }
+    }
+    hits
+}
+
 /// Sum of expected AoO damage the plan would take across all provoking
 /// transitions. For each melee enemy with reactions and a damage estimate,
 /// scan the plan's movement path for the first `was_adj && !still_adj`
@@ -296,6 +338,10 @@ pub(crate) fn status_score(
 /// compares this against `active.hp`. Kept here because the
 /// non-lethal multiplicative penalty (inside `sanity_adjust_plans`) uses
 /// the same number.
+///
+/// Uses `scan_aoo_hits_for_step` internally. Tracks per-enemy `aoo_used`
+/// across Move steps so the same enemy cannot AoO twice within a single plan
+/// (budget: one reaction per round).
 pub(crate) fn expected_aoo_damage(
     active: &UnitSnapshot,
     plan: &TurnPlan,
@@ -304,31 +350,21 @@ pub(crate) fn expected_aoo_damage(
     let mut total = 0.0f32;
     let mitigation = (active.armor + active.armor_bonus) as f32;
     let vuln = active.damage_taken_bonus as f32;
-    for e in enemies {
-        if e.reactions_left <= 0 {
-            continue;
-        }
-        let Some(raw) = e.aoo_expected_damage else { continue };
-        // Scan: does the path ever leave adjacency with this enemy?
-        let mut prev = active.pos;
-        let mut triggered = false;
-        for step in &plan.steps {
-            let PlanStep::Move { path } = step else { continue };
-            for &h in path {
-                if prev.unsigned_distance_to(e.pos) == 1
-                    && h.unsigned_distance_to(e.pos) != 1
-                {
-                    triggered = true;
-                    break;
-                }
-                prev = h;
-            }
-            if triggered {
-                break;
+    // Track which enemies have already spent their reaction this plan.
+    let mut aoo_used = vec![false; enemies.len()];
+    let mut prev_pos = active.pos;
+    for step in &plan.steps {
+        let PlanStep::Move { path } = step else { continue };
+        let hits = scan_aoo_hits_for_step(prev_pos, path, enemies);
+        for hit in hits {
+            if !aoo_used[hit.enemy_idx] {
+                aoo_used[hit.enemy_idx] = true;
+                total += final_damage_f32(hit.raw_damage, mitigation, vuln, false);
             }
         }
-        if triggered {
-            total += final_damage_f32(raw, mitigation, vuln, /* pierces_armor */ false);
+        // Advance actor position to end of this Move step.
+        if let Some(&last) = path.last() {
+            prev_pos = last;
         }
     }
     total
@@ -524,6 +560,7 @@ mod tests {
                 action_points: 1,
                 max_ap: 1,
                 movement_points: 3,
+                base_speed: 3,
                 speed: 3,
                 mana: None,
                 rage: None,

@@ -11,7 +11,9 @@ use crate::game::components::{
 };
 use crate::game::hex::Hex;
 use crate::game::resources::HexPositions;
-use crate::combat::ai::world::tags::AiTags;
+use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
+use crate::combat::ai::world::tags::cache::StatusBonuses;
+use crate::combat::ai::world::tags::StatusTagSet;
 use bevy::prelude::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -52,6 +54,14 @@ pub struct UnitSnapshot {
     pub max_ap: i32,
     /// Movement budget remaining right now. Zero means the unit can't walk.
     pub movement_points: i32,
+    /// Base move budget without status modifiers. Always equals
+    /// `speed - sum(active speed bonuses from statuses)`.
+    /// Schema v36+ (bumped in step 12.4): serialized explicitly.
+    /// v35 logs deserialise as 0 via `#[serde(default)]`; post-load
+    /// reconstructor in `parse_actor_tick` sets `base_speed = speed`
+    /// (safe assumption: speed-bonus statuses very rare in v35 corpus).
+    #[serde(default)]
+    pub base_speed: i32,
     /// Base speed + status speed_bonus. Used for pathfinding range estimates
     /// and utility scoring; not the live budget (see `movement_points`).
     pub speed: i32,
@@ -83,6 +93,12 @@ pub struct UnitSnapshot {
     /// reasoning). Sim mutates this list on per-step status applications so
     /// that downstream steps see status-derived bonuses / DoT cleanse / stun.
     /// Schema v3+: absent on older logs → empty vec.
+    ///
+    /// **Convention**: lib code MUST mutate via `add_status` / `remove_status`
+    /// so that `refresh_aggregates` is called atomically. Field stays `pub`
+    /// because external bin crates (mining, replay) construct test fixtures
+    /// via struct literal — `pub(crate)` would block that. Invariant safety
+    /// inside lib is a convention enforced by code review, not the type system.
     #[serde(default)]
     pub statuses: Vec<ActiveStatusView>,
     /// Caster parameters (str/int mod, spell power, weapon dice). Derived
@@ -137,25 +153,6 @@ pub struct ActiveStatusView {
 
 fn default_reactions_left() -> i32 { 1 }
 
-/// Re-aggregate `armor_bonus` / `damage_taken_bonus` on `unit` from its
-/// current `statuses` list. Call after sim mutates the status list
-/// (apply/cleanse/removal) so downstream damage math sees fresh aggregates
-/// instead of the stale snapshot-time value.
-///
-/// **Not** recomputed: `speed` — base speed isn't tracked separately on the
-/// snapshot (only `base + aggregate` is stored), so deriving the new speed
-/// mid-plan would require knowing what the aggregate was at snapshot time.
-/// Speed-affecting statuses applied mid-plan therefore don't re-flow into
-/// the planner's pathing; accept that limitation for now.
-pub fn refresh_status_aggregates(unit: &mut UnitSnapshot, content: &ContentView) {
-    let (armor_bonus, damage_taken_bonus) = unit
-        .statuses
-        .iter()
-        .filter_map(|s| content.statuses.get(&s.id))
-        .fold((0, 0), |(a, v), sd| (a + sd.armor_bonus, v + sd.damage_taken_bonus));
-    unit.armor_bonus = armor_bonus;
-    unit.damage_taken_bonus = damage_taken_bonus;
-}
 
 impl UnitSnapshot {
     /// `hp > 0`. Snapshot keeps dead units (for death-triggered effects,
@@ -215,6 +212,83 @@ impl UnitSnapshot {
                 .costs
                 .iter()
                 .all(|c| self.resource_amount(c.resource) >= c.amount)
+    }
+
+    // ── Status access API ─────────────────────────────────────────────────────
+
+    /// Read-only view of active statuses.
+    pub fn statuses(&self) -> &[ActiveStatusView] {
+        &self.statuses
+    }
+
+    /// Add a status and atomically refresh derived aggregates.
+    pub fn add_status(&mut self, status: ActiveStatusView, status_tags: &crate::combat::ai::world::tags::StatusTagCache) {
+        self.statuses.push(status);
+        self.refresh_aggregates(status_tags);
+    }
+
+    /// Remove a status by id and atomically refresh derived aggregates.
+    /// Returns `true` if the status was present and removed.
+    pub fn remove_status(&mut self, id: &StatusId, status_tags: &crate::combat::ai::world::tags::StatusTagCache) -> bool {
+        let before = self.statuses.len();
+        self.statuses.retain(|s| &s.id != id);
+        let changed = self.statuses.len() != before;
+        if changed {
+            self.refresh_aggregates(status_tags);
+        }
+        changed
+    }
+
+    /// Raw mutable access to the statuses list for bulk operations (bulk-remove,
+    /// retain, tick). **Caller MUST call `refresh_aggregates` after mutating.**
+    #[allow(dead_code)]
+    pub(crate) fn statuses_mut(&mut self) -> &mut Vec<ActiveStatusView> {
+        &mut self.statuses
+    }
+
+    /// Recompute all derived fields (`speed`, `armor_bonus`, `damage_taken_bonus`,
+    /// and the `IS_STUNNED` / `FORCES_TARGETING` tag bits) from `base_speed` +
+    /// active statuses.
+    ///
+    /// Numeric bonuses are summed over every active status via the cache;
+    /// `IS_STUNNED` is set iff any active status has `HARD_CC` in the cache,
+    /// `FORCES_TARGETING` iff any has `COMPULSION`. All other `AiTags` bits
+    /// (`LOW_HP`, `MELEE_ONLY`, `RANGED`, `CAN_CC`, `CAN_HEAL`, `HAS_AOE`)
+    /// are not status-derived and are left untouched.
+    pub fn refresh_aggregates(&mut self, status_tags: &StatusTagCache) {
+        let mut speed_bonus: i32 = 0;
+        let mut armor_bonus: i32 = 0;
+        let mut damage_taken_bonus: i32 = 0;
+        let mut is_stunned = false;
+        let mut forces_targeting = false;
+
+        for s in &self.statuses {
+            let bonuses = status_tags.bonuses(&s.id);
+            speed_bonus += bonuses.speed_bonus;
+            armor_bonus += bonuses.armor_bonus;
+            damage_taken_bonus += bonuses.damage_taken_bonus;
+
+            let tags = status_tags.get(&s.id);
+            if tags.contains(StatusTagSet::HARD_CC) {
+                is_stunned = true;
+            }
+            if tags.contains(StatusTagSet::COMPULSION) {
+                forces_targeting = true;
+            }
+        }
+
+        self.speed = self.base_speed + speed_bonus;
+        self.armor_bonus = armor_bonus;
+        self.damage_taken_bonus = damage_taken_bonus;
+
+        // Clear only the status-derived tag bits, then re-set them.
+        self.tags.remove(AiTags::IS_STUNNED | AiTags::FORCES_TARGETING);
+        if is_stunned {
+            self.tags |= AiTags::IS_STUNNED;
+        }
+        if forces_targeting {
+            self.tags |= AiTags::FORCES_TARGETING;
+        }
     }
 }
 
@@ -329,6 +403,7 @@ pub fn build_snapshot(
                 action_points: c.ap.action_points,
                 max_ap: c.ap.max_ap,
                 movement_points: c.ap.movement_points,
+                base_speed: c.speed.0,
                 speed: c.speed.0 + speed_bonus,
                 mana: c.mana.map(|m| (m.current, m.max)),
                 rage: c.rage.map(|r| (r.current, r.max)),
@@ -556,13 +631,6 @@ fn compute_tags(
     tags
 }
 
-#[derive(Default)]
-struct StatusBonuses {
-    speed_bonus: i32,
-    armor_bonus: i32,
-    damage_taken_bonus: i32,
-}
-
 /// Aggregate every status-derived bonus a snapshot needs in a single pass over
 /// the unit's `StatusEffects`. Before this helper we iterated the status list
 /// three times per unit (once per bonus field).
@@ -605,6 +673,7 @@ mod affordability_tests {
             action_points: 2,
             max_ap: 2,
             movement_points: 3,
+            base_speed: 3,
             speed: 3,
             mana: Some((5, 10)),
             rage: Some((3, 10)),
@@ -714,5 +783,235 @@ mod affordability_tests {
         assert_eq!(snap.all_enemies_of(Team::Enemy).count(), 1);
         assert_eq!(snap.dead_enemies_of(Team::Enemy).count(), 1);
         assert_eq!(snap.dead_units().count(), 1);
+    }
+}
+
+#[cfg(test)]
+mod snapshot_api_tests {
+    use super::*;
+    use crate::combat::ai::test_helpers::{empty_status_tag_cache, UnitBuilder};
+    use crate::game::hex::hex_from_offset;
+    use crate::game::components::Team;
+
+    fn test_unit() -> UnitSnapshot {
+        UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+            .speed(3)
+            .build()
+    }
+
+    fn test_status(id: &str) -> ActiveStatusView {
+        ActiveStatusView {
+            id: StatusId::from(id),
+            rounds_remaining: 2,
+            dot_per_tick: 0,
+        }
+    }
+
+    // ── base_speed ────────────────────────────────────────────────────────────
+
+    /// v35 logs lack `base_speed` — deserialise as 0 via `#[serde(default)]`.
+    #[test]
+    fn base_speed_default_zero_on_v35_deserialise() {
+        // Serialize a current unit, then strip `base_speed` to simulate a v35 log.
+        let unit = test_unit();
+        let json = serde_json::to_string(&unit).expect("serialize");
+        let mut value: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        value.as_object_mut().unwrap().remove("base_speed");
+        let json_v35 = serde_json::to_string(&value).unwrap();
+
+        let restored: UnitSnapshot = serde_json::from_str(&json_v35).expect("deserialise v35 snapshot");
+        assert_eq!(restored.base_speed, 0, "base_speed absent in v35 JSON → deserialises as 0");
+        assert_eq!(restored.speed, unit.speed);
+    }
+
+    /// base_speed round-trips through JSON (v36+ schema where field is present).
+    #[test]
+    fn base_speed_serialized_on_round_trip() {
+        let mut unit = test_unit();
+        unit.base_speed = 3;
+        let json = serde_json::to_string(&unit).expect("serialize");
+        let restored: UnitSnapshot = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(restored.base_speed, 3);
+    }
+
+    // ── add_status / remove_status / statuses() ───────────────────────────────
+
+    #[test]
+    fn add_status_inserts_and_calls_refresh() {
+        let mut unit = test_unit();
+        let cache = empty_status_tag_cache();
+        assert_eq!(unit.statuses().len(), 0);
+        unit.add_status(test_status("foo"), cache);
+        assert_eq!(unit.statuses().len(), 1);
+        assert_eq!(unit.statuses()[0].id, StatusId::from("foo"));
+    }
+
+    #[test]
+    fn remove_status_returns_true_when_removed_false_when_absent() {
+        let mut unit = test_unit();
+        let cache = empty_status_tag_cache();
+        unit.add_status(test_status("foo"), cache);
+
+        assert!(unit.remove_status(&StatusId::from("foo"), cache), "should return true for existing status");
+        assert!(!unit.remove_status(&StatusId::from("nonexistent"), cache), "should return false for absent status");
+        assert!(unit.statuses().is_empty(), "no statuses remain");
+    }
+
+    #[test]
+    fn statuses_accessor_returns_immutable_slice() {
+        let mut unit = test_unit();
+        let cache = empty_status_tag_cache();
+        unit.add_status(test_status("bar"), cache);
+        let slice: &[ActiveStatusView] = unit.statuses();
+        assert_eq!(slice.len(), 1);
+        assert_eq!(slice[0].id, StatusId::from("bar"));
+    }
+
+    // ── refresh_aggregates: speed ─────────────────────────────────────────────
+
+    /// Build a minimal `StatusTagCache` containing a single status with the
+    /// given tags and bonuses. Used by refresh_aggregates tests to avoid
+    /// needing a full `ContentView` load.
+    fn cache_with_status(id: &str, tags: StatusTagSet, bonuses: StatusBonuses) -> StatusTagCache {
+        let mut c = StatusTagCache::default();
+        let sid = StatusId::from(id);
+        c.map.insert(sid.clone(), tags);
+        c.bonuses.insert(sid, bonuses);
+        c
+    }
+
+    #[test]
+    fn apply_haste_increases_speed() {
+        let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+            .speed(3)
+            .build();
+        let cache = cache_with_status(
+            "haste",
+            StatusTagSet::empty(),
+            StatusBonuses { speed_bonus: 2, armor_bonus: 0, damage_taken_bonus: 0 },
+        );
+        unit.add_status(test_status("haste"), &cache);
+        assert_eq!(unit.speed, 5, "base 3 + speed_bonus 2 = 5");
+    }
+
+    #[test]
+    fn apply_slow_decreases_speed() {
+        let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+            .speed(3)
+            .build();
+        let cache = cache_with_status(
+            "slow",
+            StatusTagSet::empty(),
+            StatusBonuses { speed_bonus: -1, armor_bonus: 0, damage_taken_bonus: 0 },
+        );
+        unit.add_status(test_status("slow"), &cache);
+        assert_eq!(unit.speed, 2, "base 3 + speed_bonus -1 = 2");
+    }
+
+    #[test]
+    fn expire_haste_restores_speed() {
+        let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+            .speed(3)
+            .build();
+        let cache = cache_with_status(
+            "haste",
+            StatusTagSet::empty(),
+            StatusBonuses { speed_bonus: 2, armor_bonus: 0, damage_taken_bonus: 0 },
+        );
+        unit.add_status(test_status("haste"), &cache);
+        assert_eq!(unit.speed, 5);
+        unit.remove_status(&StatusId::from("haste"), &cache);
+        assert_eq!(unit.speed, 3, "after removing haste speed returns to base 3");
+    }
+
+    #[test]
+    fn multiple_speed_statuses_stack() {
+        let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+            .speed(3)
+            .build();
+        let mut cache = StatusTagCache::default();
+        let haste_id = StatusId::from("haste");
+        let bless_id = StatusId::from("bless");
+        cache.map.insert(haste_id.clone(), StatusTagSet::empty());
+        cache.bonuses.insert(haste_id.clone(), StatusBonuses { speed_bonus: 2, armor_bonus: 0, damage_taken_bonus: 0 });
+        cache.map.insert(bless_id.clone(), StatusTagSet::empty());
+        cache.bonuses.insert(bless_id.clone(), StatusBonuses { speed_bonus: 1, armor_bonus: 0, damage_taken_bonus: 0 });
+
+        unit.add_status(test_status("haste"), &cache);
+        unit.add_status(test_status("bless"), &cache);
+        assert_eq!(unit.speed, 6, "base 3 + haste(+2) + bless(+1) = 6");
+    }
+
+    #[test]
+    fn apply_armor_buff_recomputes_armor_bonus() {
+        let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).build();
+        let cache = cache_with_status(
+            "stone_skin",
+            StatusTagSet::empty(),
+            StatusBonuses { speed_bonus: 0, armor_bonus: 5, damage_taken_bonus: 0 },
+        );
+        unit.add_status(test_status("stone_skin"), &cache);
+        assert_eq!(unit.armor_bonus, 5);
+    }
+
+    #[test]
+    fn apply_vulnerability_recomputes_damage_taken_bonus() {
+        let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).build();
+        let cache = cache_with_status(
+            "vuln",
+            StatusTagSet::empty(),
+            StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 3 },
+        );
+        unit.add_status(test_status("vuln"), &cache);
+        assert_eq!(unit.damage_taken_bonus, 3);
+    }
+
+    #[test]
+    fn hard_cc_status_sets_is_stunned_tag() {
+        let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).build();
+        let cache = cache_with_status(
+            "stun",
+            StatusTagSet::HARD_CC,
+            StatusBonuses::default(),
+        );
+        unit.add_status(test_status("stun"), &cache);
+        assert!(unit.tags.contains(AiTags::IS_STUNNED), "HARD_CC status must set IS_STUNNED");
+
+        unit.remove_status(&StatusId::from("stun"), &cache);
+        assert!(!unit.tags.contains(AiTags::IS_STUNNED), "removing stun must clear IS_STUNNED");
+    }
+
+    #[test]
+    fn compulsion_status_sets_forces_targeting_tag() {
+        let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).build();
+        let cache = cache_with_status(
+            "taunted",
+            StatusTagSet::COMPULSION,
+            StatusBonuses::default(),
+        );
+        unit.add_status(test_status("taunted"), &cache);
+        assert!(unit.tags.contains(AiTags::FORCES_TARGETING), "COMPULSION status must set FORCES_TARGETING");
+
+        unit.remove_status(&StatusId::from("taunted"), &cache);
+        assert!(!unit.tags.contains(AiTags::FORCES_TARGETING), "removing taunt must clear FORCES_TARGETING");
+    }
+
+    #[test]
+    fn refresh_preserves_non_status_tags() {
+        let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+            .tags(AiTags::LOW_HP | AiTags::MELEE_ONLY)
+            .build();
+        let cache = cache_with_status(
+            "stun",
+            StatusTagSet::HARD_CC,
+            StatusBonuses::default(),
+        );
+        unit.add_status(test_status("stun"), &cache);
+
+        // IS_STUNNED added by refresh_aggregates
+        assert!(unit.tags.contains(AiTags::IS_STUNNED));
+        // Non-status-derived bits must be untouched
+        assert!(unit.tags.contains(AiTags::LOW_HP), "LOW_HP must survive refresh");
+        assert!(unit.tags.contains(AiTags::MELEE_ONLY), "MELEE_ONLY must survive refresh");
     }
 }

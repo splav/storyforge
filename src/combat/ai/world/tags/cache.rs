@@ -15,14 +15,31 @@ use super::{AbilityTagSet, StatusTagSet};
 
 // ── StatusTagCache ────────────────────────────────────────────────────────────
 
+/// Numeric bonuses carried by a status definition. Stored alongside
+/// `StatusTagSet` in `StatusTagCache` so `refresh_aggregates` can read both
+/// tags and bonuses from a single cache lookup without needing `&ContentView`.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StatusBonuses {
+    pub speed_bonus: i32,
+    pub armor_bonus: i32,
+    pub damage_taken_bonus: i32,
+}
+
 #[derive(Resource, Default, Debug, Clone)]
 pub struct StatusTagCache {
     pub map: HashMap<StatusId, StatusTagSet>,
+    pub bonuses: HashMap<StatusId, StatusBonuses>,
 }
 
 impl StatusTagCache {
     pub fn get(&self, id: &StatusId) -> StatusTagSet {
         self.map.get(id).copied().unwrap_or_default()
+    }
+
+    /// Return the numeric bonuses for the given status id, or zero defaults
+    /// when the id is not in the cache.
+    pub fn bonuses(&self, id: &StatusId) -> StatusBonuses {
+        self.bonuses.get(id).copied().unwrap_or_default()
     }
 }
 
@@ -67,10 +84,16 @@ impl AbilityTagCache {
 /// `AbilityTagCache` uses it for Defensive / ApplyCC / Peel classification.
 /// Override strings are parsed here (fail-fast on unknown tag names).
 pub fn build_caches(content: &ContentView) -> (StatusTagCache, AbilityTagCache) {
-    // Pass 1: classify all statuses.
+    // Pass 1: classify all statuses — tags and numeric bonuses in one sweep.
     let mut status_map: HashMap<StatusId, StatusTagSet> = HashMap::new();
+    let mut bonuses_map: HashMap<StatusId, StatusBonuses> = HashMap::new();
     for (id, def) in &content.statuses {
         status_map.insert(id.clone(), derive_status_tags(def));
+        bonuses_map.insert(id.clone(), StatusBonuses {
+            speed_bonus: def.speed_bonus,
+            armor_bonus: def.armor_bonus,
+            damage_taken_bonus: def.damage_taken_bonus,
+        });
     }
 
     // Pass 2: classify all abilities using the status map just built.
@@ -90,7 +113,7 @@ pub fn build_caches(content: &ContentView) -> (StatusTagCache, AbilityTagCache) 
     }
 
     (
-        StatusTagCache { map: status_map },
+        StatusTagCache { map: status_map, bonuses: bonuses_map },
         AbilityTagCache { map: ability_map, override_map },
     )
 }

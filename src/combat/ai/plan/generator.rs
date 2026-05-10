@@ -81,7 +81,7 @@ pub fn generate_plans(
                 .last()
                 .cloned()
                 .unwrap_or_else(|| snap.clone());
-            let base_sim = SimState { snapshot: base_snapshot, actor };
+            let base_sim = SimState { snapshot: base_snapshot, actor, status_tags: ctx.status_tags };
             let Some(sa) = base_sim.actor_unit() else { continue };
             if sa.action_points <= 0 && sa.movement_points <= 0 {
                 continue;
@@ -139,6 +139,7 @@ pub fn generate_plans(
                 let mut ext_sim = SimState {
                     snapshot: base_sim.snapshot.clone(),
                     actor,
+                    status_tags: ctx.status_tags,
                 };
                 let disadvantage = match &step {
                     PlanStep::Cast { ability, target, target_pos } => {
@@ -155,6 +156,17 @@ pub fn generate_plans(
                     PlanStep::Move { .. } => false,
                 };
                 let outcome = ext_sim.apply_step(&step, &caster_ctx, ctx.content, disadvantage);
+
+                // Mid-plan death truncation (step 12.2): if the actor died on
+                // this step (AoO lethal hit, self-AoE, etc.) record the plan
+                // with this step included but do not extend it further. The
+                // existing depth-loop guard (`actor_unit()` returns None for
+                // dead actors) ensures the plan won't be extended in subsequent
+                // depth iterations either.
+                let actor_is_dead = ext_sim
+                    .actor_unit()
+                    .map(|a| a.hp <= 0)
+                    .unwrap_or(true);
 
                 let (final_pos, residual_ap, residual_mp) = match ext_sim.actor_unit() {
                     Some(u) => (u.pos, u.action_points, u.movement_points),
@@ -189,6 +201,13 @@ pub fn generate_plans(
                 extended.residual_mp = residual_mp;
                 extended.partial_score = partial_score(&extended, maps);
                 next.push(extended);
+
+                // If actor died on this step, stop trying other candidates for
+                // this branch — they're all equally terminal. The plan with
+                // the lethal step is already recorded above.
+                if actor_is_dead {
+                    break;
+                }
             }
         }
 
@@ -659,7 +678,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-    use crate::combat::ai::test_helpers::{empty_content, empty_maps, ent, UnitBuilder};
+    use crate::combat::ai::test_helpers::{empty_content, empty_maps, empty_status_tag_cache, ent, UnitBuilder};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
     };
@@ -1135,7 +1154,7 @@ mod tests {
         let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), fine.clone(), hurt.clone()], 1);
-        let sim = SimState::from_snapshot(&snap, actor.entity);
+        let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
 
         assert!(
             !ai_policy_ok(&heal, &actor, fine.entity, fine.pos, &sim, &ctx),
@@ -1167,7 +1186,7 @@ mod tests {
         let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), stunned.clone(), awake.clone()], 1);
-        let sim = SimState::from_snapshot(&snap, actor.entity);
+        let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
 
         assert!(
             !ai_policy_ok(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx),
@@ -1198,7 +1217,7 @@ mod tests {
         let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), stunned.clone()], 1);
-        let sim = SimState::from_snapshot(&snap, actor.entity);
+        let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
 
         assert!(
             ai_policy_ok(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx),
@@ -1225,7 +1244,7 @@ mod tests {
         let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), enemy.clone()], 1);
-        let sim = SimState::from_snapshot(&snap, actor.entity);
+        let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
 
         assert!(
             !ai_policy_ok(&def, &actor, enemy.entity, enemy.pos, &sim, &ctx),
@@ -1251,7 +1270,7 @@ mod tests {
         let ctx = make_ctx(&content, &difficulty);
 
         let snap = BattleSnapshot::new(vec![actor.clone(), e1.clone(), e2.clone(), ally.clone()], 1);
-        let sim = SimState::from_snapshot(&snap, actor.entity);
+        let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
 
         assert!(
             ai_policy_ok(&def, &actor, e1.entity, e1.pos, &sim, &ctx),
@@ -1764,6 +1783,110 @@ mod tests {
             .filter(|(_, s)| matches!(s, PlanStep::Cast { .. }))
             .map(|(o, _)| o.damage)
             .sum()
+    }
+
+    // ── AoO truncation (step 12.2) ──────────────────────────────────────────
+
+    /// Actor with hp=1 adjacent to a taunter with lethal AoO: no plan in the
+    /// pool should extend beyond the first Move step that kills the actor.
+    ///
+    /// Layout (even-r): actor at (3,3), enemy-with-AoO at (4,3). Actor has
+    /// 1 AP and mp=3, so Move→Cast sequences are possible. After a Move that
+    /// triggers the lethal AoO, the branch must stop — no [Move, Cast] plans.
+    #[test]
+    fn enumerate_terminates_when_actor_dies_mid_plan() {
+        // Actor: hp=1, 1 AP, mp=3 (can move and would otherwise cast).
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .hp(1)
+            .ap(1)
+            .speed(3)
+            .ability_names(&["strike"])
+            .build();
+        // Enemy with lethal AoO (raw=10 >> hp=1, no armor) and 1 reaction.
+        // Placed at (4,3) — adjacent to actor start. Give it 0 AP so it
+        // doesn't generate actions for the generator (it's a simple target).
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+            .hp(20)
+            .ap(0)
+            .aoo(10.0, 1)
+            .build();
+        let actor_id = actor.entity;
+
+        let mut content = empty_content();
+        let def = strike_def("strike", 1, 1);
+        content.abilities.insert(def.id.clone(), def);
+
+        let mut difficulty = DifficultyProfile::hard();
+        difficulty.plan_max_depth = 3;
+        difficulty.plan_beam_width = 20; // wide beam to see all branches
+        let ctx = make_ctx(&content, &difficulty);
+
+        let snap = BattleSnapshot::new(vec![actor, enemy], 1);
+        let maps = empty_maps();
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+
+        // Any plan whose first step is a Move-out-of-adjacency that deals
+        // lethal AoO (self_damage >= 1) must have length == 1 (no extension).
+        for p in &plans {
+            if p.steps.is_empty() {
+                continue;
+            }
+            if matches!(p.steps[0], PlanStep::Move { .. })
+                && p.outcomes[0].self_damage >= 1.0
+            {
+                assert_eq!(
+                    p.steps.len(),
+                    1,
+                    "lethal-AoO Move branch must not be extended; got steps={:?}",
+                    p.steps,
+                );
+            }
+        }
+    }
+
+    /// The lethal-move plan itself IS in the pool (we record it, just don't
+    /// extend it) so downstream critics can score it and correctly reject it.
+    #[test]
+    fn single_step_lethal_move_still_recorded() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .hp(1)
+            .ap(1)
+            .speed(3)
+            .ability_names(&["strike"])
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+            .hp(20)
+            .ap(0)
+            .aoo(10.0, 1)
+            .build();
+        let actor_id = actor.entity;
+
+        let mut content = empty_content();
+        content.abilities.insert("strike".into(), strike_def("strike", 1, 1));
+
+        let mut difficulty = DifficultyProfile::hard();
+        difficulty.plan_max_depth = 3;
+        difficulty.plan_beam_width = 20;
+        let ctx = make_ctx(&content, &difficulty);
+
+        let snap = BattleSnapshot::new(vec![actor, enemy], 1);
+        let maps = empty_maps();
+        let plans = generate_plans(actor_id, &ctx, &snap, &maps);
+
+        // At least one single-step Move plan with lethal self_damage must exist.
+        let lethal_move_plans: Vec<_> = plans
+            .iter()
+            .filter(|p| {
+                p.steps.len() == 1
+                    && matches!(p.steps[0], PlanStep::Move { .. })
+                    && p.outcomes[0].self_damage >= 1.0
+            })
+            .collect();
+
+        assert!(
+            !lethal_move_plans.is_empty(),
+            "at least one single-step lethal-Move plan must be in the pool",
+        );
     }
 
 }

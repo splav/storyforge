@@ -7,9 +7,9 @@
 //! offline predictor used by the planner for scoring candidate sequences.
 
 use crate::combat::ai::world::snapshot::{
-    refresh_status_aggregates, ActiveStatusView, BattleSnapshot, UnitSnapshot,
+    ActiveStatusView, BattleSnapshot, UnitSnapshot,
 };
-use crate::combat::ai::world::tags::AiTags;
+use crate::combat::ai::world::tags::StatusTagCache;
 use crate::combat::effects_math::final_damage_f32;
 use crate::combat::effects_outcome::{
     compute_ability_outcome, AbilityOutcome, ExpectedValue, OutcomePrimary,
@@ -41,20 +41,27 @@ impl TargetState for SnapshotTargetState<'_> {
 }
 
 use super::types::{PlanStep, StepOutcome};
+use crate::combat::ai::scoring::horizon::scan_aoo_hits_for_step;
 
 /// Mutable working copy of a snapshot. Steps mutate `snapshot` in place;
 /// derived fields like `threat`, `max_attack_range` and some tags are *not*
 /// recomputed — treat them as stale on the simulated state.
-pub struct SimState {
+///
+/// `status_tags` is a reference to the per-scenario `StatusTagCache` used by
+/// `refresh_aggregates` after status mutations. All callers must supply it;
+/// tests that don't exercise status reflow pass `empty_status_tag_cache()`.
+pub struct SimState<'a> {
     pub snapshot: BattleSnapshot,
     pub actor: Entity,
+    pub status_tags: &'a StatusTagCache,
 }
 
-impl SimState {
-    pub fn from_snapshot(snap: &BattleSnapshot, actor: Entity) -> Self {
+impl<'a> SimState<'a> {
+    pub fn from_snapshot(snap: &BattleSnapshot, actor: Entity, status_tags: &'a StatusTagCache) -> Self {
         Self {
             snapshot: snap.clone(),
             actor,
+            status_tags,
         }
     }
 
@@ -94,6 +101,12 @@ impl SimState {
         content: &ContentView,
         disadvantage: bool,
     ) -> StepOutcome {
+        // Safety net: if the actor is already dead on entry, nothing to apply.
+        // Normally the generator terminates branches after a lethal step, so
+        // this should not be reached. Kept as a defence against future callers.
+        if self.actor_unit().is_none() {
+            return StepOutcome::default();
+        }
         match step {
             PlanStep::Move { path } => self.apply_move(path),
             PlanStep::Cast {
@@ -110,17 +123,64 @@ impl SimState {
     }
 
     fn apply_move(&mut self, path: &[Hex]) -> StepOutcome {
-        if let Some(&dest) = path.last() {
-            let cost = path.len() as i32;
-            if let Some(u) = self.actor_unit_mut() {
-                u.pos = dest;
-                u.movement_points = (u.movement_points - cost).max(0);
+        let mut outcome = StepOutcome { moved: true, ..Default::default() };
+        let Some(&dest) = path.last() else { return outcome };
+
+        // Phase 1: collect AoO hits using immutable borrows only.
+        let actor_team;
+        let actor_start_pos;
+        let mitigation;
+        let vuln;
+        {
+            let Some(actor) = self.actor_unit() else { return outcome };
+            actor_team = actor.team;
+            actor_start_pos = actor.pos;
+            mitigation = (actor.armor + actor.armor_bonus) as f32;
+            vuln = actor.damage_taken_bonus as f32;
+        }
+
+        // Collect live enemy snapshots and their real indices in snapshot.units.
+        let enemy_indices_and_refs: Vec<(usize, &UnitSnapshot)> = self
+            .snapshot
+            .units
+            .iter()
+            .enumerate()
+            .filter(|(_, u)| u.is_alive() && u.team != actor_team)
+            .collect();
+        let enemy_refs: Vec<&UnitSnapshot> =
+            enemy_indices_and_refs.iter().map(|(_, u)| *u).collect();
+        let enemy_real_idx: Vec<usize> =
+            enemy_indices_and_refs.iter().map(|(i, _)| *i).collect();
+
+        let hits = scan_aoo_hits_for_step(actor_start_pos, path, &enemy_refs);
+
+        // Phase 2: mutate sequentially.
+        let cost = path.len() as i32;
+        if let Some(actor) = self.actor_unit_mut() {
+            actor.pos = dest;
+            actor.movement_points = (actor.movement_points - cost).max(0);
+        }
+
+        for hit in &hits {
+            let dealt = final_damage_f32(hit.raw_damage, mitigation, vuln, false);
+            outcome.self_damage += dealt;
+            // Apply damage to actor hp. If actor already died from a prior hit
+            // in this loop, `actor_unit_mut` returns None (filters is_alive) —
+            // subsequent iterations skip hp mutation but still record self_damage.
+            if let Some(actor) = self.actor_unit_mut() {
+                actor.hp = (actor.hp as f32 - dealt).max(0.0) as i32;
             }
         }
-        StepOutcome {
-            moved: true,
-            ..Default::default()
+
+        // Decrement reactions_left for each provoked enemy.
+        for hit in &hits {
+            let real_idx = enemy_real_idx[hit.enemy_idx];
+            if let Some(enemy) = self.snapshot.units.get_mut(real_idx) {
+                enemy.reactions_left = (enemy.reactions_left - 1).max(0);
+            }
         }
+
+        outcome
     }
 
     fn apply_cast(
@@ -169,7 +229,7 @@ impl SimState {
         );
 
         outcome.hits = ability_outcome.affected.len() as u32;
-        self.apply_primary(&ability_outcome, content, &mut outcome);
+        self.apply_primary(&ability_outcome, &mut outcome);
         apply_statuses(self, &ability_outcome, content, &mut outcome);
 
         // Killed units stay in `snapshot.units` with `hp = 0`; downstream
@@ -188,7 +248,6 @@ impl SimState {
     fn apply_primary(
         &mut self,
         ability: &AbilityOutcome,
-        content: &ContentView,
         outcome: &mut StepOutcome,
     ) {
         match &ability.primary {
@@ -251,10 +310,11 @@ impl SimState {
                         outcome.heal += effective;
                     }
                     if status_dirty {
-                        // A cleansed status drops its armor/vuln contribution —
+                        // A cleansed status drops its armor/vuln/speed contribution —
                         // refresh aggregates so subsequent steps see fresh math.
+                        let status_tags = self.status_tags;
                         if let Some(u) = self.unit_mut(ent) {
-                            refresh_status_aggregates(u, content);
+                            u.refresh_aggregates(status_tags);
                         }
                     }
                 }
@@ -311,8 +371,8 @@ fn pay_costs(actor: Option<&mut UnitSnapshot>, def: &AbilityDef) {
     }
 }
 
-fn apply_statuses(
-    sim: &mut SimState,
+fn apply_statuses<'a>(
+    sim: &mut SimState<'a>,
     ability: &AbilityOutcome,
     content: &ContentView,
     outcome: &mut StepOutcome,
@@ -346,15 +406,14 @@ fn apply_statuses(
                 rounds_remaining: app.duration_rounds,
                 dot_per_tick,
             });
-            if skips_turn {
-                u.tags |= AiTags::IS_STUNNED;
-            }
         }
 
-        // Drift #5 fix: the new status's armor / damage_taken bonus must flow
-        // into the cached aggregates so the next step's damage math sees it.
+        // Drift #5 + #speed fix: refresh all derived aggregates (armor_bonus,
+        // damage_taken_bonus, speed, IS_STUNNED, FORCES_TARGETING) from the
+        // updated status list so the next step's math sees fresh values.
+        let status_tags = sim.status_tags;
         if let Some(u) = sim.unit_mut(app.target) {
-            refresh_status_aggregates(u, content);
+            u.refresh_aggregates(status_tags);
         }
 
         if skips_turn {
@@ -368,7 +427,8 @@ fn apply_statuses(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
+    use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, UnitBuilder};
+    use crate::combat::ai::world::tags::AiTags;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,
     };
@@ -440,7 +500,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
         let step = PlanStep::Cast {
             ability: def.id.clone(),
             target: target_id,
@@ -476,7 +536,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
         let step = PlanStep::Cast {
             ability: def.id.clone(),
             target: target_id,
@@ -510,7 +570,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
         let step = PlanStep::Cast {
             ability: def.id.clone(),
             target: target_id,
@@ -551,7 +611,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, ally]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, ally]), actor_id, empty_status_tag_cache());
         let step = PlanStep::Cast {
             ability: def.id.clone(),
             target: ally_id,
@@ -589,7 +649,7 @@ mod tests {
         }];
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
         sim.apply_step(
             &PlanStep::Cast {
                 ability: def.id.clone(),
@@ -613,7 +673,7 @@ mod tests {
         let target = hex_from_offset(2, 0);
 
         let content = empty_content();
-        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
         let outcome = sim.apply_step(
             &PlanStep::Move { path: vec![hex_from_offset(1, 0), target] },
             &ctx(0, 0),
@@ -669,7 +729,9 @@ mod tests {
         }];
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
+        use crate::combat::ai::world::tags::cache::build_caches;
+        let (status_tag_cache, _) = build_caches(&content);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, &status_tag_cache);
         let outcome = sim.apply_step(
             &PlanStep::Cast {
                 ability: def.id.clone(),
@@ -730,7 +792,9 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![healer, ally]), healer_id);
+        use crate::combat::ai::world::tags::cache::build_caches;
+        let (status_tag_cache, _) = build_caches(&content);
+        let mut sim = SimState::from_snapshot(&snap(vec![healer, ally]), healer_id, &status_tag_cache);
         let outcome = sim.apply_step(
             &PlanStep::Cast {
                 ability: def.id.clone(),
@@ -816,10 +880,16 @@ mod tests {
         );
         content.abilities.insert(atk_def.id.clone(), atk_def.clone());
 
+        // Build a real status tag cache so refresh_aggregates picks up
+        // stone_skin's armor_bonus=5 (the whole point of this test).
+        use crate::combat::ai::world::tags::cache::build_caches;
+        let (status_tag_cache, _) = build_caches(&content);
+
         // Step 1: buffer (active actor for this cast) puts stone_skin on target.
         let mut sim = SimState::from_snapshot(
             &snap(vec![attacker, buffer, target]),
             buffer_id,
+            &status_tag_cache,
         );
         sim.apply_step(
             &PlanStep::Cast {
@@ -886,6 +956,7 @@ mod tests {
         let mut sim = SimState::from_snapshot(
             &snap(vec![actor, t1, t2]),
             actor_id,
+            empty_status_tag_cache(),
         );
         let outcome = sim.apply_step(
             &PlanStep::Cast {
@@ -919,7 +990,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
         let outcome = sim.apply_step(
             &PlanStep::Cast {
                 ability: def.id.clone(),
@@ -939,6 +1010,216 @@ mod tests {
         // runs target enumeration unconditionally. `hits` no longer stays
         // zero; nothing downstream reads this field for `GrantMovement`.
         assert_eq!(outcome.hits, 1, "Myself target expands to actor self");
+    }
+
+    // ── AoO propagation (step 12.2) ─────────────────────────────────────────
+    //
+    // Positions from `tests/aoo.rs` (verified adjacent/non-adjacent):
+    //   actor_pos  = hex_from_offset(3, 3)  — hero start
+    //   enemy_pos  = hex_from_offset(4, 3)  — goblin; distance 1 from actor_pos
+    //   away_pos   = hex_from_offset(2, 3)  — distance 2 from enemy (verified in aoo.rs)
+    //   near_pos   = hex_from_offset(3, 4)  — distance 1 from actor_pos AND enemy_pos
+
+    /// Moving out of adjacency with a reacting enemy records AoO self_damage
+    /// and applies it to actor hp.
+    #[test]
+    fn apply_move_records_aoo_self_damage() {
+        // Actor at (3,3), enemy at (4,3) — adjacent (distance 1).
+        // Move to (2,3) — distance 2 from enemy (leaves adjacency).
+        // No armor → raw damage == dealt damage.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .hp(20)
+            .armor(0)
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+            .aoo(5.0, 1)
+            .build();
+        let actor_id = actor.entity;
+
+        // Pre-conditions (mirrors aoo.rs verified layout).
+        let actor_pos = hex_from_offset(3, 3);
+        let enemy_pos = hex_from_offset(4, 3);
+        let away = hex_from_offset(2, 3);
+        assert_eq!(actor_pos.unsigned_distance_to(enemy_pos), 1, "actor adj to enemy");
+        assert_eq!(away.unsigned_distance_to(enemy_pos), 2, "away not adj to enemy");
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, enemy]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        let outcome = sim.apply_move(&[away]);
+
+        assert_eq!(outcome.self_damage, 5.0, "raw 5, no armor → self_damage 5");
+        assert_eq!(sim.actor_unit().unwrap().hp, 15, "hp 20 − 5 AoO = 15");
+    }
+
+    /// After a provoked AoO, the triggering enemy's reactions_left is decremented.
+    #[test]
+    fn apply_move_decrements_enemy_reactions() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3)).hp(20).build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3)).aoo(5.0, 1).build();
+        let enemy_id = enemy.entity;
+        let actor_id = actor.entity;
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, enemy]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_move(&[hex_from_offset(2, 3)]);
+
+        assert_eq!(
+            sim.snapshot.unit(enemy_id).unwrap().reactions_left,
+            0,
+            "enemy reaction consumed",
+        );
+    }
+
+    /// Enemy with reactions_left = 0 does not trigger AoO even when adjacency is left.
+    #[test]
+    fn apply_move_no_aoo_when_already_used_reaction() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3)).hp(20).build();
+        // reactions_left = 0 — reaction already spent this round.
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3)).aoo(5.0, 0).build();
+        let actor_id = actor.entity;
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, enemy]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        let outcome = sim.apply_move(&[hex_from_offset(2, 3)]);
+
+        assert_eq!(outcome.self_damage, 0.0, "no reaction available → no AoO");
+        assert_eq!(sim.actor_unit().unwrap().hp, 20, "hp unchanged");
+    }
+
+    /// A lethal AoO sets actor hp to 0; sim reports full damage in self_damage.
+    #[test]
+    fn apply_move_kills_actor_with_lethal_aoo() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .hp(1)
+            .armor(0)
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+            .aoo(10.0, 1)
+            .build();
+        let actor_id = actor.entity;
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, enemy]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        let outcome = sim.apply_move(&[hex_from_offset(2, 3)]);
+
+        assert_eq!(outcome.self_damage, 10.0, "full raw damage recorded even past death");
+        assert!(
+            sim.actor_unit().is_none(),
+            "actor hp=0 → is_alive()=false → actor_unit() returns None",
+        );
+        // hp clamped to 0, not negative.
+        let dead = sim.snapshot.units.iter().find(|u| u.entity == actor_id).unwrap();
+        assert_eq!(dead.hp, 0, "hp clamped to 0");
+    }
+
+    /// Path that stays adjacent to the enemy does not trigger AoO.
+    #[test]
+    fn apply_move_no_aoo_when_path_stays_adjacent() {
+        // Actor at (3,3), enemy at (4,3). Move to (3,4) which is adjacent to
+        // both (verified: (3,4) is distance 1 from (3,3) per aoo.rs layout).
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3)).hp(20).build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+            .aoo(5.0, 1)
+            .build();
+        let actor_id = actor.entity;
+        let dest = hex_from_offset(3, 4);
+
+        // Pre-condition: dest must be adjacent to enemy (distance 1).
+        assert_eq!(
+            dest.unsigned_distance_to(hex_from_offset(4, 3)),
+            1,
+            "test precondition: (3,4) is adjacent to enemy at (4,3)",
+        );
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, enemy]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        let outcome = sim.apply_move(&[dest]);
+
+        assert_eq!(outcome.self_damage, 0.0, "no adjacency-leave → no AoO");
+        assert_eq!(sim.actor_unit().unwrap().hp, 20, "hp unchanged");
+    }
+
+    /// AoO fires at most once per enemy per step even if the path briefly
+    /// leaves and re-enters adjacency.
+    #[test]
+    fn apply_move_aoo_only_once_per_enemy_per_step() {
+        // Actor at (3,3), enemy at (4,3).
+        // Path: [(2,3), (3,4)] — first cell (2,3) is away (dist 2 from enemy),
+        // second cell (3,4) is adjacent again (dist 1 from enemy).
+        // AoO should trigger exactly once on the (3,3)→(2,3) transition.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .hp(20)
+            .armor(0)
+            .build();
+        // reactions = 2 to prove the cap comes from scan logic, not reactions_left running out.
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+            .aoo(5.0, 2)
+            .build();
+        let enemy_id = enemy.entity;
+        let actor_id = actor.entity;
+
+        let enemy_pos = hex_from_offset(4, 3);
+        // Verify: (2,3) is NOT adjacent to enemy; (3,4) IS adjacent to enemy.
+        assert_eq!(hex_from_offset(2, 3).unsigned_distance_to(enemy_pos), 2, "(2,3) not adj");
+        assert_eq!(hex_from_offset(3, 4).unsigned_distance_to(enemy_pos), 1, "(3,4) adj");
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, enemy]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        // Path: leave adjacency at step (3,3→2,3), then re-enter at (3,4).
+        let outcome = sim.apply_move(&[hex_from_offset(2, 3), hex_from_offset(3, 4)]);
+
+        assert_eq!(outcome.self_damage, 5.0, "exactly one AoO per step per enemy");
+        assert_eq!(
+            sim.snapshot.unit(enemy_id).unwrap().reactions_left,
+            1,
+            "only one reaction consumed out of 2",
+        );
+    }
+
+    /// AoO damage is mitigated by armor_bonus from status buffs (12.1 + 12.2 integration).
+    #[test]
+    fn apply_move_aoo_mitigated_by_armor_bonus() {
+        // Actor armor=0, armor_bonus=5 (from a prior status apply).
+        // Enemy AoO raw=8. Expected: final_damage_f32(8, 5, 0, false) = max(1, 8-5) = 3.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .hp(20)
+            .armor(0)
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+            .aoo(8.0, 1)
+            .build();
+        let actor_id = actor.entity;
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, enemy]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        // Manually set armor_bonus as a prior Cast would have done via refresh_aggregates.
+        sim.snapshot.units.iter_mut().find(|u| u.entity == actor_id).unwrap().armor_bonus = 5;
+
+        let outcome = sim.apply_move(&[hex_from_offset(2, 3)]);
+
+        assert_eq!(outcome.self_damage, 3.0, "armor_bonus 5 reduces raw 8 AoO to 3");
+        assert_eq!(sim.actor_unit().unwrap().hp, 17, "hp 20 − 3 = 17");
     }
 }
 

@@ -298,6 +298,12 @@ pub struct StepOutcome {
     pub damage: f32,
     /// Expected HP-equivalent healing done.
     pub heal: f32,
+    /// Self-damage taken during this step (e.g., AoO when Moving out of
+    /// adjacency, friendly-fire AoE when actor is inside the blast).
+    /// Per-step semantics: consumers sum across `plan.outcomes` for plan total.
+    /// Absent in v35 logs — deserialises as 0.
+    #[serde(default)]
+    pub self_damage: f32,
     /// Targets whose HP dropped to 0 during this step (ordered by application).
     #[serde(with = "crate::combat::ai::log::serde_helpers::entity_vec")]
     pub killed: Vec<Entity>,

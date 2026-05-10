@@ -19,7 +19,7 @@ mod tests {
     use crate::combat::ai::plan::types::PlanStep;
     use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::world::tags::AiTags;
-    use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
+    use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, UnitBuilder};
     use crate::combat::effects_math::final_damage_f32;
     use crate::combat::effects_outcome::{
         compute_ability_outcome, ExpectedValue, OutcomePrimary,
@@ -127,7 +127,7 @@ mod tests {
         content.abilities.insert(def.id.clone(), def.clone());
 
         let ctx = CasterContext { str_mod: 2, int_mod: 0, spell_power: 0, weapon_dice: None };
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &ctx, &content, false);
 
         let t = sim.snapshot.unit(target_id).unwrap();
@@ -167,7 +167,7 @@ mod tests {
         content.abilities.insert(def.id.clone(), def.clone());
 
         let ctx = CasterContext { str_mod: 0, int_mod: 3, spell_power: 0, weapon_dice: None };
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &ctx, &content, false);
 
         // EV of 1d4 = 2.5 → 3; bonus = int_mod 3; raw = 6; pierces → dealt = 6.
@@ -207,7 +207,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &zero_ctx(), &content, false);
 
         let t = sim.snapshot.unit(target_id).unwrap();
@@ -249,7 +249,7 @@ mod tests {
         content.abilities.insert(def.id.clone(), def.clone());
 
         let ctx = CasterContext { str_mod: 0, int_mod: 2, spell_power: 0, weapon_dice: None };
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target_unit]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target_unit]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &ctx, &content, false);
 
         // amount = 4 + 2 = 6; dot_consumed = 4; remaining = 2; hp 10+2=12.
@@ -278,7 +278,7 @@ mod tests {
         content.abilities.insert(def.id.clone(), def.clone());
 
         let before_mp = 3;
-        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, actor_id, hex_from_offset(0, 0)), &zero_ctx(), &content, false);
 
         let a = sim.snapshot.unit(actor_id).unwrap();
@@ -308,7 +308,7 @@ mod tests {
         );
         content.abilities.insert(def.id.clone(), def.clone());
 
-        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, actor_id, hex_from_offset(0, 0)), &zero_ctx(), &content, false);
 
         let a = sim.snapshot.unit(actor_id).unwrap();
@@ -351,7 +351,7 @@ mod tests {
 
         let before_count = 1usize;
         let before_mana = 5i32;
-        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, actor_id, hex_from_offset(0, 0)), &zero_ctx(), &content, false);
 
         let a = sim.snapshot.unit(actor_id).unwrap();
@@ -396,7 +396,7 @@ mod tests {
         content.abilities.insert(def.id.clone(), def.clone());
 
         let before_hp = 20i32;
-        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id);
+        let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &zero_ctx(), &content, false);
 
         let a = sim.snapshot.unit(actor_id).unwrap();
@@ -428,6 +428,8 @@ mod tests {
     #[test]
     fn property_sweep_all_content_abilities() {
         let content = ContentView::load_global_for_tests();
+        use crate::combat::ai::world::tags::cache::build_caches;
+        let (status_tag_cache, _) = build_caches(&content);
 
         // Abilities skipped in the sweep (see KNOWN_DIVERGENCES whitelist).
         let sweep_skip: &[&str] = &[
@@ -494,7 +496,7 @@ mod tests {
             );
 
             // --- Sim ---
-            let mut sim = SimState::from_snapshot(&snap_base, actor_id);
+            let mut sim = SimState::from_snapshot(&snap_base, actor_id, &status_tag_cache);
             sim.apply_step(
                 &PlanStep::Cast {
                     ability: ability_id.clone(),
@@ -630,7 +632,7 @@ mod tests {
             // Lethal damage: killed units appear in StepOutcome AND have hp=0.
             // (We re-run apply_step here separately to capture the StepOutcome.)
             {
-                let mut sim2 = SimState::from_snapshot(&BattleSnapshot::new(units.clone(), 1), actor_id);
+                let mut sim2 = SimState::from_snapshot(&BattleSnapshot::new(units.clone(), 1), actor_id, empty_status_tag_cache());
                 let step_outcome = sim2.apply_step(
                     &PlanStep::Cast {
                         ability: ability_id.clone(),
