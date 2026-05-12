@@ -1,11 +1,11 @@
 //! Golden baseline guard for the AI scoring pipeline.
 //!
-//! Runs `replay_ai_log --compare-golden logs/baseline_v34.jsonl <fixtures>` and
+//! Runs `replay_ai_log --compare-golden tests/baselines/baseline_v36.jsonl <fixtures>` and
 //! fails on any divergence. Behaviour-preserving refactors should keep this at
 //! `0 / N diverged`; intentional behaviour changes require recapturing the
 //! baseline (see `docs/ai/extension-checklist.md` § SCHEMA_VERSION bump).
 //!
-//! Skips with a recapture instruction when `logs/baseline_v34.jsonl` is absent
+//! Skips with a recapture instruction when `tests/baselines/baseline_v36.jsonl` is absent
 //! — clones come without a baseline, and we don't want a missing artifact to
 //! mask other test failures.
 
@@ -24,7 +24,7 @@ fn replay_bin() -> PathBuf {
 
 /// Relative to `CARGO_MANIFEST_DIR`. Bump the filename when `SCHEMA_VERSION`
 /// bumps; see `docs/ai/extension-checklist.md` § SCHEMA_VERSION bump.
-const BASELINE_REL: &str = "tests/baselines/baseline_v34.jsonl";
+const BASELINE_REL: &str = "tests/baselines/baseline_v36.jsonl";
 
 fn baseline_abs() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(BASELINE_REL)
@@ -68,7 +68,7 @@ fn golden_baseline_zero_diff() {
             "SKIP golden_baseline_zero_diff: {BASELINE_REL} missing.\n\
              Recapture with:\n  \
              cargo run --release --bin replay_ai_log -- --capture-golden \\\n    \
-             {BASELINE_REL} tests/ai_scenarios/snapshots/*/log.jsonl"
+             tests/baselines/baseline_v36.jsonl tests/ai_scenarios/snapshots/*/log.jsonl"
         );
         return;
     }

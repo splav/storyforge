@@ -169,14 +169,23 @@ impl<'a> SimState<'a> {
             // subsequent iterations skip hp mutation but still record self_damage.
             if let Some(actor) = self.actor_unit_mut() {
                 actor.hp = (actor.hp as f32 - dealt).max(0.0) as i32;
+                // Drift #3 (AoO rage): victim gains +1 per AoO hit. Mirrors
+                // `combat/movement.rs` real-pipeline loop over [attacker, ev.actor].
+                if let Some((cur, max)) = actor.rage {
+                    actor.rage = Some(((cur + 1).min(max), max));
+                }
             }
         }
 
-        // Decrement reactions_left for each provoked enemy.
+        // Decrement reactions_left for each provoked enemy + bump AoO attacker's rage.
         for hit in &hits {
             let real_idx = enemy_real_idx[hit.enemy_idx];
             if let Some(enemy) = self.snapshot.units.get_mut(real_idx) {
                 enemy.reactions_left = (enemy.reactions_left - 1).max(0);
+                // Drift #3 (AoO rage): AoO attacker gains +1 per hit (real-mirror).
+                if let Some((cur, max)) = enemy.rage {
+                    enemy.rage = Some(((cur + 1).min(max), max));
+                }
             }
         }
 
@@ -258,17 +267,35 @@ impl<'a> SimState<'a> {
                     if self.snapshot.unit(ent).is_none_or(|u| u.hp <= 0) {
                         continue;
                     }
-                    let Some(u) = self.unit_mut(ent) else { continue };
-                    let dealt = final_damage_f32(
-                        *raw as f32,
-                        (u.armor + u.armor_bonus) as f32,
-                        u.damage_taken_bonus as f32,
-                        *pierces_armor,
-                    );
-                    u.hp = (u.hp as f32 - dealt).max(0.0) as i32;
-                    outcome.damage += dealt;
-                    if u.hp == 0 {
-                        outcome.killed.push(ent);
+                    // Defender HP + rage in one mutable borrow.
+                    if let Some(u) = self.unit_mut(ent) {
+                        let dealt = final_damage_f32(
+                            *raw as f32,
+                            (u.armor + u.armor_bonus) as f32,
+                            u.damage_taken_bonus as f32,
+                            *pierces_armor,
+                        );
+                        u.hp = (u.hp as f32 - dealt).max(0.0) as i32;
+                        outcome.damage += dealt;
+                        if u.hp == 0 {
+                            outcome.killed.push(ent);
+                        }
+                        // Drift #3: defender gains rage per damage event
+                        // (real-pipeline mirror: apply_effects.rs:117-129).
+                        if let Some((cur, max)) = u.rage {
+                            u.rage = Some(((cur + 1).min(max), max));
+                        }
+                    }
+                    // Drift #3: attacker also gains rage per damage event.
+                    // Separate borrow because actor may equal defender
+                    // (self-AoE friendly fire) — let the defender increment
+                    // land first, then bump attacker. If they're the same
+                    // unit this correctly produces +2 total, mirroring the
+                    // real loop `for actor in [source, target] { rage.gain() }`.
+                    if let Some(actor) = self.actor_unit_mut() {
+                        if let Some((cur, max)) = actor.rage {
+                            actor.rage = Some(((cur + 1).min(max), max));
+                        }
                     }
                 }
             }
@@ -1221,5 +1248,333 @@ mod tests {
         assert_eq!(outcome.self_damage, 3.0, "armor_bonus 5 reduces raw 8 AoO to 3");
         assert_eq!(sim.actor_unit().unwrap().hp, 17, "hp 20 − 3 = 17");
     }
+
+    // ── Rage gain on damage (drift #3) ─────────────────────────────────────
+
+    /// Single-target hit: attacker has rage, defender does not.
+    /// Attacker rage increments by 1; defender rage stays None.
+    #[test]
+    fn apply_damage_grants_rage_to_attacker_per_hit() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .rage(5, 10)
+            .build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .build(); // no rage
+        let actor_id = actor.entity;
+        let target_id = target.entity;
+
+        let mut content = empty_content();
+        let def = ability(
+            "strike",
+            EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            TargetType::SingleEnemy,
+            1,
+        );
+        content.abilities.insert(def.id.clone(), def.clone());
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, target]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_step(
+            &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+            &ctx(0, 0),
+            &content,
+            false,
+        );
+
+        assert_eq!(sim.actor_unit().unwrap().rage, Some((6, 10)), "attacker rage (5/10) → (6/10)");
+        assert_eq!(sim.snapshot.unit(target_id).unwrap().rage, None, "defender has no rage component");
+    }
+
+    /// Single-target hit: defender has rage, attacker does not.
+    /// Defender rage increments by 1; attacker rage stays None.
+    #[test]
+    fn apply_damage_grants_rage_to_defender_per_hit() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .build(); // no rage
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .rage(3, 10)
+            .build();
+        let actor_id = actor.entity;
+        let target_id = target.entity;
+
+        let mut content = empty_content();
+        let def = ability(
+            "strike",
+            EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            TargetType::SingleEnemy,
+            1,
+        );
+        content.abilities.insert(def.id.clone(), def.clone());
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, target]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_step(
+            &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+            &ctx(0, 0),
+            &content,
+            false,
+        );
+
+        assert_eq!(sim.snapshot.unit(target_id).unwrap().rage, Some((4, 10)), "defender rage (3/10) → (4/10)");
+        assert_eq!(sim.actor_unit().unwrap().rage, None, "attacker has no rage component");
+    }
+
+    /// Single-target hit: both sides have rage. Each gains exactly +1.
+    #[test]
+    fn apply_damage_grants_rage_to_both_attacker_and_defender() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .rage(2, 10)
+            .build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .rage(7, 10)
+            .build();
+        let actor_id = actor.entity;
+        let target_id = target.entity;
+
+        let mut content = empty_content();
+        let def = ability(
+            "strike",
+            EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            TargetType::SingleEnemy,
+            1,
+        );
+        content.abilities.insert(def.id.clone(), def.clone());
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, target]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_step(
+            &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+            &ctx(0, 0),
+            &content,
+            false,
+        );
+
+        assert_eq!(sim.actor_unit().unwrap().rage, Some((3, 10)), "attacker (2/10) → (3/10)");
+        assert_eq!(sim.snapshot.unit(target_id).unwrap().rage, Some((8, 10)), "defender (7/10) → (8/10)");
+    }
+
+    /// AoE hitting 3 enemies: attacker rage gets +1 per target hit (total +3).
+    /// Each defender gets +1.
+    #[test]
+    fn aoe_damage_grants_rage_per_target_to_attacker() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .rage(5, 10)
+            .build();
+        // Three enemies clustered at (3,0), (4,0), (3,1) — within radius 1 of (3,0).
+        let t1 = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0)).rage(0, 10).build();
+        let t2 = UnitBuilder::new(3, Team::Player, hex_from_offset(4, 0)).rage(0, 10).build();
+        let t3 = UnitBuilder::new(4, Team::Player, hex_from_offset(3, 1)).rage(0, 10).build();
+        let actor_id = actor.entity;
+        let t1_id = t1.entity;
+        let t2_id = t2.entity;
+        let t3_id = t3.entity;
+
+        let mut content = empty_content();
+        let mut def = ability(
+            "blast",
+            EffectDef::SpellDamage { dice: DiceExpr::new(1, 4, 0) },
+            TargetType::SingleEnemy,
+            5,
+        );
+        def.aoe = AoEShape::Circle { radius: 1 };
+        content.abilities.insert(def.id.clone(), def.clone());
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, t1, t2, t3]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        let outcome = sim.apply_step(
+            &PlanStep::Cast { ability: def.id.clone(), target: t1_id, target_pos: hex_from_offset(3, 0) },
+            &ctx(0, 0),
+            &content,
+            false,
+        );
+
+        assert_eq!(outcome.hits, 3, "AoE should hit all 3 enemies");
+        assert_eq!(sim.actor_unit().unwrap().rage, Some((8, 10)), "attacker (5/10) + 3 hits = (8/10)");
+        assert_eq!(sim.snapshot.unit(t1_id).unwrap().rage, Some((1, 10)), "t1 (0/10) → (1/10)");
+        assert_eq!(sim.snapshot.unit(t2_id).unwrap().rage, Some((1, 10)), "t2 (0/10) → (1/10)");
+        assert_eq!(sim.snapshot.unit(t3_id).unwrap().rage, Some((1, 10)), "t3 (0/10) → (1/10)");
+    }
+
+    /// Rage clamps at max: attacker at max rage stays there after a hit.
+    #[test]
+    fn rage_caps_at_max_for_attacker() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .rage(10, 10)
+            .build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
+        let actor_id = actor.entity;
+        let target_id = target.entity;
+
+        let mut content = empty_content();
+        let def = ability(
+            "strike",
+            EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            TargetType::SingleEnemy,
+            1,
+        );
+        content.abilities.insert(def.id.clone(), def.clone());
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, target]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_step(
+            &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+            &ctx(0, 0),
+            &content,
+            false,
+        );
+
+        assert_eq!(sim.actor_unit().unwrap().rage, Some((10, 10)), "attacker rage capped at max 10");
+    }
+
+    /// Rage clamps at max: defender at max rage stays there after taking a hit.
+    #[test]
+    fn rage_caps_at_max_for_defender() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .rage(10, 10)
+            .build();
+        let actor_id = actor.entity;
+        let target_id = target.entity;
+
+        let mut content = empty_content();
+        let def = ability(
+            "strike",
+            EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            TargetType::SingleEnemy,
+            1,
+        );
+        content.abilities.insert(def.id.clone(), def.clone());
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, target]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_step(
+            &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+            &ctx(0, 0),
+            &content,
+            false,
+        );
+
+        assert_eq!(sim.snapshot.unit(target_id).unwrap().rage, Some((10, 10)), "defender rage capped at max 10");
+    }
+
+    /// Units with no rage component (rage: None) are silently unaffected.
+    /// No panic, rage stays None on both sides.
+    #[test]
+    fn units_without_rage_component_are_unaffected() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build(); // rage: None
+        let target = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build(); // rage: None
+        let actor_id = actor.entity;
+        let target_id = target.entity;
+
+        let mut content = empty_content();
+        let def = ability(
+            "strike",
+            EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+            TargetType::SingleEnemy,
+            1,
+        );
+        content.abilities.insert(def.id.clone(), def.clone());
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, target]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_step(
+            &PlanStep::Cast { ability: def.id.clone(), target: target_id, target_pos: hex_from_offset(1, 0) },
+            &ctx(0, 0),
+            &content,
+            false,
+        );
+
+        assert_eq!(sim.actor_unit().unwrap().rage, None, "attacker has no rage component, stays None");
+        assert_eq!(sim.snapshot.unit(target_id).unwrap().rage, None, "defender has no rage component, stays None");
+    }
+
+    // ── AoO rage (drift #3, AoO branch) ─────────────────────────────────────
+
+    /// Mirrors `combat/movement.rs:228-236` real-pipeline rule: for every AoO
+    /// hit, BOTH the AoO attacker AND the moving victim gain +1 rage.
+    #[test]
+    fn apply_move_aoo_grants_rage_to_both_sides() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .hp(20)
+            .rage(0, 10)
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+            .aoo(5.0, 1)
+            .rage(0, 10)
+            .build();
+        let actor_id = actor.entity;
+        let enemy_id = enemy.entity;
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, enemy]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_move(&[hex_from_offset(2, 3)]);
+
+        assert_eq!(sim.actor_unit().unwrap().rage, Some((1, 10)), "victim +1 rage");
+        assert_eq!(
+            sim.snapshot.unit(enemy_id).unwrap().rage,
+            Some((1, 10)),
+            "AoO attacker +1 rage",
+        );
+    }
+
+    /// AoO rage gain clamps to max on both sides.
+    #[test]
+    fn apply_move_aoo_rage_caps_at_max() {
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+            .hp(20)
+            .rage(10, 10)
+            .build();
+        let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+            .aoo(5.0, 1)
+            .rage(10, 10)
+            .build();
+        let actor_id = actor.entity;
+        let enemy_id = enemy.entity;
+
+        let mut sim = SimState::from_snapshot(
+            &snap(vec![actor, enemy]),
+            actor_id,
+            empty_status_tag_cache(),
+        );
+        sim.apply_move(&[hex_from_offset(2, 3)]);
+
+        assert_eq!(sim.actor_unit().unwrap().rage, Some((10, 10)));
+        assert_eq!(sim.snapshot.unit(enemy_id).unwrap().rage, Some((10, 10)));
+    }
+
+    // TODO(12.3): `self_damage_grants_two_rage_for_self_aoe` — actor is both
+    // source and defender in friendly-fire AoE. The real pipeline iterates
+    // `for actor in [source, target]` so the same unit's `rage.gain()` is
+    // called twice → total +2. Setting up a single-unit self-AoE scenario
+    // requires a friendly_fire=true AoE ability that targets the caster — the
+    // existing `ability()` helper only supports SingleEnemy target type, and
+    // `TargetType::Myself` with AoE is not exercised by current content.
+    // The structural correctness is verified by inspection: in
+    // `apply_primary`, defender rage is bumped inside the `unit_mut(ent)` borrow,
+    // then `actor_unit_mut()` (same entity) bumps it again — producing +2.
 }
 

@@ -1,6 +1,6 @@
 # AI Log Mining
 
-*Источник: `src/bin/mine_ai_logs.rs` (≈3100 строк). Текущая schema v34. Mining читает enriched `score_trace_log` как primary; v33/v34 логи без TLE-1 detail — graceful degradation (Critic/Sanity per-kind stats недоступны). v32 логи принимаются schema-additive (`score_trace_log` отсутствует → None; mining использует только metadata stats).*
+*Источник: `src/bin/mine_ai_logs.rs` (≈3100 строк). Текущая schema v36. Mining читает enriched `score_trace_log` как primary; v33–v35 логи без TLE-1 detail — graceful degradation (Critic/Sanity per-kind stats недоступны). v32 логи принимаются schema-additive (`score_trace_log` отсутствует → None; mining использует только metadata stats).*
 
 `mine_ai_logs` — оффлайн-утилита, которая агрегирует JSONL-логи AI и печатает статистику по корпусу. Используется для оценки эффективности решений AI: какие интенты часто переключаются впустую, какие критики срабатывают зря, как ведут себя бэнды и агенда. Каждая секция ориентирована на конкретный сигнал — patологию или гипотезу о патологии.
 
@@ -54,7 +54,7 @@ cargo run --release --bin mine_ai_logs -- --dir logs/
 
 | Секция | Что показывает |
 |---|---|
-| **D1.** Outcome fact distributions | Гистограмма каждого поля `ActionOutcomeEstimate` (`enemy_damage`, `p_kill_now`, `cc_turns_applied`, `hp_restored`, …) по chosen-plan steps. Аномально низкие damage'и или высокие self_damage — сигнал для policy/critic тюнинга. |
+| **D1.** Outcome fact distributions | Гистограмма каждого поля `ActionOutcomeEstimate` (`enemy_damage`, `p_kill_now`, `cc_turns_applied`, `hp_restored`, …) по chosen-plan steps. Аномально низкие damage'и или высокие self_damage — сигнал для policy/critic тюнинга. Post-step 12: `self_damage > 0` ожидается для AoO-провоцирующих сценариев (AoO propagation закрыт в step 12.2; до этого `self_damage` всегда 0 в corpus). |
 | **D2.** AoE per-entity damage breakdown | Распределение покрытия AoE — сколько целей и какой урон на каждую. |
 
 ### Class E — modifier + jitter

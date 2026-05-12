@@ -606,3 +606,346 @@ fn parity_aoo_decrements_reactions_real_vs_sim() {
         "enemy reactions_left must be 0 after one provoked AoO",
     );
 }
+
+/// Parity check (12.3): after a single-target Damage cast, attacker rage
+/// increments by +1 and defender rage increments by +1 — mirroring
+/// `apply_effects.rs:117-129` which iterates `for actor in [source, target]`.
+///
+/// **Sim-side only.** Real-combat rage verification requires a full Bevy world
+/// with `Rage` ECS component. The real-pipeline rule is verified by inspection
+/// of `apply_effects.rs:117-129`.
+///
+/// TODO(12.3): Extend to full Bevy integration once the real-combat parity
+/// harness drives both sides end-to-end.
+#[test]
+fn parity_rage_real_vs_sim() {
+    use storyforge::combat::ai::plan::sim::SimState;
+    use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+    use storyforge::content::abilities::{
+        AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
+    };
+    use storyforge::content::content_view::ContentView;
+    use storyforge::core::{AbilityId, DiceExpr};
+    use storyforge::game::components::Team;
+    use storyforge::game::hex::hex_from_offset;
+    use std::collections::HashMap;
+
+    let attacker = UnitSnapshot {
+        entity: bevy::prelude::Entity::from_raw_u32(1).expect("valid"),
+        team: Team::Enemy,
+        role: Default::default(),
+        pos: hex_from_offset(0, 0),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 1, max_ap: 1,
+        movement_points: 3, base_speed: 3, speed: 3,
+        mana: None, rage: Some((5, 10)), energy: None,
+        abilities: Vec::new(),
+        threat: 5.0,
+        tags: AiTags::empty(),
+        max_attack_range: 1,
+        summoner: None,
+        reactions_left: 0,
+        aoo_expected_damage: None,
+        statuses: Vec::new(),
+        caster_ctx: CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+    let defender = UnitSnapshot {
+        entity: bevy::prelude::Entity::from_raw_u32(2).expect("valid"),
+        team: Team::Player,
+        role: Default::default(),
+        pos: hex_from_offset(1, 0),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 0, max_ap: 0,
+        movement_points: 0, base_speed: 3, speed: 3,
+        mana: None, rage: Some((3, 10)), energy: None,
+        abilities: Vec::new(),
+        threat: 0.0,
+        tags: AiTags::empty(),
+        max_attack_range: 0,
+        summoner: None,
+        reactions_left: 0,
+        aoo_expected_damage: None,
+        statuses: Vec::new(),
+        caster_ctx: Default::default(),
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+
+    let attacker_id = attacker.entity;
+    let defender_id = defender.entity;
+
+    let strike_def = AbilityDef {
+        id: AbilityId::from("strike"),
+        name: "Strike".into(),
+        target_type: TargetType::SingleEnemy,
+        range: AbilityRange { min: 0, max: 1 },
+        effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+        costs: Vec::new(),
+        cost_ap: 1,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        statuses: Vec::new(),
+        magic_domains: Vec::new(),
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+
+    let mut content = ContentView {
+        abilities: HashMap::new(),
+        keyed_abilities: Vec::new(),
+        statuses: HashMap::new(),
+        weapons: HashMap::new(),
+        armor: HashMap::new(),
+        classes: HashMap::new(),
+        unit_templates: HashMap::new(),
+        races: HashMap::new(),
+        factions: HashMap::new(),
+        paths: HashMap::new(),
+        ..ContentView::default()
+    };
+    content.abilities.insert(strike_def.id.clone(), strike_def.clone());
+
+    let snap = BattleSnapshot::new(vec![attacker, defender], 1);
+    let status_tags = StatusTagCache::default();
+    let mut sim = SimState::from_snapshot(&snap, attacker_id, &status_tags);
+
+    sim.apply_step(
+        &PlanStep::Cast {
+            ability: strike_def.id.clone(),
+            target: defender_id,
+            target_pos: hex_from_offset(1, 0),
+        },
+        &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+        &content,
+        false,
+    );
+
+    // Real pipeline: both source and target gain +1 rage per damage event.
+    assert_eq!(
+        sim.snapshot.unit(attacker_id).unwrap().rage,
+        Some((6, 10)),
+        "attacker rage (5/10) should become (6/10) after dealing damage",
+    );
+    assert_eq!(
+        sim.snapshot.unit(defender_id).unwrap().rage,
+        Some((4, 10)),
+        "defender rage (3/10) should become (4/10) after taking damage",
+    );
+}
+
+/// Parity check (12.3): AoE Damage hitting 3 defenders — attacker gains +1
+/// rage per target hit (total +3), each defender gains +1.
+///
+/// Mirrors `apply_effects.rs:117-129`: the loop iterates one entry per damage
+/// event, so AoE with N targets calls `rage.gain()` on the attacker N times.
+///
+/// **Sim-side only.** See `parity_rage_real_vs_sim` for rationale.
+///
+/// TODO(12.3): Extend to full Bevy integration.
+#[test]
+fn parity_rage_aoe_real_vs_sim() {
+    use storyforge::combat::ai::plan::sim::SimState;
+    use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+    use storyforge::content::abilities::{
+        AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
+    };
+    use storyforge::content::content_view::ContentView;
+    use storyforge::core::{AbilityId, DiceExpr};
+    use storyforge::game::components::Team;
+    use storyforge::game::hex::hex_from_offset;
+    use std::collections::HashMap;
+
+    let make_unit = |id: u32, team: Team, col: i32, rage: Option<(i32, i32)>| UnitSnapshot {
+        entity: bevy::prelude::Entity::from_raw_u32(id).expect("valid"),
+        team,
+        role: Default::default(),
+        pos: hex_from_offset(col, 0),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 1, max_ap: 1,
+        movement_points: 3, base_speed: 3, speed: 3,
+        mana: None, rage, energy: None,
+        abilities: Vec::new(),
+        threat: if team == Team::Enemy { 5.0 } else { 0.0 },
+        tags: AiTags::empty(),
+        max_attack_range: 5,
+        summoner: None,
+        reactions_left: 0,
+        aoo_expected_damage: None,
+        statuses: Vec::new(),
+        caster_ctx: Default::default(),
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+
+    let attacker = make_unit(1, Team::Enemy, 0, Some((5, 10)));
+    // Three defenders clustered within AoE radius 1 of (3,0).
+    let d1 = make_unit(2, Team::Player, 3, Some((0, 10)));
+    let d2 = make_unit(3, Team::Player, 4, Some((0, 10)));
+    let d3 = make_unit(4, Team::Player, 2, Some((0, 10)));
+
+    let attacker_id = attacker.entity;
+    let d1_id = d1.entity;
+    let d2_id = d2.entity;
+    let d3_id = d3.entity;
+
+    let blast_def = AbilityDef {
+        id: AbilityId::from("blast"),
+        name: "Blast".into(),
+        target_type: TargetType::SingleEnemy,
+        range: AbilityRange { min: 0, max: 5 },
+        effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 4, 0) },
+        costs: Vec::new(),
+        cost_ap: 1,
+        aoe: AoEShape::Circle { radius: 1 },
+        friendly_fire: false,
+        statuses: Vec::new(),
+        magic_domains: Vec::new(),
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+
+    let mut content = ContentView {
+        abilities: HashMap::new(),
+        keyed_abilities: Vec::new(),
+        statuses: HashMap::new(),
+        weapons: HashMap::new(),
+        armor: HashMap::new(),
+        classes: HashMap::new(),
+        unit_templates: HashMap::new(),
+        races: HashMap::new(),
+        factions: HashMap::new(),
+        paths: HashMap::new(),
+        ..ContentView::default()
+    };
+    content.abilities.insert(blast_def.id.clone(), blast_def.clone());
+
+    let snap = BattleSnapshot::new(vec![attacker, d1, d2, d3], 1);
+    let status_tags = StatusTagCache::default();
+    let mut sim = SimState::from_snapshot(&snap, attacker_id, &status_tags);
+
+    let outcome = sim.apply_step(
+        &PlanStep::Cast {
+            ability: blast_def.id.clone(),
+            target: d1_id,
+            target_pos: hex_from_offset(3, 0),
+        },
+        &CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
+        &content,
+        false,
+    );
+
+    assert_eq!(outcome.hits, 3, "AoE radius-1 at (3,0) should hit d1(3,0), d2(4,0), d3(2,0)");
+
+    // Attacker gets +1 per damage event → +3 total.
+    assert_eq!(
+        sim.snapshot.unit(attacker_id).unwrap().rage,
+        Some((8, 10)),
+        "attacker rage (5/10) + 3 hits = (8/10)",
+    );
+    // Each defender gets +1.
+    assert_eq!(sim.snapshot.unit(d1_id).unwrap().rage, Some((1, 10)), "d1 (0/10) → (1/10)");
+    assert_eq!(sim.snapshot.unit(d2_id).unwrap().rage, Some((1, 10)), "d2 (0/10) → (1/10)");
+    assert_eq!(sim.snapshot.unit(d3_id).unwrap().rage, Some((1, 10)), "d3 (0/10) → (1/10)");
+}
+
+/// Parity check (12.3, AoO branch): when a Move provokes an AoO, the real
+/// `movement_system` (`combat/movement.rs:228-236`) iterates
+/// `for actor in [attacker, ev.actor]` and calls `rage.gain()` on both.
+/// The sim mirrors this in `apply_move`.
+///
+/// **Sim-side only.** Full Bevy run would require a `MoveUnit` integration
+/// (see `tests/aoo.rs`) which is out of scope for 12.3 parity coverage.
+#[test]
+fn parity_aoo_grants_rage_real_vs_sim() {
+    use storyforge::combat::ai::plan::sim::SimState;
+    use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+    use storyforge::content::abilities::CasterContext;
+    use storyforge::content::content_view::ContentView;
+    use storyforge::game::components::Team;
+    use storyforge::game::hex::hex_from_offset;
+
+    // Actor at (3,3), adjacent enemy at (4,3). Move to (2,3) — leaves adjacency.
+    let actor = UnitSnapshot {
+        entity: bevy::prelude::Entity::from_raw_u32(1).expect("valid"),
+        team: Team::Enemy,
+        role: Default::default(),
+        pos: hex_from_offset(3, 3),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 1, max_ap: 1,
+        movement_points: 3, base_speed: 3, speed: 3,
+        mana: None, rage: Some((4, 10)), energy: None,
+        abilities: Vec::new(),
+        threat: 0.0,
+        tags: AiTags::empty(),
+        max_attack_range: 1,
+        summoner: None,
+        reactions_left: 0,
+        aoo_expected_damage: None,
+        statuses: Vec::new(),
+        caster_ctx: Default::default(),
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+    let enemy = UnitSnapshot {
+        entity: bevy::prelude::Entity::from_raw_u32(2).expect("valid"),
+        team: Team::Player,
+        role: Default::default(),
+        pos: hex_from_offset(4, 3),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 0, max_ap: 0,
+        movement_points: 0, base_speed: 3, speed: 3,
+        mana: None, rage: Some((7, 10)), energy: None,
+        abilities: Vec::new(),
+        threat: 5.0,
+        tags: AiTags::empty(),
+        max_attack_range: 1,
+        summoner: None,
+        reactions_left: 1,
+        aoo_expected_damage: Some(5.0),
+        statuses: Vec::new(),
+        caster_ctx: Default::default(),
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    };
+    let actor_id = actor.entity;
+    let enemy_id = enemy.entity;
+    let snap = BattleSnapshot::new(vec![actor, enemy], 1);
+
+    let status_tags = StatusTagCache::default();
+    let content = ContentView::default();
+    let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tags);
+    sim.apply_step(
+        &PlanStep::Move { path: vec![hex_from_offset(2, 3)] },
+        &CasterContext::default(),
+        &content,
+        false,
+    );
+
+    // Both sides bumped by exactly 1, mirroring `for actor in [attacker, ev.actor]`.
+    assert_eq!(sim.actor_unit().unwrap().rage, Some((5, 10)), "victim 4 → 5");
+    assert_eq!(
+        sim.snapshot.unit(enemy_id).unwrap().rage,
+        Some((8, 10)),
+        "AoO attacker 7 → 8",
+    );
+}

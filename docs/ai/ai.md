@@ -39,7 +39,7 @@ AI выбирает действие для вражеских юнитов (и 
 │ • repair/           │                     │                      │
 └─────────────────────┴─────────────────────┴──────────────────────┘
 
-  log/        — JSONL types + serde helpers + debug overlay (schema v34)
+  log/        — JSONL types + serde helpers + debug overlay (schema v36)
   replay/     — assertion DSL + replay pipeline (executor in src/bin/)
   action_state.rs — per-actor action availability tracking
 ```
@@ -197,6 +197,57 @@ AI выбирает действие для вражеских юнитов (и 
 
 Если ни одна строка не подходит — это сигнал, что концепт не вписывается в текущие слои, и нужен design-discussion, а не «положу куда-нибудь».
 
+## Mid-plan reflow
+
+Step 12 made the plan sim (`plan/sim.rs::SimState`) accurate for multi-step plans by mirroring the real combat pipeline's state transitions. Four drifts were closed; three mechanisms are described here.
+
+### `base_speed` / `speed` split
+
+`UnitSnapshot.base_speed` is the unmodified move budget (from equipment/stats at snapshot time, without any status modifiers). `speed = base_speed + Σ(active speed bonuses from statuses)`. The `speed` field is what pathfinding and reach checks consume.
+
+`base_speed` is serialized explicitly in schema v36+. v35 logs lack the field; the post-load reconstructor in `parse_actor_tick` sets `base_speed = speed` (safe: no v35 corpus had active speed-bonus statuses that differed from base at snapshot construction time).
+
+### `refresh_aggregates` contract
+
+`UnitSnapshot::refresh_aggregates(&mut self, status_tags: &StatusTagCache)` recomputes the following derived fields from `base_speed` + the active status list:
+
+- `speed = base_speed + Σ(status.speed_bonus)`
+- `armor_bonus = Σ(status.armor_amount)`
+- `damage_taken_bonus = Σ(status.vuln_amount)`
+- `IS_STUNNED` tag — set iff any active status has `HARD_CC` in the cache
+- `FORCES_TARGETING` tag — set iff any has `COMPULSION`
+
+All other `AiTags` bits (`LOW_HP`, `MELEE_ONLY`, `CAN_HEAL`, `HAS_AOE`, …) are capability-derived at snapshot construction and are **not** touched by `refresh_aggregates`.
+
+`add_status` / `remove_status` call `refresh_aggregates` automatically. The sim's `apply_statuses` calls it manually after bulk status mutations (to handle the case where statuses are pushed/removed in a loop and we want a single refresh at the end).
+
+Order within a cast: `apply_primary` (damage/heal, reads current `armor_bonus`) runs **before** `apply_statuses` (adds new statuses + refresh). This mirrors `combat/resolution.rs` → `apply_effects.rs` order: damage events are emitted before status apply events.
+
+### AoO propagation
+
+`apply_move` (in `SimState`) scans each Move step for adjacency-leaving transitions against every enemy with `reactions_left > 0` and `aoo_expected_damage.is_some()`. When a transition leaves adjacency:
+
+1. Pre-mitigation AoO damage is fetched from `enemy.aoo_expected_damage`.
+2. Final damage is computed using the actor's current `armor + armor_bonus` (reflects any armor buffs applied earlier in the plan via `refresh_aggregates`).
+3. `actor.hp -= applied_damage`; `outcome.self_damage += applied_damage`.
+4. `enemy.reactions_left` is decremented (clamped ≥ 0) — each enemy can AoO at most once per plan.
+
+The scan is extracted into `scoring/horizon.rs::scan_aoo_hits_for_step` (pure function), which `expected_aoo_damage` (whole-plan helper for critics) also uses internally.
+
+### Rage rule
+
+Per damage event in `apply_primary` (Damage arm): attacker gains +1 rage, defender gains +1 rage (both clamped to `max`). For AoE with N targets the attacker receives +N rage total (one per hit), each defender +1. Mirrors `combat/apply_effects.rs:117-129`.
+
+AoO damage in `apply_move` triggers the same rage rule: the AoO-provoking actor (defender of the AoO) gains +1 rage, and the AoO-dealing enemy (attacker) gains +1 rage.
+
+### Mid-plan death truncation
+
+After each `apply_step`, the plan generator (`generator.rs::enumerate_next_steps`) checks `sim.actor_unit().map(|a| a.hp <= 0).unwrap_or(true)`. If true, the branch terminates — no further steps are appended. This prevents the forward-model death blindness where a dead actor could "earn" Cast damage credit in subsequent sim steps.
+
+See [`docs/ai/rework/step12_plan.md`](rework/step12_plan.md) and [`docs/ai/rework/unisim.md`](rework/unisim.md) for the full design rationale.
+
+---
+
 ## Документы по слоям
 
 | Документ | Что внутри |
@@ -223,13 +274,15 @@ AI выбирает действие для вражеских юнитов (и 
 
 ## Версии схем
 
-- **`SCHEMA_VERSION = 34`** (`log/mod.rs`) — текущая версия JSONL.
+- **`SCHEMA_VERSION = 36`** (`log/mod.rs`) — текущая версия JSONL.
+- v36: `UnitSnapshot.base_speed` serialized explicitly (step 12). v35 logs lack this field → post-load reconstructor sets `base_speed = speed`.
+- v35: `ActorTickEvent` and `ActorTickInput` gain `chosen_intent: Option<TacticalIntent>` (step 11 / mining C6). Schema-additive: v34 and v33 decode as `None`.
 - v34: `IntentReason::Adapted` split → отдельное поле `evaluation_mode_reason`; `TacticalIntent::LastStand` упразднено (stays as `EvaluationMode`); `target_priority` → `target_selection_score` rename.
 - v33: `ScoreTraceLog` экспонирован в JSONL как `score_trace_log` (schema-additive).
 - v32: `ActorTickEvent.band` / `band_reason` / `agenda`, `PlanAnnotation.{agenda_item, considerations_per_item}`.
 - v28+: outcome shape — fundamental data; v27 logs дают `LogError::UnsupportedSchema`.
 
-Validator (`log/mod.rs`): принимает `>= SCHEMA_VERSION - 1` schema-additively (т.е. v33 + v34); v32 и ниже отвергает.
+Validator (`log/mod.rs`): принимает v33–v35 schema-additively; v32 и ниже отвергает (`MIN_SUPPORTED = 33`).
 
 ## Тестовая инфраструктура
 
