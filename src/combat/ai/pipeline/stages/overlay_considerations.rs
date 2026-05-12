@@ -106,7 +106,15 @@ impl PlanStage for OverlayConsiderationsStage {
             // self_damage_ratio: cumulative self-damage normalised by actor's max HP.
             // ExposureAtEnd: danger at the plan's final position (terminal factor).
             // Expected flat (≈1.0) in safe corpora — see 11.7b finding and Section D.
-            let total_self_damage: f32 = ann.outcomes.iter().map(|o| o.self_damage).sum();
+            //
+            // Outcomes live on `TurnPlan.annotation` (populated by generator); the
+            // `outcomes` field on pipeline annotation is dead during pipeline.
+            // See `ScoredPool::plan_outcomes` for the canonical accessor.
+            let total_self_damage: f32 = pool
+                .plan_outcomes(plan_idx)
+                .iter()
+                .map(|o| o.self_damage)
+                .sum();
             let self_damage_ratio = if actor_max_hp > f32::EPSILON {
                 (total_self_damage / actor_max_hp).clamp(0.0, 1.0)
             } else {
@@ -135,7 +143,9 @@ impl PlanStage for OverlayConsiderationsStage {
             let leverages: Vec<f32> = {
                 let plan = &pool.plans[plan_idx];
                 let ann = &pool.annotations[plan_idx];
-                let outcomes = ann.outcomes.as_slice();
+                // Authoritative outcomes — pipeline annotation outcomes are dead
+                // during pipeline (default-empty); see `ScoredPool::plan_outcomes`.
+                let outcomes = plan.annotation.outcomes.as_slice();
                 let terminal = ann.terminal;
                 let factors = ann.factors;
                 let n_per_item = ann.per_item.len();
@@ -634,13 +644,15 @@ mod tests {
             items: vec![empty_agenda_item()],
         };
 
+        let mut plan = TurnPlan::default();
+        plan.annotation.outcomes =
+            vec![ActionOutcomeEstimate { self_damage: 50.0, ..Default::default() }];
+
         let mut ann = PlanAnnotation::default();
         ann.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
         ann.per_item = vec![PerItemEval::default()];
-        ann.outcomes =
-            vec![ActionOutcomeEstimate { self_damage: 50.0, ..Default::default() }];
 
-        let pool = run_overlay(vec![TurnPlan::default()], vec![ann], &agenda);
+        let pool = run_overlay(vec![plan], vec![ann], &agenda);
         let safety = pool.annotations[0].per_item[0].considerations.safety;
         assert!(safety < 1.0, "self_damage should reduce safety below 1.0, got {safety}");
     }
@@ -674,14 +686,14 @@ mod tests {
 
         let mut plan = TurnPlan::default();
         plan.steps = vec![make_cast_step(target_ent)];
-
-        let mut ann = PlanAnnotation::default();
-        ann.per_item = vec![PerItemEval::default()];
-        ann.outcomes = vec![ActionOutcomeEstimate {
+        plan.annotation.outcomes = vec![ActionOutcomeEstimate {
             enemy_damage: 20.0,
             enemy_damage_per_entity: vec![], // single-target
             ..Default::default()
         }];
+
+        let mut ann = PlanAnnotation::default();
+        ann.per_item = vec![PerItemEval::default()];
         // SecureKill = 0 (default terminal)
 
         let pool = run_overlay_with_snap(vec![plan], vec![ann], &agenda, snap);
@@ -715,13 +727,13 @@ mod tests {
 
         let mut plan = TurnPlan::default();
         plan.steps = vec![make_cast_step(target_ent)];
-
-        let mut ann = PlanAnnotation::default();
-        ann.per_item = vec![PerItemEval::default()];
-        ann.outcomes = vec![ActionOutcomeEstimate {
+        plan.annotation.outcomes = vec![ActionOutcomeEstimate {
             cc_turns_applied: 2.0,
             ..Default::default()
         }];
+
+        let mut ann = PlanAnnotation::default();
+        ann.per_item = vec![PerItemEval::default()];
 
         let pool = run_overlay_with_snap(vec![plan], vec![ann], &agenda, snap);
         let leverage = pool.annotations[0].per_item[0].considerations.leverage;
@@ -758,16 +770,18 @@ mod tests {
             }],
         };
 
-        let mut ann = PlanAnnotation::default();
-        ann.per_item = vec![PerItemEval::default()];
-        ann.outcomes = vec![ActionOutcomeEstimate {
+        let mut plan = TurnPlan::default();
+        plan.annotation.outcomes = vec![ActionOutcomeEstimate {
             hp_restored: 10.0,
             cc_turns_applied: 1.0,
             ..Default::default()
         }];
 
+        let mut ann = PlanAnnotation::default();
+        ann.per_item = vec![PerItemEval::default()];
+
         let pool = run_overlay_with_snap(
-            vec![TurnPlan::default()],
+            vec![plan],
             vec![ann],
             &agenda,
             snap,
@@ -931,17 +945,19 @@ mod tests {
             }],
         };
 
+        let mut plan = TurnPlan::default();
+        plan.annotation.outcomes = vec![ActionOutcomeEstimate {
+            enemy_damage: 10.0,
+            ..Default::default()
+        }];
+
         let mut ann = PlanAnnotation::default();
         ann.per_item = vec![PerItemEval::default()];
         let mut terminal = FactorTerminalScore::default();
         terminal.set(TerminalFactor::SecureKill, 1.0);
         ann.terminal = terminal;
-        ann.outcomes = vec![ActionOutcomeEstimate {
-            enemy_damage: 10.0,
-            ..Default::default()
-        }];
 
-        let pool = run_overlay(vec![TurnPlan::default()], vec![ann], &agenda);
+        let pool = run_overlay(vec![plan], vec![ann], &agenda);
         let leverage = pool.annotations[0].per_item[0].considerations.leverage;
         // kill=1.0, damage_norm=10/10=1.0 → 0.7 + 0.3 = 1.0
         assert!(
@@ -982,14 +998,14 @@ mod tests {
         // Plan casts at B (not A) with AoE hitting B and C
         let mut plan = TurnPlan::default();
         plan.steps = vec![make_cast_step(target_b)];
-
-        let mut ann = PlanAnnotation::default();
-        ann.per_item = vec![PerItemEval::default()];
-        ann.outcomes = vec![ActionOutcomeEstimate {
+        plan.annotation.outcomes = vec![ActionOutcomeEstimate {
             enemy_damage: 50.0, // total AoE damage, but not to A
             enemy_damage_per_entity: vec![(target_b, 30.0), (target_c, 20.0)],
             ..Default::default()
         }];
+
+        let mut ann = PlanAnnotation::default();
+        ann.per_item = vec![PerItemEval::default()];
         // SecureKill = 0.0 (default)
 
         let pool = run_overlay_with_snap(vec![plan], vec![ann], &agenda, snap);
@@ -1025,13 +1041,13 @@ mod tests {
         // Plan casts at B (not A)
         let mut plan = TurnPlan::default();
         plan.steps = vec![make_cast_step(target_b)];
-
-        let mut ann = PlanAnnotation::default();
-        ann.per_item = vec![PerItemEval::default()];
-        ann.outcomes = vec![ActionOutcomeEstimate {
+        plan.annotation.outcomes = vec![ActionOutcomeEstimate {
             cc_turns_applied: 2.0, // CC on B, not A
             ..Default::default()
         }];
+
+        let mut ann = PlanAnnotation::default();
+        ann.per_item = vec![PerItemEval::default()];
 
         let pool = run_overlay_with_snap(vec![plan], vec![ann], &agenda, snap);
         let leverage = pool.annotations[0].per_item[0].considerations.leverage;
@@ -1147,6 +1163,62 @@ mod tests {
         assert!(
             safety < 1.0,
             "safety formula broken — high exposure must produce safety < 1.0 (got {safety})"
+        );
+    }
+
+    /// Regression: outcomes consumers must read from `plan.annotation.outcomes`
+    /// (authoritative — populated by generator), NOT `pool.annotations[i].outcomes`
+    /// (dead during pipeline; only populated at log serialization). This test pins
+    /// the bug that previously caused FocusTarget/ApplyCC/ProtectAlly/LastStand
+    /// leverage to read empty outcomes → all returned 0 even for winning items.
+    #[test]
+    fn overlay_uses_plan_annotation_outcomes_not_pipeline_annotation() {
+        let target_ent = make_entity(10);
+
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
+        let target = UnitBuilder::new(10, Team::Player, hex_from_offset(2, 0))
+            .hp(40)
+            .max_hp(40)
+            .build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target], 1);
+
+        let agenda = Agenda {
+            band: PriorityBand::NormalTactical,
+            items: vec![AgendaItem {
+                kind: IntentKind::FocusTarget,
+                target: Some(target_ent),
+                raw_score: 0.5,
+                reason: IntentReason::NoRuleDefault,
+                considerations: IntentConsiderations::default(),
+            }],
+        };
+
+        // Plan annotation has the authoritative outcome. Pipeline annotation is empty.
+        let mut plan = TurnPlan::default();
+        plan.steps = vec![make_cast_step(target_ent)];
+        plan.annotation.outcomes = vec![ActionOutcomeEstimate {
+            enemy_damage: 20.0,
+            ..Default::default()
+        }];
+
+        // Intentionally leave pipeline annotation outcomes empty — formula must
+        // ignore it and read from plan.annotation.outcomes instead.
+        let mut ann = PlanAnnotation::default();
+        ann.per_item = vec![PerItemEval::default()];
+        assert!(
+            ann.outcomes.is_empty(),
+            "pipeline annotation outcomes start empty (default)"
+        );
+
+        let pool = run_overlay_with_snap(vec![plan], vec![ann], &agenda, snap);
+        let leverage = pool.annotations[0].per_item[0].considerations.leverage;
+
+        // Expected: damage_ratio = 20/40 = 0.5, kill = 0 → 0.6*0.5 + 0.4*0 = 0.3.
+        // If formula reads pipeline annotation outcomes instead → leverage = 0
+        // (regression).
+        assert!(
+            (leverage - 0.3).abs() < 1e-4,
+            "leverage must read from plan.annotation.outcomes (expected 0.3, got {leverage})"
         );
     }
 }

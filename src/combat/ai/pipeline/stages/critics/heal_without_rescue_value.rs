@@ -58,7 +58,7 @@ impl PlanCritic for HealWithoutRescueValue {
     fn evaluate(
         &self,
         plan: &TurnPlan,
-        ann: &PlanAnnotation,
+        _ann: &PlanAnnotation,
         ctx: &ScoringCtx,
     ) -> Option<CriticHit> {
         for (step_idx, step) in plan.steps.iter().enumerate() {
@@ -73,8 +73,12 @@ impl PlanCritic for HealWithoutRescueValue {
             // Determine whether this is a heal cast:
             // - effect is EffectDef::Heal, OR
             // - outcome records hp_restored > 0 (covers RestoreResources etc.)
+            //
+            // Outcomes live on `TurnPlan.annotation` (populated by generator);
+            // pipeline annotation outcomes are dead during pipeline.
             let is_heal_by_effect = matches!(def.effect, EffectDef::Heal { .. });
-            let is_heal_by_outcome = ann
+            let is_heal_by_outcome = plan
+                .annotation
                 .outcomes
                 .get(step_idx)
                 .is_some_and(|o| o.hp_restored > 0.0);
@@ -171,7 +175,7 @@ mod tests {
         caster_pos: crate::game::hex::Hex,
         hp_restored: f32,
     ) -> (TurnPlan, PlanAnnotation) {
-        let plan = TurnPlan {
+        let mut plan = TurnPlan {
             steps: vec![PlanStep::Cast {
                 ability: AbilityId::from(ability),
                 target: target_entity,
@@ -183,11 +187,11 @@ mod tests {
             outcomes: vec![Default::default()],
             ..TurnPlan::default()
         };
-        let mut ann = PlanAnnotation::default();
-        ann.outcomes.push(ActionOutcomeEstimate {
+        plan.annotation.outcomes.push(ActionOutcomeEstimate {
             hp_restored,
             ..Default::default()
         });
+        let ann = PlanAnnotation::default();
         (plan, ann)
     }
 

@@ -56,7 +56,11 @@ impl PlanCritic for SelfLethalWithoutPayoff {
         // ── Accumulate self-damage from step outcomes ─────────────────────────
         // `outcome.self_damage` captures AoE self-hits recorded during the
         // outcome simulation walk. Sum across all plan steps.
-        let mut self_damage_total: f32 = ann.outcomes.iter().map(|o| o.self_damage).sum();
+        //
+        // Outcomes live on `TurnPlan.annotation` (populated by generator); the
+        // `outcomes` field on pipeline annotation is dead during pipeline.
+        let mut self_damage_total: f32 =
+            plan.annotation.outcomes.iter().map(|o| o.self_damage).sum();
 
         // ── Self-AoE bonus: plan_has_self_aoe detects a friendly-fire cast
         // that covers the caster. When the outcome estimator didn't already
@@ -76,7 +80,10 @@ impl PlanCritic for SelfLethalWithoutPayoff {
         }
 
         // ── Accumulate payoff from step outcomes ──────────────────────────────
-        let enemy_damage_payoff: f32 = ann.outcomes.iter()
+        let enemy_damage_payoff: f32 = plan
+            .annotation
+            .outcomes
+            .iter()
             .map(|o| o.enemy_damage + o.p_kill_now * max_hp * 0.5)
             .sum();
 
@@ -138,19 +145,19 @@ mod tests {
         let h = StageTestHarness::new(actor);
 
         // ── 3. Pool ──
+        // Outcomes live on plan.annotation (production-correct); pipeline
+        // annotation outcomes are dead during pipeline.
         let stage = CriticsStage { critics: vec![Box::new(SelfLethalWithoutPayoff)] };
         let mut pool = PoolBuilder::new(plans)
             .scores(&[1.0])
             .trace_base_eq_score()
-            .customize(|anns| {
-                anns[0].outcomes.push(ActionOutcomeEstimate {
-                    self_damage: 12.0, // 40% of max_hp
-                    enemy_damage: 0.0,
-                    p_kill_now: 0.0,
-                    ..Default::default()
-                });
-            })
             .build();
+        pool.plans[0].annotation.outcomes.push(ActionOutcomeEstimate {
+            self_damage: 12.0, // 40% of max_hp
+            enemy_damage: 0.0,
+            p_kill_now: 0.0,
+            ..Default::default()
+        });
 
         // ── 4. Act ──
         h.run(|ctx| stage.apply(&mut pool, ctx));
@@ -220,29 +227,27 @@ mod tests {
         let h = StageTestHarness::new(actor);
 
         // ── 3. Pools ──
+        // Outcomes live on plan.annotation (production-correct); pipeline
+        // annotation outcomes are dead during pipeline.
         let stage_mild = CriticsStage { critics: vec![Box::new(SelfLethalWithoutPayoff)] };
         let mut pool_mild = PoolBuilder::new(vec![TurnPlan::default()])
             .scores(&[1.0])
             .trace_base_eq_score()
-            .customize(|anns| {
-                anns[0].outcomes.push(ActionOutcomeEstimate {
-                    self_damage: 35.0, // 35% of 100 max_hp
-                    ..Default::default()
-                });
-            })
             .build();
+        pool_mild.plans[0].annotation.outcomes.push(ActionOutcomeEstimate {
+            self_damage: 35.0, // 35% of 100 max_hp
+            ..Default::default()
+        });
 
         let stage_severe = CriticsStage { critics: vec![Box::new(SelfLethalWithoutPayoff)] };
         let mut pool_severe = PoolBuilder::new(vec![TurnPlan::default()])
             .scores(&[1.0])
             .trace_base_eq_score()
-            .customize(|anns| {
-                anns[0].outcomes.push(ActionOutcomeEstimate {
-                    self_damage: 80.0, // 80% of 100 max_hp
-                    ..Default::default()
-                });
-            })
             .build();
+        pool_severe.plans[0].annotation.outcomes.push(ActionOutcomeEstimate {
+            self_damage: 80.0, // 80% of 100 max_hp
+            ..Default::default()
+        });
 
         // ── 4. Act ──
         h.run(|ctx| {

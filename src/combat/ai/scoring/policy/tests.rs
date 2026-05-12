@@ -183,6 +183,7 @@ fn random_target(rng: &mut Lcg) -> UnitSnapshot {
         action_points: 1,
         max_ap: 1,
         movement_points: 3,
+        base_speed: 3,
         speed: 3,
         mana: None,
         rage: None,

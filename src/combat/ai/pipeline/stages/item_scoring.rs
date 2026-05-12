@@ -21,27 +21,31 @@
 //! 3. `eligible`      — `true` if the plan is eligible under the item's intent.
 //!    - `ProtectSelf` → `plan_is_defensive(ann.factors.get_plan(SelfSurvival), ε)`.
 //!    - `FocusTarget` → `plan_is_offensive_vs(plan, target)` (primary path)
-//!      OR ApproachTarget fallback (ForcedTargeting band only — see step 11.8
-//!      Section A for full semantics and pool-level pre-pass guard).
+//!      OR ApproachTarget fallback (ForcedTargeting + NormalTactical bands — see
+//!      step 11.8 Section A for full semantics and pool-level pre-pass guard).
 //!    - All other kinds → `true` (no mask).
 //!
-//! # ApproachTarget eligibility (step 11.8 Section A)
+//! # ApproachTarget eligibility (step 11.8 Section A — extended in fix #1 post step 11)
 //!
-//! For `FocusTarget` items in the `ForcedTargeting` band, an additional eligibility
-//! path activates **only** when no plan in the entire pool satisfies
-//! `plan_is_offensive_vs(plan, taunter)`.  In that case, a plan is eligible if it
-//! contains at least one `Move` step and its `final_pos` is strictly closer to
-//! the taunter than `actor_start_pos` (hex distance, v1 geometric approximation).
+//! For `FocusTarget` items in the `ForcedTargeting` or `NormalTactical` band, an
+//! additional eligibility path activates **only** when no plan in the entire pool
+//! satisfies `plan_is_offensive_vs(plan, target)` for that specific target.  In
+//! that case, a plan is eligible if it contains at least one `Move` step and its
+//! `final_pos` is strictly closer to the target than `actor_start_pos` (hex
+//! distance, v1 geometric approximation).
 //!
-//! Pool-level pre-pass: computed once at the start of `apply()`, before the
-//! per-plan loop.  The stage runs post-Viability per pipeline order, so the
-//! pool reflects the post-Viability state: an unviable offensive plan cannot
-//! block ApproachTarget eligibility for viable approach-only plans.
+//! Pool-level pre-pass: `pool_offensive_targets: HashSet<Entity>` is computed once
+//! at the start of `apply()`, before the per-plan loop.  The stage runs
+//! post-Viability per pipeline order, so the pool reflects the post-Viability
+//! state: an unviable offensive plan cannot block ApproachTarget eligibility for
+//! viable approach-only plans.
 //!
 //! # Edge cases
 //!
 //! - **Empty agenda**: stage is a no-op; `per_item` stays empty.
 //! - **Empty pool**: early return.
+
+use std::collections::HashSet;
 
 use crate::combat::ai::adapt::EvaluationMode;
 use crate::combat::ai::scoring::factors::compute_plan_tempo_gain;
@@ -107,29 +111,22 @@ impl PlanStage for ItemScoringStage {
         // ── Pool-level pre-pass for ApproachTarget eligibility (step 11.8 §A) ──
         //
         // Runs AFTER ViabilityStage (pipeline order guarantees this).  We scan
-        // the post-Viability pool once: if ANY viable plan attacks the taunter
-        // offensively, approach-only plans stay ineligible (pool-level fallback,
-        // not per-plan fallback).
+        // the post-Viability pool once and collect every Entity that at least one
+        // viable plan attacks offensively.  When an item's target IS in this set,
+        // ApproachTarget fallback stays inactive for that target (pool-level guard,
+        // not per-plan).
         //
-        // Only meaningful for ForcedTargeting band; for other bands the flag is
-        // false and the ApproachTarget branch in the per-plan loop is never taken.
-        let pool_has_offensive_vs_taunter: bool = match agenda.band {
-            PriorityBand::ForcedTargeting => {
-                // Taunter = target of the first ForcedTargeting item.
-                if let Some(taunter) = agenda.items.first().and_then(|item| item.target) {
-                    pool.plans.iter().enumerate().any(|(idx, plan)| {
-                        // Only count viable plans (post-Viability pool semantics: unviable
-                        // plans are annotated but not removed; an unviable offensive plan must
-                        // not block ApproachTarget eligibility for viable approach-only plans).
-                        pool.annotations[idx].viability.passed
-                            && plan_is_offensive_vs(plan, taunter)
-                    })
-                } else {
-                    false
-                }
-            }
-            _ => false, // ApproachTarget relaxation is ForcedTargeting-only.
-        };
+        // Applicable for ForcedTargeting and NormalTactical bands; computed
+        // unconditionally so the same set serves both band arms below.
+        let pool_offensive_targets: HashSet<_> = pool
+            .iter_with_annotation()
+            .filter(|(_, ann, _)| ann.viability.passed)
+            .flat_map(|(plan, _, _)| {
+                plan.steps.iter().filter_map(|step| {
+                    if let PlanStep::Cast { target, .. } = step { Some(*target) } else { None }
+                })
+            })
+            .collect();
 
         // Actor's start-of-turn position: approach baseline.
         // `ctx.scoring.active.pos` is the snapshot taken at turn start (P4-verified
@@ -177,17 +174,19 @@ impl PlanStage for ItemScoringStage {
                                 if plan_is_offensive_vs(plan, target) {
                                     // Primary path: plan directly attacks the target.
                                     (true, None)
-                                } else if agenda.band == PriorityBand::ForcedTargeting
-                                    && !pool_has_offensive_vs_taunter
+                                } else if matches!(
+                                    agenda.band,
+                                    PriorityBand::ForcedTargeting | PriorityBand::NormalTactical
+                                ) && !pool_offensive_targets.contains(&target)
                                     && viability_passed
                                 {
                                     // ApproachTarget fallback (step 11.8 §A):
-                                    //   - ForcedTargeting band only (obligation, not guidance).
-                                    //   - Pool has no viable offensive plan vs taunter.
+                                    //   - ForcedTargeting or NormalTactical band.
+                                    //   - Pool has no viable offensive plan vs this specific target.
                                     //   - Plan itself must be viable.
-                                    //   - Plan must geometrically approach the taunter.
-                                    // Taunter position from start-of-turn snapshot.
-                                    let taunter_pos = ctx
+                                    //   - Plan must geometrically approach the target.
+                                    // Target position from start-of-turn snapshot.
+                                    let target_pos = ctx
                                         .scoring
                                         .snap
                                         .unit(target)
@@ -195,14 +194,14 @@ impl PlanStage for ItemScoringStage {
                                     // Plan is in the ApproachTarget gate window; failure here
                                     // is specifically "did not approach", not "not offensive".
                                     // Use the dedicated reason for cleaner mining attribution.
-                                    if let Some(tpos) = taunter_pos {
+                                    if let Some(tpos) = target_pos {
                                         if approaches_target(plan, actor_start_pos, tpos) {
                                             (true, None)
                                         } else {
                                             (false, Some(RejectReason::NotApproachingTarget))
                                         }
                                     } else {
-                                        // Taunter no longer in snapshot — degenerate case;
+                                        // Target no longer in snapshot — degenerate case;
                                         // can't approach a phantom target.
                                         (false, Some(RejectReason::NotApproachingTarget))
                                     }
@@ -503,7 +502,7 @@ mod tests {
         let taunter = UnitBuilder::new(99, Team::Player, taunter_pos).build();
         let snap = BattleSnapshot::new(vec![actor.clone(), taunter], 1);
 
-        // One move-only plan: no offensive cast → pool_has_offensive_vs_taunter = false.
+        // One move-only plan: no offensive cast → pool_offensive_targets is empty.
         let move_plan = move_plan_to(closer_pos);
         let mut ann = PlanAnnotation::default();
         ann.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
@@ -539,7 +538,7 @@ mod tests {
         let taunter = UnitBuilder::new(99, Team::Player, taunter_pos).build();
         let snap = BattleSnapshot::new(vec![actor.clone(), taunter], 1);
 
-        // Plan 0: offensive cast at taunter → pool_has_offensive_vs_taunter = true.
+        // Plan 0: offensive cast at taunter → pool_offensive_targets contains taunter_ent.
         let cast_plan = cast_plan_at(taunter_ent, taunter_pos);
         // Plan 1: move-only toward taunter.
         let move_plan = move_plan_to(closer_pos);
@@ -572,9 +571,11 @@ mod tests {
         );
     }
 
-    /// NormalTactical band → ApproachTarget relaxation does NOT apply.
+    /// NormalTactical band + no offensive plan in pool → ApproachTarget relaxation
+    /// applies (extended in fix #1 post step 11), approach-only plan is eligible.
     #[test]
-    fn approach_target_ineligible_in_normal_tactical_band() {
+    fn approach_target_eligible_in_normal_tactical_when_no_offensive_plan() {
+        // Actor at (0,0), target at (3,0). Move plan ends at (2,0) — strictly closer.
         let actor_pos = hex_from_offset(0, 0);
         let target_pos = hex_from_offset(3, 0);
         let closer_pos = hex_from_offset(2, 0);
@@ -584,11 +585,11 @@ mod tests {
         let target_unit = UnitBuilder::new(99, Team::Player, target_pos).build();
         let snap = BattleSnapshot::new(vec![actor.clone(), target_unit], 1);
 
+        // Move-only plan: no offensive cast → pool_offensive_targets is empty.
         let move_plan = move_plan_to(closer_pos);
         let mut ann = PlanAnnotation::default();
         ann.viability = ViabilityResult { passed: true, adjusted_score: 1.0 };
 
-        // NormalTactical band: ApproachTarget must NOT apply.
         let agenda = agenda_with_items(
             PriorityBand::NormalTactical,
             vec![agenda_item_with_target(IntentKind::FocusTarget, target_ent)],
@@ -603,8 +604,13 @@ mod tests {
         );
 
         assert!(
-            !pool.annotations[0].per_item[0].eligible,
-            "approach-only plan in NormalTactical band must be ineligible (approach relaxation is Forced-only)"
+            pool.annotations[0].per_item[0].eligible,
+            "approach-only plan in NormalTactical (no offensive in pool) must be eligible via ApproachTarget fallback"
+        );
+        assert_eq!(
+            pool.annotations[0].per_item[0].reject_reason,
+            None,
+            "eligible plan must have no reject reason"
         );
     }
 
@@ -652,6 +658,57 @@ mod tests {
             per_item.reject_reason,
             Some(RejectReason::NotApproachingTarget),
             "approach gate failure must set NotApproachingTarget, not NotOffensiveVsTarget"
+        );
+    }
+
+    /// NormalTactical + pool has an offensive plan vs the target →
+    /// ApproachTarget fallback is blocked; approach-only plan is ineligible.
+    #[test]
+    fn approach_target_ineligible_in_normal_tactical_when_offensive_plan_exists() {
+        let actor_pos = hex_from_offset(0, 0);
+        let target_pos = hex_from_offset(3, 0);
+        let closer_pos = hex_from_offset(2, 0);
+        let target_ent = bevy::prelude::Entity::from_raw_u32(99).unwrap();
+
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
+        let target_unit = UnitBuilder::new(99, Team::Player, target_pos).build();
+        let snap = BattleSnapshot::new(vec![actor.clone(), target_unit], 1);
+
+        // Plan 0: offensive cast at target → pool_offensive_targets contains target_ent.
+        let cast_plan = cast_plan_at(target_ent, target_pos);
+        // Plan 1: move-only toward target (approach).
+        let move_plan = move_plan_to(closer_pos);
+
+        let mut ann_cast = PlanAnnotation::default();
+        ann_cast.viability = ViabilityResult { passed: true, adjusted_score: 1.5 };
+        let mut ann_move = PlanAnnotation::default();
+        ann_move.viability = ViabilityResult { passed: true, adjusted_score: 0.8 };
+
+        let agenda = agenda_with_items(
+            PriorityBand::NormalTactical,
+            vec![agenda_item_with_target(IntentKind::FocusTarget, target_ent)],
+        );
+
+        let pool = run_stage_with_snap(
+            vec![cast_plan, move_plan],
+            vec![ann_cast, ann_move],
+            &agenda,
+            actor,
+            snap,
+        );
+
+        assert!(
+            pool.annotations[0].per_item[0].eligible,
+            "offensive plan must be eligible via primary path"
+        );
+        assert!(
+            !pool.annotations[1].per_item[0].eligible,
+            "approach-only plan must be ineligible when pool already has an offensive plan"
+        );
+        assert_eq!(
+            pool.annotations[1].per_item[0].reject_reason,
+            Some(RejectReason::NotOffensiveVsTarget),
+            "blocked approach plan must use NotOffensiveVsTarget reason"
         );
     }
 }

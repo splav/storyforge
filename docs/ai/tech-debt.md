@@ -567,6 +567,111 @@ DoD: `replay_ai_log --compare-golden baseline.jsonl` returns diff = 0 на basel
 
 ---
 
+## G. Critics deferred (content-bound)
+
+### G1. `BuffIntoVoid` — cross-actor synergy widening
+
+**Status:** deferred · **Effort:** 2-3 дня · **Blocked by:** step 13 (TeamTasks blackboard)
+
+**Где:** `src/combat/ai/pipeline/stages/critics/buff_into_void.rs`.
+
+**Проблема.** Critic корректно ловит «применить buff к target'у, у которого тот же status уже активен в snapshot OR в этом же плане». Unit-тесты proof-of-life на месте. Но на 4802 pool plans в playtest corpus 0 fires — потому что:
+
+1. **Планировщик не генерирует планы с дублирующимися Cast steps** (unique ability_id per plan — структурный инвариант).
+2. **Round-start snapshots не содержат активных buff'ов на targets** (статусы декаят между ходами).
+
+Реальный кейс который critic **не** ловит: actor A в раунде R1 кастует Haste на ally; actor B в том же R1 кастует Haste на того же ally — повторное применение того же buff. Это inter-actor synergy check, требующий team-level visibility.
+
+**Закрытие.** После step 13 (TeamTasks blackboard): расширить evaluate() читать «buffs already claimed by other team members» из blackboard. Текущая логика (per-plan + snapshot) сохраняется как первый слой; cross-actor — второй слой.
+
+### G2. `RareResourceForLowImpact` — threshold mistuning vs content reality
+
+**Status:** deferred · **Effort:** 1 день (calibration) · **Blocked by:** content получит rare resources
+
+**Где:** `src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:32`.
+
+**Проблема.** `MANA_COST_THRESHOLD = 30` при реальном content max = 5 (`fireball`/`thunderstrike`). Условие никогда не выполняется → 0 fires на 4802 plans.
+
+**Почему не tweak'аем сейчас.** Snizit threshold до 4-5 — arbitrary; концепция «rare resource» не подходит этой игре (mana = unlimited regen, низкие costs). Critic решает несуществующую проблему.
+
+**Закрытие.** Когда content получит **реально дорогие** способности: charges-based abilities, cooldown ≥3, mana ≥20. Тогда:
+- Snizit threshold до percentile(content.mana_costs, 0.85) или вынести в `AiTuning.toml`.
+- Audit формулу: вторая часть условия `outcome.enemy_damage < 0.5 × ability.expected_damage` использует `expected_damage` — проверить, не circular ли (если expected derive'ится из той же модели, что actual, condition rare сatisfied).
+
+### G3. `SelfLethalWithoutPayoff` — content-bound (no self-AoE plans)
+
+**Status:** deferred · **Blocked by:** content получит friendly-fire AoE abilities
+
+**Где:** `src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs`.
+
+**Проблема.** Post-step 12 Mining D1: `self_damage` теперь expected > 0 для AoO-провоцирующих сценариев (step 12 AoO propagation закрыл forward-model death blindness — `outcome.self_damage` теперь populated из AoO в `apply_move`). Однако `SelfLethalWithoutPayoff` срабатывает на self-AoE friendly-fire — и этого контента пока нет.
+
+**Закрытие.** Когда content получит self-area-AoE (например, expanding_blast с radius включающим origin) — critic заработает автоматически. Без content change'а fire не наступит.
+
+---
+
+## H. Pipeline annotation legacy fields
+
+### H1. `PlanAnnotation.outcomes` — dead weight in pipeline path
+
+**Status:** mitigated via per-consumer fix · **Effort:** 2-3 дня (full removal refactor) · **Priority:** opportunistic
+
+**Где:** `outcome/mod.rs::PlanAnnotation.outcomes` field; populates только в `log/mod.rs:1164` при сериализации (`annotation.outcomes = pool.plans[pool_idx].annotation.outcomes.clone()`). Authoritative источник во время pipeline — `pool.plans[i].annotation.outcomes` (populated в generator.rs).
+
+**История.** Найдены и исправлены 6 production consumer'ов в commit `<post-Phase4 fix#5>`, которые читали dead-empty pipeline annotation outcomes вместо authoritative plan annotation outcomes:
+
+- `overlay_considerations.rs:109` — safety axis (self_damage_ratio component).
+- `overlay_considerations.rs:138` — leverage compute outcomes input.
+- `critics/self_lethal_without_payoff.rs:59 + :79` — guard + payoff.
+- `critics/heal_without_rescue_value.rs:77-80` — secondary guard.
+- `critics/rare_resource_for_low_impact.rs:89-90` — actual_damage lookup.
+
+Bug приводил к leverage=0 для FocusTarget/ApplyCC/ProtectAlly/LastStand даже на winning items с реальным damage. ProtectSelf не затронут (formula использует `factors` + `maps`, не outcomes). Fix: per-consumer redirect на `pool.plans[i].annotation.outcomes` + new helper `ScoredPool::plan_outcomes(idx)` + regression test (`overlay_uses_plan_annotation_outcomes_not_pipeline_annotation`) + 9 test fixtures обновлены.
+
+**Что не закрыто.** Поле `outcomes` всё ещё существует в pipeline annotation. Cleaner long-term:
+- Remove `outcomes` from pipeline `PlanAnnotation`.
+- Log writer читает напрямую из `pool.plans[i].annotation.outcomes`.
+- Mining/replay tools обращаются к `LoggedPlan.annotation.outcomes` (там оно остаётся для serialization shape).
+
+Это бóльший refactor (touches PlanAnnotation struct, ScoredPool, log writer, mining + replay tools, schema). Eliminates entire class «which annotation should I read outcomes from?» confusion. Не блокирует, но ставит next-developer'а в ту же ловушку через 6 месяцев.
+
+**Note про калибровку.** После fix'а 4 из 6 leverage formulae впервые начинают возвращать non-zero значения. Текущие `axis_*_weights` в `ai_tuning.toml` калибровались под buggy zero leverage. AI станет более target-focused после fix'а — это **expected behavioral drift** от bugfix'а, не regression. Mining v35 corpus покажет новые baselines; если playtest показывает skew — calibration follow-up.
+
+---
+
+## I. Sim drifts — Step 12 (closed)
+
+These entries tracked divergence between the AI plan sim and the real combat pipeline. All four were closed in step 12 (commits `44a94ad` step 12.0+12.1+12.2, and step 12.3 finalization).
+
+### ~~I1. Drift #speed — Haste/Slow not propagating to sim speed~~
+
+**Status:** ✅ closed (step 12.1). `UnitSnapshot.refresh_aggregates` recomputes `speed = base_speed + Σ(active speed bonuses)` after every `add_status`/`remove_status` call. Pathing on subsequent plan steps reads the updated `speed`.
+
+### ~~I2. Drift #status — armor/vuln/CC tags not refreshing~~
+
+**Status:** ✅ closed (step 12.1). `refresh_aggregates` also recomputes `armor_bonus`, `damage_taken_bonus`, `IS_STUNNED`, and `FORCES_TARGETING` from active statuses. `apply_statuses` in sim calls refresh after bulk status mutations.
+
+### ~~I3. Drift #3 — rage not gained in sim~~
+
+**Status:** ✅ closed (step 12.3). `apply_primary` Damage arm now grants +1 rage to attacker and +1 to defender per damage event, mirroring `apply_effects.rs:117-129`. AoE with N targets gives attacker +N rage total.
+
+### ~~I4. Forward-model death blindness / AoO suicide~~
+
+**Status:** ✅ closed (step 12.2). `apply_move` now scans for adjacency-leaving steps, applies AoO damage to actor HP and records it in `outcome.self_damage`, decrements enemy `reactions_left`. Generator truncates plan branches when `actor.hp <= 0` after any step — eliminating the class of plans where a dead actor "earns" Cast credit post-mortem.
+
+---
+
+## Future
+
+- **Performance benchmark infrastructure.** Step 12 added `refresh_aggregates`
+  (per status mutation) and AoO scan (per Move step) to the sim hot path. No
+  formal benchmark exists; if planner latency surfaces in playtest, add a
+  Criterion harness on `pick_action` and measure regression vs pre-step-12.
+  Wall-clock reference: `cargo test --release --test golden_smoke` finished in
+  ~0.86 s on 114 entries (2026-05-10, M-series Mac).
+
+---
+
 ## Когда обновлять этот документ
 
 - При обнаружении новой структурной проблемы — добавлять в соответствующую группу (A/B/C/D/E) с meta-строкой `Effort/Risk/Phase/Blocked by`.

@@ -50,7 +50,7 @@ impl PlanCritic for RareResourceForLowImpact {
     fn evaluate(
         &self,
         plan: &TurnPlan,
-        ann: &PlanAnnotation,
+        _ann: &PlanAnnotation,
         ctx: &ScoringCtx,
     ) -> Option<CriticHit> {
         for (step_idx, step) in plan.steps.iter().enumerate() {
@@ -86,7 +86,10 @@ impl PlanCritic for RareResourceForLowImpact {
             };
 
             // Actual enemy damage from the corresponding outcome, if available.
-            let actual_damage = ann
+            // Outcomes live on `TurnPlan.annotation` (populated by generator);
+            // pipeline annotation outcomes are dead during pipeline.
+            let actual_damage = plan
+                .annotation
                 .outcomes
                 .get(step_idx)
                 .map_or(0.0, |o| o.enemy_damage);
@@ -169,7 +172,7 @@ mod tests {
         target_pos: crate::game::hex::Hex,
         enemy_damage: f32,
     ) -> (TurnPlan, PlanAnnotation) {
-        let plan = TurnPlan {
+        let mut plan = TurnPlan {
             steps: vec![PlanStep::Cast {
                 ability: AbilityId::from(ability),
                 target: target_entity,
@@ -181,11 +184,11 @@ mod tests {
             outcomes: vec![Default::default()],
             ..TurnPlan::default()
         };
-        let mut ann = PlanAnnotation::default();
-        ann.outcomes.push(ActionOutcomeEstimate {
+        plan.annotation.outcomes.push(ActionOutcomeEstimate {
             enemy_damage,
             ..Default::default()
         });
+        let ann = PlanAnnotation::default();
         (plan, ann)
     }
 

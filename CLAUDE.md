@@ -43,6 +43,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 * делегируй задачи по правке кода агенту
 * prefer Grep tool over bash grep
 * prefer using ya tool ast-index is suitable
+* see `.claude/rules/graphify.md` for knowledge-graph rules (main session + subagent guidance)
+* see `.claude/rules/ast-index.md` for ast-index rules
 
 ---
 
@@ -87,3 +89,14 @@ Bevy ECS тактическая RPG. Состояния: `AppState` (Boot → St
 
 - `tests/combat.rs` — интеграционные (validation 3 + effects 3)
 - Юнит-тесты: `Vital`, `TurnQueue`, `DiceRng`, `hex_distance`, `find_path`
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- ALWAYS read graphify-out/GRAPH_REPORT.md before reading any source files, running grep/glob searches, or answering codebase questions. The graph is your primary map of the codebase.
+- IF graphify-out/wiki/index.md EXISTS, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- **When dispatching subagents** (Plan, Explore, general-purpose), include graphify guidance in the spawn prompt — see `.claude/rules/graphify.md` "Rules for Subagents" for ready-to-paste blocks. Subagents do NOT inherit these rules automatically.

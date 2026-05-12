@@ -120,6 +120,19 @@ impl ScoredPool {
             .zip(self.annotations.iter())
             .map(|(plan, ann)| (plan, ann, ann.score))
     }
+
+    /// Authoritative outcomes for plan at `idx`. Outcomes are populated in
+    /// `generator.rs` and live on `TurnPlan.annotation`. The `outcomes` field
+    /// on `pool.annotations[i]` is dead during pipeline (default-empty) and
+    /// only populated at log serialization time — see `log/mod.rs`. Pipeline
+    /// stages and critics MUST use this accessor (or `pool.plans[i].annotation
+    /// .outcomes` directly), never `pool.annotations[i].outcomes`.
+    pub fn plan_outcomes(
+        &self,
+        idx: usize,
+    ) -> &[crate::combat::ai::outcome::ActionOutcomeEstimate] {
+        self.plans[idx].annotation.outcomes.as_slice()
+    }
 }
 
 // ── PlanStage ────────────────────────────────────────────────────────────────

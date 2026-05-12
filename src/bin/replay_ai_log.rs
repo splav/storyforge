@@ -884,6 +884,7 @@ mod tests {
             continuation: None,
             intent_reason: None,
             evaluation_mode_reason: None,
+            chosen_intent: None,
             band: None,
             band_reason: None,
             agenda: vec![],

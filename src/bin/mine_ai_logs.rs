@@ -263,16 +263,26 @@ struct Aggregate {
     h1_continuation_value: Vec<f32>,
 
     // H1c.bis (step 11.8): per-IntentKind leverage histograms from the chosen plan's
-    // considerations_per_item. Each plan-item's leverage goes into the bucket matching
-    // the corresponding agenda item's kind.
+    // considerations_per_item, split into winners (the agenda_item the chosen plan is
+    // attributed to) and losers (all other items in the same chosen plan).
     // Note: Reposition and SetupAOE share one bucket — they use the same overlay branch.
     // The global h1_leverage above is kept for cross-kind comparison and backward compat.
-    h1_leverage_focus_target: Vec<f32>,
-    h1_leverage_apply_cc: Vec<f32>,
-    h1_leverage_protect_ally: Vec<f32>,
-    h1_leverage_protect_self: Vec<f32>,
-    h1_leverage_reposition: Vec<f32>, // also covers SetupAOE (same overlay branch)
-    h1_leverage_last_stand: Vec<f32>,
+    h1_leverage_focus_target_winners: Vec<f32>,
+    h1_leverage_focus_target_losers: Vec<f32>,
+    h1_leverage_apply_cc_winners: Vec<f32>,
+    h1_leverage_apply_cc_losers: Vec<f32>,
+    h1_leverage_protect_ally_winners: Vec<f32>,
+    h1_leverage_protect_ally_losers: Vec<f32>,
+    h1_leverage_protect_self_winners: Vec<f32>,
+    h1_leverage_protect_self_losers: Vec<f32>,
+    h1_leverage_reposition_winners: Vec<f32>, // also covers SetupAOE (same overlay branch)
+    h1_leverage_reposition_losers: Vec<f32>,
+    h1_leverage_last_stand_winners: Vec<f32>,
+    h1_leverage_last_stand_losers: Vec<f32>,
+    /// Per-tick delta: winner_item.leverage - mean(loser_items.leverage)
+    /// in the same chosen plan. Empty when chosen plan has no agenda_item or no losers.
+    /// Positive mean ⇒ formula provides useful ranking signal.
+    h1_leverage_delta_per_tick: Vec<f32>,
 
     // H2: Agenda-item win-rate (step 11.6, schema v32).
     // Per band: which agenda item index (0/1/2...) wins most often.
@@ -633,23 +643,51 @@ impl Aggregate {
                 self.h1_continuation_value.push(c.continuation_value);
             }
 
-            // H1c.bis (step 11.8): per-IntentKind leverage histograms from chosen plan.
+            // H1c.bis (step 11.8): per-IntentKind leverage histograms from chosen plan,
+            // split into winners (attributed agenda_item) and losers (all others).
             // Uses considerations_per_item (plan-aware overlay values), matched to agenda
             // items by index. Separate from the item-level h1_leverage above (which uses
             // agenda item baseline considerations, not plan-specific overlays).
             if let Some(chosen) = event.plans.iter().find(|p| p.annotation.chosen) {
-                for (idx, cons) in chosen.annotation.considerations_per_item.iter().enumerate() {
-                    if let Some(item) = event.agenda.get(idx) {
-                        let bucket = match item.kind {
-                            IntentKind::FocusTarget => &mut self.h1_leverage_focus_target,
-                            IntentKind::ApplyCC     => &mut self.h1_leverage_apply_cc,
-                            IntentKind::ProtectAlly => &mut self.h1_leverage_protect_ally,
-                            IntentKind::ProtectSelf => &mut self.h1_leverage_protect_self,
-                            IntentKind::Reposition | IntentKind::SetupAOE => &mut self.h1_leverage_reposition,
-                            IntentKind::LastStand   => &mut self.h1_leverage_last_stand,
-                        };
-                        bucket.push(cons.leverage);
+                let winner_idx = chosen.annotation.agenda_item;
+                // Collect (kind, leverage, is_winner) to avoid multiple &mut self borrows.
+                let entries: Vec<(IntentKind, f32, bool)> = chosen
+                    .annotation
+                    .considerations_per_item
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, cons)| {
+                        event.agenda.get(idx).map(|item| {
+                            let is_winner = winner_idx.map(|w| w as usize == idx).unwrap_or(false);
+                            (item.kind, cons.leverage, is_winner)
+                        })
+                    })
+                    .collect();
+
+                let mut winner_leverage: Option<f32> = None;
+                let mut loser_leverages: Vec<f32> = Vec::new();
+
+                for (kind, leverage, is_winner) in entries {
+                    let (winners_bucket, losers_bucket) = match kind {
+                        IntentKind::FocusTarget => (&mut self.h1_leverage_focus_target_winners, &mut self.h1_leverage_focus_target_losers),
+                        IntentKind::ApplyCC     => (&mut self.h1_leverage_apply_cc_winners,     &mut self.h1_leverage_apply_cc_losers),
+                        IntentKind::ProtectAlly => (&mut self.h1_leverage_protect_ally_winners, &mut self.h1_leverage_protect_ally_losers),
+                        IntentKind::ProtectSelf => (&mut self.h1_leverage_protect_self_winners, &mut self.h1_leverage_protect_self_losers),
+                        IntentKind::Reposition | IntentKind::SetupAOE => (&mut self.h1_leverage_reposition_winners, &mut self.h1_leverage_reposition_losers),
+                        IntentKind::LastStand   => (&mut self.h1_leverage_last_stand_winners, &mut self.h1_leverage_last_stand_losers),
+                    };
+                    if is_winner {
+                        winners_bucket.push(leverage);
+                        winner_leverage = Some(leverage);
+                    } else {
+                        losers_bucket.push(leverage);
+                        loser_leverages.push(leverage);
                     }
+                }
+
+                if let (Some(w), false) = (winner_leverage, loser_leverages.is_empty()) {
+                    let losers_mean = loser_leverages.iter().sum::<f32>() / loser_leverages.len() as f32;
+                    self.h1_leverage_delta_per_tick.push(w - losers_mean);
                 }
             }
 
@@ -967,7 +1005,7 @@ fn statuses_to_tag_labels(event: &ActorTickEvent) -> Vec<&'static str> {
         .units
         .iter()
         .find(|u| u.entity.to_bits() == event.actor_id)
-        .map(|u| u.statuses.as_slice())
+        .map(|u| u.statuses())
         .unwrap_or(&[]);
 
     let mut seen: std::collections::BTreeSet<&'static str> = std::collections::BTreeSet::new();
@@ -1763,6 +1801,16 @@ fn main() {
         );
     }
     println!();
+    println!("  Content-bound critics (0% expected — see docs/ai/tech-debt.md):");
+    println!("    BuffIntoVoid              — planner emits unique abilities per plan; round-start");
+    println!("                                snapshots have no pre-existing buffs. Cross-actor");
+    println!("                                synergy check blocked by step 13 (TeamTasks).");
+    println!("    RareResourceForLowImpact  — threshold mana_cost ≥ 30; content max = 5.");
+    println!("                                Deferred until content has rare-resource abilities.");
+    println!("    SelfLethalWithoutPayoff   — no self-AoE plans; self_damage > 0 expected post-step12");
+    println!("                                for AoO-provoking scenarios (AoO propagation), not");
+    println!("                                from self-AoE (still requires content with origin blast).");
+    println!();
 
     // F: multiplier severity buckets per critic that has hits.
     println!("  Multiplier severity buckets (chosen plans):");
@@ -1934,17 +1982,15 @@ fn main() {
         print_axis("continuation_value",  agg.h1_continuation_value.clone());
         println!();
 
-        // H1c.bis: per-IntentKind leverage histograms (step 11.8).
-        // Values come from chosen plan's considerations_per_item, so these are
-        // plan-aware overlay values — not the item-level baselines above.
+        // H1c.bis: per-IntentKind leverage histograms (step 11.8), winners vs losers.
+        // winners = agenda_item the chosen plan is attributed to.
+        // losers  = all other items in the same chosen plan's considerations_per_item.
         // On pre-11.8 logs leverage was a single flat 0.0 formula; all buckets
         // will show mean=0.000 (expected, not a bug).
-        println!("### H1c.bis. Per-IntentKind leverage histograms (step 11.8)");
-        println!("  Sample: each tick contributes |agenda.items| values from the CHOSEN plan's");
-        println!("  `considerations_per_item`, routed by `agenda.items[idx].kind`. Unchosen");
-        println!("  plans are NOT sampled — focus is \"what the AI picked\", not \"full pool diversity\".");
-        println!("  (Sample N here ≠ H2 attributed-ticks: a chosen plan with `agenda_item=None`");
-        println!("   still contributes its considerations_per_item entries to these histograms.)");
+        println!("### H1c.bis. Per-IntentKind leverage histograms (winners vs losers)");
+        println!("  winners = the agenda_item the chosen plan is attributed to.");
+        println!("  losers  = all other items in the same chosen plan's considerations_per_item.");
+        println!("  (Chosen plan with agenda_item=None contributes all entries to losers only.)");
         println!();
 
         // Helper: compute middle_mass = fraction of values in (0.05, 0.95).
@@ -1954,45 +2000,70 @@ fn main() {
             in_middle as f32 / v.len() as f32
         };
 
-        let print_kind_axis = |name: &str, mut v: Vec<f32>| {
+        let print_kind_axis = |name: &str, label: &str, mut v: Vec<f32>| {
             if v.is_empty() {
-                println!("  {name:<18}  N=0  (no data)");
+                println!("  {name:<16}  {label:<8}  N=0  (no data)");
                 return;
             }
             v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let n = v.len();
             let mean = v.iter().sum::<f32>() / n as f32;
             let p10 = percentile_sorted(&v, 10.0);
-            let p25 = percentile_sorted(&v, 25.0);
             let p50 = percentile_sorted(&v, 50.0);
-            let p75 = percentile_sorted(&v, 75.0);
             let p90 = percentile_sorted(&v, 90.0);
             let mm = middle_mass(&v) * 100.0;
             println!(
-                "  {name:<18}  N={n:<5}  mean={mean:.3}  p10={p10:.3}  p25={p25:.3}  p50={p50:.3}  p75={p75:.3}  p90={p90:.3}  middle_mass={mm:.1}%"
+                "  {name:<16}  {label:<8}  N={n:<5}  mean={mean:.3}  p10={p10:.3}  p50={p50:.3}  p90={p90:.3}  middle_mass={mm:.1}%"
             );
         };
 
-        let kinds: &[(&str, Vec<f32>)] = &[
-            ("FocusTarget",     agg.h1_leverage_focus_target.clone()),
-            ("ApplyCC",         agg.h1_leverage_apply_cc.clone()),
-            ("ProtectAlly",     agg.h1_leverage_protect_ally.clone()),
-            ("ProtectSelf",     agg.h1_leverage_protect_self.clone()),
-            ("Reposition/AOE",  agg.h1_leverage_reposition.clone()),
-            ("LastStand",       agg.h1_leverage_last_stand.clone()),
+        let kinds_wl: &[(&str, Vec<f32>, Vec<f32>)] = &[
+            ("FocusTarget",    agg.h1_leverage_focus_target_winners.clone(),  agg.h1_leverage_focus_target_losers.clone()),
+            ("ApplyCC",        agg.h1_leverage_apply_cc_winners.clone(),       agg.h1_leverage_apply_cc_losers.clone()),
+            ("ProtectAlly",    agg.h1_leverage_protect_ally_winners.clone(),   agg.h1_leverage_protect_ally_losers.clone()),
+            ("ProtectSelf",    agg.h1_leverage_protect_self_winners.clone(),   agg.h1_leverage_protect_self_losers.clone()),
+            ("Reposition/AOE", agg.h1_leverage_reposition_winners.clone(),     agg.h1_leverage_reposition_losers.clone()),
+            ("LastStand",      agg.h1_leverage_last_stand_winners.clone(),     agg.h1_leverage_last_stand_losers.clone()),
         ];
-        for (name, v) in kinds {
-            print_kind_axis(name, v.clone());
+        for (name, winners, losers) in kinds_wl {
+            print_kind_axis(name, "winners", winners.clone());
+            print_kind_axis(name, "losers",  losers.clone());
+        }
+        println!();
+
+        // Per-tick delta: winner.leverage - mean(losers.leverage).
+        {
+            let mut delta = agg.h1_leverage_delta_per_tick.clone();
+            println!("  Per-tick delta (winner.leverage - mean(losers.leverage)):");
+            if delta.is_empty() {
+                println!("    N=0  (no data — no ticks with both a winner and at least one loser)");
+            } else {
+                delta.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let n = delta.len();
+                let mean = delta.iter().sum::<f32>() / n as f32;
+                let p10 = percentile_sorted(&delta, 10.0);
+                let p50 = percentile_sorted(&delta, 50.0);
+                let p90 = percentile_sorted(&delta, 90.0);
+                println!("    N={n}  mean={mean:.3}  p10={p10:.3}  p50={p50:.3}  p90={p90:.3}");
+                if mean > 0.05 {
+                    println!("  [OK]   mean delta > +0.05 — formula provides useful ranking signal");
+                } else if mean < 0.02 {
+                    println!("  [WARN] mean delta < +0.02 — formula barely discriminates");
+                } else {
+                    println!("  [NOTE] mean delta in [0.02, 0.05] — marginal ranking signal");
+                }
+            }
         }
         println!();
 
         // Cross-kind balance gate (acceptance criterion per design doc Section C):
         // if max_mean / min_mean > 1.30 → flag for retune.
+        // Computed over winners only (the items the formula actually chose).
         {
-            let means: Vec<(&str, f32)> = kinds.iter()
-                .filter(|(_, v)| !v.is_empty())
-                .map(|(name, v)| {
-                    let mean = v.iter().sum::<f32>() / v.len() as f32;
+            let means: Vec<(&str, f32)> = kinds_wl.iter()
+                .filter(|(_, winners, _)| !winners.is_empty())
+                .map(|(name, winners, _)| {
+                    let mean = winners.iter().sum::<f32>() / winners.len() as f32;
                     (*name, mean)
                 })
                 .collect();
@@ -2003,17 +2074,17 @@ fn main() {
                     let ratio = max_entry.1 / min_entry.1;
                     if ratio > 1.30 {
                         println!(
-                            "  [WARN] Cross-kind balance: {} (mean={:.3}) dominates {} (mean={:.3}) by {:.2}x — flag for retune",
+                            "  [WARN] Cross-kind balance (winners): {} (mean={:.3}) dominates {} (mean={:.3}) by {:.2}x — flag for retune",
                             max_entry.0, max_entry.1, min_entry.0, min_entry.1, ratio
                         );
                     } else {
-                        println!("  [OK] Cross-kind balance: max/min ratio = {ratio:.2}x (threshold 1.30x)");
+                        println!("  [OK] Cross-kind balance (winners): max/min ratio = {ratio:.2}x (threshold 1.30x)");
                     }
                 } else {
-                    println!("  [NOTE] Cross-kind balance: min_mean=0 (all kinds flat — pre-11.8 corpus or no data)");
+                    println!("  [NOTE] Cross-kind balance (winners): min_mean=0 (all kinds flat — pre-11.8 corpus or no data)");
                 }
             } else {
-                println!("  [NOTE] Cross-kind balance: insufficient kinds with data ({} kinds)", means.len());
+                println!("  [NOTE] Cross-kind balance (winners): insufficient kinds with data ({} kinds)", means.len());
             }
         }
         println!();
@@ -2997,7 +3068,7 @@ mod tests {
             hp: 20, max_hp: 20,
             armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
             action_points: ap, max_ap: 2,
-            movement_points: mp, speed: mp,
+            movement_points: mp, base_speed: mp, speed: mp,
             mana: None, rage: None, energy: None,
             abilities: vec![],
             threat: 1.0,
@@ -3259,21 +3330,31 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        // FocusTarget bucket gets 0.7.
-        assert_eq!(agg.h1_leverage_focus_target.len(), 1);
-        assert!((agg.h1_leverage_focus_target[0] - 0.7).abs() < 1e-6,
-            "FocusTarget leverage expected 0.7, got {}", agg.h1_leverage_focus_target[0]);
+        // No agenda_item set: all go to losers.
+        // FocusTarget losers gets 0.7.
+        assert_eq!(agg.h1_leverage_focus_target_losers.len(), 1);
+        assert!((agg.h1_leverage_focus_target_losers[0] - 0.7).abs() < 1e-6,
+            "FocusTarget loser leverage expected 0.7, got {}", agg.h1_leverage_focus_target_losers[0]);
+        assert!(agg.h1_leverage_focus_target_winners.is_empty(), "FocusTarget winners should be empty when no agenda_item");
 
-        // ProtectSelf bucket gets 0.4.
-        assert_eq!(agg.h1_leverage_protect_self.len(), 1);
-        assert!((agg.h1_leverage_protect_self[0] - 0.4).abs() < 1e-6,
-            "ProtectSelf leverage expected 0.4, got {}", agg.h1_leverage_protect_self[0]);
+        // ProtectSelf losers gets 0.4.
+        assert_eq!(agg.h1_leverage_protect_self_losers.len(), 1);
+        assert!((agg.h1_leverage_protect_self_losers[0] - 0.4).abs() < 1e-6,
+            "ProtectSelf loser leverage expected 0.4, got {}", agg.h1_leverage_protect_self_losers[0]);
+        assert!(agg.h1_leverage_protect_self_winners.is_empty(), "ProtectSelf winners should be empty when no agenda_item");
 
         // Other buckets stay empty.
-        assert!(agg.h1_leverage_apply_cc.is_empty(), "ApplyCC bucket should be empty");
-        assert!(agg.h1_leverage_protect_ally.is_empty(), "ProtectAlly bucket should be empty");
-        assert!(agg.h1_leverage_reposition.is_empty(), "Reposition bucket should be empty");
-        assert!(agg.h1_leverage_last_stand.is_empty(), "LastStand bucket should be empty");
+        assert!(agg.h1_leverage_apply_cc_winners.is_empty(), "ApplyCC winners should be empty");
+        assert!(agg.h1_leverage_apply_cc_losers.is_empty(), "ApplyCC losers should be empty");
+        assert!(agg.h1_leverage_protect_ally_winners.is_empty(), "ProtectAlly winners should be empty");
+        assert!(agg.h1_leverage_protect_ally_losers.is_empty(), "ProtectAlly losers should be empty");
+        assert!(agg.h1_leverage_reposition_winners.is_empty(), "Reposition winners should be empty");
+        assert!(agg.h1_leverage_reposition_losers.is_empty(), "Reposition losers should be empty");
+        assert!(agg.h1_leverage_last_stand_winners.is_empty(), "LastStand winners should be empty");
+        assert!(agg.h1_leverage_last_stand_losers.is_empty(), "LastStand losers should be empty");
+
+        // No winner → no delta.
+        assert!(agg.h1_leverage_delta_per_tick.is_empty(), "delta should be empty when no agenda_item");
     }
 
     /// Verify Reposition and SetupAOE both route to the shared reposition bucket.
@@ -3311,11 +3392,114 @@ mod tests {
         let mut agg = Aggregate::default();
         agg.process_event("h.jsonl", &event);
 
-        assert_eq!(agg.h1_leverage_reposition.len(), 2,
-            "both Reposition and SetupAOE should land in reposition bucket");
-        let values: Vec<f32> = agg.h1_leverage_reposition.clone();
-        assert!(values.contains(&0.6_f32) || values.iter().any(|&v| (v - 0.6).abs() < 1e-6));
-        assert!(values.iter().any(|&v| (v - 0.3).abs() < 1e-6));
+        // No agenda_item set: both go to losers.
+        assert_eq!(agg.h1_leverage_reposition_losers.len(), 2,
+            "both Reposition and SetupAOE should land in reposition losers bucket");
+        let values: Vec<f32> = agg.h1_leverage_reposition_losers.clone();
+        assert!(values.iter().any(|&v| (v - 0.6).abs() < 1e-6),
+            "Reposition loser should contain 0.6");
+        assert!(values.iter().any(|&v| (v - 0.3).abs() < 1e-6),
+            "SetupAOE loser should contain 0.3");
+        assert!(agg.h1_leverage_reposition_winners.is_empty(),
+            "reposition winners should be empty when no agenda_item");
+    }
+
+    /// Verify winners/losers split: agenda_item=Some(0) makes idx=0 the winner,
+    /// idx=1 goes to losers; delta = winner.leverage - mean(losers.leverage).
+    #[test]
+    fn h1c_winners_vs_losers_split_correctly() {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
+        use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::log::AgendaItemLog;
+
+        let make_item = |kind| AgendaItemLog {
+            kind,
+            target: None,
+            raw_score: 1.0,
+            considerations: IntentConsiderations::default(),
+            reason: IntentReason::NoRuleDefault,
+        };
+        let make_cons = |leverage| IntentConsiderations {
+            urgency: 0.0, feasibility: 1.0, leverage,
+            safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
+        };
+
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
+        ann.agenda_item = Some(0); // FocusTarget is the winner
+        ann.considerations_per_item = vec![make_cons(0.8), make_cons(0.2)];
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let mut event = make_event_with_band(
+            PriorityBand::NormalTactical,
+            BandReason::Normal,
+            vec![make_item(IntentKind::FocusTarget), make_item(IntentKind::Reposition)],
+            vec![plan],
+        );
+        event.snapshot = BattleSnapshot::default();
+
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(agg.h1_leverage_focus_target_winners, vec![0.8_f32],
+            "FocusTarget winner should get 0.8");
+        assert!(agg.h1_leverage_focus_target_losers.is_empty(),
+            "FocusTarget losers should be empty (it is the winner)");
+        assert!(agg.h1_leverage_reposition_winners.is_empty(),
+            "Reposition winners should be empty");
+        assert_eq!(agg.h1_leverage_reposition_losers, vec![0.2_f32],
+            "Reposition loser should get 0.2");
+
+        assert_eq!(agg.h1_leverage_delta_per_tick.len(), 1);
+        assert!((agg.h1_leverage_delta_per_tick[0] - 0.6).abs() < 1e-5,
+            "delta should be 0.8 - 0.2 = 0.6, got {}", agg.h1_leverage_delta_per_tick[0]);
+    }
+
+    /// Verify that when chosen plan has agenda_item=None, all entries go to losers
+    /// and no delta is recorded.
+    #[test]
+    fn h1c_unattributed_chosen_treats_all_as_losers() {
+        use storyforge::combat::ai::intent::bands::{BandReason, PriorityBand};
+        use storyforge::combat::ai::intent::{IntentKind, IntentReason};
+        use storyforge::combat::ai::intent::considerations::IntentConsiderations;
+        use storyforge::combat::ai::log::AgendaItemLog;
+
+        let item = AgendaItemLog {
+            kind: IntentKind::FocusTarget,
+            target: None,
+            raw_score: 1.0,
+            considerations: IntentConsiderations::default(),
+            reason: IntentReason::NoRuleDefault,
+        };
+        let cons = IntentConsiderations {
+            urgency: 0.0, feasibility: 1.0, leverage: 0.5,
+            safety: 1.0, role_affinity: 0.5, continuation_value: 0.0,
+        };
+
+        let mut ann = PlanAnnotation::default();
+        ann.chosen = true;
+        ann.agenda_item = None; // unattributed
+        ann.considerations_per_item = vec![cons];
+        let plan = LoggedPlan { rank: 1, steps: vec![], annotation: ann };
+
+        let mut event = make_event_with_band(
+            PriorityBand::NormalTactical,
+            BandReason::Normal,
+            vec![item],
+            vec![plan],
+        );
+        event.snapshot = BattleSnapshot::default();
+
+        let mut agg = Aggregate::default();
+        agg.process_event("h.jsonl", &event);
+
+        assert_eq!(agg.h1_leverage_focus_target_losers, vec![0.5_f32],
+            "FocusTarget loser should get 0.5 when unattributed");
+        assert!(agg.h1_leverage_focus_target_winners.is_empty(),
+            "FocusTarget winners should be empty when unattributed");
+        assert!(agg.h1_leverage_delta_per_tick.is_empty(),
+            "delta should be empty when no winner (agenda_item=None)");
     }
 
     // ── C6 / approximate_fresh_intent tier tests ──────────────────────────────

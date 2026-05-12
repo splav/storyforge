@@ -1,143 +1,650 @@
-# Sim/Real Unification — design spike
+# Combat Engine — unified sim/real architecture (project draft)
 
-**Статус:** идея, не запланировано. Возникла в обсуждении step 12.3 (rage drift).
+**Статус:** draft proposal, не утверждено. Кандидат на Wave 5 master plan.
 
-## Проблема
-
-Sim (AI планировщик) и real combat — два параллельных кода, исполняющих **одну механику**:
-
-| Layer | Real combat | Sim |
-|-------|-------------|-----|
-| Damage application | `apply_effects.rs::apply_effects_system` (Bevy system, Query/Commands) | `plan/sim.rs::apply_primary` (direct mut на `BattleSnapshot::units`) |
-| Status apply | `status_apply.rs` | `plan/sim.rs::apply_statuses` |
-| AoO | `movement.rs::movement_system` (228-236) | `plan/sim.rs::apply_move` |
-| Status tick | `status_tick.rs` | — (sim не модулирует ticks внутри плана) |
-| Rage gain | `apply_effects.rs:117-129`, `movement.rs:228-236` | `plan/sim.rs::apply_primary` + `apply_move` |
-
-Каждое расширение механики в real → нужно вспомнить и **зеркально** обновить sim. **Класс багов** «drift между sim и real»:
-- drift #speed (12.1): статус Haste обновлял ECS Speed но не `UnitSnapshot.speed`.
-- drift #status (12.1): armor_bonus/vuln/CC не пересчитывались в sim после status apply.
-- drift #3 (12.3): rage gain в real был, в sim не было — ни для direct damage, ни для AoO.
-- AoO suicide (12.2): real убивал актора на AoO, sim считал что актор выживает.
-
-Это **не сложные баги**, это **повторяющаяся забывчивость**. Каждый — отдельный 1-2-дневный сабшаг с tests и parity-харнессом.
-
-## Решение
-
-Единая точка истины для механики через **abstraction over state container**:
-
-```rust
-trait MutableBattleState {
-    type Unit: BattleUnit;
-
-    fn unit(&self, entity: Entity) -> Option<&Self::Unit>;
-    fn unit_mut(&mut self, entity: Entity) -> Option<&mut Self::Unit>;
-    fn units_iter(&self) -> impl Iterator<Item = &Self::Unit>;
-    fn enemies_of(&self, team: Team) -> impl Iterator<Item = &Self::Unit>;
-    // ... narrow accessors enough for damage/status/move logic
-}
-
-trait BattleUnit {
-    fn hp(&self) -> i32;
-    fn set_hp(&mut self, value: i32);
-    fn rage(&self) -> Option<(i32, i32)>;
-    fn gain_rage(&mut self);
-    fn add_status(&mut self, status: ActiveStatus, content: &ContentView);
-    // ... + armor, mitigation, position, etc
-}
-```
-
-Реализации:
-- **`BevyBattleState<'w, 's>`** — обёртка над `World` + типизированные queries (`Vital`, `Rage`, `StatusEffects`, ...).
-- **`SnapshotBattleState`** — `&mut BattleSnapshot`.
-
-**Pure logic functions** (одна реализация на обе стороны):
-
-```rust
-pub fn apply_damage_event(
-    state: &mut impl MutableBattleState,
-    source: Entity,
-    target: Entity,
-    raw: f32,
-    pierces_armor: bool,
-) -> DamageResult {
-    let Some(target_unit) = state.unit(target) else { return DamageResult::Miss; };
-    let mitigation = target_unit.armor() + target_unit.armor_bonus();
-    let vuln = target_unit.damage_taken_bonus();
-    let dealt = final_damage_f32(raw, mitigation, vuln, pierces_armor);
-
-    if let Some(u) = state.unit_mut(target) {
-        u.set_hp((u.hp() as f32 - dealt).max(0.0) as i32);
-    }
-    // Rage rule: +1 source, +1 target (real-mirror, identical for sim).
-    for &e in &[source, target] {
-        if let Some(u) = state.unit_mut(e) { u.gain_rage(); }
-    }
-    DamageResult { dealt, killed: state.unit(target).is_some_and(|u| u.hp() == 0) }
-}
-```
-
-Та же функция вызывается из:
-- `apply_effects_system` (real) — оборачивает `World` в `BevyBattleState`, вызывает `apply_damage_event` для каждого `damages.iter()`.
-- `plan/sim.rs::apply_primary` (sim) — оборачивает `BattleSnapshot` в `SnapshotBattleState`, вызывает на каждом hit.
-
-**Drift невозможен by construction.**
-
-## Преимущества
-
-1. **Все step-12 drift-bugs (#speed, #status, #3, AoO suicide) не могут существовать** — одна implementation.
-2. Любая будущая механика — пишется один раз. Не надо вспоминать «обновить sim».
-3. Параллельные мульти-step plan simulations становятся проще: clone snapshot, apply events, profit.
-4. Test surface уменьшается: parity-харнесс становится излишним (sim ≡ real by definition); остаются только unit tests на pure logic.
-
-## Сложности
-
-1. **Bevy coupling в real-pipeline.** `apply_effects_system` пишет в `MessageWriter<CombatEvent>`, читает из `MessageReader<ApplyDamage>`, иногда вызывает `Commands` (despawn corpses). Унификация: либо логика возвращает `Vec<Event>` для real-side bus, либо `BevyBattleState` инкапсулирует event emit. Не невозможно, но 2-3 неделького refactor'а минимум.
-
-2. **Snapshot ≠ ECS structurally.** `UnitSnapshot` — flat struct, у real — раздельные компоненты (`Vital`, `Rage`, `StatusEffects`, ...). Trait `BattleUnit` сглаживает, но реализация для ECS требует tuple-borrow (`get<(Vital, Rage)>`) или внутреннего join.
-
-3. **Borrow patterns.** Sim делает freely `unit_mut` несколько раз; ECS требует SystemParam-уровнего планирования. Trait API может оказаться слишком restrictive (нельзя в одном scope несколько mutable units). Решение: collect → apply pattern (события собираются immutable, потом применяются), либо `state.with_unit_mut(entity, |u| ...)` closure-based API.
-
-4. **Dice/RNG.** Real использует RngDice, sim — ExpectedValue. Trait должен принять `DiceSource` параметром (уже есть в effects_outcome).
-
-5. **Performance.** Trait dispatch (static via generics) даст zero cost, но если случайно мономорфизация прилетит в hot path — следить за compile time / binary size.
-
-## Сценарий реализации (если делать)
-
-**Phase 1** (steel thread, 1 неделя):
-- Извлечь ОДНУ функцию: `apply_damage_to_unit(state, target, raw, mitigation, vuln, pierces) -> dealt: f32`. Pure, без events.
-- Real и sim вызывают её. Trait `MutableBattleState` с минимальным API.
-- Это закрывает `apply_primary` Damage arm + `apply_effects` damage loop.
-
-**Phase 2** (1 неделя):
-- Rage gain — общая функция `gain_rage_for_damage_event(state, source, target)`.
-- Закрывает 12.3 drift permanently. AoO rage в `apply_move` и в `movement_system` — обе через эту функцию.
-
-**Phase 3** (2 недели):
-- Status apply — общая функция, включая `refresh_aggregates` после.
-- Закрывает 12.1 drift permanently.
-
-**Phase 4** (1 неделя):
-- AoO scan — выделить core, обе стороны зовут.
-- Закрывает 12.2.
-
-**Phase 5** (1-2 недели):
-- Move + AoO + status tick — полный pipeline. Real-side event emission становится adapter-only.
-
-**Итого:** ~6-8 недель focused work. Параллельная работа возможна с другими wave-tasks (TeamTasks, encounter scripts).
-
-## Когда делать
-
-- **Не сейчас.** Step 12 (12.4 cleanup + schema bump) добиваем на текущей архитектуре.
-- **После Wave 3-4** master plan'а (TeamTasks, encounter scripts, telegraphing) — эти добавят ещё больше mechanics, унификация после них сэкономит больше работы.
-- **Wave 5 candidate**: новый раздел в `docs/ai/rework/`, отдельный план типа `step_unisim_plan.md` с под-этапами.
-
-## Альтернативы
-
-- **Status quo + дисциплина**: каждый новый mechanic — обязательный parity test. Дешевле в моменте, но drift всё равно проникает (12.x — это пять штук).
-- **Event sourcing вместо trait**: real эмиттит events, sim тоже эмиттит, общий `EventProcessor` мутирует state. Чище концептуально, но тяжелее API.
-- **Sim как replay of real events**: запустить mini-Bevy world внутри `pick_action`. Concept clean, но Bevy-world setup за step — дорого для beam search.
+**Цель документа:** описать архитектуру, которая закрывает sim/real drift **by construction** и делает добавление новых механик дешёвым (~3-4 файла вместо ~14 сейчас).
 
 ## TL;DR
 
-Унификация sim ↔ real — правильный долгосрочный путь. Закрывает целый класс drift-bugs by construction. Стоимость 6-8 недель, экономия — все будущие step-12-подобные сабшаги. Делать **после Wave 3-4**, отдельной phase, не вплетать в step 12.x.
+Combat — это **детерминированный stack-machine с RNG**. Текущая архитектура размазала это по Bevy ECS systems + message bus, что делает sim (AI planner) и real (Bevy runtime) двумя независимыми имплементациями одних и тех же правил. Step 12 потратил 4 сабшага на закрытие 4 drift'ов — это **повторяющийся pattern**, не разовое.
+
+Решение: вынести combat в **отдельный pure-Rust модуль** (`combat-engine`), zero Bevy dependency. Real и sim вызывают одну функцию `step(state, action, dice, content) -> events`. ECS components — projection из canonical `CombatState`, не source of truth.
+
+**Стоимость:** ~10-14 недель incremental migration.
+**Выгода:** drift permanently impossible; replay/network/save-load становятся первого класса.
+
+---
+
+## 1. Проблема
+
+### 1.1 Симптомы
+
+Step 12 (см. `step12_plan.md`) — 4 substep'а закрывающие drift между AI sim и real combat:
+- **12.1** drift #speed + drift #status — статусы не пересчитывали derived stats в sim после mid-plan apply.
+- **12.2** AoO suicide — sim не убивал actor'а на AoO, real убивал.
+- **12.3** drift #3 rage — sim не давал rage per damage event; AoO branch — отдельно.
+- **12.4** schema bump, golden corpus, docs.
+
+Каждый — 1-2 дня implementation + tests + parity harness. **Это не баги, это структурная стоимость дублирования логики**: real и sim — два независимых кода для одних правил.
+
+### 1.2 Класс bug'ов
+
+| Drift | Что отсутствовало в sim | Когда обнаружили |
+|---|---|---|
+| #speed | Haste/Slow → `unit.speed` recompute | Mining + scenario review (step 12 prep) |
+| #status | armor_bonus/vuln/CC refresh after apply | Static analysis (12.0 design) |
+| #3 rage (direct) | Rage gain on damage event | Mining D1 voiceprint mismatch |
+| #3 rage (AoO) | Rage gain on AoO hit | Code review during 12.3 |
+| AoO suicide | Mid-plan death truncation | Playtest 2026-05-09 road_bridge |
+| Forward-model death | `actor_unit_mut()` filter not propagating | Same playtest |
+
+Это **5 mechanic'ов добавили в real → забыли в sim**. Будущие mechanic'и (reactions, environment, telegraph, ...) добавят больше.
+
+### 1.3 Стоимость новой механики (extension-checklist.md)
+
+Сейчас новый `EffectDef` затрагивает 7 файлов:
+- `content/abilities.rs` (enum + parser)
+- `combat/effects_outcome.rs` (OutcomePrimary)
+- `combat/resolution.rs` (writer)
+- `combat/ai/plan/sim.rs::apply_primary` (sim mutation)
+- `combat/ai/scoring/policy/` (scoring formulas)
+- `combat/ai/outcome/builder.rs` (outcome aggregation)
+- `combat/ai/role.rs` (role vote)
+
+Из них 3 (resolution, sim, outcome) дублируют семантику эффекта. **Любое расширение enum → drift risk × 3.**
+
+---
+
+## 2. Архитектура
+
+### 2.1 Три различных concept'а
+
+Текущий код смешивает три уровня в один Bevy message bus (`ApplyDamage`, `ApplyStatus`, `RageGained`, ...). Они **семантически разные**:
+
+| Concept | Кто создаёт | Кто читает | Granularity | Пример |
+|---|---|---|---|---|
+| **Action** | Player / AI | Engine | Coarse — intent | `Cast { actor: A, ability: fireball, target: T }` |
+| **Effect** | Engine internal | Engine state mutator | Atomic — single state mutation | `Damage { target: B, raw: 6 }`, `GainRage { target: A }` |
+| **Event** | Engine emit | Observers (UI, log, replay) | Domain-level — facts | `UnitDamaged { B, 6 }`, `AbilityResolved { A, fireball, [B,C] }` |
+
+**Action ≠ Event.** Action — намерение, Event — факт. Effect — реализация. Текущий код не различает; в новой архитектуре эта дифференциация — keystone.
+
+### 2.2 Канонический shape
+
+```rust
+// crate::combat_engine (или src/combat_engine/, no Bevy dep)
+
+pub struct CombatState {
+    pub units: HashMap<UnitId, Unit>,     // indexed for O(1) lookup
+    pub turn_queue: TurnQueue,
+    pub round: u32,
+    pub phase: RoundPhase,                // PreRound, ActorTurn, EndRound
+    pub random_seed: u64,                 // for replay reproducibility
+}
+
+pub struct Unit {
+    pub id: UnitId,
+    pub team: Team,
+    pub pos: Hex,
+    pub hp: i32,
+    pub max_hp: i32,
+    pub armor: i32,
+    pub base_speed: i32,
+    pub speed: i32,            // derived = base_speed + Σ speed_bonus
+    pub action_points: i32,
+    pub movement_points: i32,
+    pub reactions_left: i32,
+    pub statuses: Vec<ActiveStatus>,
+    pub rage:   Option<(i32, i32)>,
+    pub mana:   Option<(i32, i32)>,
+    pub energy: Option<(i32, i32)>,
+    // ... derived caches
+}
+
+pub enum Action {
+    Move    { actor: UnitId, path: Vec<Hex> },
+    Cast    { actor: UnitId, ability: AbilityId, target: ActionTarget },
+    EndTurn { actor: UnitId },
+    // Internal — engine generates, не выходит наружу:
+    // ReactionAoO { from: UnitId, victim: UnitId, trigger_pos: Hex },
+    // RoundTick   { round: u32 },
+}
+
+pub enum Effect {
+    // State mutations — atomic:
+    PayCost            { actor: UnitId, kind: ResourceKind, amount: i32 },
+    Damage             { target: UnitId, raw: f32, source: UnitId, pierces: bool },
+    Heal               { target: UnitId, amount: i32 },
+    GainRage           { target: UnitId },                  // +1 clamped to max
+    ApplyStatus        { target: UnitId, status: StatusId, duration: u32 },
+    RemoveStatus       { target: UnitId, status: StatusId },
+    MovePosition       { actor: UnitId, to: Hex },
+    DecrementMP        { actor: UnitId, by: i32 },
+    DecrementReactions { actor: UnitId },
+    Death              { unit: UnitId },
+    RefreshAggregates  { unit: UnitId },                    // derived stats recompute
+    TickDot            { target: UnitId },                  // round-tick
+    // ... new mechanics extend here
+}
+
+pub enum Event {                                            // observable facts
+    ActionStarted     { action: Action },
+    UnitMoved         { actor: UnitId, from: Hex, to: Hex },
+    UnitDamaged       { target: UnitId, amount: f32, source: UnitId },
+    UnitHealed        { target: UnitId, amount: f32 },
+    UnitDied          { unit: UnitId },
+    RageGained        { unit: UnitId, current: i32, max: i32 },
+    ReactionFired     { actor: UnitId, kind: ReactionKind, against: UnitId },
+    AbilityResolved   { actor: UnitId, ability: AbilityId, hits: Vec<UnitId> },
+    StatusApplied     { target: UnitId, status: StatusId, duration: u32 },
+    StatusRemoved     { target: UnitId, status: StatusId },
+    ActionFinished    { action: Action },
+    // ...
+}
+
+pub trait DiceSource {
+    fn roll(&mut self, dice: DiceExpr) -> i32;              // real path
+    fn expected(&self, dice: DiceExpr) -> f32;              // sim path (no mut)
+}
+
+pub fn step(
+    state: &mut CombatState,
+    action: Action,
+    rng: &mut dyn DiceSource,
+    content: &ContentView,
+) -> Result<Vec<Event>, ActionError>;
+```
+
+### 2.3 Внутренний механизм `step()`
+
+Это ключевая часть. Engine — **effect-queue processor** с reaction-aware scheduling:
+
+```
+fn step(state, action, rng, content) -> Vec<Event>:
+    validate(state, action)?  // returns ActionError if illegal
+
+    let mut effect_queue: VecDeque<Effect> = expand_action(action, state, rng, content)
+    let mut events = vec![Event::ActionStarted { action }]
+
+    while let Some(effect) = effect_queue.pop_front():
+        // 1) Apply atomic mutation; may produce derived effects
+        let derived = apply_effect(state, effect, content)
+        
+        // 2) Map effect → event (some effects map, some are pure internal)
+        if let Some(ev) = effect_to_event(effect, state):
+            events.push(ev)
+        
+        // 3) Enqueue derived effects (e.g., Damage → Death if hp=0; Damage → GainRage source+target)
+        for d in derived:
+            effect_queue.push_back(d)
+        
+        // 4) Reaction scan: did this effect trigger any pending reaction?
+        for reaction in scan_reactions(state, effect, content):
+            events.push(Event::ReactionFired { ... })
+            let r_effects = expand_reaction(reaction, state, rng, content)
+            for re in r_effects:
+                effect_queue.push_back(re)
+
+    events.push(Event::ActionFinished { action })
+    Ok(events)
+```
+
+**Свойства:**
+- **Deterministic** given `(state, action, rng_seed, content)`. Тест-able by replay.
+- **Pure** modulo `state` mutation — no I/O, no Bevy, no time.
+- **Reactions = effects → effects**. Не специальный case.
+- **Death triggers = derived effect от Damage**. Engine sees hp=0 в `apply_effect(Damage)`, pushes `Death`.
+- **Status tick = `TickDot` effects fired at RoundPhase::EndRound`**. Same engine, same queue.
+- **Effect ordering deterministic**. FIFO queue; ties broken by source order. Tests assert event sequence.
+
+### 2.4 Effect derivation patterns
+
+`apply_effect` для каждого variant возвращает `Vec<Effect>` of derived effects:
+
+| Effect | Direct mutation | Derived |
+|---|---|---|
+| `Damage { target, raw, source }` | target.hp -= mitigated_damage | `GainRage { source }`, `GainRage { target }`, `Death { target }` if hp=0 |
+| `Death` | unit.is_alive = false | `RemoveStatus { target, status }` for each status (cleanup), on-death triggers |
+| `ApplyStatus` | unit.statuses.push(status) | `RefreshAggregates { unit }` |
+| `RemoveStatus` | unit.statuses.retain(...) | `RefreshAggregates { unit }` |
+| `Heal { target, amount }` | cleanse DoT first, then hp += | `RefreshAggregates` if statuses changed |
+| `MovePosition { actor, to }` | unit.pos = to | (reactions scanned in step loop, not here) |
+| `RefreshAggregates` | recompute speed/armor_bonus/vuln/tags | none |
+| `TickDot { target }` | apply DoT damage | `Damage` effect for each tick → cascades |
+
+### 2.5 Reaction model
+
+Reactions = `Action`-like sub-procedures triggered by state changes:
+
+```rust
+fn scan_reactions(state: &CombatState, effect: &Effect, content: &ContentView) -> Vec<Reaction> {
+    match effect {
+        Effect::MovePosition { actor, to } => {
+            // AoO scan: enemies adjacent to source/path, not adjacent to dest, reactions_left > 0
+            let mut out = vec![];
+            for enemy in state.enemies_of(actor).filter(|e| e.reactions_left > 0) {
+                if adjacent_was(actor, enemy) && !adjacent_now(to, enemy) {
+                    out.push(Reaction::OpportunityAttack { from: enemy.id, victim: actor });
+                }
+            }
+            out
+        }
+        Effect::Damage { target, .. } if state.unit(target).has_retaliate() => {
+            // future: Retaliate counter-damage
+        }
+        _ => vec![],
+    }
+}
+
+fn expand_reaction(r: Reaction, state, rng, content) -> Vec<Effect> {
+    match r {
+        Reaction::OpportunityAttack { from, victim } => vec![
+            Effect::DecrementReactions { actor: from },
+            Effect::Damage { target: victim, raw: aoo_dice(from), source: from, pierces: false },
+            // Derived effects (rage gain x2, possible death) cascade through normal effect queue
+        ],
+    }
+}
+```
+
+**Reactions = first-class.** Counterspell, retaliate, mark-of-death, opportunity attack — все через одну машину. Текущий код имеет AoO логику только в `movement_system` и зеркальный код в `apply_move` sim'е; новые reactions потребовали бы пары для real+sim. В engine — один `scan_reactions` + `expand_reaction`.
+
+**Recursion limit:** `step` enforces max effect-queue depth (e.g., 100) to prevent infinite loops от cyclic reactions. Каждая push увеличивает counter; overflow → `ActionError::ReactionDepthExceeded`.
+
+### 2.6 State ownership
+
+**Canonical state = `Res<CombatState>` в Bevy.**
+
+```rust
+// Bevy system orchestrator:
+fn process_action_system(
+    mut state: ResMut<CombatState>,
+    mut input: EventReader<ActionInput>,
+    mut events_out: EventWriter<CombatEvent>,
+    mut rng: ResMut<DiceRng>,
+    content: Res<ContentView>,
+) {
+    for input_action in input.read() {
+        match combat_engine::step(&mut state, input_action.clone(), &mut *rng, &content) {
+            Ok(events) => {
+                for e in events { events_out.send(CombatEvent(e)); }
+            }
+            Err(err) => log::warn!("illegal action: {err:?}"),
+        }
+    }
+}
+
+// Render projection — read-only consumer of state changes:
+fn project_state_to_ecs(
+    state: Res<CombatState>,
+    mut positions: Query<&mut HexPosition>,
+    mut vitals: Query<&mut Vital>,
+    // ...
+) {
+    if !state.is_changed() { return; }
+    for (id, unit) in state.units.iter() {
+        if let Some(entity) = id_to_entity(id) {
+            positions.get_mut(entity).unwrap().0 = unit.pos;
+            vitals.get_mut(entity).unwrap().hp = unit.hp;
+            // ...
+        }
+    }
+}
+
+// Animations — react to events, не пишут в state:
+fn animation_system(
+    mut events: EventReader<CombatEvent>,
+    mut transforms: Query<&mut Transform>,
+    ...
+) {
+    for ev in events.read() {
+        match ev {
+            CombatEvent(Event::UnitMoved { actor, from, to }) => {
+                /* schedule tween */
+            }
+            CombatEvent(Event::UnitDamaged { target, amount, .. }) => {
+                /* spawn damage popup */
+            }
+            ...
+        }
+    }
+}
+```
+
+**ECS components становятся одностороннюю projection от `CombatState`:**
+- Read-only outside `project_state_to_ecs`.
+- Bevy systems используют ECS для render/animation/asset/input — не для logic.
+- Combat logic не trickle'ит через component mutations.
+
+### 2.7 AI integration
+
+```rust
+pub fn pick_action(
+    state: &CombatState,
+    actor: UnitId,
+    ai_world: &AiWorld,
+) -> Action {
+    let candidates = enumerate_actions(state, actor, ai_world.content);
+    let mut best = (f32::NEG_INFINITY, candidates[0].clone());
+    
+    for action in candidates {
+        let mut sim_state = state.clone();
+        let mut dice = ExpectedValue::new();
+        match combat_engine::step(&mut sim_state, action.clone(), &mut dice, ai_world.content) {
+            Ok(events) => {
+                let score = score_plan(&sim_state, &events, ai_world);
+                if score > best.0 { best = (score, action); }
+            }
+            Err(_) => continue,
+        }
+    }
+    best.1
+}
+```
+
+**Sim = clone state + run engine.** Same code path. Drift impossible.
+
+Beam search multi-step:
+```rust
+fn beam_search(state: &CombatState, actor: UnitId, depth: usize) -> Vec<(Action, Vec<Action>)> {
+    let mut frontier = vec![(state.clone(), vec![])];
+    for _ in 0..depth {
+        let mut next_frontier = vec![];
+        for (s, history) in &frontier {
+            for action in enumerate_actions(s, actor) {
+                let mut s2 = s.clone();
+                if step(&mut s2, action.clone(), &mut ExpectedValue, content).is_ok() {
+                    let mut h2 = history.clone();
+                    h2.push(action);
+                    next_frontier.push((s2, h2));
+                }
+            }
+        }
+        frontier = prune_top_k(next_frontier, k=BEAM_WIDTH);
+    }
+    frontier.into_iter().map(|(s, h)| (h[0].clone(), h)).collect()
+}
+```
+
+### 2.8 Replay / logging
+
+Event stream = log. Replay = re-run engine with same seed:
+
+```rust
+// Logging — Bevy system on Event channel:
+fn log_combat_events(mut events: EventReader<CombatEvent>, mut logger: ResMut<CombatLog>) {
+    for ev in events.read() {
+        logger.append(ev);  // JSONL append
+    }
+}
+
+// Replay tool:
+fn replay(log_path: &Path) -> Result<CombatState, ReplayError> {
+    let mut state = load_initial_state(log_path)?;
+    let mut dice = ReplayDice::new(state.random_seed);
+    let actions = parse_action_sequence(log_path)?;
+    for action in actions {
+        let _events = combat_engine::step(&mut state, action, &mut dice, &content)?;
+    }
+    Ok(state)
+}
+```
+
+Replay verifies determinism: final state from log re-run must match logged final state. If not — engine bug or content drift.
+
+---
+
+## 3. What we get
+
+| Capability | Сейчас | После |
+|---|---|---|
+| **Sim ≡ real** | Drift inevitable | Same code path |
+| **Replay correctness** | Trust score formulas pure | Re-run engine; verify identical |
+| **New mechanic cost** | ~14 files touched | ~3-4 files (engine extension + content + UI) |
+| **Reactions / interrupts** | Ad-hoc in event bus | First-class via effect queue |
+| **Network play** | Impossible without rewrite | Server runs engine; events broadcast |
+| **Save/load** | Per-component serde | Serialize `CombatState` |
+| **Determinism fuzzing** | Cannot | `cargo fuzz` over Action sequences |
+| **AI testing** | Mock `BattleSnapshot` | Use canonical `CombatState` |
+| **Score formula change** | Touch scoring layer only | Same — orthogonal to engine |
+| **Bevy upgrade pain** | High (logic in systems) | Low (engine has no Bevy dep) |
+
+---
+
+## 4. Risks / trade-offs
+
+### 4.1 Migration cost
+
+**~10-14 weeks incremental.** Не all-at-once — per-mechanic migration:
+
+| Phase | Migrate | Closes | Weeks |
+|---|---|---|---|
+| 1 | `Move` action + AoO reaction | drift on move, AoO suicide | 2 |
+| 2 | `Cast` action (damage, heal, status) | drift on damage/heal/status | 3 |
+| 3 | Rage / DoT / round tick | drift on rage, DoT, status ticks | 2 |
+| 4 | EndTurn, turn queue | turn management | 1 |
+| 5 | Replay + log integration | replay first-class | 2 |
+| 6 | ECS projection cleanup | remove legacy systems | 2 |
+| **Total** | | | **~12 wk** |
+
+Каждая фаза — landed independently, тесты passing, no behavioural drift on the previously-migrated parts.
+
+### 4.2 Lost Bevy idioms
+
+Combat logic больше не использует ECS queries / message bus. Bevy users could протестовать.
+
+**Counter:** Bevy ECS shines for animation, asset, render, input — where dataparallelism + system scheduling matter. Combat — turn-based with ~10 units; ECS performance не critical, и ECS makes logic harder to reason about (system order, query conflicts, message timing).
+
+Bevy stays where it matters; combat moves to a model that fits its actual shape.
+
+### 4.3 Performance of state clone in sim
+
+`CombatState` ≈ current `BattleSnapshot` size (~10KB for 10 units). Sim clones ~50-150 times per `pick_action` (beam search × depth). ~1.5MB allocations per AI turn — same as today.
+
+**If becomes bottleneck:** persistent collections (`im` crate) provide O(1) structural sharing clone. Migration is transparent (just change container types).
+
+### 4.4 Effect ordering bugs
+
+Engine has deterministic queue order. But subtle ordering issues (e.g., when should `Death` fire vs `Damage` to next target in AoE?) are easy to get wrong silently.
+
+**Mitigation:** parity tests for canonical scenarios (existing 8 in `tests/parity.rs` + new ones per migration phase). Each phase: capture canonical sequence, assert exact event order.
+
+### 4.5 Reaction recursion / infinite loops
+
+If counterspell triggers counterspell, etc.
+
+**Mitigation:** engine enforces max queue depth (e.g., 100); overflow → `ActionError::ReactionDepthExceeded`. Real combat already implicitly has this; making it explicit fails fast instead of hanging.
+
+### 4.6 RNG threading
+
+`DiceSource` injected into `step()`. Real uses seeded `DiceRng`; sim uses `ExpectedValue`; replay uses `ReplayDice` (returns recorded rolls in order).
+
+**Risk:** if engine consumes RNG in different order for the same Action across versions, replay breaks. **Mitigation:** lock effect order via tests; document `step()` as RNG-stable interface.
+
+### 4.7 Animation latency
+
+Engine mutates state synchronously; UI projects on next frame. Animations are event-driven, run on their own timeline (already the case today).
+
+**Concern:** state may visually "snap" if animation lags behind. **Mitigation:** UI tracks animation queue, gates next user action until animations complete (already the case in current UI).
+
+---
+
+## 5. Migration plan
+
+### 5.1 Steel-thread spike (Week 1)
+
+**Goal:** validate API surface and ECS-projection pattern on smallest meaningful Action — `Move`.
+
+Tasks:
+- Define `Effect` minimal subset: `MovePosition`, `DecrementMP`, `Damage`, `GainRage`, `DecrementReactions`, `Death`, `RefreshAggregates`.
+- Define `Event` minimal subset: `UnitMoved`, `UnitDamaged`, `RageGained`, `ReactionFired`, `UnitDied`.
+- Implement `step()` for `Action::Move` with AoO reaction support.
+- Add `CombatState` struct alongside existing ECS components (NOT yet replace).
+- One Bevy system `mirror_state_from_ecs` — populate `CombatState` from ECS at frame start (transitional).
+- Sim's `apply_move` rewritten to call `step()`.
+
+**Gate:** all existing tests pass. Sim Move behaviour identical to current (parity test). 12.2 AoO tests pass via new path.
+
+**Decision point:** API surface clean? Performance OK (cargo bench on simulated 10-unit move sequence)? Reaction recursion handled cleanly?
+
+- ✅ → proceed to Phase 2.
+- ❌ → abort, fallback to incremental status quo (sim mirrors real ad-hoc).
+
+### 5.2 Phase 1: Move action (Weeks 2-3)
+
+- Real path: `movement_system` replaced by `process_action_system` for `Action::Move`.
+- ECS components for `pos`, `movement_points`, `reactions_left` become projection (read-only outside sync system).
+- Remove `MoveUnit` Bevy message — replaced by `ActionInput::Move`.
+- Remove `OpportunityAttack` event emission from `movement_system` — engine emits `ReactionFired` instead.
+- AI: `pick_action` for Move-only candidates uses engine.
+
+Gate: `cargo test --test golden_smoke 0/N`; parity tests for AoO pass; no playtest regressions.
+
+### 5.3 Phase 2: Cast action (Weeks 4-6)
+
+- `Action::Cast` migration covering Damage, Heal, Status apply, Self-AoE friendly fire.
+- `apply_effects_system` becomes thin shim; effect mutation moves into engine.
+- ECS components for `hp`, `mana`, `rage`, `statuses` become projection.
+- AI: `apply_cast` removed; engine used directly.
+
+Gate: parity tests for damage / heal / status apply pass; all 12.1 + 12.3 behaviour preserved by construction (drift impossible).
+
+### 5.4 Phase 3: Status ticks, DoT, rage details (Week 7-8)
+
+- `Action::EndTurn` migration — includes `TickDot` effects, status duration decrement.
+- `status_tick_system` removed; engine handles ticks at `RoundPhase::EndRound`.
+- AI sim doesn't currently simulate ticks; engine makes it possible.
+
+### 5.5 Phase 4: Turn queue, round flow (Week 9)
+
+- Round transitions (`RoundPhase` enum) handled by engine.
+- `combat_round_system` becomes orchestrator: read player input or AI decision, call `step()`, advance turn.
+
+### 5.6 Phase 5: Replay + log overhaul (Weeks 10-11)
+
+- Combat log becomes event stream from engine.
+- Replay tool re-runs engine from log; asserts identical final state.
+- Old `replay_ai_log` deprecated or refactored to read new event format.
+- Schema bump v37: events-based log (drop legacy per-stage JSONL format).
+
+### 5.7 Phase 6: ECS projection cleanup (Week 12)
+
+- Old Bevy combat systems removed entirely (move/effects/status_apply/status_tick).
+- ECS components marked `#[engine_projected]` (compile-time check that they're not written outside `project_state_to_ecs`).
+- Documentation updated; old `apply_effects.rs`, `movement.rs`, `status_apply.rs`, `status_tick.rs` deleted.
+
+---
+
+## 6. Open questions / decisions
+
+### 6.1 State container shape
+
+`HashMap<UnitId, Unit>` vs `Vec<Unit>` with id→idx cache (current `BattleSnapshot` pattern)?
+
+- HashMap: O(1) lookup by id; iteration order not deterministic (problematic for replay).
+- Vec + cache: deterministic iteration; current shape; clone preserves order.
+
+**Tentative:** Vec + cache, matching current `BattleSnapshot::new` pattern.
+
+### 6.2 Unit identity
+
+`UnitId` = `Entity` (Bevy) or new opaque type?
+
+- `Entity`: keeps existing references in content/scoring/UI.
+- New type: decouples engine from Bevy; explicit conversion at boundary.
+
+**Tentative:** new `UnitId(u64)`, with one-time mapping established at combat start. Engine clean of Bevy dep.
+
+### 6.3 Effect ordering policy
+
+When AoE damages 3 targets, ordering of derived effects (rage gains, deaths):
+- All damages first, then all rage gains, then all deaths?
+- Or per-target: damage → rage → death, then next target?
+
+Current real-pipeline: damage events accumulate, then `for damage in &damages { gain_rage }`. So all-damage-first-then-rage.
+
+**Tentative:** match real-pipeline order exactly; document in `apply_effect`.
+
+### 6.4 RNG advance semantics
+
+`step()` may consume zero, one, or many RNG values depending on action.
+- Cast hits 3 targets → 3 rolls.
+- Cast misses → 1 roll (the to-hit).
+- Move → 0 rolls.
+
+**Tentative:** `DiceSource` API takes explicit `DiceExpr`; engine documents which actions consume rng and how many calls per effect. Replay assertion: RNG consumed exactly N times for action X.
+
+### 6.5 Failure handling
+
+`step()` returns `Result<Vec<Event>, ActionError>`. What's the error policy?
+- Illegal action (target dead, out of range): return Err. State unchanged.
+- Mid-execution failure (effect can't apply because target died from earlier effect in queue): silently skip? Or error?
+
+**Tentative:** Mid-execution skips silently (matches current behaviour: AoE on partially-dead group hits live targets, dead targets skip). Pre-execution validation returns Err; post-validate effects are best-effort within queue.
+
+### 6.6 Engine vs content separation
+
+Should ability effects (e.g., `fireball deals 4d6, applies burning`) live in:
+- `content/abilities.toml` data → engine reads via `expand_action`.
+- Hardcoded engine variants.
+
+Current model: TOML drives. Keep it — engine reads `AbilityDef` and produces effects per `EffectDef` arm.
+
+**Confirmed:** content stays TOML; engine knows how to expand each `EffectDef` variant into effects.
+
+### 6.7 Bevy upgrade dependency
+
+If Bevy 0.19 changes Resource API or Query API, does engine need update?
+
+Engine has zero Bevy dep — so no. Only `process_action_system` (Bevy glue) needs update. Engine bulletproof against Bevy churn.
+
+---
+
+## 7. Validation criteria
+
+After Week 1 spike, decide go/no-go based on:
+
+1. **API cleanliness.** `Effect` enum has < 15 variants for current mechanics. `step()` signature stable across Move/Cast/EndTurn.
+2. **Performance.** `step()` on canonical 10-unit Move ≤ current `sim::apply_move` × 1.2.
+3. **Test surface.** Unit tests for `apply_effect(state, Effect::Damage, content)` cover what currently takes parity tests + sim tests + real combat tests separately.
+4. **Reaction model.** AoO recursion handled cleanly without ad-hoc special cases.
+5. **Migration path is incremental.** Phase 1 lands without touching Cast/Status systems.
+
+If 5/5 ✅ → green light for full migration (~12 weeks).
+If 3-4/5 → revise approach, possibly fall back to Architecture B (events + applier, less radical).
+If <3/5 → abort, status quo + per-mechanic parity tests as drift defence.
+
+---
+
+## 8. Related work / references
+
+- **Step 12** (`step12_plan.md`) — per-drift fixes that motivated this proposal.
+- **Event sourcing pattern** (Greg Young, Martin Fowler) — `Effect` queue + state-as-projection-of-events.
+- **Pure functional core, imperative shell** (Russ Olsen, Gary Bernhardt) — engine = pure, runtime = shell.
+- **Magic: the Gathering stack model** — reactions as effects producing effects, recursive resolution.
+- **`combat/apply_effects.rs`, `movement.rs`, `status_apply.rs`, `status_tick.rs`** — code that this proposal would replace.
+- **`combat/ai/plan/sim.rs`** — sim path that would become engine call.
+- **`tests/parity.rs`** — existing parity harness; would become regression suite during migration.
+
+---
+
+## 9. What this is NOT
+
+- **Not a multiplayer-first design** — but compatible (server-authoritative becomes natural).
+- **Not replacing Bevy** — Bevy stays for rendering, input, animation, asset, UI; just combat logic exits.
+- **Not removing data-driven content** — TOML stays as source for abilities/statuses; engine reads via `ContentView`.
+- **Not changing scoring/AI logic** — AI scoring formulas, intent selection, agenda, bands all unchanged; only the sim substrate changes.
+- **Not a 2-week refactor** — this is 10-14 weeks of careful incremental work.
+
+---
+
+## 10. Decision required
+
+Before committing, need confirmation on:
+
+1. **Are reactions important for future content?** If yes (counterspell, retaliate, mark, environment) → engine pays off rapidly. If no — Architecture B (events + applier without recursion) is cheaper.
+2. **Is replay/server-authoritative on roadmap?** If yes → engine is the path. If no — drift containment via parity tests is cheaper.
+3. **Is the team willing to absorb a 3-month logic refactor?** If "ship features now, fix arch later" — defer; iterate B in parallel with new content.
+4. **Bevy upgrade strategy.** Frequent Bevy major bumps → engine isolates from churn; infrequent → less argument for engine separation.
+
+Default answers (assumed if not contested): reactions yes, replay yes, refactor acceptable, Bevy churn moderate → **go**.
