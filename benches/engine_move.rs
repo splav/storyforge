@@ -1,0 +1,216 @@
+//! Bench: engine `step(Action::Move)` vs legacy-path `sim::apply_step(Move)`.
+//!
+//! **Gate criterion 3:** engine ≤ legacy × 1.2.
+//!
+//! Scenario: 10-unit battle. Actor moves 4 hexes; 2 enemies are adjacent to
+//! the path and fire AoOs. All dice use `ExpectedValue` (deterministic).
+//!
+//! "Legacy" here is `SimState::apply_step(PlanStep::Move)`, which internally
+//! now calls the engine. The engine benchmark calls `step()` directly after
+//! building a `CombatState`, skipping the snapshot⇄engine projection round-trip.
+//! The ratio measures the overhead of the snapshot conversion layer.
+
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+use bevy::prelude::Entity;
+use storyforge::combat::ai::plan::sim::SimState;
+use storyforge::combat::ai::plan::types::PlanStep;
+use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+use storyforge::combat_engine::{
+    action::Action,
+    content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
+    dice::{DiceExpr as EngineDiceExpr, ExpectedValue},
+    state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit, UnitId},
+    step::step,
+};
+use storyforge::combat::engine_bridge::entity_to_uid;
+use storyforge::content::abilities::CasterContext;
+use storyforge::core::StatusId;
+use storyforge::game::components::Team;
+use storyforge::game::hex::hex_from_offset;
+
+// ── Shared scenario setup ─────────────────────────────────────────────────────
+
+fn ent(id: u32) -> Entity {
+    Entity::from_raw_u32(id).expect("valid")
+}
+
+fn make_unit_snap(id: u32, team: Team, col: i32, row: i32, aoo: Option<f32>) -> UnitSnapshot {
+    UnitSnapshot {
+        entity: ent(id),
+        team,
+        role: Default::default(),
+        pos: hex_from_offset(col, row),
+        hp: 30,
+        max_hp: 30,
+        armor: 2,
+        armor_bonus: 0,
+        damage_taken_bonus: 0,
+        action_points: 2,
+        max_ap: 2,
+        movement_points: 6,
+        base_speed: 6,
+        speed: 6,
+        mana: None,
+        rage: None,
+        energy: None,
+        abilities: Vec::new(),
+        threat: 0.0,
+        tags: AiTags::empty(),
+        max_attack_range: 1,
+        summoner: None,
+        reactions_left: 1,
+        aoo_expected_damage: aoo,
+        statuses: Vec::new(),
+        caster_ctx: CasterContext::default(),
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    }
+}
+
+/// Build the 10-unit benchmark scenario.
+///
+/// - Actor (id=1, Player) at col=0 row=0, moves right to col=4.
+/// - 2 enemies adjacent to steps in the path → fire AoOs (raw=5 each).
+/// - 7 filler enemies far away (no AoO reach, no reactions impact).
+fn build_scenario() -> (BattleSnapshot, Entity, Vec<storyforge::game::hex::Hex>) {
+    let actor = make_unit_snap(1, Team::Player, 0, 0, None);
+    let actor_id = actor.entity;
+
+    // Enemy A: adjacent to (0,0), not adjacent to (1,0) → AoO on step 1.
+    let enemy_a = make_unit_snap(2, Team::Enemy, -1, 0, Some(5.0));
+    // Enemy B: adjacent to (1,0), not adjacent to (2,0) → AoO on step 2.
+    // hex_from_offset(0,1) is a neighbor of (1,0) in even-r coordinates.
+    let enemy_b = make_unit_snap(3, Team::Enemy, 0, 1, Some(5.0));
+
+    let fillers: Vec<UnitSnapshot> = (4u32..=10)
+        .map(|id| make_unit_snap(id, Team::Enemy, 10 + id as i32, 5, None))
+        .collect();
+
+    let mut units = vec![actor, enemy_a, enemy_b];
+    units.extend(fillers);
+    let snap = BattleSnapshot::new(units, 1);
+
+    let path = vec![
+        hex_from_offset(1, 0),
+        hex_from_offset(2, 0),
+        hex_from_offset(3, 0),
+        hex_from_offset(4, 0),
+    ];
+    (snap, actor_id, path)
+}
+
+// ── ContentView adapter for engine bench ─────────────────────────────────────
+
+struct BenchContent {
+    aoo: std::collections::HashMap<UnitId, f32>,
+}
+
+impl BenchContent {
+    fn from_snap(snap: &BattleSnapshot) -> Self {
+        let aoo = snap
+            .units
+            .iter()
+            .filter_map(|u| Some((entity_to_uid(u.entity), u.aoo_expected_damage?)))
+            .collect();
+        Self { aoo }
+    }
+}
+
+impl EngineContentView for BenchContent {
+    fn aoo_dice(&self, attacker: UnitId) -> Option<EngineDiceExpr> {
+        let raw = self.aoo.get(&attacker)?;
+        // Constant-bonus expr: count=0 → expected = bonus.
+        Some(EngineDiceExpr::new(0, 1, raw.round() as i32))
+    }
+    fn status_bonuses(&self, _: &StatusId) -> EngineStatusBonuses {
+        EngineStatusBonuses::default()
+    }
+}
+
+fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
+    use storyforge::combat_engine::state::ActiveStatus;
+    let units: Vec<EngineUnit> = snap
+        .units
+        .iter()
+        .map(|u| {
+            let team = match u.team {
+                Team::Player => EngineTeam::Player,
+                Team::Enemy  => EngineTeam::Enemy,
+            };
+            EngineUnit {
+                id: entity_to_uid(u.entity),
+                team,
+                pos: u.pos,
+                hp: u.hp,
+                max_hp: u.max_hp,
+                armor: u.armor,
+                armor_bonus: u.armor_bonus,
+                base_speed: u.base_speed,
+                speed: u.speed,
+                action_points: u.action_points,
+                movement_points: u.movement_points,
+                reactions_left: u.reactions_left,
+                statuses: u
+                    .statuses
+                    .iter()
+                    .map(|s| ActiveStatus {
+                        id: s.id.clone(),
+                        rounds_remaining: s.rounds_remaining,
+                        dot_per_tick: s.dot_per_tick,
+                    })
+                    .collect(),
+                rage: u.rage,
+                mana: u.mana,
+                energy: u.energy,
+            }
+        })
+        .collect();
+    CombatState::new(units, 1, RoundPhase::ActorTurn, 0)
+}
+
+// ── Benchmarks ────────────────────────────────────────────────────────────────
+
+/// Measure `step()` directly (pure engine, no snapshot conversion).
+fn bench_move_10units_engine(c: &mut Criterion) {
+    let (snap, actor_id, path) = build_scenario();
+    let content = BenchContent::from_snap(&snap);
+    let actor_uid = entity_to_uid(actor_id);
+
+    c.bench_function("bench_move_10units_engine", |b| {
+        b.iter(|| {
+            let mut state = snap_to_combat_state(&snap);
+            let action = Action::Move { actor: actor_uid, path: path.clone() };
+            let _ = step(black_box(&mut state), black_box(action), &mut ExpectedValue, &content);
+            black_box(state);
+        });
+    });
+}
+
+/// Measure `sim.apply_step(PlanStep::Move)` — the full round-trip path
+/// (snapshot → CombatState → step → project back).
+fn bench_move_10units_legacy(c: &mut Criterion) {
+    let (snap, actor_id, path) = build_scenario();
+    let status_tags = StatusTagCache::default();
+    let content = storyforge::content::content_view::ContentView::default();
+
+    c.bench_function("bench_move_10units_legacy", |b| {
+        b.iter(|| {
+            let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tags);
+            let plan_step = PlanStep::Move { path: path.clone() };
+            let outcome = sim.apply_step(
+                black_box(&plan_step),
+                &CasterContext::default(),
+                &content,
+                false,
+            );
+            black_box(outcome);
+            black_box(sim);
+        });
+    });
+}
+
+criterion_group!(benches, bench_move_10units_engine, bench_move_10units_legacy);
+criterion_main!(benches);

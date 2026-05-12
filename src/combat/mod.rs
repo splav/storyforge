@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod advance_turn;
 pub mod ai;
+pub mod engine_bridge;
 pub mod apply_effects;
 pub mod auras;
 pub mod command_input;

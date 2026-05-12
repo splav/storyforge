@@ -469,134 +469,164 @@ Engine mutates state synchronously; UI projects on next frame. Animations are ev
 
 ---
 
-## 5. Migration plan
+## 5. Migration plan (locked)
 
-### 5.1 Steel-thread spike (Week 1)
+12-week incremental migration. Each phase lands independently with passing tests and zero behavioural drift on previously-migrated parts. Each phase opens with a `step_unisimN_plan.md` (sub-step decomposition) and closes with retrospective notes.
 
-**Goal:** validate API surface and ECS-projection pattern on smallest meaningful Action — `Move`.
+### 5.0 Phase 0 — Steel-thread spike (Week 1)
 
-Tasks:
-- Define `Effect` minimal subset: `MovePosition`, `DecrementMP`, `Damage`, `GainRage`, `DecrementReactions`, `Death`, `RefreshAggregates`.
-- Define `Event` minimal subset: `UnitMoved`, `UnitDamaged`, `RageGained`, `ReactionFired`, `UnitDied`.
-- Implement `step()` for `Action::Move` with AoO reaction support.
-- Add `CombatState` struct alongside existing ECS components (NOT yet replace).
-- One Bevy system `mirror_state_from_ecs` — populate `CombatState` from ECS at frame start (transitional).
-- Sim's `apply_move` rewritten to call `step()`.
+**Goal:** validate API + projection pattern on smallest meaningful action — `Action::Move`.
 
-**Gate:** all existing tests pass. Sim Move behaviour identical to current (parity test). 12.2 AoO tests pass via new path.
+**Tasks:**
+- Create `src/combat_engine/` module (zero Bevy dep): `state.rs`, `action.rs`, `effect.rs`, `event.rs`, `dice.rs`, `step.rs`.
+- Define minimal `Effect`: `MovePosition`, `DecrementMP`, `Damage`, `GainRage`, `DecrementReactions`, `Death`, `RefreshAggregates`.
+- Define minimal `Event`: `UnitMoved`, `UnitDamaged`, `RageGained`, `ReactionFired`, `UnitDied`, `ActionStarted`, `ActionFinished`.
+- `CombatState` (`Vec<Unit>` + `HashMap<UnitId, usize>` cache, `UnitId(u64)`) added as Bevy `Res`, NOT replacing ECS yet.
+- Transitional `mirror_state_from_ecs` populates `CombatState` at frame start (one-way ECS → engine, throwaway after Phase 1).
+- Implement `step(state, Action::Move, rng, content)` with AoO via `scan_reactions` + `expand_reaction`.
+- Sim's `apply_move` rewrites to call `step()`.
+- `DiceSource` trait with explicit `DiceExpr`; Move consumes 0-1 rolls.
 
-**Decision point:** API surface clean? Performance OK (cargo bench on simulated 10-unit move sequence)? Reaction recursion handled cleanly?
+**Gate (5/5 → green-light full migration):**
+1. Effect variants < 15 for spike scope.
+2. `step()` signature stable across Move + AoO; no special-case branches in caller.
+3. Bench: `step(Move)` ≤ current `sim::apply_move` × 1.2 on canonical 10-unit scenario.
+4. Reaction recursion (AoO chain → AoO victim dies → triggers retaliate stub) handled cleanly, no ad-hoc cases.
+5. Phase 1 task list achievable without touching Cast/Status systems.
 
-- ✅ → proceed to Phase 2.
-- ❌ → abort, fallback to incremental status quo (sim mirrors real ad-hoc).
+**Rollback:** drop `combat_engine/` module; sim reverts; spike thrown away.
 
-### 5.2 Phase 1: Move action (Weeks 2-3)
+**Decision point:** 5/5 ✅ → proceed Phase 1. 3-4/5 → revise approach, possibly fall back to Architecture B (events+applier without engine extraction). <3/5 → abort, status quo + per-mechanic parity tests as drift defence.
 
-- Real path: `movement_system` replaced by `process_action_system` for `Action::Move`.
-- ECS components for `pos`, `movement_points`, `reactions_left` become projection (read-only outside sync system).
-- Remove `MoveUnit` Bevy message — replaced by `ActionInput::Move`.
-- Remove `OpportunityAttack` event emission from `movement_system` — engine emits `ReactionFired` instead.
-- AI: `pick_action` for Move-only candidates uses engine.
+### 5.1 Phase 1 — Move canonical (Weeks 2-3)
 
-Gate: `cargo test --test golden_smoke 0/N`; parity tests for AoO pass; no playtest regressions.
+**Goal:** Move is the canonical path on both real + sim. `CombatState` becomes source of truth for movement state.
 
-### 5.3 Phase 2: Cast action (Weeks 4-6)
+**Tasks:**
+- Replace `movement_system` with `process_action_system` for `Action::Move`.
+- ECS `pos`/`movement_points`/`reactions_left` become read-only projection from `CombatState`.
+- `MoveUnit` Bevy message removed → `ActionInput::Move`.
+- `OpportunityAttack` event removed from `movement_system` → engine emits `ReactionFired`.
+- Animation system reacts to `Event::UnitMoved` / `Event::ReactionFired` (not raw component changes).
+- AI Move candidates score via engine (no more `apply_move` in sim).
+- Drop `mirror_state_from_ecs` — engine writes; ECS reads.
 
-- `Action::Cast` migration covering Damage, Heal, Status apply, Self-AoE friendly fire.
-- `apply_effects_system` becomes thin shim; effect mutation moves into engine.
-- ECS components for `hp`, `mana`, `rage`, `statuses` become projection.
-- AI: `apply_cast` removed; engine used directly.
+**Gate:** `golden_smoke` green; parity tests (12.2 AoO suicide, AoO chain death, forward-model death) 8/8; no playtest regressions.
 
-Gate: parity tests for damage / heal / status apply pass; all 12.1 + 12.3 behaviour preserved by construction (drift impossible).
+### 5.2 Phase 2 — Cast: damage, heal, status apply (Weeks 4-6)
 
-### 5.4 Phase 3: Status ticks, DoT, rage details (Week 7-8)
+**Goal:** Cast migrated; damage/heal/status flow through engine.
 
-- `Action::EndTurn` migration — includes `TickDot` effects, status duration decrement.
-- `status_tick_system` removed; engine handles ticks at `RoundPhase::EndRound`.
-- AI sim doesn't currently simulate ticks; engine makes it possible.
+**Tasks:**
+- Effects added: `PayCost`, `ApplyStatus`, `RemoveStatus`, `Heal`.
+- Events added: `UnitHealed`, `StatusApplied`, `StatusRemoved`, `AbilityResolved`.
+- `expand_action(Cast)` reads `AbilityDef` from `ContentView`, fans out per `EffectDef` arm.
+- **Behaviour change #1 — per-target ordering (decision 6.3):** AoE applies damage→rage→death per target, then next target. Differs from current all-damages-first-then-rage. Parity test sequences rewritten.
+- **Behaviour change #2 — strict failure (decision 6.5):** mid-execution effects on dead targets return `Err(ActionError::TargetGone)`. AI `enumerate_actions` pre-validates target liveness.
+- `apply_effects_system` shrinks to a thin shim around engine.
+- ECS `hp`/`mana`/`rage`/`statuses` become projection.
+- Sim's `apply_cast` removed.
+- Playtest snapshot captured pre-Phase-2 + post-Phase-2 to validate behaviour-change scope.
 
-### 5.5 Phase 4: Turn queue, round flow (Week 9)
+**Gate:** damage/heal/status parity with new expected sequences; 12.1 (speed+status refresh) + 12.3 (rage on damage + AoO) behaviours preserved by construction (drift impossible); AI scoring formulas unchanged and producing comparable agendas.
 
-- Round transitions (`RoundPhase` enum) handled by engine.
-- `combat_round_system` becomes orchestrator: read player input or AI decision, call `step()`, advance turn.
+### 5.3 Phase 3 — Status ticks, DoT, rage details (Weeks 7-8)
 
-### 5.6 Phase 5: Replay + log overhaul (Weeks 10-11)
+**Goal:** EndTurn migration with round-tick mechanics.
 
-- Combat log becomes event stream from engine.
-- Replay tool re-runs engine from log; asserts identical final state.
-- Old `replay_ai_log` deprecated or refactored to read new event format.
-- Schema bump v37: events-based log (drop legacy per-stage JSONL format).
+**Tasks:**
+- Effect added: `TickDot`.
+- `Action::EndTurn` migration includes `TickDot` fired at `RoundPhase::EndRound` for each active DoT.
+- `status_tick_system` removed.
+- AI sim now simulates ticks (closes gap that exists today — sim previously skipped tick effects).
 
-### 5.7 Phase 6: ECS projection cleanup (Week 12)
+**Gate:** DoT damage parity; status duration decrement parity; AI now scores tick-aware plans (regression check: ranged kiting agendas should improve).
 
-- Old Bevy combat systems removed entirely (move/effects/status_apply/status_tick).
-- ECS components marked `#[engine_projected]` (compile-time check that they're not written outside `project_state_to_ecs`).
-- Documentation updated; old `apply_effects.rs`, `movement.rs`, `status_apply.rs`, `status_tick.rs` deleted.
+### 5.4 Phase 4 — Turn queue, round flow (Week 9)
+
+**Goal:** round transitions handled by engine.
+
+**Tasks:**
+- `RoundPhase` enum (`PreRound`, `ActorTurn`, `EndRound`) lifted into `CombatState`.
+- `combat_round_system` becomes orchestrator: read player input or AI decision → `step()` → advance turn.
+- `TurnQueue` moves from ECS `Res` into `CombatState` field.
+
+**Gate:** round flow parity from existing tests; AI does not regress on multi-round agendas.
+
+### 5.5 Phase 5 — Replay + log overhaul (Weeks 10-11)
+
+**Goal:** replay first-class.
+
+**Tasks:**
+- Combat log = engine `Event` stream (JSONL append-only).
+- Replay tool re-runs engine from log; asserts identical final state + event byte-equality.
+- Schema bump v37: events-based log; legacy per-stage JSONL tagged.
+- `replay_ai_log` + `mine_ai_logs` updated to read new format (or split: legacy reader + new reader during transition).
+
+**Gate:** replay determinism test — re-run from log produces identical final state and event sequence; `cargo fuzz` over Action sequences finds zero engine panics.
+
+### 5.6 Phase 6 — ECS projection cleanup (Week 12)
+
+**Goal:** legacy combat systems removed.
+
+**Tasks:**
+- Delete `apply_effects.rs`, `movement.rs`, `status_apply.rs`, `status_tick.rs`.
+- ECS components marked `#[engine_projected]` (compile-time check via wrapper newtype or proc-macro that only `project_state_to_ecs` writes them).
+- `extension-checklist.md` updated: 7-file checklist → 3-4 (engine variant + content + UI projector).
+- Final perf bench vs Phase 0 baseline.
+
+**Gate:** full test suite green; docs current; no behaviour drift since Phase 1 baseline.
+
+### 5.7 Cross-cutting
+
+- **Parity harness** (`tests/parity.rs`) expands every phase — each phase adds canonical scenarios; suite never shrinks.
+- **Behaviour-change bookkeeping** (6.3, 6.5):
+  - Playtest snapshot before Phase 2 captures pre/post diff.
+  - AI scoring left orthogonal — only the substrate changes, not the formulas.
+  - Mining run before/after Phase 2 flags any agenda-mix shifts.
+- **Risk monitors:**
+  - Clone cost — bench at end of Phase 1 (10-unit Move); revisit if > 1.5× current. Fallback: `im` persistent collections (transparent swap).
+  - Per-target ordering surprises — track parity test rewrites; if > 2× expected, reconsider 6.3.
+  - Replay drift — Phase 5 determinism test as canary.
+  - Strict failure surprises — count `ActionError::TargetGone` occurrences in AI mining post-Phase-2; if AI repeatedly trips it, target-liveness pre-validation needs strengthening.
 
 ---
 
-## 6. Open questions / decisions
+## 6. Locked decisions
 
-### 6.1 State container shape
+All technical open questions resolved (2026-05-12). Two answers differ from the doc's prior tentative defaults — flagged as ⚠ **behaviour changes**.
 
-`HashMap<UnitId, Unit>` vs `Vec<Unit>` with id→idx cache (current `BattleSnapshot` pattern)?
+### 6.1 State container — `Vec<Unit>` + id→idx cache
 
-- HashMap: O(1) lookup by id; iteration order not deterministic (problematic for replay).
-- Vec + cache: deterministic iteration; current shape; clone preserves order.
+Matches current `BattleSnapshot` pattern. Deterministic iteration order (critical for replay); clone preserves order. Lookup by id via `HashMap<UnitId, usize>` cache rebuilt on insert/remove.
 
-**Tentative:** Vec + cache, matching current `BattleSnapshot::new` pattern.
+### 6.2 Unit identity — `UnitId(u64)`
 
-### 6.2 Unit identity
+New opaque type in `combat_engine`. One-time `Entity ↔ UnitId` mapping established at combat start. Engine has zero Bevy dep.
 
-`UnitId` = `Entity` (Bevy) or new opaque type?
+### 6.3 Effect ordering — per-target ⚠ behaviour change
 
-- `Entity`: keeps existing references in content/scoring/UI.
-- New type: decouples engine from Bevy; explicit conversion at boundary.
+AoE damages 3 targets: damage → rage → death applied **per target**, then next target. **Differs from current real-pipeline** (current = all-damages-first-then-rage). Parity test sequences rewrite in Phase 2.
 
-**Tentative:** new `UnitId(u64)`, with one-time mapping established at combat start. Engine clean of Bevy dep.
+**Rationale:** matches reaction model semantics (each target's resolution is self-contained); makes mid-AoE death cascades natural; reduces split-damage/split-rage subtle bugs.
 
-### 6.3 Effect ordering policy
+### 6.4 RNG semantics — explicit `DiceExpr` + documented call count
 
-When AoE damages 3 targets, ordering of derived effects (rage gains, deaths):
-- All damages first, then all rage gains, then all deaths?
-- Or per-target: damage → rage → death, then next target?
+`DiceSource::roll(DiceExpr)` is the only entry point. Engine documents per-action RNG consumption ("Cast on N targets = N rolls in target order"). Replay assertion: RNG consumed exactly N times for action X.
 
-Current real-pipeline: damage events accumulate, then `for damage in &damages { gain_rage }`. So all-damage-first-then-rage.
+### 6.5 Failure handling — strict throughout ⚠ behaviour change
 
-**Tentative:** match real-pipeline order exactly; document in `apply_effect`.
+Pre-validation: illegal action → `Err(ActionError)`, state unchanged. Mid-execution: effect targeting a unit that died from an earlier effect in the queue → `Err(ActionError::TargetGone)`. **Differs from current behaviour** (current = silent skip mid-execution).
 
-### 6.4 RNG advance semantics
+**Implication:** AI's `enumerate_actions` must pre-validate target liveness; sim's beam search must not enqueue partially-stale plans. Stricter, but bugs become loud instead of silent.
 
-`step()` may consume zero, one, or many RNG values depending on action.
-- Cast hits 3 targets → 3 rolls.
-- Cast misses → 1 roll (the to-hit).
-- Move → 0 rolls.
+### 6.6 Engine vs content separation — TOML stays
 
-**Tentative:** `DiceSource` API takes explicit `DiceExpr`; engine documents which actions consume rng and how many calls per effect. Replay assertion: RNG consumed exactly N times for action X.
+Abilities, statuses, effects continue to live in `assets/data/*.toml`. Engine reads `AbilityDef`/`EffectDef` via `ContentView` and expands into `Effect` queue per arm. Confirmed unchanged.
 
-### 6.5 Failure handling
+### 6.7 Bevy dependency — zero in engine
 
-`step()` returns `Result<Vec<Event>, ActionError>`. What's the error policy?
-- Illegal action (target dead, out of range): return Err. State unchanged.
-- Mid-execution failure (effect can't apply because target died from earlier effect in queue): silently skip? Or error?
-
-**Tentative:** Mid-execution skips silently (matches current behaviour: AoE on partially-dead group hits live targets, dead targets skip). Pre-execution validation returns Err; post-validate effects are best-effort within queue.
-
-### 6.6 Engine vs content separation
-
-Should ability effects (e.g., `fireball deals 4d6, applies burning`) live in:
-- `content/abilities.toml` data → engine reads via `expand_action`.
-- Hardcoded engine variants.
-
-Current model: TOML drives. Keep it — engine reads `AbilityDef` and produces effects per `EffectDef` arm.
-
-**Confirmed:** content stays TOML; engine knows how to expand each `EffectDef` variant into effects.
-
-### 6.7 Bevy upgrade dependency
-
-If Bevy 0.19 changes Resource API or Query API, does engine need update?
-
-Engine has zero Bevy dep — so no. Only `process_action_system` (Bevy glue) needs update. Engine bulletproof against Bevy churn.
+`src/combat_engine/` has no `bevy::` imports. Bevy systems are the glue layer (`process_action_system`, `project_state_to_ecs`, animation handlers). Engine survives Bevy upgrades unchanged.
 
 ---
 
@@ -638,13 +668,13 @@ If <3/5 → abort, status quo + per-mechanic parity tests as drift defence.
 
 ---
 
-## 10. Decision required
+## 10. Decision (resolved: GO)
 
-Before committing, need confirmation on:
+All 4 strategic prerequisites answered in favour of engine extraction (2026-05-12):
 
-1. **Are reactions important for future content?** If yes (counterspell, retaliate, mark, environment) → engine pays off rapidly. If no — Architecture B (events + applier without recursion) is cheaper.
-2. **Is replay/server-authoritative on roadmap?** If yes → engine is the path. If no — drift containment via parity tests is cheaper.
-3. **Is the team willing to absorb a 3-month logic refactor?** If "ship features now, fix arch later" — defer; iterate B in parallel with new content.
-4. **Bevy upgrade strategy.** Frequent Bevy major bumps → engine isolates from churn; infrequent → less argument for engine separation.
+1. **Reactions in roadmap?** Yes — core. Multiple reaction-class mechanics planned beyond AoO (counterspell, retaliate, mark, environment, telegraphs). Engine's first-class reaction model pays off rapidly.
+2. **Replay / server-authoritative?** Replay yes, networked play later. Engine is the only practical path to bit-exact state-level replay.
+3. **Refactor appetite?** Yes — fix arch first. Accept ~12 weeks of content pause; compounding velocity afterward.
+4. **Bevy upgrade frequency?** Moderate (every 6-12 months). Engine isolation is a nice-to-have, not decisive — but reinforces the case.
 
-Default answers (assumed if not contested): reactions yes, replay yes, refactor acceptable, Bevy churn moderate → **go**.
+→ Commit to migration. Section 5 plan is canonical.

@@ -13,6 +13,13 @@ toml  = "0.8"
 bitflags = "2"
 directories = "6"
 
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "engine_move"
+harness = false
+
 [profile.dev]
 opt-level = 1
 

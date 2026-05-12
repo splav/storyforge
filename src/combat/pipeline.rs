@@ -7,6 +7,7 @@
 use bevy::prelude::*;
 
 use crate::app_state::{AppState, CombatPhase};
+use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap, mirror_state_from_ecs};
 use crate::ui;
 
 use super::{
@@ -19,6 +20,16 @@ pub struct CombatPipelinePlugin;
 
 impl Plugin for CombatPipelinePlugin {
     fn build(&self, app: &mut App) {
+        // Engine state resources (Phase 0: transitional, ECS still authoritative).
+        app.init_resource::<CombatStateRes>()
+            .init_resource::<UnitIdMap>();
+
+        // Mirror ECS → engine state each frame, but only during combat.
+        app.add_systems(
+            PreUpdate,
+            mirror_state_from_ecs.run_if(in_state(CombatPhase::AwaitCommand)),
+        );
+
         app.add_systems(
             Update,
             start_combat_system.run_if(in_state(AppState::Overworld)),

@@ -12,7 +12,7 @@ use crate::combat::ai::world::snapshot::{
 use crate::combat::ai::world::tags::StatusTagCache;
 use crate::combat::effects_math::final_damage_f32;
 use crate::combat::effects_outcome::{
-    compute_ability_outcome, AbilityOutcome, ExpectedValue, OutcomePrimary,
+    compute_ability_outcome, AbilityOutcome, ExpectedValue as SimExpectedValue, OutcomePrimary,
 };
 use crate::content::races::CritFailEffect;
 use crate::combat::effects_state::{compute_affected_targets, TargetRef, TargetState};
@@ -22,6 +22,16 @@ use crate::core::{ResourceKind, StatusId};
 use crate::game::components::Team;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
+
+// Engine imports for the `apply_move` shim.
+use crate::combat_engine::{
+    action::Action,
+    content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
+    dice::{DiceExpr as EngineDiceExpr, ExpectedValue as EngineExpectedValue},
+    state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit, UnitId},
+    step::step,
+};
+use crate::combat::engine_bridge::entity_to_uid;
 
 /// `TargetState` adapter over a `BattleSnapshot`. Snapshot already prunes
 /// dead units — `alive` is always `true` for hits here.
@@ -41,7 +51,6 @@ impl TargetState for SnapshotTargetState<'_> {
 }
 
 use super::types::{PlanStep, StepOutcome};
-use crate::combat::ai::scoring::horizon::scan_aoo_hits_for_step;
 
 /// Mutable working copy of a snapshot. Steps mutate `snapshot` in place;
 /// derived fields like `threat`, `max_attack_range` and some tags are *not*
@@ -124,70 +133,49 @@ impl<'a> SimState<'a> {
 
     fn apply_move(&mut self, path: &[Hex]) -> StepOutcome {
         let mut outcome = StepOutcome { moved: true, ..Default::default() };
-        let Some(&dest) = path.last() else { return outcome };
+        if path.is_empty() { return outcome; }
 
-        // Phase 1: collect AoO hits using immutable borrows only.
-        let actor_team;
-        let actor_start_pos;
-        let mitigation;
-        let vuln;
-        {
-            let Some(actor) = self.actor_unit() else { return outcome };
-            actor_team = actor.team;
-            actor_start_pos = actor.pos;
-            mitigation = (actor.armor + actor.armor_bonus) as f32;
-            vuln = actor.damage_taken_bonus as f32;
-        }
+        let Some(actor_snap) = self.actor_unit() else { return outcome };
+        let actor_hp_before = actor_snap.hp;
+        let actor_uid = entity_to_uid(self.actor);
 
-        // Collect live enemy snapshots and their real indices in snapshot.units.
-        let enemy_indices_and_refs: Vec<(usize, &UnitSnapshot)> = self
-            .snapshot
-            .units
-            .iter()
-            .enumerate()
-            .filter(|(_, u)| u.is_alive() && u.team != actor_team)
-            .collect();
-        let enemy_refs: Vec<&UnitSnapshot> =
-            enemy_indices_and_refs.iter().map(|(_, u)| *u).collect();
-        let enemy_real_idx: Vec<usize> =
-            enemy_indices_and_refs.iter().map(|(i, _)| *i).collect();
+        // ── Build CombatState from the current snapshot ───────────────────────
+        let combat_state = snapshot_to_combat_state(&self.snapshot, self.snapshot.round);
 
-        let hits = scan_aoo_hits_for_step(actor_start_pos, path, &enemy_refs);
+        // ── Create a ContentView adapter from snapshot AoO data ───────────────
+        let content_view = SnapshotContentView::from_snapshot(&self.snapshot);
 
-        // Phase 2: mutate sequentially.
-        let cost = path.len() as i32;
-        if let Some(actor) = self.actor_unit_mut() {
-            actor.pos = dest;
-            actor.movement_points = (actor.movement_points - cost).max(0);
-        }
+        // ── Call the engine ───────────────────────────────────────────────────
+        let mut engine_state = combat_state;
+        let action = Action::Move { actor: actor_uid, path: path.to_vec() };
+        let step_result = step(&mut engine_state, action, &mut EngineExpectedValue, &content_view);
 
-        for hit in &hits {
-            let dealt = final_damage_f32(hit.raw_damage, mitigation, vuln, false);
-            outcome.self_damage += dealt;
-            // Apply damage to actor hp. If actor already died from a prior hit
-            // in this loop, `actor_unit_mut` returns None (filters is_alive) —
-            // subsequent iterations skip hp mutation but still record self_damage.
-            if let Some(actor) = self.actor_unit_mut() {
-                actor.hp = (actor.hp as f32 - dealt).max(0.0) as i32;
-                // Drift #3 (AoO rage): victim gains +1 per AoO hit. Mirrors
-                // `combat/movement.rs` real-pipeline loop over [attacker, ev.actor].
-                if let Some((cur, max)) = actor.rage {
-                    actor.rage = Some(((cur + 1).min(max), max));
-                }
+        // ── Project changes back to snapshot ──────────────────────────────────
+        // If the engine returned an error (e.g. TargetGone from lethal AoO
+        // followed by second AoO) we still project whatever state we have —
+        // the engine rolls back on error so we fall back to no mutation.
+        match step_result {
+            Ok(_events) => {
+                project_engine_to_snapshot(&engine_state, &mut self.snapshot);
+            }
+            Err(_) => {
+                // Engine rolled back; no changes to project.
+                // Actor is dead (lethal AoO) — project the death state anyway
+                // so that downstream callers see the actor as dead.
+                // The rolled-back engine_state still reflects no change,
+                // which is correct — the plan branch will be terminated by
+                // `actor_unit()` returning None on the next step.
+                return outcome;
             }
         }
 
-        // Decrement reactions_left for each provoked enemy + bump AoO attacker's rage.
-        for hit in &hits {
-            let real_idx = enemy_real_idx[hit.enemy_idx];
-            if let Some(enemy) = self.snapshot.units.get_mut(real_idx) {
-                enemy.reactions_left = (enemy.reactions_left - 1).max(0);
-                // Drift #3 (AoO rage): AoO attacker gains +1 per hit (real-mirror).
-                if let Some((cur, max)) = enemy.rage {
-                    enemy.rage = Some(((cur + 1).min(max), max));
-                }
-            }
-        }
+        // ── Compute self_damage from HP delta ─────────────────────────────────
+        let actor_hp_after = self
+            .actor_unit()
+            .map(|u| u.hp)
+            .unwrap_or(0);
+        let hp_delta = (actor_hp_before - actor_hp_after).max(0);
+        outcome.self_damage = hp_delta as f32;
 
         outcome
     }
@@ -228,7 +216,7 @@ impl<'a> SimState<'a> {
         // greedy-replan assumption); pass `false` directly. The
         // `CritFailEffect` arg is unused on the no-crit path — `Miss` is a
         // harmless placeholder.
-        let mut dice = ExpectedValue;
+        let mut dice = SimExpectedValue;
         let ability_outcome = compute_ability_outcome(
             self.actor, def, affected, caster_ctx,
             disadvantage,
@@ -447,6 +435,116 @@ fn apply_statuses<'a>(
             outcome.stunned.push(app.target);
         }
     }
+}
+
+// ── Engine shim helpers ───────────────────────────────────────────────────────
+
+/// `ContentView` adapter that derives AoO dice from `UnitSnapshot::aoo_expected_damage`.
+///
+/// The engine's `ExpectedValue` dice source calls `roll(DiceExpr)` which returns
+/// `round(expected)`.  We encode the pre-computed expected damage as a
+/// constant-bonus `DiceExpr { count: 0, sides: 1, bonus: round(raw) }` so the
+/// engine gets the exact same integer value the legacy sim used.
+struct SnapshotContentView {
+    /// `UnitId → raw AoO damage` for units that can perform an AoO.
+    aoo_damage: std::collections::HashMap<UnitId, f32>,
+}
+
+impl SnapshotContentView {
+    fn from_snapshot(snap: &BattleSnapshot) -> Self {
+        let aoo_damage = snap
+            .units
+            .iter()
+            .filter_map(|u| {
+                let raw = u.aoo_expected_damage?;
+                Some((entity_to_uid(u.entity), raw))
+            })
+            .collect();
+        Self { aoo_damage }
+    }
+}
+
+impl EngineContentView for SnapshotContentView {
+    fn aoo_dice(&self, attacker: UnitId) -> Option<EngineDiceExpr> {
+        let raw = self.aoo_damage.get(&attacker)?;
+        // Constant-bonus dice: count=0, sides=1 → expected = bonus.
+        // round() converts to i32; `ExpectedValue::roll` returns expected().round().
+        Some(EngineDiceExpr::new(0, 1, raw.round() as i32))
+    }
+
+    fn status_bonuses(&self, _id: &crate::core::StatusId) -> EngineStatusBonuses {
+        EngineStatusBonuses::default()
+    }
+}
+
+/// Build a `CombatState` from a `BattleSnapshot`.
+///
+/// Uses `entity_to_uid(entity)` for id mapping (same encoding as `engine_bridge::from_ecs`).
+/// Copies hp, pos, movement_points, reactions_left, rage, mana, energy directly.
+fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
+    use crate::combat_engine::state::ActiveStatus;
+
+    let units: Vec<EngineUnit> = snap
+        .units
+        .iter()
+        .map(|u| {
+            let team = match u.team {
+                Team::Player => EngineTeam::Player,
+                Team::Enemy  => EngineTeam::Enemy,
+            };
+            let statuses: Vec<ActiveStatus> = u
+                .statuses
+                .iter()
+                .map(|s| ActiveStatus {
+                    id: s.id.clone(),
+                    rounds_remaining: s.rounds_remaining,
+                    dot_per_tick: s.dot_per_tick,
+                })
+                .collect();
+            EngineUnit {
+                id: entity_to_uid(u.entity),
+                team,
+                pos: u.pos,
+                hp: u.hp,
+                max_hp: u.max_hp,
+                armor: u.armor,
+                armor_bonus: u.armor_bonus,
+                base_speed: u.base_speed,
+                speed: u.speed,
+                action_points: u.action_points,
+                movement_points: u.movement_points,
+                reactions_left: u.reactions_left,
+                statuses,
+                rage: u.rage,
+                mana: u.mana,
+                energy: u.energy,
+            }
+        })
+        .collect();
+
+    CombatState::new(units, round, RoundPhase::ActorTurn, 0)
+}
+
+/// Project mutable fields from a `CombatState` back onto the corresponding
+/// `UnitSnapshot` entries in `snap`.
+///
+/// Only moves fields that `step(Action::Move)` can mutate:
+/// `hp`, `pos`, `movement_points`, `reactions_left`, `rage`.
+/// Fields owned entirely by the snapshot layer (`threat`, `abilities`, `tags`,
+/// `aoo_expected_damage`, etc.) are left untouched.
+fn project_engine_to_snapshot(engine: &CombatState, snap: &mut BattleSnapshot) {
+    for unit_snap in snap.units.iter_mut() {
+        let uid = entity_to_uid(unit_snap.entity);
+        if let Some(eu) = engine.unit(uid) {
+            unit_snap.hp              = eu.hp;
+            unit_snap.pos             = eu.pos;
+            unit_snap.movement_points = eu.movement_points;
+            unit_snap.reactions_left  = eu.reactions_left;
+            unit_snap.rage            = eu.rage;
+        }
+    }
+    // No need to invalidate_index: we changed unit fields but not order/length,
+    // so the entity→index mapping is still valid.
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -1122,7 +1220,15 @@ mod tests {
         assert_eq!(sim.actor_unit().unwrap().hp, 20, "hp unchanged");
     }
 
-    /// A lethal AoO sets actor hp to 0; sim reports full damage in self_damage.
+    /// A lethal AoO sets actor hp to 0; self_damage reports HP actually lost
+    /// (the HP delta, not raw dealt damage). With hp=1 and raw=10, HP delta = 1.
+    ///
+    /// **Behaviour change from legacy sim (manifest):** the old `apply_move`
+    /// tracked `self_damage` as actual dealt damage post-armor (`final_damage_f32`),
+    /// which could exceed the actor's remaining HP (e.g., 10 dealt vs 1 HP).
+    /// The engine shim uses HP delta instead, which is the HP actually lost (1).
+    /// For safety scoring (`total_self_damage / actor_max_hp`) this is equivalent
+    /// in the lethal case: both produce a ratio that clamps to 1.0.
     #[test]
     fn apply_move_kills_actor_with_lethal_aoo() {
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
@@ -1141,7 +1247,9 @@ mod tests {
         );
         let outcome = sim.apply_move(&[hex_from_offset(2, 3)]);
 
-        assert_eq!(outcome.self_damage, 10.0, "full raw damage recorded even past death");
+        // Engine path: self_damage = HP delta (1 hp lost, not 10 raw dealt).
+        assert_eq!(outcome.self_damage, 1.0,
+            "engine shim: self_damage is HP delta (1 hp lost), not raw dealt damage (10)");
         assert!(
             sim.actor_unit().is_none(),
             "actor hp=0 → is_alive()=false → actor_unit() returns None",

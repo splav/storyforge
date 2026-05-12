@@ -1,5 +1,6 @@
 pub mod app_state;
 pub mod combat;
+pub mod combat_engine;
 pub mod content;
 pub mod core;
 pub mod game;

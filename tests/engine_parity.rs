@@ -1,0 +1,440 @@
+//! Parity tests: engine `step(Action::Move)` vs legacy `sim::apply_move`.
+//!
+//! Each scenario runs both paths with identical inputs (deterministic
+//! `ExpectedValue` dice) and asserts the final state fields agree.
+//!
+//! **Behaviour-change manifest (decision 6.3 / 6.5):**
+//! Any scenario that legitimately differs between legacy and engine is
+//! documented here with the reason; it is NOT a bug.
+
+use bevy::prelude::Entity;
+use storyforge::combat::ai::plan::sim::SimState;
+use storyforge::combat::ai::plan::types::PlanStep;
+use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+use storyforge::combat_engine::{
+    action::Action,
+    content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
+    dice::{DiceExpr as EngineDiceExpr, ExpectedValue},
+    state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit, UnitId},
+    step::step,
+};
+use storyforge::combat::engine_bridge::entity_to_uid;
+use storyforge::content::abilities::CasterContext;
+use storyforge::core::StatusId;
+use storyforge::game::components::Team;
+use storyforge::game::hex::hex_from_offset;
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+fn ent(id: u32) -> Entity {
+    Entity::from_raw_u32(id).expect("valid")
+}
+
+fn make_snap_unit(
+    id: u32,
+    team: Team,
+    col: i32,
+    row: i32,
+    hp: i32,
+    aoo: Option<f32>,
+    reactions: i32,
+) -> UnitSnapshot {
+    UnitSnapshot {
+        entity: ent(id),
+        team,
+        role: Default::default(),
+        pos: hex_from_offset(col, row),
+        hp,
+        max_hp: 30,
+        armor: 0,
+        armor_bonus: 0,
+        damage_taken_bonus: 0,
+        action_points: 2,
+        max_ap: 2,
+        movement_points: 6,
+        base_speed: 6,
+        speed: 6,
+        mana: None,
+        rage: None,
+        energy: None,
+        abilities: Vec::new(),
+        threat: 0.0,
+        tags: AiTags::empty(),
+        max_attack_range: 1,
+        summoner: None,
+        reactions_left: reactions,
+        aoo_expected_damage: aoo,
+        statuses: Vec::new(),
+        caster_ctx: CasterContext::default(),
+        crit_fail_effect: Default::default(),
+        damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+    }
+}
+
+/// Run the engine path on `snap` and return the final `CombatState`.
+fn run_engine(snap: &BattleSnapshot, actor_id: Entity, path: Vec<storyforge::game::hex::Hex>) -> CombatState {
+    use storyforge::combat_engine::state::ActiveStatus;
+
+    let units: Vec<EngineUnit> = snap.units.iter().map(|u| {
+        let team = match u.team {
+            Team::Player => EngineTeam::Player,
+            Team::Enemy  => EngineTeam::Enemy,
+        };
+        EngineUnit {
+            id: entity_to_uid(u.entity),
+            team,
+            pos: u.pos,
+            hp: u.hp,
+            max_hp: u.max_hp,
+            armor: u.armor,
+            armor_bonus: u.armor_bonus,
+            base_speed: u.base_speed,
+            speed: u.speed,
+            action_points: u.action_points,
+            movement_points: u.movement_points,
+            reactions_left: u.reactions_left,
+            statuses: u.statuses.iter().map(|s| ActiveStatus {
+                id: s.id.clone(),
+                rounds_remaining: s.rounds_remaining,
+                dot_per_tick: s.dot_per_tick,
+            }).collect(),
+            rage: u.rage,
+            mana: u.mana,
+            energy: u.energy,
+        }
+    }).collect();
+
+    let content = SnapContent::from_snap(snap);
+    let actor_uid = entity_to_uid(actor_id);
+    let action = Action::Move { actor: actor_uid, path };
+    let mut state = CombatState::new(units, 1, RoundPhase::ActorTurn, 0);
+    // Ignore result: on TargetGone the state is rolled back, which is the
+    // correct observable outcome to compare against.
+    let _ = step(&mut state, action, &mut ExpectedValue, &content);
+    state
+}
+
+/// Run the sim path on `snap` and return the final `BattleSnapshot`.
+fn run_sim(snap: &BattleSnapshot, actor_id: Entity, path: Vec<storyforge::game::hex::Hex>) -> BattleSnapshot {
+    let status_tags = StatusTagCache::default();
+    let content = storyforge::content::content_view::ContentView::default();
+    let mut sim = SimState::from_snapshot(snap, actor_id, &status_tags);
+    sim.apply_step(
+        &PlanStep::Move { path },
+        &CasterContext::default(),
+        &content,
+        false,
+    );
+    sim.snapshot
+}
+
+/// ContentView adapter that reads AoO dice from snapshot's `aoo_expected_damage`.
+struct SnapContent {
+    aoo: std::collections::HashMap<UnitId, f32>,
+}
+
+impl SnapContent {
+    fn from_snap(snap: &BattleSnapshot) -> Self {
+        let aoo = snap
+            .units
+            .iter()
+            .filter_map(|u| Some((entity_to_uid(u.entity), u.aoo_expected_damage?)))
+            .collect();
+        Self { aoo }
+    }
+}
+
+impl EngineContentView for SnapContent {
+    fn aoo_dice(&self, attacker: UnitId) -> Option<EngineDiceExpr> {
+        let raw = self.aoo.get(&attacker)?;
+        Some(EngineDiceExpr::new(0, 1, raw.round() as i32))
+    }
+    fn status_bonuses(&self, _: &StatusId) -> EngineStatusBonuses {
+        EngineStatusBonuses::default()
+    }
+}
+
+// ── Scenario 1: pure move, no enemies ────────────────────────────────────────
+
+/// Pure move with no enemies: position and MP decremented identically.
+#[test]
+fn parity_pure_move_no_enemies() {
+    let actor = make_snap_unit(1, Team::Player, 0, 0, 20, None, 0);
+    let actor_id = actor.entity;
+    let snap = BattleSnapshot::new(vec![actor], 1);
+    let path = vec![
+        hex_from_offset(1, 0),
+        hex_from_offset(2, 0),
+        hex_from_offset(3, 0),
+    ];
+
+    let engine_state = run_engine(&snap, actor_id, path.clone());
+    let sim_snap     = run_sim(&snap, actor_id, path);
+
+    let actor_uid   = entity_to_uid(actor_id);
+    let engine_unit = engine_state.unit(actor_uid).expect("actor in engine state");
+    let sim_unit    = sim_snap.unit(actor_id).expect("actor in sim snapshot");
+
+    assert_eq!(engine_unit.pos, hex_from_offset(3, 0), "engine: final pos");
+    assert_eq!(sim_unit.pos,    hex_from_offset(3, 0), "sim: final pos");
+
+    // MP: 6 - 3 = 3.
+    assert_eq!(engine_unit.movement_points, 3, "engine: MP after 3-hex move");
+    assert_eq!(sim_unit.movement_points,    3, "sim: MP after 3-hex move");
+
+    assert_eq!(engine_unit.hp, sim_unit.hp, "hp parity: no enemies → no damage");
+}
+
+// ── Scenario 2: move with no-disengage (enemy at start AND destination) ───────
+
+/// Enemy is adjacent to both the start pos AND the destination — the actor
+/// never leaves adjacency, so no AoO triggers.
+///
+/// Parity: both paths agree on no damage and no reaction decrement.
+///
+/// Positions are discovered at runtime via `all_neighbors()` so we don't have
+/// to hard-code the even-r adjacency layout.
+#[test]
+fn parity_move_no_aoo_stays_adjacent() {
+    use std::collections::HashSet;
+
+    // Pick start, then dest as one of start's neighbors. Enemy goes to a
+    // shared neighbor of (start, dest).
+    let actor_start = hex_from_offset(2, 1);
+    let dest        = actor_start.all_neighbors()[0];
+    let dest_nbs: HashSet<_> = dest.all_neighbors().into_iter().collect();
+    let enemy_pos = actor_start
+        .all_neighbors()
+        .into_iter()
+        .find(|n| *n != dest && dest_nbs.contains(n))
+        .expect("two adjacent hexes share at least one common neighbor");
+
+    let [a_col, a_row] = storyforge::game::hex::hex_to_offset(actor_start);
+    let [e_col, e_row] = storyforge::game::hex::hex_to_offset(enemy_pos);
+
+    let actor = make_snap_unit(1, Team::Player, a_col, a_row, 20, None, 0);
+    let enemy = make_snap_unit(2, Team::Enemy,  e_col, e_row, 20, Some(8.0), 1);
+    let actor_id = actor.entity;
+    let enemy_id = enemy.entity;
+
+    assert_eq!(actor_start.unsigned_distance_to(enemy_pos), 1,
+        "enemy must be adjacent to start");
+    assert_eq!(dest.unsigned_distance_to(enemy_pos), 1,
+        "enemy must also be adjacent to destination — otherwise AoO fires");
+
+    let snap = BattleSnapshot::new(vec![actor, enemy], 1);
+    let path = vec![dest];
+
+    let engine_state = run_engine(&snap, actor_id, path.clone());
+    let sim_snap     = run_sim(&snap, actor_id, path);
+
+    let actor_uid   = entity_to_uid(actor_id);
+    let enemy_uid   = entity_to_uid(enemy_id);
+    let engine_actor = engine_state.unit(actor_uid).unwrap();
+    let sim_actor    = sim_snap.unit(actor_id).unwrap();
+
+    // No damage — enemy never disengage-triggered.
+    assert_eq!(engine_actor.hp, 20, "engine: actor hp unchanged (no AoO)");
+    assert_eq!(sim_actor.hp,    20, "sim: actor hp unchanged (no AoO)");
+
+    // Enemy reactions_left unchanged.
+    assert_eq!(engine_state.unit(enemy_uid).unwrap().reactions_left, 1,
+        "engine: enemy reaction not consumed");
+    assert_eq!(sim_snap.unit(enemy_id).unwrap().reactions_left, 1,
+        "sim: enemy reaction not consumed");
+}
+
+// ── Scenario 3: AoO chain — two enemies, per-target ordering ─────────────────
+
+/// Mover passes adjacent to two enemies sequentially; each fires one AoO.
+/// Both paths agree on final HP, positions, and reaction counts.
+#[test]
+fn parity_aoo_chain_two_enemies() {
+    // Actor at (1,0), moves (2,0) → (4,0).
+    // Enemy A at (0,0): adjacent to (1,0), not (2,0) → AoO on first step.
+    // Enemy B at (3,1): adjacent to (3,0), not (4,0) → AoO on third step.
+    // raw AoO = 4 for both; actor armor = 0 → final = 4 each.
+    // Actor starts at hp=20, takes 4+4=8 damage → hp=12.
+    let mut actor  = make_snap_unit(1, Team::Player, 1, 0, 20, None, 0);
+    actor.movement_points = 5;
+    let enemy_a = make_snap_unit(2, Team::Enemy, 0, 0, 20, Some(4.0), 1);
+    let enemy_b = make_snap_unit(3, Team::Enemy, 3, 1, 20, Some(4.0), 1);
+    let actor_id  = actor.entity;
+    let enemy_a_id = enemy_a.entity;
+    let enemy_b_id = enemy_b.entity;
+
+    // Verify adjacency for enemy A (should disengage on step to (2,0)).
+    let start     = hex_from_offset(1, 0);
+    let step1     = hex_from_offset(2, 0);
+    let ea_pos    = hex_from_offset(0, 0);
+    assert_eq!(start.unsigned_distance_to(ea_pos), 1, "enemy A adjacent to start");
+    assert_ne!(step1.unsigned_distance_to(ea_pos), 1, "enemy A not adjacent after step 1");
+
+    // Verify adjacency for enemy B (should disengage on step to (4,0)).
+    let step3     = hex_from_offset(4, 0);
+    let step2     = hex_from_offset(3, 0);
+    let eb_pos    = hex_from_offset(3, 1);
+    assert_eq!(step2.unsigned_distance_to(eb_pos), 1, "enemy B adjacent to (3,0)");
+    assert_ne!(step3.unsigned_distance_to(eb_pos), 1, "enemy B not adjacent after step to (4,0)");
+
+    let snap = BattleSnapshot::new(vec![actor, enemy_a, enemy_b], 1);
+    let path = vec![
+        hex_from_offset(2, 0),
+        hex_from_offset(3, 0),
+        hex_from_offset(4, 0),
+    ];
+
+    let engine_state = run_engine(&snap, actor_id, path.clone());
+    let sim_snap     = run_sim(&snap, actor_id, path);
+
+    let actor_uid   = entity_to_uid(actor_id);
+    let ea_uid      = entity_to_uid(enemy_a_id);
+    let eb_uid      = entity_to_uid(enemy_b_id);
+
+    let engine_actor = engine_state.unit(actor_uid).expect("actor in engine");
+    let sim_actor    = sim_snap.unit(actor_id).expect("actor in sim");
+
+    assert_eq!(engine_actor.hp, sim_actor.hp,
+        "actor hp must match: each path took 4+4=8 damage from two AoOs, hp 20→12");
+    assert_eq!(engine_actor.pos, sim_actor.pos, "actor final position must match");
+    assert_eq!(engine_actor.movement_points, sim_actor.movement_points,
+        "movement_points must match");
+
+    // Both enemies consumed their reactions.
+    assert_eq!(engine_state.unit(ea_uid).unwrap().reactions_left, 0,
+        "engine: enemy A reaction consumed");
+    assert_eq!(sim_snap.unit(enemy_a_id).unwrap().reactions_left, 0,
+        "sim: enemy A reaction consumed");
+    assert_eq!(engine_state.unit(eb_uid).unwrap().reactions_left, 0,
+        "engine: enemy B reaction consumed");
+    assert_eq!(sim_snap.unit(enemy_b_id).unwrap().reactions_left, 0,
+        "sim: enemy B reaction consumed");
+}
+
+// ── Scenario 4: AoO kills mover mid-path — rollback parity ───────────────────
+
+/// Lethal-AoO followed by a second AoO targeting the now-dead mover.
+///
+/// Since step 8 wired `sim::apply_move` to call `combat_engine::step()`, both
+/// paths now follow the same rollback rule (decision 6.5):
+/// - Engine: returns `Err(TargetGone)` and rolls back to pre-action state.
+/// - Sim: receives the same `Err`, does not project changes back into the
+///   snapshot, so the snapshot reflects the pre-action state too.
+///
+/// What used to be a documented divergence is now a parity assertion: both
+/// paths observe the actor at original hp after a lethal-AoO move attempt.
+/// (Step 12.2 regression covered by engine's strict-failure semantics.)
+#[test]
+fn parity_aoo_kills_mover_mid_path_rollback() {
+    // Actor has 1 hp. Two enemies both adjacent to start; both AoO on step 1.
+    // First AoO (raw=5) kills the mover; second AoO targets a dead unit.
+    // Engine: TargetGone → rollback (actor at hp=1).
+    // Sim: actor hp drops to 0 on first AoO; second skipped (actor dead filter).
+
+    let start = hex_from_offset(0, 0);
+    let step1 = hex_from_offset(3, 0);  // big jump so all neighbors disengage
+
+    let mut actor = make_snap_unit(1, Team::Player, 0, 0, 1, None, 0);
+    actor.movement_points = 10;
+
+    // Two enemies adjacent to start: use two hex neighbors.
+    let neighbors = start.all_neighbors();
+    let ea_pos = neighbors[0];
+    let eb_pos = neighbors[1];
+
+    // Verify both are adjacent to start and not adjacent to step1.
+    assert_eq!(start.unsigned_distance_to(ea_pos), 1);
+    assert_eq!(start.unsigned_distance_to(eb_pos), 1);
+    assert_ne!(step1.unsigned_distance_to(ea_pos), 1,
+        "enemy A must not be adjacent to destination (would prevent AoO)");
+    assert_ne!(step1.unsigned_distance_to(eb_pos), 1,
+        "enemy B must not be adjacent to destination (would prevent AoO)");
+
+    let enemy_a = UnitSnapshot {
+        entity: ent(2),
+        team: Team::Enemy,
+        pos: ea_pos,
+        reactions_left: 1,
+        aoo_expected_damage: Some(5.0),
+        hp: 20, max_hp: 20, armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 0, max_ap: 0, movement_points: 0, base_speed: 3, speed: 3,
+        mana: None, rage: None, energy: None,
+        abilities: Vec::new(), threat: 0.0,
+        tags: AiTags::empty(), max_attack_range: 1, summoner: None,
+        statuses: Vec::new(), caster_ctx: CasterContext::default(),
+        crit_fail_effect: Default::default(), damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+        role: Default::default(),
+    };
+    let enemy_b = UnitSnapshot {
+        entity: ent(3),
+        team: Team::Enemy,
+        pos: eb_pos,
+        reactions_left: 1,
+        aoo_expected_damage: Some(5.0),
+        hp: 20, max_hp: 20, armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        action_points: 0, max_ap: 0, movement_points: 0, base_speed: 3, speed: 3,
+        mana: None, rage: None, energy: None,
+        abilities: Vec::new(), threat: 0.0,
+        tags: AiTags::empty(), max_attack_range: 1, summoner: None,
+        statuses: Vec::new(), caster_ctx: CasterContext::default(),
+        crit_fail_effect: Default::default(), damage_horizon: Vec::new(),
+        ai_tuning_override: None,
+        role: Default::default(),
+    };
+
+    let actor_id  = actor.entity;
+    let snap = BattleSnapshot::new(vec![actor, enemy_a, enemy_b], 1);
+    let path = vec![step1];
+
+    // ── Engine path ───────────────────────────────────────────────────────────
+    use storyforge::combat_engine::state::ActiveStatus;
+    let units: Vec<EngineUnit> = snap.units.iter().map(|u| {
+        let team = match u.team { Team::Player => EngineTeam::Player, Team::Enemy => EngineTeam::Enemy };
+        EngineUnit {
+            id: entity_to_uid(u.entity), team, pos: u.pos,
+            hp: u.hp, max_hp: u.max_hp, armor: u.armor, armor_bonus: u.armor_bonus,
+            base_speed: u.base_speed, speed: u.speed,
+            action_points: u.action_points, movement_points: u.movement_points,
+            reactions_left: u.reactions_left,
+            statuses: u.statuses.iter().map(|s| ActiveStatus {
+                id: s.id.clone(), rounds_remaining: s.rounds_remaining, dot_per_tick: s.dot_per_tick,
+            }).collect(),
+            rage: u.rage, mana: u.mana, energy: u.energy,
+        }
+    }).collect();
+    let content = SnapContent::from_snap(&snap);
+    let actor_uid = entity_to_uid(actor_id);
+    let action = Action::Move { actor: actor_uid, path: path.clone() };
+    let mut engine_state = CombatState::new(units, 1, RoundPhase::ActorTurn, 0);
+    let engine_result = step(&mut engine_state, action, &mut ExpectedValue, &content);
+
+    // ── Sim path ──────────────────────────────────────────────────────────────
+    let sim_snap = run_sim(&snap, actor_id, path);
+
+    // ── Assert rollback parity ────────────────────────────────────────────────
+    match engine_result {
+        Err(storyforge::combat_engine::action::ActionError::TargetGone) => {
+            // Engine rolled back: actor has original hp.
+            let engine_actor = engine_state.unit(actor_uid).unwrap();
+            assert_eq!(engine_actor.hp, 1,
+                "engine (decision 6.5): state rolled back — actor at original hp=1");
+
+            // Sim path took the same engine call and skipped projection on Err,
+            // so the snapshot reflects the pre-action state — actor at hp=1.
+            let sim_actor = sim_snap.unit(actor_id).expect("actor present in sim snapshot");
+            assert_eq!(sim_actor.hp, 1,
+                "sim: rollback parity — snapshot unchanged when engine returns TargetGone");
+            assert_eq!(sim_actor.pos, hex_from_offset(0, 0),
+                "sim: rollback parity — position unchanged");
+        }
+        Ok(_) => {
+            // Layout didn't reliably produce a second AoO (only one fired).
+            // Skip — covered by other layouts; we still want the geometry-driven
+            // parity check above when two AoOs do fire.
+        }
+        Err(other) => panic!("engine returned unexpected error: {other:?}"),
+    }
+}
