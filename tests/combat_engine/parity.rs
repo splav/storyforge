@@ -21,7 +21,7 @@ use storyforge::combat_engine::{
 };
 use storyforge::combat::engine_bridge::entity_to_uid;
 use storyforge::content::abilities::CasterContext;
-use storyforge::core::StatusId;
+use storyforge::combat_engine::StatusId;
 use storyforge::game::components::Team;
 use storyforge::game::hex::hex_from_offset;
 
@@ -96,7 +96,7 @@ fn run_engine(snap: &BattleSnapshot, actor_id: Entity, path: Vec<storyforge::gam
             movement_points: u.movement_points,
             reactions_left: u.reactions_left,
             statuses: u.statuses.iter().map(|s| ActiveStatus {
-                id: s.id.clone(),
+                id: StatusId(s.id.0.clone()),
                 rounds_remaining: s.rounds_remaining,
                 dot_per_tick: s.dot_per_tick,
             }).collect(),
@@ -400,7 +400,7 @@ fn parity_aoo_kills_mover_mid_path_rollback() {
             action_points: u.action_points, movement_points: u.movement_points,
             reactions_left: u.reactions_left,
             statuses: u.statuses.iter().map(|s| ActiveStatus {
-                id: s.id.clone(), rounds_remaining: s.rounds_remaining, dot_per_tick: s.dot_per_tick,
+                id: StatusId(s.id.0.clone()), rounds_remaining: s.rounds_remaining, dot_per_tick: s.dot_per_tick,
             }).collect(),
             rage: u.rage, mana: u.mana, energy: u.energy,
         }

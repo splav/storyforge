@@ -6,7 +6,7 @@ use storyforge::combat_engine::{
     reaction::{expand_reaction, scan_reactions, Reaction},
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
 };
-use storyforge::core::StatusId;
+use storyforge::combat_engine::StatusId;
 use storyforge::game::hex::hex_from_offset;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

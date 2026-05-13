@@ -2,7 +2,7 @@
 
 use hexx::Hex;
 
-use crate::combat_engine::state::UnitId;
+use crate::state::UnitId;
 
 /// A high-level combat intent.  The engine validates and expands each variant
 /// into a stream of `Effect`s.

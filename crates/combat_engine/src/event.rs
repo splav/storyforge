@@ -2,7 +2,7 @@
 
 use hexx::Hex;
 
-use crate::combat_engine::{
+use crate::{
     action::Action,
     effect::{ApplyCtx, Effect},
     reaction::ReactionKind,

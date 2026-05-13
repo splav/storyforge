@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 
 use crate::app_state::{AppState, CombatPhase};
-use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap, mirror_state_from_ecs};
+use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap, mirror_state_from_ecs, process_action_system, project_state_to_ecs};
 use crate::ui;
 
 use super::{
@@ -28,6 +28,12 @@ impl Plugin for CombatPipelinePlugin {
         app.add_systems(
             PreUpdate,
             mirror_state_from_ecs.run_if(in_state(CombatPhase::AwaitCommand)),
+        );
+
+        // Project engine state → ECS after each Update frame (Phase 1 step 3).
+        app.add_systems(
+            PostUpdate,
+            project_state_to_ecs.run_if(in_state(CombatPhase::AwaitCommand)),
         );
 
         app.add_systems(
@@ -84,6 +90,7 @@ impl Plugin for CombatPipelinePlugin {
             Update,
             (
                 movement::movement_system,
+                process_action_system,
                 validation::validate_action_system,
                 resolution::resolve_action_system,
                 apply_effects::apply_effects_system,

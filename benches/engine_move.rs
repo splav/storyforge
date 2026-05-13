@@ -26,7 +26,6 @@ use storyforge::combat_engine::{
 };
 use storyforge::combat::engine_bridge::entity_to_uid;
 use storyforge::content::abilities::CasterContext;
-use storyforge::core::StatusId;
 use storyforge::game::components::Team;
 use storyforge::game::hex::hex_from_offset;
 
@@ -125,7 +124,7 @@ impl EngineContentView for BenchContent {
         // Constant-bonus expr: count=0 → expected = bonus.
         Some(EngineDiceExpr::new(0, 1, raw.round() as i32))
     }
-    fn status_bonuses(&self, _: &StatusId) -> EngineStatusBonuses {
+    fn status_bonuses(&self, _: &combat_engine::StatusId) -> EngineStatusBonuses {
         EngineStatusBonuses::default()
     }
 }
@@ -157,7 +156,7 @@ fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
                     .statuses
                     .iter()
                     .map(|s| ActiveStatus {
-                        id: s.id.clone(),
+                        id: combat_engine::StatusId(s.id.0.clone()),
                         rounds_remaining: s.rounds_remaining,
                         dot_per_tick: s.dot_per_tick,
                     })

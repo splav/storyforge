@@ -1,9 +1,8 @@
 use storyforge::game::hex::hex_from_offset;
-mod common;
 
 use bevy::prelude::*;
 
-use common::*;
+use crate::common::*;
 use storyforge::core::DiceRng;
 use storyforge::game::bundles::hero_bundle;
 use storyforge::game::components::{

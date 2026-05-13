@@ -16,9 +16,17 @@
 
 use hexx::Hex;
 
-use crate::combat::effects_math::final_damage_f32;
-use crate::combat_engine::content::ContentView;
-use crate::combat_engine::state::{CombatState, UnitId};
+use crate::content::ContentView;
+use crate::state::{CombatState, UnitId};
+
+/// Expected-value variant of final-damage math (inline copy; mirrors
+/// `storyforge::combat::effects_math::final_damage_f32`).
+///
+/// `max(1.0, raw − (armor unless pierced) + vulnerability)`
+fn final_damage_f32(raw: f32, armor: f32, vulnerability: f32, pierces_armor: bool) -> f32 {
+    let armor = if pierces_armor { 0.0 } else { armor };
+    (raw - armor + vulnerability).max(1.0)
+}
 
 /// Atomic state mutation.
 #[derive(Debug, Clone)]

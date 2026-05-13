@@ -1,10 +1,8 @@
 #![allow(unused_imports)]
 
-mod common;
-
 use bevy::prelude::*;
 
-use common::*;
+use crate::common::*;
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
 use storyforge::game::components::{
     Abilities, ActionPoints, ActiveCombatant, ActiveStatus, Dead, Rage, Reactions, StatusEffects, Vital,

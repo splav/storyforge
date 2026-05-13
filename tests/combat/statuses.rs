@@ -1,8 +1,6 @@
-mod common;
-
 use bevy::prelude::*;
 
-use common::*;
+use crate::common::*;
 use storyforge::app_state::CombatPhase;
 use storyforge::game::components::{
     ActiveCombatant, ActiveStatus, CombatStats, Dead, StatusEffects, Vital,

@@ -10,8 +10,7 @@
 //! Callers implement this trait for real (`ActiveContent` adapter); the engine
 //! only ever calls through the trait object.  Step 8+ agent extends as needed.
 
-use crate::combat_engine::{dice::DiceExpr, state::UnitId};
-use crate::core::StatusId;
+use crate::{dice::DiceExpr, state::UnitId, StatusId};
 
 /// Per-status stat bonuses relevant to engine aggregate recomputation.
 ///

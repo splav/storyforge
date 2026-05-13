@@ -9,7 +9,7 @@ use storyforge::combat_engine::{
     effect::{apply_effect, Effect},
     state::{ActiveStatus, CombatState, RoundPhase, Team, Unit, UnitId},
 };
-use storyforge::core::StatusId;
+use storyforge::combat_engine::StatusId;
 use storyforge::game::hex::hex_from_offset;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

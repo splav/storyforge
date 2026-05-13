@@ -13,7 +13,7 @@
 
 use hexx::Hex;
 
-use crate::combat_engine::{
+use crate::{
     content::ContentView,
     effect::Effect,
     state::{CombatState, UnitId},
@@ -97,7 +97,7 @@ pub fn scan_reactions(
 pub fn expand_reaction(
     reaction: &Reaction,
     content: &dyn ContentView,
-    rng: &mut dyn crate::combat_engine::dice::DiceSource,
+    rng: &mut dyn crate::dice::DiceSource,
 ) -> Vec<Effect> {
     match reaction {
         Reaction::OpportunityAttack { from, victim } => {

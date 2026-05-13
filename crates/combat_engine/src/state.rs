@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use hexx::Hex;
 
-use crate::core::StatusId;
+use crate::StatusId;
 
 // ── Identity ──────────────────────────────────────────────────────────────────
 

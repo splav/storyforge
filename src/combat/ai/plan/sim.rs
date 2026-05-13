@@ -24,7 +24,7 @@ use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 
 // Engine imports for the `apply_move` shim.
-use crate::combat_engine::{
+use combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
     dice::{DiceExpr as EngineDiceExpr, ExpectedValue as EngineExpectedValue},
@@ -472,7 +472,7 @@ impl EngineContentView for SnapshotContentView {
         Some(EngineDiceExpr::new(0, 1, raw.round() as i32))
     }
 
-    fn status_bonuses(&self, _id: &crate::core::StatusId) -> EngineStatusBonuses {
+    fn status_bonuses(&self, _id: &combat_engine::StatusId) -> EngineStatusBonuses {
         EngineStatusBonuses::default()
     }
 }
@@ -482,7 +482,7 @@ impl EngineContentView for SnapshotContentView {
 /// Uses `entity_to_uid(entity)` for id mapping (same encoding as `engine_bridge::from_ecs`).
 /// Copies hp, pos, movement_points, reactions_left, rage, mana, energy directly.
 fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
-    use crate::combat_engine::state::ActiveStatus;
+    use combat_engine::state::ActiveStatus;
 
     let units: Vec<EngineUnit> = snap
         .units
@@ -496,7 +496,7 @@ fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
                 .statuses
                 .iter()
                 .map(|s| ActiveStatus {
-                    id: s.id.clone(),
+                    id: combat_engine::StatusId(s.id.0.clone()),
                     rounds_remaining: s.rounds_remaining,
                     dot_per_tick: s.dot_per_tick,
                 })

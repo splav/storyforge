@@ -64,6 +64,15 @@ pub struct MoveUnit {
     pub path: Vec<hexx::Hex>,
 }
 
+/// New action input path for the engine-backed combat pipeline (Phase 1+).
+///
+/// Coexists with the legacy per-message types (`MoveUnit`, etc.) during
+/// Phase 1 migration.  `process_action_system` in `engine_bridge` reads this.
+#[derive(Message, Debug)]
+pub enum ActionInput {
+    Move { actor: Entity, path: Vec<hexx::Hex> },
+}
+
 #[derive(Message)]
 pub struct EndTurn {
     pub actor: Entity,

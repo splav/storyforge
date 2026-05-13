@@ -1,10 +1,8 @@
 #![allow(unused_imports)]
 
-mod common;
-
 use bevy::prelude::*;
 
-use common::*;
+use crate::common::*;
 use storyforge::game::components::{ActionPoints, ActiveCombatant};
 use storyforge::game::hex::{hex_from_offset, Hex};
 use storyforge::game::messages::MoveUnit;

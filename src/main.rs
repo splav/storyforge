@@ -7,8 +7,8 @@ use storyforge::combat::CombatStep;
 use storyforge::persistence::{detect_paths, settings_repo, PersistencePlugin};
 use storyforge::core::DiceRng;
 use storyforge::game::messages::{
-    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, RestartCombat, SpawnUnit, StartCombat,
-    UseAbility, ValidatedAction,
+    ActionInput, ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, RestartCombat, SpawnUnit,
+    StartCombat, UseAbility, ValidatedAction,
 };
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::resources::{CombatContext, CombatObjective, GameDb, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty};
@@ -68,6 +68,7 @@ fn main() {
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()
         .add_message::<MoveUnit>()
+        .add_message::<ActionInput>()
         .add_message::<EndTurn>()
         .add_message::<RestartCombat>()
         .add_message::<SpawnUnit>()

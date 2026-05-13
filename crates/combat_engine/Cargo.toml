@@ -1,0 +1,8 @@
+[package]
+name = "combat_engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hexx = { version = "0.24", features = ["bevy", "algorithms"] }
+serde = { version = "1", features = ["derive"] }

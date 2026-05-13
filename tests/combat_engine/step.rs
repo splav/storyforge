@@ -12,7 +12,7 @@ use storyforge::combat_engine::{
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     step::step,
 };
-use storyforge::core::StatusId;
+use storyforge::combat_engine::StatusId;
 use storyforge::game::hex::hex_from_offset;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

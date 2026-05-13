@@ -129,10 +129,14 @@ Existing must stay green:
 
 ## 8. Risks / flags
 
-- **AoE-pos-validation in `process_action_system`.** Current `movement_system` validates path step-by-step against occupancy. Engine `step()` validates length + MP only (Phase 0 scope). Phase 1 must either move path validation into engine (preferred) or into `process_action_system` pre-step.
-- **Animation timing.** Engine resolves moves instantly; animation needs the event stream + a gate that pauses the next action until tweens complete. Already partially in place for `OpportunityAttack`; verify with `road_bridge` scenario.
-- **`tests/parity.rs` rewrite scope.** Per decision 6.3, AoE event sequences shift to per-target ordering in Phase 2 — but Phase 1 doesn't touch AoE. Check `tests/parity.rs` cases involving AoO: they should match by construction (engine = sim).
-- **`MoveUnit` Bevy message removal.** Audit producers: only `combat_round_system` should produce — confirm no animation or UI code emits.
+Updated 2026-05-13 after pre-implementation discovery pass.
+
+- **Path-occupancy validation in `process_action_system` (open).** Current `movement_system` validates each step against `is_passable`. Engine `step()` validates length + MP only (Phase 0 scope). Phase 1 decision needed: either fold path/occupancy validation into engine via a `ContentView`-style passability query (preferred — keeps sim ≡ real), or pre-validate in `process_action_system` before `step()`. Recommendation: into engine; keeps engine pure and Bevy-free, and AI sim gets path validation for free.
+- **Animation timing (lower risk than feared).** `src/ui/animation.rs` does not observe `HexPosition`/`Vital` changes and does not read `OpportunityAttack`. Movement tween path is driven elsewhere — quick audit of `MoveUnit` consumers (only `combat/movement.rs:31`) confirms no animation handler is wired to the legacy event stream. Phase 1 must still wire tween triggers to `Event::UnitMoved` / `Event::ReactionFired`, but no animation-system refactor blocker.
+- **`tests/parity.rs` — passes by construction.** All 8 `parity_*_real_vs_sim` scenarios exercise `SimState::apply_step` against a hand-derived formula; the "real" half is a `TODO(12.2)` (see `parity.rs:530`). Sim now routes through `step()`, so these become free regression coverage. **No rewrite needed.**
+- **`tests/aoo.rs` is the actual real-side integration test.** 9 scenarios writing `MoveUnit` messages and reading `CombatEvent::OpportunityAttack` from the combat log. This is the primary test migration target in Phase 1 step 5 (legacy event removal).
+- **`MoveUnit` producer audit done.** 3 callsites: `ui/hex_grid/input.rs:208` (player), `combat/ai/system.rs:324,328` (AI). No animation/UI ghost producers.
+- **`OpportunityAttack` consumer audit done.** 2 non-test consumers: `combat/movement.rs:238` (emitter — being deleted), `game/combat_log.rs:61,151` (log enum + formatter). Trivial scope.
 
 ---
 
