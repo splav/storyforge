@@ -27,10 +27,13 @@ use storyforge::combat::engine_bridge::{
 };
 use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
 use storyforge::content::content_view::{ActiveContent, ContentView};
+use storyforge::content::statuses::StatusDef;
 use storyforge::content::weapons::{HandType, WeaponDef};
-use storyforge::core::{AbilityId, DiceExpr, WeaponId};
+use storyforge::core::{AbilityId, DiceExpr, DiceRng, StatusId, WeaponId};
 use storyforge::game::bundles::CombatantBundle;
-use storyforge::game::components::{ActionPoints, CombatStats, Equipment, Reactions, Team, Vital};
+use storyforge::game::components::{
+    ActionPoints, ActiveStatus, CombatStats, Equipment, Reactions, StatusEffects, Team, Vital,
+};
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::messages::ActionInput;
 use storyforge::game::resources::{CombatContext, HexPositions};
@@ -68,6 +71,7 @@ fn bridge_app() -> App {
         .init_resource::<HexPositions>()
         .init_resource::<CombatContext>()
         .init_resource::<ActiveContent>()
+        .init_resource::<DiceRng>()
         .add_message::<ActionInput>()
         .add_systems(PreUpdate, mirror_state_from_ecs)
         .add_systems(Update, process_action_system)
@@ -311,6 +315,161 @@ fn aoo_dice_flows_from_equipment_through_process_action_system() {
     assert!(
         hp_after < max_hp,
         "player hp ({hp_after}) should be less than max_hp ({max_hp}) after AoO from armed enemy"
+    );
+}
+
+/// Stunned-filter test: a stunned (skips_turn=true) adjacent enemy must be
+/// excluded from `aoo_per_unit` so the engine fires zero AoOs on disengage.
+///
+/// Pins the filter block at engine_bridge.rs lines 279-291: if the filter is
+/// removed, the enemy would fire AoO and the player's HP would drop.
+#[test]
+fn aoo_does_not_fire_from_stunned_enemy() {
+    let player_start = hex_from_offset(0, 0);
+    let enemy_pos = player_start.all_neighbors()[0];
+    let escape_hex = player_start
+        .all_neighbors()
+        .into_iter()
+        .find(|&h| h.unsigned_distance_to(enemy_pos) > 1)
+        .expect("at least one non-adjacent neighbor must exist");
+
+    let melee_ability_id = AbilityId::from("test_attack_stunned");
+    let sword_id = WeaponId::from("test_sword_stunned");
+    let stun_id = StatusId::from("test_stun");
+
+    let sword = WeaponDef {
+        id: sword_id.clone(),
+        name: "Test Sword".into(),
+        hand: HandType::MainHand,
+        dice: DiceExpr::new(1, 6, 0),
+        spell_power: 0,
+        armor: 0,
+        max_hp: 0,
+        strength: 0,
+        dexterity: 0,
+        constitution: 0,
+        intelligence: 0,
+        wisdom: 0,
+        charisma: 0,
+    };
+    let melee_ability = AbilityDef {
+        id: melee_ability_id.clone(),
+        name: "Test Attack".into(),
+        target_type: storyforge::content::abilities::TargetType::SingleEnemy,
+        range: AbilityRange::MELEE,
+        effect: EffectDef::WeaponAttack,
+        costs: vec![],
+        cost_ap: 1,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        statuses: vec![],
+        magic_domains: vec![],
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+    // Stub StatusDef with skips_turn = true.
+    let stun_def = StatusDef {
+        id: stun_id.clone(),
+        name: "Test Stun".into(),
+        armor_bonus: 0,
+        damage_taken_bonus: 0,
+        skips_turn: true,
+        forces_targeting: false,
+        dot_dice: None,
+        blocks_mana_abilities: false,
+        speed_bonus: 0,
+        hp_percent_dot: 0,
+        ai_controlled: false,
+        causes_disadvantage: false,
+        buff_class: None,
+    };
+
+    let mut content_view = ContentView::default();
+    content_view.abilities.insert(melee_ability_id.clone(), melee_ability);
+    content_view.weapons.insert(sword_id.clone(), sword);
+    content_view.statuses.insert(stun_id.clone(), stun_def);
+
+    let mut app = bridge_app();
+    app.insert_resource(ActiveContent(content_view));
+
+    // Spawn player — armor=0, speed=6.
+    let player = app
+        .world_mut()
+        .spawn(CombatantBundle::new(
+            Team::Player,
+            test_stats(),
+            0,
+            6,
+            vec![],
+            Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+        ))
+        .id();
+
+    // Spawn enemy with melee ability + sword + 1 reaction.
+    let enemy = app
+        .world_mut()
+        .spawn(CombatantBundle::new(
+            Team::Enemy,
+            test_stats(),
+            0,
+            6,
+            vec![melee_ability_id],
+            Equipment {
+                main_hand: Some(sword_id),
+                off_hand: None,
+                chest: "".into(),
+                legs: "".into(),
+                feet: "".into(),
+            },
+        ))
+        .id();
+
+    app.world_mut()
+        .entity_mut(enemy)
+        .get_mut::<Reactions>()
+        .unwrap()
+        .remaining = 1;
+
+    // Apply stun status to the enemy.
+    app.world_mut()
+        .entity_mut(enemy)
+        .get_mut::<StatusEffects>()
+        .unwrap()
+        .0
+        .push(ActiveStatus {
+            id: stun_id,
+            rounds_remaining: 1,
+            applier: player,
+            dot_per_tick: 0,
+        });
+
+    app.world_mut().resource_mut::<HexPositions>().insert(player, player_start);
+    app.world_mut().resource_mut::<HexPositions>().insert(enemy, enemy_pos);
+
+    // First update: mirror ECS → engine.
+    app.update();
+
+    let max_hp = app.world().entity(player).get::<Vital>().unwrap().max_hp;
+    let enemy_reactions_before = app.world().entity(enemy).get::<Reactions>().unwrap().remaining;
+
+    // Player disengages from stunned enemy.
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Move { actor: player, path: vec![escape_hex] });
+
+    app.update();
+
+    let hp_after = app.world().entity(player).get::<Vital>().unwrap().hp;
+    let enemy_reactions_after = app.world().entity(enemy).get::<Reactions>().unwrap().remaining;
+
+    assert_eq!(
+        hp_after, max_hp,
+        "player hp must be unchanged — stunned enemy must not fire AoO"
+    );
+    assert_eq!(
+        enemy_reactions_after, enemy_reactions_before,
+        "stunned enemy reactions must be unchanged — no AoO was fired"
     );
 }
 

@@ -39,7 +39,7 @@ use crate::game::messages::ActionInput;
 use combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses},
-    dice::ExpectedValue,
+    dice::DiceSource,
     state::{ActiveStatus, CombatState, Pool, RoundPhase, Team, Unit, UnitId},
     step::step,
 };
@@ -322,6 +322,27 @@ fn build_ecs_content_view(
     EcsContentView { aoo_per_unit }
 }
 
+// ── DiceRngAdapter ────────────────────────────────────────────────────────────
+
+/// Bridges `crate::core::DiceRng` (Bevy resource) to the engine's `DiceSource`
+/// trait.
+///
+/// The two `DiceExpr` types differ only in `serde` derives — fields are
+/// identical, so conversion is a trivial field copy.  This adapter is the only
+/// place that crosses the boundary; the engine crate itself stays Bevy-free.
+struct DiceRngAdapter<'a>(&'a mut crate::core::DiceRng);
+
+impl<'a> DiceSource for DiceRngAdapter<'a> {
+    fn roll(&mut self, dice: combat_engine::dice::DiceExpr) -> i32 {
+        let core_expr = crate::core::DiceExpr::new(dice.count, dice.sides, dice.bonus);
+        self.0.roll(&core_expr)
+    }
+
+    fn expected(&self, dice: combat_engine::dice::DiceExpr) -> f32 {
+        dice.expected()
+    }
+}
+
 /// `Update` system — parallel witness call to `combat_engine::step()`.
 ///
 /// Reads `ActionInput::Move` messages, calls `step()` against the mirrored
@@ -341,6 +362,7 @@ pub fn process_action_system(
     mut combat_state: ResMut<CombatStateRes>,
     combatants: Query<AooRow, With<Combatant>>,
     active_content: Res<ActiveContent>,
+    mut rng: ResMut<crate::core::DiceRng>,
 ) {
     for msg in reader.read() {
         match msg {
@@ -358,10 +380,10 @@ pub fn process_action_system(
                     path: path.clone(),
                 };
 
-                let mut ev = ExpectedValue;
+                let mut adapter = DiceRngAdapter(&mut rng);
                 let content = build_ecs_content_view(&combatants, &id_map, &active_content);
 
-                match step(&mut combat_state.0, action, &mut ev, &content) {
+                match step(&mut combat_state.0, action, &mut adapter, &content) {
                     Ok(_events) => {
                         trace!(
                             "process_action_system: step() ok for actor {:?} (uid {:?})",

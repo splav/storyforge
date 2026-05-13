@@ -189,6 +189,34 @@ fn expand_reaction_emits_decrement_then_damage() {
     ));
 }
 
+/// Enemy mover, player attacker: symmetric to `aoo_triggers_on_disengage`.
+///
+/// Pins that `scan_reactions` has no hard-coded team bias — an enemy that
+/// disengages from an adjacent armed player unit triggers the same AoO.
+#[test]
+fn aoo_triggers_when_enemy_disengages_from_player() {
+    let mover_pos  = hex_from_offset(0, 0);
+    let attacker_pos = hex_from_offset(1, 0); // adjacent to mover
+    let dest_pos   = hex_from_offset(0, 5);   // not adjacent to attacker
+
+    let mut mover = make_unit(1, Team::Enemy, 4);  // enemy moves
+    mover.pos = mover_pos;
+    let mut attacker = make_unit(2, Team::Player, 1); // player reacts
+    attacker.pos = attacker_pos;
+
+    let state = state_with(vec![mover, attacker]);
+    let content = StubContent::with_weapon(DiceExpr::new(1, 6, 0));
+
+    let reactions = scan_reactions(&state, UnitId(1), mover_pos, dest_pos, &content);
+
+    assert_eq!(reactions.len(), 1);
+    assert!(matches!(
+        reactions[0],
+        Reaction::OpportunityAttack { from, victim }
+        if from == UnitId(2) && victim == UnitId(1)
+    ));
+}
+
 /// No weapon → expand_reaction returns empty.
 #[test]
 fn expand_reaction_returns_empty_when_no_weapon() {
