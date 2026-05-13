@@ -313,25 +313,20 @@ fn parity_aoo_chain_two_enemies() {
         "sim: enemy B reaction consumed");
 }
 
-// ── Scenario 4: AoO kills mover mid-path — rollback parity ───────────────────
+// ── Scenario 4: AoO kills mover mid-path — truncation parity ─────────────────
 
-/// Lethal-AoO followed by a second AoO targeting the now-dead mover.
+/// Lethal-AoO with two flanking enemies on a single-step path.
 ///
-/// Since step 8 wired `sim::apply_move` to call `combat_engine::step()`, both
-/// paths now follow the same rollback rule (decision 6.5):
-/// - Engine: returns `Err(TargetGone)` and rolls back to pre-action state.
-/// - Sim: receives the same `Err`, does not project changes back into the
-///   snapshot, so the snapshot reflects the pre-action state too.
+/// Under actor-liveness truncation the first AoO kills the mover and the second
+/// is never fired:
+/// - Engine: returns `Ok`, mover dead at destination, second enemy reactions_left=1.
+/// - Sim: same outcome (sim routes through engine's step()).
 ///
-/// What used to be a documented divergence is now a parity assertion: both
-/// paths observe the actor at original hp after a lethal-AoO move attempt.
-/// (Step 12.2 regression covered by engine's strict-failure semantics.)
+/// Both paths agree: mover dead, mover at destination, one enemy reaction spent.
 #[test]
-fn parity_aoo_kills_mover_mid_path_rollback() {
+fn parity_aoo_kills_mover_mid_path_truncates() {
     // Actor has 1 hp. Two enemies both adjacent to start; both AoO on step 1.
-    // First AoO (raw=5) kills the mover; second AoO targets a dead unit.
-    // Engine: TargetGone → rollback (actor at hp=1).
-    // Sim: actor hp drops to 0 on first AoO; second skipped (actor dead filter).
+    // First AoO (raw=5) kills the mover; second is skipped by liveness check.
 
     let start = hex_from_offset(0, 0);
     let step1 = hex_from_offset(3, 0);  // big jump so all neighbors disengage
@@ -339,12 +334,11 @@ fn parity_aoo_kills_mover_mid_path_rollback() {
     let mut actor = make_snap_unit(1, Team::Player, 0, 0, 1, None, 0);
     actor.movement_points = 10;
 
-    // Two enemies adjacent to start: use two hex neighbors.
+    // Two enemies adjacent to start.
     let neighbors = start.all_neighbors();
     let ea_pos = neighbors[0];
     let eb_pos = neighbors[1];
 
-    // Verify both are adjacent to start and not adjacent to step1.
     assert_eq!(start.unsigned_distance_to(ea_pos), 1);
     assert_eq!(start.unsigned_distance_to(eb_pos), 1);
     assert_ne!(step1.unsigned_distance_to(ea_pos), 1,
@@ -386,6 +380,8 @@ fn parity_aoo_kills_mover_mid_path_rollback() {
     };
 
     let actor_id  = actor.entity;
+    let enemy_a_id = enemy_a.entity;
+    let enemy_b_id = enemy_b.entity;
     let snap = BattleSnapshot::new(vec![actor, enemy_a, enemy_b], 1);
     let path = vec![step1];
 
@@ -407,6 +403,8 @@ fn parity_aoo_kills_mover_mid_path_rollback() {
     }).collect();
     let content = SnapContent::from_snap(&snap);
     let actor_uid = entity_to_uid(actor_id);
+    let ea_uid    = entity_to_uid(enemy_a_id);
+    let eb_uid    = entity_to_uid(enemy_b_id);
     let action = Action::Move { actor: actor_uid, path: path.clone() };
     let mut engine_state = CombatState::new(units, 1, RoundPhase::ActorTurn, 0);
     let engine_result = step(&mut engine_state, action, &mut ExpectedValue, &content);
@@ -414,27 +412,24 @@ fn parity_aoo_kills_mover_mid_path_rollback() {
     // ── Sim path ──────────────────────────────────────────────────────────────
     let sim_snap = run_sim(&snap, actor_id, path);
 
-    // ── Assert rollback parity ────────────────────────────────────────────────
-    match engine_result {
-        Err(storyforge::combat_engine::action::ActionError::TargetGone) => {
-            // Engine rolled back: actor has original hp.
-            let engine_actor = engine_state.unit(actor_uid).unwrap();
-            assert_eq!(engine_actor.hp, 1,
-                "engine (decision 6.5): state rolled back — actor at original hp=1");
+    // ── Assert truncation parity ──────────────────────────────────────────────
+    // Engine must succeed.
+    assert!(engine_result.is_ok(), "engine should return Ok under truncation semantics");
 
-            // Sim path took the same engine call and skipped projection on Err,
-            // so the snapshot reflects the pre-action state — actor at hp=1.
-            let sim_actor = sim_snap.unit(actor_id).expect("actor present in sim snapshot");
-            assert_eq!(sim_actor.hp, 1,
-                "sim: rollback parity — snapshot unchanged when engine returns TargetGone");
-            assert_eq!(sim_actor.pos, hex_from_offset(0, 0),
-                "sim: rollback parity — position unchanged");
-        }
-        Ok(_) => {
-            // Layout didn't reliably produce a second AoO (only one fired).
-            // Skip — covered by other layouts; we still want the geometry-driven
-            // parity check above when two AoOs do fire.
-        }
-        Err(other) => panic!("engine returned unexpected error: {other:?}"),
-    }
+    let engine_actor = engine_state.unit(actor_uid).unwrap();
+    assert_eq!(engine_actor.hp, 0, "engine: mover dead after lethal AoO");
+    assert_eq!(engine_actor.pos, step1, "engine: mover at step1 (hit position)");
+
+    // Exactly one enemy spent its reaction; the other did not.
+    let ea_reactions = engine_state.unit(ea_uid).unwrap().reactions_left;
+    let eb_reactions = engine_state.unit(eb_uid).unwrap().reactions_left;
+    assert_eq!(ea_reactions + eb_reactions, 1,
+        "engine: one enemy fired (reactions=0), other did not (reactions=1)");
+
+    // Sim parity: mover position and hp match engine.
+    let sim_actor = sim_snap.unit(actor_id).expect("actor present in sim snapshot");
+    assert_eq!(sim_actor.hp, engine_actor.hp,
+        "sim: actor hp must match engine");
+    assert_eq!(sim_actor.pos, engine_actor.pos,
+        "sim: actor position must match engine");
 }

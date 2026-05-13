@@ -5,9 +5,28 @@
 //! effect.
 //!
 //! ## Strict failure (decision 6.5)
-//! If any effect targeting a living unit finds that unit already dead,
-//! `step()` returns `Err(TargetGone)` and the state is rolled back to what it
-//! was at entry (via a clone taken before any mutation).
+//! If any `Damage` effect targets a unit that is already dead and that unit is
+//! **not** the current action's actor, `step()` returns `Err(TargetGone)` and
+//! rolls back state to entry. If the dead target *is* the actor (i.e. the mover
+//! was killed by an earlier reaction), the effect is silently skipped — see the
+//! actor-liveness truncation below.
+//!
+//! This branch is currently only reachable for Phase 2+ Cast/AoE actions where
+//! one target in an AoE burst dies mid-burst and a follow-up effect targets
+//! a different (also now dead) unit. For `Action::Move` the only Damage targets
+//! are AoO victims (= the mover = the actor), so the non-actor branch cannot
+//! trigger during Phase 0/1.
+//!
+//! ## Actor-liveness truncation
+//! After each `MovePosition` effect is applied, reactions are processed one by
+//! one via per-reaction sub-queues. Before expanding each reaction the mover's
+//! liveness is checked: if the mover died from the previous reaction, the
+//! remaining reactions for this step are skipped. No `ReactionFired` event is
+//! emitted for skipped reactions and `reactions_left` on those enemies is not
+//! decremented.
+//!
+//! Subsequent `MovePosition` effects for the same path are also skipped (the
+//! dead-actor guard at the top of the main pump loop handles this).
 //!
 //! ## Reaction depth cap
 //! A counter tracks how many reaction expansions have fired. Exceeding 100
@@ -129,9 +148,24 @@ fn step_inner(
     let mut prev_pos = state.unit(actor_id).map(|u| u.pos).unwrap_or_default();
 
     while let Some(effect) = effect_queue.pop_front() {
+        // ── Dead-actor guard: skip remaining MovePositions when mover died ────
+        if let Effect::MovePosition { actor, .. } = &effect {
+            if !state.unit(*actor).is_some_and(|u| u.is_alive()) {
+                continue;
+            }
+        }
+
         // ── Strict failure check (decision 6.5) ──────────────────────────────
+        // Rollback for non-actor Damage targets; silently skip for the actor
+        // (mid-action actor death is handled by actor-liveness truncation).
+        // NOTE: in Phase 0/1 (Action::Move only) the sole Damage targets are
+        // AoO victims which are always the mover (= actor_id), so the Err
+        // branch below is reserved for Phase 2+ Cast/AoE actions.
         if let Effect::Damage { target, .. } = &effect {
             if !state.unit(*target).is_some_and(|u| u.is_alive()) {
+                if *target == actor_id {
+                    continue; // actor died mid-action — skip silently
+                }
                 return Err(ActionError::TargetGone);
             }
         }
@@ -148,15 +182,28 @@ fn step_inner(
             events.push(ev);
         }
 
-        // After MovePosition: update prev_pos, then scan for AoO reactions.
+        // After MovePosition: process reactions one at a time via per-reaction
+        // sub-queues, with an actor-liveness check before each expansion.
         if let Effect::MovePosition { actor, to } = &effect {
             let new_pos = *to;
-            // prev_pos for this step was pos_before.
-            let reactions = scan_reactions(state, *actor, pos_before, new_pos, content);
+            let mover_id = *actor;
 
-            // Emit ReactionFired events.
-            for reaction in &reactions {
-                match reaction {
+            let reactions = scan_reactions(state, mover_id, pos_before, new_pos, content);
+
+            for reaction in reactions {
+                // Actor died from a previous reaction this step — truncate chain.
+                if !state.unit(mover_id).is_some_and(|u| u.is_alive()) {
+                    break;
+                }
+
+                // Depth-cap: count reactions actually processed.
+                reaction_depth += 1;
+                if reaction_depth > REACTION_DEPTH_LIMIT {
+                    return Err(ActionError::ReactionDepthExceeded);
+                }
+
+                // Emit ReactionFired only for reactions we actually expand.
+                match &reaction {
                     Reaction::OpportunityAttack { from, victim } => {
                         events.push(Event::ReactionFired {
                             actor: *from,
@@ -165,33 +212,46 @@ fn step_inner(
                         });
                     }
                 }
-            }
 
-            // Check depth before expanding any reactions.
-            if !reactions.is_empty() {
-                reaction_depth += reactions.len();
-                if reaction_depth > REACTION_DEPTH_LIMIT {
-                    return Err(ActionError::ReactionDepthExceeded);
+                // Expand into a sub-queue and resolve fully (incl. derived
+                // Damage→GainRage→Death) before pulling the next reaction.
+                let mut sub_queue: VecDeque<Effect> =
+                    expand_reaction(&reaction, content, rng).into_iter().collect();
+
+                while let Some(sub_eff) = sub_queue.pop_front() {
+                    // Strict failure check (decision 6.5) within sub-queue —
+                    // keep for non-mover targets; skip silently for the mover.
+                    if let Effect::Damage { target, .. } = &sub_eff {
+                        if !state.unit(*target).is_some_and(|u| u.is_alive()) {
+                            if *target == mover_id {
+                                continue;
+                            }
+                            return Err(ActionError::TargetGone);
+                        }
+                    }
+
+                    let (sub_derived, sub_ctx) =
+                        apply_effect(state, &sub_eff, content);
+
+                    if let Some(ev) =
+                        effect_to_event(&sub_eff, state, Some(pos_before), &sub_ctx)
+                    {
+                        events.push(ev);
+                    }
+
+                    for ef in sub_derived.into_iter().rev() {
+                        sub_queue.push_front(ef);
+                    }
                 }
             }
 
-            // Expand reactions and prepend to the queue (so they resolve before
-            // the next move step).
-            let mut reaction_effects: Vec<Effect> = Vec::new();
-            for reaction in &reactions {
-                reaction_effects.extend(expand_reaction(reaction, content, rng));
-            }
-            // Prepend in order: first reaction's effects first.
-            for ef in reaction_effects.into_iter().rev() {
-                effect_queue.push_front(ef);
-            }
-
             // Update prev_pos for the next move step.
+            // (Irrelevant once the mover is dead, but harmless to advance.)
             prev_pos = new_pos;
         }
 
-        // Derived effects (e.g. GainRage, Death from Damage) go to the front
-        // to preserve per-target ordering (decision 6.3).
+        // Derived effects (e.g. GainRage, Death from Damage in the main queue)
+        // go to the front to preserve per-target ordering (decision 6.3).
         for ef in derived.into_iter().rev() {
             effect_queue.push_front(ef);
         }

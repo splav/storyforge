@@ -1,7 +1,11 @@
 //! Step 6 unit tests: `step()` driver.
 //!
 //! Decision 6.3 (per-target ordering) — pinned by `step_move_with_aoo_chain`.
-//! Decision 6.5 (strict failure + rollback) — pinned by `step_strict_failure_target_gone`.
+//! Decision 6.5 (strict failure + rollback for non-actor targets) — the branch
+//! is reserved for Phase 2+ Cast/AoE actions; no dedicated test yet since those
+//! Action variants do not exist in Phase 0/1.
+//! Actor-liveness truncation — pinned by `step_actor_death_mid_path_truncates_remaining_aoos`
+//! and `step_two_flankers_only_first_fires_when_lethal`.
 
 use storyforge::combat_engine::{
     action::{Action, ActionError},
@@ -170,39 +174,24 @@ fn step_move_with_aoo_chain() {
     assert!(damage_idx > reaction_idx, "damage event follows reaction event");
 }
 
-// ── step_strict_failure_target_gone ──────────────────────────────────────────
+// ── step_actor_death_mid_path_truncates_remaining_aoos ────────────────────────
 
-/// Decision 6.5: if an AoO kills the mover, state rolls back entirely.
-/// We simulate this by building a scenario where AoO deals lethal damage.
+/// Actor-liveness truncation: when two enemies both flank a single path step and
+/// the first AoO kills the mover, the second AoO is never expanded.
+///
+/// Expected outcome:
+/// - `step()` returns `Ok` (no rollback).
+/// - Mover is dead (hp == 0) at the step-1 position.
+/// - Exactly one `ReactionFired` event.
+/// - Exactly one `UnitDamaged` event.
+/// - Second enemy's `reactions_left` is unchanged (its AoO never fired).
 #[test]
-fn step_strict_failure_target_gone() {
-    // Mover has 1 hp; AoO does fixed 5 raw damage (kills it).
-    // After the mover dies, the remaining MovePosition effect targets a dead unit.
-    // Actually MovePosition itself is allowed on a dead actor (no strict check there).
-    // The strict failure triggers on Damage targeting a dead unit.
-    //
-    // Better setup: mover at (0,0), moving (1,0)→(2,0).
-    // Enemy at (1,1) adjacent to (1,0). AoO fires on step from (0,0)→(1,0).
-    // AoO kills mover (hp=1, raw=5, armor=0 → final=5 ≥ 1).
-    // Next move effect: MovePosition from (1,0)→(2,0) — mover is dead.
-    // MovePosition on a dead unit is NOT a strict failure (it's not Damage).
-    //
-    // The spec says "Damage targeting a dead unit → TargetGone".
-    // We construct a two-Damage queue: first kills the target, second would
-    // target the same (now dead) unit.
-    // step() handles a single Move action; to test strict failure we need two
-    // AoOs against the same victim, or a scenario where the victim is dead.
-    //
-    // Simplest valid test: mover survives first AoO but then a *second* AoO
-    // from a different enemy hits a dead mover.
-    // Two enemies adjacent at step 1; mover dies from first AoO; second AoO
-    // targets dead mover → TargetGone.
-
+fn step_actor_death_mid_path_truncates_remaining_aoos() {
     let start = hex_from_offset(0, 0);
     let step1 = hex_from_offset(1, 0);
     let step2 = hex_from_offset(2, 0);
 
-    // Mover: 1 hp — first AoO kills it.
+    // Mover: 1 hp — first AoO (raw=5) kills it.
     let mut mover = make_unit(1, Team::Player, 0, 0);
     mover.pos = start;
     mover.hp = 1;
@@ -210,7 +199,7 @@ fn step_strict_failure_target_gone() {
     mover.movement_points = 4;
 
     // Two enemies adjacent to `start` but NOT on the path [(1,0),(2,0)],
-    // so path-occupancy validation does not reject the move before AoOs fire.
+    // so path-occupancy validation does not reject the move.
     let path_hexes = [step1, step2];
     let off_path_nbs: Vec<_> = start
         .all_neighbors()
@@ -219,10 +208,6 @@ fn step_strict_failure_target_gone() {
         .collect();
     let enemy_a_pos = off_path_nbs[0];
     let enemy_b_pos = off_path_nbs[1];
-
-    // Verify these are adjacent to start but not to step1 (hex_from_offset(1,0)).
-    // step1 = hex_from_offset(1,0); enemy_a should be distance>1 from step1.
-    // We'll rely on the test being correct for the chosen layout.
 
     let mut enemy_a = make_unit(2, Team::Enemy, 0, 0);
     enemy_a.pos = enemy_a_pos;
@@ -249,19 +234,35 @@ fn step_strict_failure_target_gone() {
         &content,
     );
 
-    match result {
-        Err(ActionError::TargetGone) => {
-            // State must be rolled back — mover has its original hp.
-            let mover_after = state.unit(UnitId(1)).unwrap();
-            assert_eq!(mover_after.hp, 1, "state rolled back: mover should have original 1 hp");
-        }
-        Ok(_) => {
-            // If only one enemy fired (the other didn't trigger), the move may succeed.
-            // This is OK if the scenario didn't produce two AoOs. Skip the test.
-            // The depth/rollback test still demonstrates the pattern.
-        }
-        Err(other) => panic!("unexpected error {other:?}"),
-    }
+    // Must succeed — no rollback.
+    let events = result.expect("actor-death truncation should not return Err");
+
+    // Mover must be dead at step1.
+    let mover_after = state.unit(UnitId(1)).unwrap();
+    assert_eq!(mover_after.hp, 0, "mover should be dead after lethal AoO");
+    assert_eq!(mover_after.pos, step1, "mover should be at step1 (hit position)");
+
+    // Exactly one ReactionFired.
+    let reaction_count = events.iter().filter(|e| matches!(e, Event::ReactionFired { .. })).count();
+    assert_eq!(reaction_count, 1, "only the first AoO should have fired");
+
+    // Exactly one UnitDamaged.
+    let damage_count = events.iter().filter(|e| matches!(e, Event::UnitDamaged { .. })).count();
+    assert_eq!(damage_count, 1, "only one damage event expected");
+
+    // One UnitDied for the mover.
+    let died_count = events.iter().filter(|e| matches!(e, Event::UnitDied { unit } if *unit == UnitId(1))).count();
+    assert_eq!(died_count, 1, "exactly one UnitDied for the mover");
+
+    // Determine which enemy fired and which did not; the non-firer still has
+    // reactions_left == 1.
+    let ea_reactions = state.unit(UnitId(2)).unwrap().reactions_left;
+    let eb_reactions = state.unit(UnitId(3)).unwrap().reactions_left;
+    // One used its reaction, the other did not.
+    assert_eq!(
+        ea_reactions + eb_reactions, 1,
+        "combined reactions_left across both enemies should be 1 (one fired, one did not)"
+    );
 }
 
 // ── path-occupancy tests ──────────────────────────────────────────────────────
@@ -346,6 +347,93 @@ fn step_move_to_occupied_destination_enemy() {
     assert_eq!(err, ActionError::DestinationOccupied { hex: hex_from_offset(2, 0) });
     assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(0, 0));
     assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 6);
+}
+
+// ── step_two_flankers_only_first_fires_when_lethal ────────────────────────────
+
+/// Two enemies adjacent to the mover's start; the path moves away from both
+/// (single step). First AoO deals lethal damage; second AoO is never fired.
+///
+/// This is the canonical "flanking kill truncates chain" scenario, distinct from
+/// `step_actor_death_mid_path_truncates_remaining_aoos` which uses a multi-step
+/// path — here the path has exactly one step so there are no later `MovePosition`
+/// effects to skip; the truncation happens within the reaction sub-loop itself.
+#[test]
+fn step_two_flankers_only_first_fires_when_lethal() {
+    // Mover at (0,0), hp=1, moves to a hex not adjacent to either enemy.
+    // Enemies are at two neighbors of (0,0); destination is chosen to be
+    // non-adjacent to both.
+    let start = hex_from_offset(0, 0);
+    let neighbors = start.all_neighbors();
+
+    let enemy_a_pos = neighbors[0];
+    let enemy_b_pos = neighbors[1];
+
+    // Destination: a neighbor of start that is not adjacent to either enemy.
+    let dest = neighbors
+        .iter()
+        .find(|&&h| {
+            h != enemy_a_pos
+                && h != enemy_b_pos
+                && h.unsigned_distance_to(enemy_a_pos) > 1
+                && h.unsigned_distance_to(enemy_b_pos) > 1
+        })
+        .copied()
+        .expect("at least one non-adjacent destination must exist among start's neighbors");
+
+    // Mover: 1 hp — lethal on any hit.
+    let mut mover = make_unit(1, Team::Player, 0, 0);
+    mover.pos = start;
+    mover.hp = 1;
+    mover.movement_points = 6;
+
+    let mut enemy_a = make_unit(2, Team::Enemy, 0, 0);
+    enemy_a.pos = enemy_a_pos;
+    enemy_a.reactions_left = 1;
+
+    let mut enemy_b = make_unit(3, Team::Enemy, 0, 0);
+    enemy_b.pos = enemy_b_pos;
+    enemy_b.reactions_left = 1;
+
+    // Verify both enemies disengage at the step to dest.
+    assert_eq!(start.unsigned_distance_to(enemy_a_pos), 1, "enemy A adjacent to start");
+    assert_ne!(dest.unsigned_distance_to(enemy_a_pos), 1, "enemy A not adjacent to dest");
+    assert_eq!(start.unsigned_distance_to(enemy_b_pos), 1, "enemy B adjacent to start");
+    assert_ne!(dest.unsigned_distance_to(enemy_b_pos), 1, "enemy B not adjacent to dest");
+
+    let mut state = CombatState::new(
+        vec![mover, enemy_a, enemy_b],
+        1,
+        RoundPhase::ActorTurn,
+        0,
+    );
+
+    // Fixed +5 damage — kills the 1-hp mover on the first AoO.
+    let content = StubContent::with_weapon(DiceExpr::new(0, 6, 5));
+
+    let events = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path: vec![dest] },
+        &mut ExpectedValue,
+        &content,
+    ).expect("truncation scenario must not return Err");
+
+    // Exactly one ReactionFired (first AoO only).
+    let reaction_count = events.iter().filter(|e| matches!(e, Event::ReactionFired { .. })).count();
+    assert_eq!(reaction_count, 1, "only the first AoO should fire");
+
+    // Mover dead at destination.
+    let mover_after = state.unit(UnitId(1)).unwrap();
+    assert_eq!(mover_after.hp, 0, "mover should be dead");
+    assert_eq!(mover_after.pos, dest, "mover at destination (MovePosition applied before AoO)");
+
+    // Second enemy's reaction is untouched.
+    let ea_reactions = state.unit(UnitId(2)).unwrap().reactions_left;
+    let eb_reactions = state.unit(UnitId(3)).unwrap().reactions_left;
+    assert_eq!(
+        ea_reactions + eb_reactions, 1,
+        "one enemy fired (reactions_left=0), other did not (reactions_left=1)"
+    );
 }
 
 // ── step_recursion_depth_capped ───────────────────────────────────────────────
