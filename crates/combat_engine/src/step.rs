@@ -13,7 +13,7 @@
 //! A counter tracks how many reaction expansions have fired. Exceeding 100
 //! returns `Err(ReactionDepthExceeded)` (state rolled back).
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use crate::{
     action::{Action, ActionError},
@@ -73,6 +73,28 @@ fn step_inner(
             }
             if path.len() as i32 > unit.movement_points {
                 return Err(ActionError::OutOfMP);
+            }
+
+            // Build occupancy map: alive non-actor units keyed by position.
+            let actor_team = unit.team;
+            let occupancy: HashMap<hexx::Hex, (crate::state::UnitId, crate::state::Team)> = state
+                .units()
+                .iter()
+                .filter(|u| u.is_alive() && u.id != *actor)
+                .map(|u| (u.pos, (u.id, u.team)))
+                .collect();
+
+            let last = path.len() - 1;
+            for (i, &hex) in path.iter().enumerate() {
+                if i == last {
+                    if occupancy.contains_key(&hex) {
+                        return Err(ActionError::DestinationOccupied { hex });
+                    }
+                } else if let Some(&(_, team)) = occupancy.get(&hex) {
+                    if team != actor_team {
+                        return Err(ActionError::PathBlockedByEnemy { hex });
+                    }
+                }
             }
         }
     }

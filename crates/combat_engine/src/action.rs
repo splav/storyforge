@@ -30,4 +30,8 @@ pub enum ActionError {
     TargetGone,
     /// Reaction chain exceeded the depth limit (100).
     ReactionDepthExceeded,
+    /// An intermediate hex along the path is held by an enemy of the actor.
+    PathBlockedByEnemy { hex: Hex },
+    /// The destination hex is held by some other unit (friend or foe).
+    DestinationOccupied { hex: Hex },
 }

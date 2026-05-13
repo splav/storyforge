@@ -209,15 +209,16 @@ fn step_strict_failure_target_gone() {
     mover.max_hp = 20;
     mover.movement_points = 4;
 
-    // Enemy A at (0,1) — adjacent to start, not adjacent to step1.
-    // We need enemies adjacent to `start` but not `step1`.
-    // Use enemies at positions that are neighbors of start but not step1.
-    // Actually for simplicity: two enemies both adjacent to start, both
-    // with reactions_left=1, so two AoOs fire on the first move step.
-    // First kills mover; second → TargetGone.
-    let nbs = start.all_neighbors();
-    let enemy_a_pos = nbs[0];
-    let enemy_b_pos = nbs[1];
+    // Two enemies adjacent to `start` but NOT on the path [(1,0),(2,0)],
+    // so path-occupancy validation does not reject the move before AoOs fire.
+    let path_hexes = [step1, step2];
+    let off_path_nbs: Vec<_> = start
+        .all_neighbors()
+        .into_iter()
+        .filter(|h| !path_hexes.contains(h))
+        .collect();
+    let enemy_a_pos = off_path_nbs[0];
+    let enemy_b_pos = off_path_nbs[1];
 
     // Verify these are adjacent to start but not to step1 (hex_from_offset(1,0)).
     // step1 = hex_from_offset(1,0); enemy_a should be distance>1 from step1.
@@ -261,6 +262,90 @@ fn step_strict_failure_target_gone() {
         }
         Err(other) => panic!("unexpected error {other:?}"),
     }
+}
+
+// ── path-occupancy tests ──────────────────────────────────────────────────────
+
+/// Passing through a friendly (same team) hex is allowed.
+#[test]
+fn step_move_through_ally_succeeds() {
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let ally  = make_unit(2, Team::Player, 1, 0);
+    let mut state = state_with(vec![actor, ally]);
+
+    let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
+    let result = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path },
+        &mut ExpectedValue,
+        &StubContent::no_weapon(),
+    );
+    assert!(result.is_ok(), "passing through ally should succeed");
+    assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(2, 0));
+    assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 4);
+}
+
+/// Moving through an enemy hex is forbidden; state rolls back.
+#[test]
+fn step_move_through_enemy_returns_path_blocked() {
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let enemy = make_unit(2, Team::Enemy, 1, 0);
+    let mut state = state_with(vec![actor, enemy]);
+
+    let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
+    let err = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path },
+        &mut ExpectedValue,
+        &StubContent::no_weapon(),
+    )
+    .expect_err("should fail with PathBlockedByEnemy");
+
+    assert_eq!(err, ActionError::PathBlockedByEnemy { hex: hex_from_offset(1, 0) });
+    assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(0, 0));
+    assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 6);
+}
+
+/// Destination occupied by a friendly unit is forbidden.
+#[test]
+fn step_move_to_occupied_destination_friend() {
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let other = make_unit(2, Team::Player, 2, 0);
+    let mut state = state_with(vec![actor, other]);
+
+    let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
+    let err = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path },
+        &mut ExpectedValue,
+        &StubContent::no_weapon(),
+    )
+    .expect_err("should fail with DestinationOccupied");
+
+    assert_eq!(err, ActionError::DestinationOccupied { hex: hex_from_offset(2, 0) });
+    assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(0, 0));
+    assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 6);
+}
+
+/// Destination occupied by an enemy unit is also forbidden.
+#[test]
+fn step_move_to_occupied_destination_enemy() {
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let other = make_unit(2, Team::Enemy, 2, 0);
+    let mut state = state_with(vec![actor, other]);
+
+    let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
+    let err = step(
+        &mut state,
+        Action::Move { actor: UnitId(1), path },
+        &mut ExpectedValue,
+        &StubContent::no_weapon(),
+    )
+    .expect_err("should fail with DestinationOccupied");
+
+    assert_eq!(err, ActionError::DestinationOccupied { hex: hex_from_offset(2, 0) });
+    assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(0, 0));
+    assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 6);
 }
 
 // ── step_recursion_depth_capped ───────────────────────────────────────────────
