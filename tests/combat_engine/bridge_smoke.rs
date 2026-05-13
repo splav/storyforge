@@ -31,12 +31,16 @@ use storyforge::content::statuses::StatusDef;
 use storyforge::content::weapons::{HandType, WeaponDef};
 use storyforge::core::{AbilityId, DiceExpr, DiceRng, StatusId, WeaponId};
 use storyforge::game::bundles::CombatantBundle;
+use storyforge::game::combat_log::{CombatEvent, CombatLog};
 use storyforge::game::components::{
-    ActionPoints, ActiveStatus, CombatStats, Equipment, Reactions, StatusEffects, Team, Vital,
+    ActionPoints, ActiveStatus, BonusMovement, CombatStats, Equipment, Reactions, StatusEffects,
+    Team, UnitToken, Vital,
 };
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::messages::ActionInput;
 use storyforge::game::resources::{CombatContext, HexPositions};
+use storyforge::ui::animation::{AnimationQueue, PendingAnim};
+use storyforge::ui::hex_grid::HexGridOffset;
 
 fn test_stats() -> CombatStats {
     CombatStats {
@@ -72,6 +76,10 @@ fn bridge_app() -> App {
         .init_resource::<CombatContext>()
         .init_resource::<ActiveContent>()
         .init_resource::<DiceRng>()
+        .init_resource::<CombatLog>()
+        .init_resource::<AnimationQueue>()
+        // HexGridOffset has no Default — insert a zero offset (no screen offset needed in tests).
+        .insert_resource(HexGridOffset(Vec2::ZERO))
         .add_message::<ActionInput>()
         .add_systems(PreUpdate, mirror_state_from_ecs)
         .add_systems(Update, process_action_system)
@@ -471,6 +479,248 @@ fn aoo_does_not_fire_from_stunned_enemy() {
         enemy_reactions_after, enemy_reactions_before,
         "stunned enemy reactions must be unchanged — no AoO was fired"
     );
+}
+
+// ── B1: new side-effect tests ────────────────────────────────────────────────
+
+/// Helper to build synthetic melee content for AoO tests.
+fn make_melee_content(ability_id: &AbilityId, weapon_id: &WeaponId) -> ContentView {
+    let sword = WeaponDef {
+        id: weapon_id.clone(),
+        name: "Test Sword".into(),
+        hand: HandType::MainHand,
+        dice: DiceExpr::new(1, 6, 0),
+        spell_power: 0, armor: 0, max_hp: 0,
+        strength: 0, dexterity: 0, constitution: 0,
+        intelligence: 0, wisdom: 0, charisma: 0,
+    };
+    let melee_ability = AbilityDef {
+        id: ability_id.clone(),
+        name: "Test Attack".into(),
+        target_type: storyforge::content::abilities::TargetType::SingleEnemy,
+        range: AbilityRange::MELEE,
+        effect: EffectDef::WeaponAttack,
+        costs: vec![],
+        cost_ap: 1,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        statuses: vec![],
+        magic_domains: vec![],
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+    let mut cv = ContentView::default();
+    cv.abilities.insert(ability_id.clone(), melee_ability);
+    cv.weapons.insert(weapon_id.clone(), sword);
+    cv
+}
+
+/// The bridge emits `CombatEvent::OpportunityAttack` when the engine fires an AoO.
+#[test]
+fn engine_emits_combat_log_opportunity_attack() {
+    let player_start = hex_from_offset(0, 0);
+    let enemy_pos = player_start.all_neighbors()[0];
+    let escape_hex = player_start
+        .all_neighbors()
+        .into_iter()
+        .find(|&h| h.unsigned_distance_to(enemy_pos) > 1)
+        .unwrap();
+
+    let ability_id = AbilityId::from("b1_aoo_attack");
+    let weapon_id = WeaponId::from("b1_aoo_sword");
+    let content = make_melee_content(&ability_id, &weapon_id);
+
+    let mut app = bridge_app();
+    app.insert_resource(ActiveContent(content));
+
+    let player = app.world_mut().spawn(CombatantBundle::new(
+        Team::Player, test_stats(), 0, 6, vec![],
+        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+    )).id();
+    let enemy = app.world_mut().spawn(CombatantBundle::new(
+        Team::Enemy, test_stats(), 0, 6, vec![ability_id],
+        Equipment { main_hand: Some(weapon_id), off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+    )).id();
+    app.world_mut().entity_mut(enemy).get_mut::<Reactions>().unwrap().remaining = 1;
+    app.world_mut().resource_mut::<HexPositions>().insert(player, player_start);
+    app.world_mut().resource_mut::<HexPositions>().insert(enemy, enemy_pos);
+
+    app.update(); // mirror
+
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Move { actor: player, path: vec![escape_hex] });
+    app.update();
+
+    let log = app.world().resource::<CombatLog>();
+    let aoo_events: Vec<_> = log.0.iter().filter_map(|e| {
+        if let CombatEvent::OpportunityAttack { attacker, target, damage, killed } = e {
+            Some((*attacker, *target, *damage, *killed))
+        } else { None }
+    }).collect();
+
+    assert_eq!(aoo_events.len(), 1, "exactly one OpportunityAttack expected, got {:?}", aoo_events);
+    let (att, tgt, dmg, killed) = aoo_events[0];
+    assert_eq!(att, enemy, "attacker must be the enemy");
+    assert_eq!(tgt, player, "target must be the player");
+    assert!(dmg > 0, "damage must be positive");
+    assert!(!killed, "player should not die from one AoO with default HP");
+}
+
+/// The bridge emits a single aggregated `CombatEvent::UnitMoved`.
+#[test]
+fn engine_emits_combat_log_unit_moved() {
+    let start = hex_from_offset(0, 0);
+    let target = hex_from_offset(1, 0);
+
+    let mut app = bridge_app();
+    let actor = app.world_mut().spawn(CombatantBundle::new(
+        Team::Player, test_stats(), 0, 6, vec![], test_equipment(),
+    )).id();
+    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
+    app.update();
+
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Move { actor, path: vec![target] });
+    app.update();
+
+    let log = app.world().resource::<CombatLog>();
+    let moved_events: Vec<_> = log.0.iter().filter_map(|e| {
+        if let CombatEvent::UnitMoved { actor: a, from, to } = e {
+            Some((*a, *from, *to))
+        } else { None }
+    }).collect();
+
+    assert_eq!(moved_events.len(), 1, "exactly one UnitMoved expected");
+    let (a, from, to) = moved_events[0];
+    assert_eq!(a, actor);
+    assert_eq!(from, start);
+    assert_eq!(to, target);
+}
+
+/// The bridge enqueues a `PendingAnim::Movement` with correct waypoints.
+#[test]
+fn engine_enqueues_movement_animation() {
+    let start = hex_from_offset(0, 0);
+    let step1 = hex_from_offset(1, 0);
+
+    let mut app = bridge_app();
+    let actor = app.world_mut().spawn(CombatantBundle::new(
+        Team::Player, test_stats(), 0, 6, vec![], test_equipment(),
+    )).id();
+    // Spawn a token entity pointing at the actor.
+    let token_entity = app.world_mut().spawn(UnitToken(actor)).id();
+    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
+    app.update();
+
+    let path = vec![step1];
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Move { actor, path: path.clone() });
+    app.update();
+
+    let queue = app.world().resource::<AnimationQueue>();
+    assert_eq!(queue.0.len(), 1, "one animation should be enqueued");
+    match &queue.0[0] {
+        PendingAnim::Movement { token, waypoints } => {
+            assert_eq!(*token, token_entity, "token entity must match");
+            // waypoints = [start, step1] → path.len() + 1 = 2
+            assert_eq!(
+                waypoints.len(),
+                path.len() + 1,
+                "waypoints should be start + each path step"
+            );
+        }
+        other => panic!("expected Movement animation, got {:?}", std::mem::discriminant(other)),
+    }
+}
+
+/// The projector removes `BonusMovement` when `movement_points` reaches zero.
+#[test]
+fn projector_removes_bonus_movement_when_mp_zero() {
+    let start = hex_from_offset(0, 0);
+    let target = hex_from_offset(1, 0);
+
+    let mut app = bridge_app();
+
+    // Spawn actor with movement_points = 1 (just enough for a 1-step path).
+    let actor = app.world_mut().spawn((
+        CombatantBundle::new(Team::Player, test_stats(), 0, 1, vec![], test_equipment()),
+        BonusMovement,
+    )).id();
+    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
+    app.update();
+
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Move { actor, path: vec![target] });
+    app.update();
+
+    assert!(
+        app.world().entity(actor).get::<BonusMovement>().is_none(),
+        "BonusMovement must be removed when movement_points reaches zero"
+    );
+}
+
+/// The bridge inserts `Dead` and emits `CombatEvent::UnitDied` when the mover
+/// is killed by an AoO mid-path.
+#[test]
+fn engine_inserts_dead_marker_on_aoo_kill() {
+    let player_start = hex_from_offset(0, 0);
+    let enemy_pos = player_start.all_neighbors()[0];
+    let escape_hex = player_start
+        .all_neighbors()
+        .into_iter()
+        .find(|&h| h.unsigned_distance_to(enemy_pos) > 1)
+        .unwrap();
+
+    let ability_id = AbilityId::from("b1_kill_attack");
+    let weapon_id = WeaponId::from("b1_kill_sword");
+    let content = make_melee_content(&ability_id, &weapon_id);
+
+    let mut app = bridge_app();
+    app.insert_resource(ActiveContent(content));
+
+    // Player with hp=1 — any hit is lethal.
+    let weak_stats = CombatStats {
+        max_hp: 1,
+        strength: 5, dexterity: 5, constitution: 10,
+        intelligence: 0, wisdom: 10, charisma: 10,
+    };
+    let player = app.world_mut().spawn(CombatantBundle::new(
+        Team::Player, weak_stats, 0, 6, vec![],
+        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+    )).id();
+    let enemy = app.world_mut().spawn(CombatantBundle::new(
+        Team::Enemy, test_stats(), 0, 6, vec![ability_id],
+        Equipment { main_hand: Some(weapon_id), off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+    )).id();
+    app.world_mut().entity_mut(enemy).get_mut::<Reactions>().unwrap().remaining = 1;
+    app.world_mut().resource_mut::<HexPositions>().insert(player, player_start);
+    app.world_mut().resource_mut::<HexPositions>().insert(enemy, enemy_pos);
+
+    // Script the dice: roll maximum damage (6) to guarantee a kill on hp=1.
+    app.world_mut().resource_mut::<DiceRng>().script(&[6]);
+
+    app.update(); // mirror
+
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Move { actor: player, path: vec![escape_hex] });
+    app.update();
+
+    // Dead component must be inserted.
+    assert!(
+        app.world().entity(player).get::<storyforge::game::components::Dead>().is_some(),
+        "player must have Dead component after lethal AoO"
+    );
+
+    // CombatLog must contain UnitDied.
+    let log = app.world().resource::<CombatLog>();
+    let died = log.0.iter().any(|e| matches!(e, CombatEvent::UnitDied { entity } if *entity == player));
+    assert!(died, "CombatLog must contain UnitDied for the player");
 }
 
 /// Projector-isolation test: direct engine mutation flows to ECS without

@@ -34,22 +34,28 @@ use bevy::prelude::*;
 
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::content::content_view::ActiveContent;
+use crate::game::combat_log::{CombatEvent, CombatLog};
+use crate::game::components::{
+    Abilities, ActionPoints, BonusMovement, CombatStats, Combatant, Dead, Equipment, Faction,
+    Mana, Rage, Reactions, Speed, StatusEffects, UnitToken, Vital,
+};
+use crate::game::hex::LAYOUT;
 use crate::game::messages::ActionInput;
+use crate::game::resources::{CombatContext, HexPositions};
+use crate::ui::animation::{AnimationQueue, PendingAnim};
+use crate::ui::hex_grid::HexGridOffset;
 
 use combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses},
     dice::DiceSource,
+    event::Event,
+    reaction::ReactionKind,
     state::{ActiveStatus, CombatState, Pool, RoundPhase, Team, Unit, UnitId},
     step::step,
 };
 use combat_engine::dice::DiceExpr as EngineDiceExpr;
 use crate::core::modifier;
-use crate::game::components::{
-    Abilities, ActionPoints, CombatStats, Combatant, Dead, Equipment, Faction, Mana, Rage,
-    Reactions, Speed, StatusEffects, Vital,
-};
-use crate::game::resources::{CombatContext, HexPositions};
 
 // ── Entity ↔ UnitId mapping ───────────────────────────────────────────────────
 
@@ -346,9 +352,10 @@ impl<'a> DiceSource for DiceRngAdapter<'a> {
 /// `Update` system — parallel witness call to `combat_engine::step()`.
 ///
 /// Reads `ActionInput::Move` messages, calls `step()` against the mirrored
-/// `CombatStateRes`, and **ignores the output**.  `movement_system` remains
-/// authoritative; this is a Phase 1 step-2 witness that proves the plumbing
-/// reaches the engine.
+/// `CombatStateRes`, and translates the resulting `Event` stream into Bevy-land
+/// side effects (CombatLog entries, Dead markers, movement animations).
+/// `movement_system` remains authoritative; these side effects are exercised
+/// only by new tests against the bridge-only fixture (Commit B1).
 ///
 /// Now wired with a real ECS-backed `EcsContentView` so the engine can fire
 /// AoO reactions correctly (step 4a).  State mutations are ephemeral —
@@ -357,12 +364,17 @@ impl<'a> DiceSource for DiceRngAdapter<'a> {
 ///
 /// Runs in `CombatStep::Execute`, gated by `CombatPhase::AwaitCommand`.
 pub fn process_action_system(
+    mut commands: Commands,
     mut reader: MessageReader<ActionInput>,
     id_map: Res<UnitIdMap>,
     mut combat_state: ResMut<CombatStateRes>,
     combatants: Query<AooRow, With<Combatant>>,
     active_content: Res<ActiveContent>,
     mut rng: ResMut<crate::core::DiceRng>,
+    mut log: ResMut<CombatLog>,
+    mut anim_queue: ResMut<AnimationQueue>,
+    grid_offset: Res<HexGridOffset>,
+    tokens: Query<(Entity, &UnitToken)>,
 ) {
     for msg in reader.read() {
         match msg {
@@ -384,11 +396,17 @@ pub fn process_action_system(
                 let content = build_ecs_content_view(&combatants, &id_map, &active_content);
 
                 match step(&mut combat_state.0, action, &mut adapter, &content) {
-                    Ok(_events) => {
-                        trace!(
-                            "process_action_system: step() ok for actor {:?} (uid {:?})",
-                            actor,
-                            actor_uid
+                    Ok(events) => {
+                        translate_move_events(
+                            *actor,
+                            &events,
+                            &id_map,
+                            &combat_state,
+                            &mut commands,
+                            &mut log,
+                            &mut anim_queue,
+                            &grid_offset,
+                            &tokens,
                         );
                     }
                     Err(e) => {
@@ -403,10 +421,122 @@ pub fn process_action_system(
     }
 }
 
+/// Translate the engine `Event` stream from a single `Action::Move` into
+/// Bevy-land side effects.
+///
+/// Corresponds to the side effects emitted by `movement_system`:
+/// - `CombatEvent::OpportunityAttack` per AoO that fired.
+/// - `CombatEvent::RageGained` for both the attacker and victim of each AoO.
+/// - `CombatEvent::UnitDied` if the mover dies mid-path.
+/// - `CombatEvent::UnitMoved` (single, aggregated from all per-step moves).
+/// - `Dead` component inserted on the mover if they died.
+/// - `PendingAnim::Movement` enqueued to `AnimationQueue`.
+#[allow(clippy::too_many_arguments)]
+fn translate_move_events(
+    actor: Entity,
+    events: &[Event],
+    id_map: &UnitIdMap,
+    combat_state: &CombatStateRes,
+    commands: &mut Commands,
+    log: &mut CombatLog,
+    anim_queue: &mut AnimationQueue,
+    grid_offset: &HexGridOffset,
+    tokens: &Query<(Entity, &UnitToken)>,
+) {
+    let mut first_from: Option<hexx::Hex> = None;
+    let mut last_to: Option<hexx::Hex> = None;
+    let mut waypoints: Vec<Vec2> = Vec::new();
+    // Most-recent ReactionFired target (decision 6.3: ReactionFired immediately
+    // precedes its Damage in the event stream).
+    let mut pending_aoo_target: Option<UnitId> = None;
+
+    for ev in events {
+        match ev {
+            Event::UnitMoved { from, to, .. } => {
+                if first_from.is_none() {
+                    first_from = Some(*from);
+                    waypoints.push(LAYOUT.hex_to_world_pos(*from) + grid_offset.0);
+                }
+                last_to = Some(*to);
+                waypoints.push(LAYOUT.hex_to_world_pos(*to) + grid_offset.0);
+            }
+            Event::ReactionFired {
+                kind: ReactionKind::OpportunityAttack,
+                against,
+                ..
+            } => {
+                pending_aoo_target = Some(*against);
+            }
+            Event::UnitDamaged { target, amount, source } => {
+                // Pair with the most recent ReactionFired (decision 6.3).
+                if pending_aoo_target == Some(*target) {
+                    let Some(attacker_ent) = id_map.get_entity(*source) else {
+                        pending_aoo_target = None;
+                        continue;
+                    };
+                    let Some(target_ent) = id_map.get_entity(*target) else {
+                        pending_aoo_target = None;
+                        continue;
+                    };
+                    let killed = combat_state
+                        .0
+                        .unit(*target)
+                        .map(|u| !u.is_alive())
+                        .unwrap_or(false);
+                    log.push(CombatEvent::OpportunityAttack {
+                        attacker: attacker_ent,
+                        target: target_ent,
+                        damage: *amount as i32,
+                        killed,
+                    });
+                    pending_aoo_target = None;
+                }
+                // Non-AoO damage on Move is not possible — silently ignore.
+            }
+            Event::RageGained { unit, current, max } => {
+                if let Some(actor_ent) = id_map.get_entity(*unit) {
+                    log.push(CombatEvent::RageGained {
+                        actor: actor_ent,
+                        current: *current,
+                        max: *max,
+                    });
+                }
+            }
+            Event::UnitDied { unit } => {
+                if let Some(entity) = id_map.get_entity(*unit) {
+                    log.push(CombatEvent::UnitDied { entity });
+                    commands.entity(entity).insert(Dead);
+                }
+            }
+            Event::ActionStarted { .. } | Event::ActionFinished { .. } => {}
+        }
+    }
+
+    // Emit single aggregated UnitMoved.
+    if let (Some(from), Some(to)) = (first_from, last_to) {
+        log.push(CombatEvent::UnitMoved { actor, from, to });
+    }
+
+    // Enqueue movement animation if there were any move steps.
+    if !waypoints.is_empty() {
+        if let Some((token_entity, _)) = tokens.iter().find(|(_, t)| t.0 == actor) {
+            anim_queue.0.push_back(PendingAnim::Movement {
+                token: token_entity,
+                waypoints,
+            });
+        }
+    }
+}
+
 // ── project_state_to_ecs system ──────────────────────────────────────────────
 
 /// Query alias for the ECS components the projector writes.
-type ProjectionRow<'a> = (&'a mut Vital, &'a mut ActionPoints, &'a mut Reactions);
+type ProjectionRow<'a> = (
+    &'a mut Vital,
+    &'a mut ActionPoints,
+    &'a mut Reactions,
+    Has<BonusMovement>,
+);
 
 /// `PostUpdate` system — writes engine `CombatState` back to ECS components.
 ///
@@ -415,6 +545,9 @@ type ProjectionRow<'a> = (&'a mut Vital, &'a mut ActionPoints, &'a mut Reactions
 /// - `hp`               → `Vital.hp`
 /// - `movement_points`  → `ActionPoints.movement_points`
 /// - `reactions_left`   → `Reactions.remaining`
+///
+/// Additionally removes `BonusMovement` when `movement_points == 0` and the
+/// entity had the marker (mirrors `movement_system` lines 284–286).
 ///
 /// Runs after `process_action_system` (Update) so engine mutations land in ECS
 /// in the same frame.  `mirror_state_from_ecs` (PreUpdate) will re-sync ECS →
@@ -427,6 +560,7 @@ type ProjectionRow<'a> = (&'a mut Vital, &'a mut ActionPoints, &'a mut Reactions
 ///
 /// Gated by `CombatPhase::AwaitCommand` (same as `mirror_state_from_ecs`).
 pub fn project_state_to_ecs(
+    mut commands: Commands,
     combat_state: Res<CombatStateRes>,
     id_map: Res<UnitIdMap>,
     mut positions: ResMut<HexPositions>,
@@ -442,10 +576,14 @@ pub fn project_state_to_ecs(
         positions.insert(entity, unit.pos);
 
         // Write Vital / ActionPoints / Reactions.
-        if let Ok((mut vital, mut ap, mut reactions)) = combatants.get_mut(entity) {
+        if let Ok((mut vital, mut ap, mut reactions, has_bonus)) = combatants.get_mut(entity) {
             vital.hp = unit.hp;
             ap.movement_points = unit.movement_points;
             reactions.remaining = unit.reactions_left as u8;
+
+            if has_bonus && ap.movement_points == 0 {
+                commands.entity(entity).remove::<BonusMovement>();
+            }
         }
     }
 }
