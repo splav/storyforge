@@ -37,6 +37,11 @@ pub enum Effect {
     DecrementMP { actor: UnitId, by: i32 },
     /// Deal raw (pre-mitigation) damage from `source` to `target`.
     Damage { target: UnitId, raw: f32, source: UnitId, pierces: bool },
+    /// Restore HP on `target`, after first neutralizing active DoT
+    /// statuses (Bevy parity — see `apply_effects.rs:73-114`).
+    /// `amount` is the raw heal pool; final HP gain may be less if DoTs
+    /// consume some of it.
+    Heal { target: UnitId, amount: i32 },
     /// Grant +1 rage (clamped to max) to `target`.
     GainRage { target: UnitId },
     /// Spend one reaction from the actor.
@@ -57,6 +62,10 @@ pub enum Effect {
 pub struct ApplyCtx {
     /// Set by `Damage`: final post-mitigation damage actually dealt.
     pub final_damage: Option<f32>,
+    /// Set by `Heal`: actual HP restored (after DoT-neutralization consumes
+    /// some of the heal pool).  May be < `Heal.amount` if DoTs consumed
+    /// part or all of the pool.
+    pub heal_amount: Option<i32>,
 }
 
 /// Apply one atomic effect to `state`.
@@ -116,7 +125,64 @@ pub fn apply_effect(
                 derived.push(Effect::Death { unit: *target });
             }
 
-            (derived, ApplyCtx { final_damage: Some(final_dmg) })
+            (derived, ApplyCtx { final_damage: Some(final_dmg), ..ApplyCtx::default() })
+        }
+
+        Effect::Heal { target, amount } => {
+            // Two-phase heal mirrors `src/combat/apply_effects.rs:73-114`:
+            //   1. Walk active DoT statuses (`dot_per_tick > 0`).  Each
+            //      consumes heal in order: if `remaining >= dot`, fully
+            //      neutralize that DoT (set its rounds=0 for removal,
+            //      dot=0).  Otherwise, partially weaken it and exhaust
+            //      the heal pool.
+            //   2. Remaining heal restores HP, clamped at max_hp.
+            // Returns ApplyCtx.heal_amount = actual HP restored (may be 0
+            // if all heal went into DoT neutralization).
+            let mut remaining = *amount;
+            let mut any_status_removed = false;
+            if let Some(u) = state.unit_mut(*target) {
+                for s in u.statuses.iter_mut() {
+                    if remaining <= 0 {
+                        break;
+                    }
+                    if s.dot_per_tick > 0 {
+                        if remaining >= s.dot_per_tick {
+                            remaining -= s.dot_per_tick;
+                            s.dot_per_tick = 0;
+                            s.rounds_remaining = 0;
+                        } else {
+                            s.dot_per_tick -= remaining;
+                            remaining = 0;
+                        }
+                    }
+                }
+                // Drop statuses marked for removal (rounds_remaining == 0).
+                let before = u.statuses.len();
+                u.statuses.retain(|s| s.rounds_remaining > 0);
+                any_status_removed = u.statuses.len() < before;
+            }
+
+            let hp_restored = if remaining > 0 {
+                if let Some(u) = state.unit_mut(*target) {
+                    let before = u.hp;
+                    u.hp = (u.hp + remaining).min(u.max_hp);
+                    u.hp - before
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+
+            // If a status was removed, derive RefreshAggregates so
+            // armor_bonus / speed stay current.
+            let derived = if any_status_removed {
+                vec![Effect::RefreshAggregates { unit: *target }]
+            } else {
+                vec![]
+            };
+
+            (derived, ApplyCtx { heal_amount: Some(hp_restored), ..ApplyCtx::default() })
         }
 
         Effect::GainRage { target } => {

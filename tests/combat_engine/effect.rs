@@ -340,3 +340,117 @@ fn refresh_aggregates_clears_bonuses_when_no_statuses() {
     assert_eq!(state.unit(UnitId(1)).unwrap().armor_bonus, 0);
     assert_eq!(state.unit(UnitId(1)).unwrap().speed, 4); // base_speed
 }
+
+// ── Heal ─────────────────────────────────────────────────────────────────────
+
+/// Heal with no DoT statuses: HP restored, capped at max_hp.
+#[test]
+fn heal_no_dot_restores_hp() {
+    let mut u = make_unit(1, 3, 10);
+    let mut state = state_with(vec![u.clone()]);
+
+    let (derived, ctx) = apply_effect(
+        &mut state,
+        &Effect::Heal { target: UnitId(1), amount: 5 },
+        &StubContent::neutral(),
+    );
+
+    assert!(derived.is_empty(), "no status removed → no derived effects");
+    assert_eq!(ctx.heal_amount, Some(5), "5 HP restored");
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 8, "3 + 5 = 8");
+
+    // Sanity: heals above cap clamp.
+    u.hp = 8;
+    state = state_with(vec![u]);
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::Heal { target: UnitId(1), amount: 10 },
+        &StubContent::neutral(),
+    );
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 10, "clamped at max");
+    assert_eq!(ctx.heal_amount, Some(2), "only 2 HP actually restored (10 - 8)");
+}
+
+/// Heal pool exceeds DoT: status removed, remaining heal restores HP.
+/// Decision 6.x parity with `apply_effects_system`: DoT-neutralize first,
+/// then HP heal. Status removal derives `RefreshAggregates` so any
+/// armor/speed bonuses from the cleansed status are cleared.
+#[test]
+fn heal_full_neutralizes_dot_then_restores_hp() {
+    let mut u = make_unit(1, 3, 10);
+    u.statuses.push(ActiveStatus {
+        id: StatusId::from("poison"),
+        rounds_remaining: 3,
+        dot_per_tick: 2,
+    });
+    let mut state = state_with(vec![u]);
+
+    let (derived, ctx) = apply_effect(
+        &mut state,
+        &Effect::Heal { target: UnitId(1), amount: 5 },
+        &StubContent::neutral(),
+    );
+
+    let unit = state.unit(UnitId(1)).unwrap();
+    assert!(unit.statuses.is_empty(), "poison neutralized + removed");
+    assert_eq!(unit.hp, 6, "3 + (5 - 2 DoT) = 6");
+    assert_eq!(ctx.heal_amount, Some(3), "3 HP actually restored");
+    assert_eq!(derived.len(), 1, "RefreshAggregates derived from status removal");
+    assert!(matches!(derived[0], Effect::RefreshAggregates { unit: UnitId(1) }));
+}
+
+/// Heal pool smaller than DoT: status partially weakened, no HP heal.
+#[test]
+fn heal_partial_dot_consumes_all_heal_no_hp_restored() {
+    let mut u = make_unit(1, 3, 10);
+    u.statuses.push(ActiveStatus {
+        id: StatusId::from("poison"),
+        rounds_remaining: 3,
+        dot_per_tick: 8,
+    });
+    let mut state = state_with(vec![u]);
+
+    let (derived, ctx) = apply_effect(
+        &mut state,
+        &Effect::Heal { target: UnitId(1), amount: 3 },
+        &StubContent::neutral(),
+    );
+
+    let unit = state.unit(UnitId(1)).unwrap();
+    assert_eq!(unit.statuses.len(), 1, "poison still active");
+    assert_eq!(unit.statuses[0].dot_per_tick, 5, "8 - 3 = 5 dot remaining");
+    assert_eq!(unit.hp, 3, "no HP restored — pool consumed by DoT");
+    assert_eq!(ctx.heal_amount, Some(0));
+    assert!(derived.is_empty(), "no status removed → no RefreshAggregates");
+}
+
+/// Multiple DoT statuses: heal cleanses them in order until pool exhausts.
+#[test]
+fn heal_neutralizes_multiple_dots_in_order() {
+    let mut u = make_unit(1, 1, 10);
+    u.statuses.push(ActiveStatus {
+        id: StatusId::from("poison"),
+        rounds_remaining: 3,
+        dot_per_tick: 2,
+    });
+    u.statuses.push(ActiveStatus {
+        id: StatusId::from("burning"),
+        rounds_remaining: 2,
+        dot_per_tick: 3,
+    });
+    let mut state = state_with(vec![u]);
+
+    // Heal pool = 4: cleanses poison (2), leaves burning weakened (3 - 2 = 1).
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::Heal { target: UnitId(1), amount: 4 },
+        &StubContent::neutral(),
+    );
+
+    let unit = state.unit(UnitId(1)).unwrap();
+    assert_eq!(unit.statuses.len(), 1, "poison removed, burning remains");
+    assert_eq!(unit.statuses[0].id, StatusId::from("burning"));
+    assert_eq!(unit.statuses[0].dot_per_tick, 1, "burning weakened to 1");
+    assert_eq!(unit.hp, 1, "no HP restored — pool consumed by DoTs");
+    assert_eq!(ctx.heal_amount, Some(0));
+}

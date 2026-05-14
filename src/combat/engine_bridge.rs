@@ -518,6 +518,11 @@ fn translate_move_events(
                     commands.entity(entity).insert(Dead);
                 }
             }
+            // Heal events surface here once Phase 2 step 7 wires Cast through
+            // the bridge.  Today Move actions never derive Heal, so the
+            // event stream for `ActionInput::Move` cannot contain one — this
+            // arm is a no-op pin for exhaustiveness.
+            Event::UnitHealed { .. } => {}
             Event::ActionStarted { .. } | Event::ActionFinished { .. } => {}
         }
     }

@@ -16,6 +16,7 @@ pub enum Event {
     ActionStarted { action: Action },
     UnitMoved { actor: UnitId, from: Hex, to: Hex },
     UnitDamaged { target: UnitId, amount: f32, source: UnitId },
+    UnitHealed { target: UnitId, amount: i32 },
     RageGained { unit: UnitId, current: i32, max: i32 },
     ReactionFired { actor: UnitId, kind: ReactionKind, against: UnitId },
     UnitDied { unit: UnitId },
@@ -49,6 +50,12 @@ pub fn effect_to_event(
                 target: *target,
                 amount: ctx.final_damage.unwrap_or(0.0),
                 source: *source,
+            })
+        }
+        Effect::Heal { target, .. } => {
+            Some(Event::UnitHealed {
+                target: *target,
+                amount: ctx.heal_amount.unwrap_or(0),
             })
         }
         Effect::GainRage { target } => {
