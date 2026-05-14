@@ -36,15 +36,115 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::{
     action::{Action, ActionError},
-    content::ContentView,
+    content::{AbilityDef, ContentView, StatusDef},
     dice::DiceSource,
     effect::{apply_effect, Effect},
     event::{effect_to_event, Event},
+    legality::{check_legality, ActionState, ActorView, ProposedAction},
     reaction::{expand_reaction, scan_reactions, Reaction, ReactionKind},
-    state::CombatState,
+    state::{CombatState, Team},
+    AbilityId, StatusId,
 };
 
 const REACTION_DEPTH_LIMIT: usize = 100;
+
+// ── EngineCheckState ──────────────────────────────────────────────────────────
+
+/// `ActionState` adapter for engine-side legality checks during `step()`.
+///
+/// Bundles the engine's authoritative state (`CombatState`) with a
+/// `ContentView` reference so `check_legality` can answer questions about
+/// abilities, statuses, and units uniformly.
+struct EngineCheckState<'a> {
+    state: &'a CombatState,
+    content: &'a dyn ContentView,
+}
+
+impl<'a> ActionState for EngineCheckState<'a> {
+    type Id = crate::state::UnitId;
+
+    fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
+        self.content.ability_def(id)
+    }
+
+    fn status_def(&self, id: &StatusId) -> Option<StatusDef> {
+        self.content.status_def(id)
+    }
+
+    fn actor_view(&self, actor: crate::state::UnitId) -> Option<ActorView> {
+        let u = self.state.unit(actor)?;
+        // Fold status flags from content lookups.
+        let (causes_disadvantage, blocks_mana_abilities) = u.statuses.iter().fold(
+            (false, false),
+            |(d, m), s| {
+                let def = self.content.status_def(&s.id);
+                (
+                    d || def.as_ref().is_some_and(|x| x.causes_disadvantage),
+                    m || def.as_ref().is_some_and(|x| x.blocks_mana_abilities),
+                )
+            },
+        );
+        Some(ActorView {
+            pos: u.pos,
+            team: u.team,
+            hp: u.hp,
+            ap: u.action_points,
+            mana: u.mana.map(|(c, _)| c),
+            rage: u.rage.map(|(c, _)| c),
+            energy: u.energy.map(|(c, _)| c),
+            causes_disadvantage,
+            blocks_mana_abilities,
+            is_alive: u.is_alive(),
+        })
+    }
+
+    fn actor_knows_ability(&self, _actor: crate::state::UnitId, _ability: &AbilityId) -> bool {
+        // Phase 2 step 6b limitation: engine doesn't yet track per-unit
+        // ability lists.  Bevy + snapshot backends still enforce this via
+        // their own `actor_knows_ability` impls before step() runs (player
+        // path: `validate_action_system`; AI path: `generate_plans` already
+        // pre-screens via `check_legality` against `SnapshotActionState`).
+        // Returning `true` here means the engine pre-validate cannot
+        // produce `IllegalReason::AbilityNotInList` — that branch fires
+        // only at the Bevy / sim boundary today.  Adding ability lists to
+        // engine `Unit` is deferred until per-unit ability tracking
+        // becomes engine-authoritative.
+        true
+    }
+
+    fn is_target_alive(&self, target: crate::state::UnitId) -> Option<bool> {
+        self.state.unit(target).map(|u| u.is_alive())
+    }
+
+    fn target_team(&self, target: crate::state::UnitId) -> Option<Team> {
+        self.state.unit(target).map(|u| u.team)
+    }
+
+    fn taunter_for(&self, actor_team: Team) -> Option<crate::state::UnitId> {
+        self.state
+            .units()
+            .iter()
+            .filter(|u| u.is_alive() && u.team != actor_team)
+            .find(|u| {
+                u.statuses.iter().any(|s| {
+                    self.content
+                        .status_def(&s.id)
+                        .map(|d| d.forces_targeting)
+                        .unwrap_or(false)
+                })
+            })
+            .map(|u| u.id)
+    }
+
+    fn is_in_bounds(&self, _pos: hexx::Hex) -> bool {
+        // Phase 2 step 6b limitation: engine is grid-topology-agnostic.
+        // Bevy backend (`BevyActions::is_in_bounds`) calls
+        // `crate::game::hex::in_bounds`; engine assumes all hexes are
+        // in-bounds.  `IllegalReason::TargetOutOfBounds` cannot fire from
+        // engine pre-validate — Bevy gate catches it client-side.
+        true
+    }
+}
 
 /// Advance `state` by one action.
 ///
@@ -116,6 +216,24 @@ fn step_inner(
                 }
             }
         }
+        Action::Cast { actor, ability, target, target_pos } => {
+            // Engine-side legality check.  Translates IllegalReason to
+            // ActionError::Illegal so callers (bridge, sim) see the same
+            // rejection vocabulary as Bevy `validate_action_system`.
+            let check = EngineCheckState { state, content };
+            let proposal = ProposedAction {
+                actor: *actor,
+                ability,
+                target: *target,
+                target_pos: *target_pos,
+            };
+            match check_legality(proposal, &check) {
+                Ok(_legal) => {
+                    // Effect fanout lands in step 6c-f.  For now, no effects.
+                }
+                Err(reason) => return Err(ActionError::Illegal(reason)),
+            }
+        }
     }
 
     // ── Emit ActionStarted event ──────────────────────────────────────────────
@@ -134,6 +252,10 @@ fn step_inner(
                 effect_queue.push_back(Effect::MovePosition { actor: *actor, to: hex });
             }
         }
+        Action::Cast { .. } => {
+            // No effect fanout yet — steps 6c-f populate effect_queue with
+            // PayCost / Damage / Heal / ApplyStatus per resolved target.
+        }
     }
 
     // ── Pump loop ─────────────────────────────────────────────────────────────
@@ -143,6 +265,7 @@ fn step_inner(
 
     let actor_id = match &action {
         Action::Move { actor, .. } => *actor,
+        Action::Cast { actor, .. } => *actor,
     };
     // prev_pos starts as the actor's position before any effects are applied.
     let mut prev_pos = state.unit(actor_id).map(|u| u.pos).unwrap_or_default();

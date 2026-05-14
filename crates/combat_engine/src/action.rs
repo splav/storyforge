@@ -3,18 +3,21 @@
 use hexx::Hex;
 
 use crate::state::UnitId;
+use crate::AbilityId;
 
 /// A high-level combat intent.  The engine validates and expands each variant
 /// into a stream of `Effect`s.
 ///
-/// Phase 0 implements only `Move`; other variants are stubs present so the
-/// type system is complete.
+/// Phase 0 implements only `Move`; `Cast` is added in Phase 2 step 6b.
 #[derive(Debug, Clone)]
 pub enum Action {
     Move { actor: UnitId, path: Vec<Hex> },
-    // Future variants (Phase 1+):
-    // Cast  { actor: UnitId, ability: AbilityId, target: ActionTarget },
-    // EndTurn { actor: UnitId },
+    Cast {
+        actor: UnitId,
+        ability: AbilityId,
+        target: UnitId,
+        target_pos: Hex,
+    },
 }
 
 /// Engine-level error returned by `step()` on illegal or failed actions.
@@ -34,4 +37,6 @@ pub enum ActionError {
     PathBlockedByEnemy { hex: Hex },
     /// The destination hex is held by some other unit (friend or foe).
     DestinationOccupied { hex: Hex },
+    /// Cast was legally rejected — see `IllegalReason` for the specific cause.
+    Illegal(crate::legality::IllegalReason),
 }

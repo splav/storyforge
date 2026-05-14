@@ -9,6 +9,9 @@
 #[path = "combat_engine/bridge_smoke.rs"]
 mod bridge_smoke;
 
+#[path = "combat_engine/cast.rs"]
+mod cast;
+
 #[path = "combat_engine/dice.rs"]
 mod dice;
 
