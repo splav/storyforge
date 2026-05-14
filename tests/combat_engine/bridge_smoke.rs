@@ -2,7 +2,7 @@
 //!
 //! Test 1 (`process_action_move_writes_engine_state_and_projects_to_ecs`):
 //!   Verifies the full round-trip for a Move action:
-//!   1. `mirror_state_from_ecs` (PreUpdate) populates `CombatStateRes` from ECS.
+//!   1. `init_state_from_ecs` populates `CombatStateRes` from ECS (called via helper).
 //!   2. `process_action_system` (Update) consumes `ActionInput::Move` and calls
 //!      `step()`, mutating `CombatStateRes`.
 //!   3. `project_state_to_ecs` (PostUpdate) writes the engine state back to ECS.
@@ -22,7 +22,7 @@
 use bevy::prelude::*;
 
 use storyforge::combat::engine_bridge::{
-    entity_to_uid, mirror_state_from_ecs, process_action_system, project_state_to_ecs,
+    entity_to_uid, init_state_from_ecs, process_action_system, project_state_to_ecs,
     CombatStateRes, UnitIdMap,
 };
 use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
@@ -64,9 +64,11 @@ fn test_equipment() -> Equipment {
     }
 }
 
-/// Full bridge app: mirror (PreUpdate) + process_action + projector chained (Update).
+/// Full bridge app: process_action + projector chained (Update).
 ///
 /// Used for end-to-end tests where an `ActionInput` drives the full cycle.
+/// Engine state is seeded explicitly via `init_bridge_engine_state` after spawning
+/// units (bridge_app has no state machine, so OnEnter cannot be used).
 fn bridge_app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -81,7 +83,6 @@ fn bridge_app() -> App {
         // HexGridOffset has no Default — insert a zero offset (no screen offset needed in tests).
         .insert_resource(HexGridOffset(Vec2::ZERO))
         .add_message::<ActionInput>()
-        .add_systems(PreUpdate, mirror_state_from_ecs)
         .add_systems(
             Update,
             (process_action_system, project_state_to_ecs).chain(),
@@ -89,12 +90,24 @@ fn bridge_app() -> App {
     app
 }
 
-/// Projector-only app: no mirror system, only the projector in PostUpdate.
+/// Seed `CombatStateRes` from ECS after spawning units in bridge tests.
+///
+/// bridge_app has no Bevy state machine, so `OnEnter(AwaitCommand)` cannot fire.
+/// Call this once after all units are spawned and positions registered, before
+/// the first `app.update()` that runs `process_action_system`.
+fn init_bridge_engine_state(app: &mut App) {
+    use bevy::ecs::system::RunSystemOnce;
+    app.world_mut()
+        .run_system_once(init_state_from_ecs)
+        .expect("init_state_from_ecs failed");
+}
+
+/// Projector-only app: only the projector in PostUpdate.
 ///
 /// Used to test `project_state_to_ecs` in isolation: we seed `CombatStateRes`
 /// manually (or via one `bridge_app` update), then switch to this fixture so
-/// that a direct mutation of `CombatStateRes` is not overwritten by
-/// `mirror_state_from_ecs` before the projector fires.
+/// that a direct mutation of `CombatStateRes` is not overwritten by an init
+/// pass before the projector fires.
 fn projector_only_app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -137,10 +150,10 @@ fn process_action_move_writes_engine_state_and_projects_to_ecs() {
         .resource_mut::<HexPositions>()
         .insert(actor, start);
 
-    // --- First update: mirror_state_from_ecs populates CombatStateRes ---
-    app.update();
+    // Seed engine state from ECS before first update.
+    init_bridge_engine_state(&mut app);
 
-    // Verify engine state was mirrored correctly.
+    // Verify engine state was initialized correctly.
     let actor_uid = entity_to_uid(actor);
     {
         let state = app.world().resource::<CombatStateRes>();
@@ -153,8 +166,7 @@ fn process_action_move_writes_engine_state_and_projects_to_ecs() {
         .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
         .write(ActionInput::Move { actor, path: vec![target] });
 
-    // --- Second update: mirror re-mirrors (ECS unchanged), process_action_system
-    //     calls step(), project_state_to_ecs writes engine state back to ECS ---
+    // --- Update: process_action_system calls step(), project_state_to_ecs writes engine state back to ECS ---
     app.update();
 
     // Engine state: actor at target hex.
@@ -306,8 +318,8 @@ fn aoo_dice_flows_from_equipment_through_process_action_system() {
     app.world_mut().resource_mut::<HexPositions>().insert(player, player_start);
     app.world_mut().resource_mut::<HexPositions>().insert(enemy, enemy_pos);
 
-    // First update: mirror ECS → engine.
-    app.update();
+    // Seed engine state from ECS.
+    init_bridge_engine_state(&mut app);
 
     // Record player's starting HP.
     let max_hp = app.world().entity(player).get::<Vital>().unwrap().max_hp;
@@ -317,7 +329,7 @@ fn aoo_dice_flows_from_equipment_through_process_action_system() {
         .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
         .write(ActionInput::Move { actor: player, path: vec![escape_hex] });
 
-    // Second update: process_action_system calls step() with real EcsContentView.
+    // Update: process_action_system calls step() with real EcsContentView.
     // AoO fires; project_state_to_ecs writes hp back to ECS.
     app.update();
 
@@ -457,8 +469,8 @@ fn aoo_does_not_fire_from_stunned_enemy() {
     app.world_mut().resource_mut::<HexPositions>().insert(player, player_start);
     app.world_mut().resource_mut::<HexPositions>().insert(enemy, enemy_pos);
 
-    // First update: mirror ECS → engine.
-    app.update();
+    // Seed engine state from ECS.
+    init_bridge_engine_state(&mut app);
 
     let max_hp = app.world().entity(player).get::<Vital>().unwrap().max_hp;
     let enemy_reactions_before = app.world().entity(enemy).get::<Reactions>().unwrap().remaining;
@@ -548,7 +560,7 @@ fn engine_emits_combat_log_opportunity_attack() {
     app.world_mut().resource_mut::<HexPositions>().insert(player, player_start);
     app.world_mut().resource_mut::<HexPositions>().insert(enemy, enemy_pos);
 
-    app.update(); // mirror
+    init_bridge_engine_state(&mut app);
 
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
@@ -581,7 +593,7 @@ fn engine_emits_combat_log_unit_moved() {
         Team::Player, test_stats(), 0, 6, vec![], test_equipment(),
     )).id();
     app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
-    app.update();
+    init_bridge_engine_state(&mut app);
 
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
@@ -615,7 +627,7 @@ fn engine_enqueues_movement_animation() {
     // Spawn a token entity pointing at the actor.
     let token_entity = app.world_mut().spawn(UnitToken(actor)).id();
     app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
-    app.update();
+    init_bridge_engine_state(&mut app);
 
     let path = vec![step1];
     app.world_mut()
@@ -653,7 +665,7 @@ fn projector_removes_bonus_movement_when_mp_zero() {
         BonusMovement,
     )).id();
     app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
-    app.update();
+    init_bridge_engine_state(&mut app);
 
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
@@ -706,7 +718,7 @@ fn engine_inserts_dead_marker_on_aoo_kill() {
     // Script the dice: roll maximum damage (6) to guarantee a kill on hp=1.
     app.world_mut().resource_mut::<DiceRng>().script(&[6]);
 
-    app.update(); // mirror
+    init_bridge_engine_state(&mut app);
 
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
@@ -729,8 +741,8 @@ fn engine_inserts_dead_marker_on_aoo_kill() {
 /// going through `process_action_system`.
 ///
 /// Strategy: use a `projector_only_app` (no mirror) so a manual write to
-/// `CombatStateRes` is not wiped by `mirror_state_from_ecs` before PostUpdate.
-/// We seed the resource and `UnitIdMap` by running one full `bridge_app` update,
+/// `CombatStateRes` is not wiped before PostUpdate.
+/// We seed the resource and `UnitIdMap` via `init_bridge_engine_state`,
 /// then transplant those resources into the projector-only app for the assertion.
 #[test]
 fn projector_writes_engine_mutation_to_ecs() {
@@ -756,8 +768,8 @@ fn projector_writes_engine_mutation_to_ecs() {
         .resource_mut::<HexPositions>()
         .insert(actor, start);
 
-    // One update seeds CombatStateRes and UnitIdMap.
-    seed_app.update();
+    // Seed engine state from ECS (no mirror system in bridge_app).
+    init_bridge_engine_state(&mut seed_app);
 
     // --- Phase B: set up projector-only app with the same entity / resources ---
     let mut app = projector_only_app();

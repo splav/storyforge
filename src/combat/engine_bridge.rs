@@ -11,9 +11,9 @@
 //!   One-directional ECS → engine; transitional for Phase 0.
 //! - `CombatStateRes` — `Res<CombatStateRes>` wrapping the pure `CombatState`
 //!   so the engine state can live in Bevy without the engine importing Bevy.
-//! - `mirror_state_from_ecs` — `PreUpdate` system that refreshes
-//!   `CombatStateRes` from the current ECS frame.  Engine writes go nowhere
-//!   yet; ECS stays authoritative (Phase 0 transitional).
+//! - `init_state_from_ecs` — `OnEnter(CombatPhase::AwaitCommand)` system that
+//!   initializes `CombatStateRes` from ECS once per round.  Engine is
+//!   authoritative; ECS is a read-only projection (Phase 1 target).
 //! - `process_action_system` — `Update` system (Phase 1) that consumes
 //!   `ActionInput` messages and calls `combat_engine::step()` as a parallel
 //!   witness.  Output is ignored — ECS is still authoritative via
@@ -109,8 +109,8 @@ pub fn entity_to_uid(entity: Entity) -> UnitId {
 /// Bevy resource wrapper for the pure `CombatState`.
 ///
 /// Exists solely so `CombatState` (which lives in `combat_engine/` with zero
-/// Bevy imports) can be stored as a Bevy `Res`.  The inner state is refreshed
-/// each frame by `mirror_state_from_ecs`.
+/// Bevy imports) can be stored as a Bevy `Res`.  The inner state is initialized
+/// once per round by `init_state_from_ecs` on `OnEnter(CombatPhase::AwaitCommand)`.
 ///
 /// **Phase 0 transitional:** engine writes go nowhere; ECS is still
 /// authoritative.  Phase 1+ will reverse this.
@@ -548,15 +548,15 @@ type ProjectionRow<'a> = (
 /// entity had the marker (mirrors `movement_system` lines 284–286).
 ///
 /// Runs immediately after `process_action_system` in the `CombatStep::Execute`
-/// chain so engine mutations land in ECS in the same frame.
-/// `mirror_state_from_ecs` (PreUpdate) will re-sync ECS → engine on the *next*
-/// frame's PreUpdate, so the projection is authoritative for exactly one frame.
+/// chain so engine mutations land in ECS in the same frame.  Engine state is
+/// re-initialized from ECS only on `OnEnter(CombatPhase::AwaitCommand)` via
+/// `init_state_from_ecs` (once per round, after `build_turn_order` refills),
+/// so the projector is authoritative for engine-owned fields throughout each
+/// round.
 ///
 /// Unknown units (no ECS entity in `UnitIdMap`) are silently skipped — they
 /// cannot be projected yet.  Deferred fields (mana, armor_bonus, speed)
 /// are out of scope for Phase 1.
-///
-/// Gated by `CombatPhase::AwaitCommand` (same as `mirror_state_from_ecs`).
 pub fn project_state_to_ecs(
     mut commands: Commands,
     combat_state: Res<CombatStateRes>,
@@ -595,14 +595,16 @@ pub fn project_state_to_ecs(
     }
 }
 
-// ── mirror_state_from_ecs system ─────────────────────────────────────────────
+// ── init_state_from_ecs system ────────────────────────────────────────────────
 
-/// `PreUpdate` system that refreshes `CombatStateRes` from the current ECS.
+/// Initialize / re-initialize `CombatStateRes` from current ECS state.
 ///
-/// Runs only in `CombatPhase::AwaitCommand` (same state-set as the live
-/// combat pipeline) so it's a no-op outside combat.  Engine writes go nowhere;
-/// ECS stays authoritative until Phase 1+.
-pub fn mirror_state_from_ecs(
+/// Wired to `OnEnter(CombatPhase::AwaitCommand)`: fires once at combat start
+/// and once at the start of each round (after `build_turn_order` refills
+/// MP+reactions in `StartRound`).
+///
+/// Engine is authoritative for state; ECS is a read-only projection.
+pub fn init_state_from_ecs(
     combatants: Query<CombatantRow, With<Combatant>>,
     positions: Res<HexPositions>,
     combat_context: Res<CombatContext>,

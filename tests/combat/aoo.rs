@@ -51,6 +51,7 @@ fn leave_adjacent_triggers_aoo() {
     app.world_mut().entity_mut(hero).insert(Rage::new(5));
     app.world_mut().entity_mut(goblin).insert(Rage::new(5));
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+    init_engine_state(&mut app);
 
     let hp_before = app.world().get::<Vital>(hero).unwrap().hp;
 
@@ -82,16 +83,24 @@ fn opportunity_once_per_round() {
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let _goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+    init_engine_state(&mut app);
 
     // Two separate ActionInput::Move events in the SAME round. Between them we manually restore
-    // ap.movement and hero position; we do NOT touch Reactions. Without a StartRound
-    // reset the second leave must not produce an AoO.
+    // movement_points and hero position directly in CombatStateRes; we do NOT touch
+    // reactions_left. Without a StartRound reset the second leave must not produce an AoO.
     write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
     app.update();
     assert_eq!(aoo_events(&app).len(), 1, "first move triggers AoO");
 
-    app.world_mut().get_mut::<ActionPoints>(hero).unwrap().movement_points = 10;
-    app.world_mut().resource_mut::<HexPositions>().insert(hero, start_pos());
+    {
+        use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes};
+        let hero_uid = entity_to_uid(hero);
+        let mut state = app.world_mut().resource_mut::<CombatStateRes>();
+        let unit = state.0.unit_mut(hero_uid).expect("hero in engine state");
+        unit.movement_points = 10;
+        unit.pos = start_pos();
+        // DO NOT reset reactions_left — that's what the test is verifying.
+    }
     write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
     app.update();
     assert_eq!(aoo_events(&app).len(), 1, "second move must not trigger — reaction spent");
@@ -116,6 +125,7 @@ fn stunned_enemy_no_opportunity() {
             dot_per_tick: 0,
         });
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+    init_engine_state(&mut app);
 
     write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
     app.update();
@@ -136,6 +146,7 @@ fn multiple_provokers_all_fire() {
     assert_eq!(start_pos().unsigned_distance_to(hex_from_offset(3, 4)), 1);
     assert_eq!(away_pos().unsigned_distance_to(hex_from_offset(3, 4)), 2);
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+    init_engine_state(&mut app);
 
     write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
     app.update();
@@ -158,6 +169,7 @@ fn dead_actor_truncates_path() {
     let _g2 = spawn_at(&mut app, hex_from_offset(3, 4), test_enemy(base_stats()), "G2");
     app.world_mut().get_mut::<Vital>(hero).unwrap().hp = 1;
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+    init_engine_state(&mut app);
 
     let path = vec![away_pos(), hex_from_offset(1, 3), hex_from_offset(0, 3)];
     write_message(&mut app, ActionInput::Move { actor: hero, path });
@@ -187,6 +199,7 @@ fn no_melee_enemy_no_opportunity() {
     let goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
     app.world_mut().get_mut::<Abilities>(goblin).unwrap().0.clear();
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+    init_engine_state(&mut app);
 
     write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
     app.update();
@@ -203,6 +216,7 @@ fn enemy_mover_hero_provokes() {
     let hero = spawn_at(&mut app, goblin_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, start_pos(), test_enemy(base_stats()), "Goblin");
     app.world_mut().entity_mut(goblin).insert(ActiveCombatant);
+    init_engine_state(&mut app);
 
     let hp_before = app.world().get::<Vital>(goblin).unwrap().hp;
     write_message(&mut app, ActionInput::Move { actor: goblin, path: vec![away_pos()] });
@@ -226,6 +240,7 @@ fn reactions_refill_on_round_start() {
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+    init_engine_state(&mut app);
 
     write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
     app.update();
@@ -247,6 +262,7 @@ fn move_within_adjacency_no_trigger() {
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+    init_engine_state(&mut app);
 
     // Move to a cell still adjacent to goblin. (3,2) and (4,3) both neighbor hero.
     // Verify adjacency before asserting no trigger.

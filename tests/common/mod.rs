@@ -10,7 +10,7 @@ use storyforge::combat::{
     ai::config::difficulty::DifficultyProfile, ai::world::influence::InfluenceConfig,
     ai::world::reservations::Reservations,
     apply_effects::apply_effects_system, ai::system::enemy_ai_system,
-    engine_bridge::{mirror_state_from_ecs, process_action_system, project_state_to_ecs,
+    engine_bridge::{init_state_from_ecs, process_action_system, project_state_to_ecs,
                     CombatStateRes, UnitIdMap},
     phases::phase_transition_system,
     resolution::resolve_action_system,
@@ -259,8 +259,8 @@ pub fn movement_app() -> App {
         .init_resource::<UnitIdMap>()
         .add_message::<ActionInput>()
         .add_systems(
-            PreUpdate,
-            mirror_state_from_ecs.run_if(in_state(CombatPhase::AwaitCommand)),
+            OnEnter(CombatPhase::AwaitCommand),
+            init_state_from_ecs,
         )
         .add_systems(
             Update,
@@ -271,6 +271,19 @@ pub fn movement_app() -> App {
         .add_systems(Update, build_turn_order.run_if(in_state(CombatPhase::StartRound)));
     enter_await_command(&mut app);
     app
+}
+
+/// Re-run the engine init system manually after spawning combatants.
+///
+/// `movement_app()` transitions to `AwaitCommand` at builder time (before any
+/// units are spawned), so `OnEnter` fires with an empty world.  Call this
+/// after your spawn block and any direct ECS mutations, but before the first
+/// `write_message`.
+pub fn init_engine_state(app: &mut App) {
+    use bevy::ecs::system::RunSystemOnce;
+    app.world_mut()
+        .run_system_once(init_state_from_ecs)
+        .expect("init_state_from_ecs failed");
 }
 
 pub fn pipeline_app() -> App {
