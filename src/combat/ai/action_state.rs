@@ -1,20 +1,19 @@
-//! Snapshot-side backend for `combat::actions::ActionState`. Mirrors
+//! Snapshot-side backend for `combat_engine::legality::ActionState`. Mirrors
 //! `combat::validation::BevyActions` but reads out of a `BattleSnapshot` +
 //! `ContentView`, for use from AI / replay / sim contexts that have no live
 //! ECS world.
-//!
-//! Not yet consumed by the generator — generator still uses its own ad-hoc
-//! `can_afford` + `in_range` checks alongside AI-policy filters
-//! (taunt/overheal/wasted-CC). Migrating the pure-legality subset to go
-//! through `check_legality` is the next step; this module is the
-//! prerequisite that proves the trait works on both world models.
 
-use crate::combat::actions::{ActionState, ActorView};
+use combat_engine::legality::{ActionState, ActorView};
+use combat_engine::{
+    AbilityDef, AbilityId, AbilityRange, AoEShape, Cost, StatusDef, StatusId, TargetType,
+};
+
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::world::tags::AiTags;
+use crate::content::abilities;
 use crate::content::content_view::ContentView;
-use crate::core::AbilityId;
 use crate::game::components::Team;
+use crate::game::hex::{in_bounds, Hex};
 use bevy::prelude::Entity;
 
 /// `ActionState` impl over a `BattleSnapshot`. Holds references only;
@@ -25,8 +24,44 @@ pub struct SnapshotActionState<'a> {
 }
 
 impl ActionState for SnapshotActionState<'_> {
-    fn content(&self) -> &ContentView {
-        self.content
+    type Id = Entity;
+
+    fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
+        let def = self.content.abilities.get(id)?;
+        Some(AbilityDef {
+            key: def.key.clone(),
+            cost_ap: def.cost_ap,
+            costs: def
+                .costs
+                .iter()
+                .map(|c| Cost { resource: c.resource, amount: c.amount })
+                .collect(),
+            range: AbilityRange { min: def.range.min, max: def.range.max },
+            target_type: match def.target_type {
+                abilities::TargetType::SingleEnemy => TargetType::SingleEnemy,
+                abilities::TargetType::SingleAlly => TargetType::SingleAlly,
+                abilities::TargetType::Myself => TargetType::Myself,
+                abilities::TargetType::Ground => TargetType::Ground,
+            },
+            aoe: match def.aoe {
+                abilities::AoEShape::None => AoEShape::None,
+                abilities::AoEShape::Circle { radius } => AoEShape::Circle { radius },
+                abilities::AoEShape::Line { length } => AoEShape::Line { length },
+            },
+        })
+    }
+
+    fn status_def(&self, id: &StatusId) -> Option<StatusDef> {
+        let def = self.content.statuses.get(id)?;
+        Some(StatusDef {
+            causes_disadvantage: def.causes_disadvantage,
+            blocks_mana_abilities: def.blocks_mana_abilities,
+            forces_targeting: def.forces_targeting,
+            skips_turn: def.skips_turn,
+            armor_bonus: def.armor_bonus,
+            damage_taken_bonus: def.damage_taken_bonus,
+            speed_bonus: def.speed_bonus,
+        })
     }
 
     fn actor_view(&self, actor: Entity) -> Option<ActorView> {
@@ -83,6 +118,10 @@ impl ActionState for SnapshotActionState<'_> {
             .find(|u| u.tags.contains(AiTags::FORCES_TARGETING))
             .map(|u| u.entity)
     }
+
+    fn is_in_bounds(&self, pos: Hex) -> bool {
+        in_bounds(pos)
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -90,7 +129,7 @@ impl ActionState for SnapshotActionState<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::actions::{check_legality, IllegalReason, ProposedAction};
+    use combat_engine::legality::{check_legality, IllegalReason, ProposedAction};
     use crate::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
     use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
     use crate::content::abilities::{

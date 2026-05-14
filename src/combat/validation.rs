@@ -1,21 +1,24 @@
-//! Bevy-side action-legality gate. Wires `combat::actions::check_legality`
+//! Bevy-side action-legality gate.  Wires `combat_engine::check_legality`
 //! against live ECS queries; rejected actions still end the turn to keep
 //! the pipeline forward-moving.
 //!
-//! All substantive rules live in `combat::actions`; this file is a thin
-//! adapter that translates between Bevy components and the `ActionState`
-//! trait. See `combat/actions/mod.rs` for the rule list.
+//! All substantive rules live in `combat_engine::legality`; this file is a
+//! thin adapter that translates between Bevy components and the engine's
+//! `ActionState` trait.
 
-use crate::combat::actions::{
-    check_legality, ActionState, ActorView, IllegalReason, ProposedAction,
+use bevy::prelude::*;
+
+use combat_engine::legality::{check_legality, ActionState, ActorView, ProposedAction};
+use combat_engine::{
+    AbilityDef, AbilityId, AbilityRange, AoEShape, Cost, StatusDef, StatusId, TargetType,
 };
-use crate::content::content_view::{ActiveContent, ContentView};
-use crate::game::components::{
-    ActiveCombatant, Team, ValidationActorQ, ValidationTargetQ,
-};
+
+use crate::content::abilities;
+use crate::content::content_view::ActiveContent;
+use crate::game::components::{ActiveCombatant, Team, ValidationActorQ, ValidationTargetQ};
+use crate::game::hex::{in_bounds, Hex};
 use crate::game::messages::{EndTurn, UseAbility, ValidatedAction};
 use crate::game::resources::HexPositions;
-use bevy::prelude::*;
 
 #[allow(clippy::too_many_arguments)]
 pub fn validate_action_system(
@@ -30,9 +33,9 @@ pub fn validate_action_system(
 ) {
     let active = active_q.single().ok();
     for ev in events.read() {
-        // Turn-ownership is outside the legality layer's scope — gate it
-        // here. A stray `UseAbility` from a non-current actor is silently
-        // dropped (no EndTurn to avoid ending the real current actor's turn).
+        // Turn-ownership is outside the legality layer's scope — gate here.
+        // Stray `UseAbility` from a non-current actor is silently dropped
+        // (no EndTurn to avoid ending the real current actor's turn).
         if active != Some(ev.actor) {
             continue;
         }
@@ -61,10 +64,9 @@ pub fn validate_action_system(
             }
             Err(_reason) => {
                 // Rejected action still ends the turn to prevent infinite
-                // loops from a stuck command source. (Could in principle
-                // fork by reason — e.g. keep turn on UnknownAbility which
-                // smells like a content bug — but current callers only
-                // emit well-formed events; fail-forward is fine.)
+                // loops from a stuck command source.  UI tooltip rendering
+                // (where `_reason` matters) is a separate surface — Phase 2
+                // step 2c migration kept the fail-forward behavior.
                 end_turn.write(EndTurn { actor: ev.actor });
             }
         }
@@ -73,25 +75,59 @@ pub fn validate_action_system(
 
 // ── Bevy adapter ───────────────────────────────────────────────────────────
 
-/// `ActionState` impl over live ECS queries. Holds references with a single
+/// `ActionState` impl over live ECS queries.  Holds references with a single
 /// named lifetime `'a` — every borrow taken from the system's parameters
 /// lives at least as long as the adapter, which is built and consumed
 /// inside one `validate_action_system` iteration.
 ///
-/// No borrows leak out through the trait: `actor_view` returns an owned
-/// `ActorView` copy, `actor_knows_ability` answers a direct bool. That
-/// sidesteps Bevy's `Query` fetch-item lifetime (which ends when `.get()`
-/// returns) — we never try to hand a `&'static` slice out.
-struct BevyActions<'w, 's, 'a> {
-    content: &'a ContentView,
-    positions: &'a HexPositions,
-    actors: &'a Query<'w, 's, ValidationActorQ>,
-    targets: &'a Query<'w, 's, ValidationTargetQ>,
+/// No borrows leak through the trait: `actor_view` returns an owned
+/// `ActorView` copy, `actor_knows_ability` answers a direct bool.
+pub struct BevyActions<'w, 's, 'a> {
+    pub content: &'a ActiveContent,
+    pub positions: &'a HexPositions,
+    pub actors: &'a Query<'w, 's, ValidationActorQ>,
+    pub targets: &'a Query<'w, 's, ValidationTargetQ>,
 }
 
 impl ActionState for BevyActions<'_, '_, '_> {
-    fn content(&self) -> &ContentView {
-        self.content
+    type Id = Entity;
+
+    fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
+        let def = self.content.abilities.get(id)?;
+        Some(AbilityDef {
+            key: def.key.clone(),
+            cost_ap: def.cost_ap,
+            costs: def
+                .costs
+                .iter()
+                .map(|c| Cost { resource: c.resource, amount: c.amount })
+                .collect(),
+            range: AbilityRange { min: def.range.min, max: def.range.max },
+            target_type: match def.target_type {
+                abilities::TargetType::SingleEnemy => TargetType::SingleEnemy,
+                abilities::TargetType::SingleAlly => TargetType::SingleAlly,
+                abilities::TargetType::Myself => TargetType::Myself,
+                abilities::TargetType::Ground => TargetType::Ground,
+            },
+            aoe: match def.aoe {
+                abilities::AoEShape::None => AoEShape::None,
+                abilities::AoEShape::Circle { radius } => AoEShape::Circle { radius },
+                abilities::AoEShape::Line { length } => AoEShape::Line { length },
+            },
+        })
+    }
+
+    fn status_def(&self, id: &StatusId) -> Option<StatusDef> {
+        let def = self.content.statuses.get(id)?;
+        Some(StatusDef {
+            causes_disadvantage: def.causes_disadvantage,
+            blocks_mana_abilities: def.blocks_mana_abilities,
+            forces_targeting: def.forces_targeting,
+            skips_turn: def.skips_turn,
+            armor_bonus: def.armor_bonus,
+            damage_taken_bonus: def.damage_taken_bonus,
+            speed_bonus: def.speed_bonus,
+        })
     }
 
     fn actor_view(&self, actor: Entity) -> Option<ActorView> {
@@ -121,7 +157,7 @@ impl ActionState for BevyActions<'_, '_, '_> {
         })
     }
 
-    fn actor_knows_ability(&self, actor: Entity, ability: &crate::core::AbilityId) -> bool {
+    fn actor_knows_ability(&self, actor: Entity, ability: &AbilityId) -> bool {
         self.actors
             .get(actor)
             .map(|a| a.abilities.0.contains(ability))
@@ -137,9 +173,6 @@ impl ActionState for BevyActions<'_, '_, '_> {
     }
 
     fn taunter_for(&self, actor_team: Team) -> Option<Entity> {
-        // Scan every combatant's StatusEffects for `forces_targeting`. Live
-        // opposing-team holder binds the cast. O(N) per check; N is the
-        // combatant count, tiny in practice.
         self.targets
             .iter()
             .find(|t| {
@@ -156,10 +189,8 @@ impl ActionState for BevyActions<'_, '_, '_> {
             })
             .map(|t| t.entity)
     }
-}
 
-// UI tooltips will eventually surface IllegalReason. For now validation only
-// needs the reject-or-accept bit; the import is kept so the module re-exports
-// the enum for downstream wiring without a second `pub use`.
-#[allow(dead_code)]
-const _: fn(IllegalReason) = |_| {};
+    fn is_in_bounds(&self, pos: Hex) -> bool {
+        in_bounds(pos)
+    }
+}

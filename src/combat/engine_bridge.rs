@@ -262,6 +262,11 @@ impl<'a> EngineContentView for EcsContentView<'a> {
                 crate::content::abilities::TargetType::Myself => combat_engine::TargetType::Myself,
                 crate::content::abilities::TargetType::Ground => combat_engine::TargetType::Ground,
             },
+            aoe: match def.aoe {
+                crate::content::abilities::AoEShape::None => combat_engine::AoEShape::None,
+                crate::content::abilities::AoEShape::Circle { radius } => combat_engine::AoEShape::Circle { radius },
+                crate::content::abilities::AoEShape::Line { length } => combat_engine::AoEShape::Line { length },
+            },
         })
     }
 

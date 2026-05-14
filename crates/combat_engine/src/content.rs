@@ -50,10 +50,18 @@ pub struct AbilityRange {
     pub max: u32,
 }
 
-/// Engine-side minimal ability definition — legality-relevant fields only.
-///
-/// Phase 2 step 5 will extend with `aoe: AoEShape` (targeting); step 6 will
-/// add `effect: EffectDef` + `statuses: Vec<StatusApplication>` when
+/// Area-of-effect pattern.  Mirrors `crate::content::abilities::AoEShape`.
+/// `None` = single-target.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AoEShape {
+    #[default]
+    None,
+    Circle { radius: u32 },
+    Line { length: u32 },
+}
+
+/// Engine-side minimal ability definition.  Legality + targeting fields;
+/// Phase 2 step 6 will add `effect: EffectDef` + `statuses: …` when
 /// `Action::Cast` lands in `step()`.
 #[derive(Debug, Clone)]
 pub struct AbilityDef {
@@ -62,6 +70,7 @@ pub struct AbilityDef {
     pub costs: Vec<Cost>,
     pub range: AbilityRange,
     pub target_type: TargetType,
+    pub aoe: AoEShape,
 }
 
 /// Engine-side minimal status definition — legality + aggregate-relevant fields.

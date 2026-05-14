@@ -75,9 +75,11 @@ pub mod content;
 pub mod dice;
 pub mod effect;
 pub mod event;
+pub mod legality;
 pub mod reaction;
 pub mod state;
 pub mod step;
 
 pub use dice::{DiceExpr, DiceRng};
-pub use content::{AbilityDef, AbilityRange, Cost, StatusDef, TargetType};
+pub use content::{AbilityDef, AbilityRange, AoEShape, Cost, StatusDef, TargetType};
+pub use legality::{check_legality, ActionState, ActorView, IllegalReason, LegalAction, ProposedAction};

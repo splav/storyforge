@@ -9,7 +9,7 @@
 //! No persistent state: every tick starts fresh. Revalidation of a committed
 //! plan lives in Phase 4.
 
-use crate::combat::actions::{check_legality, ProposedAction};
+use combat_engine::legality::{check_legality, ProposedAction};
 use crate::combat::ai::action_state::SnapshotActionState;
 use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits};
 use crate::combat::ai::world::influence::InfluenceMaps;
