@@ -7,6 +7,7 @@ use crate::{
     effect::{ApplyCtx, Effect},
     reaction::ReactionKind,
     state::{CombatState, UnitId},
+    StatusId,
 };
 
 /// A domain-level fact produced by `step()`.  Consumers (UI, logger, replay)
@@ -17,6 +18,8 @@ pub enum Event {
     UnitMoved { actor: UnitId, from: Hex, to: Hex },
     UnitDamaged { target: UnitId, amount: f32, source: UnitId },
     UnitHealed { target: UnitId, amount: i32 },
+    StatusApplied { target: UnitId, status: StatusId },
+    StatusRemoved { target: UnitId, status: StatusId },
     RageGained { unit: UnitId, current: i32, max: i32 },
     ReactionFired { actor: UnitId, kind: ReactionKind, against: UnitId },
     UnitDied { unit: UnitId },
@@ -56,6 +59,19 @@ pub fn effect_to_event(
             Some(Event::UnitHealed {
                 target: *target,
                 amount: ctx.heal_amount.unwrap_or(0),
+            })
+        }
+        Effect::PayCost { .. } => None,
+        Effect::ApplyStatus { target, status, .. } => {
+            Some(Event::StatusApplied {
+                target: *target,
+                status: status.clone(),
+            })
+        }
+        Effect::RemoveStatus { target, status } => {
+            Some(Event::StatusRemoved {
+                target: *target,
+                status: status.clone(),
             })
         }
         Effect::GainRage { target } => {

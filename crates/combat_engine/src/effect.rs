@@ -17,7 +17,8 @@
 use hexx::Hex;
 
 use crate::content::ContentView;
-use crate::state::{CombatState, UnitId};
+use crate::state::{ActiveStatus, CombatState, UnitId};
+use crate::{ResourceKind, StatusId};
 
 /// Expected-value variant of final-damage math (inline copy; mirrors
 /// `storyforge::combat::effects_math::final_damage_f32`).
@@ -42,6 +43,23 @@ pub enum Effect {
     /// `amount` is the raw heal pool; final HP gain may be less if DoTs
     /// consume some of it.
     Heal { target: UnitId, amount: i32 },
+    /// Deduct a resource pool (mana / rage / energy / hp) from `actor`.
+    /// Mirrors `effects_outcome::pay_costs`.
+    PayCost { actor: UnitId, kind: ResourceKind, amount: i32 },
+    /// Add or refresh a status on `target`.  Re-apply replaces an existing
+    /// entry with the same `id` (matches `apply_effects_system`'s reapply
+    /// semantics).  Derives `RefreshAggregates` so derived stats catch any
+    /// armor / speed bonus the new status carries.
+    ApplyStatus {
+        target: UnitId,
+        status: StatusId,
+        rounds: u32,
+        dot_per_tick: i32,
+        applier: UnitId,
+    },
+    /// Remove all entries with `status` id from `target`.  Derives
+    /// `RefreshAggregates` if any were removed.
+    RemoveStatus { target: UnitId, status: StatusId },
     /// Grant +1 rage (clamped to max) to `target`.
     GainRage { target: UnitId },
     /// Spend one reaction from the actor.
@@ -183,6 +201,65 @@ pub fn apply_effect(
             };
 
             (derived, ApplyCtx { heal_amount: Some(hp_restored), ..ApplyCtx::default() })
+        }
+
+        Effect::PayCost { actor, kind, amount } => {
+            if let Some(u) = state.unit_mut(*actor) {
+                match kind {
+                    ResourceKind::Hp => {
+                        u.hp = (u.hp - amount).max(0);
+                    }
+                    ResourceKind::Mana => {
+                        if let Some((current, _max)) = u.mana.as_mut() {
+                            *current = (*current - amount).max(0);
+                        }
+                    }
+                    ResourceKind::Rage => {
+                        if let Some((current, _max)) = u.rage.as_mut() {
+                            *current = (*current - amount).max(0);
+                        }
+                    }
+                    ResourceKind::Energy => {
+                        if let Some((current, _max)) = u.energy.as_mut() {
+                            *current = (*current - amount).max(0);
+                        }
+                    }
+                }
+            }
+            (vec![], ApplyCtx::default())
+        }
+
+        Effect::ApplyStatus { target, status, rounds, dot_per_tick, applier } => {
+            if let Some(u) = state.unit_mut(*target) {
+                // Re-apply replaces existing entries with the same id.
+                u.statuses.retain(|s| s.id != *status);
+                u.statuses.push(ActiveStatus {
+                    id: status.clone(),
+                    rounds_remaining: *rounds,
+                    dot_per_tick: *dot_per_tick,
+                    applier: *applier,
+                });
+            }
+            (
+                vec![Effect::RefreshAggregates { unit: *target }],
+                ApplyCtx::default(),
+            )
+        }
+
+        Effect::RemoveStatus { target, status } => {
+            let any_removed = if let Some(u) = state.unit_mut(*target) {
+                let before = u.statuses.len();
+                u.statuses.retain(|s| s.id != *status);
+                u.statuses.len() < before
+            } else {
+                false
+            };
+            let derived = if any_removed {
+                vec![Effect::RefreshAggregates { unit: *target }]
+            } else {
+                vec![]
+            };
+            (derived, ApplyCtx::default())
         }
 
         Effect::GainRage { target } => {

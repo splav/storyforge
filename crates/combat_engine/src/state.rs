@@ -26,14 +26,19 @@ pub type Pool = (i32, i32);
 
 // ── Status effects ────────────────────────────────────────────────────────────
 
-/// Engine-local mirror of `game::components::ActiveStatus` (minus the Bevy
-/// `Entity applier` field that the engine doesn't need).
+/// Engine-local mirror of `game::components::ActiveStatus`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveStatus {
     pub id: StatusId,
     pub rounds_remaining: u32,
     /// DoT damage per end-of-turn tick. 0 = no DoT.
     pub dot_per_tick: i32,
+    /// The unit whose end-turn ticks down `rounds_remaining`.  Used by
+    /// status-removal (`advance_turn`) and aura cleanup (`auras_system`) to
+    /// distinguish ability-applied from aura-applied entries.  Engine itself
+    /// doesn't read this in Phase 2 — recorded for the projector + Phase 3
+    /// DoT tick attribution.
+    pub applier: UnitId,
 }
 
 // ── Team ──────────────────────────────────────────────────────────────────────

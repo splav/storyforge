@@ -509,6 +509,10 @@ fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
                     id: s.id.clone(),
                     rounds_remaining: s.rounds_remaining,
                     dot_per_tick: s.dot_per_tick,
+                    // Snapshot's ActiveStatusView drops the applier (AI layer
+                    // doesn't track it).  Use the unit's own id as a sentinel
+                    // — engine doesn't read applier in Phase 2 mechanics.
+                    applier: entity_to_uid(u.entity),
                 })
                 .collect();
             EngineUnit {

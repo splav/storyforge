@@ -161,6 +161,7 @@ fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
                         id: combat_engine::StatusId(s.id.0.clone()),
                         rounds_remaining: s.rounds_remaining,
                         dot_per_tick: s.dot_per_tick,
+                        applier: entity_to_uid(u.entity),
                     })
                     .collect(),
                 rage: u.rage,

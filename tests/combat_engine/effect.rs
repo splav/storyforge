@@ -286,6 +286,7 @@ fn refresh_aggregates_recomputes_speed_from_statuses() {
         id: "haste".into(),
         rounds_remaining: 2,
         dot_per_tick: 0,
+        applier: UnitId(1),
     }];
     let mut state = state_with(vec![u]);
 
@@ -306,6 +307,7 @@ fn refresh_aggregates_recomputes_armor_bonus_from_statuses() {
     u.armor = 2;
     u.armor_bonus = 0;
     u.statuses = vec![ActiveStatus {
+        applier: UnitId(1),
         id: "iron_skin".into(),
         rounds_remaining: 1,
         dot_per_tick: 0,
@@ -382,6 +384,7 @@ fn heal_full_neutralizes_dot_then_restores_hp() {
         id: StatusId::from("poison"),
         rounds_remaining: 3,
         dot_per_tick: 2,
+        applier: UnitId(2),
     });
     let mut state = state_with(vec![u]);
 
@@ -407,6 +410,7 @@ fn heal_partial_dot_consumes_all_heal_no_hp_restored() {
         id: StatusId::from("poison"),
         rounds_remaining: 3,
         dot_per_tick: 8,
+        applier: UnitId(2),
     });
     let mut state = state_with(vec![u]);
 
@@ -432,11 +436,13 @@ fn heal_neutralizes_multiple_dots_in_order() {
         id: StatusId::from("poison"),
         rounds_remaining: 3,
         dot_per_tick: 2,
+        applier: UnitId(2),
     });
     u.statuses.push(ActiveStatus {
         id: StatusId::from("burning"),
         rounds_remaining: 2,
         dot_per_tick: 3,
+        applier: UnitId(2),
     });
     let mut state = state_with(vec![u]);
 
@@ -453,4 +459,189 @@ fn heal_neutralizes_multiple_dots_in_order() {
     assert_eq!(unit.statuses[0].dot_per_tick, 1, "burning weakened to 1");
     assert_eq!(unit.hp, 1, "no HP restored — pool consumed by DoTs");
     assert_eq!(ctx.heal_amount, Some(0));
+}
+
+// ── PayCost ──────────────────────────────────────────────────────────────────
+
+/// PayCost decrements the matching resource pool, clamped at 0.
+#[test]
+fn pay_cost_decrements_mana() {
+    let mut u = make_unit(1, 10, 10);
+    u.mana = Some((8, 10));
+    let mut state = state_with(vec![u]);
+
+    apply_effect(
+        &mut state,
+        &Effect::PayCost {
+            actor: UnitId(1),
+            kind: storyforge::combat_engine::ResourceKind::Mana,
+            amount: 3,
+        },
+        &StubContent::neutral(),
+    );
+    assert_eq!(state.unit(UnitId(1)).unwrap().mana, Some((5, 10)));
+}
+
+#[test]
+fn pay_cost_clamps_pool_at_zero() {
+    let mut u = make_unit(1, 10, 10);
+    u.rage = Some((2, 5));
+    let mut state = state_with(vec![u]);
+
+    apply_effect(
+        &mut state,
+        &Effect::PayCost {
+            actor: UnitId(1),
+            kind: storyforge::combat_engine::ResourceKind::Rage,
+            amount: 99,
+        },
+        &StubContent::neutral(),
+    );
+    assert_eq!(state.unit(UnitId(1)).unwrap().rage, Some((0, 5)));
+}
+
+#[test]
+fn pay_cost_hp_decrements_directly() {
+    let u = make_unit(1, 10, 10);
+    let mut state = state_with(vec![u]);
+    apply_effect(
+        &mut state,
+        &Effect::PayCost {
+            actor: UnitId(1),
+            kind: storyforge::combat_engine::ResourceKind::Hp,
+            amount: 4,
+        },
+        &StubContent::neutral(),
+    );
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 6);
+}
+
+#[test]
+fn pay_cost_skips_when_pool_absent() {
+    let u = make_unit(1, 10, 10); // mana: None
+    let mut state = state_with(vec![u]);
+    // Should not panic; pool stays None.
+    apply_effect(
+        &mut state,
+        &Effect::PayCost {
+            actor: UnitId(1),
+            kind: storyforge::combat_engine::ResourceKind::Mana,
+            amount: 5,
+        },
+        &StubContent::neutral(),
+    );
+    assert_eq!(state.unit(UnitId(1)).unwrap().mana, None);
+}
+
+// ── ApplyStatus ──────────────────────────────────────────────────────────────
+
+/// ApplyStatus adds a new entry + derives RefreshAggregates.
+#[test]
+fn apply_status_pushes_new_entry() {
+    let u = make_unit(1, 10, 10);
+    let mut state = state_with(vec![u]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::ApplyStatus {
+            target: UnitId(1),
+            status: StatusId::from("poison"),
+            rounds: 3,
+            dot_per_tick: 2,
+            applier: UnitId(2),
+        },
+        &StubContent::neutral(),
+    );
+    let unit = state.unit(UnitId(1)).unwrap();
+    assert_eq!(unit.statuses.len(), 1);
+    assert_eq!(unit.statuses[0].id, StatusId::from("poison"));
+    assert_eq!(unit.statuses[0].rounds_remaining, 3);
+    assert_eq!(unit.statuses[0].dot_per_tick, 2);
+    assert_eq!(unit.statuses[0].applier, UnitId(2));
+    assert_eq!(derived.len(), 1);
+    assert!(matches!(derived[0], Effect::RefreshAggregates { unit: UnitId(1) }));
+}
+
+/// Re-applying same status id replaces the existing entry (matches
+/// `apply_effects_system` reapply semantics — see
+/// `tests/combat/statuses.rs::reapplying_status_replaces_previous`).
+#[test]
+fn apply_status_replaces_existing_with_same_id() {
+    let mut u = make_unit(1, 10, 10);
+    u.statuses.push(ActiveStatus {
+        id: StatusId::from("burning"),
+        rounds_remaining: 1, // about to expire
+        dot_per_tick: 1,
+        applier: UnitId(3),
+    });
+    let mut state = state_with(vec![u]);
+
+    apply_effect(
+        &mut state,
+        &Effect::ApplyStatus {
+            target: UnitId(1),
+            status: StatusId::from("burning"),
+            rounds: 4, // refreshed duration
+            dot_per_tick: 3,
+            applier: UnitId(2),
+        },
+        &StubContent::neutral(),
+    );
+    let unit = state.unit(UnitId(1)).unwrap();
+    assert_eq!(unit.statuses.len(), 1, "still one burning entry — replaced not appended");
+    assert_eq!(unit.statuses[0].rounds_remaining, 4);
+    assert_eq!(unit.statuses[0].dot_per_tick, 3);
+    assert_eq!(unit.statuses[0].applier, UnitId(2));
+}
+
+// ── RemoveStatus ─────────────────────────────────────────────────────────────
+
+#[test]
+fn remove_status_filters_by_id_and_derives_refresh() {
+    let mut u = make_unit(1, 10, 10);
+    u.statuses.push(ActiveStatus {
+        id: StatusId::from("haste"),
+        rounds_remaining: 3,
+        dot_per_tick: 0,
+        applier: UnitId(2),
+    });
+    u.statuses.push(ActiveStatus {
+        id: StatusId::from("poison"),
+        rounds_remaining: 5,
+        dot_per_tick: 2,
+        applier: UnitId(2),
+    });
+    let mut state = state_with(vec![u]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::RemoveStatus {
+            target: UnitId(1),
+            status: StatusId::from("haste"),
+        },
+        &StubContent::neutral(),
+    );
+    let unit = state.unit(UnitId(1)).unwrap();
+    assert_eq!(unit.statuses.len(), 1);
+    assert_eq!(unit.statuses[0].id, StatusId::from("poison"));
+    assert_eq!(derived.len(), 1);
+    assert!(matches!(derived[0], Effect::RefreshAggregates { unit: UnitId(1) }));
+}
+
+/// RemoveStatus on a unit that doesn't have the status: no-op, no derived.
+#[test]
+fn remove_status_noop_when_absent() {
+    let u = make_unit(1, 10, 10);
+    let mut state = state_with(vec![u]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::RemoveStatus {
+            target: UnitId(1),
+            status: StatusId::from("nonexistent"),
+        },
+        &StubContent::neutral(),
+    );
+    assert!(derived.is_empty(), "no removal → no RefreshAggregates");
+    assert!(state.unit(UnitId(1)).unwrap().statuses.is_empty());
 }

@@ -176,6 +176,7 @@ pub fn from_ecs(
                             id: s.id.clone(),
                             rounds_remaining: s.rounds_remaining,
                             dot_per_tick: s.dot_per_tick,
+                            applier: entity_to_uid(s.applier),
                         })
                         .collect()
                 })
@@ -518,11 +519,12 @@ fn translate_move_events(
                     commands.entity(entity).insert(Dead);
                 }
             }
-            // Heal events surface here once Phase 2 step 7 wires Cast through
-            // the bridge.  Today Move actions never derive Heal, so the
-            // event stream for `ActionInput::Move` cannot contain one — this
-            // arm is a no-op pin for exhaustiveness.
-            Event::UnitHealed { .. } => {}
+            // Heal / status events surface here once Phase 2 step 7 wires
+            // Cast through the bridge.  Today Move actions never derive
+            // these — no-op pins for exhaustiveness.
+            Event::UnitHealed { .. }
+            | Event::StatusApplied { .. }
+            | Event::StatusRemoved { .. } => {}
             Event::ActionStarted { .. } | Event::ActionFinished { .. } => {}
         }
     }
