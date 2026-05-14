@@ -36,6 +36,8 @@ pub enum Effect {
     MovePosition { actor: UnitId, to: Hex },
     /// Deduct `by` movement points from the actor.
     DecrementMP { actor: UnitId, by: i32 },
+    /// Deduct `by` action points from the actor.
+    DecrementAP { actor: UnitId, by: i32 },
     /// Deal raw (pre-mitigation) damage from `source` to `target`.
     Damage { target: UnitId, raw: f32, source: UnitId, pierces: bool },
     /// Restore HP on `target`, after first neutralizing active DoT
@@ -112,6 +114,13 @@ pub fn apply_effect(
         Effect::DecrementMP { actor, by } => {
             if let Some(u) = state.unit_mut(*actor) {
                 u.movement_points = (u.movement_points - by).max(0);
+            }
+            (vec![], ApplyCtx::default())
+        }
+
+        Effect::DecrementAP { actor, by } => {
+            if let Some(u) = state.unit_mut(*actor) {
+                u.action_points = (u.action_points - by).max(0);
             }
             (vec![], ApplyCtx::default())
         }

@@ -48,6 +48,7 @@ pub fn effect_to_event(
             })
         }
         Effect::DecrementMP { .. } => None,
+        Effect::DecrementAP { .. } => None,
         Effect::Damage { target, source, .. } => {
             Some(Event::UnitDamaged {
                 target: *target,

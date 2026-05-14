@@ -140,14 +140,22 @@ fn step_cast_returns_err_illegal_for_dead_target() {
 }
 
 /// `step(Cast)` when the cast is fully legal → `Ok` with exactly
-/// `[ActionStarted, ActionFinished]`. No state mutation (no effects yet).
+/// `[ActionStarted, ActionFinished]`. No state mutation (no effects yet —
+/// this test is preserved from step 6b; the ability has cost_ap=0 so no
+/// AP is spent and state stays unchanged).
 #[test]
 fn step_cast_returns_ok_when_legal() {
     let actor = make_unit(1, Team::Player, 0, 0);
     let target = make_unit(2, Team::Enemy, 1, 0); // alive (hp=10)
 
     let mut state = state_with(vec![actor, target]);
-    let content = StubContent::with_ability("fireball", single_enemy_ability());
+    // cost_ap=0 so no DecrementAP fires.
+    let ability = AbilityDef {
+        cost_ap: 0,
+        costs: vec![],
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("fireball", ability);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -159,12 +167,111 @@ fn step_cast_returns_ok_when_legal() {
     let events = step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal cast should succeed");
 
-    // Exactly ActionStarted + ActionFinished — no effect events yet.
+    // Exactly ActionStarted + ActionFinished — no effect events.
     assert_eq!(events.len(), 2, "expected exactly [ActionStarted, ActionFinished]");
     assert!(matches!(events[0], Event::ActionStarted { .. }));
     assert!(matches!(events[1], Event::ActionFinished { .. }));
 
-    // State is unchanged — no AP spent, no HP lost (steps 6c-f handle costs/damage).
+    // State is unchanged — no AP spent, no HP lost.
     assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 2, "actor AP unchanged");
     assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "target HP unchanged");
+}
+
+// ── Step 6c tests: cost payment ───────────────────────────────────────────────
+
+/// AP cost is deducted after a legal cast.
+#[test]
+fn cast_legal_pays_ap_cost() {
+    let actor = make_unit(1, Team::Player, 0, 0); // action_points=2
+    let target = make_unit(2, Team::Enemy, 1, 0);
+
+    let mut state = state_with(vec![actor, target]);
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::None,
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("zap", ability);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("zap"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    let events = step(&mut state, action, &mut ExpectedValue, &content)
+        .expect("legal cast should succeed");
+
+    assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 1, "AP decremented by 1");
+    assert!(matches!(events.last(), Some(Event::ActionFinished { .. })));
+}
+
+/// Mana cost (and AP cost) are both paid after a legal cast.
+#[test]
+fn cast_legal_pays_mana_cost() {
+    use storyforge::combat_engine::content::Cost;
+    use storyforge::combat_engine::ResourceKind;
+
+    let mut actor = make_unit(1, Team::Player, 0, 0); // action_points=2
+    actor.mana = Some((10, 10));
+    let target = make_unit(2, Team::Enemy, 1, 0);
+
+    let mut state = state_with(vec![actor, target]);
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![Cost { resource: ResourceKind::Mana, amount: 3 }],
+        effect: EffectDef::None,
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("fireball", ability);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("fireball"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    step(&mut state, action, &mut ExpectedValue, &content)
+        .expect("legal cast should succeed");
+
+    let u = state.unit(UnitId(1)).unwrap();
+    assert_eq!(u.action_points, 1, "AP decremented by 1");
+    assert_eq!(u.mana, Some((7, 10)), "mana decremented by 3");
+}
+
+/// Zero-cost ability emits only `[ActionStarted, ActionFinished]` with no state change.
+#[test]
+fn cast_legal_pays_no_cost_when_zero() {
+    let actor = make_unit(1, Team::Player, 0, 0); // action_points=2
+    let target = make_unit(2, Team::Enemy, 1, 0);
+
+    let mut state = state_with(vec![actor, target]);
+    let ability = AbilityDef {
+        cost_ap: 0,
+        costs: vec![],
+        effect: EffectDef::None,
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("meditate", ability);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("meditate"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    let events = step(&mut state, action, &mut ExpectedValue, &content)
+        .expect("legal cast should succeed");
+
+    // No DecrementAP or PayCost fired — both produce no event — so only
+    // ActionStarted + ActionFinished should be present.
+    assert_eq!(events.len(), 2, "only [ActionStarted, ActionFinished]");
+    assert!(matches!(events[0], Event::ActionStarted { .. }));
+    assert!(matches!(events[1], Event::ActionFinished { .. }));
+
+    assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 2, "AP unchanged for zero-cost");
 }

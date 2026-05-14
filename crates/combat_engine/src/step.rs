@@ -252,9 +252,31 @@ fn step_inner(
                 effect_queue.push_back(Effect::MovePosition { actor: *actor, to: hex });
             }
         }
-        Action::Cast { .. } => {
-            // No effect fanout yet — steps 6c-f populate effect_queue with
-            // PayCost / Damage / Heal / ApplyStatus per resolved target.
+        Action::Cast { actor, ability, target: _, target_pos: _ } => {
+            // Phase 2 step 6c: cost payment.  Steps 6d/e/f add target
+            // enumeration + damage/heal/status fanout after these.
+            //
+            // Legality pre-validate (step 6b) already ran and confirmed the
+            // actor can afford every cost.  We rebuild AbilityDef here from
+            // ContentView; cheap and avoids carrying the def around.
+            let def = content.ability_def(ability).expect(
+                "cast: ability_def returns Some — already verified by legality pre-validate",
+            );
+            if def.cost_ap > 0 {
+                effect_queue.push_back(Effect::DecrementAP {
+                    actor: *actor,
+                    by: def.cost_ap,
+                });
+            }
+            for cost in &def.costs {
+                if cost.amount > 0 {
+                    effect_queue.push_back(Effect::PayCost {
+                        actor: *actor,
+                        kind: cost.resource,
+                        amount: cost.amount,
+                    });
+                }
+            }
         }
     }
 
