@@ -54,6 +54,7 @@ use combat_engine::{
     step::step,
 };
 use combat_engine::dice::DiceExpr as EngineDiceExpr;
+use combat_engine::{EffectDef as EngineEffectDef, StatusApplication as EngineStatusApplication, StatusOn as EngineStatusOn};
 use crate::core::modifier;
 
 // ── Entity ↔ UnitId mapping ───────────────────────────────────────────────────
@@ -269,6 +270,26 @@ impl<'a> EngineContentView for EcsContentView<'a> {
                 crate::content::abilities::AoEShape::Line { length } => combat_engine::AoEShape::Line { length },
             },
             friendly_fire: def.friendly_fire,
+            effect: match &def.effect {
+                EffectDef::None => EngineEffectDef::None,
+                EffectDef::WeaponAttack => EngineEffectDef::WeaponAttack,
+                EffectDef::Damage { dice } => EngineEffectDef::Damage { dice: *dice },
+                EffectDef::SpellDamage { dice } => EngineEffectDef::SpellDamage { dice: *dice },
+                EffectDef::Heal { dice } => EngineEffectDef::Heal { dice: *dice },
+                EffectDef::GrantMovement { distance } => EngineEffectDef::GrantMovement { distance: *distance },
+                EffectDef::RestoreResources => EngineEffectDef::RestoreResources,
+                // Summon: deferred to Phase 3. ToggleMoveMode: UI-only.
+                // Both map to None for Phase 2 — Cast resolution stays in resolution.rs until step 10.
+                EffectDef::Summon { .. } | EffectDef::ToggleMoveMode => EngineEffectDef::None,
+            },
+            statuses: def.statuses.iter().map(|s| EngineStatusApplication {
+                status: s.status.clone(),
+                duration_rounds: s.duration_rounds,
+                on: match s.on {
+                    crate::content::abilities::StatusOn::Target => EngineStatusOn::Target,
+                    crate::content::abilities::StatusOn::MySelf => EngineStatusOn::MySelf,
+                },
+            }).collect(),
         })
     }
 

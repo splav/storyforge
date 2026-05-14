@@ -10,7 +10,9 @@ use bevy::prelude::*;
 
 use combat_engine::legality::{check_legality, ActionState, ActorView, ProposedAction};
 use combat_engine::{
-    AbilityDef, AbilityId, AbilityRange, AoEShape, Cost, StatusDef, StatusId, TargetType,
+    AbilityDef, AbilityId, AbilityRange, AoEShape, Cost, EffectDef as EngineEffectDef,
+    StatusApplication as EngineStatusApplication, StatusDef, StatusId, StatusOn as EngineStatusOn,
+    TargetType,
 };
 
 use crate::content::abilities;
@@ -115,6 +117,24 @@ impl ActionState for BevyActions<'_, '_, '_> {
                 abilities::AoEShape::Line { length } => AoEShape::Line { length },
             },
             friendly_fire: def.friendly_fire,
+            effect: match &def.effect {
+                abilities::EffectDef::None => EngineEffectDef::None,
+                abilities::EffectDef::WeaponAttack => EngineEffectDef::WeaponAttack,
+                abilities::EffectDef::Damage { dice } => EngineEffectDef::Damage { dice: *dice },
+                abilities::EffectDef::SpellDamage { dice } => EngineEffectDef::SpellDamage { dice: *dice },
+                abilities::EffectDef::Heal { dice } => EngineEffectDef::Heal { dice: *dice },
+                abilities::EffectDef::GrantMovement { distance } => EngineEffectDef::GrantMovement { distance: *distance },
+                abilities::EffectDef::RestoreResources => EngineEffectDef::RestoreResources,
+                abilities::EffectDef::Summon { .. } | abilities::EffectDef::ToggleMoveMode => EngineEffectDef::None,
+            },
+            statuses: def.statuses.iter().map(|s| EngineStatusApplication {
+                status: s.status.clone(),
+                duration_rounds: s.duration_rounds,
+                on: match s.on {
+                    abilities::StatusOn::Target => EngineStatusOn::Target,
+                    abilities::StatusOn::MySelf => EngineStatusOn::MySelf,
+                },
+            }).collect(),
         })
     }
 

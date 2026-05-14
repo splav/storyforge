@@ -12,6 +12,46 @@
 
 use crate::{dice::DiceExpr, state::UnitId, AbilityId, ResourceKind, StatusId};
 
+/// Where a status application lands.  Mirrors `crate::content::abilities::StatusOn`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusOn {
+    /// The ability's resolved target (enemy / ally / self per `target_type`).
+    Target,
+    /// Always the actor who used the ability.
+    MySelf,
+}
+
+/// Status to apply when the ability resolves.  Mirrors
+/// `crate::content::abilities::StatusApplication`.
+#[derive(Debug, Clone)]
+pub struct StatusApplication {
+    pub status: StatusId,
+    pub duration_rounds: u32,
+    pub on: StatusOn,
+}
+
+/// Engine-side effect kinds.  Mirrors `crate::content::abilities::EffectDef`
+/// minus `Summon` (Phase 3 scope) and `ToggleMoveMode` (UI-only).
+///
+/// Phase 2 step 6c-e implements expansion in `step()`'s `Action::Cast` arm.
+#[derive(Debug, Clone)]
+pub enum EffectDef {
+    /// No direct damage / heal — ability only applies statuses.
+    None,
+    /// Uses caster's equipped weapon dice + str_mod.
+    WeaponAttack,
+    /// Physical damage from a fixed dice roll + str_mod.
+    Damage { dice: DiceExpr },
+    /// Magical damage: spell_power + int_mod + dice, pierces armor.
+    SpellDamage { dice: DiceExpr },
+    /// Heal: spell_power + int_mod + dice.
+    Heal { dice: DiceExpr },
+    /// Grants bonus movement to the actor.  Does NOT end the turn.
+    GrantMovement { distance: i32 },
+    /// Restores HP and all resources (mana, rage, energy) by 1.
+    RestoreResources,
+}
+
 /// Per-status stat bonuses relevant to engine aggregate recomputation.
 ///
 /// Mirrors the fields read by `BattleSnapshot::refresh_aggregates` and
@@ -61,8 +101,7 @@ pub enum AoEShape {
 }
 
 /// Engine-side minimal ability definition.  Legality + targeting fields;
-/// Phase 2 step 6 will add `effect: EffectDef` + `statuses: …` when
-/// `Action::Cast` lands in `step()`.
+/// `effect` and `statuses` populated by Phase 2 step 6a, expanded in step 6c-e.
 #[derive(Debug, Clone)]
 pub struct AbilityDef {
     pub key: Option<String>,
@@ -75,6 +114,10 @@ pub struct AbilityDef {
     /// (`compute_affected_targets`) consult this; non-AoE single-target
     /// abilities ignore it.
     pub friendly_fire: bool,
+    /// What the ability does to its primary affected target(s).
+    pub effect: EffectDef,
+    /// Statuses applied alongside `effect`.
+    pub statuses: Vec<StatusApplication>,
 }
 
 /// Engine-side minimal status definition — legality + aggregate-relevant fields.

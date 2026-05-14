@@ -45,6 +45,7 @@ impl TargetState for StubState {
 }
 
 fn ability(aoe: AoEShape, target_type: TargetType, friendly_fire: bool) -> AbilityDef {
+    use storyforge::combat_engine::{EffectDef, StatusApplication};
     AbilityDef {
         key: None,
         cost_ap: 1,
@@ -53,6 +54,8 @@ fn ability(aoe: AoEShape, target_type: TargetType, friendly_fire: bool) -> Abili
         target_type,
         aoe,
         friendly_fire,
+        effect: EffectDef::None,
+        statuses: Vec::<StatusApplication>::new(),
     }
 }
 
