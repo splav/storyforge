@@ -64,7 +64,7 @@ fn test_equipment() -> Equipment {
     }
 }
 
-/// Full bridge app: mirror (PreUpdate) + process_action (Update) + projector (PostUpdate).
+/// Full bridge app: mirror (PreUpdate) + process_action + projector chained (Update).
 ///
 /// Used for end-to-end tests where an `ActionInput` drives the full cycle.
 fn bridge_app() -> App {
@@ -82,8 +82,10 @@ fn bridge_app() -> App {
         .insert_resource(HexGridOffset(Vec2::ZERO))
         .add_message::<ActionInput>()
         .add_systems(PreUpdate, mirror_state_from_ecs)
-        .add_systems(Update, process_action_system)
-        .add_systems(PostUpdate, project_state_to_ecs);
+        .add_systems(
+            Update,
+            (process_action_system, project_state_to_ecs).chain(),
+        );
     app
 }
 

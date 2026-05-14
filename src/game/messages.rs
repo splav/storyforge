@@ -58,16 +58,11 @@ pub struct ApplyHeal {
     pub breakdown: String, // e.g. "1d4=2 + 1(сила) + 2(инт) = 5"
 }
 
-#[derive(Message)]
-pub struct MoveUnit {
-    pub actor: Entity,
-    pub path: Vec<hexx::Hex>,
-}
-
-/// New action input path for the engine-backed combat pipeline (Phase 1+).
+/// Action input for the engine-backed combat pipeline.
 ///
-/// Coexists with the legacy per-message types (`MoveUnit`, etc.) during
-/// Phase 1 migration.  `process_action_system` in `engine_bridge` reads this.
+/// `process_action_system` in `engine_bridge` reads this message and routes it
+/// to `combat_engine::step()`.  The engine is the sole owner of `Action::Move`
+/// after Phase 1.
 #[derive(Message, Debug)]
 pub enum ActionInput {
     Move { actor: Entity, path: Vec<hexx::Hex> },

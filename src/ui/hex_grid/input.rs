@@ -4,7 +4,7 @@ use super::render::{HexGridOffset, HexHover, HexLastClick, HexTooltip, DOUBLE_CL
 use crate::content::abilities::AoEShape;
 use crate::game::components::{ActionPoints, ActiveCombatant, Combatant, Dead, Energy, Faction, Mana, Rage, StatusEffects, Team, Vital};
 use crate::game::hex::{in_bounds, is_passable, Hex, LAYOUT};
-use crate::game::messages::{MoveUnit, UseAbility};
+use crate::game::messages::{ActionInput, UseAbility};
 use crate::game::pathfinding::find_path;
 use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
@@ -125,7 +125,7 @@ pub fn hex_click_target(
     mut sel: ResMut<SelectionState>,
     mut last_click: ResMut<HexLastClick>,
     mut use_ability: MessageWriter<UseAbility>,
-    mut move_unit: MessageWriter<MoveUnit>,
+    mut action_input: MessageWriter<ActionInput>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
         return;
@@ -137,7 +137,7 @@ pub fn hex_click_target(
     let now = time.elapsed_secs_f64();
 
     if sel.move_mode && occupant.is_none() {
-        if try_move(hovered, active, &positions, &move_query, &combatant_q2, &mut move_unit) {
+        if try_move(hovered, active, &positions, &move_query, &combatant_q2, &mut action_input) {
             sel.move_mode = false;
         }
         last_click.pos = Some(hovered);
@@ -169,14 +169,14 @@ pub fn hex_click_target(
             use_ability.write(UseAbility { actor, ability, target: actor, target_pos: hovered });
         }
     } else if is_double {
-        try_move(hovered, active, &positions, &move_query, &combatant_q2, &mut move_unit);
+        try_move(hovered, active, &positions, &move_query, &combatant_q2, &mut action_input);
     }
 
     last_click.pos = Some(hovered);
     last_click.time = now;
 }
 
-/// Tries to path-find and send MoveUnit for the active player to target hex.
+/// Tries to path-find and send `ActionInput::Move` for the active player to target hex.
 /// Returns true if the move was sent.
 fn try_move(
     target: Hex,
@@ -184,7 +184,7 @@ fn try_move(
     positions: &HexPositions,
     move_query: &Query<(&Faction, &ActionPoints)>,
     combatant_q2: &Query<(&Faction, &Vital), With<Combatant>>,
-    move_unit: &mut MessageWriter<MoveUnit>,
+    action_input: &mut MessageWriter<ActionInput>,
 ) -> bool {
     let Some(actor) = active else { return false };
     let Ok((faction, ap)) = move_query.get(actor) else { return false };
@@ -205,7 +205,7 @@ fn try_move(
         .collect();
     if let Some(path) = find_path(actor_pos, target, |h| is_passable(h, &enemy_pos)) {
         if path.len() as i32 <= max_steps {
-            move_unit.write(MoveUnit { actor, path });
+            action_input.write(ActionInput::Move { actor, path });
             return true;
         }
     }

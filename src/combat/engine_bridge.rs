@@ -224,7 +224,7 @@ pub fn from_ecs(
 /// Built once per `ActionInput::Move` from the current ECS state.  Holds a
 /// pre-computed map of eligible AoO attackers (unit → weapon dice expr).
 ///
-/// Eligibility mirrors `movement_system`'s provoker filter exactly:
+/// Eligibility filter (mirrors the deleted `movement_system`'s provoker scan):
 /// - alive (`!Has<Dead>` AND `vital.is_alive()`)
 /// - not stunned (no status with `skips_turn = true`)
 /// - has a melee `WeaponAttack` ability (`range.max == 1`)
@@ -250,9 +250,6 @@ impl EngineContentView for EcsContentView {
 }
 
 /// Query row for building `EcsContentView`.
-///
-/// Reads the same fields as `movement_system`'s provoker scan (lines ~110–171
-/// of `movement.rs`), so eligibility logic stays in sync.
 type AooRow<'a> = (
     Entity,
     &'a Equipment,
@@ -349,18 +346,17 @@ impl<'a> DiceSource for DiceRngAdapter<'a> {
     }
 }
 
-/// `Update` system — parallel witness call to `combat_engine::step()`.
+/// `Update` system — authoritative move handler via `combat_engine::step()`.
 ///
 /// Reads `ActionInput::Move` messages, calls `step()` against the mirrored
 /// `CombatStateRes`, and translates the resulting `Event` stream into Bevy-land
 /// side effects (CombatLog entries, Dead markers, movement animations).
-/// `movement_system` remains authoritative; these side effects are exercised
-/// only by new tests against the bridge-only fixture (Commit B1).
+/// The engine is the sole owner of `Action::Move` after Phase 1 — `movement_system`
+/// has been deleted.
 ///
-/// Now wired with a real ECS-backed `EcsContentView` so the engine can fire
-/// AoO reactions correctly (step 4a).  State mutations are ephemeral —
-/// `CombatStateRes` is overwritten on the next `mirror_state_from_ecs` call
-/// (next `PreUpdate`).
+/// Wired with a real ECS-backed `EcsContentView` so the engine can fire AoO
+/// reactions correctly.  `project_state_to_ecs` (chained immediately after)
+/// writes the engine mutations back to ECS components.
 ///
 /// Runs in `CombatStep::Execute`, gated by `CombatPhase::AwaitCommand`.
 pub fn process_action_system(
@@ -536,27 +532,29 @@ type ProjectionRow<'a> = (
     &'a mut ActionPoints,
     &'a mut Reactions,
     Has<BonusMovement>,
+    Option<&'a mut Rage>,
 );
 
-/// `PostUpdate` system — writes engine `CombatState` back to ECS components.
+/// `Update` system — writes engine `CombatState` back to ECS components.
 ///
 /// For each unit in `CombatStateRes`, projects:
 /// - `pos`              → `HexPositions::insert(entity, pos)`
 /// - `hp`               → `Vital.hp`
 /// - `movement_points`  → `ActionPoints.movement_points`
 /// - `reactions_left`   → `Reactions.remaining`
+/// - `rage.current`     → `Rage.current` (if engine unit has rage and ECS entity has `Rage`)
 ///
 /// Additionally removes `BonusMovement` when `movement_points == 0` and the
 /// entity had the marker (mirrors `movement_system` lines 284–286).
 ///
-/// Runs after `process_action_system` (Update) so engine mutations land in ECS
-/// in the same frame.  `mirror_state_from_ecs` (PreUpdate) will re-sync ECS →
-/// engine on the *next* frame's PreUpdate, so the projection is authoritative
-/// for exactly one frame.
+/// Runs immediately after `process_action_system` in the `CombatStep::Execute`
+/// chain so engine mutations land in ECS in the same frame.
+/// `mirror_state_from_ecs` (PreUpdate) will re-sync ECS → engine on the *next*
+/// frame's PreUpdate, so the projection is authoritative for exactly one frame.
 ///
 /// Unknown units (no ECS entity in `UnitIdMap`) are silently skipped — they
-/// cannot be projected yet.  Deferred fields (rage, mana, armor_bonus, speed)
-/// are out of scope for Phase 1 step 3.
+/// cannot be projected yet.  Deferred fields (mana, armor_bonus, speed)
+/// are out of scope for Phase 1.
 ///
 /// Gated by `CombatPhase::AwaitCommand` (same as `mirror_state_from_ecs`).
 pub fn project_state_to_ecs(
@@ -575,14 +573,23 @@ pub fn project_state_to_ecs(
         // Write position.
         positions.insert(entity, unit.pos);
 
-        // Write Vital / ActionPoints / Reactions.
-        if let Ok((mut vital, mut ap, mut reactions, has_bonus)) = combatants.get_mut(entity) {
+        // Write Vital / ActionPoints / Reactions / Rage.
+        if let Ok((mut vital, mut ap, mut reactions, has_bonus, rage_opt)) =
+            combatants.get_mut(entity)
+        {
             vital.hp = unit.hp;
             ap.movement_points = unit.movement_points;
             reactions.remaining = unit.reactions_left as u8;
 
             if has_bonus && ap.movement_points == 0 {
                 commands.entity(entity).remove::<BonusMovement>();
+            }
+
+            // Project rage.current when both sides carry a rage pool.
+            if let (Some((engine_current, _engine_max)), Some(mut ecs_rage)) =
+                (unit.rage, rage_opt)
+            {
+                ecs_rage.current = engine_current;
             }
         }
     }

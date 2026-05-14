@@ -9,7 +9,6 @@ pub mod effects_math;
 pub mod effects_outcome;
 pub mod effects_state;
 pub mod enemy_popup;
-pub mod movement;
 pub mod phases;
 pub mod pipeline;
 pub mod resolution;

@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::common::*;
 use storyforge::game::components::{ActionPoints, ActiveCombatant};
 use storyforge::game::hex::{hex_from_offset, Hex};
-use storyforge::game::messages::MoveUnit;
+use storyforge::game::messages::ActionInput;
 use storyforge::game::resources::HexPositions;
 
 fn spawn_at(app: &mut App, pos: Hex, bundle: impl Bundle, name: &'static str) -> Entity {
@@ -22,7 +22,7 @@ fn partial_move_subtracts_pool_and_allows_second_move() {
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
     app.world_mut().get_mut::<ActionPoints>(hero).unwrap().movement_points = 3;
 
-    write_message(&mut app, MoveUnit { actor: hero, path: vec![hex_from_offset(2, 3)] });
+    write_message(&mut app, ActionInput::Move { actor: hero, path: vec![hex_from_offset(2, 3)] });
     app.update();
     assert_eq!(
         app.world().get::<ActionPoints>(hero).unwrap().movement_points,
@@ -34,7 +34,7 @@ fn partial_move_subtracts_pool_and_allows_second_move() {
         Some(hex_from_offset(2, 3)),
     );
 
-    write_message(&mut app, MoveUnit { actor: hero, path: vec![hex_from_offset(1, 3)] });
+    write_message(&mut app, ActionInput::Move { actor: hero, path: vec![hex_from_offset(1, 3)] });
     app.update();
     assert_eq!(
         app.world().get::<ActionPoints>(hero).unwrap().movement_points,
@@ -57,7 +57,7 @@ fn move_rejected_when_path_longer_than_pool() {
     // Path of length 2, but only 1 point in the pool.
     write_message(
         &mut app,
-        MoveUnit {
+        ActionInput::Move {
             actor: hero,
             path: vec![hex_from_offset(2, 3), hex_from_offset(1, 3)],
         },

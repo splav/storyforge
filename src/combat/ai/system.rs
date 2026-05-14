@@ -20,7 +20,7 @@ use crate::core::DiceRng;
 use crate::game::components::{
     ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, StatusEffects, Team,
 };
-use crate::game::messages::{EndTurn, MoveUnit, UseAbility};
+use crate::game::messages::{ActionInput, EndTurn, UseAbility};
 use crate::game::resources::{CombatContext, HexPositions};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -31,7 +31,7 @@ use std::collections::HashMap;
 #[derive(SystemParam)]
 pub struct AiMessages<'w> {
     use_ability: MessageWriter<'w, UseAbility>,
-    move_unit: MessageWriter<'w, MoveUnit>,
+    action_input: MessageWriter<'w, ActionInput>,
     end_turn: MessageWriter<'w, EndTurn>,
 }
 
@@ -321,11 +321,11 @@ fn run_ai_turn(
             msgs.use_ability.write(UseAbility { actor, ability, target, target_pos });
         }
         AiDecision::MoveAndCast { path, ability, target, target_pos } => {
-            msgs.move_unit.write(MoveUnit { actor, path });
+            msgs.action_input.write(ActionInput::Move { actor, path });
             msgs.use_ability.write(UseAbility { actor, ability, target, target_pos });
         }
         AiDecision::Move { path, .. } => {
-            msgs.move_unit.write(MoveUnit { actor, path });
+            msgs.action_input.write(ActionInput::Move { actor, path });
         }
         AiDecision::EndTurn => {
             msgs.end_turn.write(EndTurn { actor });

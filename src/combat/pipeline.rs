@@ -11,7 +11,7 @@ use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap, mirror_state_from_
 use crate::ui;
 
 use super::{
-    advance_turn, apply_effects, auras, command_input, enemy_popup, movement, phases, resolution,
+    advance_turn, apply_effects, auras, command_input, enemy_popup, phases, resolution,
     skip_dead, spawn, start_combat_system, status_tick, turn_order, turn_start, validation,
     CombatStep,
 };
@@ -28,12 +28,6 @@ impl Plugin for CombatPipelinePlugin {
         app.add_systems(
             PreUpdate,
             mirror_state_from_ecs.run_if(in_state(CombatPhase::AwaitCommand)),
-        );
-
-        // Project engine state → ECS after each Update frame (Phase 1 step 3).
-        app.add_systems(
-            PostUpdate,
-            project_state_to_ecs.run_if(in_state(CombatPhase::AwaitCommand)),
         );
 
         app.add_systems(
@@ -89,8 +83,8 @@ impl Plugin for CombatPipelinePlugin {
         .add_systems(
             Update,
             (
-                movement::movement_system,
                 process_action_system,
+                project_state_to_ecs,
                 validation::validate_action_system,
                 resolution::resolve_action_system,
                 apply_effects::apply_effects_system,

@@ -10,7 +10,8 @@ use storyforge::combat::{
     ai::config::difficulty::DifficultyProfile, ai::world::influence::InfluenceConfig,
     ai::world::reservations::Reservations,
     apply_effects::apply_effects_system, ai::system::enemy_ai_system,
-    movement::movement_system,
+    engine_bridge::{mirror_state_from_ecs, process_action_system, project_state_to_ecs,
+                    CombatStateRes, UnitIdMap},
     phases::phase_transition_system,
     resolution::resolve_action_system,
     skip_dead::skip_stunned_turn_system,
@@ -26,7 +27,7 @@ use storyforge::game::bundles::{enemy_bundle, hero_bundle};
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{CombatStats, Equipment};
 use storyforge::game::messages::{
-    ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, MoveUnit, SpawnUnit, UseAbility, ValidatedAction,
+    ActionInput, ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, SpawnUnit, UseAbility, ValidatedAction,
 };
 use storyforge::game::resources::{
     CombatContext, CombatObjective, GameDb, HexPositions, SelectionState, TurnQueue,
@@ -210,7 +211,7 @@ pub fn stun_app() -> App {
         .add_message::<EndTurn>()
         .add_message::<SpawnUnit>()
         .add_message::<UseAbility>()
-        .add_message::<MoveUnit>()
+        .add_message::<ActionInput>()
         .add_systems(
             Update,
             (
@@ -254,10 +255,18 @@ pub fn movement_app() -> App {
         .init_resource::<storyforge::combat::ai::log::AiLogger>()
         .init_resource::<PresetInitiative>()
         .insert_resource(HexGridOffset(Vec2::ZERO))
-        .add_message::<MoveUnit>()
+        .init_resource::<CombatStateRes>()
+        .init_resource::<UnitIdMap>()
+        .add_message::<ActionInput>()
+        .add_systems(
+            PreUpdate,
+            mirror_state_from_ecs.run_if(in_state(CombatPhase::AwaitCommand)),
+        )
         .add_systems(
             Update,
-            movement_system.run_if(in_state(CombatPhase::AwaitCommand)),
+            (process_action_system, project_state_to_ecs)
+                .chain()
+                .run_if(in_state(CombatPhase::AwaitCommand)),
         )
         .add_systems(Update, build_turn_order.run_if(in_state(CombatPhase::StartRound)));
     enter_await_command(&mut app);
