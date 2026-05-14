@@ -71,6 +71,10 @@ pub struct AbilityDef {
     pub range: AbilityRange,
     pub target_type: TargetType,
     pub aoe: AoEShape,
+    /// If true, AoE damages allies + actor too.  Targeting filters
+    /// (`compute_affected_targets`) consult this; non-AoE single-target
+    /// abilities ignore it.
+    pub friendly_fire: bool,
 }
 
 /// Engine-side minimal status definition — legality + aggregate-relevant fields.

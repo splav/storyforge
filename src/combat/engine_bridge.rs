@@ -268,6 +268,7 @@ impl<'a> EngineContentView for EcsContentView<'a> {
                 crate::content::abilities::AoEShape::Circle { radius } => combat_engine::AoEShape::Circle { radius },
                 crate::content::abilities::AoEShape::Line { length } => combat_engine::AoEShape::Line { length },
             },
+            friendly_fire: def.friendly_fire,
         })
     }
 

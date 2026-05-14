@@ -24,5 +24,8 @@ mod reaction;
 #[path = "combat_engine/state.rs"]
 mod state;
 
+#[path = "combat_engine/targeting.rs"]
+mod targeting;
+
 #[path = "combat_engine/step.rs"]
 mod step;

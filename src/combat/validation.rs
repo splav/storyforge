@@ -114,6 +114,7 @@ impl ActionState for BevyActions<'_, '_, '_> {
                 abilities::AoEShape::Circle { radius } => AoEShape::Circle { radius },
                 abilities::AoEShape::Line { length } => AoEShape::Line { length },
             },
+            friendly_fire: def.friendly_fire,
         })
     }
 
