@@ -167,3 +167,57 @@ After gates pass:
 1. Append `## 12. Retrospective` with surprises, deviations, perf numbers, decisions for Phase 2.
 2. Open `step_unisim2_plan.md` from §5.2 template in `unisim.md`.
 3. Tag commit `unisim/phase1-complete`.
+
+---
+
+## 12. Retrospective
+
+Closed 2026-05-14. All gates green.
+
+### Commit chain
+
+| SHA | Scope |
+|---|---|
+| `221f7a4` | Crate split: `combat_engine` → workspace member; test reorg into two binaries; bridge_smoke skeleton |
+| `dee1324` | Engine path-occupancy validation (resolves §8 risk; pure-state check, no `ContentView` extension) |
+| `3e8bb0b` | DiceRng adapter + team-filter / stunned-filter parity tests |
+| `7c60af3` | Bridge feature parity: CombatLog emission, animation enqueue, Dead marker, BonusMovement cleanup |
+| `37acf69` | Engine semantics fix: sequential reaction processing for mid-path actor death |
+| `12e7e9f` | Authority flip: delete `movement_system`, migrate writers to `ActionInput::Move`, add Rage projection, move projector into Update chain |
+| `821bdbc` | Mirror → `init_state_from_ecs`: `OnEnter(AwaitCommand)` trigger, per-round init |
+
+### Gate results
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | `golden_smoke` green | ✅ 1/1 |
+| 2 | Engine + parity tests green | ✅ combat_engine 51/51, combat 92/92, lib 831/831 |
+| 3 | No playtest regressions | ✅ (manual run + golden_smoke) |
+| 4 | No `movement_system` left in source | ✅ file deleted; ast-index confirms |
+| 5 | Bench ≤ 1.2× Phase 0 engine baseline | ✅ 1.80 µs vs 1.81 µs budget (margin: 0.5%) |
+
+### Perf numbers (bench `engine_move`, 10-unit scenario)
+
+|  | Phase 0 | Phase 1 | Δ |
+|---|---|---|---|
+| engine `step(Move)` | 1.51 µs | 1.80 µs | +19% |
+| legacy (sim shim) | 2.02 µs | 2.39 µs | +18% |
+| ratio engine/legacy | 0.75× | 0.75× | unchanged |
+
+The +19% regression is symmetric across both paths (legacy now routes through engine, so it inherits the same overhead). Likely cause: sequential reaction processing in `step.rs` (commit `37acf69`) does more bookkeeping per AoO than en-bloc expansion. Margin against the 1.2× gate is ~0.5%. **Phase 2 carries an implicit perf budget** — if Cast/AoE adds further overhead we'll bust the gate. Flag for revisit at Phase 2 step-1 bench check.
+
+### Deviations from original plan
+
+- **Sequential reaction processing was not in the §4 step list.** Discovered during B2 prep: decision 6.5 (strict failure rollback) interacted badly with mid-path actor death — the second flanker's `Damage` on a dead mover triggered full rollback, contradicting `movement_system`'s "die at hit-position" semantics. Fixed by restructuring `step.rs` to process reactions sequentially with actor-liveness gate. Decision 6.5 narrowed: rollback applies only to non-actor `Damage` targets; action-actor mid-flight death drops remaining effects silently. Engine parity test renamed (`parity_aoo_kills_mover_mid_path_rollback` → `_truncates`).
+- **Step 6 mirror trigger landed as `OnEnter(AwaitCommand)`, not strict init-once.** The plan's "run once at combat start" framing missed that `build_turn_order` refills `Reactions.remaining` and `movement_points` in ECS during `StartRound`, and the engine needs to see those at round start. `OnEnter(AwaitCommand)` fires once per round (after StartRound completes), catching the refills. Within-round staleness on non-engine-owned fields (HP, statuses) is bounded and non-corruptive; Phase 2 eliminates it by migrating `apply_effects` into the engine.
+- **Step 7 deferred to Phase 2.** Part A (`sim::apply_move` snapshot roundtrip removal) is real perf work but folds naturally into Phase 2's snapshot deprecation. Part B (`pick_action` snapshot bypass for Move scoring) would require parallel code paths in the AI orchestration layer (need_signals, agenda, intent, scoring all snapshot-bound today) and is throw-away once Phase 2 makes the snapshot vestigial.
+- **`MoveUnit` Bevy message deleted in B2.** Plan §3 listed it for Phase 1 step 5; landed as part of the authority-flip commit alongside `movement_system` deletion.
+- **Rage projection.** Plan §3 listed projector fields as `pos/MP/reactions/hp`; `Rage.current` was missed but needed (AoOs grant rage on both sides). Added in B2.
+
+### Decisions to carry into Phase 2
+
+- **Snapshot deprecation order.** `BattleSnapshot` becomes redundant when Cast/damage/status are engine-driven. Phase 2 should phase it out alongside the migration rather than continuing to maintain snapshot↔CombatState roundtrips. `sim::apply_move`'s per-call rebuild (deferred step-7 Part A) gets cleaned up here.
+- **Perf budget.** 0.5% margin against Phase 0 baseline. Phase 2 step 1 should re-run `cargo bench --bench engine_move` early and budget against the 1.81 µs ceiling. If Cast/AoE pushes past, the likely lever is per-frame projector cost (currently full-state walk) — switch to change-detection.
+- **Apply_effects migration scope.** Per plan §5.2, the rewrite touches `PayCost`, `ApplyStatus`, `RemoveStatus`, `Heal`, plus the per-target ordering decision (6.3) which is already pinned by engine tests. Should be mechanical given the bridge pattern established in Phase 1.
+- **Strict failure (decision 6.5) narrowed.** Phase 1 ended with 6.5 split: action-actor `Damage` on dead → silent skip; non-actor `Damage` on dead → rollback. Phase 2 (AoE) is where the non-actor branch finally gets exercised in production — the engine test for it is reserved comment in `step.rs` for now.
+- **Within-round ECS staleness.** Engine sees stale `Vital.hp` and `StatusEffects` until next round-start init. Bounded failure mode in Phase 1 (AoO might scan a unit as alive when a cast killed it; engine handles via the sequential-reaction-skip path). Phase 2 eliminates it by making the engine the writer for those fields too.
