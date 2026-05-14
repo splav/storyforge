@@ -496,7 +496,7 @@ fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
                 .statuses
                 .iter()
                 .map(|s| ActiveStatus {
-                    id: combat_engine::StatusId(s.id.0.clone()),
+                    id: s.id.clone(),
                     rounds_remaining: s.rounds_remaining,
                     dot_per_tick: s.dot_per_tick,
                 })

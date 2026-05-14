@@ -173,7 +173,7 @@ pub fn from_ecs(
                 .map(|se| {
                     se.0.iter()
                         .map(|s| ActiveStatus {
-                            id: combat_engine::StatusId(s.id.0.clone()),
+                            id: s.id.clone(),
                             rounds_remaining: s.rounds_remaining,
                             dot_per_tick: s.dot_per_tick,
                         })

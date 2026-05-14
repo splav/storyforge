@@ -1,6 +1,4 @@
-pub mod ids;
-
-pub use ids::{AbilityId, ArmorId, StatusId, WeaponId};
+pub use combat_engine::{AbilityId, ArmorId, StatusId, WeaponId};
 pub use combat_engine::{DiceExpr, DiceRng};
 
 /// Вид ресурса, который может тратиться на способности.
