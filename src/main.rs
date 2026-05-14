@@ -5,7 +5,7 @@ use storyforge::combat;
 use storyforge::combat::pipeline::CombatPipelinePlugin;
 use storyforge::combat::CombatStep;
 use storyforge::persistence::{detect_paths, settings_repo, PersistencePlugin};
-use storyforge::core::DiceRng;
+use storyforge::combat::DiceRngRes;
 use storyforge::game::messages::{
     ActionInput, ApplyDamage, ApplyHeal, ApplyStatus, EndTurn, RestartCombat, SpawnUnit,
     StartCombat, UseAbility, ValidatedAction,
@@ -41,7 +41,7 @@ fn main() {
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()
         .init_resource::<SelectionState>()
-        .init_resource::<DiceRng>()
+        .init_resource::<DiceRngRes>()
         .insert_resource(settings.difficulty.clone())
         .insert_resource(combat::ai::log::debug::AiDebugState {
             ai_debug: settings.ai_debug,

@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::content::content_view::{ActiveContent, ContentView};
 use crate::app_state::CombatPhase;
-use crate::core::DiceRng;
+use crate::combat::DiceRngRes;
 use crate::content::encounters::VictoryCondition;
 use crate::game::components::{
     ActionPoints, ActiveCombatant, ActiveStatus, Combatant, Dead, Faction, Speed, StatusEffects, Team, Vital, VictoryTarget,
@@ -35,7 +35,7 @@ pub fn advance_turn_system(
     mut log: ResMut<CombatLog>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
     content: Res<ActiveContent>,
-    mut rng: ResMut<DiceRng>,
+    mut rng: ResMut<DiceRngRes>,
 ) {
     // 1. Apply NEW statuses (skip dead targets). Runs every frame so that
     // statuses emitted mid-turn (player casts, then spends leftover MP)

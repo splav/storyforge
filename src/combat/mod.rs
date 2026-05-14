@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod advance_turn;
 pub mod ai;
+pub mod dice_resource;
 pub mod engine_bridge;
 pub mod apply_effects;
 pub mod auras;
@@ -18,6 +19,8 @@ pub mod status_tick;
 pub mod turn_order;
 pub mod turn_start;
 pub mod validation;
+
+pub use dice_resource::DiceRngRes;
 
 use crate::app_state::AppState;
 use crate::game::components::ActiveCombatant;

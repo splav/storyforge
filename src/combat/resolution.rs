@@ -7,7 +7,8 @@ use crate::content::content_view::ActiveContent;
 use crate::content::abilities::{AoEShape, CasterContext, EffectDef, TargetType};
 use crate::content::races::CritFailEffect;
 use crate::content::settings::GameSettings;
-use crate::core::{DiceRng, ResourceKind};
+use crate::combat::DiceRngRes;
+use crate::core::ResourceKind;
 use crate::game::components::{
     ActionPoints, BonusMovement, CombatPath, CombatStats, Combatant, Energy, Equipment, Faction, Mana, Rage, Team, Vital,
 };
@@ -21,7 +22,7 @@ pub fn resolve_action_system(
     content: Res<ActiveContent>,
     settings: Res<GameSettings>,
     positions: Res<HexPositions>,
-    mut rng: ResMut<DiceRng>,
+    mut rng: ResMut<DiceRngRes>,
     mut log: ResMut<CombatLog>,
     mut events: MessageReader<ValidatedAction>,
     mut actors: ParamSet<(
@@ -113,7 +114,7 @@ pub fn resolve_action_system(
         // or the normal damage/heal/status payload.
         let crit_failed = rng.roll_d(settings.crit_fail_die) == 1;
         let outcome = {
-            let mut dice = RngDice(&mut rng);
+            let mut dice = RngDice(&mut **rng);
             compute_ability_outcome(
                 ev.actor,
                 def,

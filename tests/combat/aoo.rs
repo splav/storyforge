@@ -43,7 +43,7 @@ fn away_pos() -> Hex { hex_from_offset(2, 3) }
 fn leave_adjacent_triggers_aoo() {
     let mut app = movement_app();
     // Weapon 1d8 + STR_mod(2) = raw 2+2=4. Hero armor 3, status 0 → final = max(1, 4-3) = 1.
-    app.world_mut().resource_mut::<storyforge::core::DiceRng>().script(&[2]);
+    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[2]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
@@ -78,7 +78,7 @@ fn leave_adjacent_triggers_aoo() {
 #[test]
 fn opportunity_once_per_round() {
     let mut app = movement_app();
-    app.world_mut().resource_mut::<storyforge::core::DiceRng>().script(&[3, 3]);
+    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[3, 3]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let _goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
@@ -110,7 +110,7 @@ fn opportunity_once_per_round() {
 fn stunned_enemy_no_opportunity() {
     let mut app = movement_app();
     insert_stun_status(&mut app);
-    app.world_mut().resource_mut::<storyforge::core::DiceRng>().script(&[8]);
+    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[8]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
@@ -137,7 +137,7 @@ fn stunned_enemy_no_opportunity() {
 #[test]
 fn multiple_provokers_all_fire() {
     let mut app = movement_app();
-    app.world_mut().resource_mut::<storyforge::core::DiceRng>().script(&[2, 2]);
+    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[2, 2]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let g1 = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "G1");
@@ -162,7 +162,7 @@ fn multiple_provokers_all_fire() {
 fn dead_actor_truncates_path() {
     let mut app = movement_app();
     // First roll = 8 (lethal at hp=1, armor=0). Second roll scripted but should never fire.
-    app.world_mut().resource_mut::<storyforge::core::DiceRng>().script(&[8, 8]);
+    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[8, 8]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let _g1 = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "G1");
@@ -211,7 +211,7 @@ fn no_melee_enemy_no_opportunity() {
 #[test]
 fn enemy_mover_hero_provokes() {
     let mut app = movement_app();
-    app.world_mut().resource_mut::<storyforge::core::DiceRng>().script(&[5]);
+    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[5]);
 
     let hero = spawn_at(&mut app, goblin_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, start_pos(), test_enemy(base_stats()), "Goblin");
@@ -235,7 +235,7 @@ fn reactions_refill_on_round_start() {
     use storyforge::app_state::CombatPhase;
 
     let mut app = movement_app();
-    app.world_mut().resource_mut::<storyforge::core::DiceRng>().script(&[3]);
+    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[3]);
 
     let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
     let goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");

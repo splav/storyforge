@@ -16,6 +16,7 @@ use crate::combat::ai::orchestration::{
     pick_action, AiDecision, AiWorld, ChosenInfo,
 };
 use crate::content::settings::GameSettings;
+use crate::combat::DiceRngRes;
 use crate::core::DiceRng;
 use crate::game::components::{
     ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, StatusEffects, Team,
@@ -56,7 +57,7 @@ pub struct AiEnv<'w> {
 
 pub fn enemy_ai_system(
     env: AiEnv,
-    mut rng: ResMut<DiceRng>,
+    mut rng: ResMut<DiceRngRes>,
     mut reservations: ResMut<Reservations>,
     mut logger: ResMut<AiLogger>,
     mut msgs: AiMessages,
@@ -74,7 +75,7 @@ pub fn enemy_ai_system(
         return;
     }
     run_ai_turn(
-        actor, &c, &env, &mut rng, &mut reservations,
+        actor, &c, &env, &mut **rng, &mut reservations,
         &mut logger, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );
@@ -344,7 +345,7 @@ pub fn has_ai_control_status(entity: Entity, statuses: &Query<&StatusEffects>, c
 /// AI for Player heroes under pact_control status. Attacks enemies, heals allies.
 pub fn pact_ai_system(
     env: AiEnv,
-    mut rng: ResMut<DiceRng>,
+    mut rng: ResMut<DiceRngRes>,
     mut reservations: ResMut<Reservations>,
     mut logger: ResMut<AiLogger>,
     mut msgs: AiMessages,
@@ -365,7 +366,7 @@ pub fn pact_ai_system(
         return;
     }
     run_ai_turn(
-        actor, &c, &env, &mut rng, &mut reservations,
+        actor, &c, &env, &mut **rng, &mut reservations,
         &mut logger, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
     );

@@ -1,8 +1,7 @@
 pub mod ids;
-pub mod rng;
 
 pub use ids::{AbilityId, ArmorId, StatusId, WeaponId};
-pub use rng::{DiceExpr, DiceRng};
+pub use combat_engine::{DiceExpr, DiceRng};
 
 /// Вид ресурса, который может тратиться на способности.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

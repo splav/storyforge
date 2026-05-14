@@ -61,3 +61,5 @@ pub mod event;
 pub mod reaction;
 pub mod state;
 pub mod step;
+
+pub use dice::{DiceExpr, DiceRng};

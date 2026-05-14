@@ -2,7 +2,8 @@
 use crate::app_state::CombatPhase;
 use crate::combat::ai::world::reservations::Reservations;
 use crate::content::content_view::ActiveContent;
-use crate::core::{modifier, DiceRng};
+use crate::core::modifier;
+use crate::combat::DiceRngRes;
 use crate::game::components::{ActionPoints, ActiveCombatant, CombatStats, Combatant, Initiative, Reactions, Speed, StatusEffects, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{CombatContext, PresetInitiative, TurnQueue};
@@ -31,7 +32,7 @@ pub fn build_turn_order(
     mut queue: ResMut<TurnQueue>,
     mut ctx: ResMut<CombatContext>,
     mut log: ResMut<CombatLog>,
-    mut rng: ResMut<DiceRng>,
+    mut rng: ResMut<DiceRngRes>,
     mut preset: ResMut<PresetInitiative>,
     mut reservations: ResMut<Reservations>,
     mut next_phase: ResMut<NextState<CombatPhase>>,

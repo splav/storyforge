@@ -1,13 +1,13 @@
-//! Step 2 unit tests: `DiceSource` trait, `ExpectedValue`, `SeededDice`.
+//! Step 2 unit tests: `DiceSource` trait, `ExpectedValue`, `DiceRng`.
 //!
-//! Core assertion: `ExpectedValue::expected(d)` ≈ mean of 10 000 `SeededDice`
+//! Core assertion: `ExpectedValue::expected(d)` ≈ mean of 10 000 `DiceRng`
 //! rolls within 1% of the true expected value.
 
-use storyforge::combat_engine::dice::{DiceExpr, DiceSource, ExpectedValue, SeededDice};
+use storyforge::combat_engine::dice::{DiceExpr, DiceRng, DiceSource, ExpectedValue};
 
 fn monte_carlo_mean(expr: DiceExpr, n: u32, seed: u64) -> f32 {
-    let mut rng = SeededDice::with_seed(seed);
-    let total: i64 = (0..n).map(|_| rng.roll(expr) as i64).sum();
+    let mut rng = DiceRng::with_seed(seed);
+    let total: i64 = (0..n).map(|_| rng.roll(&expr) as i64).sum();
     total as f32 / n as f32
 }
 
@@ -46,13 +46,13 @@ fn expected_value_roll_is_deterministic() {
     assert_eq!(r1, 4); // round(3.5) = 4
 }
 
-/// `SeededDice` rolls are in range `[1, sides]` for each die.
+/// `DiceRng` rolls are in range `[1, sides]` for each die.
 #[test]
 fn seeded_dice_rolls_in_range() {
-    let mut rng = SeededDice::with_seed(42);
+    let mut rng = DiceRng::with_seed(42);
     let expr = DiceExpr::new(4, 6, 0); // 4d6
     for _ in 0..500 {
-        let r = rng.roll(expr);
+        let r = rng.roll(&expr);
         assert!((4..=24).contains(&r), "4d6 rolled {r}");
     }
 }
@@ -60,8 +60,8 @@ fn seeded_dice_rolls_in_range() {
 /// Bonus-only expression (count=0) always returns the bonus.
 #[test]
 fn bonus_only_expression() {
-    let mut rng = SeededDice::with_seed(99);
+    let mut rng = DiceRng::with_seed(99);
     let expr = DiceExpr::new(0, 6, 7);
-    assert_eq!(rng.roll(expr), 7);
+    assert_eq!(rng.roll(&expr), 7);
     assert_eq!(ExpectedValue.expected(expr), 7.0);
 }

@@ -117,7 +117,7 @@ mod tests {
         // ── 2. Context (last_goal = None) ──
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         assert!(scoring.last_goal.is_none());
-        let mut rng = crate::core::rng::DiceRng::default();
+        let mut rng = crate::core::DiceRng::default();
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
 
         // ── 3. ModifierCtx ──
@@ -182,7 +182,7 @@ mod tests {
             let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
             scoring.last_goal = Some(&stored_goal);
             scoring.need_signals = NeedSignals { continue_commitment: 0.0, ..Default::default() };
-            let mut rng = crate::core::rng::DiceRng::default();
+            let mut rng = crate::core::DiceRng::default();
             let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
             let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
@@ -196,7 +196,7 @@ mod tests {
             let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
             scoring.last_goal = Some(&stored_goal);
             scoring.need_signals = NeedSignals { continue_commitment: 1.0, ..Default::default() };
-            let mut rng = crate::core::rng::DiceRng::default();
+            let mut rng = crate::core::DiceRng::default();
             let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
             let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
@@ -261,7 +261,7 @@ mod tests {
             let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
             scoring.last_goal = Some(&stored_goal);
             scoring.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
-            let mut rng = crate::core::rng::DiceRng::default();
+            let mut rng = crate::core::DiceRng::default();
             let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
             let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
@@ -286,7 +286,7 @@ mod tests {
             let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
             scoring.last_goal = Some(&stored_goal);
             scoring.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
-            let mut rng = crate::core::rng::DiceRng::default();
+            let mut rng = crate::core::DiceRng::default();
             let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
             let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
@@ -338,7 +338,7 @@ mod tests {
         let mut scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         scoring.last_goal = Some(&stored_goal);
         scoring.need_signals = NeedSignals { continue_commitment: 0.5, ..Default::default() };
-        let mut rng = crate::core::rng::DiceRng::default();
+        let mut rng = crate::core::DiceRng::default();
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
 
         // ── 3. ModifierCtx ──

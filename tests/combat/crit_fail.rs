@@ -3,7 +3,7 @@ use storyforge::game::hex::hex_from_offset;
 use bevy::prelude::*;
 
 use crate::common::*;
-use storyforge::core::DiceRng;
+use storyforge::combat::DiceRngRes;
 use storyforge::game::bundles::hero_bundle;
 use storyforge::game::components::{
     ActiveCombatant, CombatPath, CombatStats, Mana, StatusEffects, Vital,
@@ -72,7 +72,7 @@ fn crit_fail_miss_no_effects_applied() {
     let target = spawn_target(&mut app);
     setup_turn(&mut app, actor, target);
 
-    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[1]);
 
     fire_burn(&mut app, actor, target);
 
@@ -89,7 +89,7 @@ fn no_crit_fail_ability_fires_normally() {
     let target = spawn_target(&mut app);
     setup_turn(&mut app, actor, target);
 
-    app.world_mut().resource_mut::<DiceRng>().script(&[10]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[10]);
 
     fire_burn(&mut app, actor, target);
 
@@ -107,7 +107,7 @@ fn crit_fail_will_mana_overload_doubles_cost() {
     let target = spawn_target(&mut app);
     setup_turn(&mut app, actor, target);
 
-    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[1]);
 
     fire_burn(&mut app, actor, target);
 
@@ -124,7 +124,7 @@ fn crit_fail_will_mana_overload_deficit_from_hp() {
     let target = spawn_target(&mut app);
     setup_turn(&mut app, actor, target);
 
-    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[1]);
 
     fire_burn(&mut app, actor, target);
 
@@ -141,7 +141,7 @@ fn crit_fail_faith_applies_broken_faith_status() {
     let target = spawn_target(&mut app);
     setup_turn(&mut app, actor, target);
 
-    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[1]);
 
     fire_burn(&mut app, actor, target);
 
@@ -162,7 +162,7 @@ fn crit_fail_tech_self_damage() {
     let target = spawn_target(&mut app);
     setup_turn(&mut app, actor, target);
 
-    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[1]);
 
     fire_burn(&mut app, actor, target);
 
@@ -180,7 +180,7 @@ fn crit_fail_heritage_applies_exhaustion_status() {
     let target = spawn_target(&mut app);
     setup_turn(&mut app, actor, target);
 
-    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[1]);
 
     fire_burn(&mut app, actor, target);
 
@@ -201,7 +201,7 @@ fn crit_fail_pact_applies_pact_control_status() {
     let target = spawn_target(&mut app);
     setup_turn(&mut app, actor, target);
 
-    app.world_mut().resource_mut::<DiceRng>().script(&[1]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[1]);
 
     fire_burn(&mut app, actor, target);
 

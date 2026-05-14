@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use crate::common::*;
 use storyforge::app_state::CombatPhase;
 use storyforge::game::bundles::enemy_bundle;
-use storyforge::core::DiceRng;
+use storyforge::combat::DiceRngRes;
 use storyforge::content::encounters::{PhaseDef, PhaseTrigger};
 use storyforge::game::components::{ActiveCombatant, ActiveStatus, CombatStats, Dead, EnemyPhases, Energy, Mana, Rage, StatusEffects, Vital};
 use storyforge::game::hex::hex_from_offset;
@@ -377,7 +377,7 @@ fn rest_restores_hp_mana_rage_energy() {
     positions.insert(dummy, hex_from_offset(5, 0));
 
     // d20=10 → no crit fail.
-    app.world_mut().resource_mut::<DiceRng>().script(&[10]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[10]);
 
     write_message(
         &mut app,
@@ -429,7 +429,7 @@ fn rest_does_not_exceed_maximums() {
     positions.insert(hero, hex_from_offset(0, 0));
     positions.insert(dummy, hex_from_offset(5, 0));
 
-    app.world_mut().resource_mut::<DiceRng>().script(&[10]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[10]);
 
     write_message(
         &mut app,

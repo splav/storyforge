@@ -3,7 +3,7 @@ use storyforge::game::hex::hex_from_offset;
 use bevy::prelude::*;
 
 use crate::common::*;
-use storyforge::core::DiceRng;
+use storyforge::combat::DiceRngRes;
 use storyforge::game::bundles::hero_bundle;
 use storyforge::game::components::{ActiveCombatant, CombatStats, Mana, Vital};
 use storyforge::game::messages::{EndTurn, UseAbility, ValidatedAction};
@@ -35,7 +35,7 @@ fn full_pipeline_melee_attack_damages_target() {
     positions.insert(enemy, hex_from_offset(1, 0));
 
     // Script: d20=10 (no crit), weapon dice (short_sword 1d8) → 6.
-    app.world_mut().resource_mut::<DiceRng>().script(&[10, 6]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[10, 6]);
 
     write_message(
         &mut app,
@@ -98,7 +98,7 @@ fn aoe_damages_multiple_enemies() {
     positions.insert(enemy2, hex_from_offset(4, 0));
 
     // Script: d20=10 (no crit fail), then 2d3 → [2, 3] = 5 total.
-    app.world_mut().resource_mut::<DiceRng>().script(&[10, 2, 3]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[10, 2, 3]);
 
     write_message(
         &mut app,

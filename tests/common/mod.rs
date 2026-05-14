@@ -22,7 +22,8 @@ use storyforge::combat::ai::world::tags::cache::build_caches;
 use storyforge::content::content_view::ActiveContent;
 use storyforge::content::settings::GameSettings;
 use storyforge::content::statuses::StatusDef;
-use storyforge::core::{DiceExpr, DiceRng};
+use storyforge::combat::DiceRngRes;
+use storyforge::core::DiceExpr;
 use storyforge::game::bundles::{enemy_bundle, hero_bundle};
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{CombatStats, Equipment};
@@ -100,7 +101,7 @@ pub fn validation_app() -> App {
         .insert_resource(ActiveContent(storyforge::content::content_view::ContentView::load_global_for_tests()))
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
-        .init_resource::<DiceRng>()
+        .init_resource::<DiceRngRes>()
         .add_message::<UseAbility>()
         .add_message::<ValidatedAction>()
         .add_message::<EndTurn>()
@@ -128,7 +129,7 @@ pub fn effects_app() -> App {
         .insert_resource(status_tags)
         .insert_resource(ability_tags)
         .init_resource::<SelectionState>()
-        .init_resource::<DiceRng>()
+        .init_resource::<DiceRngRes>()
         .add_message::<ApplyDamage>()
         .add_message::<ApplyHeal>()
         .add_message::<ApplyStatus>()
@@ -164,7 +165,7 @@ pub fn resolve_app() -> App {
         .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
-        .init_resource::<DiceRng>()
+        .init_resource::<DiceRngRes>()
         .add_message::<ValidatedAction>()
         .add_message::<ApplyDamage>()
         .add_message::<ApplyHeal>()
@@ -199,7 +200,7 @@ pub fn stun_app() -> App {
         .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
-        .init_resource::<DiceRng>()
+        .init_resource::<DiceRngRes>()
         .init_resource::<DifficultyProfile>()
         .init_resource::<AiDebugState>()
         .init_resource::<Reservations>()
@@ -249,7 +250,7 @@ pub fn movement_app() -> App {
         .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
-        .init_resource::<DiceRng>()
+        .init_resource::<DiceRngRes>()
         .init_resource::<AnimationQueue>()
         .init_resource::<Reservations>()
         .init_resource::<storyforge::combat::ai::log::AiLogger>()
@@ -300,7 +301,7 @@ pub fn pipeline_app() -> App {
         .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
-        .init_resource::<DiceRng>()
+        .init_resource::<DiceRngRes>()
         .add_message::<UseAbility>()
         .add_message::<ValidatedAction>()
         .add_message::<ApplyDamage>()

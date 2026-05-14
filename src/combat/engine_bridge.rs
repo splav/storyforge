@@ -48,7 +48,6 @@ use crate::ui::hex_grid::HexGridOffset;
 use combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses},
-    dice::DiceSource,
     event::Event,
     reaction::ReactionKind,
     state::{ActiveStatus, CombatState, Pool, RoundPhase, Team, Unit, UnitId},
@@ -325,26 +324,6 @@ fn build_ecs_content_view(
     EcsContentView { aoo_per_unit }
 }
 
-// ── DiceRngAdapter ────────────────────────────────────────────────────────────
-
-/// Bridges `crate::core::DiceRng` (Bevy resource) to the engine's `DiceSource`
-/// trait.
-///
-/// The two `DiceExpr` types differ only in `serde` derives — fields are
-/// identical, so conversion is a trivial field copy.  This adapter is the only
-/// place that crosses the boundary; the engine crate itself stays Bevy-free.
-struct DiceRngAdapter<'a>(&'a mut crate::core::DiceRng);
-
-impl<'a> DiceSource for DiceRngAdapter<'a> {
-    fn roll(&mut self, dice: combat_engine::dice::DiceExpr) -> i32 {
-        let core_expr = crate::core::DiceExpr::new(dice.count, dice.sides, dice.bonus);
-        self.0.roll(&core_expr)
-    }
-
-    fn expected(&self, dice: combat_engine::dice::DiceExpr) -> f32 {
-        dice.expected()
-    }
-}
 
 /// `Update` system — authoritative move handler via `combat_engine::step()`.
 ///
@@ -366,7 +345,7 @@ pub fn process_action_system(
     mut combat_state: ResMut<CombatStateRes>,
     combatants: Query<AooRow, With<Combatant>>,
     active_content: Res<ActiveContent>,
-    mut rng: ResMut<crate::core::DiceRng>,
+    mut rng: ResMut<crate::combat::DiceRngRes>,
     mut log: ResMut<CombatLog>,
     mut anim_queue: ResMut<AnimationQueue>,
     grid_offset: Res<HexGridOffset>,
@@ -388,10 +367,9 @@ pub fn process_action_system(
                     path: path.clone(),
                 };
 
-                let mut adapter = DiceRngAdapter(&mut rng);
                 let content = build_ecs_content_view(&combatants, &id_map, &active_content);
 
-                match step(&mut combat_state.0, action, &mut adapter, &content) {
+                match step(&mut combat_state.0, action, &mut rng.0, &content) {
                     Ok(events) => {
                         translate_move_events(
                             *actor,

@@ -154,7 +154,7 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
         let snap = BattleSnapshot::new(vec![actor.clone()], 1);
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = crate::core::rng::DiceRng::default();
+        let mut rng = crate::core::DiceRng::default();
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
 
         // ── 3. ModifierCtx ──

@@ -29,7 +29,8 @@ use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectD
 use storyforge::content::content_view::{ActiveContent, ContentView};
 use storyforge::content::statuses::StatusDef;
 use storyforge::content::weapons::{HandType, WeaponDef};
-use storyforge::core::{AbilityId, DiceExpr, DiceRng, StatusId, WeaponId};
+use storyforge::combat::DiceRngRes;
+use storyforge::core::{AbilityId, DiceExpr, StatusId, WeaponId};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
 use storyforge::game::components::{
@@ -77,7 +78,7 @@ fn bridge_app() -> App {
         .init_resource::<HexPositions>()
         .init_resource::<CombatContext>()
         .init_resource::<ActiveContent>()
-        .init_resource::<DiceRng>()
+        .init_resource::<DiceRngRes>()
         .init_resource::<CombatLog>()
         .init_resource::<AnimationQueue>()
         // HexGridOffset has no Default — insert a zero offset (no screen offset needed in tests).
@@ -716,7 +717,7 @@ fn engine_inserts_dead_marker_on_aoo_kill() {
     app.world_mut().resource_mut::<HexPositions>().insert(enemy, enemy_pos);
 
     // Script the dice: roll maximum damage (6) to guarantee a kill on hp=1.
-    app.world_mut().resource_mut::<DiceRng>().script(&[6]);
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[6]);
 
     init_bridge_engine_state(&mut app);
 
