@@ -204,6 +204,7 @@ Run `ya tool ast-index outline <file>` before any read > 500 lines.
 | 9 | No `combat::actions` module | path deleted; legality lives in `combat_engine::legality` |
 | 10 | Crit-fail RNG single-stream | All cast-related RNG consumption happens inside `step()` (verified by code review + bench inspection) |
 | 11 | RNG unified — no `DiceRngAdapter`, no `core::DiceRng` | `ya tool ast-index search "DiceRngAdapter"` empty; `src/core/rng.rs` deleted; engine `DiceRng` consumed everywhere |
+| 12 | Multi-frame playtest correctness | Manual playtest after step 10: damage from `Lyra`-cast spells persists across rounds; rage on hit accumulates; HP visible in AI debug equals real ECS HP. Pinned by a new bridge_smoke test in step 10 (`bridge_projection_does_not_clobber_apply_effects_writes`) covering the multi-frame race. |
 
 ---
 
@@ -234,6 +235,10 @@ Updated 2026-05-14 after pre-implementation discovery pass + architecture review
 - **SimState `CombatState` clone cost.** For 100 plan branches × 10 units, ~1000 unit clones / AI tick. Each `Unit` is ~10 i32 + a `Vec<ActiveStatus>` of 0-3 entries. Should be sub-millisecond, but profile during step 9 implementation. Fallback: `im::Vector<Unit>` (persistent collection) or `Arc<Unit>` cell pattern. Threshold: AI mining run wall-clock regression > 20%.
 - **AI scoring numerical parity.** Engine cast resolution must produce identical damage/heal numbers to sim's `compute_ability_outcome`. Pre-Phase-2 mining baseline captures current agenda mix; post-step-7 (witness-mode) confirms numerical parity before authority flip in step 9. If formulas diverge (e.g., rounding rules), pin via a parity test before continuing.
 - **Engine `IllegalReason::TauntForcesTarget` semantics.** Engine knows unit positions and team but doesn't currently parse status content for `forces_targeting`. Requires `ContentView::status_def` returning a struct with that bool. Confirmed in scope (already in §1 ContentView surface) but worth double-checking at step 1.
+
+### Known issues — self-resolve at Phase 2 step 10
+
+- **Projector clobbers `apply_effects_system` writes between frames** (discovered 2026-05-14 mid-step-5 from a playtest log).  Root cause: `project_state_to_ecs` writes `Vital.hp` / `Rage.current` from `CombatStateRes` every frame.  `init_state_from_ecs` (`OnEnter(AwaitCommand)`, Phase 1 step 6) mirrors ECS into engine state **once per round**, so within a round the engine's `unit.hp` stays at the round-start value.  Each subsequent frame the projector overwrites whatever `apply_effects_system` just wrote — damage from non-Move actions (e.g. Lyra's Fireball) is visible at end-of-frame but reverted next frame.  By round transition ECS hp = round-start hp; init re-mirrors that stale value; AI debug + log show full HP throughout combat.  **Self-resolves at Phase 2 step 10** when `apply_effects_system` deletes and engine becomes the sole writer for hp/rage/mana/statuses (single-writer ⇒ no race).  Until then: playtest hp visuals are broken; tests stay green (single-frame `app.update()` doesn't surface the race).  Added `TODO(unisim phase2 step 10)` markers at `process_action_system` Ok-arm and `project_state_to_ecs` so the trade-off is visible at read-time.  Gate criterion 12 above pins the multi-frame test that lands with step 10.
 
 ---
 

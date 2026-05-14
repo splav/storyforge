@@ -376,6 +376,18 @@ fn build_ecs_content_view<'a>(
 /// writes the engine mutations back to ECS components.
 ///
 /// Runs in `CombatStep::Execute`, gated by `CombatPhase::AwaitCommand`.
+///
+/// TODO(unisim phase2 step 10) — multi-frame projector clobber.
+/// Until `apply_effects_system` deletes (step 10), this system and
+/// `apply_effects_system` are dual-writers for `Vital.hp` / `Rage.current`
+/// in ECS.  Within a round, `init_state_from_ecs` runs once
+/// (`OnEnter(AwaitCommand)`) so `combat_state` keeps the round-start hp/rage
+/// for every unit it doesn't itself mutate.  The projector then writes those
+/// stale values every frame, reverting `apply_effects_system`'s damage on
+/// the very next frame.  Visible symptom: AI debug shows full HP across
+/// rounds, log records damage that never lands.  Self-resolves when step 10
+/// deletes `apply_effects_system` and engine becomes sole writer.  See
+/// `docs/ai/rework/step_unisim2_plan.md` §8 "Known issues".
 pub fn process_action_system(
     mut commands: Commands,
     mut reader: MessageReader<ActionInput>,
@@ -579,6 +591,15 @@ type ProjectionRow<'a> = (
 /// Unknown units (no ECS entity in `UnitIdMap`) are silently skipped — they
 /// cannot be projected yet.  Deferred fields (mana, armor_bonus, speed)
 /// are out of scope for Phase 1.
+///
+/// TODO(unisim phase2 step 10) — `hp` / `rage.current` writes here race
+/// against `apply_effects_system`'s writes in the same frame.  Because
+/// `init_state_from_ecs` runs once per round (`OnEnter(AwaitCommand)`),
+/// `combat_state.hp` stays at the round-start value for the whole round,
+/// so projecting it every frame reverts non-Move damage on the next tick.
+/// Resolves at step 10 when `apply_effects_system` deletes; engine becomes
+/// the sole writer for `hp` / `rage` / `mana` / `statuses`.  See
+/// `docs/ai/rework/step_unisim2_plan.md` §8 "Known issues".
 pub fn project_state_to_ecs(
     mut commands: Commands,
     combat_state: Res<CombatStateRes>,
