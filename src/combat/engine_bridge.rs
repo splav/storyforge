@@ -50,7 +50,7 @@ use combat_engine::{
     content::{ContentView as EngineContentView, StatusBonuses},
     event::Event,
     reaction::ReactionKind,
-    state::{ActiveStatus, CombatState, Pool, RoundPhase, Team, Unit, UnitId},
+    state::{ActiveStatus, CombatState, Pool, RoundPhase, Unit, UnitId},
     step::step,
 };
 use combat_engine::dice::DiceExpr as EngineDiceExpr;
@@ -181,10 +181,7 @@ pub fn from_ecs(
                 })
                 .unwrap_or_default();
 
-            let team = match faction.0 {
-                crate::game::components::Team::Player => Team::Player,
-                crate::game::components::Team::Enemy => Team::Enemy,
-            };
+            let team = faction.0;
 
             // Dead units: keep with hp=0 (tombstone).
             let hp = if is_dead { 0 } else { vital.hp };

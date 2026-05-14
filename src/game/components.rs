@@ -57,11 +57,7 @@ pub struct PartyMember;
 #[derive(Component, Default)]
 pub struct Enemy;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum Team {
-    Player,
-    Enemy,
-}
+pub use combat_engine::state::Team;
 
 #[derive(Component)]
 pub struct Faction(pub Team);

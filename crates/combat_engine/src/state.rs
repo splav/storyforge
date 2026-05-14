@@ -38,8 +38,9 @@ pub struct ActiveStatus {
 
 // ── Team ──────────────────────────────────────────────────────────────────────
 
-/// Combat team — mirrors `game::components::Team`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Combat team — canonical engine-side enum.  `game::components::Team`
+/// is a re-export of this type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Team {
     Player,
     Enemy,
