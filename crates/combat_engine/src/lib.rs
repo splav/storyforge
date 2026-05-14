@@ -56,6 +56,20 @@ string_id!(ArmorId);
 string_id!(StatusId);
 string_id!(WeaponId);
 
+// ── ResourceKind ──────────────────────────────────────────────────────────────
+
+/// Вид ресурса, который может тратиться на способности.
+///
+/// Mirrors `storyforge::core::ResourceKind` — kept in sync manually.
+/// `storyforge::core` re-exports this type directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ResourceKind {
+    Hp,
+    Mana,
+    Rage,
+    Energy,
+}
+
 pub mod action;
 pub mod content;
 pub mod dice;
@@ -66,3 +80,4 @@ pub mod state;
 pub mod step;
 
 pub use dice::{DiceExpr, DiceRng};
+pub use content::{AbilityDef, AbilityRange, Cost, StatusDef, TargetType};

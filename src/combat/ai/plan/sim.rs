@@ -475,6 +475,16 @@ impl EngineContentView for SnapshotContentView {
     fn status_bonuses(&self, _id: &combat_engine::StatusId) -> EngineStatusBonuses {
         EngineStatusBonuses::default()
     }
+
+    // Phase 2 step 2b: sim doesn't route legality through engine ContentView yet.
+    // Wired when sim::apply_cast collapses into step() (Phase 2 step 10).
+    fn ability_def(&self, _id: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> {
+        None
+    }
+
+    fn status_def(&self, _id: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> {
+        None
+    }
 }
 
 /// Build a `CombatState` from a `BattleSnapshot`.

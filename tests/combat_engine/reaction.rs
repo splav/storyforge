@@ -24,6 +24,8 @@ impl StubContent {
 impl ContentView for StubContent {
     fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { self.aoo_dice }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
+    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
+    fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> { None }
 }
 
 fn make_unit(id: u64, team: Team, reactions: i32) -> Unit {

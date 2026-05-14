@@ -42,6 +42,8 @@ impl ContentView for StubContent {
             armor_bonus: self.armor_bonus,
         }
     }
+    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
+    fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> { None }
 }
 
 fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {

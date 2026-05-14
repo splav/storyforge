@@ -127,6 +127,8 @@ impl EngineContentView for BenchContent {
     fn status_bonuses(&self, _: &combat_engine::StatusId) -> EngineStatusBonuses {
         EngineStatusBonuses::default()
     }
+    fn ability_def(&self, _: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> { None }
+    fn status_def(&self, _: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> { None }
 }
 
 fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {

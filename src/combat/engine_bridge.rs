@@ -234,17 +234,51 @@ pub fn from_ecs(
 /// adapter does not need to know who the actor is (option B).
 ///
 /// `status_bonuses` returns zeros — wired fully in step 4c+.
-pub struct EcsContentView {
+pub struct EcsContentView<'a> {
     aoo_per_unit: HashMap<UnitId, EngineDiceExpr>,
+    active_content: &'a ActiveContent,
 }
 
-impl EngineContentView for EcsContentView {
+impl<'a> EngineContentView for EcsContentView<'a> {
     fn aoo_dice(&self, attacker: UnitId) -> Option<EngineDiceExpr> {
         self.aoo_per_unit.get(&attacker).copied()
     }
 
     fn status_bonuses(&self, _id: &combat_engine::StatusId) -> StatusBonuses {
         StatusBonuses::default()
+    }
+
+    fn ability_def(&self, id: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> {
+        let def = self.active_content.abilities.get(id)?;
+        Some(combat_engine::AbilityDef {
+            key: def.key.clone(),
+            cost_ap: def.cost_ap,
+            costs: def
+                .costs
+                .iter()
+                .map(|c| combat_engine::Cost { resource: c.resource, amount: c.amount })
+                .collect(),
+            range: combat_engine::AbilityRange { min: def.range.min, max: def.range.max },
+            target_type: match def.target_type {
+                crate::content::abilities::TargetType::SingleEnemy => combat_engine::TargetType::SingleEnemy,
+                crate::content::abilities::TargetType::SingleAlly => combat_engine::TargetType::SingleAlly,
+                crate::content::abilities::TargetType::Myself => combat_engine::TargetType::Myself,
+                crate::content::abilities::TargetType::Ground => combat_engine::TargetType::Ground,
+            },
+        })
+    }
+
+    fn status_def(&self, id: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> {
+        let def = self.active_content.statuses.get(id)?;
+        Some(combat_engine::StatusDef {
+            causes_disadvantage: def.causes_disadvantage,
+            blocks_mana_abilities: def.blocks_mana_abilities,
+            forces_targeting: def.forces_targeting,
+            skips_turn: def.skips_turn,
+            armor_bonus: def.armor_bonus,
+            damage_taken_bonus: def.damage_taken_bonus,
+            speed_bonus: def.speed_bonus,
+        })
     }
 }
 
@@ -263,11 +297,11 @@ type AooRow<'a> = (
 /// Build `EcsContentView` from the current ECS state.
 ///
 /// Called once per processed `ActionInput::Move` inside `process_action_system`.
-fn build_ecs_content_view(
+fn build_ecs_content_view<'a>(
     combatants: &Query<AooRow, With<Combatant>>,
     id_map: &UnitIdMap,
-    content: &ActiveContent,
-) -> EcsContentView {
+    content: &'a ActiveContent,
+) -> EcsContentView<'a> {
     let mut aoo_per_unit = HashMap::new();
 
     for (entity, equipment, stats, abilities, vital, statuses, reactions, is_dead) in
@@ -321,7 +355,7 @@ fn build_ecs_content_view(
         aoo_per_unit.insert(uid, engine_dice);
     }
 
-    EcsContentView { aoo_per_unit }
+    EcsContentView { aoo_per_unit, active_content: content }
 }
 
 
