@@ -4,7 +4,7 @@ use super::render::{HexGridOffset, HexHover, HexLastClick, HexTooltip, DOUBLE_CL
 use crate::content::abilities::AoEShape;
 use crate::game::components::{ActionPoints, ActiveCombatant, Combatant, Dead, Energy, Faction, Mana, Rage, StatusEffects, Team, Vital};
 use crate::game::hex::{in_bounds, is_passable, Hex, LAYOUT};
-use crate::game::messages::{ActionInput, UseAbility};
+use crate::game::messages::ActionInput;
 use crate::game::pathfinding::find_path;
 use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
@@ -124,7 +124,6 @@ pub fn hex_click_target(
     combatant_q2: Query<(&Faction, &Vital), With<Combatant>>,
     mut sel: ResMut<SelectionState>,
     mut last_click: ResMut<HexLastClick>,
-    mut use_ability: MessageWriter<UseAbility>,
     mut action_input: MessageWriter<ActionInput>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
@@ -160,13 +159,13 @@ pub fn hex_click_target(
         if is_double {
             if let (Some(actor), Some(ability)) = (active, sel.selected_ability.clone()) {
                 let target_pos = positions.get(&entity).unwrap_or(hovered);
-                use_ability.write(UseAbility { actor, ability, target: entity, target_pos });
+                action_input.write(ActionInput::Cast { actor, ability, target: entity, target_pos });
             }
         }
     } else if is_double && is_aoe {
         // AoE: double-click on empty cell fires ability at that cell.
         if let (Some(actor), Some(ability)) = (active, sel.selected_ability.clone()) {
-            use_ability.write(UseAbility { actor, ability, target: actor, target_pos: hovered });
+            action_input.write(ActionInput::Cast { actor, ability, target: actor, target_pos: hovered });
         }
     } else if is_double {
         try_move(hovered, active, &positions, &move_query, &combatant_q2, &mut action_input);

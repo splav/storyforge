@@ -3,7 +3,7 @@ use crate::content::content_view::ActiveContent;
 use crate::combat::ai::system::has_ai_control_status;
 use crate::content::abilities::{EffectDef, TargetType};
 use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, StatusEffects, Team};
-use crate::game::messages::{EndTurn, UseAbility};
+use crate::game::messages::{ActionInput, EndTurn};
 use crate::game::resources::{HexPositions, SelectionState};
 use bevy::prelude::*;
 
@@ -32,7 +32,7 @@ pub fn player_command_system(
     content: Res<ActiveContent>,
     positions: Res<HexPositions>,
     mut selection: ResMut<SelectionState>,
-    mut use_ability: MessageWriter<UseAbility>,
+    mut action_input: MessageWriter<ActionInput>,
     mut end_turn: MessageWriter<EndTurn>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     combatants: Query<PlayerCombatantQ, (With<Combatant>, Without<Dead>)>,
@@ -99,7 +99,7 @@ pub fn player_command_system(
             }
         } else if def.target_type == TargetType::Myself && c.ap.can_act_for(def.cost_ap) {
             let target_pos = positions.get(&actor).unwrap_or(hexx::Hex::ZERO);
-            use_ability.write(UseAbility {
+            action_input.write(ActionInput::Cast {
                 actor,
                 ability: keyed_id.clone(),
                 target: actor,
@@ -189,7 +189,7 @@ pub fn player_command_system(
             selection.selected_target,
         ) {
             let target_pos = positions.get(&target).unwrap_or(hexx::Hex::ZERO);
-            use_ability.write(UseAbility {
+            action_input.write(ActionInput::Cast {
                 actor,
                 ability,
                 target,
