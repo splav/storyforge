@@ -876,6 +876,253 @@ fn projector_writes_engine_mutation_to_ecs() {
     );
 }
 
+// ── Phase 2 step 7b: Cast event → CombatLog translation tests ───────────────
+
+/// Cast with `EffectDef::Damage` emits `AbilityUsed` + `DamageResult` in CombatLog.
+///
+/// Caster has strength=0 (str_mod=0) so damage = dice bonus only (5).
+/// Target has armor=0, so armor_reduced=0 and final_damage=5.
+/// The crit-fail d20 is scripted to 11 (non-1) to ensure normal resolution.
+#[test]
+fn cast_emits_damage_result_log_entry() {
+    use storyforge::content::abilities::TargetType;
+
+    let caster_pos = hex_from_offset(0, 0);
+    let target_hex = hex_from_offset(1, 0);
+
+    let ability_id = AbilityId::from("dmg_ability");
+    let ability_def = AbilityDef {
+        id: ability_id.clone(),
+        name: "Fireball".into(),
+        target_type: TargetType::SingleEnemy,
+        range: AbilityRange { min: 0, max: 5 },
+        // 0d1+5 = constant 5; no random draws beyond the crit-fail d20.
+        effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 5) },
+        costs: vec![],
+        cost_ap: 1,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        statuses: vec![],
+        magic_domains: vec![],
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+
+    let mut app = bridge_app();
+    app.world_mut().resource_mut::<ActiveContent>().0.abilities.insert(ability_id.clone(), ability_def);
+
+    // Caster: strength=0 so str_mod=0; armor=0.
+    let zero_str_stats = CombatStats { max_hp: 20, strength: 0, dexterity: 5, constitution: 10, intelligence: 0, wisdom: 10, charisma: 10 };
+    let caster = app.world_mut().spawn(CombatantBundle::new(
+        Team::Player, zero_str_stats, 0, 6, vec![ability_id.clone()],
+        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+    )).id();
+    let target = app.world_mut().spawn(CombatantBundle::new(
+        Team::Enemy, test_stats(), 0, 6, vec![],
+        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+    )).id();
+
+    app.world_mut().resource_mut::<HexPositions>().insert(caster, caster_pos);
+    app.world_mut().resource_mut::<HexPositions>().insert(target, target_hex);
+
+    init_bridge_engine_state(&mut app);
+
+    // Give caster 2 AP so post-cast AP=1 is visible; no mana needed.
+    let caster_uid = entity_to_uid(caster);
+    app.world_mut().resource_mut::<CombatStateRes>().0.unit_mut(caster_uid).unwrap().action_points = 2;
+
+    // Script: first roll = crit-fail d20 (must be non-1); no other random draws.
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[11]);
+
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Cast { actor: caster, ability: ability_id, target, target_pos: target_hex });
+
+    app.update();
+
+    let log = app.world().resource::<CombatLog>();
+
+    // Exactly one AbilityUsed with is_aoe=false.
+    let ability_used: Vec<_> = log.0.iter().filter_map(|e| {
+        if let CombatEvent::AbilityUsed { actor: a, ability_name, target: t, is_aoe, .. } = e {
+            Some((*a, ability_name.clone(), *t, *is_aoe))
+        } else { None }
+    }).collect();
+    assert_eq!(ability_used.len(), 1, "expected exactly one AbilityUsed, got {:?}", ability_used);
+    let (au_actor, au_name, au_target, au_aoe) = &ability_used[0];
+    assert_eq!(*au_actor, caster);
+    assert_eq!(au_name, "Fireball");
+    assert_eq!(*au_target, target);
+    assert!(!au_aoe, "ability is not AoE");
+
+    // Exactly one DamageResult with final_damage=5.
+    let dmg_results: Vec<_> = log.0.iter().filter_map(|e| {
+        if let CombatEvent::DamageResult { target: t, final_damage, armor_reduced, .. } = e {
+            Some((*t, *final_damage, *armor_reduced))
+        } else { None }
+    }).collect();
+    assert_eq!(dmg_results.len(), 1, "expected exactly one DamageResult, got {:?}", dmg_results);
+    let (dr_target, dr_dmg, dr_armor) = dmg_results[0];
+    assert_eq!(dr_target, target, "DamageResult target must be the target entity");
+    assert_eq!(dr_dmg, 5, "final_damage must be 5 (0d1+5, str_mod=0, armor=0)");
+    assert_eq!(dr_armor, 0, "armor_reduced must be 0");
+}
+
+/// Cast with status-only ability emits `AbilityUsed` + `StatusApplied` in CombatLog.
+///
+/// The ability has `EffectDef::None` and one status on the target.
+#[test]
+fn cast_emits_status_applied_log_entry() {
+    use storyforge::content::abilities::{StatusApplication, StatusOn, TargetType};
+    use storyforge::core::StatusId;
+
+    let caster_pos = hex_from_offset(0, 0);
+    let target_hex = hex_from_offset(1, 0);
+
+    let ability_id = AbilityId::from("burning_touch");
+    let status_id = StatusId::from("burning");
+
+    let ability_def = AbilityDef {
+        id: ability_id.clone(),
+        name: "Burning Touch".into(),
+        target_type: TargetType::SingleEnemy,
+        range: AbilityRange { min: 0, max: 5 },
+        effect: EffectDef::None,
+        costs: vec![],
+        cost_ap: 1,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        statuses: vec![StatusApplication { status: status_id.clone(), duration_rounds: 2, on: StatusOn::Target }],
+        magic_domains: vec![],
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+
+    let mut app = bridge_app();
+    app.world_mut().resource_mut::<ActiveContent>().0.abilities.insert(ability_id.clone(), ability_def);
+
+    let caster = app.world_mut().spawn(CombatantBundle::new(
+        Team::Player, test_stats(), 0, 6, vec![ability_id.clone()],
+        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+    )).id();
+    let target = app.world_mut().spawn(CombatantBundle::new(
+        Team::Enemy, test_stats(), 0, 6, vec![],
+        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+    )).id();
+
+    app.world_mut().resource_mut::<HexPositions>().insert(caster, caster_pos);
+    app.world_mut().resource_mut::<HexPositions>().insert(target, target_hex);
+
+    init_bridge_engine_state(&mut app);
+
+    let caster_uid = entity_to_uid(caster);
+    app.world_mut().resource_mut::<CombatStateRes>().0.unit_mut(caster_uid).unwrap().action_points = 2;
+
+    // Script crit-fail d20 to 11 (non-1).
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[11]);
+
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Cast { actor: caster, ability: ability_id, target, target_pos: target_hex });
+
+    app.update();
+
+    let log = app.world().resource::<CombatLog>();
+
+    let status_events: Vec<_> = log.0.iter().filter_map(|e| {
+        if let CombatEvent::StatusApplied { target: t, status } = e {
+            Some((*t, status.clone()))
+        } else { None }
+    }).collect();
+
+    assert_eq!(status_events.len(), 1, "expected exactly one StatusApplied, got {:?}", status_events);
+    let (ev_target, ev_status) = &status_events[0];
+    assert_eq!(*ev_target, target, "StatusApplied target must be the target entity");
+    assert_eq!(*ev_status, status_id, "StatusApplied status must be 'burning'");
+}
+
+/// Cast with mana cost emits `ManaChanged` in CombatLog.
+///
+/// Ability costs 3 mana; caster starts with mana=(10,10).
+/// After cast: mana=(7,10) → bridge diff emits ManaChanged.
+#[test]
+fn cast_emits_mana_changed_log_entry() {
+    use storyforge::content::abilities::{ResourceCost, TargetType};
+    use storyforge::core::ResourceKind;
+
+    let caster_pos = hex_from_offset(0, 0);
+    let target_hex = hex_from_offset(1, 0);
+
+    let ability_id = AbilityId::from("mana_blast");
+    let ability_def = AbilityDef {
+        id: ability_id.clone(),
+        name: "Mana Blast".into(),
+        target_type: TargetType::SingleEnemy,
+        range: AbilityRange { min: 0, max: 5 },
+        effect: EffectDef::None,
+        costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
+        cost_ap: 0,   // no AP cost so we don't need to bump AP
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        statuses: vec![],
+        magic_domains: vec![],
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+
+    let mut app = bridge_app();
+    app.world_mut().resource_mut::<ActiveContent>().0.abilities.insert(ability_id.clone(), ability_def);
+
+    let caster = app.world_mut().spawn(CombatantBundle::new(
+        Team::Player, test_stats(), 0, 6, vec![ability_id.clone()],
+        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+    )).id();
+    let target = app.world_mut().spawn(CombatantBundle::new(
+        Team::Enemy, test_stats(), 0, 6, vec![],
+        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+    )).id();
+
+    app.world_mut().resource_mut::<HexPositions>().insert(caster, caster_pos);
+    app.world_mut().resource_mut::<HexPositions>().insert(target, target_hex);
+
+    init_bridge_engine_state(&mut app);
+
+    // Set mana pool and ensure AP is available.
+    let caster_uid = entity_to_uid(caster);
+    {
+        let mut state = app.world_mut().resource_mut::<CombatStateRes>();
+        let unit = state.0.unit_mut(caster_uid).unwrap();
+        unit.mana = Some((10, 10));
+        unit.action_points = 2;
+    }
+
+    // Script crit-fail d20 to 11 (non-1).
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[11]);
+
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Cast { actor: caster, ability: ability_id, target, target_pos: target_hex });
+
+    app.update();
+
+    let log = app.world().resource::<CombatLog>();
+
+    let mana_events: Vec<_> = log.0.iter().filter_map(|e| {
+        if let CombatEvent::ManaChanged { actor: a, current, max } = e {
+            Some((*a, *current, *max))
+        } else { None }
+    }).collect();
+
+    assert_eq!(mana_events.len(), 1, "expected exactly one ManaChanged, got {:?}", mana_events);
+    let (mc_actor, mc_current, mc_max) = mana_events[0];
+    assert_eq!(mc_actor, caster, "ManaChanged actor must be the caster");
+    assert_eq!(mc_current, 7, "mana after cast must be 10 - 3 = 7");
+    assert_eq!(mc_max, 10, "mana max must be 10");
+}
+
 // ── Phase 2 step 7a: ActionInput::Cast routing smoke test ────────────────────
 
 /// Verify the bridge routes `ActionInput::Cast` into `step()` and the engine

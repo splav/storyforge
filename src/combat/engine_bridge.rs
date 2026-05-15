@@ -518,15 +518,26 @@ pub fn process_action_system(
 
                 let content = build_ecs_content_view(&combatants, &id_map, &active_content);
 
+                let mana_before = combat_state
+                    .0
+                    .unit(actor_uid)
+                    .and_then(|u| u.mana)
+                    .map(|(c, _)| c);
+
                 match step(&mut combat_state.0, action, &mut rng.0, &content) {
-                    Ok(_events) => {
-                        // TODO(unisim phase2 step 7b): translate_cast_events
-                        // → CombatLog::{DamageResult, HealResult, StatusApplied,
-                        // StatusExpired, AbilityUsed, ManaChanged, CriticalMiss,
-                        // CritFailSideEffect}.
-                        trace!(
-                            "process_action_system: Cast step() ok for actor {:?} (uid {:?})",
-                            actor, actor_uid
+                    Ok(events) => {
+                        translate_cast_events(
+                            *actor,
+                            ability,
+                            *target,
+                            *target_pos,
+                            mana_before,
+                            &events,
+                            &id_map,
+                            &combat_state,
+                            &active_content,
+                            &mut commands,
+                            &mut log,
                         );
                     }
                     Err(e) => {
@@ -535,6 +546,121 @@ pub fn process_action_system(
                             actor, actor_uid, e
                         );
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Translate the engine `Event` stream from a single `Action::Cast` into
+/// Bevy-land side effects (CombatLog entries, Dead markers).
+///
+/// Mirrors the side-effects `apply_effects_system` + `resolve_action_system`
+/// emit on the legacy path so tests reading `CombatLog` see equivalent
+/// output once the live caster writes `ActionInput::Cast` (step 9 flip).
+#[allow(clippy::too_many_arguments)]
+fn translate_cast_events(
+    actor: Entity,
+    ability: &crate::core::AbilityId,
+    target: Entity,
+    target_pos: hexx::Hex,
+    mana_before: Option<i32>,
+    events: &[Event],
+    id_map: &UnitIdMap,
+    combat_state: &CombatStateRes,
+    active_content: &ActiveContent,
+    commands: &mut Commands,
+    log: &mut CombatLog,
+) {
+    // Emit AbilityUsed from content lookup; fall back to id-as-name if absent.
+    let (ability_name, is_aoe, cost_str) = active_content
+        .abilities
+        .get(ability)
+        .map(|def| {
+            let is_aoe = !matches!(def.aoe, crate::content::abilities::AoEShape::None);
+            (def.name.clone(), is_aoe, format!("AP={}", def.cost_ap))
+        })
+        .unwrap_or_else(|| (ability.0.clone(), false, String::new()));
+
+    log.push(CombatEvent::AbilityUsed {
+        actor,
+        ability_name,
+        target,
+        target_pos,
+        is_aoe,
+        cost_str,
+    });
+
+    for ev in events {
+        match ev {
+            Event::UnitDamaged { target: tgt_uid, amount, source: _src_uid } => {
+                let Some(tgt_ent) = id_map.get_entity(*tgt_uid) else { continue };
+                let armor_reduced = combat_state
+                    .0
+                    .unit(*tgt_uid)
+                    .map(|u| u.armor + u.armor_bonus)
+                    .unwrap_or(0);
+                log.push(CombatEvent::DamageResult {
+                    target: tgt_ent,
+                    formula: format!("engine: {}", amount),
+                    armor_reduced,
+                    final_damage: *amount as i32,
+                });
+            }
+            Event::UnitHealed { target: tgt_uid, amount } => {
+                let Some(tgt_ent) = id_map.get_entity(*tgt_uid) else { continue };
+                log.push(CombatEvent::HealResult {
+                    target: tgt_ent,
+                    formula: "engine".into(),
+                    amount: *amount,
+                });
+            }
+            Event::StatusApplied { target: tgt_uid, status } => {
+                if let Some(tgt_ent) = id_map.get_entity(*tgt_uid) {
+                    log.push(CombatEvent::StatusApplied {
+                        target: tgt_ent,
+                        status: status.clone(),
+                    });
+                }
+            }
+            Event::StatusRemoved { target: tgt_uid, status } => {
+                if let Some(tgt_ent) = id_map.get_entity(*tgt_uid) {
+                    log.push(CombatEvent::StatusExpired {
+                        target: tgt_ent,
+                        status: status.clone(),
+                    });
+                }
+            }
+            Event::UnitDied { unit } => {
+                if let Some(ent) = id_map.get_entity(*unit) {
+                    log.push(CombatEvent::UnitDied { entity: ent });
+                    commands.entity(ent).insert(Dead);
+                }
+            }
+            Event::RageGained { unit, current, max } => {
+                if let Some(ent) = id_map.get_entity(*unit) {
+                    log.push(CombatEvent::RageGained {
+                        actor: ent,
+                        current: *current,
+                        max: *max,
+                    });
+                }
+            }
+            Event::ReactionFired { .. }
+            | Event::UnitMoved { .. }
+            | Event::ActionStarted { .. }
+            | Event::ActionFinished { .. } => {
+                // No log entry — handled separately or n/a for Cast.
+            }
+        }
+    }
+
+    // ManaChanged: diff before/after. Emit one entry if mana changed.
+    if let Some(actor_uid) = id_map.get_id(actor) {
+        if let Some(unit) = combat_state.0.unit(actor_uid) {
+            if let Some((current, max)) = unit.mana {
+                if mana_before != Some(current) {
+                    log.push(CombatEvent::ManaChanged { actor, current, max });
                 }
             }
         }
