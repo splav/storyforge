@@ -184,7 +184,7 @@ impl<'a> crate::targeting::TargetState for EngineTargetState<'a> {
 ///
 /// Returns `None` for non-damage variants (`None`, `Heal`, `GrantMovement`,
 /// `RestoreResources`) or `WeaponAttack` without `weapon_dice`.
-fn damage_effect_for(
+fn effect_for_target(
     effect: &EffectDef,
     source: crate::state::UnitId,
     target: crate::state::UnitId,
@@ -205,11 +205,13 @@ fn damage_effect_for(
             let raw = (rng.roll(dice) + caster.str_mod) as f32;
             Some(Effect::Damage { target, raw, source, pierces: false })
         }
-        // Non-damage arms — step 6e handles Heal; GrantMovement /
-        // RestoreResources need their own effect variants (Phase 2 step 6e
-        // or 6f scope).  None: status-only ability (handled in 6e).
+        EffectDef::Heal { dice } => {
+            let amount = (rng.roll(*dice) + caster.int_mod + caster.spell_power).max(0);
+            Some(Effect::Heal { target, amount })
+        }
+        // GrantMovement / RestoreResources are per-actor, not per-target;
+        // deferred to Phase 3.  None: status-only ability (statuses handled below).
         EffectDef::None
-        | EffectDef::Heal { .. }
         | EffectDef::GrantMovement { .. }
         | EffectDef::RestoreResources => None,
     }
@@ -352,14 +354,47 @@ fn step_inner(
                 *actor, &def, *target, *target_pos, &target_state,
             );
 
-            // Damage fanout per EffectDef arm.  None / Heal / GrantMovement /
-            // RestoreResources skip damage emission (Heal handled in step 6e).
+            // Step 6d/6e: per-target effect fanout (damage or heal).
             let caster = content.caster_context(*actor);
             for &affected_id in &affected {
-                if let Some(dmg) = damage_effect_for(
+                if let Some(eff) = effect_for_target(
                     &def.effect, *actor, affected_id, &caster, rng,
                 ) {
-                    effect_queue.push_back(dmg);
+                    effect_queue.push_back(eff);
+                }
+            }
+
+            // Step 6e: status fanout.
+            //
+            // StatusOn::Target → applied to every affected unit.
+            // StatusOn::MySelf → applied to the actor only.
+            //
+            // Applied after damage/heal so RefreshAggregates from ApplyStatus
+            // sees the post-damage state.
+            //
+            // Phase 2 limitation: dot_per_tick = 0.  Phase 3 owns DoT roll.
+            for status_app in &def.statuses {
+                match status_app.on {
+                    crate::content::StatusOn::Target => {
+                        for &affected_id in &affected {
+                            effect_queue.push_back(Effect::ApplyStatus {
+                                target: affected_id,
+                                status: status_app.status.clone(),
+                                rounds: status_app.duration_rounds,
+                                dot_per_tick: 0,
+                                applier: *actor,
+                            });
+                        }
+                    }
+                    crate::content::StatusOn::MySelf => {
+                        effect_queue.push_back(Effect::ApplyStatus {
+                            target: *actor,
+                            status: status_app.status.clone(),
+                            rounds: status_app.duration_rounds,
+                            dot_per_tick: 0,
+                            applier: *actor,
+                        });
+                    }
                 }
             }
         }

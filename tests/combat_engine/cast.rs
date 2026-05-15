@@ -1,17 +1,18 @@
-//! Step 6b tests: `step(Action::Cast)` — legality pre-validate only.
+//! Step 6b-6e tests: `step(Action::Cast)`.
 //!
-//! Effect fanout (PayCost, Damage, Heal, ApplyStatus) belongs to steps 6c-f.
-//! These tests pin the three legality paths:
-//! - unknown ability → `Illegal(UnknownAbility)`
-//! - dead target → `Illegal(TargetDead)`
-//! - legal cast → `Ok([ActionStarted, ActionFinished])`, state unchanged.
+//! Covers:
+//! - Step 6b: legality pre-validate (unknown ability, dead target, legal cast).
+//! - Step 6c: AP + resource cost payment.
+//! - Step 6d: damage fanout (Damage, SpellDamage, WeaponAttack, AoE).
+//! - Step 6e: Heal fanout + status application (Target / MySelf / AoE).
 
 use std::collections::HashMap;
 
 use storyforge::combat_engine::{
     action::{Action, ActionError},
     content::{
-        AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, StatusBonuses, TargetType,
+        AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, StatusApplication, StatusBonuses,
+        StatusOn, TargetType,
     },
     dice::{DiceExpr, ExpectedValue},
     event::Event,
@@ -506,4 +507,242 @@ fn cast_legal_pays_no_cost_when_zero() {
     assert!(matches!(events[1], Event::ActionFinished { .. }));
 
     assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 2, "AP unchanged for zero-cost");
+}
+
+// ── Step 6e tests: heal + status fanout ──────────────────────────────────────
+
+/// Heal: amount = roll(1d4) + int_mod + spell_power = 3 + 2 + 1 = 6.
+/// Target starts at hp=3/max_hp=10, ends at hp=9.
+#[test]
+fn cast_heal_restores_target_hp() {
+    use storyforge::combat_engine::CasterContext;
+
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let mut target = make_unit(2, Team::Player, 1, 0);
+    target.hp = 3;
+    target.max_hp = 10;
+
+    let mut state = state_with(vec![actor, target]);
+
+    // 1d4: expected = 1*(4+1)/2 = 2.5 → round = 3. amount = 3 + 2 + 1 = 6.
+    let ability = AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: vec![],
+        range: AbilityRange { min: 0, max: 5 },
+        target_type: TargetType::SingleAlly,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        effect: EffectDef::Heal { dice: DiceExpr::new(1, 4, 0) },
+        statuses: vec![],
+    };
+    let content = StubContent::with_ability("heal", ability)
+        .with_caster(UnitId(1), CasterContext { int_mod: 2, spell_power: 1, ..Default::default() });
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("heal"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    step(&mut state, action, &mut ExpectedValue, &content)
+        .expect("legal heal cast should succeed");
+
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 9, "hp = 3 + (3+2+1) = 9");
+}
+
+/// AoE heal (fixed dice 0d1+4 = 4, int_mod=0, spell_power=0).
+/// Three allies within radius 1 of target_pos all restored from hp=3 to hp=7.
+#[test]
+fn cast_aoe_heal_restores_multiple_targets() {
+    let actor_pos = hex_from_offset(0, 0);
+    let target_pos = hex_from_offset(3, 0);
+    let neighbors: Vec<hexx::Hex> = target_pos.all_neighbors().to_vec();
+
+    let mut actor = make_unit(1, Team::Player, 0, 0);
+    actor.pos = actor_pos;
+
+    let mut a1 = make_unit(10, Team::Player, 0, 0);
+    a1.pos = target_pos;
+    a1.hp = 3;
+    a1.max_hp = 10;
+    let mut a2 = make_unit(11, Team::Player, 0, 0);
+    a2.pos = neighbors[0];
+    a2.hp = 3;
+    a2.max_hp = 10;
+    let mut a3 = make_unit(12, Team::Player, 0, 0);
+    a3.pos = neighbors[1];
+    a3.hp = 3;
+    a3.max_hp = 10;
+
+    let mut state = state_with(vec![actor, a1, a2, a3]);
+
+    // 0d1+4: expected = 0*(1+1)/2 + 4 = 4.0 → round = 4. int_mod=0, spell_power=0.
+    let ability = AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: vec![],
+        range: AbilityRange { min: 0, max: 8 },
+        target_type: TargetType::Ground,
+        aoe: AoEShape::Circle { radius: 1 },
+        friendly_fire: true, // include all units in AoE (allies)
+        effect: EffectDef::Heal { dice: DiceExpr::new(0, 1, 4) },
+        statuses: vec![],
+    };
+    let content = StubContent::with_ability("group_heal", ability);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("group_heal"),
+        target: UnitId(1), // Ground targeting uses actor as primary target id
+        target_pos,
+    };
+
+    step(&mut state, action, &mut ExpectedValue, &content)
+        .expect("legal AoE heal should succeed");
+
+    assert_eq!(state.unit(UnitId(10)).unwrap().hp, 7, "a1 hp = 3 + 4 = 7");
+    assert_eq!(state.unit(UnitId(11)).unwrap().hp, 7, "a2 hp = 3 + 4 = 7");
+    assert_eq!(state.unit(UnitId(12)).unwrap().hp, 7, "a3 hp = 3 + 4 = 7");
+}
+
+/// Status with `on: Target` is applied to the targeted enemy.
+/// dot_per_tick = 0 (Phase 2 limitation).
+#[test]
+fn cast_applies_status_to_target() {
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let target = make_unit(2, Team::Enemy, 1, 0);
+
+    let mut state = state_with(vec![actor, target]);
+
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::None,
+        statuses: vec![StatusApplication {
+            status: StatusId::from("poison"),
+            duration_rounds: 3,
+            on: StatusOn::Target,
+        }],
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("poison_strike", ability);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("poison_strike"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    step(&mut state, action, &mut ExpectedValue, &content)
+        .expect("legal cast should succeed");
+
+    let target_unit = state.unit(UnitId(2)).unwrap();
+    assert_eq!(target_unit.statuses.len(), 1, "exactly one status applied");
+    let s = &target_unit.statuses[0];
+    assert_eq!(s.id, StatusId::from("poison"));
+    assert_eq!(s.rounds_remaining, 3);
+    assert_eq!(s.dot_per_tick, 0, "Phase 2: dot_per_tick always 0");
+    assert_eq!(s.applier, UnitId(1));
+}
+
+/// Status with `on: MySelf` lands on the actor, not the targeted unit.
+/// Uses TargetType::Myself so the proposed target == actor.
+#[test]
+fn cast_applies_status_to_self_via_myself() {
+    let mut actor = make_unit(1, Team::Player, 0, 0);
+    // TargetType::Myself: target must be the actor; place both at same cell.
+    let caster_pos = hex_from_offset(2, 2);
+    actor.pos = caster_pos;
+
+    let mut state = state_with(vec![actor]);
+
+    let ability = AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: vec![],
+        range: AbilityRange { min: 0, max: 0 },
+        target_type: TargetType::Myself,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        effect: EffectDef::None,
+        statuses: vec![StatusApplication {
+            status: StatusId::from("iron_skin"),
+            duration_rounds: 2,
+            on: StatusOn::MySelf,
+        }],
+    };
+    let content = StubContent::with_ability("iron_skin", ability);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("iron_skin"),
+        target: UnitId(1), // Myself: target == actor
+        target_pos: caster_pos,
+    };
+
+    step(&mut state, action, &mut ExpectedValue, &content)
+        .expect("self-buff should succeed");
+
+    let caster = state.unit(UnitId(1)).unwrap();
+    assert_eq!(caster.statuses.len(), 1, "actor has one status");
+    let s = &caster.statuses[0];
+    assert_eq!(s.id, StatusId::from("iron_skin"));
+    assert_eq!(s.rounds_remaining, 2);
+    assert_eq!(s.applier, UnitId(1), "applier = caster");
+}
+
+/// AoE status (on: Target, friendly_fire: false) applied to each enemy in range.
+/// Three enemies within radius 1 all receive "burning" status.
+#[test]
+fn cast_applies_status_to_each_aoe_target() {
+    let target_pos = hex_from_offset(3, 0);
+    let neighbors: Vec<hexx::Hex> = target_pos.all_neighbors().to_vec();
+
+    let actor = make_unit(1, Team::Player, 0, 0);
+
+    let mut e1 = make_unit(10, Team::Enemy, 0, 0);
+    e1.pos = target_pos;
+    let mut e2 = make_unit(11, Team::Enemy, 0, 0);
+    e2.pos = neighbors[0];
+    let mut e3 = make_unit(12, Team::Enemy, 0, 0);
+    e3.pos = neighbors[1];
+
+    let mut state = state_with(vec![actor, e1, e2, e3]);
+
+    let ability = AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: vec![],
+        range: AbilityRange { min: 0, max: 8 },
+        target_type: TargetType::Ground,
+        aoe: AoEShape::Circle { radius: 1 },
+        friendly_fire: false,
+        effect: EffectDef::None,
+        statuses: vec![StatusApplication {
+            status: StatusId::from("burning"),
+            duration_rounds: 2,
+            on: StatusOn::Target,
+        }],
+    };
+    let content = StubContent::with_ability("flame_wave", ability);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("flame_wave"),
+        target: UnitId(1),
+        target_pos,
+    };
+
+    step(&mut state, action, &mut ExpectedValue, &content)
+        .expect("legal AoE status cast should succeed");
+
+    for id in [10u64, 11, 12] {
+        let unit = state.unit(UnitId(id)).unwrap();
+        assert_eq!(unit.statuses.len(), 1, "enemy {id} has burning status");
+        assert_eq!(unit.statuses[0].id, StatusId::from("burning"));
+        assert_eq!(unit.statuses[0].rounds_remaining, 2);
+    }
 }
