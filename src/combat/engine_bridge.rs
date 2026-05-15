@@ -346,6 +346,10 @@ fn build_ecs_content_view<'a>(
             int_mod: bevy_ctx.int_mod,
             spell_power: bevy_ctx.spell_power,
             weapon_dice: bevy_ctx.weapon_dice,
+            // TODO(unisim phase2 step 7): wire CritFailEffect from race/path content.
+            // Requires resolving unit → PathDef → CritFailEffect via ActiveContent + Race
+            // components.  Defaulting to Miss until that lookup is wired.
+            crit_fail_outcome: Default::default(),
         };
         if let Some(uid) = id_map.get_id(entity) {
             caster_contexts.insert(uid, engine_ctx);

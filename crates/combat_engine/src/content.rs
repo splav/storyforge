@@ -12,6 +12,23 @@
 
 use crate::{dice::DiceExpr, state::UnitId, AbilityId, ResourceKind, StatusId};
 
+/// Outcome when a cast crit-fails (d20 roll lands on 1).
+///
+/// Engine primitives only — content-specific labels (BrokenFaith,
+/// ManaOverload, etc.) translate to these at the bridge boundary.
+#[derive(Debug, Clone, Default)]
+pub enum CritFailOutcome {
+    /// Cast misses entirely — no damage / heal / status; costs still paid.
+    #[default]
+    Miss,
+    /// Cost amounts doubled for this cast.  No damage / heal / status.
+    DoubleCost,
+    /// Caster takes `dice` raw damage (non-piercing).  No normal damage / heal / status.
+    SelfDamage(DiceExpr),
+    /// Apply `status` to the caster, 3 rounds, no DoT.  No normal damage / heal / status.
+    ApplyStatus(StatusId),
+}
+
 /// Cached caster stats needed for damage / heal formulas.
 /// Mirrors `crate::content::abilities::CasterContext`.
 #[derive(Debug, Clone, Default)]
@@ -20,6 +37,8 @@ pub struct CasterContext {
     pub int_mod: i32,
     pub spell_power: i32,
     pub weapon_dice: Option<DiceExpr>,
+    /// Behaviour when this caster rolls a 1 on the crit-fail d20.
+    pub crit_fail_outcome: CritFailOutcome,
 }
 
 /// Where a status application lands.  Mirrors `crate::content::abilities::StatusOn`.

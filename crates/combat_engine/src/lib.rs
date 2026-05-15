@@ -82,5 +82,5 @@ pub mod step;
 pub mod targeting;
 
 pub use dice::{DiceExpr, DiceRng};
-pub use content::{AbilityDef, AbilityRange, AoEShape, CasterContext, Cost, EffectDef, StatusApplication, StatusDef, StatusOn, TargetType};
+pub use content::{AbilityDef, AbilityRange, AoEShape, CasterContext, Cost, CritFailOutcome, EffectDef, StatusApplication, StatusDef, StatusOn, TargetType};
 pub use legality::{check_legality, ActionState, ActorView, IllegalReason, LegalAction, ProposedAction};

@@ -694,6 +694,209 @@ fn cast_applies_status_to_self_via_myself() {
     assert_eq!(s.applier, UnitId(1), "applier = caster");
 }
 
+// ── Step 6f tests: crit-fail ─────────────────────────────────────────────────
+
+/// d20 = 1 + Miss outcome → no damage to target; AP still paid.
+#[test]
+fn cast_crit_fail_miss_skips_damage() {
+    use storyforge::combat_engine::{CasterContext, CritFailOutcome, DiceRng};
+
+    let actor = make_unit(1, Team::Player, 0, 0); // hp=10, ap=2
+    let target = make_unit(2, Team::Enemy, 1, 0);  // hp=10
+
+    let mut state = state_with(vec![actor, target]);
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("strike", ability).with_caster(
+        UnitId(1),
+        CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
+    );
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("strike"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    // d20=1 → crit-fail; no damage roll follows.
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[1]);
+
+    step(&mut state, action, &mut rng, &content).expect("should succeed");
+
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "target hp unchanged on miss crit-fail");
+    assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 1, "AP still paid");
+}
+
+/// d20 = 1 + DoubleCost outcome → mana cost doubled; no damage to target.
+#[test]
+fn cast_crit_fail_double_cost() {
+    use storyforge::combat_engine::{CasterContext, CritFailOutcome, DiceRng};
+    use storyforge::combat_engine::content::Cost;
+    use storyforge::combat_engine::ResourceKind;
+
+    let mut actor = make_unit(1, Team::Player, 0, 0);
+    actor.mana = Some((10, 10));
+    let target = make_unit(2, Team::Enemy, 1, 0); // hp=10
+
+    let mut state = state_with(vec![actor, target]);
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![Cost { resource: ResourceKind::Mana, amount: 3 }],
+        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("fireball", ability).with_caster(
+        UnitId(1),
+        CasterContext { crit_fail_outcome: CritFailOutcome::DoubleCost, ..Default::default() },
+    );
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("fireball"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    // d20=1 → crit-fail DoubleCost; no damage roll.
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[1]);
+
+    step(&mut state, action, &mut rng, &content).expect("should succeed");
+
+    let actor_unit = state.unit(UnitId(1)).unwrap();
+    assert_eq!(actor_unit.mana, Some((4, 10)), "mana = 10 - 3*2 = 4");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "target hp unchanged");
+}
+
+/// d20 = 1 + SelfDamage(0d1+3) → caster takes 3 raw damage; target unaffected.
+#[test]
+fn cast_crit_fail_self_damage() {
+    use storyforge::combat_engine::{CasterContext, CritFailOutcome, DiceRng};
+
+    let actor = make_unit(1, Team::Player, 0, 0); // hp=10, armor=0
+    let target = make_unit(2, Team::Enemy, 1, 0);  // hp=10
+
+    let mut state = state_with(vec![actor, target]);
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        ..single_enemy_ability()
+    };
+    // SelfDamage(0d1+3): count=0 → zero dice rolls, bonus=3.
+    let self_dmg = DiceExpr::new(0, 1, 3);
+    let content = StubContent::with_ability("strike", ability).with_caster(
+        UnitId(1),
+        CasterContext {
+            crit_fail_outcome: CritFailOutcome::SelfDamage(self_dmg),
+            ..Default::default()
+        },
+    );
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("strike"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    // d20=1 → crit-fail; SelfDamage roll = 0 dice → only bonus, no roll_d call.
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[1]);
+
+    step(&mut state, action, &mut rng, &content).expect("should succeed");
+
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 7, "caster hp = 10 - 3 = 7");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "target hp unchanged");
+}
+
+/// d20 = 1 + ApplyStatus("exhaustion") → caster gets exhaustion for 3 rounds.
+#[test]
+fn cast_crit_fail_apply_status() {
+    use storyforge::combat_engine::{CasterContext, CritFailOutcome, DiceRng};
+
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let target = make_unit(2, Team::Enemy, 1, 0);
+
+    let mut state = state_with(vec![actor, target]);
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("strike", ability).with_caster(
+        UnitId(1),
+        CasterContext {
+            crit_fail_outcome: CritFailOutcome::ApplyStatus(StatusId::from("exhaustion")),
+            ..Default::default()
+        },
+    );
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("strike"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    // d20=1 → crit-fail ApplyStatus; no further dice.
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[1]);
+
+    step(&mut state, action, &mut rng, &content).expect("should succeed");
+
+    let caster = state.unit(UnitId(1)).unwrap();
+    assert_eq!(caster.statuses.len(), 1, "caster has one status");
+    let s = &caster.statuses[0];
+    assert_eq!(s.id, StatusId::from("exhaustion"));
+    assert_eq!(s.rounds_remaining, 3, "fixed 3-round duration");
+    assert_eq!(s.applier, UnitId(1), "applier = caster");
+    assert_eq!(state.unit(UnitId(2)).unwrap().statuses.len(), 0, "target unaffected");
+}
+
+/// d20 = 11 (no crit-fail) → normal damage cast proceeds; target takes 3 damage.
+#[test]
+fn cast_proceeds_normally_when_d20_not_one() {
+    use storyforge::combat_engine::{CasterContext, CritFailOutcome, DiceRng};
+
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let target = make_unit(2, Team::Enemy, 1, 0); // hp=10, armor=0
+
+    let mut state = state_with(vec![actor, target]);
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("strike", ability).with_caster(
+        UnitId(1),
+        CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
+    );
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("strike"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    // d20=11 → no crit-fail; damage roll 1d4=3 → raw=3+str_mod(0)=3.
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[11, 3]);
+
+    step(&mut state, action, &mut rng, &content).expect("should succeed");
+
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 7, "target hp = 10 - 3 = 7");
+}
+
 /// AoE status (on: Target, friendly_fire: false) applied to each enemy in range.
 /// Three enemies within radius 1 all receive "burning" status.
 #[test]

@@ -37,7 +37,7 @@ use std::collections::{HashMap, VecDeque};
 use crate::{
     action::{Action, ActionError},
     content::{AbilityDef, CasterContext, ContentView, EffectDef, StatusDef},
-    dice::DiceSource,
+    dice::{DiceExpr, DiceSource},
     effect::{apply_effect, Effect},
     event::{effect_to_event, Event},
     legality::{check_legality, ActionState, ActorView, ProposedAction},
@@ -330,8 +330,23 @@ fn step_inner(
             let def = content.ability_def(ability).expect(
                 "cast: ability_def returns Some — already verified by legality pre-validate",
             );
+            let caster = content.caster_context(*actor);
 
-            // Step 6c: cost payment.
+            // Step 6f: crit-fail roll.  Engine hard-codes d20 (matches Bevy
+            // settings.crit_fail_die default).  On a 1, branch based on
+            // caster's CritFailOutcome; skip normal damage/heal/status fanout.
+            let crit_fail = rng.roll(DiceExpr::new(1, 20, 0)) == 1;
+
+            // Cost multiplier: DoubleCost crit-fail doubles resource costs.
+            let cost_mult = if crit_fail
+                && matches!(caster.crit_fail_outcome, crate::content::CritFailOutcome::DoubleCost)
+            {
+                2
+            } else {
+                1
+            };
+
+            // Step 6c: cost payment (possibly doubled on DoubleCost crit-fail).
             if def.cost_ap > 0 {
                 effect_queue.push_back(Effect::DecrementAP {
                     actor: *actor,
@@ -343,57 +358,84 @@ fn step_inner(
                     effect_queue.push_back(Effect::PayCost {
                         actor: *actor,
                         kind: cost.resource,
-                        amount: cost.amount,
+                        amount: cost.amount * cost_mult,
                     });
                 }
             }
 
-            // Step 6d: target enumeration + damage fanout.
-            let target_state = EngineTargetState { state };
-            let affected = crate::targeting::compute_affected_targets(
-                *actor, &def, *target, *target_pos, &target_state,
-            );
-
-            // Step 6d/6e: per-target effect fanout (damage or heal).
-            let caster = content.caster_context(*actor);
-            for &affected_id in &affected {
-                if let Some(eff) = effect_for_target(
-                    &def.effect, *actor, affected_id, &caster, rng,
-                ) {
-                    effect_queue.push_back(eff);
+            if crit_fail {
+                // Step 6f: crit-fail branch — skip normal damage/heal/status.
+                match &caster.crit_fail_outcome {
+                    crate::content::CritFailOutcome::Miss
+                    | crate::content::CritFailOutcome::DoubleCost => {
+                        // No further effects.
+                    }
+                    crate::content::CritFailOutcome::SelfDamage(dice) => {
+                        let raw = rng.roll(*dice) as f32;
+                        effect_queue.push_back(Effect::Damage {
+                            target: *actor,
+                            raw,
+                            source: *actor,
+                            pierces: false,
+                        });
+                    }
+                    crate::content::CritFailOutcome::ApplyStatus(status_id) => {
+                        effect_queue.push_back(Effect::ApplyStatus {
+                            target: *actor,
+                            status: status_id.clone(),
+                            rounds: 3, // Phase 2 step 6f: fixed 3-round duration.
+                            dot_per_tick: 0,
+                            applier: *actor,
+                        });
+                    }
                 }
-            }
+            } else {
+                // Step 6d: target enumeration + damage/heal fanout.
+                let target_state = EngineTargetState { state };
+                let affected = crate::targeting::compute_affected_targets(
+                    *actor, &def, *target, *target_pos, &target_state,
+                );
 
-            // Step 6e: status fanout.
-            //
-            // StatusOn::Target → applied to every affected unit.
-            // StatusOn::MySelf → applied to the actor only.
-            //
-            // Applied after damage/heal so RefreshAggregates from ApplyStatus
-            // sees the post-damage state.
-            //
-            // Phase 2 limitation: dot_per_tick = 0.  Phase 3 owns DoT roll.
-            for status_app in &def.statuses {
-                match status_app.on {
-                    crate::content::StatusOn::Target => {
-                        for &affected_id in &affected {
+                // Step 6d/6e: per-target effect fanout (damage or heal).
+                for &affected_id in &affected {
+                    if let Some(eff) = effect_for_target(
+                        &def.effect, *actor, affected_id, &caster, rng,
+                    ) {
+                        effect_queue.push_back(eff);
+                    }
+                }
+
+                // Step 6e: status fanout.
+                //
+                // StatusOn::Target → applied to every affected unit.
+                // StatusOn::MySelf → applied to the actor only.
+                //
+                // Applied after damage/heal so RefreshAggregates from ApplyStatus
+                // sees the post-damage state.
+                //
+                // Phase 2 limitation: dot_per_tick = 0.  Phase 3 owns DoT roll.
+                for status_app in &def.statuses {
+                    match status_app.on {
+                        crate::content::StatusOn::Target => {
+                            for &affected_id in &affected {
+                                effect_queue.push_back(Effect::ApplyStatus {
+                                    target: affected_id,
+                                    status: status_app.status.clone(),
+                                    rounds: status_app.duration_rounds,
+                                    dot_per_tick: 0,
+                                    applier: *actor,
+                                });
+                            }
+                        }
+                        crate::content::StatusOn::MySelf => {
                             effect_queue.push_back(Effect::ApplyStatus {
-                                target: affected_id,
+                                target: *actor,
                                 status: status_app.status.clone(),
                                 rounds: status_app.duration_rounds,
                                 dot_per_tick: 0,
                                 applier: *actor,
                             });
                         }
-                    }
-                    crate::content::StatusOn::MySelf => {
-                        effect_queue.push_back(Effect::ApplyStatus {
-                            target: *actor,
-                            status: status_app.status.clone(),
-                            rounds: status_app.duration_rounds,
-                            dot_per_tick: 0,
-                            applier: *actor,
-                        });
                     }
                 }
             }

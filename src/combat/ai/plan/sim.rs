@@ -452,6 +452,24 @@ struct SnapshotContentView {
     caster_contexts: std::collections::HashMap<UnitId, combat_engine::CasterContext>,
 }
 
+/// Translate Bevy `CritFailEffect` → engine `CritFailOutcome`.
+///
+/// CircuitBreach uses a fixed `SelfDamage(0d1+2)` placeholder (Phase 2 step 6f).
+/// Full mana_cost-derived damage parity is a Phase 2 step 7 follow-up.
+fn map_crit_fail_effect(e: &CritFailEffect) -> combat_engine::CritFailOutcome {
+    use CritFailEffect::*;
+    use combat_engine::CritFailOutcome as Out;
+    use combat_engine::{DiceExpr, StatusId};
+    match e {
+        Miss => Out::Miss,
+        ManaOverload => Out::DoubleCost,
+        BrokenFaith => Out::ApplyStatus(StatusId::from("broken_faith")),
+        CircuitBreach => Out::SelfDamage(DiceExpr::new(0, 1, 2)), // placeholder; step 7 refines
+        Exhaustion => Out::ApplyStatus(StatusId::from("exhaustion")),
+        PactControl => Out::ApplyStatus(StatusId::from("pact_control")),
+    }
+}
+
 impl SnapshotContentView {
     fn from_snapshot(snap: &BattleSnapshot) -> Self {
         let aoo_damage = snap
@@ -471,6 +489,7 @@ impl SnapshotContentView {
                     int_mod: u.caster_ctx.int_mod,
                     spell_power: u.caster_ctx.spell_power,
                     weapon_dice: u.caster_ctx.weapon_dice,
+                    crit_fail_outcome: map_crit_fail_effect(&u.crit_fail_effect),
                 };
                 (entity_to_uid(u.entity), ctx)
             })
