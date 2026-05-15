@@ -875,3 +875,98 @@ fn projector_writes_engine_mutation_to_ecs() {
         "Reactions.remaining must match engine reactions_left after projection"
     );
 }
+
+// ── Phase 2 step 7a: ActionInput::Cast routing smoke test ────────────────────
+
+/// Verify the bridge routes `ActionInput::Cast` into `step()` and the engine
+/// mutates `CombatStateRes` (cost paid).  Event translation lands in step 7b;
+/// here we just pin that the routing wiring works end-to-end.
+#[test]
+fn process_action_system_routes_cast_into_engine() {
+    use storyforge::content::abilities::{ResourceCost, TargetType};
+    use storyforge::core::ResourceKind;
+
+    let mut app = bridge_app();
+
+    // --- Spawn caster + target ---
+    let caster_pos = hex_from_offset(0, 0);
+    let target_pos = hex_from_offset(1, 0);
+
+    let caster = app
+        .world_mut()
+        .spawn(CombatantBundle::new(
+            Team::Player,
+            test_stats(),
+            0,    // armor
+            6,
+            vec!["zap".into()],
+            test_equipment(),
+        ))
+        .id();
+    let target = app
+        .world_mut()
+        .spawn(CombatantBundle::new(
+            Team::Enemy,
+            test_stats(),
+            0,
+            6,
+            vec![],
+            test_equipment(),
+        ))
+        .id();
+
+    app.world_mut().resource_mut::<HexPositions>().insert(caster, caster_pos);
+    app.world_mut().resource_mut::<HexPositions>().insert(target, target_pos);
+
+    // Register a Cast-able ability with a mana cost in ActiveContent.
+    let zap_id = AbilityId::from("zap");
+    let zap_def = AbilityDef {
+        id: zap_id.clone(),
+        name: "zap".into(),
+        target_type: TargetType::SingleEnemy,
+        range: AbilityRange { min: 0, max: 5 },
+        effect: EffectDef::None,  // No damage in 7a — just verify cost flows through
+        costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
+        cost_ap: 1,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        statuses: Vec::new(),
+        magic_domains: Vec::new(),
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+    app.world_mut().resource_mut::<ActiveContent>().0.abilities.insert(zap_id.clone(), zap_def);
+
+    // Seed engine state from ECS.
+    init_bridge_engine_state(&mut app);
+
+    // CombatantBundle default AP=1; bump to 2 so post-cast AP=1 is observable.
+    // Mana isn't a default Bevy component on CombatantBundle — set on engine
+    // state directly so PayCost has a pool to deduct from.
+    let caster_uid = entity_to_uid(caster);
+    {
+        let mut state = app.world_mut().resource_mut::<CombatStateRes>();
+        let unit = state.0.unit_mut(caster_uid).expect("caster in engine state");
+        unit.action_points = 2;
+        unit.mana = Some((10, 10));
+    }
+
+    // --- Send ActionInput::Cast for the caster ---
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Cast {
+            actor: caster,
+            ability: zap_id,
+            target,
+            target_pos,
+        });
+
+    app.update();
+
+    // Engine state: caster's AP and mana paid.
+    let state = app.world().resource::<CombatStateRes>();
+    let caster_unit = state.0.unit(caster_uid).expect("caster still in state");
+    assert_eq!(caster_unit.action_points, 1, "AP cost paid");
+    assert_eq!(caster_unit.mana, Some((7, 10)), "Mana cost paid (10 - 3)");
+}

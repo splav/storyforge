@@ -62,10 +62,17 @@ pub struct ApplyHeal {
 ///
 /// `process_action_system` in `engine_bridge` reads this message and routes it
 /// to `combat_engine::step()`.  The engine is the sole owner of `Action::Move`
-/// after Phase 1.
+/// after Phase 1.  `Action::Cast` migration is in progress (Phase 2 step 7+);
+/// `UseAbility` remains the live cast input until Phase 2 step 9.
 #[derive(Message, Debug)]
 pub enum ActionInput {
     Move { actor: Entity, path: Vec<hexx::Hex> },
+    Cast {
+        actor: Entity,
+        ability: crate::core::AbilityId,
+        target: Entity,
+        target_pos: hexx::Hex,
+    },
 }
 
 #[derive(Message)]

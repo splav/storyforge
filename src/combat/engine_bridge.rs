@@ -487,6 +487,56 @@ pub fn process_action_system(
                     }
                 }
             }
+            ActionInput::Cast { actor, ability, target, target_pos } => {
+                // Phase 2 step 7a: routing only — engine consumes the Cast
+                // and mutates CombatStateRes; event translation lands in
+                // step 7b (translate_cast_events).  Production callers
+                // do not write ActionInput::Cast yet — UseAbility →
+                // resolve_action_system → apply_effects_system remains
+                // the live path until step 9 flip.
+                let Some(actor_uid) = id_map.get_id(*actor) else {
+                    warn!(
+                        "process_action_system: no UnitId for cast actor {:?} — skipping",
+                        actor
+                    );
+                    continue;
+                };
+                let Some(target_uid) = id_map.get_id(*target) else {
+                    warn!(
+                        "process_action_system: no UnitId for cast target {:?} — skipping",
+                        target
+                    );
+                    continue;
+                };
+
+                let action = Action::Cast {
+                    actor: actor_uid,
+                    ability: ability.clone(),
+                    target: target_uid,
+                    target_pos: *target_pos,
+                };
+
+                let content = build_ecs_content_view(&combatants, &id_map, &active_content);
+
+                match step(&mut combat_state.0, action, &mut rng.0, &content) {
+                    Ok(_events) => {
+                        // TODO(unisim phase2 step 7b): translate_cast_events
+                        // → CombatLog::{DamageResult, HealResult, StatusApplied,
+                        // StatusExpired, AbilityUsed, ManaChanged, CriticalMiss,
+                        // CritFailSideEffect}.
+                        trace!(
+                            "process_action_system: Cast step() ok for actor {:?} (uid {:?})",
+                            actor, actor_uid
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "process_action_system: Cast step() error for actor {:?} (uid {:?}): {:?}",
+                            actor, actor_uid, e
+                        );
+                    }
+                }
+            }
         }
     }
 }
