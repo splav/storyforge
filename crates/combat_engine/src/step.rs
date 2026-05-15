@@ -36,7 +36,7 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::{
     action::{Action, ActionError},
-    content::{AbilityDef, ContentView, StatusDef},
+    content::{AbilityDef, CasterContext, ContentView, EffectDef, StatusDef},
     dice::DiceSource,
     effect::{apply_effect, Effect},
     event::{effect_to_event, Event},
@@ -146,6 +146,75 @@ impl<'a> ActionState for EngineCheckState<'a> {
     }
 }
 
+// ── EngineTargetState ─────────────────────────────────────────────────────────
+
+/// `TargetState` adapter over `&CombatState` for engine-side target enumeration.
+///
+/// `unit_at_cell` is O(N) per call.  Acceptable for Phase 2 step 6 given
+/// typical unit counts (≤ 20).  Future micro-opt: index by hex in `CombatState`.
+struct EngineTargetState<'a> {
+    state: &'a CombatState,
+}
+
+impl<'a> crate::targeting::TargetState for EngineTargetState<'a> {
+    type Id = crate::state::UnitId;
+
+    fn actor_pos(&self, actor: crate::state::UnitId) -> Option<hexx::Hex> {
+        self.state.unit(actor).map(|u| u.pos)
+    }
+
+    fn unit_at_cell(&self, pos: hexx::Hex) -> Option<crate::targeting::TargetRef<crate::state::UnitId>> {
+        self.state.units().iter()
+            .find(|u| u.pos == pos)
+            .map(|u| crate::targeting::TargetRef {
+                id: u.id,
+                team: u.team,
+                alive: u.is_alive(),
+            })
+    }
+
+    fn team_of(&self, id: crate::state::UnitId) -> Option<crate::state::Team> {
+        self.state.unit(id).map(|u| u.team)
+    }
+}
+
+// ── damage_effect_for ─────────────────────────────────────────────────────────
+
+/// Builds a `Damage` Effect for one target given the ability's `EffectDef`.
+///
+/// Returns `None` for non-damage variants (`None`, `Heal`, `GrantMovement`,
+/// `RestoreResources`) or `WeaponAttack` without `weapon_dice`.
+fn damage_effect_for(
+    effect: &EffectDef,
+    source: crate::state::UnitId,
+    target: crate::state::UnitId,
+    caster: &CasterContext,
+    rng: &mut dyn DiceSource,
+) -> Option<Effect> {
+    match effect {
+        EffectDef::Damage { dice } => {
+            let raw = (rng.roll(*dice) + caster.str_mod) as f32;
+            Some(Effect::Damage { target, raw, source, pierces: false })
+        }
+        EffectDef::SpellDamage { dice } => {
+            let raw = (rng.roll(*dice) + caster.int_mod + caster.spell_power) as f32;
+            Some(Effect::Damage { target, raw, source, pierces: true })
+        }
+        EffectDef::WeaponAttack => {
+            let dice = caster.weapon_dice?;
+            let raw = (rng.roll(dice) + caster.str_mod) as f32;
+            Some(Effect::Damage { target, raw, source, pierces: false })
+        }
+        // Non-damage arms — step 6e handles Heal; GrantMovement /
+        // RestoreResources need their own effect variants (Phase 2 step 6e
+        // or 6f scope).  None: status-only ability (handled in 6e).
+        EffectDef::None
+        | EffectDef::Heal { .. }
+        | EffectDef::GrantMovement { .. }
+        | EffectDef::RestoreResources => None,
+    }
+}
+
 /// Advance `state` by one action.
 ///
 /// Returns the ordered list of events that occurred, or an error if the action
@@ -252,16 +321,15 @@ fn step_inner(
                 effect_queue.push_back(Effect::MovePosition { actor: *actor, to: hex });
             }
         }
-        Action::Cast { actor, ability, target: _, target_pos: _ } => {
-            // Phase 2 step 6c: cost payment.  Steps 6d/e/f add target
-            // enumeration + damage/heal/status fanout after these.
-            //
+        Action::Cast { actor, ability, target, target_pos } => {
             // Legality pre-validate (step 6b) already ran and confirmed the
             // actor can afford every cost.  We rebuild AbilityDef here from
             // ContentView; cheap and avoids carrying the def around.
             let def = content.ability_def(ability).expect(
                 "cast: ability_def returns Some — already verified by legality pre-validate",
             );
+
+            // Step 6c: cost payment.
             if def.cost_ap > 0 {
                 effect_queue.push_back(Effect::DecrementAP {
                     actor: *actor,
@@ -275,6 +343,23 @@ fn step_inner(
                         kind: cost.resource,
                         amount: cost.amount,
                     });
+                }
+            }
+
+            // Step 6d: target enumeration + damage fanout.
+            let target_state = EngineTargetState { state };
+            let affected = crate::targeting::compute_affected_targets(
+                *actor, &def, *target, *target_pos, &target_state,
+            );
+
+            // Damage fanout per EffectDef arm.  None / Heal / GrantMovement /
+            // RestoreResources skip damage emission (Heal handled in step 6e).
+            let caster = content.caster_context(*actor);
+            for &affected_id in &affected {
+                if let Some(dmg) = damage_effect_for(
+                    &def.effect, *actor, affected_id, &caster, rng,
+                ) {
+                    effect_queue.push_back(dmg);
                 }
             }
         }

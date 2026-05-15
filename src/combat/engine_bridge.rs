@@ -235,6 +235,7 @@ pub fn from_ecs(
 /// `status_bonuses` returns zeros — wired fully in step 4c+.
 pub struct EcsContentView<'a> {
     aoo_per_unit: HashMap<UnitId, EngineDiceExpr>,
+    caster_contexts: HashMap<UnitId, combat_engine::CasterContext>,
     active_content: &'a ActiveContent,
 }
 
@@ -305,6 +306,10 @@ impl<'a> EngineContentView for EcsContentView<'a> {
             speed_bonus: def.speed_bonus,
         })
     }
+
+    fn caster_context(&self, actor: UnitId) -> combat_engine::CasterContext {
+        self.caster_contexts.get(&actor).cloned().unwrap_or_default()
+    }
 }
 
 /// Query row for building `EcsContentView`.
@@ -328,10 +333,26 @@ fn build_ecs_content_view<'a>(
     content: &'a ActiveContent,
 ) -> EcsContentView<'a> {
     let mut aoo_per_unit = HashMap::new();
+    let mut caster_contexts = HashMap::new();
 
     for (entity, equipment, stats, abilities, vital, statuses, reactions, is_dead) in
         combatants.iter()
     {
+        // Build caster context for every unit (alive or dead) so Cast fanout
+        // can always resolve damage formulas for the actor.
+        let bevy_ctx = CasterContext::new(stats, Some(equipment), &content.weapons);
+        let engine_ctx = combat_engine::CasterContext {
+            str_mod: bevy_ctx.str_mod,
+            int_mod: bevy_ctx.int_mod,
+            spell_power: bevy_ctx.spell_power,
+            weapon_dice: bevy_ctx.weapon_dice,
+        };
+        if let Some(uid) = id_map.get_id(entity) {
+            caster_contexts.insert(uid, engine_ctx);
+        }
+
+        // AoO eligibility filters (unchanged).
+
         // Filter 1: alive.
         if is_dead || !vital.is_alive() {
             continue;
@@ -380,7 +401,7 @@ fn build_ecs_content_view<'a>(
         aoo_per_unit.insert(uid, engine_dice);
     }
 
-    EcsContentView { aoo_per_unit, active_content: content }
+    EcsContentView { aoo_per_unit, caster_contexts, active_content: content }
 }
 
 

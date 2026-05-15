@@ -157,6 +157,7 @@ impl EngineContentView for SnapContent {
     }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> { None }
+    fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext { storyforge::combat_engine::CasterContext::default() }
 }
 
 // ── Scenario 1: pure move, no enemies ────────────────────────────────────────

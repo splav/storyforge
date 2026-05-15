@@ -12,6 +12,16 @@
 
 use crate::{dice::DiceExpr, state::UnitId, AbilityId, ResourceKind, StatusId};
 
+/// Cached caster stats needed for damage / heal formulas.
+/// Mirrors `crate::content::abilities::CasterContext`.
+#[derive(Debug, Clone, Default)]
+pub struct CasterContext {
+    pub str_mod: i32,
+    pub int_mod: i32,
+    pub spell_power: i32,
+    pub weapon_dice: Option<DiceExpr>,
+}
+
 /// Where a status application lands.  Mirrors `crate::content::abilities::StatusOn`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusOn {
@@ -163,4 +173,8 @@ pub trait ContentView {
 
     /// Engine-side status definition.  `None` if the id is unknown.
     fn status_def(&self, id: &StatusId) -> Option<StatusDef>;
+
+    /// Caster stat bundle for damage / heal formulas.  Returns
+    /// `CasterContext::default()` for unknown units.
+    fn caster_context(&self, actor: UnitId) -> CasterContext;
 }

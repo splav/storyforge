@@ -129,6 +129,7 @@ impl EngineContentView for BenchContent {
     }
     fn ability_def(&self, _: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> { None }
+    fn caster_context(&self, _: UnitId) -> combat_engine::CasterContext { combat_engine::CasterContext::default() }
 }
 
 fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {

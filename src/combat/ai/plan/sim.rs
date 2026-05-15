@@ -448,6 +448,8 @@ fn apply_statuses<'a>(
 struct SnapshotContentView {
     /// `UnitId → raw AoO damage` for units that can perform an AoO.
     aoo_damage: std::collections::HashMap<UnitId, f32>,
+    /// `UnitId → caster context` for damage formula evaluation.
+    caster_contexts: std::collections::HashMap<UnitId, combat_engine::CasterContext>,
 }
 
 impl SnapshotContentView {
@@ -460,7 +462,20 @@ impl SnapshotContentView {
                 Some((entity_to_uid(u.entity), raw))
             })
             .collect();
-        Self { aoo_damage }
+        let caster_contexts = snap
+            .units
+            .iter()
+            .map(|u| {
+                let ctx = combat_engine::CasterContext {
+                    str_mod: u.caster_ctx.str_mod,
+                    int_mod: u.caster_ctx.int_mod,
+                    spell_power: u.caster_ctx.spell_power,
+                    weapon_dice: u.caster_ctx.weapon_dice,
+                };
+                (entity_to_uid(u.entity), ctx)
+            })
+            .collect();
+        Self { aoo_damage, caster_contexts }
     }
 }
 
@@ -484,6 +499,10 @@ impl EngineContentView for SnapshotContentView {
 
     fn status_def(&self, _id: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> {
         None
+    }
+
+    fn caster_context(&self, actor: UnitId) -> combat_engine::CasterContext {
+        self.caster_contexts.get(&actor).cloned().unwrap_or_default()
     }
 }
 
