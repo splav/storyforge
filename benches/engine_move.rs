@@ -130,6 +130,7 @@ impl EngineContentView for BenchContent {
     fn ability_def(&self, _: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> { None }
     fn caster_context(&self, _: UnitId) -> combat_engine::CasterContext { combat_engine::CasterContext::default() }
+    fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
 }
 
 fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
@@ -169,6 +170,7 @@ fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
                 rage: u.rage,
                 mana: u.mana,
                 energy: u.energy,
+                summoner: None,
             }
         })
         .collect();

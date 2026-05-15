@@ -91,6 +91,9 @@ pub struct Unit {
     pub mana: Option<Pool>,
     /// `None` if the unit has no energy mechanic.
     pub energy: Option<Pool>,
+    /// Set when this unit was spawned via `Effect::Spawn`. `None` for units
+    /// present at combat start (loaded from ECS).
+    pub summoner: Option<UnitId>,
 }
 
 impl Unit {
@@ -100,6 +103,10 @@ impl Unit {
 }
 
 // ── CombatState ───────────────────────────────────────────────────────────────
+
+/// Counter for engine-generated UnitIds. Starts above `Entity::to_bits()` range
+/// in practice so synthetic UIDs never collide with bridge-derived UIDs.
+pub(crate) const SYNTHETIC_UID_BASE: u64 = 1u64 << 63;
 
 /// Canonical engine state for one combat encounter.
 ///
@@ -115,6 +122,7 @@ pub struct CombatState {
     pub phase: RoundPhase,
     /// Seed carried along for replay reproducibility.
     pub random_seed: u64,
+    next_synthetic_uid: u64,
 }
 
 impl Default for CombatState {
@@ -132,6 +140,7 @@ impl CombatState {
             round,
             phase,
             random_seed,
+            next_synthetic_uid: SYNTHETIC_UID_BASE,
         };
         state.rebuild_idx();
         state
@@ -143,6 +152,21 @@ impl CombatState {
         for (i, u) in self.units.iter().enumerate() {
             self.idx.insert(u.id, i);
         }
+    }
+
+    /// Append a new unit and keep the index in sync.
+    pub(crate) fn insert_unit(&mut self, unit: Unit) {
+        let pos = self.units.len();
+        self.idx.insert(unit.id, pos);
+        self.units.push(unit);
+    }
+
+    pub(crate) fn alloc_synthetic_uid(&mut self) -> UnitId {
+        let uid = UnitId(self.next_synthetic_uid);
+        self.next_synthetic_uid = self.next_synthetic_uid
+            .checked_add(1)
+            .expect("synthetic UID exhaustion — combat lifetime > 2^63 spawns");
+        uid
     }
 
     /// Look up a unit by id. Returns `None` if not present.
@@ -304,6 +328,7 @@ mod tests {
             })
         }
         fn caster_context(&self, _: UnitId) -> CasterContext { CasterContext::default() }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
     }
 
     fn make_unit(id: UnitId, action_points: i32, max_ap: i32, mana: Option<Pool>) -> Unit {
@@ -325,6 +350,7 @@ mod tests {
             rage: None,
             mana,
             energy: None,
+            summoner: None,
         }
     }
 

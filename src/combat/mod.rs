@@ -11,7 +11,6 @@ pub mod enemy_popup;
 pub mod legality_adapter;
 pub mod phases;
 pub mod pipeline;
-pub mod spawn;
 pub mod skip_dead;
 pub mod turn_order;
 
@@ -32,7 +31,7 @@ use bevy::prelude::*;
 pub enum CombatStep {
     TurnStart, // turn_start → skip_dead → skip_stunned
     Command,   // pact_ai → player_command ‖ enemy_ai
-    Execute,   // process_action → project_state → spawn → phases
+    Execute,   // process_action → project_state → phases
     Finalize,  // queue_enemy_popup ‖ advance_turn
 }
 

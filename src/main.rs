@@ -7,7 +7,7 @@ use storyforge::combat::CombatStep;
 use storyforge::persistence::{detect_paths, settings_repo, PersistencePlugin};
 use storyforge::combat::DiceRngRes;
 use storyforge::game::messages::{
-    ActionInput, EndTurn, RestartCombat, SpawnUnit, StartCombat,
+    ActionInput, EndTurn, RestartCombat, StartCombat,
 };
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::resources::{CombatContext, CombatObjective, GameDb, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty};
@@ -64,7 +64,6 @@ fn main() {
         .add_message::<ActionInput>()
         .add_message::<EndTurn>()
         .add_message::<RestartCombat>()
-        .add_message::<SpawnUnit>()
         .add_message::<scenario::AdvanceScenario>()
         .add_systems(
             Startup,

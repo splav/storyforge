@@ -27,6 +27,7 @@ impl ContentView for StubContent {
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> { None }
     fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext { storyforge::combat_engine::CasterContext::default() }
+    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
 }
 
 fn make_unit(id: u64, team: Team, reactions: i32) -> Unit {
@@ -48,6 +49,7 @@ fn make_unit(id: u64, team: Team, reactions: i32) -> Unit {
         rage: None,
         mana: None,
         energy: None,
+        summoner: None,
     }
 }
 

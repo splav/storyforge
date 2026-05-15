@@ -35,16 +35,21 @@ use bevy::prelude::*;
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::content::content_view::ActiveContent;
 use crate::content::races::CritFailEffect;
+use crate::combat::ai::config::role::infer_profile;
+use crate::combat::ai::intent::AiMemory;
+use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, BonusMovement, CombatPath, CombatStats, Combatant,
-    Dead, Energy, Equipment, Faction, Mana, Rage, Reactions, Speed, StatusEffects, UnitToken, Vital,
+    Dead, Energy, Equipment, Faction, Mana, Rage, Reactions, Speed, StatusEffects, SummonedBy,
+    UnitToken, Vital,
 };
+use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
-use crate::game::messages::{ActionInput, EndTurn, SpawnUnit};
+use crate::game::messages::{ActionInput, EndTurn};
 use crate::game::resources::{CombatContext, HexPositions};
 use crate::ui::animation::{AnimationQueue, PendingAnim};
-use crate::ui::hex_grid::HexGridOffset;
+use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
 use combat_engine::{
     action::Action,
@@ -213,6 +218,7 @@ pub fn from_ecs(
                 rage: rage_pool,
                 mana: mana_pool,
                 energy: energy_pool,
+                summoner: None,
             })
         })
         .collect();
@@ -284,9 +290,12 @@ impl<'a> EngineContentView for EcsContentView<'a> {
                 EffectDef::Heal { dice } => EngineEffectDef::Heal { dice: *dice },
                 EffectDef::GrantMovement { distance } => EngineEffectDef::GrantMovement { distance: *distance },
                 EffectDef::RestoreResources => EngineEffectDef::RestoreResources,
-                // Summon: deferred to Phase 3. ToggleMoveMode: UI-only.
-                // Both map to None for Phase 2 — Cast resolution stays in resolution.rs until step 10.
-                EffectDef::Summon { .. } | EffectDef::ToggleMoveMode => EngineEffectDef::None,
+                EffectDef::Summon { template, max_active } => EngineEffectDef::Summon {
+                    template_id: template.clone(),
+                    max_active: *max_active,
+                },
+                // ToggleMoveMode: UI-only, no engine effect.
+                EffectDef::ToggleMoveMode => EngineEffectDef::None,
             },
             statuses: def.statuses.iter().map(|s| EngineStatusApplication {
                 status: s.status.clone(),
@@ -315,6 +324,28 @@ impl<'a> EngineContentView for EcsContentView<'a> {
 
     fn caster_context(&self, actor: UnitId) -> combat_engine::CasterContext {
         self.caster_contexts.get(&actor).cloned().unwrap_or_default()
+    }
+
+    fn unit_template(&self, id: &str) -> Option<combat_engine::UnitTemplate> {
+        let tpl = self.active_content.unit_templates.get(id)?;
+        let equipment = Equipment {
+            main_hand: Some(tpl.equipment.main_hand.clone()),
+            off_hand: tpl.equipment.off_hand.clone(),
+            chest: tpl.equipment.chest.clone(),
+            legs: tpl.equipment.legs.clone(),
+            feet: tpl.equipment.feet.clone(),
+        };
+        let effective = self.active_content.effective_stats(&tpl.stats, &equipment);
+        let armor = self.active_content.equipment_armor(&equipment);
+        Some(combat_engine::UnitTemplate {
+            max_hp: effective.max_hp,
+            armor,
+            base_speed: tpl.speed,
+            max_ap: 1, // templates carry no max_ap; matches CombatantBundle hardcoded default
+            mana_max: tpl.resources.mana_max,
+            energy_max: tpl.resources.energy_max,
+            rage_max: tpl.resources.rage_max,
+        })
     }
 }
 
@@ -416,6 +447,102 @@ pub(crate) fn build_ecs_content_view<'a>(
     EcsContentView { aoo_per_unit, caster_contexts, active_content: content }
 }
 
+// ── spawn_ecs_entity_from_engine_unit ────────────────────────────────────────
+
+/// Instantiate a new ECS combatant entity from a unit already present in the
+/// engine state.  Called from `translate_cast_events` when `Event::UnitSpawned`
+/// arrives; replaces the old `apply_spawn_system` + `SpawnUnit` message path.
+///
+/// Returns the new `Entity`, or `None` if the template is not in content
+/// (should not happen — engine already validated the template before emitting
+/// the event, but guards are cheap).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn spawn_ecs_entity_from_engine_unit(
+    uid: combat_engine::state::UnitId,
+    summoner_entity: Entity,
+    pos: hexx::Hex,
+    template_id: &str,
+    team: combat_engine::state::Team,
+    commands: &mut Commands,
+    id_map: &mut UnitIdMap,
+    positions: &mut HexPositions,
+    active_content: &crate::content::content_view::ActiveContent,
+    tag_cache: &AbilityTagCache,
+    mats: &HexMaterials,
+    token_mesh: &TokenMesh,
+    grid_offset: &HexGridOffset,
+    log: &mut CombatLog,
+) -> Option<Entity> {
+    use crate::game::components::Team as EcsTeam;
+
+    let template = active_content.unit_templates.get(template_id)?;
+    let equipment = Equipment {
+        main_hand: Some(template.equipment.main_hand.clone()),
+        off_hand: template.equipment.off_hand.clone(),
+        chest: template.equipment.chest.clone(),
+        legs: template.equipment.legs.clone(),
+        feet: template.equipment.feet.clone(),
+    };
+    let effective = active_content.effective_stats(&template.stats, &equipment);
+    let armor = active_content.equipment_armor(&equipment);
+    let race_name = active_content.races.get(&template.race).map_or("", |r| r.name.as_str());
+    let display_name = if race_name.is_empty() {
+        template.name.clone()
+    } else {
+        format!("{} {}", race_name, template.name)
+    };
+    let ecs_team = match team {
+        combat_engine::state::Team::Player => EcsTeam::Player,
+        combat_engine::state::Team::Enemy => EcsTeam::Enemy,
+    };
+    let role = infer_profile(&template.ability_ids, effective.max_hp, armor, active_content, tag_cache);
+
+    let mut ec = commands.spawn((
+        Name::new(display_name.clone()),
+        enemy_bundle(effective, armor, template.speed, template.ability_ids.clone(), equipment),
+        role,
+        AiMemory::default(),
+        SummonedBy(summoner_entity),
+    ));
+    // enemy_bundle forces Team::Enemy — overwrite with actual team.
+    ec.insert(Faction(ecs_team));
+    if template.resources.rage_max > 0 {
+        ec.insert(Rage::new(template.resources.rage_max));
+    }
+    if template.resources.mana_max > 0 {
+        ec.insert(Mana::new(template.resources.mana_max));
+    }
+    if template.resources.energy_max > 0 {
+        ec.insert(Energy::new(template.resources.energy_max));
+    }
+    if let Some(ref p) = template.path {
+        ec.insert(CombatPath(p.clone()));
+    }
+    let new_entity = ec.id();
+
+    positions.insert(new_entity, pos);
+    id_map.insert(new_entity, uid);
+
+    let pixel = LAYOUT.hex_to_world_pos(pos) + grid_offset.0;
+    let token_material = match ecs_team {
+        EcsTeam::Player => mats.token_player.clone(),
+        EcsTeam::Enemy => mats.token_enemy.clone(),
+    };
+    commands.spawn((
+        UnitToken(new_entity),
+        Mesh2d(token_mesh.token.clone()),
+        MeshMaterial2d(token_material),
+        Transform::from_xyz(pixel.x, pixel.y, 0.15),
+    ));
+
+    log.push(CombatEvent::Summoned {
+        summoner: summoner_entity,
+        summon_name: display_name,
+    });
+
+    Some(new_entity)
+}
+
 // ── translate_tick_events ─────────────────────────────────────────────────────
 
 /// Translate an engine tick-event stream into `CombatLog` entries and ECS side-
@@ -498,7 +625,9 @@ pub(crate) fn translate_tick_events(
             | Event::UnitMoved { .. }
             | Event::ActionStarted { .. }
             | Event::ActionFinished { .. }
-            | Event::CritFailed { .. } => {}
+            | Event::CritFailed { .. }
+            | Event::UnitSpawned { .. }
+            | Event::SpawnBlocked { .. } => {}
         }
     }
 }
@@ -568,7 +697,7 @@ pub fn engine_turn_start_system(
 pub fn process_action_system(
     mut commands: Commands,
     mut reader: MessageReader<ActionInput>,
-    id_map: Res<UnitIdMap>,
+    mut id_map: ResMut<UnitIdMap>,
     mut combat_state: ResMut<CombatStateRes>,
     combatants: Query<AooRow, With<Combatant>>,
     active_content: Res<ActiveContent>,
@@ -578,7 +707,10 @@ pub fn process_action_system(
     grid_offset: Res<HexGridOffset>,
     tokens: Query<(Entity, &UnitToken)>,
     mut end_turn: MessageWriter<EndTurn>,
-    mut spawn_writer: MessageWriter<SpawnUnit>,
+    mut positions: ResMut<HexPositions>,
+    tag_cache: Res<AbilityTagCache>,
+    mats: Res<HexMaterials>,
+    token_mesh: Res<TokenMesh>,
 ) {
     for msg in reader.read() {
         match msg {
@@ -636,22 +768,6 @@ pub fn process_action_system(
                     continue;
                 };
 
-                // Summon carve-out: engine doesn't model summon spawning yet (deferred
-                // to Phase 3 alongside SpawnUnit/apply_spawn_system migration).  Detect
-                // it and emit SpawnUnit for the auxiliary Bevy path while the engine
-                // handles the rest of the cast (cost payment).  Summon abilities typically
-                // have no other effect arms, but we still let step() run so AP/mana costs
-                // are paid correctly.
-                if let Some(ability_def) = active_content.abilities.get(ability) {
-                    if let EffectDef::Summon { template, max_active } = &ability_def.effect {
-                        spawn_writer.write(SpawnUnit {
-                            summoner: *actor,
-                            template_id: template.clone(),
-                            max_active: *max_active,
-                        });
-                    }
-                }
-
                 let action = Action::Cast {
                     actor: actor_uid,
                     ability: ability.clone(),
@@ -676,11 +792,16 @@ pub fn process_action_system(
                             *target_pos,
                             mana_before,
                             &events,
-                            &id_map,
+                            &mut id_map,
                             &combat_state,
                             &active_content,
                             &mut commands,
                             &mut log,
+                            &mut positions,
+                            &tag_cache,
+                            &mats,
+                            &token_mesh,
+                            &grid_offset,
                         );
                         // One ability per turn: always end the turn after a successful cast.
                         // (The engine consumed AP; resolve_action_system no longer exists to do this.)
@@ -715,11 +836,16 @@ fn translate_cast_events(
     target_pos: hexx::Hex,
     mana_before: Option<i32>,
     events: &[Event],
-    id_map: &UnitIdMap,
+    id_map: &mut UnitIdMap,
     combat_state: &CombatStateRes,
     active_content: &ActiveContent,
     commands: &mut Commands,
     log: &mut CombatLog,
+    positions: &mut HexPositions,
+    tag_cache: &AbilityTagCache,
+    mats: &HexMaterials,
+    token_mesh: &TokenMesh,
+    grid_offset: &HexGridOffset,
 ) {
     // Emit AbilityUsed from content lookup; fall back to id-as-name if absent.
     let (ability_name, is_aoe, cost_str) = active_content
@@ -815,6 +941,43 @@ fn translate_cast_events(
                         });
                     }
                 }
+            }
+            Event::UnitSpawned { uid, summoner: summoner_uid, pos, template_id, team } => {
+                let Some(summoner_entity) = id_map.get_entity(*summoner_uid) else { continue };
+                spawn_ecs_entity_from_engine_unit(
+                    *uid,
+                    summoner_entity,
+                    *pos,
+                    template_id,
+                    *team,
+                    commands,
+                    id_map,
+                    positions,
+                    active_content,
+                    tag_cache,
+                    mats,
+                    token_mesh,
+                    grid_offset,
+                    log,
+                );
+            }
+            Event::SpawnBlocked { summoner: summoner_uid, template_id, reason } => {
+                let Some(summoner_entity) = id_map.get_entity(*summoner_uid) else { continue };
+                let reason_text = match reason {
+                    combat_engine::SpawnBlockedReason::TemplateMissing => {
+                        format!("шаблон '{}' не найден", template_id)
+                    }
+                    combat_engine::SpawnBlockedReason::MaxActiveReached => {
+                        "лимит призванных достигнут".to_string()
+                    }
+                    combat_engine::SpawnBlockedReason::NoFreePosition => {
+                        "рядом нет свободной клетки".to_string()
+                    }
+                };
+                log.push(CombatEvent::SummonBlocked {
+                    summoner: summoner_entity,
+                    reason: reason_text,
+                });
             }
             Event::ReactionFired { .. }
             | Event::UnitMoved { .. }
@@ -927,14 +1090,15 @@ fn translate_move_events(
                     commands.entity(entity).insert(Dead);
                 }
             }
-            // Heal / status / crit-fail events surface here once Phase 2 step 7
-            // wires Cast through the bridge.  Today Move actions never derive
-            // these — no-op pins for exhaustiveness.
+            // Heal / status / crit-fail / spawn events are not produced by Move.
+            // No-op pins for exhaustiveness.
             Event::UnitHealed { .. }
             | Event::StatusApplied { .. }
             | Event::StatusRemoved { .. }
             | Event::StatusTicked { .. }
-            | Event::CritFailed { .. } => {}
+            | Event::CritFailed { .. }
+            | Event::UnitSpawned { .. }
+            | Event::SpawnBlocked { .. } => {}
             Event::ActionStarted { .. } | Event::ActionFinished { .. } => {}
             Event::ManaRegenerated { .. } | Event::EnergyRegenerated { .. } => {}
         }

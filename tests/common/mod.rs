@@ -17,10 +17,12 @@ use storyforge::combat::DiceRngRes;
 use storyforge::game::bundles::{enemy_bundle, hero_bundle};
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{CombatStats, Equipment};
-use storyforge::game::messages::{ActionInput, EndTurn, SpawnUnit};
+use storyforge::combat::ai::world::tags::AbilityTagCache;
+use storyforge::game::messages::{ActionInput, EndTurn};
 use storyforge::game::resources::{
     CombatContext, CombatObjective, GameDb, HexPositions, SelectionState, TurnQueue,
 };
+use storyforge::ui::hex_grid::{HexMaterials, TokenMesh};
 
 pub const MELEE_ATTACK: &str = "melee_attack";
 
@@ -104,9 +106,32 @@ pub fn movement_app() -> App {
         .insert_resource(HexGridOffset(Vec2::ZERO))
         .init_resource::<CombatStateRes>()
         .init_resource::<UnitIdMap>()
+        .insert_resource(AbilityTagCache::default())
+        .insert_resource(HexMaterials {
+            empty: Handle::default(),
+            player: Handle::default(),
+            enemy: Handle::default(),
+            dead: Handle::default(),
+            in_range: Handle::default(),
+            in_range_dim: Handle::default(),
+            move_range: Handle::default(),
+            border_active: Handle::default(),
+            border_target: Handle::default(),
+            border_in_range: Handle::default(),
+            border_in_range_dim: Handle::default(),
+            border_move: Handle::default(),
+            aoe_preview: Handle::default(),
+            border_aoe: Handle::default(),
+            token_player: Handle::default(),
+            token_enemy: Handle::default(),
+            token_dead: Handle::default(),
+        })
+        .insert_resource(TokenMesh {
+            token: Handle::default(),
+            ring: Handle::default(),
+        })
         .add_message::<ActionInput>()
         .add_message::<EndTurn>()
-        .add_message::<SpawnUnit>()
         .add_systems(
             OnEnter(CombatPhase::AwaitCommand),
             init_state_from_ecs,

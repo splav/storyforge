@@ -20,20 +20,25 @@ struct StubContent {
     speed_bonus: i32,
     armor_bonus: i32,
     hp_percent_dot: i32,
+    templates: std::collections::HashMap<String, storyforge::combat_engine::UnitTemplate>,
 }
 
 impl StubContent {
     fn neutral() -> Self {
-        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot: 0 }
+        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot: 0, templates: Default::default() }
     }
     fn with_speed(speed_bonus: i32) -> Self {
-        Self { speed_bonus, armor_bonus: 0, hp_percent_dot: 0 }
+        Self { speed_bonus, armor_bonus: 0, hp_percent_dot: 0, templates: Default::default() }
     }
     fn with_armor(armor_bonus: i32) -> Self {
-        Self { speed_bonus: 0, armor_bonus, hp_percent_dot: 0 }
+        Self { speed_bonus: 0, armor_bonus, hp_percent_dot: 0, templates: Default::default() }
     }
     fn with_hp_percent_dot(hp_percent_dot: i32) -> Self {
-        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot }
+        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot, templates: Default::default() }
+    }
+    fn with_template(mut self, id: &str, tpl: storyforge::combat_engine::UnitTemplate) -> Self {
+        self.templates.insert(id.to_string(), tpl);
+        self
     }
 }
 
@@ -61,6 +66,9 @@ impl ContentView for StubContent {
         })
     }
     fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext { storyforge::combat_engine::CasterContext::default() }
+    fn unit_template(&self, id: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
+        self.templates.get(id).copied()
+    }
 }
 
 fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
@@ -82,6 +90,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
         rage: None,
         mana: None,
         energy: None,
+        summoner: None,
     }
 }
 
@@ -984,4 +993,186 @@ fn death_cascade_from_damage_clears_statuses() {
 
     assert_eq!(state.unit(UnitId(1)).unwrap().hp, 0);
     assert!(state.unit(UnitId(1)).unwrap().statuses.is_empty());
+}
+
+// ── Spawn (step 3.5a) ─────────────────────────────────────────────────────────
+
+use storyforge::combat_engine::UnitTemplate;
+use storyforge::combat_engine::effect::SpawnBlockedReason;
+
+fn test_template() -> UnitTemplate {
+    UnitTemplate {
+        max_hp: 8,
+        armor: 1,
+        base_speed: 4,
+        max_ap: 1,
+        mana_max: 0,
+        energy_max: 0,
+        rage_max: 0,
+    }
+}
+
+#[test]
+fn spawn_creates_unit_with_correct_template_stats() {
+    let summoner = make_unit(1, 20, 20);
+    let summoner_pos = summoner.pos;
+    let summoner_team = summoner.team;
+    let mut state = state_with(vec![summoner]);
+    let before = state.units().len();
+    let content = StubContent::neutral().with_template("imp", test_template());
+
+    let (derived, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "imp".into(), max_active: None },
+        &content,
+    );
+
+    assert!(derived.is_empty());
+    assert_eq!(state.units().len(), before + 1);
+    assert!(ctx.spawn_blocked.is_none());
+    let uid = ctx.spawn_uid.expect("spawn_uid set on success");
+    let pos = ctx.spawn_pos.expect("spawn_pos set on success");
+    let spawned = state.unit(uid).expect("new unit present");
+    assert_eq!(spawned.hp, 8);
+    assert_eq!(spawned.max_hp, 8);
+    assert_eq!(spawned.armor, 1);
+    assert_eq!(spawned.base_speed, 4);
+    assert_eq!(spawned.max_ap, 1);
+    assert_eq!(spawned.team, summoner_team);
+    assert_eq!(spawned.summoner, Some(UnitId(1)));
+    assert_eq!(spawned.pos, pos);
+    assert_ne!(spawned.pos, summoner_pos);
+    assert!(summoner_pos.distance_to(spawned.pos) <= 2);
+}
+
+#[test]
+fn spawn_blocked_when_template_missing() {
+    let summoner = make_unit(1, 20, 20);
+    let mut state = state_with(vec![summoner]);
+    let before = state.units().len();
+    let content = StubContent::neutral();
+
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "missing".into(), max_active: None },
+        &content,
+    );
+
+    assert_eq!(state.units().len(), before);
+    assert_eq!(ctx.spawn_blocked, Some(SpawnBlockedReason::TemplateMissing));
+    assert!(ctx.spawn_uid.is_none());
+}
+
+#[test]
+fn spawn_blocked_at_max_active_cap() {
+    let summoner = make_unit(1, 20, 20);
+    let mut minion_a = make_unit(2, 5, 5);
+    minion_a.summoner = Some(UnitId(1));
+    minion_a.pos = hex_from_offset(1, 0);
+    let mut minion_b = make_unit(3, 5, 5);
+    minion_b.summoner = Some(UnitId(1));
+    minion_b.pos = hex_from_offset(0, 1);
+    let mut state = state_with(vec![summoner, minion_a, minion_b]);
+    let before = state.units().len();
+    let content = StubContent::neutral().with_template("imp", test_template());
+
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "imp".into(), max_active: Some(2) },
+        &content,
+    );
+
+    assert_eq!(state.units().len(), before);
+    assert_eq!(ctx.spawn_blocked, Some(SpawnBlockedReason::MaxActiveReached));
+}
+
+#[test]
+fn spawn_blocked_when_no_free_position() {
+    let summoner = make_unit(1, 20, 20);
+    let summoner_pos = summoner.pos;
+    // Fill every cell in radius 2 around summoner (excluding summoner's own).
+    let mut units = vec![summoner];
+    let mut next_id: u64 = 100;
+    for cell in summoner_pos.range(2) {
+        if cell == summoner_pos {
+            continue;
+        }
+        let mut blocker = make_unit(next_id, 5, 5);
+        blocker.pos = cell;
+        units.push(blocker);
+        next_id += 1;
+    }
+    let mut state = state_with(units);
+    let before = state.units().len();
+    let content = StubContent::neutral().with_template("imp", test_template());
+
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "imp".into(), max_active: None },
+        &content,
+    );
+
+    assert_eq!(state.units().len(), before);
+    assert_eq!(ctx.spawn_blocked, Some(SpawnBlockedReason::NoFreePosition));
+}
+
+#[test]
+fn spawn_synthetic_uid_above_bevy_bit_range() {
+    let summoner = make_unit(1, 20, 20);
+    let mut state = state_with(vec![summoner]);
+    let content = StubContent::neutral().with_template("imp", test_template());
+
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "imp".into(), max_active: None },
+        &content,
+    );
+
+    let uid = ctx.spawn_uid.expect("success");
+    assert!(uid.0 >= 1u64 << 63, "synthetic UID must avoid Bevy Entity::to_bits() range");
+}
+
+#[test]
+fn effect_to_event_emits_unit_spawned_on_success() {
+    let summoner = make_unit(1, 20, 20);
+    let summoner_team = summoner.team;
+    let mut state = state_with(vec![summoner]);
+    let content = StubContent::neutral().with_template("imp", test_template());
+
+    let effect = Effect::Spawn { summoner: UnitId(1), template_id: "imp".into(), max_active: None };
+    let (_, ctx) = apply_effect(&mut state, &effect, &content);
+
+    let ev = effect_to_event(&effect, &state, None, &ctx)
+        .expect("UnitSpawned event on success");
+    match ev {
+        Event::UnitSpawned { uid, summoner, pos, template_id, team } => {
+            assert_eq!(uid, ctx.spawn_uid.unwrap());
+            assert_eq!(summoner, UnitId(1));
+            assert_eq!(pos, ctx.spawn_pos.unwrap());
+            assert_eq!(template_id, "imp");
+            assert_eq!(team, summoner_team);
+        }
+        other => panic!("expected UnitSpawned, got {:?}", other),
+    }
+}
+
+#[test]
+fn effect_to_event_emits_spawn_blocked_on_failure() {
+    let summoner = make_unit(1, 20, 20);
+    let mut state = state_with(vec![summoner]);
+    let content = StubContent::neutral();
+
+    let effect = Effect::Spawn { summoner: UnitId(1), template_id: "missing".into(), max_active: None };
+    let (_, ctx) = apply_effect(&mut state, &effect, &content);
+
+    let ev = effect_to_event(&effect, &state, None, &ctx)
+        .expect("SpawnBlocked event on failure");
+    match ev {
+        Event::SpawnBlocked { summoner, template_id, reason } => {
+            assert_eq!(summoner, UnitId(1));
+            assert_eq!(template_id, "missing");
+            assert_eq!(reason, SpawnBlockedReason::TemplateMissing);
+        }
+        other => panic!("expected SpawnBlocked, got {:?}", other),
+    }
 }

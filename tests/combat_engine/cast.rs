@@ -5,6 +5,7 @@
 //! - Step 6c: AP + resource cost payment.
 //! - Step 6d: damage fanout (Damage, SpellDamage, WeaponAttack, AoE).
 //! - Step 6e: Heal fanout + status application (Target / MySelf / AoE).
+//! - Step 3.5b: Summon → Effect::Spawn → UnitSpawned / SpawnBlocked.
 
 use std::collections::HashMap;
 
@@ -12,9 +13,10 @@ use storyforge::combat_engine::{
     action::{Action, ActionError},
     content::{
         AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, StatusApplication, StatusBonuses,
-        StatusOn, TargetType,
+        StatusOn, TargetType, UnitTemplate,
     },
-    dice::{DiceExpr, ExpectedValue},
+    dice::{DiceExpr, DiceRng, ExpectedValue},
+    effect::SpawnBlockedReason,
     event::Event,
     legality::IllegalReason,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
@@ -29,21 +31,27 @@ use storyforge::game::hex::hex_from_offset;
 struct StubContent {
     abilities: HashMap<AbilityId, AbilityDef>,
     caster_ctx: HashMap<UnitId, storyforge::combat_engine::CasterContext>,
+    templates: HashMap<String, storyforge::combat_engine::UnitTemplate>,
 }
 
 impl StubContent {
     fn empty() -> Self {
-        Self { abilities: HashMap::new(), caster_ctx: HashMap::new() }
+        Self { abilities: HashMap::new(), caster_ctx: HashMap::new(), templates: HashMap::new() }
     }
 
     fn with_ability(id: &str, def: AbilityDef) -> Self {
         let mut abilities = HashMap::new();
         abilities.insert(AbilityId::from(id), def);
-        Self { abilities, caster_ctx: HashMap::new() }
+        Self { abilities, caster_ctx: HashMap::new(), templates: HashMap::new() }
     }
 
     fn with_caster(mut self, uid: UnitId, ctx: storyforge::combat_engine::CasterContext) -> Self {
         self.caster_ctx.insert(uid, ctx);
+        self
+    }
+
+    fn with_template(mut self, id: &str, tmpl: storyforge::combat_engine::UnitTemplate) -> Self {
+        self.templates.insert(id.to_string(), tmpl);
         self
     }
 }
@@ -55,6 +63,9 @@ impl ContentView for StubContent {
     fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
     fn caster_context(&self, actor: UnitId) -> storyforge::combat_engine::CasterContext {
         self.caster_ctx.get(&actor).cloned().unwrap_or_default()
+    }
+    fn unit_template(&self, id: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
+        self.templates.get(id).copied()
     }
 }
 
@@ -79,6 +90,7 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
         rage: None,
         mana: None,
         energy: None,
+        summoner: None,
     }
 }
 
@@ -1030,4 +1042,146 @@ fn cast_applies_status_to_each_aoe_target() {
         assert_eq!(unit.statuses[0].id, StatusId::from("burning"));
         assert_eq!(unit.statuses[0].rounds_remaining, 2);
     }
+}
+
+// ── Step 3.5b tests: Summon ───────────────────────────────────────────────────
+
+fn imp_template() -> UnitTemplate {
+    UnitTemplate { max_hp: 8, armor: 1, base_speed: 4, max_ap: 1, mana_max: 0, energy_max: 0, rage_max: 0 }
+}
+
+fn summon_ability(max_active: Option<u32>) -> AbilityDef {
+    AbilityDef {
+        key: None,
+        cost_ap: 1,
+        costs: vec![],
+        range: AbilityRange { min: 0, max: 0 },
+        target_type: TargetType::Myself,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        effect: EffectDef::Summon { template_id: "imp".to_string(), max_active },
+        statuses: vec![],
+    }
+}
+
+/// Summon ability: step() emits UnitSpawned and inserts the new unit into state.
+#[test]
+fn cast_summon_ability_pushes_spawn_effect_and_creates_unit() {
+    let summoner = make_unit(1, Team::Player, 2, 2);
+    let summoner_id = summoner.id;
+    let mut state = state_with(vec![summoner]);
+
+    let content = StubContent::with_ability("summon_imp", summon_ability(Some(3)))
+        .with_template("imp", imp_template());
+
+    let action = Action::Cast {
+        actor: summoner_id,
+        ability: AbilityId::from("summon_imp"),
+        target: summoner_id,
+        target_pos: state.unit(summoner_id).unwrap().pos,
+    };
+
+    // d20=11 — no crit-fail.
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[11]);
+
+    let events = step(&mut state, action, &mut rng, &content).expect("summon should succeed");
+
+    // Event stream contains UnitSpawned.
+    let spawned = events.iter().find_map(|e| {
+        if let Event::UnitSpawned { uid, summoner, template_id, team, .. } = e {
+            Some((*uid, *summoner, template_id.clone(), *team))
+        } else {
+            None
+        }
+    });
+    let (new_uid, s_id, tmpl_id, team) = spawned.expect("UnitSpawned event must be present");
+    assert_eq!(s_id, summoner_id, "summoner field matches");
+    assert_eq!(tmpl_id, "imp");
+    assert_eq!(team, Team::Player, "new unit inherits summoner's team");
+
+    // State now has 2 units.
+    assert_eq!(state.alive_units().count(), 2, "one summoner + one summoned");
+
+    // New unit stats match the template.
+    let new_unit = state.unit(new_uid).expect("new unit present in state");
+    assert_eq!(new_unit.max_hp, 8);
+    assert_eq!(new_unit.hp, 8);
+    assert_eq!(new_unit.armor, 1);
+    assert_eq!(new_unit.summoner, Some(summoner_id));
+
+    // Summoner paid AP.
+    assert_eq!(state.unit(summoner_id).unwrap().action_points, 1, "AP decremented by 1");
+}
+
+/// Crit-fail (d20=1, Miss outcome) on a Summon: cost paid, no spawn.
+#[test]
+fn cast_summon_crit_fail_miss_skips_spawn_but_pays_cost() {
+    use storyforge::combat_engine::{CasterContext, CritFailOutcome};
+
+    let summoner = make_unit(1, Team::Player, 2, 2);
+    let summoner_id = summoner.id;
+    let mut state = state_with(vec![summoner]);
+
+    let content = StubContent::with_ability("summon_imp", summon_ability(Some(3)))
+        .with_template("imp", imp_template())
+        .with_caster(summoner_id, CasterContext {
+            crit_fail_outcome: CritFailOutcome::Miss,
+            ..Default::default()
+        });
+
+    let action = Action::Cast {
+        actor: summoner_id,
+        ability: AbilityId::from("summon_imp"),
+        target: summoner_id,
+        target_pos: state.unit(summoner_id).unwrap().pos,
+    };
+
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[1]); // d20=1 → crit-fail
+
+    let events = step(&mut state, action, &mut rng, &content).expect("should succeed");
+
+    // AP still paid.
+    assert_eq!(state.unit(summoner_id).unwrap().action_points, 1, "AP paid on crit-fail");
+    // Unit count unchanged.
+    assert_eq!(state.alive_units().count(), 1, "no unit spawned on crit-fail");
+    // CritFailed event present, no UnitSpawned.
+    assert!(events.iter().any(|e| matches!(e, Event::CritFailed { .. })), "CritFailed emitted");
+    assert!(!events.iter().any(|e| matches!(e, Event::UnitSpawned { .. })), "no UnitSpawned on crit-fail");
+}
+
+/// Summon when max_active cap already reached → SpawnBlocked(MaxActiveReached); no new unit.
+#[test]
+fn cast_summon_at_max_cap_emits_spawn_blocked() {
+    let summoner = make_unit(1, Team::Player, 2, 2);
+    let summoner_id = summoner.id;
+
+    // Pre-populate with one active summon at cap (max_active=1).
+    let mut existing_summon = make_unit(2, Team::Player, 3, 2);
+    existing_summon.summoner = Some(summoner_id);
+    let mut state = state_with(vec![summoner, existing_summon]);
+
+    let content = StubContent::with_ability("summon_imp", summon_ability(Some(1)))
+        .with_template("imp", imp_template());
+
+    let action = Action::Cast {
+        actor: summoner_id,
+        ability: AbilityId::from("summon_imp"),
+        target: summoner_id,
+        target_pos: state.unit(summoner_id).unwrap().pos,
+    };
+
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[11]); // no crit-fail
+
+    let events = step(&mut state, action, &mut rng, &content).expect("should succeed");
+
+    // SpawnBlocked event with MaxActiveReached.
+    let blocked = events.iter().find_map(|e| {
+        if let Event::SpawnBlocked { reason, .. } = e { Some(reason.clone()) } else { None }
+    });
+    assert_eq!(blocked, Some(SpawnBlockedReason::MaxActiveReached), "SpawnBlocked(MaxActiveReached)");
+    // Unit count unchanged — still 2 (summoner + existing summon).
+    assert_eq!(state.alive_units().count(), 2, "no new unit inserted when cap reached");
 }

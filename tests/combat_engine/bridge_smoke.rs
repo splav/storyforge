@@ -25,6 +25,7 @@ use storyforge::combat::engine_bridge::{
     entity_to_uid, init_state_from_ecs, process_action_system, project_state_to_ecs,
     CombatStateRes, UnitIdMap,
 };
+use storyforge::combat::ai::world::tags::AbilityTagCache;
 use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
 use storyforge::content::content_view::{ActiveContent, ContentView};
 use storyforge::content::statuses::StatusDef;
@@ -38,10 +39,10 @@ use storyforge::game::components::{
     Team, UnitToken, Vital,
 };
 use storyforge::game::hex::hex_from_offset;
-use storyforge::game::messages::{ActionInput, EndTurn, SpawnUnit};
+use storyforge::game::messages::{ActionInput, EndTurn};
 use storyforge::game::resources::{CombatContext, HexPositions};
 use storyforge::ui::animation::{AnimationQueue, PendingAnim};
-use storyforge::ui::hex_grid::HexGridOffset;
+use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
 fn test_stats() -> CombatStats {
     CombatStats {
@@ -83,9 +84,34 @@ fn bridge_app() -> App {
         .init_resource::<AnimationQueue>()
         // HexGridOffset has no Default — insert a zero offset (no screen offset needed in tests).
         .insert_resource(HexGridOffset(Vec2::ZERO))
+        // Stub visual resources: process_action_system requires these for spawn.
+        // Default handles are zero-cost in tests (no renderer runs).
+        .insert_resource(AbilityTagCache::default())
+        .insert_resource(HexMaterials {
+            empty: Handle::default(),
+            player: Handle::default(),
+            enemy: Handle::default(),
+            dead: Handle::default(),
+            in_range: Handle::default(),
+            in_range_dim: Handle::default(),
+            move_range: Handle::default(),
+            border_active: Handle::default(),
+            border_target: Handle::default(),
+            border_in_range: Handle::default(),
+            border_in_range_dim: Handle::default(),
+            border_move: Handle::default(),
+            aoe_preview: Handle::default(),
+            border_aoe: Handle::default(),
+            token_player: Handle::default(),
+            token_enemy: Handle::default(),
+            token_dead: Handle::default(),
+        })
+        .insert_resource(TokenMesh {
+            token: Handle::default(),
+            ring: Handle::default(),
+        })
         .add_message::<ActionInput>()
         .add_message::<EndTurn>()
-        .add_message::<SpawnUnit>()
         .add_systems(
             Update,
             (process_action_system, project_state_to_ecs).chain(),
@@ -826,6 +852,7 @@ fn projector_writes_engine_mutation_to_ecs() {
             rage: None,
             mana: None,
             energy: None,
+            summoner: None,
         };
         let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -1277,6 +1304,7 @@ fn projector_writes_mana_from_engine_state() {
         rage: None,
         mana: Some((10, 10)),
         energy: None,
+        summoner: None,
     };
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -1347,6 +1375,7 @@ fn projector_writes_statuses_from_engine_state() {
         rage: None,
         mana: None,
         energy: None,
+        summoner: None,
     };
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -1460,6 +1489,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         rage: None,
         mana: None,
         energy: None,
+        summoner: None,
     };
     let aura_unit = Unit {
         id: aura_source_uid,
@@ -1479,6 +1509,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         rage: None,
         mana: None,
         energy: None,
+        summoner: None,
     };
     let state = CombatState::new(vec![actor_unit, aura_unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -1677,3 +1708,127 @@ fn cast_no_crit_fail_no_crit_fail_log_when_d20_non_one() {
 // crit_fail_outcome from race content (currently defaults to Miss), add bridge_smoke
 // tests for CritFailSideEffect variants (DoubleCost, SelfDamage, ApplyStatus).
 // Engine cast.rs tests already pin the per-outcome logic on the engine side.
+
+// ── Phase 3.5c: Cast(Summon) creates ECS entity via bridge ───────────────────
+
+/// Cast(Summon) → bridge creates a new ECS Combatant entity synchronously.
+///
+/// Verifies that:
+/// 1. A new `Combatant` entity exists after process_action_system runs.
+/// 2. The new entity is registered in `UnitIdMap`.
+/// 3. The new entity's `HexPositions` entry is populated adjacent to the summoner.
+/// 4. `SummonedBy(summoner)` component is set on the new entity.
+/// 5. `CombatLog` contains a `Summoned` entry.
+#[test]
+fn cast_summon_creates_ecs_entity_synchronously() {
+    use storyforge::content::abilities::TargetType;
+    use storyforge::content::unit_templates::{EquipmentBlock, ResourcesBlock, UnitTemplateDef};
+    use storyforge::game::components::{Combatant, SummonedBy};
+
+    let summoner_pos = hex_from_offset(0, 0);
+
+    let ability_id = AbilityId::from("summon_imp");
+    let template_id = "imp";
+
+    let ability_def = AbilityDef {
+        id: ability_id.clone(),
+        name: "Призвать беса".into(),
+        target_type: TargetType::Myself,
+        range: AbilityRange { min: 0, max: 0 },
+        effect: EffectDef::Summon {
+            template: template_id.into(),
+            max_active: None,
+        },
+        costs: vec![],
+        cost_ap: 1,
+        aoe: AoEShape::None,
+        friendly_fire: false,
+        statuses: vec![],
+        magic_domains: vec![],
+        magic_method: String::new(),
+        key: None,
+        ai_tags_override: None,
+    };
+
+    let template = UnitTemplateDef {
+        id: template_id.into(),
+        name: "Imp".into(),
+        race: String::new(),
+        faction: None,
+        path: None,
+        speed: 4,
+        stats: CombatStats { max_hp: 8, strength: 2, dexterity: 5, constitution: 8, intelligence: 0, wisdom: 5, charisma: 5 },
+        equipment: EquipmentBlock {
+            main_hand: "unarmed".into(),
+            off_hand: None,
+            chest: "".into(),
+            legs: "".into(),
+            feet: "".into(),
+        },
+        resources: ResourcesBlock::default(),
+        ability_ids: vec![],
+        ai_tuning_override: None,
+    };
+
+    let mut app = bridge_app();
+    {
+        let mut content = app.world_mut().resource_mut::<ActiveContent>();
+        content.0.abilities.insert(ability_id.clone(), ability_def);
+        content.0.unit_templates.insert(template_id.into(), template);
+    }
+
+    let summoner = app.world_mut().spawn(CombatantBundle::new(
+        Team::Enemy,
+        test_stats(),
+        0,
+        4,
+        vec![ability_id.clone()],
+        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+    )).id();
+
+    app.world_mut().resource_mut::<HexPositions>().insert(summoner, summoner_pos);
+    init_bridge_engine_state(&mut app);
+
+    // Ensure summoner has AP.
+    let summoner_uid = entity_to_uid(summoner);
+    app.world_mut().resource_mut::<CombatStateRes>().0.unit_mut(summoner_uid).unwrap().action_points = 1;
+
+    // Script crit-fail d20 to non-1 (summon has no damage roll after that).
+    app.world_mut().resource_mut::<DiceRngRes>().script(&[11]);
+
+    // Cast summon targeting self (summoner == target for Myself abilities).
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Cast { actor: summoner, ability: ability_id, target: summoner, target_pos: summoner_pos });
+
+    app.update();
+
+    // Assert: a new Combatant entity exists (besides the summoner).
+    let combatants: Vec<Entity> = app.world_mut()
+        .query::<(Entity, &Combatant)>()
+        .iter(app.world())
+        .map(|(e, _)| e)
+        .filter(|&e| e != summoner)
+        .collect();
+    assert_eq!(combatants.len(), 1, "expected exactly one summoned entity, got {:?}", combatants);
+    let summoned = combatants[0];
+
+    // Assert: registered in UnitIdMap.
+    let id_map = app.world().resource::<UnitIdMap>();
+    assert!(id_map.get_id(summoned).is_some(), "summoned entity must be in UnitIdMap");
+
+    // Assert: has a position adjacent to summoner.
+    let positions = app.world().resource::<HexPositions>();
+    let pos = positions.get(&summoned).expect("summoned entity must have a HexPositions entry");
+    assert_ne!(pos, summoner_pos, "summoned entity must not share summoner's hex");
+
+    // Assert: SummonedBy component set.
+    let summoned_by = app.world().entity(summoned).get::<SummonedBy>()
+        .expect("summoned entity must have SummonedBy component");
+    assert_eq!(summoned_by.0, summoner);
+
+    // Assert: CombatLog has Summoned entry.
+    let log = app.world().resource::<CombatLog>();
+    let has_summoned = log.0.iter().any(|e| matches!(e, CombatEvent::Summoned { summoner: s, .. } if *s == summoner));
+    assert!(has_summoned, "CombatLog must contain Summoned entry; got: {:?}", log.0);
+}

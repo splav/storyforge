@@ -420,6 +420,12 @@ impl EngineContentView for SnapshotContentView {
     fn caster_context(&self, actor: UnitId) -> combat_engine::CasterContext {
         self.caster_contexts.get(&actor).cloned().unwrap_or_default()
     }
+
+    fn unit_template(&self, _id: &str) -> Option<combat_engine::UnitTemplate> {
+        // Sim never generates summons; return None.
+        // If sim needs to model summons in the future, populate templates on SnapshotContentView.
+        None
+    }
 }
 
 /// Build a `CombatState` from a `BattleSnapshot`.
@@ -468,6 +474,7 @@ fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
                 rage: u.rage,
                 mana: u.mana,
                 energy: u.energy,
+                summoner: None,
             }
         })
         .collect();

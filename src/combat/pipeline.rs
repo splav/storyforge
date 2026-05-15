@@ -12,7 +12,7 @@ use crate::ui;
 
 use super::{
     advance_turn, auras, command_input, enemy_popup, phases,
-    skip_dead, spawn, start_combat_system, turn_order,
+    skip_dead, start_combat_system, turn_order,
     CombatStep,
 };
 
@@ -84,7 +84,6 @@ impl Plugin for CombatPipelinePlugin {
             (
                 process_action_system,
                 project_state_to_ecs,
-                spawn::apply_spawn_system,
                 phases::phase_transition_system,
             )
                 .chain()

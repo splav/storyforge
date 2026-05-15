@@ -105,6 +105,7 @@ fn run_engine(snap: &BattleSnapshot, actor_id: Entity, path: Vec<storyforge::gam
             rage: u.rage,
             mana: u.mana,
             energy: u.energy,
+            summoner: None,
         }
     }).collect();
 
@@ -159,6 +160,7 @@ impl EngineContentView for SnapContent {
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> { None }
     fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext { storyforge::combat_engine::CasterContext::default() }
+    fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
 }
 
 // ── Scenario 1: pure move, no enemies ────────────────────────────────────────
@@ -405,6 +407,7 @@ fn parity_aoo_kills_mover_mid_path_truncates() {
                 applier: entity_to_uid(u.entity),
             }).collect(),
             rage: u.rage, mana: u.mana, energy: u.energy,
+            summoner: None,
         }
     }).collect();
     let content = SnapContent::from_snap(&snap);

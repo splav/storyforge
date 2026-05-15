@@ -4,9 +4,9 @@ use hexx::Hex;
 
 use crate::{
     action::Action,
-    effect::{ApplyCtx, Effect},
+    effect::{ApplyCtx, Effect, SpawnBlockedReason},
     reaction::ReactionKind,
-    state::{CombatState, UnitId},
+    state::{CombatState, Team, UnitId},
     StatusId,
 };
 
@@ -43,6 +43,18 @@ pub enum Event {
     ActionFinished { action: Action },
     ManaRegenerated { unit: UnitId, current: i32, max: i32 },
     EnergyRegenerated { unit: UnitId, current: i32, max: i32 },
+    UnitSpawned {
+        uid: UnitId,
+        summoner: UnitId,
+        pos: hexx::Hex,
+        template_id: String,
+        team: Team,
+    },
+    SpawnBlocked {
+        summoner: UnitId,
+        template_id: String,
+        reason: SpawnBlockedReason,
+    },
 }
 
 /// Convert an effect (post-application) to an `Event`.
@@ -122,5 +134,24 @@ pub fn effect_to_event(
             })
         }
         Effect::ExpireStatus { .. } => None,
+        Effect::Spawn { summoner, template_id, .. } => {
+            if let Some(reason) = ctx.spawn_blocked.clone() {
+                return Some(Event::SpawnBlocked {
+                    summoner: *summoner,
+                    template_id: template_id.clone(),
+                    reason,
+                });
+            }
+            let uid = ctx.spawn_uid?;
+            let pos = ctx.spawn_pos?;
+            let team = state.unit(uid).map(|u| u.team)?;
+            Some(Event::UnitSpawned {
+                uid,
+                summoner: *summoner,
+                pos,
+                template_id: template_id.clone(),
+                team,
+            })
+        }
     }
 }

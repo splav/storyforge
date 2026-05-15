@@ -215,11 +215,12 @@ fn effect_for_target(
             let amount = (roll!(*dice) + caster.int_mod + caster.spell_power).max(0);
             Some(Effect::Heal { target, amount })
         }
-        // GrantMovement / RestoreResources are per-actor, not per-target;
-        // deferred to Phase 3.  None: status-only ability (statuses handled below).
+        // Per-actor effects — not dispatched through this fn.
+        // None: status-only ability (statuses handled below).
         EffectDef::None
         | EffectDef::GrantMovement { .. }
-        | EffectDef::RestoreResources => None,
+        | EffectDef::RestoreResources
+        | EffectDef::Summon { .. } => None,
     }
 }
 
@@ -429,18 +430,30 @@ fn step_inner(
                     }
                 }
             } else {
-                // Step 6d: target enumeration + damage/heal fanout.
-                let target_state = EngineTargetState { state };
-                let affected = crate::targeting::compute_affected_targets(
-                    *actor, &def, *target, *target_pos, &target_state,
-                );
+                // Summon is per-actor; everything else is per-target fanout.
+                let mut affected: Vec<crate::state::UnitId> = Vec::new();
 
-                // Step 6d/6e: per-target effect fanout (damage or heal).
-                for &affected_id in &affected {
-                    if let Some(eff) = effect_for_target(
-                        &def.effect, *actor, affected_id, &caster, rng, legal.disadvantage,
-                    ) {
-                        effect_queue.push_back(eff);
+                if let EffectDef::Summon { template_id, max_active } = &def.effect {
+                    effect_queue.push_back(Effect::Spawn {
+                        summoner: *actor,
+                        template_id: template_id.clone(),
+                        max_active: *max_active,
+                    });
+                    // `affected` intentionally empty — status loop below applies only MySelf statuses.
+                } else {
+                    // Step 6d: target enumeration + damage/heal fanout.
+                    let target_state = EngineTargetState { state };
+                    affected = crate::targeting::compute_affected_targets(
+                        *actor, &def, *target, *target_pos, &target_state,
+                    );
+
+                    // Step 6d/6e: per-target effect fanout (damage or heal).
+                    for &affected_id in &affected {
+                        if let Some(eff) = effect_for_target(
+                            &def.effect, *actor, affected_id, &caster, rng, legal.disadvantage,
+                        ) {
+                            effect_queue.push_back(eff);
+                        }
                     }
                 }
 

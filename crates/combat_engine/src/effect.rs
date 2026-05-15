@@ -17,7 +17,7 @@
 use hexx::Hex;
 
 use crate::content::ContentView;
-use crate::state::{ActiveStatus, CombatState, UnitId};
+use crate::state::{ActiveStatus, CombatState, Unit, UnitId};
 use crate::{ResourceKind, StatusId};
 
 /// Expected-value variant of final-damage math (inline copy; mirrors
@@ -79,6 +79,15 @@ pub enum Effect {
     /// Decrement `rounds_remaining` by 1 for `status` on `target`.
     /// If it reaches 0: remove and derive `RefreshAggregates { unit: target }`.
     ExpireStatus { target: UnitId, status: StatusId },
+    /// Spawn a new unit summoned by `summoner`. Resolves template via
+    /// `ContentView::unit_template`, picks a free position via ring search around
+    /// the summoner, enforces `max_active` cap. On success emits
+    /// `Event::UnitSpawned`; on failure emits `Event::SpawnBlocked`.
+    Spawn {
+        summoner: UnitId,
+        template_id: String,
+        max_active: Option<u32>,
+    },
 }
 
 /// Structured damage breakdown produced by the `Damage` effect arm.
@@ -90,6 +99,14 @@ pub struct DamageCtx {
     pub mitigation: i32,
     pub pierces: bool,
     pub final_amount: i32,
+}
+
+/// Why a `Spawn` effect did not produce a new unit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpawnBlockedReason {
+    TemplateMissing,
+    MaxActiveReached,
+    NoFreePosition,
 }
 
 /// Side-channel context produced by `apply_effect` for event generation.
@@ -106,6 +123,12 @@ pub struct ApplyCtx {
     /// some of the heal pool).  May be < `Heal.amount` if DoTs consumed
     /// part or all of the pool.
     pub heal_amount: Option<i32>,
+    /// Set by `Spawn` on success: the newly generated `UnitId`.
+    pub spawn_uid: Option<UnitId>,
+    /// Set by `Spawn` on success: the position the new unit was placed at.
+    pub spawn_pos: Option<hexx::Hex>,
+    /// Set by `Spawn` when the spawn was blocked; carries the reason.
+    pub spawn_blocked: Option<SpawnBlockedReason>,
 }
 
 /// Apply one atomic effect to `state`.
@@ -417,6 +440,82 @@ pub fn apply_effect(
             };
 
             (derived, ApplyCtx::default())
+        }
+
+        Effect::Spawn { summoner, template_id, max_active } => {
+            let template = match content.unit_template(template_id) {
+                Some(t) => t,
+                None => return (vec![], ApplyCtx {
+                    spawn_blocked: Some(SpawnBlockedReason::TemplateMissing),
+                    ..ApplyCtx::default()
+                }),
+            };
+
+            let (summoner_pos, summoner_team) = match state.unit(*summoner) {
+                Some(u) => (u.pos, u.team),
+                None => return (vec![], ApplyCtx {
+                    spawn_blocked: Some(SpawnBlockedReason::TemplateMissing),
+                    ..ApplyCtx::default()
+                }),
+            };
+
+            if let Some(cap) = max_active {
+                let active = state
+                    .alive_units()
+                    .filter(|u| u.summoner == Some(*summoner))
+                    .count() as u32;
+                if active >= *cap {
+                    return (vec![], ApplyCtx {
+                        spawn_blocked: Some(SpawnBlockedReason::MaxActiveReached),
+                        ..ApplyCtx::default()
+                    });
+                }
+            }
+
+            let occupied: std::collections::HashSet<hexx::Hex> =
+                state.alive_units().map(|u| u.pos).collect();
+
+            let pos = summoner_pos
+                .range(2)
+                .find(|h| *h != summoner_pos && !occupied.contains(h));
+
+            let pos = match pos {
+                Some(p) => p,
+                None => return (vec![], ApplyCtx {
+                    spawn_blocked: Some(SpawnBlockedReason::NoFreePosition),
+                    ..ApplyCtx::default()
+                }),
+            };
+
+            let new_uid = state.alloc_synthetic_uid();
+            let new_unit = Unit {
+                id: new_uid,
+                team: summoner_team,
+                pos,
+                hp: template.max_hp,
+                max_hp: template.max_hp,
+                armor: template.armor,
+                armor_bonus: 0,
+                base_speed: template.base_speed,
+                speed: template.base_speed,
+                action_points: template.max_ap,
+                max_ap: template.max_ap,
+                movement_points: template.base_speed,
+                reactions_left: 0,
+                statuses: Vec::new(),
+                rage: if template.rage_max > 0 { Some((0, template.rage_max)) } else { None },
+                mana: if template.mana_max > 0 { Some((template.mana_max, template.mana_max)) } else { None },
+                energy: if template.energy_max > 0 { Some((template.energy_max, template.energy_max)) } else { None },
+                summoner: Some(*summoner),
+            };
+
+            state.insert_unit(new_unit);
+
+            (vec![], ApplyCtx {
+                spawn_uid: Some(new_uid),
+                spawn_pos: Some(pos),
+                ..ApplyCtx::default()
+            })
         }
     }
 }

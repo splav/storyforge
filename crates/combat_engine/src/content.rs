@@ -60,7 +60,7 @@ pub struct StatusApplication {
 }
 
 /// Engine-side effect kinds.  Mirrors `crate::content::abilities::EffectDef`
-/// minus `Summon` (Phase 3 scope) and `ToggleMoveMode` (UI-only).
+/// minus `ToggleMoveMode` (UI-only).
 ///
 /// Phase 2 step 6c-e implements expansion in `step()`'s `Action::Cast` arm.
 #[derive(Debug, Clone)]
@@ -79,6 +79,9 @@ pub enum EffectDef {
     GrantMovement { distance: i32 },
     /// Restores HP and all resources (mana, rage, energy) by 1.
     RestoreResources,
+    /// Summon a unit from a content template.  Engine fans out `Effect::Spawn`.
+    /// `max_active` caps live summons from the same summoner; `None` = no cap.
+    Summon { template_id: String, max_active: Option<u32> },
 }
 
 /// Per-status stat bonuses relevant to engine aggregate recomputation.
@@ -166,6 +169,21 @@ pub struct StatusDef {
     pub hp_percent_dot: i32,
 }
 
+/// Engine-side minimal unit template — the resolved stat sheet needed to
+/// construct a `Unit` via `Effect::Spawn`. Bridge pre-computes from ECS-side
+/// raw template + equipment via `effective_stats` + `equipment_armor`.
+/// Team is NOT here — it is derived from the summoner at spawn time.
+#[derive(Debug, Clone, Copy)]
+pub struct UnitTemplate {
+    pub max_hp: i32,
+    pub armor: i32,
+    pub base_speed: i32,
+    pub max_ap: i32,
+    pub mana_max: i32,
+    pub energy_max: i32,
+    pub rage_max: i32,
+}
+
 /// Read-only view onto game content that the engine needs.
 ///
 /// Implemented by `crate::combat::engine_bridge::EcsContentView` (live path)
@@ -198,4 +216,8 @@ pub trait ContentView {
     /// Caster stat bundle for damage / heal formulas.  Returns
     /// `CasterContext::default()` for unknown units.
     fn caster_context(&self, actor: UnitId) -> CasterContext;
+
+    /// Resolved unit template (stats + equipment armor already folded in).
+    /// Returns `None` for unknown template ids.
+    fn unit_template(&self, id: &str) -> Option<UnitTemplate>;
 }
