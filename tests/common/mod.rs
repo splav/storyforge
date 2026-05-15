@@ -17,7 +17,7 @@ use storyforge::combat::DiceRngRes;
 use storyforge::game::bundles::{enemy_bundle, hero_bundle};
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{CombatStats, Equipment};
-use storyforge::game::messages::ActionInput;
+use storyforge::game::messages::{ActionInput, EndTurn, SpawnUnit};
 use storyforge::game::resources::{
     CombatContext, CombatObjective, GameDb, HexPositions, SelectionState, TurnQueue,
 };
@@ -105,6 +105,8 @@ pub fn movement_app() -> App {
         .init_resource::<CombatStateRes>()
         .init_resource::<UnitIdMap>()
         .add_message::<ActionInput>()
+        .add_message::<EndTurn>()
+        .add_message::<SpawnUnit>()
         .add_systems(
             OnEnter(CombatPhase::AwaitCommand),
             init_state_from_ecs,

@@ -13,7 +13,7 @@ use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, Energy, Equipment,
     Faction, Mana, Rage, Team, Vital,
 };
-use crate::game::messages::{EndTurn, UseAbility};
+use crate::game::messages::{ActionInput, EndTurn};
 use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
@@ -377,7 +377,7 @@ pub fn ability_slot_click_system(
     mut last_click: Local<LastSlotClick>,
     slots: Query<(&AbilitySlot, &Interaction), Changed<Interaction>>,
     combatants: Query<(&Faction, &Abilities, &ActionPoints), (With<Combatant>, Without<Dead>)>,
-    mut use_ability: MessageWriter<UseAbility>,
+    mut action_input: MessageWriter<ActionInput>,
 ) {
     let now = time.elapsed_secs();
 
@@ -411,7 +411,7 @@ pub fn ability_slot_click_system(
                 && (now - last_click.at) <= DOUBLE_CLICK_WINDOW;
             if is_double && ap.can_act_for(def.cost_ap) {
                 let target_pos = positions.get(&active).unwrap_or(hexx::Hex::ZERO);
-                use_ability.write(UseAbility {
+                action_input.write(ActionInput::Cast {
                     actor: active,
                     ability: id,
                     target: active,

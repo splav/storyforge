@@ -2,22 +2,22 @@ pub mod advance_turn;
 pub mod ai;
 pub mod dice_resource;
 pub mod engine_bridge;
-pub mod apply_effects;
 pub mod auras;
 pub mod command_input;
 pub mod effects_math;
 pub mod effects_outcome;
 pub mod effects_state;
 pub mod enemy_popup;
+pub mod legality_adapter;
 pub mod phases;
 pub mod pipeline;
-pub mod resolution;
 pub mod spawn;
 pub mod skip_dead;
 pub mod status_tick;
 pub mod turn_order;
 pub mod turn_start;
-pub mod validation;
+
+pub use legality_adapter::BevyActions;
 
 pub use dice_resource::DiceRngRes;
 
@@ -34,7 +34,7 @@ use bevy::prelude::*;
 pub enum CombatStep {
     TurnStart, // turn_start → skip_dead → skip_stunned
     Command,   // pact_ai → player_command ‖ enemy_ai
-    Execute,   // movement → validate → resolve → apply_effects
+    Execute,   // process_action → project_state → spawn → phases
     Finalize,  // queue_enemy_popup ‖ advance_turn
 }
 

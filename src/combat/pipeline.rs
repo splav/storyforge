@@ -11,8 +11,8 @@ use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap, init_state_from_ec
 use crate::ui;
 
 use super::{
-    advance_turn, apply_effects, auras, command_input, enemy_popup, phases, resolution,
-    skip_dead, spawn, start_combat_system, status_tick, turn_order, turn_start, validation,
+    advance_turn, auras, command_input, enemy_popup, phases,
+    skip_dead, spawn, start_combat_system, status_tick, turn_order, turn_start,
     CombatStep,
 };
 
@@ -85,9 +85,6 @@ impl Plugin for CombatPipelinePlugin {
             (
                 process_action_system,
                 project_state_to_ecs,
-                validation::validate_action_system,
-                resolution::resolve_action_system,
-                apply_effects::apply_effects_system,
                 spawn::apply_spawn_system,
                 phases::phase_transition_system,
             )

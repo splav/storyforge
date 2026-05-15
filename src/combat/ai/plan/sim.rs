@@ -456,7 +456,7 @@ struct SnapshotContentView {
 ///
 /// CircuitBreach uses a fixed `SelfDamage(0d1+2)` placeholder (Phase 2 step 6f).
 /// Full mana_cost-derived damage parity is a Phase 2 step 7 follow-up.
-fn map_crit_fail_effect(e: &CritFailEffect) -> combat_engine::CritFailOutcome {
+pub(crate) fn map_crit_fail_effect(e: &CritFailEffect) -> combat_engine::CritFailOutcome {
     use CritFailEffect::*;
     use combat_engine::CritFailOutcome as Out;
     use combat_engine::{DiceExpr, StatusId};

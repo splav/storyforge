@@ -38,7 +38,7 @@ use storyforge::game::components::{
     Team, UnitToken, Vital,
 };
 use storyforge::game::hex::hex_from_offset;
-use storyforge::game::messages::ActionInput;
+use storyforge::game::messages::{ActionInput, EndTurn, SpawnUnit};
 use storyforge::game::resources::{CombatContext, HexPositions};
 use storyforge::ui::animation::{AnimationQueue, PendingAnim};
 use storyforge::ui::hex_grid::HexGridOffset;
@@ -84,6 +84,8 @@ fn bridge_app() -> App {
         // HexGridOffset has no Default — insert a zero offset (no screen offset needed in tests).
         .insert_resource(HexGridOffset(Vec2::ZERO))
         .add_message::<ActionInput>()
+        .add_message::<EndTurn>()
+        .add_message::<SpawnUnit>()
         .add_systems(
             Update,
             (process_action_system, project_state_to_ecs).chain(),

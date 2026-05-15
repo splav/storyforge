@@ -245,9 +245,9 @@ narrows; future Phase 3+ work that needs multi-frame regression coverage
 will add new bridge_smoke tests rather than resurrecting the deleted
 files.
 
-### Known issues — self-resolve at Phase 2 step 10
+### Resolved decisions
 
-- **Projector clobbers `apply_effects_system` writes between frames** (discovered 2026-05-14 mid-step-5 from a playtest log).  Root cause: `project_state_to_ecs` writes `Vital.hp` / `Rage.current` from `CombatStateRes` every frame.  `init_state_from_ecs` (`OnEnter(AwaitCommand)`, Phase 1 step 6) mirrors ECS into engine state **once per round**, so within a round the engine's `unit.hp` stays at the round-start value.  Each subsequent frame the projector overwrites whatever `apply_effects_system` just wrote — damage from non-Move actions (e.g. Lyra's Fireball) is visible at end-of-frame but reverted next frame.  By round transition ECS hp = round-start hp; init re-mirrors that stale value; AI debug + log show full HP throughout combat.  **Self-resolves at Phase 2 step 10** when `apply_effects_system` deletes and engine becomes the sole writer for hp/rage/mana/statuses (single-writer ⇒ no race).  Until then: playtest hp visuals are broken; tests stay green (single-frame `app.update()` doesn't surface the race).  Added `TODO(unisim phase2 step 10)` markers at `process_action_system` Ok-arm and `project_state_to_ecs` so the trade-off is visible at read-time.  Gate criterion 12 above pins the multi-frame test that lands with step 10.
+- **Projector clobbers `apply_effects_system` writes between frames** (discovered 2026-05-14 mid-step-5 from a playtest log).  Root cause: `project_state_to_ecs` writes `Vital.hp` / `Rage.current` from `CombatStateRes` every frame while `apply_effects_system` was also a writer for those fields; because `init_state_from_ecs` ran only once per round, the projector's stale round-start snapshot reverted all non-Move damage on the next frame.  **Self-resolved in Phase 2 step 9d** when `apply_effects_system` was deleted; `project_state_to_ecs` is now the sole writer for hp / rage / mana / statuses.  Playtest combat is restored to correct behavior at this step.  Gate criterion 12 (multi-frame test) remains for Phase 3 if needed.
 
 ---
 

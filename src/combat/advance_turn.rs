@@ -1,21 +1,22 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::content::content_view::{ActiveContent, ContentView};
 use crate::app_state::CombatPhase;
-use crate::combat::DiceRngRes;
 use crate::content::encounters::VictoryCondition;
 use crate::game::components::{
     ActionPoints, ActiveCombatant, ActiveStatus, Combatant, Dead, Faction, Speed, StatusEffects, Team, Vital, VictoryTarget,
 };
 use crate::core::StatusId;
-use crate::game::messages::{ApplyStatus, EndTurn};
+use crate::game::messages::EndTurn;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{CombatObjective, TurnQueue};
 use bevy::prelude::*;
 
-/// Consumes EndTurn and ApplyStatus messages.
-/// Applies new statuses and advances the turn queue. Victory/defeat detection
-/// lives in `check_victory_system`, which is event-driven on `Added<Dead>` and
-/// runs after this system.
+/// Consumes EndTurn messages and advances the turn queue.
+///
+/// Statuses are now applied by `project_state_to_ecs` (engine projector) and
+/// `apply_auras_system` (TurnStart). Victory/defeat detection lives in
+/// `check_victory_system`, which is event-driven on `Added<Dead>` and runs
+/// after this system.
 ///
 /// DoT ticks for statuses applied by a combatant fire at that combatant's
 /// next `TurnStart` (see `status_tick::tick_status_effects_system`), not here.
@@ -24,44 +25,18 @@ use bevy::prelude::*;
 pub fn advance_turn_system(
     mut commands: Commands,
     mut end_turn_events: MessageReader<EndTurn>,
-    mut status_events: MessageReader<ApplyStatus>,
     mut vitals: Query<&mut Vital>,
     mut action_points: Query<&mut ActionPoints>,
     speed_q: Query<&Speed>,
     mut statuses: Query<(Entity, &mut StatusEffects)>,
-    dead_q: Query<(), With<Dead>>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     mut queue: ResMut<TurnQueue>,
     mut log: ResMut<CombatLog>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
     content: Res<ActiveContent>,
-    mut rng: ResMut<DiceRngRes>,
 ) {
-    // 1. Apply NEW statuses (skip dead targets). Runs every frame so that
-    // statuses emitted mid-turn (player casts, then spends leftover MP)
-    // take effect immediately instead of waiting for EndTurn.
-    let status_apps: Vec<(Entity, Entity, crate::core::StatusId, u32)> = status_events
-        .read()
-        .map(|e| (e.source, e.target, e.status.clone(), e.duration_rounds))
-        .collect();
-    for (source, target, status, duration) in &status_apps {
-        if dead_q.get(*target).is_ok() {
-            continue;
-        }
-        if let Ok((_, mut se)) = statuses.get_mut(*target) {
-            se.0.retain(|s| s.id != *status);
-            let dot_per_tick = content.statuses.get(status)
-                .and_then(|sd| sd.dot_dice.as_ref())
-                .map(|dice| rng.roll_dice(dice).0)
-                .unwrap_or(0);
-            se.0.push(ActiveStatus {
-                id: status.clone(),
-                rounds_remaining: *duration,
-                applier: *source,
-                dot_per_tick,
-            });
-        }
-    }
+    // Note: ApplyStatus consumer removed in Phase 2 step 9d. Statuses are now
+    // applied via project_state_to_ecs (engine projector) each frame.
 
     // Consume all EndTurn messages (prevents leaking to next frame).
     // At most one actor ends their turn per frame, so take the first.

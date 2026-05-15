@@ -34,13 +34,14 @@ use bevy::prelude::*;
 
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::content::content_view::ActiveContent;
+use crate::content::races::CritFailEffect;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::components::{
-    Abilities, ActionPoints, BonusMovement, CombatStats, Combatant, Dead, Equipment, Faction,
-    Mana, Rage, Reactions, Speed, StatusEffects, UnitToken, Vital,
+    Abilities, ActionPoints, BonusMovement, CombatPath, CombatStats, Combatant, Dead, Equipment,
+    Faction, Mana, Rage, Reactions, Speed, StatusEffects, UnitToken, Vital,
 };
 use crate::game::hex::LAYOUT;
-use crate::game::messages::ActionInput;
+use crate::game::messages::{ActionInput, EndTurn, SpawnUnit};
 use crate::game::resources::{CombatContext, HexPositions};
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::HexGridOffset;
@@ -322,6 +323,7 @@ type AooRow<'a> = (
     Option<&'a StatusEffects>,
     &'a Reactions,
     Has<Dead>,
+    Option<&'a CombatPath>,
 );
 
 /// Build `EcsContentView` from the current ECS state.
@@ -335,21 +337,21 @@ fn build_ecs_content_view<'a>(
     let mut aoo_per_unit = HashMap::new();
     let mut caster_contexts = HashMap::new();
 
-    for (entity, equipment, stats, abilities, vital, statuses, reactions, is_dead) in
+    for (entity, equipment, stats, abilities, vital, statuses, reactions, is_dead, combat_path) in
         combatants.iter()
     {
         // Build caster context for every unit (alive or dead) so Cast fanout
         // can always resolve damage formulas for the actor.
         let bevy_ctx = CasterContext::new(stats, Some(equipment), &content.weapons);
+        let crit_fail_outcome = combat_path
+            .and_then(|cp| content.paths.get(&cp.0))
+            .map_or(CritFailEffect::Miss, |p| p.crit_fail_effect.clone());
         let engine_ctx = combat_engine::CasterContext {
             str_mod: bevy_ctx.str_mod,
             int_mod: bevy_ctx.int_mod,
             spell_power: bevy_ctx.spell_power,
             weapon_dice: bevy_ctx.weapon_dice,
-            // TODO(unisim phase2 step 7): wire CritFailEffect from race/path content.
-            // Requires resolving unit → PathDef → CritFailEffect via ActiveContent + Race
-            // components.  Defaulting to Miss until that lookup is wired.
-            crit_fail_outcome: Default::default(),
+            crit_fail_outcome: crate::combat::ai::plan::sim::map_crit_fail_effect(&crit_fail_outcome),
         };
         if let Some(uid) = id_map.get_id(entity) {
             caster_contexts.insert(uid, engine_ctx);
@@ -409,31 +411,22 @@ fn build_ecs_content_view<'a>(
 }
 
 
-/// `Update` system — authoritative move handler via `combat_engine::step()`.
+/// `Update` system — authoritative action handler via `combat_engine::step()`.
 ///
-/// Reads `ActionInput::Move` messages, calls `step()` against the mirrored
+/// Reads `ActionInput` messages, calls `step()` against the mirrored
 /// `CombatStateRes`, and translates the resulting `Event` stream into Bevy-land
 /// side effects (CombatLog entries, Dead markers, movement animations).
-/// The engine is the sole owner of `Action::Move` after Phase 1 — `movement_system`
-/// has been deleted.
+/// The engine is the sole owner of both `Action::Move` (since Phase 1) and
+/// `Action::Cast` (since Phase 2 step 9d).
 ///
 /// Wired with a real ECS-backed `EcsContentView` so the engine can fire AoO
 /// reactions correctly.  `project_state_to_ecs` (chained immediately after)
-/// writes the engine mutations back to ECS components.
+/// writes the engine mutations back to ECS components.  The engine is now the
+/// sole writer for hp / rage / mana / statuses — the clobber bug documented in
+/// earlier TODO comments is resolved by the deletion of `apply_effects_system`
+/// in step 9d.
 ///
 /// Runs in `CombatStep::Execute`, gated by `CombatPhase::AwaitCommand`.
-///
-/// TODO(unisim phase2 step 10) — multi-frame projector clobber.
-/// Until `apply_effects_system` deletes (step 10), this system and
-/// `apply_effects_system` are dual-writers for `Vital.hp` / `Rage.current`
-/// in ECS.  Within a round, `init_state_from_ecs` runs once
-/// (`OnEnter(AwaitCommand)`) so `combat_state` keeps the round-start hp/rage
-/// for every unit it doesn't itself mutate.  The projector then writes those
-/// stale values every frame, reverting `apply_effects_system`'s damage on
-/// the very next frame.  Visible symptom: AI debug shows full HP across
-/// rounds, log records damage that never lands.  Self-resolves when step 10
-/// deletes `apply_effects_system` and engine becomes sole writer.  See
-/// `docs/ai/rework/step_unisim2_plan.md` §8 "Known issues".
 pub fn process_action_system(
     mut commands: Commands,
     mut reader: MessageReader<ActionInput>,
@@ -446,6 +439,8 @@ pub fn process_action_system(
     mut anim_queue: ResMut<AnimationQueue>,
     grid_offset: Res<HexGridOffset>,
     tokens: Query<(Entity, &UnitToken)>,
+    mut end_turn: MessageWriter<EndTurn>,
+    mut spawn_writer: MessageWriter<SpawnUnit>,
 ) {
     for msg in reader.read() {
         match msg {
@@ -488,12 +483,6 @@ pub fn process_action_system(
                 }
             }
             ActionInput::Cast { actor, ability, target, target_pos } => {
-                // Phase 2 step 7a: routing only — engine consumes the Cast
-                // and mutates CombatStateRes; event translation lands in
-                // step 7b (translate_cast_events).  Production callers
-                // do not write ActionInput::Cast yet — UseAbility →
-                // resolve_action_system → apply_effects_system remains
-                // the live path until step 9 flip.
                 let Some(actor_uid) = id_map.get_id(*actor) else {
                     warn!(
                         "process_action_system: no UnitId for cast actor {:?} — skipping",
@@ -508,6 +497,22 @@ pub fn process_action_system(
                     );
                     continue;
                 };
+
+                // Summon carve-out: engine doesn't model summon spawning yet (deferred
+                // to Phase 3 alongside SpawnUnit/apply_spawn_system migration).  Detect
+                // it and emit SpawnUnit for the auxiliary Bevy path while the engine
+                // handles the rest of the cast (cost payment).  Summon abilities typically
+                // have no other effect arms, but we still let step() run so AP/mana costs
+                // are paid correctly.
+                if let Some(ability_def) = active_content.abilities.get(ability) {
+                    if let EffectDef::Summon { template, max_active } = &ability_def.effect {
+                        spawn_writer.write(SpawnUnit {
+                            summoner: *actor,
+                            template_id: template.clone(),
+                            max_active: *max_active,
+                        });
+                    }
+                }
 
                 let action = Action::Cast {
                     actor: actor_uid,
@@ -539,12 +544,17 @@ pub fn process_action_system(
                             &mut commands,
                             &mut log,
                         );
+                        // One ability per turn: always end the turn after a successful cast.
+                        // (The engine consumed AP; resolve_action_system no longer exists to do this.)
+                        end_turn.write(EndTurn { actor: *actor });
                     }
                     Err(e) => {
                         warn!(
                             "process_action_system: Cast step() error for actor {:?} (uid {:?}): {:?}",
                             actor, actor_uid, e
                         );
+                        // End turn on error too — keeps pipeline forward-moving.
+                        end_turn.write(EndTurn { actor: *actor });
                     }
                 }
             }
@@ -555,15 +565,10 @@ pub fn process_action_system(
 /// Translate the engine `Event` stream from a single `Action::Cast` into
 /// Bevy-land side effects (CombatLog entries, Dead markers).
 ///
-/// Mirrors the side-effects `apply_effects_system` + `resolve_action_system`
-/// emit on the legacy path so tests reading `CombatLog` see equivalent
-/// output once the live caster writes `ActionInput::Cast` (step 9 flip).
-///
 /// Crit-fail handling: `Event::CritFailed` is translated to
 /// `CombatEvent::CriticalMiss` (for `Miss` outcome) or
 /// `CombatEvent::CritFailSideEffect` (for `DoubleCost`, `SelfDamage`,
-/// `ApplyStatus` outcomes).  These mirror the events emitted by
-/// `resolve_action_system` on the legacy path.
+/// `ApplyStatus` outcomes).
 #[allow(clippy::too_many_arguments)]
 fn translate_cast_events(
     actor: Entity,
@@ -849,18 +854,10 @@ type ProjectionRow<'a> = (
 /// re-initialized from ECS only on `OnEnter(CombatPhase::AwaitCommand)` via
 /// `init_state_from_ecs` (once per round, after `build_turn_order` refills),
 /// so the projector is authoritative for engine-owned fields throughout each
-/// round.
+/// round.  The engine is now the sole writer for hp / rage / mana / statuses
+/// (apply_effects_system deleted in Phase 2 step 9d).
 ///
 /// Unknown units (no ECS entity in `UnitIdMap`) are silently skipped.
-///
-/// TODO(unisim phase2 step 10) — `hp` / `rage.current` writes here race
-/// against `apply_effects_system`'s writes in the same frame.  Because
-/// `init_state_from_ecs` runs once per round (`OnEnter(AwaitCommand)`),
-/// `combat_state.hp` stays at the round-start value for the whole round,
-/// so projecting it every frame reverts non-Move damage on the next tick.
-/// Resolves at step 10 when `apply_effects_system` deletes; engine becomes
-/// the sole writer for `hp` / `rage` / `mana` / `statuses`.  See
-/// `docs/ai/rework/step_unisim2_plan.md` §8 "Known issues".
 pub fn project_state_to_ecs(
     mut commands: Commands,
     combat_state: Res<CombatStateRes>,
