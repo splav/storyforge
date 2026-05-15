@@ -558,6 +558,12 @@ pub fn process_action_system(
 /// Mirrors the side-effects `apply_effects_system` + `resolve_action_system`
 /// emit on the legacy path so tests reading `CombatLog` see equivalent
 /// output once the live caster writes `ActionInput::Cast` (step 9 flip).
+///
+/// Crit-fail handling: `Event::CritFailed` is translated to
+/// `CombatEvent::CriticalMiss` (for `Miss` outcome) or
+/// `CombatEvent::CritFailSideEffect` (for `DoubleCost`, `SelfDamage`,
+/// `ApplyStatus` outcomes).  These mirror the events emitted by
+/// `resolve_action_system` on the legacy path.
 #[allow(clippy::too_many_arguments)]
 fn translate_cast_events(
     actor: Entity,
@@ -644,6 +650,32 @@ fn translate_cast_events(
                         current: *current,
                         max: *max,
                     });
+                }
+            }
+            Event::CritFailed { actor: actor_uid, outcome } => {
+                let Some(actor_ent) = id_map.get_entity(*actor_uid) else { continue };
+                match outcome {
+                    combat_engine::CritFailOutcome::Miss => {
+                        log.push(CombatEvent::CriticalMiss { actor: actor_ent });
+                    }
+                    combat_engine::CritFailOutcome::DoubleCost => {
+                        log.push(CombatEvent::CritFailSideEffect {
+                            actor: actor_ent,
+                            effect_name: "mana_overload".into(),
+                        });
+                    }
+                    combat_engine::CritFailOutcome::SelfDamage(_) => {
+                        log.push(CombatEvent::CritFailSideEffect {
+                            actor: actor_ent,
+                            effect_name: "circuit_breach".into(),
+                        });
+                    }
+                    combat_engine::CritFailOutcome::ApplyStatus(status_id) => {
+                        log.push(CombatEvent::CritFailSideEffect {
+                            actor: actor_ent,
+                            effect_name: status_id.0.clone(),
+                        });
+                    }
                 }
             }
             Event::ReactionFired { .. }
@@ -754,12 +786,13 @@ fn translate_move_events(
                     commands.entity(entity).insert(Dead);
                 }
             }
-            // Heal / status events surface here once Phase 2 step 7 wires
-            // Cast through the bridge.  Today Move actions never derive
+            // Heal / status / crit-fail events surface here once Phase 2 step 7
+            // wires Cast through the bridge.  Today Move actions never derive
             // these — no-op pins for exhaustiveness.
             Event::UnitHealed { .. }
             | Event::StatusApplied { .. }
-            | Event::StatusRemoved { .. } => {}
+            | Event::StatusRemoved { .. }
+            | Event::CritFailed { .. } => {}
             Event::ActionStarted { .. } | Event::ActionFinished { .. } => {}
         }
     }

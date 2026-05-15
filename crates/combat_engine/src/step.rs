@@ -337,6 +337,15 @@ fn step_inner(
             // caster's CritFailOutcome; skip normal damage/heal/status fanout.
             let crit_fail = rng.roll(DiceExpr::new(1, 20, 0)) == 1;
 
+            // Emit CritFailed before cost payment so the event stream reads:
+            // ActionStarted → CritFailed → [cost events] → ActionFinished.
+            if crit_fail {
+                events.push(Event::CritFailed {
+                    actor: *actor,
+                    outcome: caster.crit_fail_outcome.clone(),
+                });
+            }
+
             // Cost multiplier: DoubleCost crit-fail doubles resource costs.
             let cost_mult = if crit_fail
                 && matches!(caster.crit_fail_outcome, crate::content::CritFailOutcome::DoubleCost)

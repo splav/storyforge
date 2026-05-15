@@ -23,6 +23,12 @@ pub enum Event {
     RageGained { unit: UnitId, current: i32, max: i32 },
     ReactionFired { actor: UnitId, kind: ReactionKind, against: UnitId },
     UnitDied { unit: UnitId },
+    /// Cast crit-failed.  Fired by `step()`'s `Action::Cast` arm immediately
+    /// after the d20 roll lands on 1.  Subsequent aux effects (SelfDamage,
+    /// ApplyStatus to caster) emit their own events; this one carries the
+    /// *reason* (which `CritFailOutcome` fired) so the bridge can render
+    /// the appropriate log line (`CriticalMiss` vs `CritFailSideEffect`).
+    CritFailed { actor: UnitId, outcome: crate::content::CritFailOutcome },
     ActionFinished { action: Action },
 }
 

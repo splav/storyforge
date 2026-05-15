@@ -861,6 +861,87 @@ fn cast_crit_fail_apply_status() {
     assert_eq!(state.unit(UnitId(2)).unwrap().statuses.len(), 0, "target unaffected");
 }
 
+/// d20 = 1 + any outcome → `Event::CritFailed` is emitted between ActionStarted and cost events.
+#[test]
+fn cast_crit_fail_emits_event() {
+    use storyforge::combat_engine::{CasterContext, CritFailOutcome, DiceRng};
+
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let target = make_unit(2, Team::Enemy, 1, 0);
+
+    let mut state = state_with(vec![actor, target]);
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("strike", ability).with_caster(
+        UnitId(1),
+        CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
+    );
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("strike"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[1]); // d20=1 → crit-fail
+
+    let events = step(&mut state, action, &mut rng, &content).expect("should succeed");
+
+    let crit_failed = events.iter().any(|e| {
+        matches!(e, Event::CritFailed { actor: UnitId(1), outcome: CritFailOutcome::Miss })
+    });
+    assert!(crit_failed, "CritFailed event must be present when d20=1; got: {:?}", events);
+
+    // Ordering: CritFailed must come after ActionStarted, before ActionFinished.
+    let started_pos = events.iter().position(|e| matches!(e, Event::ActionStarted { .. })).unwrap();
+    let crit_pos = events.iter().position(|e| matches!(e, Event::CritFailed { .. })).unwrap();
+    let finished_pos = events.iter().position(|e| matches!(e, Event::ActionFinished { .. })).unwrap();
+    assert!(started_pos < crit_pos, "CritFailed must come after ActionStarted");
+    assert!(crit_pos < finished_pos, "CritFailed must come before ActionFinished");
+}
+
+/// d20 = 11 (no crit-fail) → `Event::CritFailed` is NOT emitted.
+#[test]
+fn cast_no_crit_fail_no_event_when_d20_non_one() {
+    use storyforge::combat_engine::{CasterContext, CritFailOutcome, DiceRng};
+
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let target = make_unit(2, Team::Enemy, 1, 0);
+
+    let mut state = state_with(vec![actor, target]);
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::Damage { dice: DiceExpr::new(1, 4, 0) },
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("strike", ability).with_caster(
+        UnitId(1),
+        CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
+    );
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("strike"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    let mut rng = DiceRng::with_seed(0);
+    rng.script(&[11, 3]); // d20=11 (no crit-fail), damage=3
+
+    let events = step(&mut state, action, &mut rng, &content).expect("should succeed");
+
+    let has_crit_failed = events.iter().any(|e| matches!(e, Event::CritFailed { .. }));
+    assert!(!has_crit_failed, "CritFailed must NOT be present when d20=11; got: {:?}", events);
+}
+
 /// d20 = 11 (no crit-fail) → normal damage cast proceeds; target takes 3 damage.
 #[test]
 fn cast_proceeds_normally_when_d20_not_one() {
