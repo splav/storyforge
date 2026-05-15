@@ -72,6 +72,7 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
         base_speed: 6,
         speed: 6,
         action_points: 2,
+        max_ap: 2,
         movement_points: 6,
         reactions_left: 1,
         statuses: vec![],

@@ -70,6 +70,26 @@ pub enum Effect {
     Death { unit: UnitId },
     /// Recompute derived stats (speed, armor_bonus) from current statuses.
     RefreshAggregates { unit: UnitId },
+    /// Apply one DoT tick for `status` on `target`. Reads `dot_per_tick` from
+    /// the active status entry and `hp_percent_dot` from content to derive
+    /// zero, one, or two `Damage` effects. DoT bypasses armor (`pierces=true`)
+    /// to match ECS parity (`tick_statuses_on_entity` calls `apply_damage`
+    /// directly, skipping the armor formula).
+    TickDot { target: UnitId, status: StatusId },
+    /// Decrement `rounds_remaining` by 1 for `status` on `target`.
+    /// If it reaches 0: remove and derive `RefreshAggregates { unit: target }`.
+    ExpireStatus { target: UnitId, status: StatusId },
+}
+
+/// Structured damage breakdown produced by the `Damage` effect arm.
+///
+/// `mitigation` is 0 when `pierces = true` — armor is not applied in that case.
+#[derive(Debug)]
+pub struct DamageCtx {
+    pub raw: f32,
+    pub mitigation: i32,
+    pub pierces: bool,
+    pub final_amount: i32,
 }
 
 /// Side-channel context produced by `apply_effect` for event generation.
@@ -80,8 +100,8 @@ pub enum Effect {
 /// `apply_effect`, or `apply_effect` computes and returns it here.
 #[derive(Debug, Default)]
 pub struct ApplyCtx {
-    /// Set by `Damage`: final post-mitigation damage actually dealt.
-    pub final_damage: Option<f32>,
+    /// Set by `Damage`: structured breakdown of raw/mitigation/final.
+    pub damage: Option<DamageCtx>,
     /// Set by `Heal`: actual HP restored (after DoT-neutralization consumes
     /// some of the heal pool).  May be < `Heal.amount` if DoTs consumed
     /// part or all of the pool.
@@ -152,7 +172,16 @@ pub fn apply_effect(
                 derived.push(Effect::Death { unit: *target });
             }
 
-            (derived, ApplyCtx { final_damage: Some(final_dmg), ..ApplyCtx::default() })
+            let mitigation = if *pierces { 0 } else { armor + armor_bonus };
+            (derived, ApplyCtx {
+                damage: Some(DamageCtx {
+                    raw: *raw,
+                    mitigation,
+                    pierces: *pierces,
+                    final_amount: final_dmg.round() as i32,
+                }),
+                ..ApplyCtx::default()
+            })
         }
 
         Effect::Heal { target, amount } => {
@@ -288,13 +317,32 @@ pub fn apply_effect(
         }
 
         Effect::Death { unit } => {
-            // Mark as dead (hp already set to 0 by the preceding Damage effect).
-            // No status removal on death — matches current ECS behavior which
-            // only inserts Dead component; statuses expire normally via tick.
+            // Collect unique status ids on the dying unit before zeroing hp.
+            // Linear dedup preserves insertion order — determinism: same input
+            // → same derived-event order across runs.
+            let statuses_to_clean: Vec<StatusId> = state
+                .unit(*unit)
+                .map(|u| {
+                    let mut ids: Vec<StatusId> = Vec::new();
+                    for s in &u.statuses {
+                        if !ids.contains(&s.id) {
+                            ids.push(s.id.clone());
+                        }
+                    }
+                    ids
+                })
+                .unwrap_or_default();
+
             if let Some(u) = state.unit_mut(*unit) {
                 u.hp = 0;
             }
-            (vec![], ApplyCtx::default())
+
+            let derived = statuses_to_clean
+                .into_iter()
+                .map(|status| Effect::RemoveStatus { target: *unit, status })
+                .collect();
+
+            (derived, ApplyCtx::default())
         }
 
         Effect::RefreshAggregates { unit } => {
@@ -312,6 +360,63 @@ pub fn apply_effect(
                 u.armor_bonus = armor_bonus;
             }
             (vec![], ApplyCtx::default())
+        }
+
+        Effect::TickDot { target, status } => {
+            let mut derived: Vec<Effect> = Vec::new();
+
+            let (dot_per_tick, applier, max_hp) = {
+                let Some(u) = state.unit(*target) else { return (derived, ApplyCtx::default()); };
+                let Some(s) = u.statuses.iter().find(|s| s.id == *status) else {
+                    return (derived, ApplyCtx::default());
+                };
+                (s.dot_per_tick, s.applier, u.max_hp)
+            };
+
+            let percent = content.status_def(status).map(|sd| sd.hp_percent_dot).unwrap_or(0);
+
+            if dot_per_tick > 0 {
+                derived.push(Effect::Damage {
+                    target: *target,
+                    raw: dot_per_tick as f32,
+                    source: applier,
+                    pierces: true,
+                });
+            }
+            if percent > 0 {
+                let amount = (max_hp * percent + 99) / 100;
+                if amount > 0 {
+                    derived.push(Effect::Damage {
+                        target: *target,
+                        raw: amount as f32,
+                        source: applier,
+                        pierces: true,
+                    });
+                }
+            }
+
+            (derived, ApplyCtx::default())
+        }
+
+        Effect::ExpireStatus { target, status } => {
+            let expired = if let Some(u) = state.unit_mut(*target) {
+                if let Some(s) = u.statuses.iter_mut().find(|s| s.id == *status) {
+                    s.rounds_remaining = s.rounds_remaining.saturating_sub(1);
+                    s.rounds_remaining == 0
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            let derived = if expired {
+                vec![Effect::RemoveStatus { target: *target, status: status.clone() }]
+            } else {
+                vec![]
+            };
+
+            (derived, ApplyCtx::default())
         }
     }
 }

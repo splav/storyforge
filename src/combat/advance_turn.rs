@@ -1,14 +1,16 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
-use crate::content::content_view::{ActiveContent, ContentView};
+use crate::content::content_view::ActiveContent;
 use crate::app_state::CombatPhase;
 use crate::content::encounters::VictoryCondition;
 use crate::game::components::{
-    ActionPoints, ActiveCombatant, ActiveStatus, Combatant, Dead, Faction, Speed, StatusEffects, Team, Vital, VictoryTarget,
+    ActionPoints, ActiveCombatant, Combatant, Dead, Faction, Speed, StatusEffects, Team, Vital, VictoryTarget,
 };
-use crate::core::StatusId;
 use crate::game::messages::EndTurn;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{CombatObjective, TurnQueue};
+use crate::combat::engine_bridge::{
+    build_ecs_content_view, translate_tick_events, CombatStateRes, UnitIdMap,
+};
 use bevy::prelude::*;
 
 /// Consumes EndTurn messages and advances the turn queue.
@@ -25,15 +27,18 @@ use bevy::prelude::*;
 pub fn advance_turn_system(
     mut commands: Commands,
     mut end_turn_events: MessageReader<EndTurn>,
-    mut vitals: Query<&mut Vital>,
+    vitals: Query<&mut Vital>,
     mut action_points: Query<&mut ActionPoints>,
     speed_q: Query<&Speed>,
-    mut statuses: Query<(Entity, &mut StatusEffects)>,
+    statuses: Query<(Entity, &StatusEffects)>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     mut queue: ResMut<TurnQueue>,
     mut log: ResMut<CombatLog>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
     content: Res<ActiveContent>,
+    mut combat_state: ResMut<CombatStateRes>,
+    id_map: Res<UnitIdMap>,
+    combatants: Query<crate::combat::engine_bridge::AooRow, With<Combatant>>,
 ) {
     // Note: ApplyStatus consumer removed in Phase 2 step 9d. Statuses are now
     // applied via project_state_to_ecs (engine projector) each frame.
@@ -46,9 +51,9 @@ pub fn advance_turn_system(
     log.push(CombatEvent::TurnEnded { actor });
 
     // 2. Advance to next living combatant.
-    // Dead entities are skipped, but we still tick their orphaned statuses
-    // so that effects they applied continue to expire on schedule. Any deaths
-    // here insert `Dead`; `check_victory_system` picks them up downstream.
+    // Dead entities are skipped; we tick their orphaned statuses via the engine
+    // so sirota-DoT effects continue to expire on schedule. Any deaths insert
+    // `Dead`; `check_victory_system` picks them up downstream.
     let start_idx = queue.index;
     queue.advance();
     loop {
@@ -60,42 +65,10 @@ pub fn advance_turn_system(
             break;
         }
         if let Some(dead_entity) = current {
-            let tick_results = tick_status_durations(dead_entity, &mut statuses, &content);
-            for result in &tick_results {
-                match result {
-                    TickResult::DotDamage { target, damage, status } => {
-                        if let Ok(mut v) = vitals.get_mut(*target) {
-                            v.apply_damage(*damage);
-                            log.push(CombatEvent::PoisonTick {
-                                target: *target,
-                                status: status.clone(),
-                                damage: *damage,
-                            });
-                            if !v.is_alive() {
-                                commands.entity(*target).insert(Dead);
-                                log.push(CombatEvent::UnitDied { entity: *target });
-                            }
-                        }
-                    }
-                    TickResult::PercentDot { target, percent, status } => {
-                        if let Ok(mut v) = vitals.get_mut(*target) {
-                            let damage = percent_dot_damage(v.max_hp, *percent);
-                            v.apply_damage(damage);
-                            log.push(CombatEvent::PoisonTick {
-                                target: *target,
-                                status: status.clone(),
-                                damage,
-                            });
-                            if !v.is_alive() {
-                                commands.entity(*target).insert(Dead);
-                                log.push(CombatEvent::UnitDied { entity: *target });
-                            }
-                        }
-                    }
-                    TickResult::Expired { target, status } => {
-                        log.push(CombatEvent::StatusExpired { target: *target, status: status.clone() });
-                    }
-                }
+            if let Some(dead_uid) = id_map.get_id(dead_entity) {
+                let view = build_ecs_content_view(&combatants, &id_map, &content);
+                let events = combat_state.0.tick_actor_statuses(dead_uid, &view);
+                translate_tick_events(&events, &id_map, &mut commands, &mut log);
             }
         }
         queue.advance();
@@ -111,7 +84,6 @@ pub fn advance_turn_system(
         next_phase.set(CombatPhase::StartRound);
     } else if let Some(next_actor) = queue.current() {
         if let Ok(mut ap) = action_points.get_mut(next_actor) {
-            ap.action_points = ap.max_ap;
             let base = speed_q.get(next_actor).map(|s| s.0).unwrap_or(0);
             let next_statuses = statuses.get(next_actor).ok().map(|(_, s)| s);
             ap.movement_points =
@@ -185,12 +157,6 @@ pub(crate) fn determine_outcome(
     }
 }
 
-/// Ceiling-divide percentage damage: at least 1 damage for any positive percent
-/// (rounds up so 1% of a 20-HP unit still ticks for 1 instead of 0).
-pub(crate) fn percent_dot_damage(max_hp: i32, percent: i32) -> i32 {
-    (max_hp * percent + 99) / 100
-}
-
 fn end_combat(
     victory: bool,
     log: &mut CombatLog,
@@ -200,98 +166,9 @@ fn end_combat(
     next_phase.set(if victory { CombatPhase::Victory } else { CombatPhase::Defeat });
 }
 
-pub(crate) enum TickResult {
-    DotDamage { target: Entity, damage: i32, status: StatusId },
-    PercentDot { target: Entity, percent: i32, status: StatusId },
-    Expired { target: Entity, status: StatusId },
-}
-
-/// Bevy wrapper: iterates all entities and delegates per-entity tick logic.
-pub(crate) fn tick_status_durations(
-    actor: Entity,
-    statuses: &mut Query<(Entity, &mut StatusEffects)>,
-    content: &ContentView,
-) -> Vec<TickResult> {
-    let mut results = Vec::new();
-    for (target, mut se) in statuses.iter_mut() {
-        results.extend(tick_statuses_on_entity(actor, target, &mut se.0, content));
-    }
-    results
-}
-
-/// Pure per-entity status tick: emit DoT events, decrement durations, drop expired.
-/// Only affects statuses whose `applier == actor`. `effects` is mutated in place.
-pub(crate) fn tick_statuses_on_entity(
-    actor: Entity,
-    target: Entity,
-    effects: &mut Vec<ActiveStatus>,
-    content: &ContentView,
-) -> Vec<TickResult> {
-    let mut results = Vec::new();
-    for s in effects.iter_mut() {
-        if s.applier != actor {
-            continue;
-        }
-        // Apply DoT damage before decrementing.
-        if s.dot_per_tick > 0 {
-            results.push(TickResult::DotDamage {
-                target,
-                damage: s.dot_per_tick,
-                status: s.id.clone(),
-            });
-        }
-        // Percentage-based DoT (heritage exhaustion).
-        if let Some(sd) = content.statuses.get(&s.id) {
-            if sd.hp_percent_dot > 0 {
-                results.push(TickResult::PercentDot {
-                    target,
-                    percent: sd.hp_percent_dot,
-                    status: s.id.clone(),
-                });
-            }
-        }
-        s.rounds_remaining = s.rounds_remaining.saturating_sub(1);
-    }
-    let newly_expired: Vec<_> = effects
-        .iter()
-        .filter(|s| s.applier == actor && s.rounds_remaining == 0)
-        .map(|s| TickResult::Expired { target, status: s.id.clone() })
-        .collect();
-    results.extend(newly_expired);
-    effects.retain(|s| !(s.applier == actor && s.rounds_remaining == 0));
-    results
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::content_view::ContentView;
-
-    fn ent(id: u32) -> Entity {
-        Entity::from_raw_u32(id).expect("valid entity id")
-    }
-
-    // ── percent_dot_damage ──────────────────────────────────────────────
-
-    #[test]
-    fn percent_dot_exact_division() {
-        assert_eq!(percent_dot_damage(100, 10), 10);
-        assert_eq!(percent_dot_damage(20, 25), 5);
-    }
-
-    #[test]
-    fn percent_dot_ceils_remainder() {
-        // 20 * 1% = 0.2 → 1 damage after ceil
-        assert_eq!(percent_dot_damage(20, 1), 1);
-        // 7 * 10% = 0.7 → 1 damage after ceil
-        assert_eq!(percent_dot_damage(7, 10), 1);
-    }
-
-    #[test]
-    fn percent_dot_zero_percent_gives_zero() {
-        // Edge case: 0% should be 0, not 1 (callers guard with > 0 check anyway).
-        assert_eq!(percent_dot_damage(100, 0), 0);
-    }
 
     // ── determine_outcome ───────────────────────────────────────────────
 
@@ -345,95 +222,4 @@ mod tests {
         assert_eq!(determine_outcome(false, false, false, &obj), Some(false));
     }
 
-    // ── tick_statuses_on_entity ─────────────────────────────────────────
-
-    fn active_status(id: &str, applier: Entity, rounds: u32, dot: i32) -> ActiveStatus {
-        ActiveStatus {
-            id: id.into(),
-            rounds_remaining: rounds,
-            applier,
-            dot_per_tick: dot,
-        }
-    }
-
-    #[test]
-    fn tick_ignores_statuses_from_other_applier() {
-        let actor = ent(1);
-        let other = ent(2);
-        let target = ent(3);
-        let content = ContentView::load_global_for_tests();
-        let mut effects = vec![active_status("burning", other, 2, 3)];
-
-        let results = tick_statuses_on_entity(actor, target, &mut effects, &content);
-        assert!(results.is_empty());
-        // Untouched: still 2 rounds, still present.
-        assert_eq!(effects.len(), 1);
-        assert_eq!(effects[0].rounds_remaining, 2);
-    }
-
-    #[test]
-    fn tick_emits_dot_and_decrements() {
-        let actor = ent(1);
-        let target = ent(3);
-        let content = ContentView::load_global_for_tests();
-        let mut effects = vec![active_status("burning", actor, 3, 5)];
-
-        let results = tick_statuses_on_entity(actor, target, &mut effects, &content);
-        assert_eq!(results.len(), 1);
-        assert!(matches!(
-            &results[0],
-            TickResult::DotDamage { damage: 5, .. }
-        ));
-        assert_eq!(effects[0].rounds_remaining, 2);
-    }
-
-    #[test]
-    fn tick_emits_expired_and_removes_at_zero_rounds() {
-        let actor = ent(1);
-        let target = ent(3);
-        let content = ContentView::load_global_for_tests();
-        // 1 round remaining → after tick: 0 → expired.
-        let mut effects = vec![active_status("stunned", actor, 1, 0)];
-
-        let results = tick_statuses_on_entity(actor, target, &mut effects, &content);
-        assert_eq!(results.len(), 1);
-        assert!(matches!(&results[0], TickResult::Expired { .. }));
-        assert!(effects.is_empty(), "expired status should be removed");
-    }
-
-    #[test]
-    fn tick_emits_both_dot_and_expiration_in_same_call() {
-        let actor = ent(1);
-        let target = ent(3);
-        let content = ContentView::load_global_for_tests();
-        // dot + last round → both events from one status.
-        let mut effects = vec![active_status("burning", actor, 1, 4)];
-
-        let results = tick_statuses_on_entity(actor, target, &mut effects, &content);
-        assert_eq!(results.len(), 2);
-        assert!(matches!(&results[0], TickResult::DotDamage { damage: 4, .. }));
-        assert!(matches!(&results[1], TickResult::Expired { .. }));
-        assert!(effects.is_empty());
-    }
-
-    #[test]
-    fn tick_only_affects_matching_applier_in_mixed_list() {
-        let actor = ent(1);
-        let other = ent(2);
-        let target = ent(3);
-        let content = ContentView::load_global_for_tests();
-        let mut effects = vec![
-            active_status("burning", actor, 2, 3),
-            active_status("poisoned", other, 2, 4),
-            active_status("stunned", actor, 1, 0),
-        ];
-
-        let results = tick_statuses_on_entity(actor, target, &mut effects, &content);
-        // actor: burning → DotDamage; stunned → Expired.
-        assert_eq!(results.len(), 2);
-        // Other's status untouched.
-        assert_eq!(effects.len(), 2, "other applier's status should remain");
-        let poisoned = effects.iter().find(|s| s.id == "poisoned".into()).unwrap();
-        assert_eq!(poisoned.rounds_remaining, 2);
-    }
 }

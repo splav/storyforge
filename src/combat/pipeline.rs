@@ -7,12 +7,12 @@
 use bevy::prelude::*;
 
 use crate::app_state::{AppState, CombatPhase};
-use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap, init_state_from_ecs, process_action_system, project_state_to_ecs};
+use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap, engine_turn_start_system, init_state_from_ecs, process_action_system, project_state_to_ecs};
 use crate::ui;
 
 use super::{
     advance_turn, auras, command_input, enemy_popup, phases,
-    skip_dead, spawn, start_combat_system, status_tick, turn_order, turn_start,
+    skip_dead, spawn, start_combat_system, turn_order,
     CombatStep,
 };
 
@@ -58,8 +58,7 @@ impl Plugin for CombatPipelinePlugin {
         .add_systems(
             Update,
             (
-                turn_start::turn_start_system,
-                status_tick::tick_status_effects_system,
+                engine_turn_start_system,
                 skip_dead::skip_dead_turn_system,
                 skip_dead::skip_stunned_turn_system,
                 auras::apply_auras_system,

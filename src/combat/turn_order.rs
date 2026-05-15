@@ -86,7 +86,6 @@ pub fn build_turn_order(
                 }
             }
             if v.is_alive() {
-                ap.action_points = ap.max_ap;
                 ap.movement_points = refill_movement_points(speed.0, statuses, &content);
                 if let Some(mut r) = reactions {
                     r.remaining = r.max;

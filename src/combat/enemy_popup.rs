@@ -94,7 +94,7 @@ pub fn queue_enemy_popup(
             match &events[j] {
                 CombatEvent::DamageResult {
                     target,
-                    formula,
+                    raw,
                     armor_reduced,
                     final_damage,
                 } => {
@@ -104,10 +104,7 @@ pub fn queue_enemy_popup(
                         String::new()
                     };
                     lines.push(format!(
-                        "Урон: {}{} → -{} HP ({})",
-                        formula,
-                        armor_part,
-                        final_damage,
+                        "Урон: {raw}{armor_part} → -{final_damage} HP ({})",
                         name(*target)
                     ));
                 }

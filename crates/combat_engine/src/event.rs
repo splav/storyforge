@@ -16,10 +16,21 @@ use crate::{
 pub enum Event {
     ActionStarted { action: Action },
     UnitMoved { actor: UnitId, from: Hex, to: Hex },
-    UnitDamaged { target: UnitId, amount: f32, source: UnitId },
+    UnitDamaged {
+        target: UnitId,
+        source: UnitId,
+        raw: f32,
+        mitigation: i32,
+        pierces: bool,
+        amount: i32,
+    },
     UnitHealed { target: UnitId, amount: i32 },
     StatusApplied { target: UnitId, status: StatusId },
     StatusRemoved { target: UnitId, status: StatusId },
+    /// One DoT tick was applied to `target` from `status` originally cast by `source`.
+    /// Fires BEFORE the derived `UnitDamaged` event so log can render "поражён ядом"
+    /// then damage breakdown.
+    StatusTicked { target: UnitId, status: StatusId, source: UnitId },
     RageGained { unit: UnitId, current: i32, max: i32 },
     ReactionFired { actor: UnitId, kind: ReactionKind, against: UnitId },
     UnitDied { unit: UnitId },
@@ -30,6 +41,8 @@ pub enum Event {
     /// the appropriate log line (`CriticalMiss` vs `CritFailSideEffect`).
     CritFailed { actor: UnitId, outcome: crate::content::CritFailOutcome },
     ActionFinished { action: Action },
+    ManaRegenerated { unit: UnitId, current: i32, max: i32 },
+    EnergyRegenerated { unit: UnitId, current: i32, max: i32 },
 }
 
 /// Convert an effect (post-application) to an `Event`.
@@ -56,10 +69,14 @@ pub fn effect_to_event(
         Effect::DecrementMP { .. } => None,
         Effect::DecrementAP { .. } => None,
         Effect::Damage { target, source, .. } => {
+            let d = ctx.damage.as_ref().expect("Damage effect must populate ApplyCtx.damage");
             Some(Event::UnitDamaged {
                 target: *target,
-                amount: ctx.final_damage.unwrap_or(0.0),
                 source: *source,
+                raw: d.raw,
+                mitigation: d.mitigation,
+                pierces: d.pierces,
+                amount: d.final_amount,
             })
         }
         Effect::Heal { target, .. } => {
@@ -92,5 +109,18 @@ pub fn effect_to_event(
         Effect::DecrementReactions { .. } => None,
         Effect::Death { unit } => Some(Event::UnitDied { unit: *unit }),
         Effect::RefreshAggregates { .. } => None,
+        Effect::TickDot { target, status } => {
+            state.unit(*target).and_then(|u| {
+                u.statuses
+                    .iter()
+                    .find(|s| s.id == *status)
+                    .map(|s| Event::StatusTicked {
+                        target: *target,
+                        status: status.clone(),
+                        source: s.applier,
+                    })
+            })
+        }
+        Effect::ExpireStatus { .. } => None,
     }
 }

@@ -153,6 +153,7 @@ fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
                 base_speed: u.base_speed,
                 speed: u.speed,
                 action_points: u.action_points,
+                max_ap: u.action_points,
                 movement_points: u.movement_points,
                 reactions_left: u.reactions_left,
                 statuses: u

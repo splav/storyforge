@@ -96,6 +96,7 @@ impl ActionState for BevyActions<'_, '_, '_> {
             armor_bonus: def.armor_bonus,
             damage_taken_bonus: def.damage_taken_bonus,
             speed_bonus: def.speed_bonus,
+            hp_percent_dot: def.hp_percent_dot,
         })
     }
 

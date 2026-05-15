@@ -162,6 +162,8 @@ pub struct StatusDef {
     pub armor_bonus: i32,
     pub damage_taken_bonus: i32,
     pub speed_bonus: i32,
+    /// Percent of max_hp dealt as DoT per tick; ceil formula: `(max_hp * pct + 99) / 100`.
+    pub hp_percent_dot: i32,
 }
 
 /// Read-only view onto game content that the engine needs.

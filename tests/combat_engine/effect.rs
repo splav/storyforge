@@ -6,7 +6,8 @@
 use storyforge::combat_engine::{
     content::{ContentView, StatusBonuses},
     dice::DiceExpr,
-    effect::{apply_effect, Effect},
+    effect::{apply_effect, ApplyCtx, Effect},
+    event::{effect_to_event, Event},
     state::{ActiveStatus, CombatState, RoundPhase, Team, Unit, UnitId},
 };
 use storyforge::combat_engine::StatusId;
@@ -18,17 +19,21 @@ use storyforge::game::hex::hex_from_offset;
 struct StubContent {
     speed_bonus: i32,
     armor_bonus: i32,
+    hp_percent_dot: i32,
 }
 
 impl StubContent {
     fn neutral() -> Self {
-        Self { speed_bonus: 0, armor_bonus: 0 }
+        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot: 0 }
     }
     fn with_speed(speed_bonus: i32) -> Self {
-        Self { speed_bonus, armor_bonus: 0 }
+        Self { speed_bonus, armor_bonus: 0, hp_percent_dot: 0 }
     }
     fn with_armor(armor_bonus: i32) -> Self {
-        Self { speed_bonus: 0, armor_bonus }
+        Self { speed_bonus: 0, armor_bonus, hp_percent_dot: 0 }
+    }
+    fn with_hp_percent_dot(hp_percent_dot: i32) -> Self {
+        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot }
     }
 }
 
@@ -43,7 +48,18 @@ impl ContentView for StubContent {
         }
     }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> { None }
+    fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> {
+        Some(storyforge::combat_engine::StatusDef {
+            causes_disadvantage: false,
+            blocks_mana_abilities: false,
+            forces_targeting: false,
+            skips_turn: false,
+            armor_bonus: self.armor_bonus,
+            damage_taken_bonus: 0,
+            speed_bonus: self.speed_bonus,
+            hp_percent_dot: self.hp_percent_dot,
+        })
+    }
     fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext { storyforge::combat_engine::CasterContext::default() }
 }
 
@@ -59,6 +75,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
         base_speed: 4,
         speed: 4,
         action_points: 2,
+        max_ap: 2,
         movement_points: 4,
         reactions_left: 1,
         statuses: vec![],
@@ -130,7 +147,7 @@ fn damage_nonlethal_derives_rage_source_then_target() {
 
     // No armor → final_damage = max(1, 5) = 5; hp 20 - 5 = 15 (alive).
     assert_eq!(state.unit(UnitId(2)).unwrap().hp, 15);
-    assert!(ctx.final_damage.is_some());
+    assert!(ctx.damage.is_some());
 
     // Derived: GainRage{source=1}, GainRage{target=2} — no Death.
     assert_eq!(derived.len(), 2);
@@ -644,5 +661,327 @@ fn remove_status_noop_when_absent() {
         &StubContent::neutral(),
     );
     assert!(derived.is_empty(), "no removal → no RefreshAggregates");
+    assert!(state.unit(UnitId(1)).unwrap().statuses.is_empty());
+}
+
+// ── TickDot ───────────────────────────────────────────────────────────────────
+
+fn status_with_dot(id: &str, dot_per_tick: i32, applier: u64) -> ActiveStatus {
+    ActiveStatus {
+        id: StatusId::from(id),
+        rounds_remaining: 3,
+        dot_per_tick,
+        applier: UnitId(applier),
+    }
+}
+
+/// Flat dot_per_tick produces a piercing Damage effect toward the applier.
+#[test]
+fn tick_dot_with_dot_per_tick_damages_target_via_pierce() {
+    let mut target = make_unit(1, 10, 10);
+    target.armor = 5; // armor must be ignored
+    target.statuses.push(status_with_dot("poison", 3, 2));
+    let applier = make_unit(2, 10, 10);
+    let mut state = state_with(vec![target, applier]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::TickDot { target: UnitId(1), status: StatusId::from("poison") },
+        &StubContent::neutral(),
+    );
+
+    assert_eq!(derived.len(), 1);
+    assert!(matches!(
+        derived[0],
+        Effect::Damage { target: UnitId(1), raw, source: UnitId(2), pierces: true }
+        if raw == 3.0
+    ));
+}
+
+/// hp_percent_dot uses ceil division: ceil(7 * 10 / 100) = 1.
+#[test]
+fn tick_dot_with_percent_dot_uses_ceil() {
+    let mut target = make_unit(1, 7, 7);
+    target.statuses.push(status_with_dot("burning", 0, 2));
+    let mut state = state_with(vec![target]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::TickDot { target: UnitId(1), status: StatusId::from("burning") },
+        &StubContent::with_hp_percent_dot(10), // 10% of 7 = 0.7 → ceil = 1
+    );
+
+    assert_eq!(derived.len(), 1);
+    assert!(matches!(
+        derived[0],
+        Effect::Damage { target: UnitId(1), raw, source: UnitId(2), pierces: true }
+        if raw == 1.0
+    ));
+}
+
+/// Both dot_per_tick > 0 and hp_percent_dot > 0 produce two Damage effects.
+#[test]
+fn tick_dot_with_both_dot_and_percent_returns_two_damages() {
+    let mut target = make_unit(1, 10, 10);
+    target.statuses.push(status_with_dot("poison", 2, 2));
+    let mut state = state_with(vec![target]);
+
+    // hp_percent_dot=20% of max_hp=10 → ceil(10*20/100) = 2
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::TickDot { target: UnitId(1), status: StatusId::from("poison") },
+        &StubContent::with_hp_percent_dot(20),
+    );
+
+    assert_eq!(derived.len(), 2, "one Damage per source (flat + percent)");
+    assert!(matches!(derived[0], Effect::Damage { raw, pierces: true, .. } if raw == 2.0));
+    assert!(matches!(derived[1], Effect::Damage { raw, pierces: true, .. } if raw == 2.0));
+}
+
+/// No status on target → silent no-op.
+#[test]
+fn tick_dot_silent_when_status_absent() {
+    let target = make_unit(1, 10, 10); // no statuses
+    let mut state = state_with(vec![target]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::TickDot { target: UnitId(1), status: StatusId::from("poison") },
+        &StubContent::neutral(),
+    );
+
+    assert!(derived.is_empty());
+}
+
+/// Unknown UnitId → silent no-op.
+#[test]
+fn tick_dot_silent_when_target_missing() {
+    let u = make_unit(1, 10, 10);
+    let mut state = state_with(vec![u]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::TickDot { target: UnitId(99), status: StatusId::from("poison") },
+        &StubContent::neutral(),
+    );
+
+    assert!(derived.is_empty());
+}
+
+/// `effect_to_event(TickDot)` returns `StatusTicked` with the correct target,
+/// status, and source (the applier from the active status entry).
+#[test]
+fn tick_dot_emits_status_ticked_event() {
+    let mut target = make_unit(1, 10, 10);
+    target.statuses.push(ActiveStatus {
+        id: StatusId::from("poison"),
+        rounds_remaining: 2,
+        dot_per_tick: 3,
+        applier: UnitId(42),
+    });
+    let state = state_with(vec![target]);
+
+    let effect = Effect::TickDot { target: UnitId(1), status: StatusId::from("poison") };
+    let event = effect_to_event(&effect, &state, None, &ApplyCtx::default());
+
+    assert!(matches!(
+        event,
+        Some(Event::StatusTicked {
+            target: UnitId(1),
+            source: UnitId(42),
+            ref status,
+        }) if status == &StatusId::from("poison")
+    ));
+}
+
+// ── ExpireStatus ──────────────────────────────────────────────────────────────
+
+/// rounds_remaining > 1 → decremented, no removal, no derived.
+#[test]
+fn expire_status_decrements_rounds() {
+    let mut u = make_unit(1, 10, 10);
+    u.statuses.push(ActiveStatus {
+        id: StatusId::from("poison"),
+        rounds_remaining: 3,
+        dot_per_tick: 2,
+        applier: UnitId(2),
+    });
+    let mut state = state_with(vec![u]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::ExpireStatus { target: UnitId(1), status: StatusId::from("poison") },
+        &StubContent::neutral(),
+    );
+
+    let unit = state.unit(UnitId(1)).unwrap();
+    assert_eq!(unit.statuses.len(), 1, "status still present");
+    assert_eq!(unit.statuses[0].rounds_remaining, 2);
+    assert!(derived.is_empty(), "no removal → no RefreshAggregates");
+}
+
+/// rounds_remaining == 1 → decremented to 0, derives RemoveStatus.
+/// Cascading RemoveStatus removes the status and derives RefreshAggregates.
+#[test]
+fn expire_status_removes_at_zero() {
+    let mut u = make_unit(1, 10, 10);
+    u.statuses.push(ActiveStatus {
+        id: StatusId::from("poison"),
+        rounds_remaining: 1,
+        dot_per_tick: 2,
+        applier: UnitId(2),
+    });
+    let mut state = state_with(vec![u]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::ExpireStatus { target: UnitId(1), status: StatusId::from("poison") },
+        &StubContent::neutral(),
+    );
+
+    // Status still in list (rounds_remaining == 0), removal deferred to cascade.
+    assert_eq!(state.unit(UnitId(1)).unwrap().statuses.len(), 1);
+    assert_eq!(state.unit(UnitId(1)).unwrap().statuses[0].rounds_remaining, 0);
+    assert_eq!(derived.len(), 1);
+    assert!(matches!(&derived[0], Effect::RemoveStatus { target: UnitId(1), status } if status == &StatusId::from("poison")));
+
+    // Cascade: RemoveStatus removes the status and derives RefreshAggregates.
+    let (refresh, _) = apply_effect(&mut state, &derived[0], &StubContent::neutral());
+    assert!(state.unit(UnitId(1)).unwrap().statuses.is_empty(), "status removed after cascade");
+    assert_eq!(refresh.len(), 1);
+    assert!(matches!(refresh[0], Effect::RefreshAggregates { unit: UnitId(1) }));
+}
+
+/// Status not present on unit → silent no-op.
+#[test]
+fn expire_status_silent_when_absent() {
+    let u = make_unit(1, 10, 10);
+    let mut state = state_with(vec![u]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::ExpireStatus { target: UnitId(1), status: StatusId::from("nonexistent") },
+        &StubContent::neutral(),
+    );
+
+    assert!(derived.is_empty());
+    assert!(state.unit(UnitId(1)).unwrap().statuses.is_empty());
+}
+
+// ── Death (status cleanup) ────────────────────────────────────────────────────
+
+/// Death derives one RemoveStatus per unique status id on the dying unit, in
+/// insertion order. After cascading, statuses is empty and each RemoveStatus
+/// derived one RefreshAggregates.
+#[test]
+fn death_derives_remove_status_per_local_status() {
+    let mut u = make_unit(1, 0, 20);
+    u.statuses = vec![
+        ActiveStatus { id: StatusId::from("burning"), rounds_remaining: 2, dot_per_tick: 3, applier: UnitId(2) },
+        ActiveStatus { id: StatusId::from("stunned"), rounds_remaining: 2, dot_per_tick: 0, applier: UnitId(3) },
+    ];
+    let mut state = state_with(vec![u]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::Death { unit: UnitId(1) },
+        &StubContent::neutral(),
+    );
+
+    // One RemoveStatus per distinct id, in insertion order.
+    assert_eq!(derived.len(), 2);
+    assert!(matches!(&derived[0], Effect::RemoveStatus { target: UnitId(1), status } if status == &StatusId::from("burning")));
+    assert!(matches!(&derived[1], Effect::RemoveStatus { target: UnitId(1), status } if status == &StatusId::from("stunned")));
+
+    // Cascade: apply each derived effect; each should derive one RefreshAggregates.
+    for eff in &derived {
+        let (refresh, _) = apply_effect(&mut state, eff, &StubContent::neutral());
+        assert_eq!(refresh.len(), 1);
+        assert!(matches!(refresh[0], Effect::RefreshAggregates { unit: UnitId(1) }));
+    }
+    assert!(state.unit(UnitId(1)).unwrap().statuses.is_empty());
+}
+
+/// If a unit somehow has two entries with the same status id, Death deduplicates
+/// to one RemoveStatus (which removes all matching entries anyway).
+#[test]
+fn death_with_duplicate_status_ids_dedups_to_one_remove() {
+    let mut u = make_unit(1, 0, 20);
+    u.statuses = vec![
+        ActiveStatus { id: StatusId::from("poison"), rounds_remaining: 3, dot_per_tick: 2, applier: UnitId(2) },
+        ActiveStatus { id: StatusId::from("poison"), rounds_remaining: 1, dot_per_tick: 1, applier: UnitId(3) },
+    ];
+    let mut state = state_with(vec![u]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::Death { unit: UnitId(1) },
+        &StubContent::neutral(),
+    );
+
+    assert_eq!(derived.len(), 1, "deduped to one RemoveStatus");
+    assert!(matches!(&derived[0], Effect::RemoveStatus { target: UnitId(1), status } if status == &StatusId::from("poison")));
+
+    // Applying it removes both entries.
+    apply_effect(&mut state, &derived[0], &StubContent::neutral());
+    assert!(state.unit(UnitId(1)).unwrap().statuses.is_empty());
+}
+
+/// Death only touches the dying unit's own status list; sirota-style statuses
+/// applied by the dying unit onto other units are unaffected.
+#[test]
+fn death_does_not_touch_sirota_statuses_on_other_units() {
+    let mut unit_a = make_unit(1, 0, 20);
+    unit_a.statuses = vec![
+        ActiveStatus { id: StatusId::from("poisoned"), rounds_remaining: 2, dot_per_tick: 1, applier: UnitId(99) },
+    ];
+    let mut unit_b = make_unit(2, 20, 20);
+    // cursed applied BY unit A onto B (applier == A).
+    unit_b.statuses = vec![
+        ActiveStatus { id: StatusId::from("cursed"), rounds_remaining: 3, dot_per_tick: 0, applier: UnitId(1) },
+    ];
+    let mut state = state_with(vec![unit_a, unit_b]);
+
+    let (derived, _) = apply_effect(
+        &mut state,
+        &Effect::Death { unit: UnitId(1) },
+        &StubContent::neutral(),
+    );
+
+    // Only A's own status is targeted.
+    assert_eq!(derived.len(), 1);
+    assert!(matches!(&derived[0], Effect::RemoveStatus { target: UnitId(1), status } if status == &StatusId::from("poisoned")));
+
+    // B's cursed status is untouched.
+    let b = state.unit(UnitId(2)).unwrap();
+    assert_eq!(b.statuses.len(), 1);
+    assert_eq!(b.statuses[0].id, StatusId::from("cursed"));
+}
+
+/// Full cascade via Damage: Damage → Death → RemoveStatus → RefreshAggregates.
+/// Unit ends up dead with no statuses.
+#[test]
+fn death_cascade_from_damage_clears_statuses() {
+    let mut target = make_unit(1, 1, 20);
+    target.statuses = vec![
+        ActiveStatus { id: StatusId::from("haste"), rounds_remaining: 2, dot_per_tick: 0, applier: UnitId(2) },
+    ];
+    let source = make_unit(2, 20, 20);
+    let mut state = state_with(vec![target, source]);
+    let content = StubContent::neutral();
+
+    // Apply lethal Damage manually and drain the derived queue.
+    let (mut queue, _) = apply_effect(
+        &mut state,
+        &Effect::Damage { target: UnitId(1), raw: 100.0, source: UnitId(2), pierces: true },
+        &content,
+    );
+    while let Some(eff) = queue.first().cloned() {
+        queue.remove(0);
+        let (more, _) = apply_effect(&mut state, &eff, &content);
+        queue.extend(more);
+    }
+
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 0);
     assert!(state.unit(UnitId(1)).unwrap().statuses.is_empty());
 }

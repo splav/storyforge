@@ -41,6 +41,7 @@ fn make_unit(id: u64, team: Team, reactions: i32) -> Unit {
         base_speed: 4,
         speed: 4,
         action_points: 2,
+        max_ap: 2,
         movement_points: 4,
         reactions_left: reactions,
         statuses: vec![],

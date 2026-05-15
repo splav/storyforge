@@ -9,6 +9,8 @@ use crate::AbilityId;
 /// into a stream of `Effect`s.
 ///
 /// Phase 0 implements only `Move`; `Cast` is added in Phase 2 step 6b.
+/// `EndTurn` is a Phase 3 placeholder — Phase 4 will extend it with queue
+/// advance and RoundPhase transitions.
 #[derive(Debug, Clone)]
 pub enum Action {
     Move { actor: UnitId, path: Vec<Hex> },
@@ -18,6 +20,9 @@ pub enum Action {
         target: UnitId,
         target_pos: Hex,
     },
+    /// Signal that the actor is done with their turn.  Phase 3 arm is a no-op;
+    /// Phase 4 will add queue advance + RoundPhase transitions.
+    EndTurn { actor: UnitId },
 }
 
 /// Engine-level error returned by `step()` on illegal or failed actions.

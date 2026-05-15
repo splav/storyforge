@@ -52,6 +52,7 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
         base_speed: 6,
         speed: 6,
         action_points: 2,
+        max_ap: 2,
         movement_points: 6,
         reactions_left: 1,
         statuses: vec![],
@@ -508,4 +509,65 @@ fn step_recursion_depth_capped() {
     // We can't easily do this geometrically in Phase 0 (max 6 neighbors), so
     // we test the constant is correct via the module.
     // (A proper stress test belongs in the bench suite.)
+}
+
+// ── Action::EndTurn ───────────────────────────────────────────────────────────
+
+/// EndTurn on an alive actor emits exactly ActionStarted + ActionFinished.
+/// State is unchanged.
+#[test]
+fn endturn_emits_started_and_finished_only() {
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let mut state = state_with(vec![actor]);
+    let state_before = state.clone();
+
+    let events = step(
+        &mut state,
+        Action::EndTurn { actor: UnitId(1) },
+        &mut ExpectedValue,
+        &StubContent::no_weapon(),
+    )
+    .expect("EndTurn on alive actor must succeed");
+
+    assert_eq!(events.len(), 2);
+    assert!(matches!(&events[0], Event::ActionStarted { action: Action::EndTurn { actor: UnitId(1) } }));
+    assert!(matches!(&events[1], Event::ActionFinished { action: Action::EndTurn { actor: UnitId(1) } }));
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp, state_before.unit(UnitId(1)).unwrap().hp);
+    assert_eq!(state.unit(UnitId(1)).unwrap().action_points, state_before.unit(UnitId(1)).unwrap().action_points);
+}
+
+/// EndTurn for an unknown actor returns UnknownActor and leaves state untouched.
+#[test]
+fn endturn_rejects_unknown_actor() {
+    let actor = make_unit(1, Team::Player, 0, 0);
+    let mut state = state_with(vec![actor]);
+
+    let err = step(
+        &mut state,
+        Action::EndTurn { actor: UnitId(99) },
+        &mut ExpectedValue,
+        &StubContent::no_weapon(),
+    )
+    .expect_err("EndTurn with unknown UnitId must fail");
+
+    assert_eq!(err, ActionError::UnknownActor);
+}
+
+/// EndTurn is permitted even when the actor is dead (hp=0). The sirota
+/// path (Phase 4 dead-skip) will use this to advance the queue past
+/// dead units without a separate code path.
+#[test]
+fn endturn_allowed_for_dead_actor() {
+    let mut actor = make_unit(1, Team::Player, 0, 0);
+    actor.hp = 0;
+    let mut state = state_with(vec![actor]);
+
+    let result = step(
+        &mut state,
+        Action::EndTurn { actor: UnitId(1) },
+        &mut ExpectedValue,
+        &StubContent::no_weapon(),
+    );
+
+    assert!(result.is_ok(), "EndTurn must succeed even for a dead actor");
 }

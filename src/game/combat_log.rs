@@ -30,7 +30,7 @@ pub enum CombatEvent {
     },
     DamageResult {
         target: Entity,
-        formula: String,
+        raw: i32,
         armor_reduced: i32,
         final_damage: i32,
     },
@@ -205,20 +205,17 @@ impl CombatEvent {
             }
             CombatEvent::DamageResult {
                 target,
-                formula,
+                raw,
                 armor_reduced,
                 final_damage,
             } => {
                 let armor_part = if *armor_reduced > 0 {
-                    format!(", броня -{}", armor_reduced)
+                    format!(", броня -{armor_reduced}")
                 } else {
                     String::new()
                 };
                 format!(
-                    "    урон: {}{} → -{} HP ({})",
-                    formula,
-                    armor_part,
-                    final_damage,
+                    "    урон: {raw}{armor_part} → -{final_damage} HP ({})",
                     name(*target)
                 )
             }

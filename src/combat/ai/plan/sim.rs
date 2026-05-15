@@ -107,6 +107,17 @@ impl<'a> SimState<'a> {
         }
     }
 
+    /// Advance time past the actor's turn end, applying any DoT/expiry the actor
+    /// would trigger at their next turn start. Closes the long-standing sim-skips-
+    /// DoT drift. Phase 3 uses `tick_actor_statuses` directly; Phase 4 will fold
+    /// queue advancement into engine.
+    ///
+    /// Call sites: currently defined but not yet wired — see Phase 3 retrospective.
+    pub fn apply_endturn(&mut self, actor: UnitId) {
+        let content_view = SnapshotContentView::from_snapshot(&self.snapshot);
+        let _ = self.combat_state.tick_actor_statuses(actor, &content_view);
+    }
+
     fn apply_move(&mut self, path: &[Hex]) -> StepOutcome {
         let mut outcome = StepOutcome { moved: true, ..Default::default() };
         if path.is_empty() { return outcome; }
@@ -182,7 +193,7 @@ impl<'a> SimState<'a> {
                     match ev {
                         Event::UnitDamaged { target: t_uid, amount, .. } => {
                             outcome.hits += 1;
-                            outcome.damage += amount;
+                            outcome.damage += *amount as f32;
                             // killed: unit is dead in engine state post-step.
                             if let Some(eu) = self.combat_state.unit(*t_uid) {
                                 if !eu.is_alive() {
@@ -345,6 +356,7 @@ impl SnapshotContentView {
                 armor_bonus: def.armor_bonus,
                 damage_taken_bonus: def.damage_taken_bonus,
                 speed_bonus: def.speed_bonus,
+                hp_percent_dot: def.hp_percent_dot,
             };
             (id.clone(), engine_def)
         }).collect();
@@ -449,6 +461,7 @@ fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
                 base_speed: u.base_speed,
                 speed: u.speed,
                 action_points: u.action_points,
+                max_ap: u.max_ap,
                 movement_points: u.movement_points,
                 reactions_left: u.reactions_left,
                 statuses,

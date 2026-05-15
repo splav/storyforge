@@ -37,8 +37,8 @@ use crate::content::content_view::ActiveContent;
 use crate::content::races::CritFailEffect;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::components::{
-    Abilities, ActionPoints, BonusMovement, CombatPath, CombatStats, Combatant, Dead, Equipment,
-    Faction, Mana, Rage, Reactions, Speed, StatusEffects, UnitToken, Vital,
+    Abilities, ActionPoints, ActiveCombatant, BonusMovement, CombatPath, CombatStats, Combatant,
+    Dead, Energy, Equipment, Faction, Mana, Rage, Reactions, Speed, StatusEffects, UnitToken, Vital,
 };
 use crate::game::hex::LAYOUT;
 use crate::game::messages::{ActionInput, EndTurn, SpawnUnit};
@@ -53,6 +53,7 @@ use combat_engine::{
     reaction::ReactionKind,
     state::{ActiveStatus, CombatState, Pool, RoundPhase, Unit, UnitId},
     step::step,
+    StatusId,
 };
 use combat_engine::dice::DiceExpr as EngineDiceExpr;
 use combat_engine::{EffectDef as EngineEffectDef, StatusApplication as EngineStatusApplication, StatusOn as EngineStatusOn};
@@ -131,6 +132,7 @@ type CombatantRow<'a> = (
     Option<&'a StatusEffects>,
     Option<&'a Rage>,
     Option<&'a Mana>,
+    Option<&'a Energy>,
     Has<Dead>,
 );
 
@@ -165,7 +167,7 @@ pub fn from_ecs(
 
     let units: Vec<Unit> = combatants
         .iter()
-        .filter_map(|(entity, vital, speed, ap, reactions, faction, statuses, rage, mana, is_dead)| {
+        .filter_map(|(entity, vital, speed, ap, reactions, faction, statuses, rage, mana, energy_opt, is_dead)| {
             let pos = positions.get(&entity)?;
 
             let uid = entity_to_uid(entity);
@@ -191,6 +193,7 @@ pub fn from_ecs(
 
             let rage_pool: Option<Pool> = rage.map(|r| (r.current, r.max));
             let mana_pool: Option<Pool> = mana.map(|m| (m.current, m.max));
+            let energy_pool: Option<Pool> = energy_opt.map(|e| (e.current, e.max));
 
             Some(Unit {
                 id: uid,
@@ -203,12 +206,13 @@ pub fn from_ecs(
                 base_speed: speed.0,
                 speed: speed.0,           // Phase 0: status speed_bonus deferred to step 8+
                 action_points: ap.action_points,
+                max_ap: ap.max_ap,
                 movement_points: ap.movement_points,
                 reactions_left: reactions.remaining as i32,
                 statuses: statuses_vec,
                 rage: rage_pool,
                 mana: mana_pool,
-                energy: None,             // Phase 0: Energy component deferred to step 8+
+                energy: energy_pool,
             })
         })
         .collect();
@@ -305,6 +309,7 @@ impl<'a> EngineContentView for EcsContentView<'a> {
             armor_bonus: def.armor_bonus,
             damage_taken_bonus: def.damage_taken_bonus,
             speed_bonus: def.speed_bonus,
+            hp_percent_dot: def.hp_percent_dot,
         })
     }
 
@@ -314,7 +319,7 @@ impl<'a> EngineContentView for EcsContentView<'a> {
 }
 
 /// Query row for building `EcsContentView`.
-type AooRow<'a> = (
+pub(crate) type AooRow<'a> = (
     Entity,
     &'a Equipment,
     &'a CombatStats,
@@ -328,8 +333,9 @@ type AooRow<'a> = (
 
 /// Build `EcsContentView` from the current ECS state.
 ///
-/// Called once per processed `ActionInput::Move` inside `process_action_system`.
-fn build_ecs_content_view<'a>(
+/// Called from `engine_turn_start_system`, `process_action_system`, and
+/// `advance_turn_system` (for dead-actor sirota-DoT ticks).
+pub(crate) fn build_ecs_content_view<'a>(
     combatants: &Query<AooRow, With<Combatant>>,
     id_map: &UnitIdMap,
     content: &'a ActiveContent,
@@ -410,6 +416,138 @@ fn build_ecs_content_view<'a>(
     EcsContentView { aoo_per_unit, caster_contexts, active_content: content }
 }
 
+// ── translate_tick_events ─────────────────────────────────────────────────────
+
+/// Translate an engine tick-event stream into `CombatLog` entries and ECS side-
+/// effects (inserting `Dead`).
+///
+/// Shared by `engine_turn_start_system` (live-actor turn start) and
+/// `advance_turn_system` (dead-actor sirota-DoT skip loop).
+pub(crate) fn translate_tick_events(
+    events: &[Event],
+    id_map: &UnitIdMap,
+    commands: &mut Commands,
+    log: &mut CombatLog,
+) {
+    let mut pending_status_tick: Option<(UnitId, StatusId)> = None;
+
+    for ev in events {
+        match ev {
+            Event::StatusTicked { target, status, .. } => {
+                pending_status_tick = Some((*target, status.clone()));
+            }
+            Event::UnitDamaged { target, amount, .. } => {
+                if let Some((tick_target, tick_status)) = pending_status_tick.take() {
+                    if tick_target == *target {
+                        if let Some(tgt_ent) = id_map.get_entity(*target) {
+                            log.push(CombatEvent::PoisonTick {
+                                target: tgt_ent,
+                                status: tick_status,
+                                damage: *amount,
+                            });
+                        }
+                    } else {
+                        if let Some(tgt_ent) = id_map.get_entity(*target) {
+                            log.push(CombatEvent::DamageResult {
+                                target: tgt_ent,
+                                raw: *amount,
+                                armor_reduced: 0,
+                                final_damage: *amount,
+                            });
+                        }
+                    }
+                } else if let Some(tgt_ent) = id_map.get_entity(*target) {
+                    log.push(CombatEvent::DamageResult {
+                        target: tgt_ent,
+                        raw: *amount,
+                        armor_reduced: 0,
+                        final_damage: *amount,
+                    });
+                }
+            }
+            Event::StatusRemoved { target, status } => {
+                pending_status_tick = None;
+                if let Some(tgt_ent) = id_map.get_entity(*target) {
+                    log.push(CombatEvent::StatusExpired {
+                        target: tgt_ent,
+                        status: status.clone(),
+                    });
+                }
+            }
+            Event::UnitDied { unit } => {
+                pending_status_tick = None;
+                if let Some(ent) = id_map.get_entity(*unit) {
+                    log.push(CombatEvent::UnitDied { entity: ent });
+                    commands.entity(ent).insert(Dead);
+                }
+            }
+            Event::RageGained { unit, current, max } => {
+                if let Some(ent) = id_map.get_entity(*unit) {
+                    log.push(CombatEvent::RageGained {
+                        actor: ent,
+                        current: *current,
+                        max: *max,
+                    });
+                }
+            }
+            Event::ManaRegenerated { .. }
+            | Event::EnergyRegenerated { .. }
+            | Event::UnitHealed { .. }
+            | Event::StatusApplied { .. }
+            | Event::ReactionFired { .. }
+            | Event::UnitMoved { .. }
+            | Event::ActionStarted { .. }
+            | Event::ActionFinished { .. }
+            | Event::CritFailed { .. } => {}
+        }
+    }
+}
+
+// ── engine_turn_start_system ──────────────────────────────────────────────────
+
+/// Fires once per actor handoff: refills AP and regens resources in engine state,
+/// then logs any resource events via `CombatLog`.
+///
+/// Replaces ECS-side `turn_start_system`. Engine is now the sole writer for AP,
+/// mana, and energy at turn boundaries; `project_state_to_ecs` propagates them
+/// back to ECS components in the same frame (Execute step).
+///
+/// Runs first in `CombatStep::TurnStart`.
+pub fn engine_turn_start_system(
+    active_q: Query<Entity, With<ActiveCombatant>>,
+    id_map: Res<UnitIdMap>,
+    mut combat_state: ResMut<CombatStateRes>,
+    combatants: Query<AooRow, With<Combatant>>,
+    active_content: Res<ActiveContent>,
+    mut commands: Commands,
+    mut log: ResMut<CombatLog>,
+    mut last_active: Local<Option<Entity>>,
+) {
+    let current = active_q.single().ok();
+    if current == *last_active { return; }
+    *last_active = current;
+    let Some(actor_ent) = current else { return };
+    let Some(actor_uid) = id_map.get_id(actor_ent) else { return };
+
+    let content = build_ecs_content_view(&combatants, &id_map, &active_content);
+    let events = combat_state.0.start_actor_turn(actor_uid, &content);
+
+    // Resource regen events are actor-local; handle them before the shared
+    // tick translator (which only processes the tick sub-stream).
+    for ev in &events {
+        match ev {
+            Event::ManaRegenerated { current, max, .. } => {
+                log.push(CombatEvent::ManaChanged { actor: actor_ent, current: *current, max: *max });
+            }
+            Event::EnergyRegenerated { current, max, .. } => {
+                log.push(CombatEvent::EnergyChanged { actor: actor_ent, current: *current, max: *max });
+            }
+            _ => {}
+        }
+    }
+
+    translate_tick_events(&events, &id_map, &mut commands, &mut log);
+}
 
 /// `Update` system — authoritative action handler via `combat_engine::step()`.
 ///
@@ -604,18 +742,13 @@ fn translate_cast_events(
 
     for ev in events {
         match ev {
-            Event::UnitDamaged { target: tgt_uid, amount, source: _src_uid } => {
+            Event::UnitDamaged { target: tgt_uid, raw, mitigation, amount, .. } => {
                 let Some(tgt_ent) = id_map.get_entity(*tgt_uid) else { continue };
-                let armor_reduced = combat_state
-                    .0
-                    .unit(*tgt_uid)
-                    .map(|u| u.armor + u.armor_bonus)
-                    .unwrap_or(0);
                 log.push(CombatEvent::DamageResult {
                     target: tgt_ent,
-                    formula: format!("engine: {}", amount),
-                    armor_reduced,
-                    final_damage: *amount as i32,
+                    raw: raw.round() as i32,
+                    armor_reduced: *mitigation,
+                    final_damage: *amount,
                 });
             }
             Event::UnitHealed { target: tgt_uid, amount } => {
@@ -686,7 +819,10 @@ fn translate_cast_events(
             Event::ReactionFired { .. }
             | Event::UnitMoved { .. }
             | Event::ActionStarted { .. }
-            | Event::ActionFinished { .. } => {
+            | Event::ActionFinished { .. }
+            | Event::ManaRegenerated { .. }
+            | Event::EnergyRegenerated { .. }
+            | Event::StatusTicked { .. } => {
                 // No log entry — handled separately or n/a for Cast.
             }
         }
@@ -750,7 +886,7 @@ fn translate_move_events(
             } => {
                 pending_aoo_target = Some(*against);
             }
-            Event::UnitDamaged { target, amount, source } => {
+            Event::UnitDamaged { target, amount, source, .. } => {
                 // Pair with the most recent ReactionFired (decision 6.3).
                 if pending_aoo_target == Some(*target) {
                     let Some(attacker_ent) = id_map.get_entity(*source) else {
@@ -769,7 +905,7 @@ fn translate_move_events(
                     log.push(CombatEvent::OpportunityAttack {
                         attacker: attacker_ent,
                         target: target_ent,
-                        damage: *amount as i32,
+                        damage: *amount,
                         killed,
                     });
                     pending_aoo_target = None;
@@ -797,8 +933,10 @@ fn translate_move_events(
             Event::UnitHealed { .. }
             | Event::StatusApplied { .. }
             | Event::StatusRemoved { .. }
+            | Event::StatusTicked { .. }
             | Event::CritFailed { .. } => {}
             Event::ActionStarted { .. } | Event::ActionFinished { .. } => {}
+            Event::ManaRegenerated { .. } | Event::EnergyRegenerated { .. } => {}
         }
     }
 
@@ -828,6 +966,7 @@ type ProjectionRow<'a> = (
     Has<BonusMovement>,
     Option<&'a mut Rage>,
     Option<&'a mut Mana>,
+    Option<&'a mut Energy>,
     Option<&'a mut StatusEffects>,
 );
 
@@ -874,11 +1013,12 @@ pub fn project_state_to_ecs(
         // Write position.
         positions.insert(entity, unit.pos);
 
-        // Write Vital / ActionPoints / Reactions / Rage / Mana / StatusEffects.
-        if let Ok((mut vital, mut ap, mut reactions, has_bonus, rage_opt, mana_opt, status_effects_opt)) =
+        // Write Vital / ActionPoints / Reactions / Rage / Mana / Energy / StatusEffects.
+        if let Ok((mut vital, mut ap, mut reactions, has_bonus, rage_opt, mana_opt, energy_opt, status_effects_opt)) =
             combatants.get_mut(entity)
         {
             vital.hp = unit.hp;
+            ap.action_points = unit.action_points;
             ap.movement_points = unit.movement_points;
             reactions.remaining = unit.reactions_left as u8;
 
@@ -896,6 +1036,11 @@ pub fn project_state_to_ecs(
             // Project mana.current when both sides carry a mana pool.
             if let (Some((current, _max)), Some(mut mana_comp)) = (unit.mana, mana_opt) {
                 mana_comp.current = current;
+            }
+
+            // Project energy.current when both sides carry an energy pool.
+            if let (Some((current, _max)), Some(mut energy_comp)) = (unit.energy, energy_opt) {
+                energy_comp.current = current;
             }
 
             // Merge statuses: preserve ECS entries the engine doesn't know about

@@ -293,6 +293,9 @@ fn step_inner(
                 }
             }
         }
+        Action::EndTurn { actor } => {
+            state.unit(*actor).ok_or(ActionError::UnknownActor)?;
+        }
         Action::Cast { actor, ability, target, target_pos } => {
             // Engine-side legality check.  Translates IllegalReason to
             // ActionError::Illegal so callers (bridge, sim) see the same
@@ -329,6 +332,11 @@ fn step_inner(
             for &hex in path {
                 effect_queue.push_back(Effect::MovePosition { actor: *actor, to: hex });
             }
+        }
+        Action::EndTurn { .. } => {
+            // Phase 3 minimal arm — no effects. ActionStarted (above) and
+            // ActionFinished (below) are the only events emitted. Phase 4
+            // will add queue advance + RoundPhase transitions.
         }
         Action::Cast { actor, ability, target, target_pos } => {
             // Legality pre-validate (step 6b) already ran and confirmed the
@@ -479,8 +487,7 @@ fn step_inner(
     // can tell the AoO scanner where the mover came from.
 
     let actor_id = match &action {
-        Action::Move { actor, .. } => *actor,
-        Action::Cast { actor, .. } => *actor,
+        Action::Move { actor, .. } | Action::Cast { actor, .. } | Action::EndTurn { actor } => *actor,
     };
     // prev_pos starts as the actor's position before any effects are applied.
     let mut prev_pos = state.unit(actor_id).map(|u| u.pos).unwrap_or_default();
