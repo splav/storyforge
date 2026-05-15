@@ -277,3 +277,89 @@ After gates pass:
 1. Append `## 12. Retrospective` with surprises, deviations, perf numbers, decisions for Phase 3.
 2. Open `step_unisim3_plan.md` from §5.3 template in `unisim.md`.
 3. Tag commit `unisim/phase2-complete`.
+
+---
+
+## 12. Retrospective
+
+Closed 2026-05-15.  10 of 12 gates green; 1 deferred (mining), 1 skipped (`engine_cast` bench by explicit choice — `engine_move` covers the perf budget).
+
+### Commit chain (24 implementation commits)
+
+| SHA | Step | Scope |
+|---|---|---|
+| `8b85503` | 1 | RNG unification: `core::DiceRng` + `DiceExpr` into engine; `DiceRngRes` wrapper; `DiceRngAdapter` deleted |
+| `152a858` | 2a | ID unification: `AbilityId/WeaponId/ArmorId` join `StatusId` in engine; conversion sites collapse to identity |
+| `292140a` | 2b | ContentView extension: minimal `AbilityDef`/`StatusDef`/`TargetType`/`AbilityRange`/`Cost`/`ResourceKind` in engine |
+| `c8e661d` | 2c-prep | Team unification (single canonical `Team` in engine; bridge identity drops) |
+| `d16e42b` | 2c | Legality migration: `check_legality` + `ActionState` trait + `IllegalReason` move into `combat_engine::legality`; `combat::actions` module deleted |
+| `adcfe5c` | 3 | `Effect::Heal` + `Event::UnitHealed` — DoT-neutralize then HP restore |
+| `36de8b1` | 4 | `Effect::PayCost` + `ApplyStatus` + `RemoveStatus`; `ActiveStatus` gains `applier: UnitId` |
+| `abd4e61` | 5 | Engine `targeting` module; `compute_affected_targets` + `aoe_cells` |
+| `0eefbd6` | 5+ | Known-issue tracker: projector clobbers `apply_effects` writes (self-resolved at step 9d) |
+| `b25c84f` | 6a | Engine `EffectDef` + `StatusApplication`/`StatusOn` types |
+| `f1fc58e` | 6b | `Action::Cast` variant + `step()` arm skeleton (legality pre-validate) |
+| `6bac19e` | 6c | Cast cost payment (`Effect::DecrementAP` + `PayCost` × N) |
+| `8f2b360` | 6d | Cast damage fanout per-target with per-target ordering pinned |
+| `c0e816e` | 6e | Cast heal + status fanout |
+| `454790c` | 6f | Cast crit-fail integration: engine rolls d20; `CritFailOutcome` primitives |
+| `886f1e6` | 7a | `ActionInput::Cast` routing through `process_action_system` |
+| `575553f` | 7b | Cast event → `CombatLog` translation (DamageResult / HealResult / StatusApplied / AbilityUsed / ManaChanged) |
+| `3af6237` | 7c | Projector: `Mana` + `StatusEffects` projection with applier-aware merge |
+| `df05391` | 7d | Crit-fail event translation (`CriticalMiss` / `CritFailSideEffect`) |
+| `648c7f4` | 9a | Player writers migrate `UseAbility` → `ActionInput::Cast` |
+| `e538b98` | 9b | AI writers migrate |
+| `edf49fc` | 9c | Scorched-earth: 49 legacy Bevy integration tests deleted (validate / pipeline / effects / statuses / crit_fail) |
+| `c72fc35` | 9d | Legacy systems + message types deleted (~500 lines); `BevyActions` relocated to `legality_adapter.rs`; crit-fail wiring from race content; Summon carve-out in bridge |
+| `3644d2a` | 9e | Sim cleanup: persistent `CombatState` in `SimState`; `apply_cast` + `apply_primary` + `apply_statuses` deleted (~250 lines); engine disadvantage wiring |
+
+### Gate results
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | Damage / heal / status parity | ✅ combat_engine 103 + bridge_smoke 18 tests |
+| 2 | 12.1 (speed + status refresh) preserved | ✅ engine `RefreshAggregates` derived from `ApplyStatus`/`RemoveStatus`/`Heal`-removal |
+| 3 | 12.3 (rage on damage + AoO) preserved | ✅ engine `Damage` derives `GainRage(src)`+`GainRage(tgt)`+`Death` in order |
+| 4 | AI scoring stable (mining) | ⏸ deferred — playtest log baselines being generated post-hoc |
+| 5 | Bench ≤ 1.2× Phase 1 baseline | ✅ engine_move 1.93 µs vs 2.16 µs ceiling (11% margin) |
+| 6 | No `apply_effects_system` / `validate_action_system` / `resolve_action_system` | ✅ all three deleted; `BevyActions` moved to `legality_adapter` |
+| 7 | No `UseAbility` / `ValidatedAction` / `ApplyDamage` / `ApplyHeal` / `ApplyStatus` types | ✅ deleted in 9d |
+| 8 | No `sim::apply_cast` | ✅ deleted in 9e |
+| 9 | No `combat::actions` module | ✅ migrated to `combat_engine::legality` in 2c |
+| 10 | Crit-fail RNG single-stream | ✅ engine rolls d20 inside `step()`; no resolver split |
+| 11 | RNG unified | ✅ `combat_engine::DiceRng` is canonical; `DiceRngAdapter` gone |
+| 12 | Multi-frame playtest correctness | ✅ self-resolved at 9d (`apply_effects` deletion ends the projector clobber) |
+
+### Perf numbers (bench `engine_move`, 10-unit scenario)
+
+|  | Phase 0 | Phase 1 | Phase 2 | Δ vs Phase 1 |
+|---|---|---|---|---|
+| engine `step(Move)` | 1.51 µs | 1.80 µs | **1.93 µs** | +5.9% |
+| legacy (sim shim) | 2.02 µs | 2.39 µs | **2.77 µs** | +16.4% |
+
+The +5.9% on `engine_move` is likely traceable to enum-size growth (`Effect` +5 variants, `Event` +4) widening match-table sizes and slightly worsening branch prediction. The +16.4% on the legacy sim shim is partly the same engine cost plus the bench fixture's per-iteration snapshot↔CombatState rebuild (the bench doesn't benefit from Phase 2's persistent `CombatState` because each iteration constructs a fresh `SimState`).
+
+Vs Phase 0 (1.51 µs): `engine_move` at 1.93 µs = 1.28× — **over** the original Phase 0 1.2× gate, but each phase gates against its predecessor. Phase 3 should still consider whether the cumulative drift is sustainable; the absolute regression budget (Phase 1→Phase 2: +130 ns) translates to ~13 ms per 100-action plan-search branch in the AI hot loop. Add `engine_cast` bench at Phase 3 start to establish a cast-side baseline.
+
+### Deviations from original plan
+
+- **Step 6 split into 6 sub-commits (a–f).** Plan implied one ~250-line step. In practice the engine Cast arm grew incrementally: types → variant + skeleton → cost → damage → heal/status → crit-fail. Each commit was atomic and ≤80 lines.
+- **Step 7 split into 4 sub-commits (a–d).** Bridge wiring fanned out: routing → event translation → projector extension → crit-fail events.
+- **Step 8 (AI scoring sanity / mining) deferred.** Phase 1 also skipped its mining check. Mining requires real combat JSONL log baselines which neither phase had ready. Deferred to ad-hoc post-tag work.
+- **Step 9 split into 5 sub-commits (a–e).** Plan listed it as one atomic flip. Real scope was too large for one commit; split into producer migration (a/b), test cleanup (c), system deletion (d), sim cleanup (e).
+- **Scorched-earth test deletion in 9c.** 49 legacy Bevy integration tests deleted rather than migrated to `ActionInput::Cast` (the alternative). Engine cast tests (103) + bridge_smoke tests (18) cover the same mechanics at unit + bridge level; the legacy pipeline tests tested a pipeline being deleted. **Accepted coverage shrink** for integration-shape regression detection; new bridge_smoke tests can be added as needed.
+- **Crit-fail wiring landed in 9d, not 7-followup.** Step 6f shipped a TODO for `EcsContentView::caster_contexts.crit_fail_outcome` (defaulted to Miss). The TODO closed in 9d when the path-content lookup was wired alongside the system-deletion commit. Live combat crit-fails return to correct behavior post-9d.
+- **Disadvantage regression discovered at 9e end.** Engine's `step()` was dropping `LegalAction.disadvantage` from `check_legality`; AI plan damage estimates over-counted by ~18% on disoriented casters. Fixed in same commit via `DiceSource::roll_disadvantage` + `effect_for_target(disadvantage: bool)` parameter threading.
+- **`SpawnUnit` (Summon) carve-out**: kept as Bevy message + `apply_spawn_system` per plan §1 OUT decision. Bridge inspects ability content for `EffectDef::Summon` and writes the Bevy message alongside calling `step()` for non-Summon arms. Engine doesn't model summon spawning yet.
+
+### Decisions to carry into Phase 3
+
+- **DoT tick mechanics + `dot_per_tick` per-apply.** Engine `Effect::ApplyStatus` currently writes `dot_per_tick: 0`. Phase 3 wires `StatusDef.dot_dice` into engine and rolls per-apply via `rng`. The `applier: UnitId` field on `ActiveStatus` is in place for kill-credit attribution when DoT ticks hit lethal.
+- **Round-tick mechanics (`TickDot`, status duration decrement) need engine ownership.** Phase 3 step §5.3 calls for `Action::EndTurn` migration with `TickDot` at `RoundPhase::EndRound`. Engine's `RoundPhase` enum exists but `EndRound` isn't reached today — Phase 4 (turn queue) is where this fully comes together.
+- **`auras_system` migration.** Currently outside engine; bridge merge logic in 7c preserves aura-applied statuses. Phase 3 considers migrating auras to engine (auras-as-effect) vs. keeping them as ECS-level pre-step writes.
+- **`CircuitBreach` crit-fail uses fixed `DiceExpr::new(0,1,2)` placeholder.** Bevy variant computes from cast's `mana_cost / 2`. Engine doesn't know mana_cost at crit-fail time. Phase 3 follow-up: pass the cast's mana_cost into `CritFailOutcome::SelfDamage` resolution OR change content to specify the dice explicitly.
+- **`engine_cast` bench.** Skipped in Phase 2 retro by explicit choice. Phase 3 should add it at step 1 to gate cast-side perf regressions.
+- **Bench cumulative drift.** Phase 1 added 19%; Phase 2 added 6%. If Phase 3 adds another 10–15%, we hit Phase 0 baseline × 1.5× territory. Phase 3 starts with a bench profile run + budget reservation.
+- **Mining post-Phase-2 still owed.** User collecting fresh playtest logs to compare against the Phase 1 baseline; defer Phase 2 gate criterion 4 to that ad-hoc check.
+- **Sim's `SimState.combat_state` clone cost.** Phase 1 step 7 deferred concern. Phase 2 step 9e landed the persistent field but didn't profile the clone cost across plan branches. If AI mining shows wall-clock regression > 20%, the fallback is `im::Vector<Unit>` (persistent collection).
+- **`EngineCheckState`'s `is_in_bounds` returns `true` unconditionally.** Engine is grid-topology-agnostic; legality's `TargetOutOfBounds` branch fires only via Bevy adapter. Acceptable for Phase 2; revisit if engine ever needs to enforce bounds (e.g., if Phase 4 turn flow includes spawn-location validation).
