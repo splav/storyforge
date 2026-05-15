@@ -1217,3 +1217,305 @@ fn process_action_system_routes_cast_into_engine() {
     assert_eq!(caster_unit.action_points, 1, "AP cost paid");
     assert_eq!(caster_unit.mana, Some((7, 10)), "Mana cost paid (10 - 3)");
 }
+
+// ── Phase 2 step 7c: Mana + StatusEffects projection tests ──────────────────
+
+/// Projector writes `Mana.current` from engine state.
+///
+/// `CombatantBundle` does not include `Mana`, so it is inserted manually.
+/// Engine state is seeded with `mana = Some((4, 10))`; after `app.update()`
+/// the ECS `Mana.current` must equal 4.
+#[test]
+fn projector_writes_mana_from_engine_state() {
+    use storyforge::game::components::Mana;
+    use storyforge::combat_engine::state::{CombatState, RoundPhase, Team as EngineTeam, Unit};
+
+    let start = hex_from_offset(0, 0);
+    let mut app = projector_only_app();
+
+    let actor = app
+        .world_mut()
+        .spawn(CombatantBundle::new(
+            Team::Player,
+            test_stats(),
+            0,
+            6,
+            vec![],
+            test_equipment(),
+        ))
+        .id();
+
+    // Add Mana component — not part of CombatantBundle by default.
+    app.world_mut()
+        .entity_mut(actor)
+        .insert(Mana { current: 10, max: 10 });
+
+    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
+
+    let actor_uid = entity_to_uid(actor);
+    app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
+
+    // Seed engine state with mana pool at full.
+    let unit = Unit {
+        id: actor_uid,
+        team: EngineTeam::Player,
+        pos: start,
+        hp: 20,
+        max_hp: 20,
+        armor: 0,
+        armor_bonus: 0,
+        base_speed: 6,
+        speed: 6,
+        action_points: 1,
+        movement_points: 6,
+        reactions_left: 1,
+        statuses: vec![],
+        rage: None,
+        mana: Some((10, 10)),
+        energy: None,
+    };
+    let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
+    app.world_mut().resource_mut::<CombatStateRes>().0 = state;
+
+    // Mutate engine mana to simulate a cast that spent mana.
+    {
+        let mut res = app.world_mut().resource_mut::<CombatStateRes>();
+        let u = res.0.unit_mut(actor_uid).expect("unit in state");
+        u.mana = Some((4, 10));
+    }
+
+    app.update();
+
+    let mana = app
+        .world()
+        .entity(actor)
+        .get::<Mana>()
+        .expect("actor must have Mana");
+    assert_eq!(mana.current, 4, "Mana.current must match engine after projection");
+}
+
+/// Projector writes `StatusEffects` from engine state.
+///
+/// Engine state carries one status `(poison, actor_uid)`; after `app.update()`
+/// the ECS `StatusEffects.0` must contain exactly that entry.
+#[test]
+fn projector_writes_statuses_from_engine_state() {
+    use storyforge::combat_engine::state::{
+        ActiveStatus as EngineActiveStatus, CombatState, RoundPhase, Team as EngineTeam, Unit,
+    };
+
+    let start = hex_from_offset(0, 0);
+    let mut app = projector_only_app();
+
+    let actor = app
+        .world_mut()
+        .spawn(CombatantBundle::new(
+            Team::Player,
+            test_stats(),
+            0,
+            6,
+            vec![],
+            test_equipment(),
+        ))
+        .id();
+
+    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
+
+    let actor_uid = entity_to_uid(actor);
+    app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
+
+    // Seed engine state with no statuses yet.
+    let unit = Unit {
+        id: actor_uid,
+        team: EngineTeam::Player,
+        pos: start,
+        hp: 20,
+        max_hp: 20,
+        armor: 0,
+        armor_bonus: 0,
+        base_speed: 6,
+        speed: 6,
+        action_points: 1,
+        movement_points: 6,
+        reactions_left: 1,
+        statuses: vec![],
+        rage: None,
+        mana: None,
+        energy: None,
+    };
+    let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
+    app.world_mut().resource_mut::<CombatStateRes>().0 = state;
+
+    // Push a status into engine state (simulates Cast having applied poison).
+    {
+        let mut res = app.world_mut().resource_mut::<CombatStateRes>();
+        let u = res.0.unit_mut(actor_uid).expect("unit in state");
+        u.statuses.push(EngineActiveStatus {
+            id: StatusId::from("poison"),
+            rounds_remaining: 3,
+            dot_per_tick: 2,
+            applier: actor_uid,
+        });
+    }
+
+    app.update();
+
+    let status_effects = app
+        .world()
+        .entity(actor)
+        .get::<StatusEffects>()
+        .expect("actor must have StatusEffects");
+    assert_eq!(status_effects.0.len(), 1, "exactly one status projected");
+    let s = &status_effects.0[0];
+    assert_eq!(s.id, StatusId::from("poison"), "status id must match");
+    assert_eq!(s.rounds_remaining, 3, "rounds_remaining must match");
+    assert_eq!(s.dot_per_tick, 2, "dot_per_tick must match");
+    assert_eq!(s.applier, actor, "applier entity must resolve to actor");
+}
+
+/// Projector preserves aura-applied ECS statuses that the engine doesn't know about.
+///
+/// The aura entry (written by `apply_auras_system` in TurnStart, after
+/// `init_state_from_ecs`) has a different applier entity than the
+/// ability-applied entry in engine state.  After projection:
+/// - "aura_buff" (aura_source applier, not in engine) → preserved.
+/// - "burning"   (actor_uid applier, only in engine)  → projected in.
+#[test]
+fn projector_preserves_aura_applied_status_during_cast_projection() {
+    use storyforge::combat_engine::state::{
+        ActiveStatus as EngineActiveStatus, CombatState, RoundPhase, Team as EngineTeam, Unit,
+    };
+
+    let start = hex_from_offset(0, 0);
+    let start2 = hex_from_offset(1, 0);
+    let mut app = projector_only_app();
+
+    let actor = app
+        .world_mut()
+        .spawn(CombatantBundle::new(
+            Team::Player,
+            test_stats(),
+            0,
+            6,
+            vec![],
+            test_equipment(),
+        ))
+        .id();
+    let aura_source = app
+        .world_mut()
+        .spawn(CombatantBundle::new(
+            Team::Player,
+            test_stats(),
+            0,
+            6,
+            vec![],
+            test_equipment(),
+        ))
+        .id();
+
+    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
+    app.world_mut().resource_mut::<HexPositions>().insert(aura_source, start2);
+
+    let actor_uid = entity_to_uid(actor);
+    let aura_source_uid = entity_to_uid(aura_source);
+    app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
+    app.world_mut().resource_mut::<UnitIdMap>().insert(aura_source, aura_source_uid);
+
+    // Pre-seed ECS: actor already has an aura-applied status (aura_buff from aura_source).
+    // This simulates what apply_auras_system writes in TurnStart, which the engine
+    // doesn't know about because init_state_from_ecs ran before TurnStart.
+    app.world_mut()
+        .entity_mut(actor)
+        .get_mut::<StatusEffects>()
+        .expect("actor must have StatusEffects")
+        .0
+        .push(ActiveStatus {
+            id: StatusId::from("aura_buff"),
+            rounds_remaining: 1,
+            dot_per_tick: 0,
+            applier: aura_source,
+        });
+
+    // Seed engine state: actor has no statuses (engine was seeded before aura was applied).
+    let actor_unit = Unit {
+        id: actor_uid,
+        team: EngineTeam::Player,
+        pos: start,
+        hp: 20,
+        max_hp: 20,
+        armor: 0,
+        armor_bonus: 0,
+        base_speed: 6,
+        speed: 6,
+        action_points: 1,
+        movement_points: 6,
+        reactions_left: 1,
+        statuses: vec![],
+        rage: None,
+        mana: None,
+        energy: None,
+    };
+    let aura_unit = Unit {
+        id: aura_source_uid,
+        team: EngineTeam::Player,
+        pos: start2,
+        hp: 20,
+        max_hp: 20,
+        armor: 0,
+        armor_bonus: 0,
+        base_speed: 6,
+        speed: 6,
+        action_points: 1,
+        movement_points: 6,
+        reactions_left: 1,
+        statuses: vec![],
+        rage: None,
+        mana: None,
+        energy: None,
+    };
+    let state = CombatState::new(vec![actor_unit, aura_unit], 1, RoundPhase::ActorTurn, 0);
+    app.world_mut().resource_mut::<CombatStateRes>().0 = state;
+
+    // Engine: Cast has applied "burning" to actor (self-applied).
+    {
+        let mut res = app.world_mut().resource_mut::<CombatStateRes>();
+        let u = res.0.unit_mut(actor_uid).expect("unit in state");
+        u.statuses.push(EngineActiveStatus {
+            id: StatusId::from("burning"),
+            rounds_remaining: 2,
+            dot_per_tick: 1,
+            applier: actor_uid,
+        });
+    }
+
+    app.update();
+
+    let status_effects = app
+        .world()
+        .entity(actor)
+        .get::<StatusEffects>()
+        .expect("actor must have StatusEffects");
+    assert_eq!(
+        status_effects.0.len(),
+        2,
+        "both aura_buff (preserved) and burning (projected) must be present"
+    );
+
+    let ids: Vec<&str> = status_effects.0.iter().map(|s| s.id.0.as_str()).collect();
+    assert!(ids.contains(&"aura_buff"), "aura_buff must be preserved");
+    assert!(ids.contains(&"burning"), "burning must be projected from engine");
+
+    let aura_entry = status_effects
+        .0
+        .iter()
+        .find(|s| s.id.0 == "aura_buff")
+        .unwrap();
+    assert_eq!(aura_entry.applier, aura_source, "aura_buff applier must be aura_source entity");
+
+    let burning_entry = status_effects
+        .0
+        .iter()
+        .find(|s| s.id.0 == "burning")
+        .unwrap();
+    assert_eq!(burning_entry.applier, actor, "burning applier must resolve to actor entity");
+}

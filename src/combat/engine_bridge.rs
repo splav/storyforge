@@ -789,19 +789,27 @@ type ProjectionRow<'a> = (
     &'a mut Reactions,
     Has<BonusMovement>,
     Option<&'a mut Rage>,
+    Option<&'a mut Mana>,
+    Option<&'a mut StatusEffects>,
 );
 
 /// `Update` system — writes engine `CombatState` back to ECS components.
 ///
-/// For each unit in `CombatStateRes`, projects:
-/// - `pos`              → `HexPositions::insert(entity, pos)`
+/// Projects:
+/// - `pos`              → `HexPositions`
 /// - `hp`               → `Vital.hp`
 /// - `movement_points`  → `ActionPoints.movement_points`
 /// - `reactions_left`   → `Reactions.remaining`
-/// - `rage.current`     → `Rage.current` (if engine unit has rage and ECS entity has `Rage`)
+/// - `rage.current`     → `Rage.current`
+/// - `mana.current`     → `Mana.current`  (Phase 2 step 7c)
+/// - `statuses`         → `StatusEffects` (Phase 2 step 7c, applier-aware merge)
 ///
-/// Additionally removes `BonusMovement` when `movement_points == 0` and the
-/// entity had the marker (mirrors `movement_system` lines 284–286).
+/// Aura-applied statuses (written by `apply_auras_system` in TurnStart)
+/// are preserved by the merge: any ECS `ActiveStatus` whose `(id, applier)`
+/// pair is NOT in the engine's `unit.statuses` survives projection.  Engine
+/// entries replace matching pairs and append new ones.
+///
+/// Additionally removes `BonusMovement` when `movement_points == 0`.
 ///
 /// Runs immediately after `process_action_system` in the `CombatStep::Execute`
 /// chain so engine mutations land in ECS in the same frame.  Engine state is
@@ -810,9 +818,7 @@ type ProjectionRow<'a> = (
 /// so the projector is authoritative for engine-owned fields throughout each
 /// round.
 ///
-/// Unknown units (no ECS entity in `UnitIdMap`) are silently skipped — they
-/// cannot be projected yet.  Deferred fields (mana, armor_bonus, speed)
-/// are out of scope for Phase 1.
+/// Unknown units (no ECS entity in `UnitIdMap`) are silently skipped.
 ///
 /// TODO(unisim phase2 step 10) — `hp` / `rage.current` writes here race
 /// against `apply_effects_system`'s writes in the same frame.  Because
@@ -838,8 +844,8 @@ pub fn project_state_to_ecs(
         // Write position.
         positions.insert(entity, unit.pos);
 
-        // Write Vital / ActionPoints / Reactions / Rage.
-        if let Ok((mut vital, mut ap, mut reactions, has_bonus, rage_opt)) =
+        // Write Vital / ActionPoints / Reactions / Rage / Mana / StatusEffects.
+        if let Ok((mut vital, mut ap, mut reactions, has_bonus, rage_opt, mana_opt, status_effects_opt)) =
             combatants.get_mut(entity)
         {
             vital.hp = unit.hp;
@@ -855,6 +861,46 @@ pub fn project_state_to_ecs(
                 (unit.rage, rage_opt)
             {
                 ecs_rage.current = engine_current;
+            }
+
+            // Project mana.current when both sides carry a mana pool.
+            if let (Some((current, _max)), Some(mut mana_comp)) = (unit.mana, mana_opt) {
+                mana_comp.current = current;
+            }
+
+            // Merge statuses: preserve ECS entries the engine doesn't know about
+            // (e.g. aura-applied entries written by `apply_auras_system` in TurnStart,
+            // which runs after `init_state_from_ecs` and is therefore invisible to the
+            // engine). An ECS entry is preserved when its (id, applier) pair has no
+            // match in engine state; engine entries replace matching pairs.
+            if let Some(mut status_effects) = status_effects_opt {
+                // Build the set of (id, applier UnitId) pairs the engine knows about.
+                let engine_known: std::collections::HashSet<(&combat_engine::StatusId, UnitId)> =
+                    unit.statuses.iter().map(|s| (&s.id, s.applier)).collect();
+
+                // Preserved: ECS entries whose (id, applier) are NOT in the engine set.
+                let preserved: Vec<crate::game::components::ActiveStatus> = status_effects
+                    .0
+                    .iter()
+                    .filter(|ecs_s| {
+                        !engine_known.contains(&(&ecs_s.id, entity_to_uid(ecs_s.applier)))
+                    })
+                    .cloned()
+                    .collect();
+
+                // Projected from engine: translate engine entries to ECS shape.
+                let mut new_list: Vec<crate::game::components::ActiveStatus> = preserved;
+                for engine_s in &unit.statuses {
+                    let applier_entity = id_map.get_entity(engine_s.applier).unwrap_or(entity);
+                    new_list.push(crate::game::components::ActiveStatus {
+                        id: engine_s.id.clone(),
+                        rounds_remaining: engine_s.rounds_remaining,
+                        dot_per_tick: engine_s.dot_per_tick,
+                        applier: applier_entity,
+                    });
+                }
+
+                status_effects.0 = new_list;
             }
         }
     }
