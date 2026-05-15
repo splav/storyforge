@@ -81,7 +81,7 @@ pub fn generate_plans(
                 .last()
                 .cloned()
                 .unwrap_or_else(|| snap.clone());
-            let base_sim = SimState { snapshot: base_snapshot, actor, status_tags: ctx.status_tags };
+            let base_sim = SimState::from_snapshot(&base_snapshot, actor, ctx.status_tags);
             let Some(sa) = base_sim.actor_unit() else { continue };
             if sa.action_points <= 0 && sa.movement_points <= 0 {
                 continue;
@@ -136,11 +136,7 @@ pub fn generate_plans(
                     }
                 }
                 // Apply this step on a cloned sim to measure outcome + state.
-                let mut ext_sim = SimState {
-                    snapshot: base_sim.snapshot.clone(),
-                    actor,
-                    status_tags: ctx.status_tags,
-                };
+                let mut ext_sim = SimState::from_snapshot(&base_sim.snapshot, actor, ctx.status_tags);
                 let disadvantage = match &step {
                     PlanStep::Cast { ability, target, target_pos } => {
                         let proposal = ProposedAction {

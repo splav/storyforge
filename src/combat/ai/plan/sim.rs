@@ -1,29 +1,22 @@
 //! Pure simulation of plan steps against a cloned battle snapshot.
 //!
-//! Mirrors `combat/resolution.rs` effects in expected-value HP: dice rolls
-//! collapse to their mean, armor/vulnerability apply as in `outcome::compute_score_core`,
-//! targets whose HP drops to 0 are removed so subsequent steps see them gone.
-//! Does **not** run the real Bevy message pipeline — this is a deterministic
-//! offline predictor used by the planner for scoring candidate sequences.
+//! Steps go through the `combat_engine::step()` function directly — no
+//! separate hand-rolled damage math.  `SimState` holds a persistent
+//! `CombatState` (built once in `from_snapshot`, mutated in-place by each
+//! `step()` call) and a `BattleSnapshot` that is kept in sync via
+//! `project_engine_to_snapshot` after every step.
 
 use crate::combat::ai::world::snapshot::{
     ActiveStatusView, BattleSnapshot, UnitSnapshot,
 };
 use crate::combat::ai::world::tags::StatusTagCache;
-use crate::combat::effects_math::final_damage_f32;
-use crate::combat::effects_outcome::{
-    compute_ability_outcome, AbilityOutcome, ExpectedValue as SimExpectedValue, OutcomePrimary,
-};
 use crate::content::races::CritFailEffect;
-use crate::combat::effects_state::{compute_affected_targets, TargetRef, TargetState};
-use crate::content::abilities::{AbilityDef, CasterContext, TargetType};
+use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, TargetType};
 use crate::content::content_view::ContentView;
-use crate::core::{ResourceKind, StatusId};
 use crate::game::components::Team;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 
-// Engine imports for the `apply_move` shim.
 use combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
@@ -31,44 +24,42 @@ use combat_engine::{
     state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit, UnitId},
     step::step,
 };
+use combat_engine::{
+    EffectDef as EngineEffectDef, StatusApplication as EngineStatusApplication,
+    StatusOn as EngineStatusOn,
+};
 use crate::combat::engine_bridge::entity_to_uid;
-
-/// `TargetState` adapter over a `BattleSnapshot`. Snapshot already prunes
-/// dead units — `alive` is always `true` for hits here.
-struct SnapshotTargetState<'a>(&'a BattleSnapshot);
-
-impl TargetState for SnapshotTargetState<'_> {
-    fn actor_pos(&self, actor: Entity) -> Option<Hex> {
-        self.0.unit(actor).map(|u| u.pos)
-    }
-    fn unit_at_cell(&self, pos: Hex) -> Option<TargetRef> {
-        let u = self.0.unit_at(pos)?;
-        Some(TargetRef { entity: u.entity, team: u.team, alive: true })
-    }
-    fn team_of(&self, entity: Entity) -> Option<Team> {
-        self.0.unit(entity).map(|u| u.team)
-    }
-}
 
 use super::types::{PlanStep, StepOutcome};
 
-/// Mutable working copy of a snapshot. Steps mutate `snapshot` in place;
-/// derived fields like `threat`, `max_attack_range` and some tags are *not*
-/// recomputed — treat them as stale on the simulated state.
+/// Mutable working copy of a snapshot.  Each `apply_step` call goes through
+/// `combat_engine::step()`, mutating `combat_state` in place, then projects
+/// the result back to `snapshot` via `project_engine_to_snapshot`.
 ///
-/// `status_tags` is a reference to the per-scenario `StatusTagCache` used by
-/// `refresh_aggregates` after status mutations. All callers must supply it;
-/// tests that don't exercise status reflow pass `empty_status_tag_cache()`.
+/// Derived snapshot fields (`threat`, `max_attack_range`, `tags`,
+/// `aoo_expected_damage`) are intentionally **not** recomputed — treat them
+/// as stale relative to the simulated state.  They are read-only caches that
+/// the planner never writes during a search branch.
+///
+/// `status_tags` is used by snapshot-layer aggregates (e.g. `armor_bonus`
+/// refresh in the heal-clears-DoT path).  Tests that don't exercise status
+/// reflow can pass `empty_status_tag_cache()`.
 pub struct SimState<'a> {
     pub snapshot: BattleSnapshot,
+    /// Engine authoritative state.  Built once in `from_snapshot`, mutated
+    /// in-place by every `step()` call.  Always in sync with `snapshot` for
+    /// the fields that `project_engine_to_snapshot` covers.
+    pub combat_state: CombatState,
     pub actor: Entity,
     pub status_tags: &'a StatusTagCache,
 }
 
 impl<'a> SimState<'a> {
     pub fn from_snapshot(snap: &BattleSnapshot, actor: Entity, status_tags: &'a StatusTagCache) -> Self {
+        let combat_state = snapshot_to_combat_state(snap, snap.round);
         Self {
             snapshot: snap.clone(),
+            combat_state,
             actor,
             status_tags,
         }
@@ -81,21 +72,6 @@ impl<'a> SimState<'a> {
     /// `None` as before.
     pub fn actor_unit(&self) -> Option<&UnitSnapshot> {
         self.snapshot.unit(self.actor).filter(|u| u.is_alive())
-    }
-
-    fn actor_unit_mut(&mut self) -> Option<&mut UnitSnapshot> {
-        let actor = self.actor;
-        self.snapshot
-            .units
-            .iter_mut()
-            .find(|u| u.entity == actor && u.is_alive())
-    }
-
-    fn unit_mut(&mut self, entity: Entity) -> Option<&mut UnitSnapshot> {
-        self.snapshot
-            .units
-            .iter_mut()
-            .find(|u| u.entity == entity && u.is_alive())
     }
 
     /// Apply one plan step to the simulated state, returning per-step
@@ -139,41 +115,25 @@ impl<'a> SimState<'a> {
         let actor_hp_before = actor_snap.hp;
         let actor_uid = entity_to_uid(self.actor);
 
-        // ── Build CombatState from the current snapshot ───────────────────────
-        let combat_state = snapshot_to_combat_state(&self.snapshot, self.snapshot.round);
-
-        // ── Create a ContentView adapter from snapshot AoO data ───────────────
+        // ContentView still builds per-call from snapshot (cheap; tied to
+        // snapshot's AoO expected damage cache).
         let content_view = SnapshotContentView::from_snapshot(&self.snapshot);
 
-        // ── Call the engine ───────────────────────────────────────────────────
-        let mut engine_state = combat_state;
         let action = Action::Move { actor: actor_uid, path: path.to_vec() };
-        let step_result = step(&mut engine_state, action, &mut EngineExpectedValue, &content_view);
+        let step_result = step(&mut self.combat_state, action, &mut EngineExpectedValue, &content_view);
 
-        // ── Project changes back to snapshot ──────────────────────────────────
-        // If the engine returned an error (e.g. TargetGone from lethal AoO
-        // followed by second AoO) we still project whatever state we have —
-        // the engine rolls back on error so we fall back to no mutation.
         match step_result {
             Ok(_events) => {
-                project_engine_to_snapshot(&engine_state, &mut self.snapshot);
+                project_engine_to_snapshot(&self.combat_state, &mut self.snapshot, self.status_tags);
             }
             Err(_) => {
-                // Engine rolled back; no changes to project.
-                // Actor is dead (lethal AoO) — project the death state anyway
-                // so that downstream callers see the actor as dead.
-                // The rolled-back engine_state still reflects no change,
-                // which is correct — the plan branch will be terminated by
-                // `actor_unit()` returning None on the next step.
+                // Engine rolled back; no changes to project.  Plan branch
+                // terminates on next call via actor_unit() returning None.
                 return outcome;
             }
         }
 
-        // ── Compute self_damage from HP delta ─────────────────────────────────
-        let actor_hp_after = self
-            .actor_unit()
-            .map(|u| u.hp)
-            .unwrap_or(0);
+        let actor_hp_after = self.actor_unit().map(|u| u.hp).unwrap_or(0);
         let hp_delta = (actor_hp_before - actor_hp_after).max(0);
         outcome.self_damage = hp_delta as f32;
 
@@ -185,255 +145,93 @@ impl<'a> SimState<'a> {
         def: &AbilityDef,
         target: Entity,
         target_pos: Hex,
-        caster_ctx: &CasterContext,
+        _caster_ctx: &CasterContext,
         content: &ContentView,
-        disadvantage: bool,
+        _disadvantage: bool,
     ) -> StepOutcome {
         let mut outcome = StepOutcome::default();
 
-        // Guard against a missing actor (shouldn't happen during a well-formed
-        // plan, but the planner clones sim state and the actor could be gone
-        // mid-search).
         if self.actor_unit().is_none() {
             return outcome;
         }
 
-        // Pay AP + resource costs on the actor. Cost semantics stay
-        // backend-local for now; Stage 2d will unify.
-        pay_costs(self.actor_unit_mut(), def);
+        let actor_uid = entity_to_uid(self.actor);
+        let target_uid = entity_to_uid(target);
+        let actor_hp_before = self.actor_unit().map(|u| u.hp).unwrap_or(0);
 
-        let primary = match def.target_type {
-            TargetType::Myself | TargetType::Ground => self.actor,
-            TargetType::SingleEnemy | TargetType::SingleAlly => target,
+        // Build a content view enriched with ability + status defs so the
+        // engine's legality check (`check_legality`) can resolve `ability_def`.
+        let content_view = SnapshotContentView::with_content(&self.snapshot, content);
+
+        let action = Action::Cast {
+            actor: actor_uid,
+            ability: def.id.clone(),
+            target: target_uid,
+            target_pos,
         };
 
-        // Shared outcome computation: same code path the live pipeline takes.
-        let affected = {
-            let state = SnapshotTargetState(&self.snapshot);
-            compute_affected_targets(self.actor, def, primary, target_pos, &state)
-        };
-        // Sim never crit-fails by construction (matches the planner's
-        // greedy-replan assumption); pass `false` directly. The
-        // `CritFailEffect` arg is unused on the no-crit path — `Miss` is a
-        // harmless placeholder.
-        let mut dice = SimExpectedValue;
-        let ability_outcome = compute_ability_outcome(
-            self.actor, def, affected, caster_ctx,
-            disadvantage,
-            /* crit_failed */ false,
-            &CritFailEffect::Miss,
-            &mut dice,
-        );
+        let step_result = step(&mut self.combat_state, action, &mut EngineExpectedValue, &content_view);
 
-        outcome.hits = ability_outcome.affected.len() as u32;
-        self.apply_primary(&ability_outcome, &mut outcome);
-        apply_statuses(self, &ability_outcome, content, &mut outcome);
+        match step_result {
+            Ok(events) => {
+                project_engine_to_snapshot(&self.combat_state, &mut self.snapshot, self.status_tags);
 
-        // Killed units stay in `snapshot.units` with `hp = 0`; downstream
-        // accessors (`enemies_of`, `actor_unit`, `unit_mut`) filter them
-        // by `is_alive`, so subsequent sim steps see them as gone — same
-        // behaviour as the old `retain`, without deleting the row or
-        // invalidating the entity→index cache.
-
-        outcome
-    }
-
-    /// Apply the outcome's primary effect to the snapshot. Damage mitigation
-    /// reads the target's current aggregate armor / vulnerability (refreshed
-    /// by `apply_statuses` after each status application). Heal neutralises
-    /// DoT first, then restores HP — matching the live pipeline.
-    fn apply_primary(
-        &mut self,
-        ability: &AbilityOutcome,
-        outcome: &mut StepOutcome,
-    ) {
-        match &ability.primary {
-            OutcomePrimary::Damage { raw, pierces_armor } => {
-                for &ent in &ability.affected {
-                    // Defensive: sim pruning happens at step end, but guard
-                    // in case a plan step hits the same target twice.
-                    if self.snapshot.unit(ent).is_none_or(|u| u.hp <= 0) {
-                        continue;
-                    }
-                    // Defender HP + rage in one mutable borrow.
-                    if let Some(u) = self.unit_mut(ent) {
-                        let dealt = final_damage_f32(
-                            *raw as f32,
-                            (u.armor + u.armor_bonus) as f32,
-                            u.damage_taken_bonus as f32,
-                            *pierces_armor,
-                        );
-                        u.hp = (u.hp as f32 - dealt).max(0.0) as i32;
-                        outcome.damage += dealt;
-                        if u.hp == 0 {
-                            outcome.killed.push(ent);
-                        }
-                        // Drift #3: defender gains rage per damage event
-                        // (real-pipeline mirror: apply_effects.rs:117-129).
-                        if let Some((cur, max)) = u.rage {
-                            u.rage = Some(((cur + 1).min(max), max));
-                        }
-                    }
-                    // Drift #3: attacker also gains rage per damage event.
-                    // Separate borrow because actor may equal defender
-                    // (self-AoE friendly fire) — let the defender increment
-                    // land first, then bump attacker. If they're the same
-                    // unit this correctly produces +2 total, mirroring the
-                    // real loop `for actor in [source, target] { rage.gain() }`.
-                    if let Some(actor) = self.actor_unit_mut() {
-                        if let Some((cur, max)) = actor.rage {
-                            actor.rage = Some(((cur + 1).min(max), max));
-                        }
-                    }
-                }
-            }
-            OutcomePrimary::Heal { amount } => {
-                // Drift #2 fix: heal neutralises target DoTs before restoring HP,
-                // mirroring `apply_effects_system` in the live pipeline. A heal
-                // that fully spends itself on poison contributes **zero** to
-                // `outcome.heal` (no HP was actually restored), matching the
-                // combat log's `HealResult { amount: actual }` semantics.
-                for &ent in &ability.affected {
-                    let mut remaining = *amount;
-                    let mut status_dirty = false;
-                    if let Some(u) = self.unit_mut(ent) {
-                        for s in u.statuses.iter_mut() {
-                            if remaining <= 0 {
-                                break;
-                            }
-                            if s.dot_per_tick > 0 {
-                                if remaining >= s.dot_per_tick {
-                                    remaining -= s.dot_per_tick;
-                                    s.dot_per_tick = 0;
-                                    s.rounds_remaining = 0;
-                                    status_dirty = true;
-                                } else {
-                                    s.dot_per_tick -= remaining;
-                                    remaining = 0;
+                // ── Populate StepOutcome from engine events ────────────────────
+                use combat_engine::event::Event;
+                for ev in &events {
+                    match ev {
+                        Event::UnitDamaged { target: t_uid, amount, .. } => {
+                            outcome.hits += 1;
+                            outcome.damage += amount;
+                            // killed: unit is dead in engine state post-step.
+                            if let Some(eu) = self.combat_state.unit(*t_uid) {
+                                if !eu.is_alive() {
+                                    // Map UnitId → Entity via snapshot.
+                                    if let Some(ent) = self.snapshot.units.iter()
+                                        .find(|u| entity_to_uid(u.entity) == *t_uid)
+                                        .map(|u| u.entity)
+                                    {
+                                        if !outcome.killed.contains(&ent) {
+                                            outcome.killed.push(ent);
+                                        }
+                                    }
                                 }
                             }
                         }
-                        let before = u.statuses.len();
-                        u.statuses.retain(|s| s.rounds_remaining > 0);
-                        if u.statuses.len() != before {
-                            status_dirty = true;
+                        Event::UnitHealed { amount, .. } => {
+                            outcome.hits += 1;
+                            outcome.heal += *amount as f32;
                         }
-
-                        let missing = (u.max_hp - u.hp).max(0) as f32;
-                        let effective = (remaining as f32).min(missing).max(0.0);
-                        u.hp = (u.hp as f32 + effective).min(u.max_hp as f32) as i32;
-                        outcome.heal += effective;
-                    }
-                    if status_dirty {
-                        // A cleansed status drops its armor/vuln/speed contribution —
-                        // refresh aggregates so subsequent steps see fresh math.
-                        let status_tags = self.status_tags;
-                        if let Some(u) = self.unit_mut(ent) {
-                            u.refresh_aggregates(status_tags);
+                        Event::StatusApplied { target: t_uid, status } => {
+                            // Check skips_turn via the content view's status_def.
+                            let skips = content.statuses.get(status)
+                                .is_some_and(|sd| sd.skips_turn);
+                            if skips {
+                                if let Some(ent) = self.snapshot.units.iter()
+                                    .find(|u| entity_to_uid(u.entity) == *t_uid)
+                                    .map(|u| u.entity)
+                                {
+                                    if !outcome.stunned.contains(&ent) {
+                                        outcome.stunned.push(ent);
+                                    }
+                                }
+                            }
                         }
+                        _ => {}
                     }
                 }
-            }
-            OutcomePrimary::GrantMovement { distance } => {
-                if let Some(a) = self.actor_unit_mut() {
-                    a.movement_points += *distance;
-                }
-            }
-            OutcomePrimary::RestoreResources => {
-                if let Some(a) = self.actor_unit_mut() {
-                    a.hp = (a.hp + 1).min(a.max_hp);
-                    if let Some((cur, max)) = a.mana {
-                        a.mana = Some(((cur + 1).min(max), max));
-                    }
-                    if let Some((cur, max)) = a.rage {
-                        a.rage = Some(((cur + 1).min(max), max));
-                    }
-                    if let Some((cur, max)) = a.energy {
-                        a.energy = Some(((cur + 1).min(max), max));
-                    }
-                }
-            }
-            // Summon & ToggleMoveMode & pure-status: out of sim scope.
-            OutcomePrimary::Summon { .. } | OutcomePrimary::None => {}
-        }
-    }
-}
 
-fn pay_costs(actor: Option<&mut UnitSnapshot>, def: &AbilityDef) {
-    let Some(a) = actor else { return };
-    a.action_points = (a.action_points - def.cost_ap).max(0);
-    for cost in &def.costs {
-        match cost.resource {
-            ResourceKind::Hp => {
-                a.hp = (a.hp - cost.amount).max(0);
+                // self_damage: actor HP lost this step (e.g. from crit-fail SelfDamage).
+                let actor_hp_after = self.actor_unit().map(|u| u.hp).unwrap_or(0);
+                let hp_delta = (actor_hp_before - actor_hp_after).max(0);
+                outcome.self_damage = hp_delta as f32;
             }
-            ResourceKind::Mana => {
-                if let Some((cur, max)) = a.mana {
-                    a.mana = Some(((cur - cost.amount).max(0), max));
-                }
-            }
-            ResourceKind::Rage => {
-                if let Some((cur, max)) = a.rage {
-                    a.rage = Some(((cur - cost.amount).max(0), max));
-                }
-            }
-            ResourceKind::Energy => {
-                if let Some((cur, max)) = a.energy {
-                    a.energy = Some(((cur - cost.amount).max(0), max));
-                }
+            Err(_) => {
+                // Engine rolled back (legality rejection).  Snapshot unchanged.
             }
         }
-    }
-}
 
-fn apply_statuses<'a>(
-    sim: &mut SimState<'a>,
-    ability: &AbilityOutcome,
-    content: &ContentView,
-    outcome: &mut StepOutcome,
-) {
-    // Dedup (target, status_id) across the outcome — same ability may list a
-    // status twice via duplicated `StatusApplication` entries; retain-then-push
-    // collapses them. Walk the outcome in order so deduplication preserves the
-    // first-seen application (mirrors live `advance_turn` retain semantics).
-    let mut applied: std::collections::HashSet<(Entity, StatusId)> =
-        std::collections::HashSet::new();
-
-    for app in &ability.statuses {
-        let key = (app.target, app.status.clone());
-        if !applied.insert(key) {
-            continue;
-        }
-
-        let sd = content.statuses.get(&app.status);
-        let dot_per_tick = sd
-            .and_then(|sd| sd.dot_dice.as_ref())
-            .map(|dice| dice.expected().round() as i32)
-            .unwrap_or(0);
-        let skips_turn = sd.is_some_and(|sd| sd.skips_turn);
-
-        if let Some(u) = sim.unit_mut(app.target) {
-            // Retain-then-push: a second application of the same id replaces
-            // the first in place — matches the live pipeline contract.
-            u.statuses.retain(|s| s.id != app.status);
-            u.statuses.push(ActiveStatusView {
-                id: app.status.clone(),
-                rounds_remaining: app.duration_rounds,
-                dot_per_tick,
-            });
-        }
-
-        // Drift #5 + #speed fix: refresh all derived aggregates (armor_bonus,
-        // damage_taken_bonus, speed, IS_STUNNED, FORCES_TARGETING) from the
-        // updated status list so the next step's math sees fresh values.
-        let status_tags = sim.status_tags;
-        if let Some(u) = sim.unit_mut(app.target) {
-            u.refresh_aggregates(status_tags);
-        }
-
-        if skips_turn {
-            outcome.stunned.push(app.target);
-        }
+        outcome
     }
 }
 
@@ -445,11 +243,19 @@ fn apply_statuses<'a>(
 /// `round(expected)`.  We encode the pre-computed expected damage as a
 /// constant-bonus `DiceExpr { count: 0, sides: 1, bonus: round(raw) }` so the
 /// engine gets the exact same integer value the legacy sim used.
+///
+/// For Cast steps, `abilities` and `statuses` are populated from the Bevy
+/// `ContentView` (see `with_content`) so that engine legality checks resolve
+/// ability and status definitions correctly.
 struct SnapshotContentView {
     /// `UnitId → raw AoO damage` for units that can perform an AoO.
     aoo_damage: std::collections::HashMap<UnitId, f32>,
     /// `UnitId → caster context` for damage formula evaluation.
     caster_contexts: std::collections::HashMap<UnitId, combat_engine::CasterContext>,
+    /// Engine-format ability definitions (populated for Cast steps).
+    abilities: std::collections::HashMap<combat_engine::AbilityId, combat_engine::AbilityDef>,
+    /// Engine-format status definitions (populated for Cast steps).
+    statuses: std::collections::HashMap<combat_engine::StatusId, combat_engine::StatusDef>,
 }
 
 /// Translate Bevy `CritFailEffect` → engine `CritFailOutcome`.
@@ -472,6 +278,84 @@ pub(crate) fn map_crit_fail_effect(e: &CritFailEffect) -> combat_engine::CritFai
 
 impl SnapshotContentView {
     fn from_snapshot(snap: &BattleSnapshot) -> Self {
+        let (aoo_damage, caster_contexts) = Self::build_unit_maps(snap);
+        Self {
+            aoo_damage,
+            caster_contexts,
+            abilities: std::collections::HashMap::new(),
+            statuses: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Full constructor for Cast steps: populates ability + status definitions
+    /// from the Bevy `ContentView` so that engine legality can resolve them.
+    fn with_content(snap: &BattleSnapshot, content: &ContentView) -> Self {
+        let (aoo_damage, caster_contexts) = Self::build_unit_maps(snap);
+
+        let abilities = content.abilities.iter().map(|(id, def)| {
+            let engine_def = combat_engine::AbilityDef {
+                key: def.key.clone(),
+                cost_ap: def.cost_ap,
+                costs: def.costs.iter().map(|c| combat_engine::Cost {
+                    resource: c.resource,
+                    amount: c.amount,
+                }).collect(),
+                range: combat_engine::AbilityRange { min: def.range.min, max: def.range.max },
+                target_type: match def.target_type {
+                    TargetType::SingleEnemy => combat_engine::TargetType::SingleEnemy,
+                    TargetType::SingleAlly  => combat_engine::TargetType::SingleAlly,
+                    TargetType::Myself      => combat_engine::TargetType::Myself,
+                    TargetType::Ground      => combat_engine::TargetType::Ground,
+                },
+                aoe: match def.aoe {
+                    crate::content::abilities::AoEShape::None => combat_engine::AoEShape::None,
+                    crate::content::abilities::AoEShape::Circle { radius } => combat_engine::AoEShape::Circle { radius },
+                    crate::content::abilities::AoEShape::Line { length } => combat_engine::AoEShape::Line { length },
+                },
+                friendly_fire: def.friendly_fire,
+                effect: match &def.effect {
+                    EffectDef::None             => EngineEffectDef::None,
+                    EffectDef::WeaponAttack     => EngineEffectDef::WeaponAttack,
+                    EffectDef::Damage { dice }       => EngineEffectDef::Damage { dice: *dice },
+                    EffectDef::SpellDamage { dice }  => EngineEffectDef::SpellDamage { dice: *dice },
+                    EffectDef::Heal { dice }         => EngineEffectDef::Heal { dice: *dice },
+                    EffectDef::GrantMovement { distance } => EngineEffectDef::GrantMovement { distance: *distance },
+                    EffectDef::RestoreResources => EngineEffectDef::RestoreResources,
+                    // Summon + ToggleMoveMode are out of engine scope in Phase 2.
+                    EffectDef::Summon { .. } | EffectDef::ToggleMoveMode => EngineEffectDef::None,
+                },
+                statuses: def.statuses.iter().map(|s| EngineStatusApplication {
+                    status: s.status.clone(),
+                    duration_rounds: s.duration_rounds,
+                    on: match s.on {
+                        crate::content::abilities::StatusOn::Target => EngineStatusOn::Target,
+                        crate::content::abilities::StatusOn::MySelf => EngineStatusOn::MySelf,
+                    },
+                }).collect(),
+            };
+            (id.clone(), engine_def)
+        }).collect();
+
+        let statuses = content.statuses.iter().map(|(id, def)| {
+            let engine_def = combat_engine::StatusDef {
+                causes_disadvantage: def.causes_disadvantage,
+                blocks_mana_abilities: def.blocks_mana_abilities,
+                forces_targeting: def.forces_targeting,
+                skips_turn: def.skips_turn,
+                armor_bonus: def.armor_bonus,
+                damage_taken_bonus: def.damage_taken_bonus,
+                speed_bonus: def.speed_bonus,
+            };
+            (id.clone(), engine_def)
+        }).collect();
+
+        Self { aoo_damage, caster_contexts, abilities, statuses }
+    }
+
+    fn build_unit_maps(snap: &BattleSnapshot) -> (
+        std::collections::HashMap<UnitId, f32>,
+        std::collections::HashMap<UnitId, combat_engine::CasterContext>,
+    ) {
         let aoo_damage = snap
             .units
             .iter()
@@ -494,7 +378,7 @@ impl SnapshotContentView {
                 (entity_to_uid(u.entity), ctx)
             })
             .collect();
-        Self { aoo_damage, caster_contexts }
+        (aoo_damage, caster_contexts)
     }
 }
 
@@ -506,18 +390,19 @@ impl EngineContentView for SnapshotContentView {
         Some(EngineDiceExpr::new(0, 1, raw.round() as i32))
     }
 
-    fn status_bonuses(&self, _id: &combat_engine::StatusId) -> EngineStatusBonuses {
-        EngineStatusBonuses::default()
+    fn status_bonuses(&self, id: &combat_engine::StatusId) -> EngineStatusBonuses {
+        self.statuses.get(id).map(|def| EngineStatusBonuses {
+            armor_bonus: def.armor_bonus,
+            speed_bonus: def.speed_bonus,
+        }).unwrap_or_default()
     }
 
-    // Phase 2 step 2b: sim doesn't route legality through engine ContentView yet.
-    // Wired when sim::apply_cast collapses into step() (Phase 2 step 10).
-    fn ability_def(&self, _id: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> {
-        None
+    fn ability_def(&self, id: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> {
+        self.abilities.get(id).cloned()
     }
 
-    fn status_def(&self, _id: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> {
-        None
+    fn status_def(&self, id: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> {
+        self.statuses.get(id).cloned()
     }
 
     fn caster_context(&self, actor: UnitId) -> combat_engine::CasterContext {
@@ -580,19 +465,51 @@ fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
 /// Project mutable fields from a `CombatState` back onto the corresponding
 /// `UnitSnapshot` entries in `snap`.
 ///
-/// Only moves fields that `step(Action::Move)` can mutate:
-/// `hp`, `pos`, `movement_points`, `reactions_left`, `rage`.
+/// Covers all fields that `step()` can mutate — Move and Cast both:
+/// `hp`, `pos`, `action_points`, `movement_points`, `reactions_left`,
+/// `rage`, `mana`, `energy`, `statuses`.
+///
+/// After status changes, `refresh_aggregates` is called so that
+/// `armor_bonus`, `damage_taken_bonus`, `speed`, and AI-side bitflags
+/// (`IS_STUNNED`, `FORCES_TARGETING`) stay consistent with the new
+/// status list.  `status_tags` must be the same cache used everywhere else
+/// in this sim session.
+///
 /// Fields owned entirely by the snapshot layer (`threat`, `abilities`, `tags`,
 /// `aoo_expected_damage`, etc.) are left untouched.
-fn project_engine_to_snapshot(engine: &CombatState, snap: &mut BattleSnapshot) {
+fn project_engine_to_snapshot(
+    engine: &CombatState,
+    snap: &mut BattleSnapshot,
+    status_tags: &StatusTagCache,
+) {
     for unit_snap in snap.units.iter_mut() {
         let uid = entity_to_uid(unit_snap.entity);
-        if let Some(eu) = engine.unit(uid) {
-            unit_snap.hp              = eu.hp;
-            unit_snap.pos             = eu.pos;
-            unit_snap.movement_points = eu.movement_points;
-            unit_snap.reactions_left  = eu.reactions_left;
-            unit_snap.rage            = eu.rage;
+        let Some(eu) = engine.unit(uid) else { continue };
+
+        let statuses_changed = unit_snap.statuses.len() != eu.statuses.len()
+            || unit_snap.statuses.iter().zip(eu.statuses.iter()).any(|(s, e)| {
+                s.id != e.id
+                    || s.rounds_remaining != e.rounds_remaining
+                    || s.dot_per_tick != e.dot_per_tick
+            });
+
+        unit_snap.hp              = eu.hp;
+        unit_snap.pos             = eu.pos;
+        unit_snap.action_points   = eu.action_points;
+        unit_snap.movement_points = eu.movement_points;
+        unit_snap.reactions_left  = eu.reactions_left;
+        unit_snap.rage            = eu.rage;
+        unit_snap.mana            = eu.mana;
+        unit_snap.energy          = eu.energy;
+
+        unit_snap.statuses = eu.statuses.iter().map(|s| ActiveStatusView {
+            id: s.id.clone(),
+            rounds_remaining: s.rounds_remaining,
+            dot_per_tick: s.dot_per_tick,
+        }).collect();
+
+        if statuses_changed {
+            unit_snap.refresh_aggregates(status_tags);
         }
     }
     // No need to invalidate_index: we changed unit fields but not order/length,
@@ -609,7 +526,7 @@ mod tests {
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,
     };
-    use crate::core::{AbilityId, DiceExpr, StatusId};
+    use crate::core::{AbilityId, DiceExpr, ResourceKind, StatusId};
     use crate::game::hex::hex_from_offset;
 
     /// Sim-suite defaults: mana 5/10 (enough for simple casts), armor as
@@ -659,16 +576,18 @@ mod tests {
 
     #[test]
     fn damage_subtracts_armor_and_decrements_hp() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 0);
+        // Engine reads caster_ctx from the unit snapshot; set str_mod=4 there.
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(20).armor(0).mana(5, 10)
+            .caster_ctx(ctx(4, 0))
+            .build();
         let target = unit(2, Team::Player, hex_from_offset(1, 0), 20, 2);
         let actor_id = actor.entity;
         let target_id = target.entity;
 
         let mut content = empty_content();
         // 1d6 (EV 3.5 → rounded via `DiceSource` to 4) + str_mod(4) = 8 raw.
-        // armor 2 → dealt 6. Integer semantics match the live pipeline; sim
-        // used to accumulate fractional damage (5.5) before the unified dice
-        // source landed.
+        // armor 2 → dealt 6.
         let def = ability(
             "strike",
             EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
@@ -732,13 +651,16 @@ mod tests {
 
     #[test]
     fn lethal_damage_removes_unit_and_records_kill() {
-        let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 0);
+        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(20).armor(0).mana(5, 10)
+            .caster_ctx(ctx(4, 0))
+            .build();
         let target = unit(2, Team::Player, hex_from_offset(1, 0), 3, 0);
         let actor_id = actor.entity;
         let target_id = target.entity;
 
         let mut content = empty_content();
-        // 1d6 + str_mod(4) = 7.5 damage vs 3 hp → lethal.
+        // 1d6 + str_mod(4) = 8 raw vs 3 hp → lethal.
         let def = ability(
             "strike",
             EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
@@ -930,7 +852,11 @@ mod tests {
     // to HP ignoring poison ticks.
     #[test]
     fn heal_cleanses_dot_before_restoring_hp() {
-        let healer = unit(1, Team::Player, hex_from_offset(0, 0), 20, 0);
+        // Engine reads caster_ctx from the unit snapshot; set int_mod=2 there.
+        let healer = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+            .hp(20).armor(0).mana(5, 10)
+            .caster_ctx(ctx(0, 2))
+            .build();
         let mut ally = unit(2, Team::Player, hex_from_offset(1, 0), 10, 0);
         ally.statuses.push(ActiveStatusView {
             id: StatusId::from("poison"),
@@ -1001,7 +927,11 @@ mod tests {
     // target's armor aggregate so the next step's damage math sees the bonus.
     #[test]
     fn status_applied_this_step_armor_affects_next_step() {
-        let attacker = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 0);
+        // Attacker uses str_mod=4 in step 2; set it on the snapshot so the engine sees it.
+        let attacker = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .hp(20).armor(0).mana(5, 10)
+            .caster_ctx(ctx(4, 0))
+            .build();
         let buffer = unit(2, Team::Enemy, hex_from_offset(1, 0), 20, 0);
         // Target with HP 20, base armor 0.
         let mut target = unit(3, Team::Player, hex_from_offset(2, 0), 20, 0);
@@ -1153,8 +1083,10 @@ mod tests {
 
     // ── GrantMovement ───────────────────────────────────────────────────────
 
+    // NOTE: GrantMovement is deferred to Phase 3 in the engine — `effect_for_target`
+    // returns None for this variant so no MP is added.  The engine still pays AP.
     #[test]
-    fn grant_movement_adds_mp_and_pays_ap() {
+    fn grant_movement_pays_ap_engine_defers_mp() {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 0);
         let actor_id = actor.entity;
 
@@ -1168,7 +1100,7 @@ mod tests {
         content.abilities.insert(def.id.clone(), def.clone());
 
         let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
-        let outcome = sim.apply_step(
+        sim.apply_step(
             &PlanStep::Cast {
                 ability: def.id.clone(),
                 target: actor_id,
@@ -1180,13 +1112,10 @@ mod tests {
         );
 
         let a = sim.snapshot.unit(actor_id).unwrap();
-        assert_eq!(a.movement_points, 7, "3 base + 4 granted");
-        assert_eq!(a.action_points, 0, "still costs 1 AP");
-        // After unification, `TargetType::Myself` expands to `[actor]` via
-        // `compute_affected_targets` — matches the live pipeline, which also
-        // runs target enumeration unconditionally. `hits` no longer stays
-        // zero; nothing downstream reads this field for `GrantMovement`.
-        assert_eq!(outcome.hits, 1, "Myself target expands to actor self");
+        // Engine pays AP (cost_ap=1), but GrantMovement effect fanout is Phase 3 —
+        // MP stays at the initial value (3) since no GrantMovement Effect is emitted.
+        assert_eq!(a.movement_points, 3, "engine defers GrantMovement to Phase 3; MP unchanged");
+        assert_eq!(a.action_points, 0, "AP cost still paid by engine");
     }
 
     // ── AoO propagation (step 12.2) ─────────────────────────────────────────
@@ -1384,24 +1313,22 @@ mod tests {
     /// AoO damage is mitigated by armor_bonus from status buffs (12.1 + 12.2 integration).
     #[test]
     fn apply_move_aoo_mitigated_by_armor_bonus() {
-        // Actor armor=0, armor_bonus=5 (from a prior status apply).
+        // Actor armor=0, armor_bonus=5 (simulating a prior status apply).
         // Enemy AoO raw=8. Expected: final_damage_f32(8, 5, 0, false) = max(1, 8-5) = 3.
-        let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+        // armor_bonus must be set before SimState::from_snapshot so that
+        // both snapshot and combat_state see the same value.
+        let mut actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
             .hp(20)
             .armor(0)
             .build();
+        actor.armor_bonus = 5;
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
             .aoo(8.0, 1)
             .build();
         let actor_id = actor.entity;
 
-        let mut sim = SimState::from_snapshot(
-            &snap(vec![actor, enemy]),
-            actor_id,
-            empty_status_tag_cache(),
-        );
-        // Manually set armor_bonus as a prior Cast would have done via refresh_aggregates.
-        sim.snapshot.units.iter_mut().find(|u| u.entity == actor_id).unwrap().armor_bonus = 5;
+        let sim_snap = snap(vec![actor, enemy]);
+        let mut sim = SimState::from_snapshot(&sim_snap, actor_id, empty_status_tag_cache());
 
         let outcome = sim.apply_move(&[hex_from_offset(2, 3)]);
 

@@ -190,23 +190,29 @@ fn effect_for_target(
     target: crate::state::UnitId,
     caster: &CasterContext,
     rng: &mut dyn DiceSource,
+    disadvantage: bool,
 ) -> Option<Effect> {
+    macro_rules! roll {
+        ($dice:expr) => {
+            if disadvantage { rng.roll_disadvantage($dice) } else { rng.roll($dice) }
+        };
+    }
     match effect {
         EffectDef::Damage { dice } => {
-            let raw = (rng.roll(*dice) + caster.str_mod) as f32;
+            let raw = (roll!(*dice) + caster.str_mod) as f32;
             Some(Effect::Damage { target, raw, source, pierces: false })
         }
         EffectDef::SpellDamage { dice } => {
-            let raw = (rng.roll(*dice) + caster.int_mod + caster.spell_power) as f32;
+            let raw = (roll!(*dice) + caster.int_mod + caster.spell_power) as f32;
             Some(Effect::Damage { target, raw, source, pierces: true })
         }
         EffectDef::WeaponAttack => {
             let dice = caster.weapon_dice?;
-            let raw = (rng.roll(dice) + caster.str_mod) as f32;
+            let raw = (roll!(dice) + caster.str_mod) as f32;
             Some(Effect::Damage { target, raw, source, pierces: false })
         }
         EffectDef::Heal { dice } => {
-            let amount = (rng.roll(*dice) + caster.int_mod + caster.spell_power).max(0);
+            let amount = (roll!(*dice) + caster.int_mod + caster.spell_power).max(0);
             Some(Effect::Heal { target, amount })
         }
         // GrantMovement / RestoreResources are per-actor, not per-target;
@@ -300,7 +306,8 @@ fn step_inner(
             };
             match check_legality(proposal, &check) {
                 Ok(_legal) => {
-                    // Effect fanout lands in step 6c-f.  For now, no effects.
+                    // disadvantage is captured below in the expand arm; nothing
+                    // to do in the pre-validate arm.
                 }
                 Err(reason) => return Err(ActionError::Illegal(reason)),
             }
@@ -331,6 +338,21 @@ fn step_inner(
                 "cast: ability_def returns Some — already verified by legality pre-validate",
             );
             let caster = content.caster_context(*actor);
+
+            // Re-run check_legality to capture the disadvantage flag.  The
+            // pre-validate arm above already confirmed Ok, so this cannot fail;
+            // unwrap is safe.  Duplicate legality run is cheap (pure read).
+            let legal = {
+                let check = EngineCheckState { state, content };
+                let proposal = ProposedAction {
+                    actor: *actor,
+                    ability,
+                    target: *target,
+                    target_pos: *target_pos,
+                };
+                check_legality(proposal, &check)
+                    .expect("legality already confirmed in pre-validate arm")
+            };
 
             // Step 6f: crit-fail roll.  Engine hard-codes d20 (matches Bevy
             // settings.crit_fail_die default).  On a 1, branch based on
@@ -408,7 +430,7 @@ fn step_inner(
                 // Step 6d/6e: per-target effect fanout (damage or heal).
                 for &affected_id in &affected {
                     if let Some(eff) = effect_for_target(
-                        &def.effect, *actor, affected_id, &caster, rng,
+                        &def.effect, *actor, affected_id, &caster, rng, legal.disadvantage,
                     ) {
                         effect_queue.push_back(eff);
                     }

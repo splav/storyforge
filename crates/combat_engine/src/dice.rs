@@ -62,6 +62,9 @@ pub trait DiceSource {
     fn roll(&mut self, dice: DiceExpr) -> i32;
     /// Return the analytical expected value without advancing the RNG.
     fn expected(&self, dice: DiceExpr) -> f32;
+    /// Roll under disadvantage: real RNG rolls twice and takes the min;
+    /// `ExpectedValue` returns the analytical per-die disadvantaged mean.
+    fn roll_disadvantage(&mut self, dice: DiceExpr) -> i32;
 }
 
 // ── ExpectedValue ─────────────────────────────────────────────────────────────
@@ -78,6 +81,10 @@ impl DiceSource for ExpectedValue {
 
     fn expected(&self, dice: DiceExpr) -> f32 {
         dice.expected()
+    }
+
+    fn roll_disadvantage(&mut self, dice: DiceExpr) -> i32 {
+        dice.expected_disadvantage().round() as i32
     }
 }
 
@@ -160,5 +167,11 @@ impl DiceSource for DiceRng {
 
     fn expected(&self, dice: DiceExpr) -> f32 {
         dice.expected()
+    }
+
+    fn roll_disadvantage(&mut self, dice: DiceExpr) -> i32 {
+        let a = Self::roll(self, &dice);
+        let b = Self::roll(self, &dice);
+        a.min(b)
     }
 }
