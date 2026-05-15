@@ -22,20 +22,11 @@ mod aoo;
 #[path = "combat/auras.rs"]
 mod auras;
 
-#[path = "combat/crit_fail.rs"]
-mod crit_fail;
-
-#[path = "combat/effects.rs"]
-mod effects;
-
 #[path = "combat/equipment.rs"]
 mod equipment;
 
 #[path = "combat/movement.rs"]
 mod movement;
-
-#[path = "combat/pipeline.rs"]
-mod pipeline;
 
 #[path = "combat/replay_assert.rs"]
 mod replay_assert;
@@ -43,8 +34,3 @@ mod replay_assert;
 #[path = "combat/sim_parity.rs"]
 mod sim_parity;
 
-#[path = "combat/statuses.rs"]
-mod statuses;
-
-#[path = "combat/validation.rs"]
-mod validation;

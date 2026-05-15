@@ -236,6 +236,15 @@ Updated 2026-05-14 after pre-implementation discovery pass + architecture review
 - **AI scoring numerical parity.** Engine cast resolution must produce identical damage/heal numbers to sim's `compute_ability_outcome`. Pre-Phase-2 mining baseline captures current agenda mix; post-step-7 (witness-mode) confirms numerical parity before authority flip in step 9. If formulas diverge (e.g., rounding rules), pin via a parity test before continuing.
 - **Engine `IllegalReason::TauntForcesTarget` semantics.** Engine knows unit positions and team but doesn't currently parse status content for `forces_targeting`. Requires `ContentView::status_def` returning a struct with that bool. Confirmed in scope (already in §1 ContentView surface) but worth double-checking at step 1.
 
+**Legacy Bevy integration tests deleted in step 9c (scorched earth).**
+54 tests in tests/combat/{validation,pipeline,effects,statuses,crit_fail}.rs
+deleted alongside the systems they exercised.  Mechanics coverage moves
+to engine cast.rs / effect.rs / step.rs (103 tests) + bridge_smoke.rs
+(~10 tests).  Integration-shaped coverage of the bridge → ECS path
+narrows; future Phase 3+ work that needs multi-frame regression coverage
+will add new bridge_smoke tests rather than resurrecting the deleted
+files.
+
 ### Known issues — self-resolve at Phase 2 step 10
 
 - **Projector clobbers `apply_effects_system` writes between frames** (discovered 2026-05-14 mid-step-5 from a playtest log).  Root cause: `project_state_to_ecs` writes `Vital.hp` / `Rage.current` from `CombatStateRes` every frame.  `init_state_from_ecs` (`OnEnter(AwaitCommand)`, Phase 1 step 6) mirrors ECS into engine state **once per round**, so within a round the engine's `unit.hp` stays at the round-start value.  Each subsequent frame the projector overwrites whatever `apply_effects_system` just wrote — damage from non-Move actions (e.g. Lyra's Fireball) is visible at end-of-frame but reverted next frame.  By round transition ECS hp = round-start hp; init re-mirrors that stale value; AI debug + log show full HP throughout combat.  **Self-resolves at Phase 2 step 10** when `apply_effects_system` deletes and engine becomes the sole writer for hp/rage/mana/statuses (single-writer ⇒ no race).  Until then: playtest hp visuals are broken; tests stay green (single-frame `app.update()` doesn't surface the race).  Added `TODO(unisim phase2 step 10)` markers at `process_action_system` Ok-arm and `project_state_to_ecs` so the trade-off is visible at read-time.  Gate criterion 12 above pins the multi-frame test that lands with step 10.
