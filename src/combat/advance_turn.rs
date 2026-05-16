@@ -52,7 +52,16 @@ pub fn advance_turn_system(
     // so sirota-DoT effects continue to expire on schedule. Any deaths insert
     // `Dead`; `check_victory_system` picks them up downstream.
     let start_idx = queue.index;
-    queue.advance();
+    let mut wrapped = false;
+
+    {
+        let prev = queue.index;
+        queue.advance();
+        if queue.index < prev {
+            wrapped = true;
+        }
+    }
+
     loop {
         let current = queue.current();
         let alive = current
@@ -68,7 +77,11 @@ pub fn advance_turn_system(
                 translate_tick_events(&events, &id_map, &mut commands, &mut log);
             }
         }
+        let prev = queue.index;
         queue.advance();
+        if queue.index < prev {
+            wrapped = true;
+        }
         if queue.index == start_idx {
             break;
         }
@@ -77,7 +90,7 @@ pub fn advance_turn_system(
     // 3. Hand off to the next actor or start a new round.
     for e in &active_q { commands.entity(e).remove::<ActiveCombatant>(); }
 
-    if queue.index == 0 {
+    if wrapped {
         next_phase.set(CombatPhase::StartRound);
     } else if let Some(next_actor) = queue.current() {
         commands.entity(next_actor).insert(ActiveCombatant);
@@ -200,6 +213,74 @@ mod tests {
             description: None,
         };
         assert_eq!(determine_outcome(true, false, true, &obj), None);
+    }
+
+    // ── wrap-detection logic ────────────────────────────────────────────────
+    //
+    // Mirrors the inline loop in `advance_turn_system` so we can test the
+    // wrap-detection without spinning up a full Bevy App.
+
+    fn make_queue(len: usize, index: usize) -> TurnQueue {
+        TurnQueue {
+            order: (0..len as u32).map(|i| Entity::from_raw_u32(i).unwrap()).collect(),
+            index,
+        }
+    }
+
+    /// Simulates the advance loop from `advance_turn_system` using an index-based
+    /// `is_alive` predicate. Returns `(wrapped, final_index)`.
+    fn sim_advance(queue: &mut TurnQueue, is_alive: impl Fn(usize) -> bool) -> (bool, usize) {
+        let start_idx = queue.index;
+        let mut wrapped = false;
+
+        let prev = queue.index;
+        queue.advance();
+        if queue.index < prev { wrapped = true; }
+
+        loop {
+            if is_alive(queue.index) { break; }
+            let prev = queue.index;
+            queue.advance();
+            if queue.index < prev { wrapped = true; }
+            if queue.index == start_idx { break; }
+        }
+
+        (wrapped, queue.index)
+    }
+
+    /// Normal mid-round handoff: index 1 → 2 (alive), no wrap.
+    #[test]
+    fn advance_mid_round_no_wrap() {
+        let mut q = make_queue(3, 1);
+        let (wrapped, next) = sim_advance(&mut q, |idx| idx == 2);
+        assert!(!wrapped);
+        assert_eq!(next, 2);
+    }
+
+    /// End-of-round: last slot (2) → wrap to 0 (alive) → StartRound.
+    #[test]
+    fn advance_end_of_round_wraps() {
+        let mut q = make_queue(3, 2);
+        let (wrapped, _) = sim_advance(&mut q, |idx| idx == 0);
+        assert!(wrapped);
+    }
+
+    /// Dead unit at index 0 (Morok summoned, dies each round):
+    /// slot 2 → wrap to 0 (dead, wrap detected!) → skip → 1 (alive).
+    #[test]
+    fn advance_dead_at_zero_after_wrap_still_detects_wrap() {
+        let mut q = make_queue(3, 2);
+        let (wrapped, next) = sim_advance(&mut q, |idx| idx == 1);
+        assert!(wrapped, "wrap must be detected even when slot 0 is dead");
+        assert_eq!(next, 1);
+    }
+
+    /// All dead: loop exhausts queue back to start_idx, wrapped=true (passed 2→0).
+    #[test]
+    fn advance_all_dead_wraps_back_to_start() {
+        let mut q = make_queue(3, 1);
+        let (wrapped, _) = sim_advance(&mut q, |_| false);
+        assert!(wrapped);
     }
 
     #[test]

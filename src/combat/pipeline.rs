@@ -37,6 +37,7 @@ impl Plugin for CombatPipelinePlugin {
         .add_systems(
             Update,
             (
+                project_state_to_ecs,
                 ui::hex_grid::assign_hex_positions,
                 turn_order::build_turn_order,
             )
