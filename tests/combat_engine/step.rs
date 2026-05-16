@@ -11,12 +11,12 @@ use storyforge::combat_engine::{
     action::{Action, ActionError},
     content::{ContentView, StatusBonuses},
     dice::{DiceExpr, ExpectedValue},
-
     event::Event,
+    legality::IllegalReason,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     step::step,
+    StatusId,
 };
-use storyforge::combat_engine::StatusId;
 use storyforge::game::hex::hex_from_offset;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -516,13 +516,14 @@ fn step_recursion_depth_capped() {
 
 // ── Action::EndTurn ───────────────────────────────────────────────────────────
 
-/// EndTurn on an alive actor emits exactly ActionStarted + ActionFinished.
-/// State is unchanged.
+/// EndTurn with a 2-unit queue emits the Phase 4 handoff sequence:
+/// ActionStarted, TurnEnded, TurnStarted{next}, ActionFinished.
 #[test]
-fn endturn_emits_started_and_finished_only() {
-    let actor = make_unit(1, Team::Player, 0, 0);
-    let mut state = state_with(vec![actor]);
-    let state_before = state.clone();
+fn endturn_emits_turn_events_for_mid_round_handoff() {
+    let a = make_unit(1, Team::Player, 0, 0);
+    let b = make_unit(2, Team::Player, 1, 0);
+    let mut state = state_with(vec![a, b]);
+    state.set_turn_queue(vec![UnitId(1), UnitId(2)], 0);
 
     let events = step(
         &mut state,
@@ -530,13 +531,15 @@ fn endturn_emits_started_and_finished_only() {
         &mut ExpectedValue,
         &StubContent::no_weapon(),
     )
-    .expect("EndTurn on alive actor must succeed");
+    .expect("EndTurn on current actor must succeed");
 
-    assert_eq!(events.len(), 2);
-    assert!(matches!(&events[0], Event::ActionStarted { action: Action::EndTurn { actor: UnitId(1) } }));
-    assert!(matches!(&events[1], Event::ActionFinished { action: Action::EndTurn { actor: UnitId(1) } }));
-    assert_eq!(state.unit(UnitId(1)).unwrap().hp, state_before.unit(UnitId(1)).unwrap().hp);
-    assert_eq!(state.unit(UnitId(1)).unwrap().action_points, state_before.unit(UnitId(1)).unwrap().action_points);
+    // ActionStarted, TurnEnded{1}, TurnStarted{2}, ActionFinished
+    assert_eq!(events.len(), 4, "expected 4 events, got: {:?}", events);
+    assert!(matches!(&events[0], Event::ActionStarted { .. }));
+    assert!(matches!(&events[1], Event::TurnEnded { actor: UnitId(1) }));
+    assert!(matches!(&events[2], Event::TurnStarted { actor: UnitId(2) }));
+    assert!(matches!(&events[3], Event::ActionFinished { .. }));
+    assert_eq!(state.turn_queue.index, 1);
 }
 
 /// EndTurn for an unknown actor returns UnknownActor and leaves state untouched.
@@ -544,6 +547,7 @@ fn endturn_emits_started_and_finished_only() {
 fn endturn_rejects_unknown_actor() {
     let actor = make_unit(1, Team::Player, 0, 0);
     let mut state = state_with(vec![actor]);
+    state.set_turn_queue(vec![UnitId(1)], 0);
 
     let err = step(
         &mut state,
@@ -556,21 +560,23 @@ fn endturn_rejects_unknown_actor() {
     assert_eq!(err, ActionError::UnknownActor);
 }
 
-/// EndTurn is permitted even when the actor is dead (hp=0). The sirota
-/// path (Phase 4 dead-skip) will use this to advance the queue past
-/// dead units without a separate code path.
+/// EndTurn issued by an actor who is not the current queue cursor returns
+/// Illegal(NotCurrent), regardless of whether that actor is alive or dead.
 #[test]
-fn endturn_allowed_for_dead_actor() {
-    let mut actor = make_unit(1, Team::Player, 0, 0);
-    actor.hp = 0;
-    let mut state = state_with(vec![actor]);
+fn endturn_rejects_when_actor_not_current() {
+    let a = make_unit(1, Team::Player, 0, 0);
+    let b = make_unit(2, Team::Player, 1, 0);
+    let mut state = state_with(vec![a, b]);
+    // A is current (index 0), B tries to EndTurn.
+    state.set_turn_queue(vec![UnitId(1), UnitId(2)], 0);
 
-    let result = step(
+    let err = step(
         &mut state,
-        Action::EndTurn { actor: UnitId(1) },
+        Action::EndTurn { actor: UnitId(2) },
         &mut ExpectedValue,
         &StubContent::no_weapon(),
-    );
+    )
+    .expect_err("EndTurn by non-current actor must fail");
 
-    assert!(result.is_ok(), "EndTurn must succeed even for a dead actor");
+    assert_eq!(err, ActionError::Illegal(IllegalReason::NotCurrent));
 }

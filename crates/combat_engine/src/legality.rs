@@ -92,6 +92,8 @@ pub enum IllegalReason {
     TauntForcesTarget,
     TargetUnknown,
     TargetDead,
+    /// `EndTurn` issued by an actor who is not the current queue cursor.
+    NotCurrent,
 }
 
 /// Backend adapter — implementors translate game-state reads for the

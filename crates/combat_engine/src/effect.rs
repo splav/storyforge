@@ -17,6 +17,7 @@
 use hexx::Hex;
 
 use crate::content::ContentView;
+use crate::event::TurnSkipReason;
 use crate::state::{ActiveStatus, CombatState, Unit, UnitId};
 use crate::{ResourceKind, StatusId};
 
@@ -88,6 +89,21 @@ pub enum Effect {
         template_id: String,
         max_active: Option<u32>,
     },
+    /// Advance the turn-queue cursor by one slot.
+    ///
+    /// If the next slot is dead or stunned (via direct statuses), derives another
+    /// `Effect::AdvanceTurn` (skip recursion, bounded by queue length).
+    /// If the cursor wraps, derives `Effect::BumpRound` instead (which then
+    /// re-advances to index 0 via `start_round`).
+    ///
+    /// `Event::TurnSkipped` is pushed directly onto the provided accumulator
+    /// during `apply_effect` for skip cases — the caller threads `skip_events`
+    /// through the ctx.
+    AdvanceTurn,
+    /// Increment `state.round`, call `start_round(content)` (resets reactions,
+    /// queue index, phase), and derive `RefreshAggregates` for every alive unit.
+    /// Emits `Event::RoundStarted`.
+    BumpRound,
 }
 
 /// Structured damage breakdown produced by the `Damage` effect arm.
@@ -129,6 +145,58 @@ pub struct ApplyCtx {
     pub spawn_pos: Option<hexx::Hex>,
     /// Set by `Spawn` when the spawn was blocked; carries the reason.
     pub spawn_blocked: Option<SpawnBlockedReason>,
+    /// Set by `AdvanceTurn` for each unit whose turn was skipped (dead or
+    /// stunned). The pump loop in `step()` drains these into the main event
+    /// stream after calling `effect_to_event`.
+    pub turn_skip_events: Vec<crate::event::Event>,
+}
+
+/// Check the unit currently under the queue cursor (index must already be set).
+///
+/// If the actor is dead or stunned (via direct statuses), records skip events
+/// and derives another `Effect::AdvanceTurn` to continue the recursion.
+/// If the actor is alive and not stunned, returns empty derived + empty ctx
+/// (caller is the settled, real next actor — nothing to skip).
+///
+/// Used from both `Effect::AdvanceTurn` (after advance + wrap-check) and
+/// `Effect::BumpRound` (at index 0 after `start_round`).
+fn skip_or_settle_current(
+    state: &mut CombatState,
+    content: &dyn ContentView,
+) -> (Vec<Effect>, ApplyCtx) {
+    let Some(actor) = state.turn_queue.current() else {
+        return (vec![], ApplyCtx::default());
+    };
+
+    // Dead-skip: tick sirota DoT for the dead actor, then recurse.
+    if !state.unit(actor).is_some_and(|u| u.is_alive()) {
+        let tick_events = state.tick_actor_statuses(actor, content);
+        let mut ctx = ApplyCtx::default();
+        ctx.turn_skip_events.extend(tick_events);
+        ctx.turn_skip_events.push(crate::event::Event::TurnSkipped {
+            actor,
+            reason: TurnSkipReason::Dead,
+        });
+        return (vec![Effect::AdvanceTurn], ctx);
+    }
+
+    // Stunned-skip: walk direct statuses for `skips_turn` flag.
+    let is_stunned = state.unit(actor).is_some_and(|u| {
+        u.statuses.iter().any(|s| {
+            content.status_def(&s.id).is_some_and(|d| d.skips_turn)
+        })
+    });
+    if is_stunned {
+        let mut ctx = ApplyCtx::default();
+        ctx.turn_skip_events.push(crate::event::Event::TurnSkipped {
+            actor,
+            reason: TurnSkipReason::Stunned,
+        });
+        return (vec![Effect::AdvanceTurn], ctx);
+    }
+
+    // Actor is alive and not stunned — they are the settled next actor.
+    (vec![], ApplyCtx::default())
 }
 
 /// Apply one atomic effect to `state`.
@@ -440,6 +508,49 @@ pub fn apply_effect(
             };
 
             (derived, ApplyCtx::default())
+        }
+
+        Effect::AdvanceTurn => {
+            if state.turn_queue.is_empty() {
+                return (vec![], ApplyCtx::default());
+            }
+
+            let prev_idx = state.turn_queue.index;
+            state.turn_queue.advance();
+
+            // Wrap detection: cursor wrapped → start a new round.
+            // BumpRound resets index=0 via start_round and then runs
+            // skip_or_settle_current at the new index.
+            if state.turn_queue.wrapped_after(prev_idx) {
+                return (vec![Effect::BumpRound], ApplyCtx::default());
+            }
+
+            // Not a wrap: check whether the new cursor actor can act.
+            skip_or_settle_current(state, content)
+        }
+
+        Effect::BumpRound => {
+            state.round += 1;
+            // start_round resets index=0, sets phase=ActorTurn, resets
+            // reactions_left=reactions_max for alive units.
+            state.start_round(content);
+
+            // Derive RefreshAggregates for every alive unit first.
+            // RefreshAggregates doesn't affect skips_turn (status-driven),
+            // so it's safe to run skip_or_settle_current before they fire —
+            // ordering in derived ensures RefreshAggregates come first in queue.
+            let alive_ids: Vec<UnitId> = state.alive_units().map(|u| u.id).collect();
+            let mut derived: Vec<Effect> = alive_ids
+                .into_iter()
+                .map(|id| Effect::RefreshAggregates { unit: id })
+                .collect();
+
+            // Check index-0 actor: if dead/stunned, emit skip events and
+            // derive AdvanceTurn to continue the chain; if alive+active, settle.
+            let (skip_derived, skip_ctx) = skip_or_settle_current(state, content);
+            derived.extend(skip_derived);
+
+            (derived, skip_ctx)
         }
 
         Effect::Spawn { summoner, template_id, max_active } => {

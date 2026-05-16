@@ -55,6 +55,26 @@ pub enum Event {
         template_id: String,
         reason: SpawnBlockedReason,
     },
+    /// The actor's turn ended.  Emitted by `step(Action::EndTurn)` BEFORE the
+    /// `Effect::AdvanceTurn` cascade runs, so the stream reads naturally:
+    /// outgoing actor's turn ends → queue advances → skips/round wrap → next
+    /// actor's turn starts.
+    TurnEnded { actor: UnitId },
+    /// The next actor's turn began.  Emitted immediately after `TurnEnded` (or
+    /// after `RoundStarted` when the round wrapped).
+    TurnStarted { actor: UnitId },
+    /// A unit's turn was skipped (dead or stunned).  Emitted from within the
+    /// `Effect::AdvanceTurn` cascade, before `TurnEnded`/`TurnStarted`.
+    TurnSkipped { actor: UnitId, reason: TurnSkipReason },
+    /// The round counter incremented and per-round resets fired.
+    RoundStarted { round: u32 },
+}
+
+/// Why a unit's turn was skipped in `Effect::AdvanceTurn`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TurnSkipReason {
+    Dead,
+    Stunned,
 }
 
 /// Convert an effect (post-application) to an `Event`.
@@ -153,5 +173,10 @@ pub fn effect_to_event(
                 team,
             })
         }
+        // TurnSkipped events flow via ctx.turn_skip_events drained by the pump loop.
+        Effect::AdvanceTurn => None,
+        // state.round was already incremented in BumpRound's apply arm before
+        // effect_to_event is called, so this reflects the new round number.
+        Effect::BumpRound => Some(Event::RoundStarted { round: state.round }),
     }
 }

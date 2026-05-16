@@ -256,6 +256,11 @@ fn step_inner(
     let mut events: Vec<Event> = Vec::new();
     let mut effect_queue: VecDeque<Effect> = VecDeque::new();
     let mut reaction_depth: usize = 0;
+    // Guard against all-stunned / all-dead infinite loops in the AdvanceTurn
+    // recursion (e.g. all remaining actors stunned → wrap → BumpRound →
+    // skip all again → wrap → …). Budget is generous to allow full-queue
+    // traversal + one round boundary.
+    let mut turn_advance_budget: usize = state.turn_queue.order.len() * 3 + 8;
 
     // ── Pre-validate ──────────────────────────────────────────────────────────
 
@@ -296,6 +301,13 @@ fn step_inner(
         }
         Action::EndTurn { actor } => {
             state.unit(*actor).ok_or(ActionError::UnknownActor)?;
+            // Turn ownership check: a dead actor may still issue EndTurn
+            // (mid-action death), but only the current queue cursor may do so.
+            if state.turn_queue.current() != Some(*actor) {
+                return Err(ActionError::Illegal(
+                    crate::legality::IllegalReason::NotCurrent,
+                ));
+            }
         }
         Action::Cast { actor, ability, target, target_pos } => {
             // Engine-side legality check.  Translates IllegalReason to
@@ -334,10 +346,15 @@ fn step_inner(
                 effect_queue.push_back(Effect::MovePosition { actor: *actor, to: hex });
             }
         }
-        Action::EndTurn { .. } => {
-            // Phase 3 minimal arm — no effects. ActionStarted (above) and
-            // ActionFinished (below) are the only events emitted. Phase 4
-            // will add queue advance + RoundPhase transitions.
+        Action::EndTurn { actor } => {
+            // Tick the outgoing actor's statuses (sirota DoT path).
+            let tick_events = state.tick_actor_statuses(*actor, content);
+            events.extend(tick_events);
+
+            // TurnEnded fires before the AdvanceTurn cascade so the stream
+            // reads: outgoing ends → queue advances → skips/round → next starts.
+            events.push(Event::TurnEnded { actor: *actor });
+            effect_queue.push_back(Effect::AdvanceTurn);
         }
         Action::Cast { actor, ability, target, target_pos } => {
             // Legality pre-validate (step 6b) already ran and confirmed the
@@ -506,6 +523,17 @@ fn step_inner(
     let mut prev_pos = state.unit(actor_id).map(|u| u.pos).unwrap_or_default();
 
     while let Some(effect) = effect_queue.pop_front() {
+        // ── Turn-advance budget guard ─────────────────────────────────────────
+        // Each AdvanceTurn/BumpRound consumes one unit of budget. When the
+        // budget hits zero (all-stunned / all-dead scenario) we stop processing
+        // further turn-cycle effects rather than looping forever.
+        if matches!(&effect, Effect::AdvanceTurn | Effect::BumpRound) {
+            if turn_advance_budget == 0 {
+                break;
+            }
+            turn_advance_budget -= 1;
+        }
+
         // ── Dead-actor guard: skip remaining MovePositions when mover died ────
         if let Effect::MovePosition { actor, .. } = &effect {
             if !state.unit(*actor).is_some_and(|u| u.is_alive()) {
@@ -533,12 +561,15 @@ fn step_inner(
         let pos_before = prev_pos;
 
         // Apply the effect.
-        let (derived, ctx) = apply_effect(state, &effect, content);
+        let (derived, mut ctx) = apply_effect(state, &effect, content);
 
         // Emit the corresponding event.
         if let Some(ev) = effect_to_event(&effect, state, Some(pos_before), &ctx) {
             events.push(ev);
         }
+
+        // Drain skip events from AdvanceTurn/BumpRound cascades.
+        events.append(&mut ctx.turn_skip_events);
 
         // After MovePosition: process reactions one at a time via per-reaction
         // sub-queues, with an actor-liveness check before each expansion.
@@ -588,7 +619,7 @@ fn step_inner(
                         }
                     }
 
-                    let (sub_derived, sub_ctx) =
+                    let (sub_derived, mut sub_ctx) =
                         apply_effect(state, &sub_eff, content);
 
                     if let Some(ev) =
@@ -596,6 +627,8 @@ fn step_inner(
                     {
                         events.push(ev);
                     }
+
+                    events.append(&mut sub_ctx.turn_skip_events);
 
                     for ef in sub_derived.into_iter().rev() {
                         sub_queue.push_front(ef);
@@ -612,6 +645,15 @@ fn step_inner(
         // go to the front to preserve per-target ordering (decision 6.3).
         for ef in derived.into_iter().rev() {
             effect_queue.push_front(ef);
+        }
+    }
+
+    // ── Emit TurnStarted for the next actor (EndTurn path only) ─────────────
+    // Emitted after the full AdvanceTurn cascade has settled so that
+    // TurnStarted always refers to the actor who will actually act next.
+    if matches!(&action, Action::EndTurn { .. }) {
+        if let Some(next_actor) = state.turn_queue.current() {
+            events.push(Event::TurnStarted { actor: next_actor });
         }
     }
 

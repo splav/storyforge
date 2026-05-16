@@ -628,7 +628,13 @@ pub(crate) fn translate_tick_events(
             | Event::ActionFinished { .. }
             | Event::CritFailed { .. }
             | Event::UnitSpawned { .. }
-            | Event::SpawnBlocked { .. } => {}
+            | Event::SpawnBlocked { .. }
+            // Phase 4b: turn/round events produced by engine but not yet
+            // translated to CombatEvent here — bridge wiring lands in 4e.
+            | Event::TurnEnded { .. }
+            | Event::TurnStarted { .. }
+            | Event::TurnSkipped { .. }
+            | Event::RoundStarted { .. } => {}
         }
     }
 }
@@ -1000,7 +1006,12 @@ fn translate_cast_events(
             | Event::ActionFinished { .. }
             | Event::ManaRegenerated { .. }
             | Event::EnergyRegenerated { .. }
-            | Event::StatusTicked { .. } => {
+            | Event::StatusTicked { .. }
+            // Phase 4b: turn/round events not yet translated here — 4e wires them.
+            | Event::TurnEnded { .. }
+            | Event::TurnStarted { .. }
+            | Event::TurnSkipped { .. }
+            | Event::RoundStarted { .. } => {
                 // No log entry — handled separately or n/a for Cast.
             }
         }
@@ -1105,7 +1116,7 @@ fn translate_move_events(
                     commands.entity(entity).insert(Dead);
                 }
             }
-            // Heal / status / crit-fail / spawn events are not produced by Move.
+            // Heal / status / crit-fail / spawn / turn events not produced by Move.
             // No-op pins for exhaustiveness.
             Event::UnitHealed { .. }
             | Event::StatusApplied { .. }
@@ -1116,6 +1127,11 @@ fn translate_move_events(
             | Event::SpawnBlocked { .. } => {}
             Event::ActionStarted { .. } | Event::ActionFinished { .. } => {}
             Event::ManaRegenerated { .. } | Event::EnergyRegenerated { .. } => {}
+            // Phase 4b: turn/round events not yet translated here — 4e wires them.
+            Event::TurnEnded { .. }
+            | Event::TurnStarted { .. }
+            | Event::TurnSkipped { .. }
+            | Event::RoundStarted { .. } => {}
         }
     }
 

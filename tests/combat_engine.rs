@@ -35,3 +35,6 @@ mod targeting;
 
 #[path = "combat_engine/step.rs"]
 mod step;
+
+#[path = "combat_engine/end_turn.rs"]
+mod end_turn;
