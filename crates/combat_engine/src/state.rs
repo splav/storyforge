@@ -298,20 +298,11 @@ mod tests {
     use crate::dice::DiceExpr;
     use crate::{AbilityDef, AbilityId, CasterContext, StatusDef, StatusId};
 
-    struct StubContent {
-        hp_percent_dot: i32,
-    }
-
-    impl StubContent {
-        fn neutral() -> Self {
-            Self { hp_percent_dot: 0 }
-        }
-        /// `_dot_per_tick` is documentation only — actual DOT damage is carried
-        /// by the status itself (see `make_status(... dot)`).
-        fn with_dot(_dot_per_tick: i32) -> Self {
-            Self { hp_percent_dot: 0 }
-        }
-    }
+    /// No-op `ContentView` for state-level unit tests. `start_actor_turn` and
+    /// `tick_actor_statuses` take `&dyn ContentView` because their generic
+    /// effect-pump may eventually consult content; the state tests below don't
+    /// exercise those branches and need only the trait to be satisfied.
+    struct StubContent;
 
     impl ContentView for StubContent {
         fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { None }
@@ -326,7 +317,7 @@ mod tests {
                 armor_bonus: 0,
                 damage_taken_bonus: 0,
                 speed_bonus: 0,
-                hp_percent_dot: self.hp_percent_dot,
+                hp_percent_dot: 0,
             })
         }
         fn caster_context(&self, _: UnitId) -> CasterContext { CasterContext::default() }
@@ -371,7 +362,7 @@ mod tests {
         let mut unit = make_unit(uid, 0, 2, Some((1, 10)));
         unit.movement_points = 0; // depleted from previous turn
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
-        let content = StubContent::neutral();
+        let content = StubContent;
 
         let events = state.start_actor_turn(uid, &content);
 
@@ -394,7 +385,7 @@ mod tests {
         unit.speed = 4;
         unit.movement_points = 0;
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
-        let content = StubContent::neutral();
+        let content = StubContent;
 
         state.start_actor_turn(uid, &content);
 
@@ -411,7 +402,7 @@ mod tests {
         unit.speed = 5; // reflects status speed_bonus of +2
         unit.movement_points = 0;
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
-        let content = StubContent::neutral();
+        let content = StubContent;
 
         state.start_actor_turn(uid, &content);
 
@@ -424,7 +415,7 @@ mod tests {
         let uid = UnitId(2);
         let unit = make_unit(uid, 0, 1, Some((10, 10)));
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
-        let content = StubContent::neutral();
+        let content = StubContent;
 
         let events = state.start_actor_turn(uid, &content);
 
@@ -439,7 +430,7 @@ mod tests {
         unit.hp = 0;
         unit.movement_points = 0;
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
-        let content = StubContent::neutral();
+        let content = StubContent;
 
         let events = state.start_actor_turn(uid, &content);
 
@@ -459,7 +450,7 @@ mod tests {
         victim_unit.max_hp = 20;
         victim_unit.statuses.push(make_status("burning", applier, 3, 3));
         let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
-        let content = StubContent::with_dot(3);
+        let content = StubContent;
 
         let events = state.start_actor_turn(applier, &content);
 
@@ -487,7 +478,7 @@ mod tests {
         victim_unit.max_hp = 20;
         victim_unit.statuses.push(make_status("burning", applier, 1, 3));
         let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
-        let content = StubContent::with_dot(3);
+        let content = StubContent;
 
         let events = state.start_actor_turn(applier, &content);
 
@@ -511,7 +502,7 @@ mod tests {
         victim_unit.max_hp = 20;
         victim_unit.statuses.push(make_status("poison", applier, 2, 4));
         let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
-        let content = StubContent::with_dot(4);
+        let content = StubContent;
 
         let events = state.start_actor_turn(applier, &content);
 
@@ -536,7 +527,7 @@ mod tests {
         victim_unit.statuses.push(make_status("burning", applier, 3, 5));
         victim_unit.statuses.push(make_status("slowed", UnitId(99), 2, 0));
         let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
-        let content = StubContent::with_dot(5);
+        let content = StubContent;
 
         let events = state.start_actor_turn(applier, &content);
 
@@ -551,7 +542,7 @@ mod tests {
         let uid = UnitId(1);
         let unit = make_unit(uid, 0, 2, Some((5, 10)));
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
-        let content = StubContent::neutral();
+        let content = StubContent;
 
         let events = state.start_actor_turn(uid, &content);
 
