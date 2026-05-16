@@ -38,3 +38,6 @@ mod step;
 
 #[path = "combat_engine/end_turn.rs"]
 mod end_turn;
+
+#[path = "combat_engine/aura.rs"]
+mod aura;

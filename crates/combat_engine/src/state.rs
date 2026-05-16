@@ -328,6 +328,115 @@ impl CombatState {
     }
 }
 
+impl CombatState {
+    // ── Aura query helpers (Phase 4 step 4c) ─────────────────────────────────
+
+    /// Compute the aggregated aura effects on `target` from all alive aura sources.
+    ///
+    /// Pure query — walks alive units, fetches their `AuraDef`s from content,
+    /// filters by `distance(source.pos, target.pos) ≤ radius` and team relation,
+    /// then folds all matching status bonuses into an `AuraEffects` result.
+    ///
+    /// A dead target receives no aura effects (auras don't apply to corpses).
+    /// A dead source contributes nothing (alive_units filter).
+    pub fn aura_effects_on(&self, target: UnitId, content: &dyn crate::content::ContentView) -> crate::content::AuraEffects {
+        use crate::content::{AuraEffects, TeamRelation};
+        let mut out = AuraEffects::default();
+
+        let (target_pos, target_team) = match self.unit(target) {
+            Some(u) if u.is_alive() => (u.pos, u.team),
+            _ => return out, // dead or unknown target → no aura effects
+        };
+
+        // Collect source ids first to avoid borrowing self while iterating.
+        let source_ids: Vec<(UnitId, hexx::Hex, Team)> = self
+            .alive_units()
+            .filter(|u| u.id != target)
+            .map(|u| (u.id, u.pos, u.team))
+            .collect();
+
+        for (src_id, src_pos, src_team) in source_ids {
+            let auras = content.auras_of(src_id);
+            if auras.is_empty() {
+                continue;
+            }
+            let dist = src_pos.unsigned_distance_to(target_pos);
+            for aura in &auras {
+                if dist > aura.radius {
+                    continue;
+                }
+                let matches = match aura.applies_to {
+                    TeamRelation::Enemies => target_team != src_team,
+                    TeamRelation::Allies  => target_team == src_team,
+                    TeamRelation::All     => true,
+                };
+                if !matches {
+                    continue;
+                }
+                // Fold status bonuses from this aura's status into the result.
+                let b = content.status_bonuses(&aura.status_id);
+                out.speed_bonus         += b.speed_bonus;
+                out.armor_bonus         += b.armor_bonus;
+                // StatusDef carries additional flags; retrieve them if available.
+                if let Some(def) = content.status_def(&aura.status_id) {
+                    out.damage_taken_bonus  += def.damage_taken_bonus;
+                    out.skips_turn          |= def.skips_turn;
+                    out.causes_disadvantage |= def.causes_disadvantage;
+                }
+            }
+        }
+
+        out
+    }
+
+    /// Snapshot of all (target, source, status_id) triples where an aura is
+    /// currently in effect.
+    ///
+    /// Used by `step()` to compute diffs around `Effect::MovePosition` and
+    /// `Effect::Death` and emit `Event::AuraStatusGained` / `AuraStatusLost`.
+    pub fn aura_membership_set(
+        &self,
+        content: &dyn crate::content::ContentView,
+    ) -> std::collections::HashSet<(UnitId, UnitId, crate::StatusId)> {
+        use crate::content::TeamRelation;
+        let mut set = std::collections::HashSet::new();
+
+        let source_ids: Vec<(UnitId, hexx::Hex, Team)> = self
+            .alive_units()
+            .map(|u| (u.id, u.pos, u.team))
+            .collect();
+
+        for (src_id, src_pos, src_team) in &source_ids {
+            let auras = content.auras_of(*src_id);
+            if auras.is_empty() {
+                continue;
+            }
+            // Check each alive unit as a potential target.
+            for (tgt_id, tgt_pos, tgt_team) in &source_ids {
+                if tgt_id == src_id {
+                    continue;
+                }
+                let dist = src_pos.unsigned_distance_to(*tgt_pos);
+                for aura in &auras {
+                    if dist > aura.radius {
+                        continue;
+                    }
+                    let matches = match aura.applies_to {
+                        TeamRelation::Enemies => *tgt_team != *src_team,
+                        TeamRelation::Allies  => *tgt_team == *src_team,
+                        TeamRelation::All     => true,
+                    };
+                    if matches {
+                        set.insert((*tgt_id, *src_id, aura.status_id.clone()));
+                    }
+                }
+            }
+        }
+
+        set
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

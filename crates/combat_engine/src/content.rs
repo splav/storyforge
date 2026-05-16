@@ -184,11 +184,49 @@ pub struct UnitTemplate {
     pub rage_max: i32,
 }
 
-/// Read-only view onto game content that the engine needs.
+// ── Aura types (Phase 4 step 4c) ─────────────────────────────────────────────
+
+/// Which team(s) a passive aura affects, relative to the source's team.
 ///
-/// Implemented by `crate::combat::engine_bridge::EcsContentView` (live path)
-/// and `crate::combat::ai::plan::sim::SnapshotContentView` (sim path).
-/// Test implementations return simple stubs.
+/// Mirrors `content::encounters::AuraAffects` but lives in the engine so that
+/// `ContentView::auras_of` can return engine-native types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TeamRelation {
+    /// Applies only to the opposite team.
+    Enemies,
+    /// Applies only to same-team units, excluding the source itself.
+    Allies,
+    /// Applies to everyone in range except the source itself.
+    All,
+}
+
+/// Engine-side description of one passive aura emitted by a unit.
+///
+/// Returned by `ContentView::auras_of`.  The engine uses this purely at
+/// query time — no aura state is stored in `unit.statuses`.
+#[derive(Debug, Clone)]
+pub struct AuraDef {
+    /// Maximum hex distance (inclusive) at which the aura applies.
+    pub radius: u32,
+    /// Status applied to targets in range.
+    pub status_id: StatusId,
+    /// Which team(s) are affected, relative to the aura source.
+    pub applies_to: TeamRelation,
+}
+
+/// Aggregated bonuses and flags that auras confer on a single target.
+///
+/// Computed by `CombatState::aura_effects_on` by folding all in-range
+/// alive-source aura contributions.  Pure query result — never stored.
+#[derive(Debug, Clone, Default)]
+pub struct AuraEffects {
+    pub speed_bonus: i32,
+    pub armor_bonus: i32,
+    pub damage_taken_bonus: i32,
+    pub skips_turn: bool,
+    pub causes_disadvantage: bool,
+}
+
 pub trait ContentView {
     /// Weapon dice for the attacker's AoO strike.
     ///
@@ -220,4 +258,12 @@ pub trait ContentView {
     /// Resolved unit template (stats + equipment armor already folded in).
     /// Returns `None` for unknown template ids.
     fn unit_template(&self, id: &str) -> Option<UnitTemplate>;
+
+    /// Passive aura definitions emitted by `source`.
+    ///
+    /// Returns all `AuraDef` entries for the unit.  Called by
+    /// `CombatState::aura_effects_on` and `aura_membership_set` when walking
+    /// alive aura sources.  Returns empty `Vec` for units with no auras or
+    /// unknown ids.
+    fn auras_of(&self, source: UnitId) -> Vec<AuraDef>;
 }

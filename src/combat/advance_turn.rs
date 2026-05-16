@@ -3,7 +3,7 @@ use crate::content::content_view::ActiveContent;
 use crate::app_state::CombatPhase;
 use crate::content::encounters::VictoryCondition;
 use crate::game::components::{
-    ActiveCombatant, Combatant, Dead, Faction, Team, Vital, VictoryTarget,
+    ActiveCombatant, AuraSource, Combatant, Dead, Faction, Team, Vital, VictoryTarget,
 };
 use crate::game::messages::EndTurn;
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -36,6 +36,7 @@ pub fn advance_turn_system(
     mut combat_state: ResMut<CombatStateRes>,
     id_map: Res<UnitIdMap>,
     combatants: Query<crate::combat::engine_bridge::AooRow, With<Combatant>>,
+    aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
 ) {
     // Note: ApplyStatus consumer removed in Phase 2 step 9d. Statuses are now
     // applied via project_state_to_ecs (engine projector) each frame.
@@ -72,7 +73,7 @@ pub fn advance_turn_system(
         }
         if let Some(dead_entity) = current {
             if let Some(dead_uid) = id_map.get_id(dead_entity) {
-                let view = build_ecs_content_view(&combatants, &id_map, &content);
+                let view = build_ecs_content_view(&combatants, &id_map, &content, &aura_q);
                 let events = combat_state.0.tick_actor_statuses(dead_uid, &view);
                 translate_tick_events(&events, &id_map, &mut commands, &mut log);
             }

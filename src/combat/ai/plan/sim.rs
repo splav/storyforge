@@ -426,6 +426,12 @@ impl EngineContentView for SnapshotContentView {
         // If sim needs to model summons in the future, populate templates on SnapshotContentView.
         None
     }
+
+    fn auras_of(&self, _source: UnitId) -> Vec<combat_engine::AuraDef> {
+        // Sim snapshots don't carry aura definitions — auras are ECS-only
+        // until the sim is extended in a later phase.
+        vec![]
+    }
 }
 
 /// Build a `CombatState` from a `BattleSnapshot`.

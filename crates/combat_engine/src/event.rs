@@ -10,8 +10,6 @@ use crate::{
     StatusId,
 };
 
-/// A domain-level fact produced by `step()`.  Consumers (UI, logger, replay)
-/// subscribe to this stream; they never write back to state.
 #[derive(Debug, Clone)]
 pub enum Event {
     ActionStarted { action: Action },
@@ -68,6 +66,15 @@ pub enum Event {
     TurnSkipped { actor: UnitId, reason: TurnSkipReason },
     /// The round counter incremented and per-round resets fired.
     RoundStarted { round: u32 },
+    /// A unit entered an aura's radius (or the aura source moved into range),
+    /// causing `status_id` to become active on `target` from `source`.
+    ///
+    /// Emitted by `step()` as a diff between before/after `aura_membership_set`
+    /// snapshots around `Effect::MovePosition` and `Effect::Death`.
+    AuraStatusGained { target: UnitId, source: UnitId, status_id: StatusId },
+    /// A unit left an aura's radius (or the source moved away / died),
+    /// causing `status_id` to no longer be active on `target` from `source`.
+    AuraStatusLost { target: UnitId, source: UnitId, status_id: StatusId },
 }
 
 /// Why a unit's turn was skipped in `Effect::AdvanceTurn`.

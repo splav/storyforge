@@ -151,15 +151,6 @@ pub struct ApplyCtx {
     pub turn_skip_events: Vec<crate::event::Event>,
 }
 
-/// Check the unit currently under the queue cursor (index must already be set).
-///
-/// If the actor is dead or stunned (via direct statuses), records skip events
-/// and derives another `Effect::AdvanceTurn` to continue the recursion.
-/// If the actor is alive and not stunned, returns empty derived + empty ctx
-/// (caller is the settled, real next actor — nothing to skip).
-///
-/// Used from both `Effect::AdvanceTurn` (after advance + wrap-check) and
-/// `Effect::BumpRound` (at index 0 after `start_round`).
 fn skip_or_settle_current(
     state: &mut CombatState,
     content: &dyn ContentView,
@@ -180,13 +171,14 @@ fn skip_or_settle_current(
         return (vec![Effect::AdvanceTurn], ctx);
     }
 
-    // Stunned-skip: walk direct statuses for `skips_turn` flag.
-    let is_stunned = state.unit(actor).is_some_and(|u| {
+    // Stunned-skip: walk direct statuses OR check aura stun (4c).
+    let is_stunned_by_status = state.unit(actor).is_some_and(|u| {
         u.statuses.iter().any(|s| {
             content.status_def(&s.id).is_some_and(|d| d.skips_turn)
         })
     });
-    if is_stunned {
+    let is_stunned_by_aura = state.aura_effects_on(actor, content).skips_turn;
+    if is_stunned_by_status || is_stunned_by_aura {
         let mut ctx = ApplyCtx::default();
         ctx.turn_skip_events.push(crate::event::Event::TurnSkipped {
             actor,
@@ -436,10 +428,11 @@ pub fn apply_effect(
             (derived, ApplyCtx::default())
         }
 
-        Effect::RefreshAggregates { unit } => {
-            // Recompute speed and armor_bonus from active statuses.
+                Effect::RefreshAggregates { unit } => {
+            // Recompute speed and armor_bonus from active statuses + aura effects (4c).
             // Reads status bonuses via ContentView — no Bevy dep in the engine.
-            if let Some(u) = state.unit_mut(*unit) {
+            let unit_id = *unit;
+            if let Some(u) = state.unit_mut(unit_id) {
                 let mut speed_bonus: i32 = 0;
                 let mut armor_bonus: i32 = 0;
                 for s in &u.statuses {
@@ -449,6 +442,12 @@ pub fn apply_effect(
                 }
                 u.speed = u.base_speed + speed_bonus;
                 u.armor_bonus = armor_bonus;
+            }
+            // Fold aura bonuses on top of status-derived aggregates.
+            let aura_fx = state.aura_effects_on(unit_id, content);
+            if let Some(u) = state.unit_mut(unit_id) {
+                u.speed       += aura_fx.speed_bonus;
+                u.armor_bonus += aura_fx.armor_bonus;
             }
             (vec![], ApplyCtx::default())
         }

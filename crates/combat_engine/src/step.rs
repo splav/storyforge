@@ -560,6 +560,14 @@ fn step_inner(
         // For non-move effects this is unused but harmless — always prev_pos.
         let pos_before = prev_pos;
 
+        // Aura diff-on-move/death (4c): snapshot membership BEFORE the effect.
+        // Per-effect snapshots (not per-step) so intermediate transitions are captured.
+        let aura_snap_before = if matches!(&effect, Effect::MovePosition { .. } | Effect::Death { .. }) {
+            Some(state.aura_membership_set(content))
+        } else {
+            None
+        };
+
         // Apply the effect.
         let (derived, mut ctx) = apply_effect(state, &effect, content);
 
@@ -570,6 +578,27 @@ fn step_inner(
 
         // Drain skip events from AdvanceTurn/BumpRound cascades.
         events.append(&mut ctx.turn_skip_events);
+
+        // Aura diff-on-move/death (4c): emit AuraStatusGained/Lost for delta.
+        if let Some(before) = aura_snap_before {
+            let after = state.aura_membership_set(content);
+            // Triples in `after` but not in `before` → gained.
+            for (tgt, src, sid) in after.difference(&before) {
+                events.push(Event::AuraStatusGained {
+                    target: *tgt,
+                    source: *src,
+                    status_id: sid.clone(),
+                });
+            }
+            // Triples in `before` but not in `after` → lost.
+            for (tgt, src, sid) in before.difference(&after) {
+                events.push(Event::AuraStatusLost {
+                    target: *tgt,
+                    source: *src,
+                    status_id: sid.clone(),
+                });
+            }
+        }
 
         // After MovePosition: process reactions one at a time via per-reaction
         // sub-queues, with an actor-liveness check before each expansion.

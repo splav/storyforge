@@ -131,6 +131,7 @@ impl EngineContentView for BenchContent {
     fn status_def(&self, _: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> { None }
     fn caster_context(&self, _: UnitId) -> combat_engine::CasterContext { combat_engine::CasterContext::default() }
     fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
+    fn auras_of(&self, _: UnitId) -> Vec<combat_engine::AuraDef> { vec![] }
 }
 
 fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {

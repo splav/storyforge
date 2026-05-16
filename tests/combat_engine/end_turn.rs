@@ -68,6 +68,8 @@ impl ContentView for StubContent {
     }
 
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+
+    fn auras_of(&self, _: UnitId) -> Vec<storyforge::combat_engine::AuraDef> { vec![] }
 }
 
 fn uid(n: u64) -> UnitId { UnitId(n) }

@@ -31,6 +31,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::content::content_view::ActiveContent;
@@ -40,9 +41,9 @@ use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::components::{
-    Abilities, ActionPoints, ActiveCombatant, BonusMovement, CombatPath, CombatStats, Combatant,
-    Dead, Energy, Equipment, Faction, Mana, Rage, Reactions, Speed, StatusEffects, SummonedBy,
-    UnitToken, Vital,
+    Abilities, ActionPoints, ActiveCombatant, AuraSource, BonusMovement, CombatPath, CombatStats,
+    Combatant, Dead, Energy, Equipment, Faction, Mana, Rage, Reactions, Speed, StatusEffects,
+    SummonedBy, UnitToken, Vital,
 };
 use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
@@ -53,7 +54,7 @@ use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
 use combat_engine::{
     action::Action,
-    content::{ContentView as EngineContentView, StatusBonuses},
+    content::{AuraDef, ContentView as EngineContentView, StatusBonuses, TeamRelation},
     event::Event,
     reaction::ReactionKind,
     state::{ActiveStatus, CombatState, Pool, RoundPhase, Unit, UnitId},
@@ -234,7 +235,7 @@ pub fn from_ecs(
 /// Built once per `ActionInput::Move` from the current ECS state.  Holds a
 /// pre-computed map of eligible AoO attackers (unit → weapon dice expr).
 ///
-/// Eligibility filter (mirrors the deleted `movement_system`'s provoker scan):
+/// Eligibility filter (mirrors the deleted `movement_system`'s provoker scan):\\
 /// - alive (`!Has<Dead>` AND `vital.is_alive()`)
 /// - not stunned (no status with `skips_turn = true`)
 /// - has a melee `WeaponAttack` ability (`range.max == 1`)
@@ -244,11 +245,15 @@ pub fn from_ecs(
 /// pre-filters to enemies of the mover before consulting `aoo_dice`, so the
 /// adapter does not need to know who the actor is (option B).
 ///
-/// `status_bonuses` returns zeros — wired fully in step 4c+.
+/// `aura_sources`: UnitId → Vec<AuraDef>, populated from ECS `AuraSource`
+/// components.  Used by `ContentView::auras_of` (4c).
 pub struct EcsContentView<'a> {
     aoo_per_unit: HashMap<UnitId, EngineDiceExpr>,
     caster_contexts: HashMap<UnitId, combat_engine::CasterContext>,
     active_content: &'a ActiveContent,
+    /// Aura definitions per source unit, keyed by UnitId.  Built from the
+    /// ECS `AuraSource` component by `build_ecs_content_view`.
+    aura_sources: HashMap<UnitId, Vec<AuraDef>>,
 }
 
 impl<'a> EngineContentView for EcsContentView<'a> {
@@ -348,6 +353,10 @@ impl<'a> EngineContentView for EcsContentView<'a> {
             rage_max: tpl.resources.rage_max,
         })
     }
+
+    fn auras_of(&self, source: UnitId) -> Vec<AuraDef> {
+        self.aura_sources.get(&source).cloned().unwrap_or_default()
+    }
 }
 
 /// Query row for building `EcsContentView`.
@@ -371,7 +380,10 @@ pub(crate) fn build_ecs_content_view<'a>(
     combatants: &Query<AooRow, With<Combatant>>,
     id_map: &UnitIdMap,
     content: &'a ActiveContent,
+    aura_q: &Query<(Entity, &AuraSource), Without<Dead>>,
 ) -> EcsContentView<'a> {
+    use crate::content::encounters::AuraAffects;
+
     let mut aoo_per_unit = HashMap::new();
     let mut caster_contexts = HashMap::new();
 
@@ -445,10 +457,39 @@ pub(crate) fn build_ecs_content_view<'a>(
         aoo_per_unit.insert(uid, engine_dice);
     }
 
-    EcsContentView { aoo_per_unit, caster_contexts, active_content: content }
+    // Build aura_sources map from ECS AuraSource components (4c).
+    let mut aura_sources: HashMap<UnitId, Vec<AuraDef>> = HashMap::new();
+    for (entity, aura_src) in aura_q.iter() {
+        let Some(uid) = id_map.get_id(entity) else { continue };
+        let applies_to = match aura_src.affects {
+            AuraAffects::Enemies => TeamRelation::Enemies,
+            AuraAffects::Allies  => TeamRelation::Allies,
+            AuraAffects::All     => TeamRelation::All,
+        };
+        aura_sources.entry(uid).or_default().push(AuraDef {
+            radius: aura_src.radius,
+            status_id: aura_src.status.clone(),
+            applies_to,
+        });
+    }
+
+    EcsContentView { aoo_per_unit, caster_contexts, active_content: content, aura_sources }
 }
 
 // ── spawn_ecs_entity_from_engine_unit ────────────────────────────────────────
+
+/// Bundles rendering-only Bevy resources used by `process_action_system`.
+///
+/// Introduced to stay within Bevy's 16-param limit for systems (4c added
+/// `aura_q`, pushing the param count to 17).  Grouped here because none of
+/// these params affect engine logic — they are pure output/rendering concerns.
+#[derive(SystemParam)]
+pub struct RenderResources<'w, 's> {
+    pub grid_offset: Res<'w, HexGridOffset>,
+    pub tokens: Query<'w, 's, (Entity, &'static UnitToken)>,
+    pub mats: Res<'w, HexMaterials>,
+    pub token_mesh: Res<'w, TokenMesh>,
+}
 
 /// Instantiate a new ECS combatant entity from a unit already present in the
 /// engine state.  Called from `translate_cast_events` when `Event::UnitSpawned`
@@ -629,12 +670,14 @@ pub(crate) fn translate_tick_events(
             | Event::CritFailed { .. }
             | Event::UnitSpawned { .. }
             | Event::SpawnBlocked { .. }
-            // Phase 4b: turn/round events produced by engine but not yet
+            // Phase 4b/4c: turn/round/aura events produced by engine but not yet
             // translated to CombatEvent here — bridge wiring lands in 4e.
             | Event::TurnEnded { .. }
             | Event::TurnStarted { .. }
             | Event::TurnSkipped { .. }
-            | Event::RoundStarted { .. } => {}
+            | Event::RoundStarted { .. }
+            | Event::AuraStatusGained { .. }
+            | Event::AuraStatusLost { .. } => {}
         }
     }
 }
@@ -655,6 +698,8 @@ pub fn engine_turn_start_system(
     mut combat_state: ResMut<CombatStateRes>,
     combatants: Query<AooRow, With<Combatant>>,
     active_content: Res<ActiveContent>,
+    aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
+    status_q: Query<(Entity, Option<&StatusEffects>), With<Combatant>>,
     mut commands: Commands,
     mut log: ResMut<CombatLog>,
     mut last_active: Local<Option<Entity>>,
@@ -665,7 +710,7 @@ pub fn engine_turn_start_system(
     let Some(actor_ent) = current else { return };
     let Some(actor_uid) = id_map.get_id(actor_ent) else { return };
 
-    let content = build_ecs_content_view(&combatants, &id_map, &active_content);
+    let content = build_ecs_content_view(&combatants, &id_map, &active_content, &aura_q);
     let events = combat_state.0.start_actor_turn(actor_uid, &content);
 
     // Resource regen events are actor-local; handle them before the shared
@@ -679,6 +724,51 @@ pub fn engine_turn_start_system(
                 log.push(CombatEvent::EnergyChanged { actor: actor_ent, current: *current, max: *max });
             }
             _ => {}
+        }
+    }
+
+    // Parity assertion (4c): cross-check engine aura_effects_on vs ECS StatusEffects
+    // aura entries written by legacy apply_auras_system.
+    // Catches divergence between the engine query and the ECS parallel run.
+    // strip in 4e once apply_auras_system is deleted.
+    #[cfg(debug_assertions)]
+    {
+        // Build a set of which ECS entities are known AuraSource entities.
+        let any_source_entity: std::collections::HashSet<Entity> =
+            aura_q.iter().map(|(e, _)| e).collect();
+
+        for (ent, maybe_se) in status_q.iter() {
+            let Some(uid) = id_map.get_id(ent) else { continue };
+
+            // Engine's view of aura effects on this unit.
+            let engine_fx = combat_state.0.aura_effects_on(uid, &content);
+
+            // ECS view: statuses applied by an aura source.
+            let ecs_aura_statuses: Vec<&StatusId> = maybe_se
+                .map(|se| {
+                    se.0.iter()
+                        .filter(|s| any_source_entity.contains(&s.applier))
+                        .map(|s| &s.id)
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            // Check: engine says skips_turn from aura → ECS should have an
+            // aura-applied status that skips_turn.
+            if engine_fx.skips_turn {
+                let ecs_has_stun_aura = ecs_aura_statuses.iter().any(|sid| {
+                    active_content
+                        .statuses
+                        .get(*sid)
+                        .is_some_and(|d| d.skips_turn)
+                });
+                if !ecs_has_stun_aura {
+                    bevy::log::warn!(
+                        "4c parity: engine says skips_turn from aura for {:?} but ECS has no stun aura status",
+                        ent
+                    );
+                }
+            }
         }
     }
 
@@ -708,16 +798,14 @@ pub fn process_action_system(
     mut combat_state: ResMut<CombatStateRes>,
     combatants: Query<AooRow, With<Combatant>>,
     active_content: Res<ActiveContent>,
+    aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
     mut rng: ResMut<crate::combat::DiceRngRes>,
     mut log: ResMut<CombatLog>,
     mut anim_queue: ResMut<AnimationQueue>,
-    grid_offset: Res<HexGridOffset>,
-    tokens: Query<(Entity, &UnitToken)>,
     mut end_turn: MessageWriter<EndTurn>,
     mut positions: ResMut<HexPositions>,
     tag_cache: Res<AbilityTagCache>,
-    mats: Res<HexMaterials>,
-    token_mesh: Res<TokenMesh>,
+    render: RenderResources,
 ) {
     for msg in reader.read() {
         match msg {
@@ -735,7 +823,7 @@ pub fn process_action_system(
                     path: path.clone(),
                 };
 
-                let content = build_ecs_content_view(&combatants, &id_map, &active_content);
+                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &aura_q);
 
                 match step(&mut combat_state.0, action, &mut rng.0, &content) {
                     Ok(events) => {
@@ -747,8 +835,8 @@ pub fn process_action_system(
                             &mut commands,
                             &mut log,
                             &mut anim_queue,
-                            &grid_offset,
-                            &tokens,
+                            &render.grid_offset,
+                            &render.tokens,
                         );
                     }
                     Err(e) => {
@@ -782,7 +870,7 @@ pub fn process_action_system(
                     target_pos: *target_pos,
                 };
 
-                let content = build_ecs_content_view(&combatants, &id_map, &active_content);
+                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &aura_q);
 
                 let mana_before = combat_state
                     .0
@@ -806,9 +894,9 @@ pub fn process_action_system(
                             &mut log,
                             &mut positions,
                             &tag_cache,
-                            &mats,
-                            &token_mesh,
-                            &grid_offset,
+                            &render.mats,
+                            &render.token_mesh,
+                            &render.grid_offset,
                         );
                         // End turn only when both AP and MP are exhausted, and the
                         // ability isn't GrantMovement (which exists specifically to
@@ -1007,11 +1095,13 @@ fn translate_cast_events(
             | Event::ManaRegenerated { .. }
             | Event::EnergyRegenerated { .. }
             | Event::StatusTicked { .. }
-            // Phase 4b: turn/round events not yet translated here — 4e wires them.
+            // Phase 4b/4c: turn/round/aura events not yet translated here — 4e wires them.
             | Event::TurnEnded { .. }
             | Event::TurnStarted { .. }
             | Event::TurnSkipped { .. }
-            | Event::RoundStarted { .. } => {
+            | Event::RoundStarted { .. }
+            | Event::AuraStatusGained { .. }
+            | Event::AuraStatusLost { .. } => {
                 // No log entry — handled separately or n/a for Cast.
             }
         }
@@ -1127,11 +1217,13 @@ fn translate_move_events(
             | Event::SpawnBlocked { .. } => {}
             Event::ActionStarted { .. } | Event::ActionFinished { .. } => {}
             Event::ManaRegenerated { .. } | Event::EnergyRegenerated { .. } => {}
-            // Phase 4b: turn/round events not yet translated here — 4e wires them.
+            // Phase 4b/4c: turn/round/aura events not yet translated here — 4e wires them.
             Event::TurnEnded { .. }
             | Event::TurnStarted { .. }
             | Event::TurnSkipped { .. }
-            | Event::RoundStarted { .. } => {}
+            | Event::RoundStarted { .. }
+            | Event::AuraStatusGained { .. }
+            | Event::AuraStatusLost { .. } => {}
         }
     }
 

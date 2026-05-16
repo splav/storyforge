@@ -38,6 +38,7 @@ impl ContentView for StubContent {
     fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> { None }
     fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext { storyforge::combat_engine::CasterContext::default() }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
+    fn auras_of(&self, _: UnitId) -> Vec<storyforge::combat_engine::AuraDef> { vec![] }
 }
 
 
