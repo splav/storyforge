@@ -472,8 +472,12 @@ pub fn apply_effect(
                 }
             }
 
+            // Include dead tombstones: ECS keeps their `HexPositions` entry until
+            // the entity is despawned, so a spawn landing on a corpse would
+            // collide downstream. Treating tombstones as occupied matches the
+            // ECS view and avoids a bridge-side `positions.insert` panic.
             let occupied: std::collections::HashSet<hexx::Hex> =
-                state.alive_units().map(|u| u.pos).collect();
+                state.units().iter().map(|u| u.pos).collect();
 
             let pos = summoner_pos
                 .range(2)

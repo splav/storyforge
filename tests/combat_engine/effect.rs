@@ -1116,6 +1116,45 @@ fn spawn_blocked_when_no_free_position() {
     assert_eq!(ctx.spawn_blocked, Some(SpawnBlockedReason::NoFreePosition));
 }
 
+/// Regression: corpse tombstones must block spawn positions.
+///
+/// The engine and the Bevy `HexPositions` map must agree on what cells are
+/// occupied.  ECS keeps `HexPositions` entries for dead entities until they
+/// are despawned, so spawning a new unit on a corpse would panic in
+/// `HexPositions::insert`.  Engine occupancy uses `state.units()` (all units,
+/// including dead) to match this view.
+#[test]
+fn spawn_blocked_by_corpse_tombstone() {
+    let summoner = make_unit(1, 20, 20);
+    let summoner_pos = summoner.pos;
+    // Fill ring(2) with corpses (hp=0). Engine must treat them as obstacles.
+    let mut units = vec![summoner];
+    let mut next_id: u64 = 100;
+    for cell in summoner_pos.range(2) {
+        if cell == summoner_pos {
+            continue;
+        }
+        let mut corpse = make_unit(next_id, 0, 5);
+        corpse.pos = cell;
+        units.push(corpse);
+        next_id += 1;
+    }
+    let mut state = state_with(units);
+    let content = StubContent::neutral().with_template("imp", test_template());
+
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "imp".into(), max_active: None },
+        &content,
+    );
+
+    assert_eq!(
+        ctx.spawn_blocked,
+        Some(SpawnBlockedReason::NoFreePosition),
+        "corpse tombstones must block spawn cells"
+    );
+}
+
 #[test]
 fn spawn_synthetic_uid_above_bevy_bit_range() {
     let summoner = make_unit(1, 20, 20);
