@@ -40,7 +40,7 @@ use storyforge::game::components::{
 };
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::messages::{ActionInput, EndTurn};
-use storyforge::game::resources::{CombatContext, HexPositions};
+use storyforge::game::resources::{CombatContext, HexPositions, TurnQueue};
 use storyforge::ui::animation::{AnimationQueue, PendingAnim};
 use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
@@ -77,6 +77,7 @@ fn bridge_app() -> App {
         .init_resource::<CombatStateRes>()
         .init_resource::<UnitIdMap>()
         .init_resource::<HexPositions>()
+        .init_resource::<TurnQueue>()
         .init_resource::<CombatContext>()
         .init_resource::<ActiveContent>()
         .init_resource::<DiceRngRes>()
@@ -848,6 +849,7 @@ fn projector_writes_engine_mutation_to_ecs() {
             max_ap: 2,
             movement_points: 6,
             reactions_left: 1,
+            reactions_max: 1,
             statuses: vec![],
             rage: None,
             mana: None,
@@ -1300,6 +1302,7 @@ fn projector_writes_mana_from_engine_state() {
         max_ap: 1,
         movement_points: 6,
         reactions_left: 1,
+        reactions_max: 1,
         statuses: vec![],
         rage: None,
         mana: Some((10, 10)),
@@ -1371,6 +1374,7 @@ fn projector_writes_statuses_from_engine_state() {
         max_ap: 1,
         movement_points: 6,
         reactions_left: 1,
+        reactions_max: 1,
         statuses: vec![],
         rage: None,
         mana: None,
@@ -1485,6 +1489,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         max_ap: 1,
         movement_points: 6,
         reactions_left: 1,
+        reactions_max: 1,
         statuses: vec![],
         rage: None,
         mana: None,
@@ -1505,6 +1510,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         max_ap: 1,
         movement_points: 6,
         reactions_left: 1,
+        reactions_max: 1,
         statuses: vec![],
         rage: None,
         mana: None,

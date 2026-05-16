@@ -86,6 +86,7 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
         max_ap: 2,
         movement_points: 6,
         reactions_left: 1,
+        reactions_max: 1,
         statuses: vec![],
         rage: None,
         mana: None,

@@ -47,7 +47,7 @@ use crate::game::components::{
 use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
 use crate::game::messages::{ActionInput, EndTurn};
-use crate::game::resources::{CombatContext, HexPositions};
+use crate::game::resources::{CombatContext, HexPositions, TurnQueue};
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
@@ -214,6 +214,7 @@ pub fn from_ecs(
                 max_ap: ap.max_ap,
                 movement_points: ap.movement_points,
                 reactions_left: reactions.remaining as i32,
+                reactions_max: reactions.max as i32,
                 statuses: statuses_vec,
                 rage: rage_pool,
                 mana: mana_pool,
@@ -1272,9 +1273,21 @@ pub fn init_state_from_ecs(
     combatants: Query<CombatantRow, With<Combatant>>,
     positions: Res<HexPositions>,
     combat_context: Res<CombatContext>,
+    ecs_queue: Res<TurnQueue>,
     mut id_map: ResMut<UnitIdMap>,
     mut combat_state: ResMut<CombatStateRes>,
 ) {
-    let state = from_ecs(&combatants, &positions, combat_context.round, &mut id_map);
+    let mut state = from_ecs(&combatants, &positions, combat_context.round, &mut id_map);
+
+    // Populate the engine turn queue from the ECS Res<TurnQueue>.
+    // Entities without a UnitId in the map (shouldn't happen at init, but be
+    // defensive) are silently skipped rather than panicking.
+    let uid_order: Vec<UnitId> = ecs_queue
+        .order
+        .iter()
+        .filter_map(|e| id_map.get_id(*e))
+        .collect();
+    state.set_turn_queue(uid_order, ecs_queue.index);
+
     combat_state.0 = state;
 }

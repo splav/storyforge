@@ -157,6 +157,7 @@ fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
                 max_ap: u.action_points,
                 movement_points: u.movement_points,
                 reactions_left: u.reactions_left,
+                reactions_max: 1,
                 statuses: u
                     .statuses
                     .iter()

@@ -506,6 +506,7 @@ pub fn apply_effect(
                 max_ap: template.max_ap,
                 movement_points: template.base_speed,
                 reactions_left: 0,
+                reactions_max: 1,
                 statuses: Vec::new(),
                 rage: if template.rage_max > 0 { Some((0, template.rage_max)) } else { None },
                 mana: if template.mana_max > 0 { Some((template.mana_max, template.mana_max)) } else { None },

@@ -10,7 +10,9 @@ use std::collections::HashMap;
 
 use hexx::Hex;
 
+use crate::content::ContentView;
 use crate::event::Event;
+use crate::turn_queue::TurnQueue;
 use crate::StatusId;
 
 // ── Identity ──────────────────────────────────────────────────────────────────
@@ -84,6 +86,8 @@ pub struct Unit {
     pub max_ap: i32,
     pub movement_points: i32,
     pub reactions_left: i32,
+    /// Maximum reactions per round. Populated by the bridge from `Reactions.max`.
+    pub reactions_max: i32,
     pub statuses: Vec<ActiveStatus>,
     /// `None` if the unit has no rage mechanic.
     pub rage: Option<Pool>,
@@ -120,6 +124,10 @@ pub struct CombatState {
     idx: HashMap<UnitId, usize>,
     pub round: u32,
     pub phase: RoundPhase,
+    /// Engine-owned turn order. Populated by the bridge via `set_turn_queue` at
+    /// combat init.  Nothing reads this field yet in Phase 4a — Bevy still owns
+    /// advance logic.  Phase 4b wires `Effect::AdvanceTurn` to consume it.
+    pub turn_queue: TurnQueue,
     /// Seed carried along for replay reproducibility.
     pub random_seed: u64,
     next_synthetic_uid: u64,
@@ -133,17 +141,47 @@ impl Default for CombatState {
 
 impl CombatState {
     /// Construct from a pre-built unit list. Eagerly builds the index.
+    /// The `turn_queue` starts empty; populate it via `set_turn_queue` after construction.
     pub fn new(units: Vec<Unit>, round: u32, phase: RoundPhase, random_seed: u64) -> Self {
         let mut state = Self {
             units,
             idx: HashMap::new(),
             round,
             phase,
+            turn_queue: TurnQueue::default(),
             random_seed,
             next_synthetic_uid: SYNTHETIC_UID_BASE,
         };
         state.rebuild_idx();
         state
+    }
+
+    /// Set the engine turn queue from an externally-ordered `Vec<UnitId>`.
+    ///
+    /// Called by `init_state_from_ecs` to mirror the ECS `Res<TurnQueue>` into
+    /// engine state at combat init.  `index` is the current cursor position
+    /// (typically 0 at combat start, but preserved across hot-reloads).
+    pub fn set_turn_queue(&mut self, order: Vec<UnitId>, index: usize) {
+        self.turn_queue = TurnQueue { order, index };
+    }
+
+    /// Reset per-round state at the beginning of a new round.
+    ///
+    /// - Resets `reactions_left = reactions_max` for all alive units.
+    /// - Sets `turn_queue.index = 0`.
+    /// - Sets `phase = RoundPhase::ActorTurn`.
+    ///
+    /// Returns an empty `Vec<Event>` for Phase 4a; later phases may emit
+    /// `Event::RoundStarted` here.
+    pub fn start_round(&mut self, _content: &dyn ContentView) -> Vec<Event> {
+        for unit in self.units.iter_mut() {
+            if unit.is_alive() {
+                unit.reactions_left = unit.reactions_max;
+            }
+        }
+        self.turn_queue.index = 0;
+        self.phase = RoundPhase::ActorTurn;
+        vec![]
     }
 
     /// Rebuild the `UnitId → index` cache after any bulk mutation.
@@ -339,6 +377,7 @@ mod tests {
             max_ap,
             movement_points: 3,
             reactions_left: 1,
+            reactions_max: 1,
             statuses: vec![],
             rage: None,
             mana,

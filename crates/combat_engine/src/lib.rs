@@ -80,8 +80,10 @@ pub mod reaction;
 pub mod state;
 pub mod step;
 pub mod targeting;
+pub mod turn_queue;
 
 pub use dice::{DiceExpr, DiceRng};
 pub use content::{AbilityDef, AbilityRange, AoEShape, CasterContext, Cost, CritFailOutcome, EffectDef, StatusApplication, StatusDef, StatusOn, TargetType, UnitTemplate};
 pub use effect::SpawnBlockedReason;
 pub use legality::{check_legality, ActionState, ActorView, IllegalReason, LegalAction, ProposedAction};
+pub use turn_queue::TurnQueue;

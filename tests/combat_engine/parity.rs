@@ -96,6 +96,7 @@ fn run_engine(snap: &BattleSnapshot, actor_id: Entity, path: Vec<storyforge::gam
             max_ap: u.max_ap,
             movement_points: u.movement_points,
             reactions_left: u.reactions_left,
+            reactions_max: 1,
             statuses: u.statuses.iter().map(|s| ActiveStatus {
                 id: s.id.clone(),
                 rounds_remaining: s.rounds_remaining,
@@ -402,6 +403,7 @@ fn parity_aoo_kills_mover_mid_path_truncates() {
             base_speed: u.base_speed, speed: u.speed,
             action_points: u.action_points, max_ap: u.max_ap, movement_points: u.movement_points,
             reactions_left: u.reactions_left,
+            reactions_max: 1,
             statuses: u.statuses.iter().map(|s| ActiveStatus {
                 id: s.id.clone(), rounds_remaining: s.rounds_remaining, dot_per_tick: s.dot_per_tick,
                 applier: entity_to_uid(u.entity),

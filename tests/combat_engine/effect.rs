@@ -86,6 +86,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
         max_ap: 2,
         movement_points: 4,
         reactions_left: 1,
+        reactions_max: 1,
         statuses: vec![],
         rage: None,
         mana: None,
