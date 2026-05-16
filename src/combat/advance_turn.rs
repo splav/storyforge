@@ -3,7 +3,7 @@ use crate::content::content_view::ActiveContent;
 use crate::app_state::CombatPhase;
 use crate::content::encounters::VictoryCondition;
 use crate::game::components::{
-    ActionPoints, ActiveCombatant, Combatant, Dead, Faction, Speed, StatusEffects, Team, Vital, VictoryTarget,
+    ActiveCombatant, Combatant, Dead, Faction, Team, Vital, VictoryTarget,
 };
 use crate::game::messages::EndTurn;
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -28,9 +28,6 @@ pub fn advance_turn_system(
     mut commands: Commands,
     mut end_turn_events: MessageReader<EndTurn>,
     vitals: Query<&Vital>,
-    mut action_points: Query<&mut ActionPoints>,
-    speed_q: Query<&Speed>,
-    statuses: Query<(Entity, &StatusEffects)>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     mut queue: ResMut<TurnQueue>,
     mut log: ResMut<CombatLog>,
@@ -83,12 +80,6 @@ pub fn advance_turn_system(
     if queue.index == 0 {
         next_phase.set(CombatPhase::StartRound);
     } else if let Some(next_actor) = queue.current() {
-        if let Ok(mut ap) = action_points.get_mut(next_actor) {
-            let base = speed_q.get(next_actor).map(|s| s.0).unwrap_or(0);
-            let next_statuses = statuses.get(next_actor).ok().map(|(_, s)| s);
-            ap.movement_points =
-                crate::combat::turn_order::refill_movement_points(base, next_statuses, &content);
-        }
         commands.entity(next_actor).insert(ActiveCombatant);
         log.push(CombatEvent::TurnStarted { actor: next_actor });
     }

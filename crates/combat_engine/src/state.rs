@@ -195,11 +195,11 @@ impl CombatState {
         self.units.iter().filter(move |u| u.is_alive() && Some(u.team) != team)
     }
 
-    /// Refill AP and regen resources for the actor whose turn is beginning.
+    /// Refill AP and MP, then regen resources for the actor whose turn is beginning.
     ///
     /// Returns events for any resource that changed so the bridge can log them.
-    /// AP refill is silent (projected back to ECS directly). Ticks fire for
-    /// both alive and dead appliers (sirota-DoT case).
+    /// AP and MP refills are silent (projected back to ECS directly). Ticks fire
+    /// for both alive and dead appliers (sirota-DoT case).
     pub fn start_actor_turn(
         &mut self,
         actor: UnitId,
@@ -210,6 +210,7 @@ impl CombatState {
         if let Some(u) = self.unit_mut(actor) {
             if u.is_alive() {
                 u.action_points = u.max_ap;
+                u.movement_points = u.speed;
                 if let Some((cur, max)) = u.mana.as_mut() {
                     let new = (*cur + 1).min(*max);
                     if new != *cur {
@@ -298,16 +299,17 @@ mod tests {
     use crate::{AbilityDef, AbilityId, CasterContext, StatusDef, StatusId};
 
     struct StubContent {
-        dot_per_tick: i32,
         hp_percent_dot: i32,
     }
 
     impl StubContent {
         fn neutral() -> Self {
-            Self { dot_per_tick: 0, hp_percent_dot: 0 }
+            Self { hp_percent_dot: 0 }
         }
-        fn with_dot(dot_per_tick: i32) -> Self {
-            Self { dot_per_tick, hp_percent_dot: 0 }
+        /// `_dot_per_tick` is documentation only — actual DOT damage is carried
+        /// by the status itself (see `make_status(... dot)`).
+        fn with_dot(_dot_per_tick: i32) -> Self {
+            Self { hp_percent_dot: 0 }
         }
     }
 
@@ -366,7 +368,8 @@ mod tests {
     #[test]
     fn start_actor_turn_refills_ap_and_regens_mana() {
         let uid = UnitId(1);
-        let unit = make_unit(uid, 0, 2, Some((1, 10)));
+        let mut unit = make_unit(uid, 0, 2, Some((1, 10)));
+        unit.movement_points = 0; // depleted from previous turn
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent::neutral();
 
@@ -374,12 +377,46 @@ mod tests {
 
         let u = state.unit(uid).unwrap();
         assert_eq!(u.action_points, 2);
+        assert_eq!(u.movement_points, 3, "MP refilled to speed");
         assert_eq!(u.mana, Some((2, 10)));
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events[0],
             Event::ManaRegenerated { unit: UnitId(1), current: 2, max: 10 }
         ));
+    }
+
+    #[test]
+    fn start_actor_turn_refills_movement_points_to_speed() {
+        let uid = UnitId(11);
+        let mut unit = make_unit(uid, 0, 2, None);
+        unit.base_speed = 4;
+        unit.speed = 4;
+        unit.movement_points = 0;
+        let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
+        let content = StubContent::neutral();
+
+        state.start_actor_turn(uid, &content);
+
+        assert_eq!(state.unit(uid).unwrap().movement_points, 4);
+    }
+
+    #[test]
+    fn start_actor_turn_refills_mp_to_effective_speed_including_bonus() {
+        // When a status grants +2 speed_bonus, u.speed = base_speed + bonus.
+        // start_actor_turn must refill to u.speed, not u.base_speed.
+        let uid = UnitId(12);
+        let mut unit = make_unit(uid, 0, 2, None);
+        unit.base_speed = 3;
+        unit.speed = 5; // reflects status speed_bonus of +2
+        unit.movement_points = 0;
+        let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
+        let content = StubContent::neutral();
+
+        state.start_actor_turn(uid, &content);
+
+        assert_eq!(state.unit(uid).unwrap().movement_points, 5,
+            "should refill to effective speed, not base_speed");
     }
 
     #[test]
@@ -400,12 +437,15 @@ mod tests {
         let uid = UnitId(3);
         let mut unit = make_unit(uid, 0, 2, Some((1, 10)));
         unit.hp = 0;
+        unit.movement_points = 0;
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent::neutral();
 
         let events = state.start_actor_turn(uid, &content);
 
-        assert_eq!(state.unit(uid).unwrap().action_points, 0, "dead unit AP unchanged");
+        let u = state.unit(uid).unwrap();
+        assert_eq!(u.action_points, 0, "dead unit AP unchanged");
+        assert_eq!(u.movement_points, 0, "dead unit MP unchanged");
         assert!(events.is_empty(), "no refill events and no statuses to tick");
     }
 
@@ -413,7 +453,7 @@ mod tests {
     fn start_actor_turn_ticks_dot_on_victims() {
         let applier = UnitId(1);
         let victim = UnitId(2);
-        let mut applier_unit = make_unit(applier, 0, 2, None);
+        let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
         victim_unit.hp = 20;
         victim_unit.max_hp = 20;
@@ -441,7 +481,7 @@ mod tests {
     fn start_actor_turn_expires_status_on_last_tick() {
         let applier = UnitId(1);
         let victim = UnitId(2);
-        let mut applier_unit = make_unit(applier, 0, 2, None);
+        let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
         victim_unit.hp = 20;
         victim_unit.max_hp = 20;
@@ -489,7 +529,7 @@ mod tests {
     fn start_actor_turn_dot_lethal_emits_death_and_cleans_local_statuses() {
         let applier = UnitId(1);
         let victim = UnitId(2);
-        let mut applier_unit = make_unit(applier, 0, 2, None);
+        let applier_unit = make_unit(applier, 0, 2, None);
         let mut victim_unit = make_unit(victim, 0, 2, None);
         victim_unit.hp = 1;
         victim_unit.max_hp = 20;
