@@ -803,17 +803,31 @@ pub fn process_action_system(
                             &token_mesh,
                             &grid_offset,
                         );
-                        // One ability per turn: always end the turn after a successful cast.
-                        // (The engine consumed AP; resolve_action_system no longer exists to do this.)
-                        end_turn.write(EndTurn { actor: *actor });
+                        // End turn only when both AP and MP are exhausted, and the
+                        // ability isn't GrantMovement (which exists specifically to
+                        // extend the move budget). Mirrors the legacy
+                        // `resolve_action_system` semantic — leftover MP after a cast
+                        // lets the actor spend remaining movement before ending.
+                        let is_grant_movement = active_content
+                            .abilities
+                            .get(ability)
+                            .is_some_and(|d| matches!(d.effect, EffectDef::GrantMovement { .. }));
+                        if let Some(unit) = combat_state.0.unit(actor_uid) {
+                            if !is_grant_movement
+                                && unit.action_points <= 0
+                                && unit.movement_points <= 0
+                            {
+                                end_turn.write(EndTurn { actor: *actor });
+                            }
+                        }
                     }
                     Err(e) => {
                         warn!(
                             "process_action_system: Cast step() error for actor {:?} (uid {:?}): {:?}",
                             actor, actor_uid, e
                         );
-                        // End turn on error too — keeps pipeline forward-moving.
-                        end_turn.write(EndTurn { actor: *actor });
+                        // Cast failed validation — engine state is rolled back, so
+                        // don't end the turn; let the user retry or end manually.
                     }
                 }
             }

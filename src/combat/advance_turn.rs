@@ -27,7 +27,7 @@ use bevy::prelude::*;
 pub fn advance_turn_system(
     mut commands: Commands,
     mut end_turn_events: MessageReader<EndTurn>,
-    vitals: Query<&mut Vital>,
+    vitals: Query<&Vital>,
     mut action_points: Query<&mut ActionPoints>,
     speed_q: Query<&Speed>,
     statuses: Query<(Entity, &StatusEffects)>,
