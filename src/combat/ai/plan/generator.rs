@@ -14,6 +14,7 @@ use crate::combat::ai::action_state::SnapshotActionState;
 use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::plan::sim::SimState;
+use crate::combat::engine_bridge::entity_to_uid;
 use crate::combat::ai::outcome::builder as outcome_builder;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
@@ -152,6 +153,13 @@ pub fn generate_plans(
                     PlanStep::Move { .. } => false,
                 };
                 let outcome = ext_sim.apply_step(&step, &caster_ctx, ctx.content, disadvantage);
+
+                // Phase 4 (4f): tick statuses at end of this plan branch so
+                // scoring sees post-handoff state (DoT damage, expiry).
+                // Called once per branch expansion — the next depth starts from
+                // the already-ticked snapshot, guaranteeing no double-tick.
+                let actor_uid = entity_to_uid(actor);
+                ext_sim.apply_endturn(actor_uid);
 
                 // Mid-plan death truncation (step 12.2): if the actor died on
                 // this step (AoO lethal hit, self-AoE, etc.) record the plan
@@ -668,6 +676,7 @@ fn partial_score(plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
+
 
 #[cfg(test)]
 mod tests {
@@ -1883,6 +1892,104 @@ mod tests {
             !lethal_move_plans.is_empty(),
             "at least one single-step lethal-Move plan must be in the pool",
         );
+    }
+
+    // ── apply_endturn double-tick regression (4f) ───────────────────────────
+
+    /// Verifies that `apply_endturn` is called **exactly once per plan branch**:
+    ///
+    /// - A depth-1 plan's terminal snapshot shows the actor's DoT status ticked
+    ///   once (`rounds_remaining` decremented by 1).
+    /// - A depth-2 plan's terminal snapshot shows it ticked twice total — once
+    ///   per depth level — not 4 times (double-tick within a single expansion).
+    ///
+    /// Spec §8 gotcha: "Wire conservatively — single tick per branch."
+    #[test]
+    fn apply_endturn_ticks_status_exactly_once_per_branch() {
+        use crate::combat::ai::world::snapshot::ActiveStatusView;
+        use crate::combat::ai::world::tags::cache::build_caches;
+        use crate::content::statuses::StatusDef;
+        use combat_engine::StatusId;
+
+        // ── Content: one damage ability + a DoT status def ──────────────────
+        let mut content = empty_content();
+        let def = strike_def("strike", 1, 1);
+        content.abilities.insert(def.id.clone(), def.clone());
+
+        let poison_id = StatusId::from("poison");
+        let poison_def = StatusDef {
+            id: poison_id.clone(),
+            name: "poison".into(),
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            skips_turn: false,
+            forces_targeting: false,
+            dot_dice: Some(crate::core::DiceExpr::new(0, 0, 3)),
+            blocks_mana_abilities: false,
+            speed_bonus: 0,
+            hp_percent_dot: 0,
+            ai_controlled: false,
+            causes_disadvantage: false,
+            buff_class: None,
+        };
+        content.statuses.insert(poison_id.clone(), poison_def);
+
+        // ── Snapshot: actor poisoned by themselves (applier == actor) ────────
+        // tick_actor_statuses filters by applier == actor_uid, and
+        // snapshot_to_combat_state sets applier = entity_to_uid(unit.entity)
+        // for every status, so this actor's own status will be ticked.
+        let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 30, 2);
+        actor.statuses = vec![ActiveStatusView {
+            id: poison_id.clone(),
+            rounds_remaining: 3,
+            dot_per_tick: 3,
+        }];
+        let target = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
+        let actor_id = actor.entity;
+
+        let (_status_tag_cache, _) = build_caches(&content);
+
+        // ── Depth-1: each stepped plan should show exactly one tick ──────────
+        let mut difficulty = DifficultyProfile::hard();
+        difficulty.plan_max_depth = 1;
+        difficulty.plan_beam_width = 10;
+        let ctx = make_ctx(&content, &difficulty);
+
+        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let maps = empty_maps();
+        let depth1_plans = generate_plans(actor_id, &ctx, &snap, &maps);
+
+        for plan in depth1_plans.iter().filter(|p| !p.steps.is_empty()) {
+            let last_snap = plan.sim_snapshots.last().expect("non-empty plan has snapshot");
+            let actor_snap = last_snap.unit(actor_id).expect("actor in snapshot");
+            let poison = actor_snap.statuses.iter().find(|s| s.id == poison_id)
+                .expect("poison survives one tick (started at 3 rounds)");
+            assert_eq!(
+                poison.rounds_remaining, 2,
+                "depth-1: poison should tick once (3→2), got {}",
+                poison.rounds_remaining
+            );
+        }
+
+        // ── Depth-2: two-step plans tick once per depth, so 3→1 total ───────
+        let mut difficulty2 = DifficultyProfile::hard();
+        difficulty2.plan_max_depth = 2;
+        difficulty2.plan_beam_width = 10;
+        let ctx2 = make_ctx(&content, &difficulty2);
+        let depth2_plans = generate_plans(actor_id, &ctx2, &snap, &maps);
+
+        for plan in depth2_plans.iter().filter(|p| p.steps.len() == 2) {
+            let last_snap = plan.sim_snapshots.last().expect("two-step plan has snapshot");
+            let actor_snap = last_snap.unit(actor_id).expect("actor in snapshot");
+            let poison = actor_snap.statuses.iter().find(|s| s.id == poison_id)
+                .expect("poison survives two ticks (started at 3 rounds)");
+            assert_eq!(
+                poison.rounds_remaining, 1,
+                "depth-2: poison should tick twice total (3→1), got {} \
+                 (0 would indicate double-ticking)",
+                poison.rounds_remaining
+            );
+        }
     }
 
 }

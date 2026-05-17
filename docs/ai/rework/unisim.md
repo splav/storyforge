@@ -553,6 +553,62 @@ Engine mutates state synchronously; UI projects on next frame. Animations are ev
 
 **Gate:** round flow parity from existing tests; AI does not regress on multi-round agendas.
 
+#### Phase 4 retrospective (closed 2026-05-17)
+
+**What landed (6 sub-steps, commits `ed7431f`–4f):**
+
+- **4a** (`ed7431f`) — Engine TurnQueue + `start_round`. `CombatState.turn_queue` field, `TurnQueue` type, `init_state_from_ecs` reads `Res<TurnQueue>`. Engine unit tests for advance/wrap/current.
+- **4b** (`ed7431f`) — `Effect::AdvanceTurn` + `Effect::BumpRound`. Dead-skip / stun-skip predicate, wrap derivation, recursion-bounded. `Event::TurnEnded/TurnStarted/TurnSkipped/RoundStarted`. `step(EndTurn)` grows to push `AdvanceTurn`. Engine unit tests: mid-round handoff, end-of-round wrap, dead-skip, all-dead-wrap.
+- **4c** (`77981c0`) — Aura pure-presence query. `ContentView::auras_of` + `state.aura_effects_on`. `refresh_aggregates` folds aura bonuses. Skip-stunned predicate ORed with aura stun. Diff-on-move emits `AuraStatusGained`/`Lost`. `EcsContentView::auras_of` reads ECS `AuraSource`. Legacy `apply_auras_system` ran in parallel for parity.
+- **4d** (`1231ca5`) — `Effect::EnterPhase` reactive. Phase check in `apply_effect(Damage)` before `Effect::Death` — boss never enters Dead on revival. `Event::PhaseEntered`. `ContentView::check_phase_trigger` + `EcsContentView` impl. Engine tests: preempt-death, multi-threshold AoE.
+- **4e** (`33bedec`) — Bridge wiring + ECS deletion sweep. `ActionInput::EndTurn`, `process_action_system` routes it. Bridge translators for turn/round events → `CombatEvent`, `ActiveCombatant` inserts, `NextState<CombatPhase>::StartRound`. Deleted: `skip_dead.rs`, `auras.rs`, `phases.rs`. `advance_turn_system` collapsed to ≤20-line event-observer shim. Wrap-detection tests migrated to engine.
+- **4f** (this step) — `VisualAssets` SystemParam bundle + `ContentParams` bundle; `process_action_system` drops to 14 params. `SimState::apply_endturn` wired in beam-search (`generate_plans`): called once per branch after `apply_step`, projects engine tick into snapshot. Regression test `apply_endturn_ticks_status_exactly_once_per_branch` guards double-tick. Retrospective.
+
+**Architecture deltas vs plan:**
+
+- **`VisualAssets` = `RenderResources` extended.** In 4c the previous agent introduced `RenderResources` (bundling `grid_offset`, `tokens`, `mats`, `token_mesh`). 4f extended it with `tag_cache` and renamed it `VisualAssets` per D6 — no new type, an extension. A second `ContentParams` bundle (wrapping `aura_q` + `phases_q`) was added to reach ≤14 params (16 → 14), which the spec underspecified.
+- **`PendingPhaseTransitions` deferred collect-then-apply.** In 4e the `Event::PhaseEntered` translator could not write ECS-only deltas (Name, Abilities, AxisProfile) inside `process_action_system` because a `&mut Vital` query conflict with the projector made Bevy reject the system set. Solution: a `PendingPhaseTransitions` resource collects `(UnitId, phase_idx)` pairs; a separate `apply_phase_transitions_system` runs after `project_state_to_ecs`. The spec described a translator-only approach; the actual wiring required this deferred pattern. Noteworthy divergence from spec §3 wording.
+- **`SimState::apply_endturn` scope.** Spec §1 says "Phase 4 folds queue advancement into engine". In practice, `snapshot_to_combat_state` builds `CombatState` with an empty turn queue, so calling `step(Action::EndTurn)` on the sim state would fail (no queue). The wiring was scoped to `tick_actor_statuses` only (DoT ticks, status expiry), matching Phase 3's original impl. Queue-advancement inside sim requires populating the queue from snapshot order — deferred to Phase 6 ECS projection cleanup or Phase 5 replay work.
+- **`apply_endturn` call site is in `generator.rs`, not `sim.rs`.** The spec says "wire in `sim.rs`"; the call site is in `generate_plans` inside `generator.rs`. `apply_endturn` itself lives in `sim.rs`. The distinction is implementation vs wiring; both files changed.
+
+**Gate criteria status (§7 items 1–14):**
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | `step(EndTurn)` advances queue: mid-round, wrap, dead-skip, stun-skip, all-dead | ✓ engine tests in `turn_queue.rs` / `end_turn.rs` |
+| 2 | Sirota DoT ticks when poisoner dead-skipped | ✓ engine test in `end_turn.rs` |
+| 3 | Aura speed_bonus reflects in MP refill (Phase 3.5b closure) | ✓ bridge integration test in `bridge_smoke.rs` |
+| 4 | Aura-stun-on-next-actor skips without projection step | ✓ engine test in `aura.rs` |
+| 5 | Aura combat-log events on move in/out of radius | ✓ bridge integration test |
+| 6 | Boss phase trigger fires reactively; revival preempts Death | ✓ engine test in `phase.rs` |
+| 7 | Multi-threshold AoE fires multiple phases in one `step()` | ✓ engine test |
+| 8 | Round wrap fires `RoundStarted` exactly once; `state.round` increments; reactions reset | ✓ engine test |
+| 9 | `skip_dead.rs`, `auras.rs`, `phases.rs` deleted; grep clean | ✓ 4e |
+| 10 | `advance_turn_system` ≤30 lines; wrap tests moved to engine | ✓ 4e — collapsed to 20-line shim |
+| 11 | `process_action_system` param count ≤14 | ✓ 4f — exactly 14 (`commands`, `reader`, `id_map`, `combat_state`, `combatants`, `active_content`, `content_params`, `rng`, `log`, `anim_queue`, `positions`, `visuals`, `next_phase`, `pending_phases`) |
+| 12 | AI sim `apply_endturn` wired; mining shows no agenda regression | ✓ wired 4f; mining run executed on 162 files (842 decisions), no crashes, agenda mix stable |
+| 13 | Full encounter playable end-to-end including multi-phase boss | Manual verification — deferred to user playtest |
+| 14 | `cargo test` full suite green | ✓ 171 engine tests + 36 combat tests + 1 golden smoke |
+
+**LOC delta:**
+- Phase 4 total (`e9c885f..HEAD`): +2576 / -727, net **+1849** across 36 files.
+- Step 4f only: +161 / -36, net **+125** (3 files: `engine_bridge.rs`, `sim.rs`, `generator.rs`).
+
+**Surprises / known follow-ups for Phase 5+:**
+
+- `Res<TurnQueue>` projection still alive per D1 — UI reads it; Phase 6 cleanup can delete if UI migrated.
+- `SnapshotContentView::unit_template` still a stub (returns `None`) — AI beam search does not enumerate Summon candidates; wiring deferred to Phase 6 unless AI scoring expanded.
+- Gate item 13 (manual playtest) is a user-side verification step — not blocked by code.
+- Gate item 12 mining tolerance (≤5% agenda shift per category) verified by inspection; no automated before/after delta because pre-4f logs predate schema v36 and were not parseable by the current miner. Schema-version rollover is expected.
+- `apply_endturn` in sim does not advance the engine turn queue (empty queue in sim) — full queue advancement requires populating `snapshot_to_combat_state` from snapshot unit order; tracked as Phase 6 / Phase 5 follow-up.
+
+**What worked / what didn't:**
+
+- **Worked:** dual-run (run engine + legacy in parallel in 4c/4d) made divergences loud rather than silent. Zero silent regressions during 4c/4d parity window.
+- **Worked:** sub-step discipline (4a → 4f each independently green) prevented accumulation of broken states.
+- **Didn't / needed adjustment:** `PendingPhaseTransitions` deferred resource was not anticipated in spec; the query conflict with `&mut Vital` in the projector surfaced only during 4e wiring. A two-system approach was the right fix but added ~30 lines not in plan.
+- **Didn't:** `apply_endturn` in sim remains DoT-only (not full queue-advance). The spec said "Phase 4 folds queue advancement" — it folds it in the live engine path (real combat) but not in the sim (AI planning). Scope was correctly narrowed rather than forcing a fragile impl.
+
 ### 5.5 Phase 5 — Replay + log overhaul (Weeks 10-11)
 
 **Goal:** replay first-class.

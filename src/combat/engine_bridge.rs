@@ -506,6 +506,7 @@ pub(crate) fn build_ecs_content_view<'a>(
         let Some(uid) = id_map.get_id(entity) else {
             continue;
         };
+
         let engine_dice = EngineDiceExpr::new(
             core_dice.count,
             core_dice.sides,
@@ -663,20 +664,35 @@ pub fn apply_phase_transitions_system(
     }
 }
 
-// ── spawn_ecs_entity_from_engine_unit ────────────────────────────────────────
+// ── VisualAssets / ContentParams SystemParam newtypes ────────────────────────
 
-/// Bundles rendering-only Bevy resources used by `process_action_system`.
+/// Bundles rendering-only Bevy resources used by `process_action_system`
+/// and `spawn_ecs_entity_from_engine_unit`.
 ///
-/// Introduced to stay within Bevy's 16-param limit for systems (4c added
-/// `aura_q`, pushing the param count to 17).  Grouped here because none of
-/// these params affect engine logic — they are pure output/rendering concerns.
+/// Introduced in 4c to stay within Bevy's 16-param limit. Extended in 4f
+/// to also absorb `tag_cache` (reduces `process_action_system` to ≤ 14 params).
+/// Renamed `VisualAssets` per D6; previously `RenderResources`.
 #[derive(SystemParam)]
-pub struct RenderResources<'w, 's> {
+pub struct VisualAssets<'w, 's> {
     pub grid_offset: Res<'w, HexGridOffset>,
     pub tokens: Query<'w, 's, (Entity, &'static UnitToken)>,
     pub mats: Res<'w, HexMaterials>,
     pub token_mesh: Res<'w, TokenMesh>,
+    pub tag_cache: Res<'w, AbilityTagCache>,
 }
+
+/// Bundles the ECS queries that `build_ecs_content_view` needs to build the
+/// engine content adapter.  Decouples content-data reads from visual resources
+/// in system signatures.
+///
+/// Used by `process_action_system` and `engine_turn_start_system`.
+#[derive(SystemParam)]
+pub struct ContentParams<'w, 's> {
+    pub aura_q: Query<'w, 's, (Entity, &'static AuraSource), Without<Dead>>,
+    pub phases_q: Query<'w, 's, (Entity, &'static EnemyPhases)>,
+}
+
+// ── spawn_ecs_entity_from_engine_unit ────────────────────────────────────────
 
 /// Instantiate a new ECS combatant entity from a unit already present in the
 /// engine state.  Called from `translate_cast_events` when `Event::UnitSpawned`
@@ -884,8 +900,7 @@ pub fn engine_turn_start_system(
     mut combat_state: ResMut<CombatStateRes>,
     combatants: Query<AooRow, With<Combatant>>,
     active_content: Res<ActiveContent>,
-    aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
-    phases_q: Query<(Entity, &EnemyPhases)>,
+    content_params: ContentParams,
     mut commands: Commands,
     mut log: ResMut<CombatLog>,
     mut pending_phases: ResMut<PendingPhaseTransitions>,
@@ -897,7 +912,7 @@ pub fn engine_turn_start_system(
     let Some(actor_ent) = current else { return };
     let Some(actor_uid) = id_map.get_id(actor_ent) else { return };
 
-    let content = build_ecs_content_view(&combatants, &id_map, &active_content, &aura_q, &phases_q);
+    let content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
     let events = combat_state.0.start_actor_turn(actor_uid, &content);
 
     // Resource regen events are actor-local; handle them before the shared
@@ -948,14 +963,12 @@ pub fn process_action_system(
     mut combat_state: ResMut<CombatStateRes>,
     combatants: Query<AooRow, With<Combatant>>,
     active_content: Res<ActiveContent>,
-    aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
-    phases_q: Query<(Entity, &EnemyPhases)>,
+    content_params: ContentParams,
     mut rng: ResMut<crate::combat::DiceRngRes>,
     mut log: ResMut<CombatLog>,
     mut anim_queue: ResMut<AnimationQueue>,
     mut positions: ResMut<HexPositions>,
-    tag_cache: Res<AbilityTagCache>,
-    render: RenderResources,
+    visuals: VisualAssets,
     mut next_phase: Option<ResMut<NextState<CombatPhase>>>,
     mut pending_phases: ResMut<PendingPhaseTransitions>,
 ) {
@@ -975,7 +988,7 @@ pub fn process_action_system(
                     path: path.clone(),
                 };
 
-                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &aura_q, &phases_q);
+                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
 
                 match step(&mut combat_state.0, action, &mut rng.0, &content) {
                     Ok(events) => {
@@ -987,8 +1000,8 @@ pub fn process_action_system(
                             &mut commands,
                             &mut log,
                             &mut anim_queue,
-                            &render.grid_offset,
-                            &render.tokens,
+                            &visuals.grid_offset,
+                            &visuals.tokens,
                         );
                         // AoO on a move can cross a phase threshold; queue for apply system.
                         for ev in &events {
@@ -1028,7 +1041,7 @@ pub fn process_action_system(
                     target_pos: *target_pos,
                 };
 
-                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &aura_q, &phases_q);
+                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
 
                 let mana_before = combat_state
                     .0
@@ -1051,10 +1064,7 @@ pub fn process_action_system(
                             &mut commands,
                             &mut log,
                             &mut positions,
-                            &tag_cache,
-                            &render.mats,
-                            &render.token_mesh,
-                            &render.grid_offset,
+                            &visuals,
                         );
                         // Queue phase transitions from cast events (most common case:
                         // boss crosses HP threshold from a direct damage spell).
@@ -1078,7 +1088,7 @@ pub fn process_action_system(
                                 && unit.movement_points <= 0
                             {
                                 // AP and MP exhausted after cast — auto-end turn via engine.
-                                let end_content = build_ecs_content_view(&combatants, &id_map, &active_content, &aura_q, &phases_q);
+                                let end_content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
                                 if let Ok(end_events) = step(&mut combat_state.0, Action::EndTurn { actor: actor_uid }, &mut rng.0, &end_content) {
                                     translate_end_turn_events(&end_events, &id_map, &mut commands, &mut log, &mut next_phase);
                                     // Phase transitions during auto-end-turn (e.g. DoT ticks).
@@ -1111,7 +1121,7 @@ pub fn process_action_system(
                     continue;
                 };
 
-                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &aura_q, &phases_q);
+                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
 
                 match step(&mut combat_state.0, Action::EndTurn { actor: actor_uid }, &mut rng.0, &content) {
                     Ok(events) => {
@@ -1236,10 +1246,7 @@ fn translate_cast_events(
     commands: &mut Commands,
     log: &mut CombatLog,
     positions: &mut HexPositions,
-    tag_cache: &AbilityTagCache,
-    mats: &HexMaterials,
-    token_mesh: &TokenMesh,
-    grid_offset: &HexGridOffset,
+    visuals: &VisualAssets,
 ) {
     // Emit AbilityUsed from content lookup; fall back to id-as-name if absent.
     let (ability_name, is_aoe, cost_str) = active_content
@@ -1348,10 +1355,10 @@ fn translate_cast_events(
                     id_map,
                     positions,
                     active_content,
-                    tag_cache,
-                    mats,
-                    token_mesh,
-                    grid_offset,
+                    &visuals.tag_cache,
+                    &visuals.mats,
+                    &visuals.token_mesh,
+                    &visuals.grid_offset,
                     log,
                 );
             }

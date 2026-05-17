@@ -107,15 +107,26 @@ impl<'a> SimState<'a> {
         }
     }
 
-    /// Advance time past the actor's turn end, applying any DoT/expiry the actor
-    /// would trigger at their next turn start. Closes the long-standing sim-skips-
-    /// DoT drift. Phase 3 uses `tick_actor_statuses` directly; Phase 4 will fold
-    /// queue advancement into engine.
+    /// Advance time past the actor's turn end: tick active statuses (DoT damage,
+    /// duration decrements, expiry) for the actor, then project the results back
+    /// into `self.snapshot` so subsequent scoring and depth extensions see the
+    /// post-endturn state.
     ///
-    /// Call sites: currently defined but not yet wired — see Phase 3 retrospective.
+    /// Wired in Phase 4 (4f): called once per plan branch in `generate_plans`
+    /// after each `apply_step`, so the AI sees post-handoff state (status ticks
+    /// fired, HP deltas from DoTs, statuses expired).
+    ///
+    /// **Single-tick invariant:** call exactly once per branch expansion — never
+    /// inside the step loop for multi-step plans.  `generate_plans` enforces this
+    /// by calling `apply_endturn` immediately before storing the branch snapshot,
+    /// so each stored snapshot is already post-endturn.  The next depth's
+    /// `from_snapshot` starts from that already-ticked base, avoiding double-tick.
     pub fn apply_endturn(&mut self, actor: UnitId) {
         let content_view = SnapshotContentView::from_snapshot(&self.snapshot);
         let _ = self.combat_state.tick_actor_statuses(actor, &content_view);
+        // Project engine mutations (status expirations, DoT hp loss) back into
+        // the snapshot so scoring and next-depth extensions see up-to-date state.
+        project_engine_to_snapshot(&self.combat_state, &mut self.snapshot, self.status_tags);
     }
 
     fn apply_move(&mut self, path: &[Hex]) -> StepOutcome {
