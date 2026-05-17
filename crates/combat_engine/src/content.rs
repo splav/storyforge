@@ -16,7 +16,8 @@ use crate::{dice::DiceExpr, state::UnitId, AbilityId, ResourceKind, StatusId};
 ///
 /// Engine primitives only — content-specific labels (BrokenFaith,
 /// ManaOverload, etc.) translate to these at the bridge boundary.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CritFailOutcome {
     /// Cast misses entirely — no damage / heal / status; costs still paid.
     #[default]
@@ -88,7 +89,7 @@ pub enum EffectDef {
 ///
 /// Mirrors the fields read by `BattleSnapshot::refresh_aggregates` and
 /// `snapshot::status_bonuses`.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StatusBonuses {
     /// Added to `base_speed` to get effective `speed`.
     pub speed_bonus: i32,
@@ -190,7 +191,8 @@ pub struct UnitTemplate {
 ///
 /// Mirrors `content::encounters::AuraAffects` but lives in the engine so that
 /// `ContentView::auras_of` can return engine-native types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TeamRelation {
     /// Applies only to the opposite team.
     Enemies,
@@ -204,7 +206,7 @@ pub enum TeamRelation {
 ///
 /// Returned by `ContentView::auras_of`.  The engine uses this purely at
 /// query time — no aura state is stored in `unit.statuses`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AuraDef {
     /// Maximum hex distance (inclusive) at which the aura applies.
     pub radius: u32,
@@ -218,7 +220,7 @@ pub struct AuraDef {
 ///
 /// Computed by `CombatState::aura_effects_on` by folding all in-range
 /// alive-source aura contributions.  Pure query result — never stored.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AuraEffects {
     pub speed_bonus: i32,
     pub armor_bonus: i32,
@@ -233,7 +235,7 @@ pub struct AuraEffects {
 /// the engine can act on directly; ECS-only deltas (name, abilities,
 /// `AxisProfile`, flavor) live in `EnemyPhases.pending` and are read by the
 /// bridge translator on `Event::PhaseEntered`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PhaseTransition {
     /// New maximum HP for the unit.  The unit's `hp` is only changed by the
     /// cascade's `Heal { amount: new_max_hp }` when `heal_to_full` is true.

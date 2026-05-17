@@ -31,7 +31,8 @@ fn final_damage_f32(raw: f32, armor: f32, vulnerability: f32, pierces_armor: boo
 }
 
 /// Atomic state mutation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Effect {
     /// Move the actor's position to `to`.
     MovePosition { actor: UnitId, to: Hex },
@@ -130,7 +131,7 @@ pub enum Effect {
 /// Structured damage breakdown produced by the `Damage` effect arm.
 ///
 /// `mitigation` is 0 when `pierces = true` — armor is not applied in that case.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DamageCtx {
     pub raw: f32,
     pub mitigation: i32,
@@ -139,7 +140,8 @@ pub struct DamageCtx {
 }
 
 /// Why a `Spawn` effect did not produce a new unit.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SpawnBlockedReason {
     TemplateMissing,
     MaxActiveReached,
@@ -152,7 +154,7 @@ pub enum SpawnBlockedReason {
 /// has been applied (e.g. the previous position before `MovePosition`).
 /// Rather than reading state twice, the driver captures this before calling
 /// `apply_effect`, or `apply_effect` computes and returns it here.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ApplyCtx {
     /// Set by `Damage`: structured breakdown of raw/mitigation/final.
     pub damage: Option<DamageCtx>,

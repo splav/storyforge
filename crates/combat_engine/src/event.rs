@@ -10,7 +10,8 @@ use crate::{
     StatusId,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Event {
     ActionStarted { action: Action },
     UnitMoved { actor: UnitId, from: Hex, to: Hex },
@@ -91,7 +92,8 @@ pub enum Event {
 }
 
 /// Why a unit's turn was skipped in `Effect::AdvanceTurn`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TurnSkipReason {
     Dead,
     Stunned,

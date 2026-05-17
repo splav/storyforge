@@ -21,7 +21,7 @@
 /// Mirrors `storyforge::core::string_id!` — kept in sync manually.
 macro_rules! string_id {
     ($name:ident) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
         #[serde(transparent)]
         pub struct $name(pub String);
 
@@ -72,6 +72,7 @@ pub enum ResourceKind {
 
 pub mod action;
 pub mod content;
+pub mod content_hash;
 pub mod dice;
 pub mod effect;
 pub mod event;
@@ -80,10 +81,11 @@ pub mod reaction;
 pub mod state;
 pub mod step;
 pub mod targeting;
+pub mod trace;
 pub mod turn_queue;
 
 pub use dice::{DiceExpr, DiceRng};
-pub use content::{AbilityDef, AbilityRange, AoEShape, AuraDef, AuraEffects, CasterContext, Cost, CritFailOutcome, EffectDef, StatusApplication, StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate};
+pub use content::{AbilityDef, AbilityRange, AoEShape, AuraDef, AuraEffects, CasterContext, Cost, CritFailOutcome, EffectDef, PhaseTransition, StatusApplication, StatusBonuses, StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate};
 pub use effect::SpawnBlockedReason;
 pub use legality::{check_legality, ActionState, ActorView, IllegalReason, LegalAction, ProposedAction};
 pub use turn_queue::TurnQueue;

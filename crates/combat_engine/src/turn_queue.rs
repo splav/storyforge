@@ -5,7 +5,7 @@ use crate::state::UnitId;
 /// Mirrors the semantics of `src/game/resources.rs::TurnQueue` but operates on
 /// `UnitId` instead of Bevy `Entity`.  The ECS `Res<TurnQueue>` is kept as a
 /// one-way projection (engine → ECS) for UI consumers — see D1 in Phase 4 plan.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TurnQueue {
     pub order: Vec<UnitId>,
     pub index: usize,

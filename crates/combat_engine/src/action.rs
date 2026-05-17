@@ -11,7 +11,8 @@ use crate::AbilityId;
 /// Phase 0 implements only `Move`; `Cast` is added in Phase 2 step 6b.
 /// `EndTurn` is a Phase 3 placeholder — Phase 4 will extend it with queue
 /// advance and RoundPhase transitions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Action {
     Move { actor: UnitId, path: Vec<Hex> },
     Cast {

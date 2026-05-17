@@ -19,7 +19,7 @@ use crate::StatusId;
 
 /// Opaque unit identifier inside the engine.  Maps 1-to-1 with a Bevy
 /// `Entity` via `crate::combat::engine_bridge::UnitIdMap`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct UnitId(pub u64);
 
 // ── Resource pools ────────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ pub type Pool = (i32, i32);
 // ── Status effects ────────────────────────────────────────────────────────────
 
 /// Engine-local mirror of `game::components::ActiveStatus`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ActiveStatus {
     pub id: StatusId,
     pub rounds_remaining: u32,
@@ -56,7 +56,8 @@ pub enum Team {
 
 // ── Round phase ───────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RoundPhase {
     PreRound,
     ActorTurn,
@@ -65,7 +66,7 @@ pub enum RoundPhase {
 
 // ── Unit ─────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Unit {
     pub id: UnitId,
     pub team: Team,
@@ -205,6 +206,14 @@ impl CombatState {
             .checked_add(1)
             .expect("synthetic UID exhaustion — combat lifetime > 2^63 spawns");
         uid
+    }
+
+    /// Current value of the synthetic UID counter (before the next alloc).
+    ///
+    /// Exposed for trace `InitLine` serialization so replay can re-seed the
+    /// counter to the same starting value (Phase 5 D1).
+    pub fn next_synthetic_uid(&self) -> u64 {
+        self.next_synthetic_uid
     }
 
     /// Look up a unit by id. Returns `None` if not present.
@@ -394,12 +403,15 @@ impl CombatState {
     ///
     /// Used by `step()` to compute diffs around `Effect::MovePosition` and
     /// `Effect::Death` and emit `Event::AuraStatusGained` / `AuraStatusLost`.
+    ///
+    /// Returns `BTreeSet` (not `HashSet`) to guarantee deterministic iteration
+    /// order across calls — required for byte-equal event emission (Phase 5 §8).
     pub fn aura_membership_set(
         &self,
         content: &dyn crate::content::ContentView,
-    ) -> std::collections::HashSet<(UnitId, UnitId, crate::StatusId)> {
+    ) -> std::collections::BTreeSet<(UnitId, UnitId, crate::StatusId)> {
         use crate::content::TeamRelation;
-        let mut set = std::collections::HashSet::new();
+        let mut set = std::collections::BTreeSet::new();
 
         let source_ids: Vec<(UnitId, hexx::Hex, Team)> = self
             .alive_units()
