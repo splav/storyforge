@@ -11,8 +11,10 @@ use storyforge::game::hex::hex_from_offset;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 struct StubContent {
-    /// If `Some`, all units have this AoO dice. `None` means no weapon.
+    /// Previously used for ContentView::aoo_dice (removed in 5c.1).
+    /// Kept for constructor compatibility; no longer read by the engine.
     aoo_dice: Option<DiceExpr>,
 }
 
@@ -22,13 +24,10 @@ impl StubContent {
 }
 
 impl ContentView for StubContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { self.aoo_dice }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> { None }
-    fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext { storyforge::combat_engine::CasterContext::default() }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-    fn auras_of(&self, _: UnitId) -> Vec<storyforge::combat_engine::AuraDef> { vec![] }
 }
 
 fn make_unit(id: u64, team: Team, reactions: i32) -> Unit {
@@ -52,6 +51,10 @@ fn make_unit(id: u64, team: Team, reactions: i32) -> Unit {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
 }
 
@@ -72,6 +75,7 @@ fn aoo_triggers_on_disengage() {
     mover.pos = mover_pos;
     let mut enemy = make_unit(2, Team::Enemy, 1);
     enemy.pos = enemy_pos;
+    enemy.aoo_dice = Some(DiceExpr::new(1, 6, 0));
 
     let state = state_with(vec![mover, enemy]);
     let content = StubContent::with_weapon(DiceExpr::new(1, 6, 0));
@@ -180,13 +184,21 @@ fn aoo_does_not_fire_from_dead_enemy() {
 #[test]
 fn expand_reaction_emits_decrement_then_damage() {
     use storyforge::combat_engine::effect::Effect;
+    use storyforge::combat_engine::CasterContext;
 
     let reaction = Reaction::OpportunityAttack { from: UnitId(2), victim: UnitId(1) };
     let dice = DiceExpr::new(1, 6, 0);
     let content = StubContent::with_weapon(dice);
     let mut rng = ExpectedValue;
 
-    let effects = expand_reaction(&reaction, &content, &mut rng);
+    // Attacker (UnitId(2)) needs aoo_dice for expand_reaction's eligibility check.
+    let mut attacker = make_unit(2, Team::Enemy, 1);
+    attacker.aoo_dice = Some(dice);
+    attacker.caster_context = CasterContext { weapon_dice: Some(dice), ..Default::default() };
+    let victim = make_unit(1, Team::Player, 0);
+    let state = state_with(vec![attacker, victim]);
+
+    let effects = expand_reaction(&reaction, &state, &content, &mut rng);
 
     assert_eq!(effects.len(), 2);
     assert!(matches!(effects[0], Effect::DecrementReactions { actor } if actor == UnitId(2)));
@@ -211,6 +223,7 @@ fn aoo_triggers_when_enemy_disengages_from_player() {
     mover.pos = mover_pos;
     let mut attacker = make_unit(2, Team::Player, 1); // player reacts
     attacker.pos = attacker_pos;
+    attacker.aoo_dice = Some(DiceExpr::new(1, 6, 0));
 
     let state = state_with(vec![mover, attacker]);
     let content = StubContent::with_weapon(DiceExpr::new(1, 6, 0));
@@ -232,6 +245,11 @@ fn expand_reaction_returns_empty_when_no_weapon() {
     let content = StubContent::no_weapon();
     let mut rng = ExpectedValue;
 
-    let effects = expand_reaction(&reaction, &content, &mut rng);
+    // Attacker (UnitId(2)) has no weapon (caster_context.weapon_dice = None by default).
+    let attacker = make_unit(2, Team::Enemy, 1);
+    let victim = make_unit(1, Team::Player, 0);
+    let state = state_with(vec![attacker, victim]);
+
+    let effects = expand_reaction(&reaction, &state, &content, &mut rng);
     assert!(effects.is_empty());
 }

@@ -76,12 +76,17 @@ fn make_snap_unit(
 /// Run the engine path on `snap` and return the final `CombatState`.
 fn run_engine(snap: &BattleSnapshot, actor_id: Entity, path: Vec<storyforge::game::hex::Hex>) -> CombatState {
     use storyforge::combat_engine::state::ActiveStatus;
+    use storyforge::combat_engine::CasterContext;
 
     let units: Vec<EngineUnit> = snap.units.iter().map(|u| {
         let team = match u.team {
             Team::Player => EngineTeam::Player,
             Team::Enemy  => EngineTeam::Enemy,
         };
+        // AoO dice lives on Unit.aoo_dice (post-5c.1 follow-up).
+        // Reconstruct from aoo_expected_damage: a fixed-damage dice 0d1+raw.
+        let aoo_dice = u.aoo_expected_damage
+            .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
         EngineUnit {
             id: entity_to_uid(u.entity),
             team,
@@ -107,6 +112,10 @@ fn run_engine(snap: &BattleSnapshot, actor_id: Entity, path: Vec<storyforge::gam
             mana: u.mana,
             energy: u.energy,
             summoner: None,
+            caster_context: CasterContext::default(),
+            aoo_dice,
+            auras: Vec::new(),
+            enemy_phases: Vec::new(),
         }
     }).collect();
 
@@ -151,18 +160,12 @@ impl SnapContent {
 }
 
 impl EngineContentView for SnapContent {
-    fn aoo_dice(&self, attacker: UnitId) -> Option<EngineDiceExpr> {
-        let raw = self.aoo.get(&attacker)?;
-        Some(EngineDiceExpr::new(0, 1, raw.round() as i32))
-    }
     fn status_bonuses(&self, _: &StatusId) -> EngineStatusBonuses {
         EngineStatusBonuses::default()
     }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> { None }
-    fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext { storyforge::combat_engine::CasterContext::default() }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-    fn auras_of(&self, _: UnitId) -> Vec<storyforge::combat_engine::AuraDef> { vec![] }
 }
 
 // ── Scenario 1: pure move, no enemies ────────────────────────────────────────
@@ -396,8 +399,11 @@ fn parity_aoo_kills_mover_mid_path_truncates() {
 
     // ── Engine path ───────────────────────────────────────────────────────────
     use storyforge::combat_engine::state::ActiveStatus;
+    use storyforge::combat_engine::CasterContext as EngineCasterContext;
     let units: Vec<EngineUnit> = snap.units.iter().map(|u| {
         let team = match u.team { Team::Player => EngineTeam::Player, Team::Enemy => EngineTeam::Enemy };
+        let aoo_dice = u.aoo_expected_damage
+            .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
         EngineUnit {
             id: entity_to_uid(u.entity), team, pos: u.pos,
             hp: u.hp, max_hp: u.max_hp, armor: u.armor, armor_bonus: u.armor_bonus,
@@ -411,6 +417,10 @@ fn parity_aoo_kills_mover_mid_path_truncates() {
             }).collect(),
             rage: u.rage, mana: u.mana, energy: u.energy,
             summoner: None,
+            caster_context: EngineCasterContext::default(),
+            aoo_dice,
+            auras: Vec::new(),
+            enemy_phases: Vec::new(),
         }
     }).collect();
     let content = SnapContent::from_snap(&snap);

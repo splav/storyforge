@@ -99,11 +99,60 @@ pub struct Unit {
     /// Set when this unit was spawned via `Effect::Spawn`. `None` for units
     /// present at combat start (loaded from ECS).
     pub summoner: Option<UnitId>,
+    /// Resolved caster stats (weapon dice, modifiers, crit-fail outcome).
+    /// Populated at combat init from `Equipment` + `CombatStats` ECS components.
+    /// Used by the Cast fanout (damage / heal formulas).
+    #[serde(default)]
+    pub caster_context: crate::content::CasterContext,
+    /// AoO dice for this unit, if it can perform opportunity attacks.
+    /// `Some(dice)` iff the unit has a melee `WeaponAttack` ability and an
+    /// equipped weapon; bonus already includes the strength modifier.
+    /// `None` means "cannot AoO" — distinct from `caster_context.weapon_dice`,
+    /// which carries the raw weapon dice used for Cast damage rolls (ranged
+    /// units have weapon_dice but no aoo_dice).
+    #[serde(default)]
+    pub aoo_dice: Option<crate::dice::DiceExpr>,
+    /// Passive aura definitions emitted by this unit.
+    /// Populated at combat init from the `AuraSource` ECS component.
+    /// Empty for units with no auras.
+    #[serde(default)]
+    pub auras: Vec<crate::content::AuraDef>,
+    /// Pending phase-transition thresholds for this unit (boss-only).
+    /// First entry = next phase to trigger. Bridge translator pops entry[0]
+    /// on `Event::PhaseEntered`. Empty for non-bosses.
+    #[serde(default)]
+    pub enemy_phases: Vec<crate::content::PhaseEntry>,
 }
 
 impl Unit {
     pub fn is_alive(&self) -> bool {
         self.hp > 0
+    }
+
+    /// Check whether this unit should enter a new phase after its HP dropped
+    /// to `new_hp` (out of `max_hp`).
+    ///
+    /// Peeks at `self.enemy_phases[0]` without consuming it — the bridge
+    /// translator pops the entry on `Event::PhaseEntered`.
+    ///
+    /// Returns `(phase_idx, transition)` for the first pending phase whose
+    /// threshold is crossed, or `None` if no phase fires.
+    pub fn check_phase_trigger(
+        &self,
+        new_hp: i32,
+        max_hp: i32,
+    ) -> Option<(usize, crate::content::PhaseTransition)> {
+        let entry = self.enemy_phases.first()?;
+        if max_hp == 0 || new_hp * 100 > max_hp * entry.pct {
+            return None;
+        }
+        let new_max_hp = if entry.new_max_hp > 0 { entry.new_max_hp } else { max_hp };
+        Some((0, crate::content::PhaseTransition {
+            new_max_hp,
+            new_armor: 0,
+            new_base_speed: 0,
+            heal_to_full: entry.heal_to_full,
+        }))
     }
 }
 
@@ -342,7 +391,7 @@ impl CombatState {
 
     /// Compute the aggregated aura effects on `target` from all alive aura sources.
     ///
-    /// Pure query — walks alive units, fetches their `AuraDef`s from content,
+    /// Pure query — walks alive units, reads their `unit.auras` field (5c.1),
     /// filters by `distance(source.pos, target.pos) ≤ radius` and team relation,
     /// then folds all matching status bonuses into an `AuraEffects` result.
     ///
@@ -365,10 +414,10 @@ impl CombatState {
             .collect();
 
         for (src_id, src_pos, src_team) in source_ids {
-            let auras = content.auras_of(src_id);
-            if auras.is_empty() {
-                continue;
-            }
+            let auras = match self.unit(src_id) {
+                Some(u) if !u.auras.is_empty() => u.auras.clone(),
+                _ => continue,
+            };
             let dist = src_pos.unsigned_distance_to(target_pos);
             for aura in &auras {
                 if dist > aura.radius {
@@ -408,7 +457,7 @@ impl CombatState {
     /// order across calls — required for byte-equal event emission (Phase 5 §8).
     pub fn aura_membership_set(
         &self,
-        content: &dyn crate::content::ContentView,
+        _content: &dyn crate::content::ContentView,
     ) -> std::collections::BTreeSet<(UnitId, UnitId, crate::StatusId)> {
         use crate::content::TeamRelation;
         let mut set = std::collections::BTreeSet::new();
@@ -419,10 +468,10 @@ impl CombatState {
             .collect();
 
         for (src_id, src_pos, src_team) in &source_ids {
-            let auras = content.auras_of(*src_id);
-            if auras.is_empty() {
-                continue;
-            }
+            let auras = match self.unit(*src_id) {
+                Some(u) if !u.auras.is_empty() => u.auras.clone(),
+                _ => continue,
+            };
             // Check each alive unit as a potential target.
             for (tgt_id, tgt_pos, tgt_team) in &source_ids {
                 if tgt_id == src_id {
@@ -464,7 +513,6 @@ mod tests {
     struct StubContent;
 
     impl ContentView for StubContent {
-        fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { None }
         fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
         fn ability_def(&self, _: &AbilityId) -> Option<AbilityDef> { None }
         fn status_def(&self, _: &StatusId) -> Option<StatusDef> {
@@ -479,9 +527,7 @@ mod tests {
                 hp_percent_dot: 0,
             })
         }
-        fn caster_context(&self, _: UnitId) -> CasterContext { CasterContext::default() }
         fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
-        fn auras_of(&self, _: UnitId) -> Vec<crate::content::AuraDef> { vec![] }
     }
 
     fn make_unit(id: UnitId, action_points: i32, max_ap: i32, mana: Option<Pool>) -> Unit {
@@ -505,6 +551,9 @@ mod tests {
             mana,
             energy: None,
             summoner: None,
+            caster_context: Default::default(),
+            auras: Vec::new(),
+            enemy_phases: Vec::new(),
         }
     }
 

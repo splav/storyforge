@@ -32,13 +32,10 @@ impl StubContent {
 }
 
 impl ContentView for StubContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { self.aoo_dice }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> { None }
-    fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext { storyforge::combat_engine::CasterContext::default() }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-    fn auras_of(&self, _: UnitId) -> Vec<storyforge::combat_engine::AuraDef> { vec![] }
 }
 
 
@@ -63,6 +60,10 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
 }
 
@@ -151,6 +152,7 @@ fn step_move_with_aoo_chain() {
     let mut enemy_a = make_unit(2, Team::Enemy, 0, 0);
     enemy_a.pos = hex_from_offset(0, 0); // adjacent to (1,0)
     enemy_a.rage = Some((0, 5));
+    enemy_a.aoo_dice = Some(DiceExpr::new(0, 6, 3));
 
     mover.pos = mover_start;
 
@@ -219,13 +221,16 @@ fn step_actor_death_mid_path_truncates_remaining_aoos() {
     let enemy_a_pos = off_path_nbs[0];
     let enemy_b_pos = off_path_nbs[1];
 
+    let aoo = DiceExpr::new(0, 6, 5);
     let mut enemy_a = make_unit(2, Team::Enemy, 0, 0);
     enemy_a.pos = enemy_a_pos;
     enemy_a.reactions_left = 1;
+    enemy_a.aoo_dice = Some(aoo);
 
     let mut enemy_b = make_unit(3, Team::Enemy, 0, 0);
     enemy_b.pos = enemy_b_pos;
     enemy_b.reactions_left = 1;
+    enemy_b.aoo_dice = Some(aoo);
 
     let mut state = CombatState::new(
         vec![mover, enemy_a, enemy_b],
@@ -235,7 +240,7 @@ fn step_actor_death_mid_path_truncates_remaining_aoos() {
     );
 
     // 5 raw damage, no armor — kills the 1-hp mover on the first AoO.
-    let content = StubContent::with_weapon(DiceExpr::new(0, 6, 5));
+    let content = StubContent::with_weapon(aoo);
 
     let result = step(
         &mut state,
@@ -397,13 +402,16 @@ fn step_two_flankers_only_first_fires_when_lethal() {
     mover.hp = 1;
     mover.movement_points = 6;
 
+    let aoo = DiceExpr::new(0, 6, 5);
     let mut enemy_a = make_unit(2, Team::Enemy, 0, 0);
     enemy_a.pos = enemy_a_pos;
     enemy_a.reactions_left = 1;
+    enemy_a.aoo_dice = Some(aoo);
 
     let mut enemy_b = make_unit(3, Team::Enemy, 0, 0);
     enemy_b.pos = enemy_b_pos;
     enemy_b.reactions_left = 1;
+    enemy_b.aoo_dice = Some(aoo);
 
     // Verify both enemies disengage at the step to dest.
     assert_eq!(start.unsigned_distance_to(enemy_a_pos), 1, "enemy A adjacent to start");
@@ -419,7 +427,7 @@ fn step_two_flankers_only_first_fires_when_lethal() {
     );
 
     // Fixed +5 damage — kills the 1-hp mover on the first AoO.
-    let content = StubContent::with_weapon(DiceExpr::new(0, 6, 5));
+    let content = StubContent::with_weapon(aoo);
 
     let (events, _ctx) = step(
         &mut state,

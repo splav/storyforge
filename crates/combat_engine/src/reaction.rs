@@ -7,7 +7,7 @@
 //! - Attacker is an enemy, alive, has `reactions_left > 0`.
 //! - Mover was *adjacent* to the attacker at `prev_pos`.
 //! - Mover is *not adjacent* to the attacker at `new_pos`.
-//! - Attacker has weapon dice available (via `ContentView::aoo_dice`).
+//! - Attacker has weapon dice available (via `unit.caster_context.weapon_dice`).
 //!
 //! **No Bevy imports here** — decision 6.7.
 
@@ -15,8 +15,9 @@ use hexx::Hex;
 
 use crate::{
     content::ContentView,
+    dice::DiceExpr,
     effect::Effect,
-    state::{CombatState, UnitId},
+    state::{CombatState, Unit, UnitId},
 };
 
 /// The kind of reaction that was triggered (used in `Event::ReactionFired`).
@@ -33,12 +34,21 @@ pub enum Reaction {
     OpportunityAttack { from: UnitId, victim: UnitId },
 }
 
+pub fn unit_aoo_dice(unit: &Unit, content: &dyn ContentView) -> Option<DiceExpr> {
+    let dice = unit.aoo_dice?;
+    // Stun check: if any active status has skips_turn = true, no AoO.
+    let stunned = unit.statuses.iter().any(|s| {
+        content.status_def(&s.id).is_some_and(|d| d.skips_turn)
+    });
+    if stunned { None } else { Some(dice) }
+}
+
 /// Scan for AoO reactions triggered when `mover` steps from `prev_pos` to
 /// `new_pos`.
 ///
 /// Returns one `Reaction::OpportunityAttack` per eligible enemy (i.e. every
 /// enemy that was adjacent at `prev_pos`, is not adjacent at `new_pos`, has
-/// `reactions_left > 0`, and has weapon dice in `content`).
+/// `reactions_left > 0`, and has weapon dice in their `caster_context`).
 ///
 /// Adjacency = hex distance of 1 (mirrors `unsigned_distance_to == 1`).
 pub fn scan_reactions(
@@ -67,8 +77,8 @@ pub fn scan_reactions(
         if enemy.reactions_left <= 0 {
             continue;
         }
-        // Must have AoO dice (weapon equipped).
-        if content.aoo_dice(enemy.id).is_none() {
+        // Must have AoO dice (weapon equipped and not stunned).
+        if unit_aoo_dice(enemy, content).is_none() {
             continue;
         }
         // AoO rule: adjacent at prev_pos, NOT adjacent at new_pos.
@@ -97,12 +107,17 @@ pub fn scan_reactions(
 /// `scan_reactions` already filters these out under normal operation).
 pub fn expand_reaction(
     reaction: &Reaction,
+    state: &CombatState,
     content: &dyn ContentView,
     rng: &mut dyn crate::dice::DiceSource,
 ) -> Vec<Effect> {
     match reaction {
         Reaction::OpportunityAttack { from, victim } => {
-            let Some(dice) = content.aoo_dice(*from) else {
+            let attacker = match state.unit(*from) {
+                Some(u) => u,
+                None => return vec![],
+            };
+            let Some(dice) = unit_aoo_dice(attacker, content) else {
                 return vec![];
             };
             let raw = rng.roll(dice) as f32;

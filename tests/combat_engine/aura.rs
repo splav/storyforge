@@ -13,7 +13,7 @@ use hexx::Hex;
 use storyforge::combat_engine::{
     action::Action,
     content::{AuraDef, ContentView, StatusBonuses, TeamRelation},
-    dice::{DiceExpr, ExpectedValue},
+    dice::ExpectedValue,
     event::{Event, TurnSkipReason},
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     step::step,
@@ -45,6 +45,10 @@ fn make_unit(id: UnitId, team: Team, pos: Hex, alive: bool) -> Unit {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
 }
 
@@ -55,9 +59,11 @@ fn make_state(units: Vec<Unit>, order: Vec<UnitId>) -> CombatState {
     s
 }
 
-/// ContentView with a single aura emitted by `src_id`.
+/// ContentView providing status definitions for a single aura status.
+///
+/// Aura geometry (radius, applies_to) now lives in `Unit.auras`; this struct
+/// only carries data needed for `status_bonuses` / `status_def` lookups.
 struct AuraContent {
-    src_id: UnitId,
     radius: u32,
     status_id: StatusId,
     applies_to: TeamRelation,
@@ -66,10 +72,19 @@ struct AuraContent {
     armor_bonus: i32,
 }
 
+/// Attach one aura to a unit (helper for test construction).
+fn with_aura(mut unit: Unit, content: &AuraContent) -> Unit {
+    unit.auras = vec![AuraDef {
+        radius: content.radius,
+        status_id: content.status_id.clone(),
+        applies_to: content.applies_to,
+    }];
+    unit
+}
+
 impl AuraContent {
-    fn new(src_id: UnitId, radius: u32, status: &str, applies_to: TeamRelation) -> Self {
+    fn new(radius: u32, status: &str, applies_to: TeamRelation) -> Self {
         Self {
-            src_id,
             radius,
             status_id: StatusId(status.to_string()),
             applies_to,
@@ -84,8 +99,6 @@ impl AuraContent {
 }
 
 impl ContentView for AuraContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { None }
-
     fn status_bonuses(&self, id: &StatusId) -> StatusBonuses {
         if *id == self.status_id {
             StatusBonuses { speed_bonus: self.speed_bonus, armor_bonus: self.armor_bonus }
@@ -114,23 +127,7 @@ impl ContentView for AuraContent {
         }
     }
 
-    fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext {
-        storyforge::combat_engine::CasterContext::default()
-    }
-
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-
-    fn auras_of(&self, source: UnitId) -> Vec<AuraDef> {
-        if source == self.src_id {
-            vec![AuraDef {
-                radius: self.radius,
-                status_id: self.status_id.clone(),
-                applies_to: self.applies_to,
-            }]
-        } else {
-            vec![]
-        }
-    }
 }
 
 // ── aura_effects_on query ─────────────────────────────────────────────────────
@@ -140,14 +137,14 @@ fn in_range_gives_speed_bonus() {
     // src at (0,0), tgt at (1,0) — dist=1, radius=2 → in range.
     let src = uid(1);
     let tgt = uid(2);
+    let content = AuraContent::new(2, "slow", TeamRelation::Enemies).with_speed(-1);
     let state = make_state(
         vec![
-            make_unit(src, Team::Enemy, Hex::ZERO, true),
+            with_aura(make_unit(src, Team::Enemy, Hex::ZERO, true), &content),
             make_unit(tgt, Team::Player, Hex::new(1, 0), true),
         ],
         vec![tgt, src],
     );
-    let content = AuraContent::new(src, 2, "slow", TeamRelation::Enemies).with_speed(-1);
     let fx = state.aura_effects_on(tgt, &content);
     assert_eq!(fx.speed_bonus, -1);
 }
@@ -157,14 +154,14 @@ fn out_of_range_gives_no_bonus() {
     // src at (0,0), tgt at (3,0) — dist=3, radius=2 → out of range.
     let src = uid(1);
     let tgt = uid(2);
+    let content = AuraContent::new(2, "slow", TeamRelation::Enemies).with_speed(-1);
     let state = make_state(
         vec![
-            make_unit(src, Team::Enemy, Hex::ZERO, true),
+            with_aura(make_unit(src, Team::Enemy, Hex::ZERO, true), &content),
             make_unit(tgt, Team::Player, Hex::new(3, 0), true),
         ],
         vec![tgt, src],
     );
-    let content = AuraContent::new(src, 2, "slow", TeamRelation::Enemies).with_speed(-1);
     let fx = state.aura_effects_on(tgt, &content);
     assert_eq!(fx.speed_bonus, 0, "out-of-range: no bonus expected");
 }
@@ -174,14 +171,14 @@ fn dead_source_contributes_nothing() {
     let src = uid(1);
     let tgt = uid(2);
     // src is dead (hp=0).
+    let content = AuraContent::new(5, "slow", TeamRelation::Enemies).with_speed(-2);
     let state = make_state(
         vec![
-            make_unit(src, Team::Enemy, Hex::ZERO, false), // dead
+            with_aura(make_unit(src, Team::Enemy, Hex::ZERO, false), &content), // dead
             make_unit(tgt, Team::Player, Hex::new(1, 0), true),
         ],
         vec![tgt, src],
     );
-    let content = AuraContent::new(src, 5, "slow", TeamRelation::Enemies).with_speed(-2);
     let fx = state.aura_effects_on(tgt, &content);
     assert_eq!(fx.speed_bonus, 0, "dead source must not contribute");
 }
@@ -191,14 +188,14 @@ fn dead_source_contributes_nothing() {
 fn ally_only_aura_does_not_affect_enemy() {
     let src = uid(1); // Player
     let tgt = uid(2); // Enemy
+    let content = AuraContent::new(5, "bless", TeamRelation::Allies).with_armor(2);
     let state = make_state(
         vec![
-            make_unit(src, Team::Player, Hex::ZERO, true),
+            with_aura(make_unit(src, Team::Player, Hex::ZERO, true), &content),
             make_unit(tgt, Team::Enemy, Hex::new(1, 0), true),
         ],
         vec![src, tgt],
     );
-    let content = AuraContent::new(src, 5, "bless", TeamRelation::Allies).with_armor(2);
     let fx = state.aura_effects_on(tgt, &content);
     assert_eq!(fx.armor_bonus, 0, "ally-only aura must not affect enemies");
 }
@@ -207,14 +204,14 @@ fn ally_only_aura_does_not_affect_enemy() {
 fn ally_only_aura_affects_ally() {
     let src = uid(1); // Player
     let tgt = uid(2); // Player (same team)
+    let content = AuraContent::new(5, "bless", TeamRelation::Allies).with_armor(2);
     let state = make_state(
         vec![
-            make_unit(src, Team::Player, Hex::ZERO, true),
+            with_aura(make_unit(src, Team::Player, Hex::ZERO, true), &content),
             make_unit(tgt, Team::Player, Hex::new(1, 0), true),
         ],
         vec![src, tgt],
     );
-    let content = AuraContent::new(src, 5, "bless", TeamRelation::Allies).with_armor(2);
     let fx = state.aura_effects_on(tgt, &content);
     assert_eq!(fx.armor_bonus, 2, "ally-only aura must affect same-team units");
 }
@@ -223,14 +220,14 @@ fn ally_only_aura_affects_ally() {
 fn enemy_aura_does_not_affect_same_team() {
     let src = uid(1); // Enemy
     let tgt = uid(2); // Enemy (same team)
+    let content = AuraContent::new(5, "curse", TeamRelation::Enemies).with_speed(-1);
     let state = make_state(
         vec![
-            make_unit(src, Team::Enemy, Hex::ZERO, true),
+            with_aura(make_unit(src, Team::Enemy, Hex::ZERO, true), &content),
             make_unit(tgt, Team::Enemy, Hex::new(1, 0), true),
         ],
         vec![src, tgt],
     );
-    let content = AuraContent::new(src, 5, "curse", TeamRelation::Enemies).with_speed(-1);
     let fx = state.aura_effects_on(tgt, &content);
     assert_eq!(fx.speed_bonus, 0, "enemy-targeted aura must not affect same-team unit");
 }
@@ -243,15 +240,15 @@ fn aura_stun_causes_skip_on_advance_turn() {
     // src ends turn → AdvanceTurn → engine sees tgt is stunned by aura → TurnSkipped.
     let src = uid(1);
     let tgt = uid(2);
+    // src emits ally-stun-aura radius=2 → tgt (ally, adjacent) gets stunned.
+    let content = AuraContent::new(2, "stun_aura", TeamRelation::Allies).with_stun();
     let state = make_state(
         vec![
-            make_unit(src, Team::Player, Hex::ZERO, true),
+            with_aura(make_unit(src, Team::Player, Hex::ZERO, true), &content),
             make_unit(tgt, Team::Player, Hex::new(1, 0), true), // adjacent, in radius=2
         ],
         vec![src, tgt],
     );
-    // src emits ally-stun-aura radius=2 → tgt (ally, adjacent) gets stunned.
-    let content = AuraContent::new(src, 2, "stun_aura", TeamRelation::Allies).with_stun();
 
     let mut state = state;
     let mut rng = ExpectedValue;
@@ -278,11 +275,11 @@ fn aura_gained_when_mover_enters_radius() {
     // Before: dist=5 > 2 → not in set.  After: dist=2 ≤ 2 → in set → Gained.
     let src = uid(1);
     let mover = uid(2);
-    let content = AuraContent::new(src, 2, "curse", TeamRelation::Enemies);
+    let content = AuraContent::new(2, "curse", TeamRelation::Enemies);
 
     let state = make_state(
         vec![
-            make_unit(src, Team::Enemy, Hex::ZERO, true),
+            with_aura(make_unit(src, Team::Enemy, Hex::ZERO, true), &content),
             make_unit(mover, Team::Player, Hex::new(-5, 0), true),
         ],
         vec![mover, src],
@@ -308,11 +305,11 @@ fn aura_lost_when_mover_leaves_radius() {
     // After: dist=3 > 2 → AuraStatusLost.
     let src = uid(1);
     let mover = uid(2);
-    let content = AuraContent::new(src, 2, "curse", TeamRelation::Enemies);
+    let content = AuraContent::new(2, "curse", TeamRelation::Enemies);
 
     let state = make_state(
         vec![
-            make_unit(src, Team::Enemy, Hex::ZERO, true),
+            with_aura(make_unit(src, Team::Enemy, Hex::ZERO, true), &content),
             make_unit(mover, Team::Player, Hex::new(1, 0), true),
         ],
         vec![mover, src],
@@ -340,11 +337,11 @@ fn source_moves_out_emits_lost_for_multiple_targets() {
     let src = uid(1);
     let tgt1 = uid(2);
     let tgt2 = uid(3);
-    let content = AuraContent::new(src, 2, "debuff", TeamRelation::Enemies);
+    let content = AuraContent::new(2, "debuff", TeamRelation::Enemies);
 
     let state = make_state(
         vec![
-            make_unit(src, Team::Enemy, Hex::ZERO, true),
+            with_aura(make_unit(src, Team::Enemy, Hex::ZERO, true), &content),
             make_unit(tgt1, Team::Player, Hex::new(1, 0), true),
             make_unit(tgt2, Team::Player, Hex::new(0, 1), true),
         ],
@@ -388,11 +385,11 @@ fn source_death_removes_coverage_from_membership_set() {
     let src = uid(1);
     let tgt1 = uid(2);
     let tgt2 = uid(3);
-    let content = AuraContent::new(src, 2, "debuff", TeamRelation::Enemies);
+    let content = AuraContent::new(2, "debuff", TeamRelation::Enemies);
 
     let mut state = make_state(
         vec![
-            make_unit(src, Team::Enemy, Hex::ZERO, true),
+            with_aura(make_unit(src, Team::Enemy, Hex::ZERO, true), &content),
             make_unit(tgt1, Team::Player, Hex::new(1, 0), true),
             make_unit(tgt2, Team::Player, Hex::new(-1, 0), true),
         ],

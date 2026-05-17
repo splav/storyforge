@@ -5,7 +5,7 @@
 **Goal:** Make replay first-class. Introduce an engine-Event JSONL trace (Action stream + Event stream + per-step RNG call-count canary + per-step state hash) as an independent stream from the existing AI-decision log; reorganize log filesystem so both streams for one fight live in a shared folder; ship a `replay_engine_trace` binary that re-runs the engine from the trace and asserts identical final state plus byte-equal Event sequence; harden with `cargo fuzz`. After Phase 5, every combat is byte-exactly reproducible from disk on the recording host, and any engine refactor that drifts state or events fails CI loudly.
 **Timebox:** ~2 weeks (matches §5.5 estimate). Sub-step 5a (serde) and 5b (RNG-instrumentation API change) carry the most risk; 5c (TomlContentView) is the biggest unknown after re-scoping.
 
-**Status:** 5a shipped (commit `fb81964`). 5b shipped. Plan updated 2026-05-17 with six post-5a discoveries (see §10).
+**Status:** 5a shipped (commit `fb81964`). 5b shipped (commit `27e37e5`). Plan updated 2026-05-17 with seven post-5a discoveries (see §10) — most recently option (A) for per-combat state, which split 5c into 5c.1 + 5c.2.
 
 **Out of scope (deferred to later phases):**
 - `CombatEvent` retirement (D6 — stays as UI-facing projection). UI rewrite dropping `Res<CombatLog>` is Phase 6 alongside projection cleanup.
@@ -181,8 +181,9 @@ Each sub-step lands independently with `cargo check --all-targets` clean and `ca
 | Step | Title | What lands |
 |---|---|---|
 | **5a** ✓ | Serde derives + BTreeSet + content_hash + trace helpers | **SHIPPED** in `fb81964`. Engine fully serializable; `trace.rs` already includes `InitLine`/`StepLine`/`post_state_hash` — over-delivered vs original scope. |
-| **5b** | DiceSource::call_count + ApplyCtx::rng_calls + purity audit | `DiceSource::call_count(&self) -> u64`; impls track on `ExpectedValue`+`DiceRng`. `ApplyCtx::rng_calls: u64`. `step()` populates the delta via before/after deltas. `tests/engine_purity.rs` greps for forbidden imports (D12). **Breaking trait change** — ripples through every `step()` callsite + test stub; land before bridge wiring. |
-| **5c** | TomlContentView + parity tests | New `TomlContentView` reads `assets/data/*.toml` directly. **Duplicates** existing TOML parsing rather than refactoring (D9 sub-decision). Parity test pins the contract. Unblocks replay binary AND content-hash recomputation. Largest unknown in Phase 5 due to TOML schema breadth. |
+| **5b** ✓ | DiceSource::call_count + ApplyCtx::rng_calls + purity audit | **SHIPPED** in `27e37e5`. `step()` return shape became `(Vec<Event>, ApplyCtx)`; bridge + sim + 4 engine test files updated in one pass. Engine purity audit clean. |
+| **5c.1** | Engine absorbs per-combat state; ContentView trait contracts to static-only | Add fields to `Unit`: `caster_context: CasterContext`, `auras: Vec<AuraDef>`, `enemy_phases: Vec<PhaseEntry>` (PhaseEntry moves from bridge to engine). Remove 4 methods from `ContentView` trait: `auras_of`, `check_phase_trigger`, `caster_context`, `aoo_dice`. Migrate engine call sites to read `state.unit(id).<field>` instead. `init_state_from_ecs` populates new Unit fields from existing ECS components. `EcsContentView` shrinks (4 methods gone; `aoo_per_unit`/`caster_contexts`/`aura_sources`/`phase_triggers` fields deleted). All `Unit` test stubs updated to default the new fields. **Breaking change** — sets up 5c.2 to be trivial. |
+| **5c.2** | TomlContentView (much smaller after 5c.1) | New `TomlContentView` reuses `src/content::ContentView` data struct + existing `load_*()` functions in `src/content/*.rs` (audit showed parsing is already pure Rust). Trait impl covers only 4 remaining static methods: `ability_def`, `status_def`, `status_bonuses`, `unit_template`. ~150 LOC including loader. Parity test pins contract vs `EcsContentView`. |
 | **5d** | Folder-per-fight + engine trace writer + bridge wiring + session_id (D11) | Rename `build_combat_log_path` → `build_combat_log_dir`. Single combat-start hook computes `<dir>` from `(now, campaign, scenario, encounter)`, creates it, passes to both writers. AI log moves to `<dir>/ai.jsonl`; gains `session_id` header + optional `engine_step_range` per decision. `EngineTraceWriter` writes `<dir>/engine.jsonl`. Add `session_id: String` to `InitLine`. `mine_ai_logs` glob updated alongside. Manual playtest: verify `logs/<fight_id>/{ai,engine}.jsonl` appears. |
 | **5e** | Replay binary + determinism tests | `src/bin/replay_engine_trace.rs` accepts fight folder OR engine.jsonl path; uses `TomlContentView`; `tests/replay.rs` 5 canonical scenarios. Replay asserts events byte-equal, rng_calls match, post_state_hash match each step. **Final-state assertion = last `post_state_hash` match** (NOT a separate snapshot). `--tolerance` flag from D10. On divergence, optionally reads sibling `ai.jsonl` for context. |
 | **5f** | Fuzz harness | New `fuzz/` sibling crate; `step_random_actions` target; seed corpus from canonical scenarios. Run 10M iters locally; fix any panics. **No AI log v37 bump** — not Phase 5 scope. |
@@ -255,13 +256,20 @@ Replay asserts per-step: `events == recorded_events` (byte-equal) AND `rng_calls
 
 NOT per-step full state equality (10× expensive; same failure-detection as the cheap path).
 
-### D9. Replay-time ContentView — pure-Rust TomlContentView; duplicate parsing for now
+### D9. Replay-time ContentView — pure-Rust TomlContentView; reuse existing parsers
 
-Replay needs a Bevy-free `ContentView`. Build `TomlContentView` in `crates/combat_engine/src/toml_content_view.rs` reading `assets/data/*.toml` directly.
+Replay needs a Bevy-free `ContentView`. Build `TomlContentView` in `crates/combat_engine/src/toml_content_view.rs`.
 
-**Sub-decision: duplicate the parsing logic** in TomlContentView for Phase 5. The cleaner alternative — factoring TOML parsing out of `src/data/loader.rs` into a shared crate consumed by both `TomlContentView` and the Bevy asset loader — adds ~3 days and is good architecture, but defer until duplication actually causes maintenance pain.
+**Audit (post-5b, §10 discovery #7) revised the sub-decision.** Original draft said "duplicate the parsing logic". Audit found that:
+- TOML parsing is ALREADY pure Rust — every `src/content/*.rs` file has a `load_X()` function calling `std::fs::read_to_string + toml::from_str`. Zero Bevy in parsing.
+- `src/content::ContentView` is a pure-Rust data struct (not the engine trait of the same name — name collision in the codebase) holding `HashMap<Id, Def>` collections. Bevy-free fields.
+- `ActiveContent` is just `Resource(pub ContentView)` — a thin Bevy newtype.
 
-**Parity gate:** `tests/toml_content_view_parity.rs` cross-checks against `EcsContentView`. Treat parity failures as engine bugs.
+**Revised sub-decision: REUSE the existing parsers and data struct.** TomlContentView wraps `src/content::ContentView` directly. No parsing duplication. Loader is a ~30-line constructor calling `load_abilities()` + `load_statuses()` + etc.
+
+**Trait surface contracts** (D11b, §10 discovery #7 / option A): 4 of 8 `ContentView` methods absorbed into engine `Unit` state in 5c.1. TomlContentView only implements the remaining 4 STATIC methods: `ability_def`, `status_def`, `status_bonuses`, `unit_template`. Total ~150 LOC.
+
+**Parity gate:** `tests/toml_content_view_parity.rs` cross-checks remaining 4 methods against `EcsContentView`. Treat parity failures as engine bugs.
 
 ### D10. Replay portability — best-effort + warn; f32 tolerance
 
@@ -387,3 +395,13 @@ After shipping 5a, re-examination + user feedback surfaced six findings that res
 6. **Folder-per-fight filesystem layout (user feedback).** Original plan put engine trace in `logs/engine/<session_id>.jsonl` and AI log in `logs/<combat>.jsonl` — two unrelated locations. Cleaner: one folder per fight (`logs/<fight_id>/`) holding both `ai.jsonl` and `engine.jsonl`. Folder name carries fight identity; UUID generation drops out (folder name string IS the `session_id`). Single combat-start hook owns both writers. Migration is a hard break: old flat-layout AI logs become orphans (consistent with D5 no-legacy-retention policy).
 
 Plus one cross-cutting note: **5a over-delivered.** `trace.rs` already includes `post_state_hash`, parsers (not just serializers), and full `InitLine`/`StepLine` definitions. 5d and 5e have less wiring work than the original plan suggested. Net good; documented here so the 5d/5e implementer doesn't repeat the work.
+
+7. **Option (A) for per-combat state: engine `Unit` absorbs equipment/auras/enemy_phases; `ContentView` trait contracts to static-only.** Audit of `EcsContentView` (post-5b) revealed that 4 of its 8 trait methods return PER-COMBAT-INSTANCE data, not static content: `auras_of`, `check_phase_trigger`, `caster_context`, `aoo_dice`. These are currently built from ECS components (`AuraSource`, `EnemyPhases`, `Equipment`) into precomputed maps on `EcsContentView`. Replay couldn't access them through a pure-Rust `TomlContentView` because the data isn't in TOML.
+
+   Option (A) absorbs the data into engine `Unit` (`caster_context: CasterContext`, `auras: Vec<AuraDef>`, `enemy_phases: Vec<PhaseEntry>`). The 4 trait methods are removed; engine code reads `state.unit(id).<field>` directly. `EcsContentView` shrinks; `TomlContentView` (5c.2) doesn't need them either. `init_state_from_ecs` is the only site that populates the new Unit fields from ECS components.
+
+   Architectural benefit: `ContentView` trait now means what it says (static content). Per-combat state lives where it should (in `CombatState`). Replay determinism becomes trivial: same Unit input = same behaviour, no precomputed map mismatches.
+
+   Cost: ~3-5 days for the 5c.1 refactor (Unit field additions touch every Unit construction site in 5a/5b tests; engine call-site migrations; bridge `init_state_from_ecs` extension; `EcsContentView` trim). 5c.2 (TomlContentView) becomes ~1 day after.
+
+   Locked over options (B) inline per-combat state in trace and (C) explicit per-combat snapshot in TomlContentView constructor — both keep `ContentView` trait surface wide and create awkward "is this content or state?" ambiguity.

@@ -855,6 +855,10 @@ fn projector_writes_engine_mutation_to_ecs() {
             mana: None,
             energy: None,
             summoner: None,
+            caster_context: Default::default(),
+            aoo_dice: None,
+            auras: Vec::new(),
+            enemy_phases: Vec::new(),
         };
         let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -1308,6 +1312,10 @@ fn projector_writes_mana_from_engine_state() {
         mana: Some((10, 10)),
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     };
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -1380,6 +1388,10 @@ fn projector_writes_statuses_from_engine_state() {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     };
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -1495,6 +1507,10 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     };
     let aura_unit = Unit {
         id: aura_source_uid,
@@ -1516,6 +1532,10 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     };
     let state = CombatState::new(vec![actor_unit, aura_unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;

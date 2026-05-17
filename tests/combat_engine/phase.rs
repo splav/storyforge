@@ -11,8 +11,7 @@
 use hexx::Hex;
 
 use storyforge::combat_engine::{
-    content::{ContentView, PhaseTransition, StatusBonuses},
-    dice::DiceExpr,
+    content::{ContentView, PhaseEntry, StatusBonuses},
     event::Event,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     StatusDef, StatusId,
@@ -26,7 +25,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
     Unit {
         id: uid(id),
         team: Team::Enemy,
-        pos: Hex::ZERO,
+        pos: hexx::Hex::ZERO,
         hp,
         max_hp,
         armor: 0,
@@ -43,14 +42,25 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
+}
+
+/// Build a boss unit with pre-set phase triggers.
+fn make_boss(id: u64, hp: i32, max_hp: i32, phases: Vec<PhaseEntry>) -> Unit {
+    let mut u = make_unit(id, hp, max_hp);
+    u.enemy_phases = phases;
+    u
 }
 
 fn make_attacker(id: u64) -> Unit {
     Unit {
         id: uid(id),
         team: Team::Player,
-        pos: Hex::new(2, 0),
+        pos: hexx::Hex::new(2, 0),
         hp: 30,
         max_hp: 30,
         armor: 0,
@@ -67,6 +77,10 @@ fn make_attacker(id: u64) -> Unit {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
 }
 
@@ -76,113 +90,43 @@ fn make_state(units: Vec<Unit>, order: Vec<UnitId>) -> CombatState {
     s
 }
 
-/// ContentView that triggers a phase for `boss_id` when hp crosses `pct` threshold.
-struct PhaseContent {
-    boss_id: UnitId,
-    /// Threshold percentage (0..=100). Fires when `hp * 100 <= max_hp * pct`.
-    pct: i32,
-    new_max_hp: i32,
-    heal_to_full: bool,
-}
+/// Minimal ContentView stub for phase tests — no status/ability data needed.
+struct PhaseContent;
 
 impl PhaseContent {
-    fn new(boss_id: UnitId, pct: i32, new_max_hp: i32, heal_to_full: bool) -> Self {
-        Self { boss_id, pct, new_max_hp, heal_to_full }
+    fn new(_boss_id: UnitId, _pct: i32, _new_max_hp: i32, _heal_to_full: bool) -> Self {
+        // Phase data now lives on Unit.enemy_phases; this stub carries none.
+        Self
     }
 }
 
 impl ContentView for PhaseContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { None }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
         -> Option<storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
-    fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext {
-        storyforge::combat_engine::CasterContext::default()
-    }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-    fn auras_of(&self, _: UnitId) -> Vec<storyforge::combat_engine::AuraDef> { vec![] }
-
-    fn check_phase_trigger(
-        &self,
-        unit_id: UnitId,
-        new_hp: i32,
-        max_hp: i32,
-    ) -> Option<(usize, PhaseTransition)> {
-        if unit_id != self.boss_id { return None; }
-        if max_hp == 0 || new_hp * 100 > max_hp * self.pct { return None; }
-        Some((0, PhaseTransition {
-            new_max_hp: self.new_max_hp,
-            new_armor: 0,
-            new_base_speed: 0,
-            heal_to_full: self.heal_to_full,
-        }))
-    }
 }
 
-/// ContentView with TWO phase thresholds for the boss (simulates multi-phase).
+/// Minimal ContentView stub for two-phase tests.
 ///
-/// Mirrors the real bridge's `EnemyPhases.pending` semantics: phases are stored
-/// in a `RefCell<VecDeque>`, and the caller is responsible for calling `pop_phase`
-/// after applying the cascade (just as the bridge calls `pending.remove(0)`).
-/// This lets both the Damage arm and the EnterPhase arm see the same pending-[0]
-/// data, while a subsequent Damage sees the next pending phase.
-struct TwoPhaseContent {
-    boss_id: UnitId,
-    /// Remaining pending phases in order.  Each entry: (pct_threshold, new_max_hp).
-    pending: std::cell::RefCell<std::collections::VecDeque<(i32, i32)>>,
-}
+/// Phase data now lives on `Unit.enemy_phases`; the caller pops phases via
+/// `state.unit_mut(boss).unwrap().enemy_phases.remove(0)` after each cascade.
+struct TwoPhaseContent;
 
 impl TwoPhaseContent {
-    fn new(boss_id: UnitId, pct0: i32, pct1: i32, new_max_hp: i32) -> Self {
-        let mut q = std::collections::VecDeque::new();
-        q.push_back((pct0, new_max_hp));
-        q.push_back((pct1, new_max_hp));
-        Self { boss_id, pending: std::cell::RefCell::new(q) }
-    }
-
-    /// Pop the front phase after its cascade has been fully applied.
-    /// Mirrors `EnemyPhases.pending.remove(0)` in the bridge translator.
-    fn pop_phase(&self) {
-        self.pending.borrow_mut().pop_front();
+    fn new(_boss_id: UnitId, _pct0: i32, _pct1: i32, _new_max_hp: i32) -> Self {
+        // Phase data is now set on the unit via make_boss(); this stub carries none.
+        Self
     }
 }
 
 impl ContentView for TwoPhaseContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { None }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
         -> Option<storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
-    fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext {
-        storyforge::combat_engine::CasterContext::default()
-    }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-    fn auras_of(&self, _: UnitId) -> Vec<storyforge::combat_engine::AuraDef> { vec![] }
-
-    fn check_phase_trigger(
-        &self,
-        unit_id: UnitId,
-        new_hp: i32,
-        max_hp: i32,
-    ) -> Option<(usize, PhaseTransition)> {
-        if unit_id != self.boss_id { return None; }
-        if max_hp == 0 { return None; }
-        // Peek at pending[0] without consuming it — caller pops via pop_phase().
-        let pending = self.pending.borrow();
-        let (pct, new_max_hp) = pending.front().copied()?;
-        let idx = 2 - pending.len(); // phase index: 0 for first, 1 for second
-        if new_hp * 100 <= max_hp * pct {
-            Some((idx, PhaseTransition {
-                new_max_hp,
-                new_armor: 0,
-                new_base_speed: 0,
-                heal_to_full: false,
-            }))
-        } else {
-            None
-        }
-    }
 }
 
 // Helper to apply raw damage to a unit via the effect system.
@@ -198,7 +142,10 @@ fn phase_trigger_fires_at_threshold() {
     let attacker = uid(2);
     // Boss: 100 max_hp, starts at 60 hp. Damage=25 → hp becomes 35 → crosses 50%.
     let mut state = make_state(
-        vec![make_unit(1, 60, 100), make_attacker(2)],
+        vec![
+            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false }]),
+            make_attacker(2),
+        ],
         vec![attacker, boss],
     );
     let content = PhaseContent::new(boss, 50, 120, false);
@@ -225,7 +172,10 @@ fn non_triggering_damage_no_enter_phase() {
     let attacker = uid(2);
     // Boss at 90 hp (100 max). Damage=10 → hp=80 → still above 50%.
     let mut state = make_state(
-        vec![make_unit(1, 90, 100), make_attacker(2)],
+        vec![
+            make_boss(1, 90, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false }]),
+            make_attacker(2),
+        ],
         vec![attacker, boss],
     );
     let content = PhaseContent::new(boss, 50, 120, false);
@@ -251,7 +201,10 @@ fn preempt_death_phase_revives_unit() {
     // Boss at 60 hp (100 max). Damage=70 → hp would go to -10 → lethal.
     // Phase fires at 50% with heal_to_full=true and new_max_hp=120.
     let mut state = make_state(
-        vec![make_unit(1, 60, 100), make_attacker(2)],
+        vec![
+            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: true }]),
+            make_attacker(2),
+        ],
         vec![attacker, boss],
     );
     let content = PhaseContent::new(boss, 50, 120, true);
@@ -296,7 +249,10 @@ fn phase_cascade_sets_max_hp_and_emits_phase_entered_event() {
     let attacker = uid(2);
     // Boss at 60 hp (100 max). Phase at 50%; new_max_hp=150, heal_to_full=false.
     let mut state = make_state(
-        vec![make_unit(1, 60, 100), make_attacker(2)],
+        vec![
+            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 150, heal_to_full: false }]),
+            make_attacker(2),
+        ],
         vec![attacker, boss],
     );
     let content = PhaseContent::new(boss, 50, 150, false);
@@ -358,7 +314,13 @@ fn multi_threshold_each_damage_fires_own_phase() {
     // Second Damage: 20 → hp=25 → crosses 25% of 100 = 25 → EnterPhase(1).
     // We use TwoPhaseContent for this.
     let mut state = make_state(
-        vec![make_unit(1, 100, 100), make_attacker(2)],
+        vec![
+            make_boss(1, 100, 100, vec![
+                PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: false },
+                PhaseEntry { pct: 25, new_max_hp: 120, heal_to_full: false },
+            ]),
+            make_attacker(2),
+        ],
         vec![attacker, boss],
     );
     let content = TwoPhaseContent::new(boss, 50, 25, 120);
@@ -383,7 +345,7 @@ fn multi_threshold_each_damage_fires_own_phase() {
             for sub in &cascade {
                 apply_effect(&mut state, sub, &content);
             }
-            content.pop_phase(); // bridge equivalent: EnemyPhases.pending.remove(0)
+            state.unit_mut(boss).unwrap().enemy_phases.remove(0); // bridge equivalent: EnemyPhases.pending.remove(0)
         }
     }
     // After Phase 0 cascade: max_hp=120, hp=45 (no heal).
@@ -398,9 +360,12 @@ fn multi_threshold_each_damage_fires_own_phase() {
         &Effect::Damage { target: boss, raw: 20.0, source: attacker, pierces: false },
         &content,
     );
-    let has_phase1 = derived2.iter().any(|e| matches!(e, Effect::EnterPhase { unit, phase_idx } if *unit == boss && *phase_idx == 1));
+    // After enemy_phases.remove(0), the next pending phase is at local index 0.
+    // Engine peeks `enemy_phases[0]` and always emits phase_idx=0; the bridge
+    // resolves to the absolute phase via `EnemyPhases.pending[0]` (also index 0).
+    let has_phase1 = derived2.iter().any(|e| matches!(e, Effect::EnterPhase { unit, phase_idx } if *unit == boss && *phase_idx == 0));
     let has_death2 = derived2.iter().any(|e| matches!(e, Effect::Death { .. }));
-    assert!(has_phase1, "Phase 1 should fire after second Damage crosses 25% of 120");
+    assert!(has_phase1, "Phase 1 (now at enemy_phases[0]) should fire after second Damage crosses 25% of 120");
     assert!(!has_death2, "No Death for phase 1 trigger");
 }
 
@@ -410,9 +375,13 @@ fn phase_trigger_does_not_fire_for_unrelated_unit() {
     let boss = uid(1);
     let attacker = uid(2);
     let other = uid(3);
-    // Phase content only tracks boss (uid=1); "other" should just die normally.
+    // Only the boss (uid=1) has enemy_phases; "other" has none → dies normally.
     let mut state = make_state(
-        vec![make_unit(1, 100, 100), make_attacker(2), make_unit(3, 10, 10)],
+        vec![
+            make_boss(1, 100, 100, vec![PhaseEntry { pct: 50, new_max_hp: 120, heal_to_full: true }]),
+            make_attacker(2),
+            make_unit(3, 10, 10), // no enemy_phases → dies normally
+        ],
         vec![attacker, boss],
     );
     let content = PhaseContent::new(boss, 50, 120, true);
@@ -444,7 +413,10 @@ fn preempt_death_no_died_event_in_stream() {
     // Boss: 100 max_hp, 60 hp. Lethal damage (100 raw, no armor).
     // Phase at 50%, heal_to_full=true, new_max_hp=100 (same as original).
     let mut state = make_state(
-        vec![make_unit(1, 60, 100), make_attacker(2)],
+        vec![
+            make_boss(1, 60, 100, vec![PhaseEntry { pct: 50, new_max_hp: 100, heal_to_full: true }]),
+            make_attacker(2),
+        ],
         vec![attacker, boss],
     );
     let content = PhaseContent::new(boss, 50, 100, true);

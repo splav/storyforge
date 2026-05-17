@@ -377,7 +377,7 @@ fn step_inner(
             let def = content.ability_def(ability).expect(
                 "cast: ability_def returns Some — already verified by legality pre-validate",
             );
-            let caster = content.caster_context(*actor);
+            let caster = state.unit(*actor).map(|u| u.caster_context.clone()).unwrap_or_default();
 
             // Re-run check_legality to capture the disadvantage flag.  The
             // pre-validate arm above already confirmed Ok, so this cannot fail;
@@ -648,7 +648,7 @@ fn step_inner(
                 // Expand into a sub-queue and resolve fully (incl. derived
                 // Damage→GainRage→Death) before pulling the next reaction.
                 let mut sub_queue: VecDeque<Effect> =
-                    expand_reaction(&reaction, content, rng).into_iter().collect();
+                    expand_reaction(&reaction, state, content, rng).into_iter().collect();
 
                 while let Some(sub_eff) = sub_queue.pop_front() {
                     // Strict failure check (decision 6.5) within sub-queue —

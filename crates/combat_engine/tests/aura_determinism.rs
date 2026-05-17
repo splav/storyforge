@@ -1,30 +1,20 @@
 //! Verifies that `aura_membership_set` returns a BTreeSet with stable iteration
 //! order across 10 calls on the same state (Phase 5 gate §7 item 3).
 
-use combat_engine::{AbilityId, AuraDef, PhaseTransition, StatusBonuses, StatusId, TeamRelation};
+use combat_engine::{AbilityId, AuraDef, StatusBonuses, StatusId, TeamRelation};
 use combat_engine::content::{ContentView, StatusDef};
 use combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
 use hexx::Hex;
 
 // ── Minimal ContentView stub ──────────────────────────────────────────────────
 
-struct AuraContent {
-    src_id: UnitId,
-    auras: Vec<AuraDef>,
-}
+/// Minimal stub — aura geometry now lives on Unit.auras (5c.1).
+struct AuraContent;
 
 impl ContentView for AuraContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<combat_engine::DiceExpr> { None }
     fn ability_def(&self, _: &AbilityId) -> Option<combat_engine::content::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
-    fn caster_context(&self, _: UnitId) -> combat_engine::content::CasterContext {
-        combat_engine::content::CasterContext::default()
-    }
-    fn auras_of(&self, id: UnitId) -> Vec<AuraDef> {
-        if id == self.src_id { self.auras.clone() } else { vec![] }
-    }
     fn unit_template(&self, _: &str) -> Option<combat_engine::content::UnitTemplate> { None }
-    fn check_phase_trigger(&self, _: UnitId, _: i32, _: i32) -> Option<(usize, PhaseTransition)> { None }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
 }
 
@@ -54,6 +44,10 @@ fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
 }
 
@@ -68,8 +62,10 @@ fn aura_membership_set_iteration_order_is_stable() {
     let tgt_a = uid(2);
     let tgt_b = uid(3);
 
+    let mut src_unit = make_unit(1, Team::Enemy, Hex::ORIGIN);
+    src_unit.auras = vec![AuraDef { radius: 1, status_id: sid("slow"), applies_to: TeamRelation::Enemies }];
     let units = vec![
-        make_unit(1, Team::Enemy,  Hex::ORIGIN),
+        src_unit,
         make_unit(2, Team::Player, Hex::new(1, 0)),
         make_unit(3, Team::Player, Hex::new(0, 1)),
     ];
@@ -78,12 +74,7 @@ fn aura_membership_set_iteration_order_is_stable() {
     let mut state = CombatState::new(units, 1, RoundPhase::ActorTurn, 0);
     state.set_turn_queue(order, 0);
 
-    let content = AuraContent {
-        src_id: src,
-        auras: vec![
-            AuraDef { radius: 1, status_id: sid("slow"), applies_to: TeamRelation::Enemies },
-        ],
-    };
+    let content = AuraContent;
 
     // Collect 10 snapshots of the iteration order.
     let snapshots: Vec<Vec<(UnitId, UnitId, StatusId)>> = (0..10)
@@ -111,8 +102,10 @@ fn aura_membership_set_sorted_by_unit_id() {
     let tgt_a = uid(1);  // small target id
     let tgt_b = uid(5);  // medium target id
 
+    let mut src_unit = make_unit(10, Team::Enemy, Hex::ORIGIN);
+    src_unit.auras = vec![AuraDef { radius: 2, status_id: sid("aura"), applies_to: TeamRelation::Enemies }];
     let units = vec![
-        make_unit(10, Team::Enemy,  Hex::ORIGIN),
+        src_unit,
         make_unit(1,  Team::Player, Hex::new(1, 0)),
         make_unit(5,  Team::Player, Hex::new(0, 1)),
     ];
@@ -120,12 +113,7 @@ fn aura_membership_set_sorted_by_unit_id() {
     let mut state = CombatState::new(units, 1, RoundPhase::ActorTurn, 0);
     state.set_turn_queue(vec![src, tgt_a, tgt_b], 0);
 
-    let content = AuraContent {
-        src_id: src,
-        auras: vec![
-            AuraDef { radius: 2, status_id: sid("aura"), applies_to: TeamRelation::Enemies },
-        ],
-    };
+    let content = AuraContent;
 
     let triples: Vec<_> = state.aura_membership_set(&content).into_iter().collect();
     assert_eq!(triples.len(), 2);

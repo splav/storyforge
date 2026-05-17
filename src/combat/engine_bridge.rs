@@ -55,15 +55,14 @@ use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
 use combat_engine::{
     action::Action,
-    content::{AuraDef, ContentView as EngineContentView, PhaseTransition, StatusBonuses, TeamRelation},
+    content::{AuraDef, ContentView as EngineContentView, StatusBonuses, TeamRelation},
     event::Event,
     reaction::ReactionKind,
     state::{ActiveStatus, CombatState, Pool, RoundPhase, Unit, UnitId},
     step::step,
     StatusId,
 };
-use combat_engine::dice::DiceExpr as EngineDiceExpr;
-use combat_engine::{EffectDef as EngineEffectDef, StatusApplication as EngineStatusApplication, StatusOn as EngineStatusOn};
+use combat_engine::{dice::DiceExpr as EngineDiceExpr, EffectDef as EngineEffectDef, StatusApplication as EngineStatusApplication, StatusOn as EngineStatusOn};
 use crate::core::modifier;
 
 // ── Entity ↔ UnitId mapping ───────────────────────────────────────────────────
@@ -222,6 +221,11 @@ pub fn from_ecs(
                 mana: mana_pool,
                 energy: energy_pool,
                 summoner: None,
+                // Per-combat fields populated after from_ecs by init_state_from_ecs (5c.1).
+                caster_context: combat_engine::CasterContext::default(),
+                aoo_dice: None,
+                auras: Vec::new(),
+                enemy_phases: Vec::new(),
             })
         })
         .collect();
@@ -231,57 +235,17 @@ pub fn from_ecs(
 
 // ── process_action_system ─────────────────────────────────────────────────────
 
-/// Cached data for the first pending phase of a unit (4d).
-///
-/// Populated by `build_ecs_content_view` from `EnemyPhases.pending[0]`.
-/// Enables `EcsContentView::check_phase_trigger` without holding a live
-/// query reference inside the content view (which would create lifetime
-/// entanglement with Bevy systems).
-#[derive(Debug, Clone)]
-struct PhaseEntry {
-    /// HP-below-percent threshold (0..=100).
-    pct: i32,
-    /// New max HP after the phase fires.  0 means "keep current max_hp".
-    new_max_hp: i32,
-    /// Whether to heal the unit to `new_max_hp` after the phase fires.
-    heal_to_full: bool,
-}
-
 /// ECS-backed `ContentView` adapter for `process_action_system`.
 ///
-/// Built once per `ActionInput::Move` from the current ECS state.  Holds a
-/// pre-computed map of eligible AoO attackers (unit → weapon dice expr).
-///
-/// Eligibility filter (mirrors the deleted `movement_system`'s provoker scan):\\
-/// - alive (`!Has<Dead>` AND `vital.is_alive()`)
-/// - not stunned (no status with `skips_turn = true`)
-/// - has a melee `WeaponAttack` ability (`range.max == 1`)
-/// - has an equipped weapon (`CasterContext::weapon_dice` is `Some`)
-///
-/// Team filtering is intentionally omitted here: `scan_reactions` already
-/// pre-filters to enemies of the mover before consulting `aoo_dice`, so the
-/// adapter does not need to know who the actor is (option B).
-///
-/// `aura_sources`: UnitId → Vec<AuraDef>, populated from ECS `AuraSource`
-/// components.  Used by `ContentView::auras_of` (4c).
+/// After 5c.1, this struct carries only static content (active_content).
+/// Per-combat state (caster contexts, auras, AoO dice, phase triggers) now
+/// lives on engine `Unit` fields and is populated once at combat init by
+/// `from_ecs` / `init_state_from_ecs`.
 pub struct EcsContentView<'a> {
-    aoo_per_unit: HashMap<UnitId, EngineDiceExpr>,
-    caster_contexts: HashMap<UnitId, combat_engine::CasterContext>,
     active_content: &'a ActiveContent,
-    /// Aura definitions per source unit, keyed by UnitId.  Built from the
-    /// ECS `AuraSource` component by `build_ecs_content_view`.
-    aura_sources: HashMap<UnitId, Vec<AuraDef>>,
-    /// Phase trigger data per unit: maps UnitId → (new_max_hp, pct_threshold,
-    /// heal_to_full) for the *first* pending phase in `EnemyPhases.pending`.
-    /// Built by `build_ecs_content_view` from the `EnemyPhases` ECS component.
-    phase_triggers: HashMap<UnitId, PhaseEntry>,
 }
 
 impl<'a> EngineContentView for EcsContentView<'a> {
-    fn aoo_dice(&self, attacker: UnitId) -> Option<EngineDiceExpr> {
-        self.aoo_per_unit.get(&attacker).copied()
-    }
-
     fn status_bonuses(&self, _id: &combat_engine::StatusId) -> StatusBonuses {
         StatusBonuses::default()
     }
@@ -349,10 +313,6 @@ impl<'a> EngineContentView for EcsContentView<'a> {
         })
     }
 
-    fn caster_context(&self, actor: UnitId) -> combat_engine::CasterContext {
-        self.caster_contexts.get(&actor).cloned().unwrap_or_default()
-    }
-
     fn unit_template(&self, id: &str) -> Option<combat_engine::UnitTemplate> {
         let tpl = self.active_content.unit_templates.get(id)?;
         let equipment = Equipment {
@@ -373,34 +333,6 @@ impl<'a> EngineContentView for EcsContentView<'a> {
             energy_max: tpl.resources.energy_max,
             rage_max: tpl.resources.rage_max,
         })
-    }
-
-    fn auras_of(&self, source: UnitId) -> Vec<AuraDef> {
-        self.aura_sources.get(&source).cloned().unwrap_or_default()
-    }
-
-    fn check_phase_trigger(
-        &self,
-        unit_id: UnitId,
-        new_hp: i32,
-        max_hp: i32,
-    ) -> Option<(usize, PhaseTransition)> {
-        let entry = self.phase_triggers.get(&unit_id)?;
-
-        // Threshold: hp * 100 <= max_hp * pct  (mirrors legacy phase_transition_system).
-        if max_hp == 0 || new_hp * 100 > max_hp * entry.pct {
-            return None;
-        }
-
-        // Resolve new_max_hp: use entry value if set, else keep current max.
-        let new_max_hp = if entry.new_max_hp > 0 { entry.new_max_hp } else { max_hp };
-
-        Some((0, PhaseTransition {
-            new_max_hp,
-            new_armor: 0,    // PhaseDef has no per-phase armor override
-            new_base_speed: 0, // PhaseDef has no per-phase base_speed override
-            heal_to_full: entry.heal_to_full,
-        }))
     }
 }
 
@@ -429,123 +361,18 @@ pub(crate) type AooRow<'a> = (
 pub struct PendingPhaseTransitions(pub Vec<(UnitId, usize)>);
 
 /// Build `EcsContentView` from the current ECS state.
+/// Build `EcsContentView` from the current ECS state.
+///
+/// After 5c.1, `EcsContentView` only wraps `ActiveContent` — all per-combat
+/// state (caster contexts, auras, phase triggers) now lives on engine `Unit`
+/// fields and is populated once at init by `from_ecs`.
 ///
 /// Called from `engine_turn_start_system`, `process_action_system`, and
 /// `advance_turn_system` (for dead-actor sirota-DoT ticks).
 pub(crate) fn build_ecs_content_view<'a>(
-    combatants: &Query<AooRow, With<Combatant>>,
-    id_map: &UnitIdMap,
     content: &'a ActiveContent,
-    aura_q: &Query<(Entity, &AuraSource), Without<Dead>>,
-    phases_q: &Query<(Entity, &EnemyPhases)>,
 ) -> EcsContentView<'a> {
-    use crate::content::encounters::AuraAffects;
-
-    let mut aoo_per_unit = HashMap::new();
-    let mut caster_contexts = HashMap::new();
-
-    for (entity, equipment, stats, abilities, vital, statuses, reactions, is_dead, combat_path) in
-        combatants.iter()
-    {
-        // Build caster context for every unit (alive or dead) so Cast fanout
-        // can always resolve damage formulas for the actor.
-        let bevy_ctx = CasterContext::new(stats, Some(equipment), &content.weapons);
-        let crit_fail_outcome = combat_path
-            .and_then(|cp| content.paths.get(&cp.0))
-            .map_or(CritFailEffect::Miss, |p| p.crit_fail_effect.clone());
-        let engine_ctx = combat_engine::CasterContext {
-            str_mod: bevy_ctx.str_mod,
-            int_mod: bevy_ctx.int_mod,
-            spell_power: bevy_ctx.spell_power,
-            weapon_dice: bevy_ctx.weapon_dice,
-            crit_fail_outcome: crate::combat::ai::plan::sim::map_crit_fail_effect(&crit_fail_outcome),
-        };
-        if let Some(uid) = id_map.get_id(entity) {
-            caster_contexts.insert(uid, engine_ctx);
-        }
-
-        // AoO eligibility filters (unchanged).
-
-        // Filter 1: alive.
-        if is_dead || !vital.is_alive() {
-            continue;
-        }
-        // Filter 2: not stunned.
-        let stunned = statuses
-            .map(|se| {
-                se.0.iter().any(|s| {
-                    content
-                        .statuses
-                        .get(&s.id)
-                        .is_some_and(|d| d.skips_turn)
-                })
-            })
-            .unwrap_or(false);
-        if stunned {
-            continue;
-        }
-        // Filter 3: has melee WeaponAttack ability (range.max == 1).
-        let has_melee = abilities.0.iter().any(|aid| {
-            content.abilities.get(aid).is_some_and(|def| {
-                matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
-            })
-        });
-        if !has_melee {
-            continue;
-        }
-        // Filter 4: reactions remaining (engine re-checks this, but early-out is cheap).
-        if reactions.remaining == 0 {
-            continue;
-        }
-        // Filter 5: equipped weapon provides dice.
-        let ctx = CasterContext::new(stats, Some(equipment), &content.weapons);
-        let Some(core_dice) = ctx.weapon_dice else {
-            continue;
-        };
-        // Map entity → UnitId and record dice.
-        let Some(uid) = id_map.get_id(entity) else {
-            continue;
-        };
-
-        let engine_dice = EngineDiceExpr::new(
-            core_dice.count,
-            core_dice.sides,
-            core_dice.bonus + modifier(stats.strength),
-        );
-        aoo_per_unit.insert(uid, engine_dice);
-    }
-
-    // Build aura_sources map from ECS AuraSource components (4c).
-    let mut aura_sources: HashMap<UnitId, Vec<AuraDef>> = HashMap::new();
-    for (entity, aura_src) in aura_q.iter() {
-        let Some(uid) = id_map.get_id(entity) else { continue };
-        let applies_to = match aura_src.affects {
-            AuraAffects::Enemies => TeamRelation::Enemies,
-            AuraAffects::Allies  => TeamRelation::Allies,
-            AuraAffects::All     => TeamRelation::All,
-        };
-        aura_sources.entry(uid).or_default().push(AuraDef {
-            radius: aura_src.radius,
-            status_id: aura_src.status.clone(),
-            applies_to,
-        });
-    }
-
-    // Build phase_triggers map from EnemyPhases component (4d).
-    // Only the first pending phase is checked per frame (mirrors legacy
-    // phase_transition_system's "first pending" semantics).
-    let mut phase_triggers: HashMap<UnitId, PhaseEntry> = HashMap::new();
-    for (entity, phases) in phases_q.iter() {
-        let Some(phase) = phases.pending.first() else { continue };
-        let Some(uid) = id_map.get_id(entity) else { continue };
-        let pct = match phase.trigger {
-            crate::content::encounters::PhaseTrigger::HpBelowPct(p) => p,
-        };
-        let new_max_hp = phase.stats.as_ref().map(|s| s.max_hp).unwrap_or(0);
-        phase_triggers.insert(uid, PhaseEntry { pct, new_max_hp, heal_to_full: phase.heal_to_full });
-    }
-
-    EcsContentView { aoo_per_unit, caster_contexts, active_content: content, aura_sources, phase_triggers }
+    EcsContentView { active_content: content }
 }
 
 // ── apply_phase_ecs_writes ────────────────────────────────────────────────────
@@ -898,9 +725,7 @@ pub fn engine_turn_start_system(
     active_q: Query<Entity, With<ActiveCombatant>>,
     id_map: Res<UnitIdMap>,
     mut combat_state: ResMut<CombatStateRes>,
-    combatants: Query<AooRow, With<Combatant>>,
     active_content: Res<ActiveContent>,
-    content_params: ContentParams,
     mut commands: Commands,
     mut log: ResMut<CombatLog>,
     mut pending_phases: ResMut<PendingPhaseTransitions>,
@@ -912,7 +737,7 @@ pub fn engine_turn_start_system(
     let Some(actor_ent) = current else { return };
     let Some(actor_uid) = id_map.get_id(actor_ent) else { return };
 
-    let content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
+    let content = build_ecs_content_view(&active_content);
     let events = combat_state.0.start_actor_turn(actor_uid, &content);
 
     // Resource regen events are actor-local; handle them before the shared
@@ -961,9 +786,7 @@ pub fn process_action_system(
     mut reader: MessageReader<ActionInput>,
     mut id_map: ResMut<UnitIdMap>,
     mut combat_state: ResMut<CombatStateRes>,
-    combatants: Query<AooRow, With<Combatant>>,
     active_content: Res<ActiveContent>,
-    content_params: ContentParams,
     mut rng: ResMut<crate::combat::DiceRngRes>,
     mut log: ResMut<CombatLog>,
     mut anim_queue: ResMut<AnimationQueue>,
@@ -988,7 +811,7 @@ pub fn process_action_system(
                     path: path.clone(),
                 };
 
-                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
+                let content = build_ecs_content_view(&active_content);
 
                 match step(&mut combat_state.0, action, &mut rng.0, &content) {
                     Ok((events, _ctx)) => {
@@ -1041,7 +864,7 @@ pub fn process_action_system(
                     target_pos: *target_pos,
                 };
 
-                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
+                let content = build_ecs_content_view(&active_content);
 
                 let mana_before = combat_state
                     .0
@@ -1088,7 +911,7 @@ pub fn process_action_system(
                                 && unit.movement_points <= 0
                             {
                                 // AP and MP exhausted after cast — auto-end turn via engine.
-                                let end_content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
+                                let end_content = build_ecs_content_view(&active_content);
                                 if let Ok((end_events, _ctx)) = step(&mut combat_state.0, Action::EndTurn { actor: actor_uid }, &mut rng.0, &end_content) {
                                     translate_end_turn_events(&end_events, &id_map, &mut commands, &mut log, &mut next_phase);
                                     // Phase transitions during auto-end-turn (e.g. DoT ticks).
@@ -1121,7 +944,7 @@ pub fn process_action_system(
                     continue;
                 };
 
-                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
+                let content = build_ecs_content_view(&active_content);
 
                 match step(&mut combat_state.0, Action::EndTurn { actor: actor_uid }, &mut rng.0, &content) {
                     Ok((events, _ctx)) => {
@@ -1558,26 +1381,20 @@ type ProjectionRow<'a> = (
 /// - `hp`               → `Vital.hp`
 /// - `movement_points`  → `ActionPoints.movement_points`
 /// - `reactions_left`   → `Reactions.remaining`
-/// - `rage.current`     → `Rage.current`
-/// - `mana.current`     → `Mana.current`  (Phase 2 step 7c)
-/// - `statuses`         → `StatusEffects` (Phase 2 step 7c, applier-aware merge)
+/// Initialise engine `CombatState` from the current ECS snapshot.
 ///
-/// Aura-applied statuses (written by `apply_auras_system` in TurnStart)
-/// are preserved by the merge: any ECS `ActiveStatus` whose `(id, applier)`
-/// pair is NOT in the engine's `unit.statuses` survives projection.  Engine
-/// entries replace matching pairs and append new ones.
+/// Called on `OnEnter(CombatPhase::AwaitCommand)` once per round (after
+/// `build_turn_order` refills AP + reactions into ECS) so the engine has
+/// a fresh, authoritative copy of all unit state.
 ///
-/// Additionally removes `BonusMovement` when `movement_points == 0`.
+/// **5c.1 addition:** also populates the three new per-combat `Unit` fields:
+/// - `caster_context` — from `CombatStats` + `Equipment` + optional `CombatPath`
+/// - `auras`          — from `AuraSource` ECS component (alive sources only)
+/// - `enemy_phases`   — from `EnemyPhases.pending` ECS component
 ///
-/// Runs immediately after `process_action_system` in the `CombatStep::Execute`
-/// chain so engine mutations land in ECS in the same frame.  Engine state is
-/// re-initialized from ECS only on `OnEnter(CombatPhase::AwaitCommand)` via
-/// `init_state_from_ecs` (once per round, after `build_turn_order` refills),
-/// so the projector is authoritative for engine-owned fields throughout each
-/// round.  The engine is now the sole writer for hp / rage / mana / statuses
-/// (apply_effects_system deleted in Phase 2 step 9d).
+/// MP+reactions refill happens in `StartRound` (symmetric with `start_actor_turn`).
 ///
-/// Unknown units (no ECS entity in `UnitIdMap`) are silently skipped.
+/// Engine is authoritative for state; ECS is a read-only projection.
 pub fn project_state_to_ecs(
     mut commands: Commands,
     combat_state: Res<CombatStateRes>,
@@ -1624,17 +1441,11 @@ pub fn project_state_to_ecs(
                 energy_comp.current = current;
             }
 
-            // Merge statuses: preserve ECS entries the engine doesn't know about
-            // (e.g. aura-applied entries written by `apply_auras_system` in TurnStart,
-            // which runs after `init_state_from_ecs` and is therefore invisible to the
-            // engine). An ECS entry is preserved when its (id, applier) pair has no
-            // match in engine state; engine entries replace matching pairs.
+            // Merge statuses: preserve ECS entries the engine doesn't know about.
             if let Some(mut status_effects) = status_effects_opt {
-                // Build the set of (id, applier UnitId) pairs the engine knows about.
                 let engine_known: std::collections::HashSet<(&combat_engine::StatusId, UnitId)> =
                     unit.statuses.iter().map(|s| (&s.id, s.applier)).collect();
 
-                // Preserved: ECS entries whose (id, applier) are NOT in the engine set.
                 let preserved: Vec<crate::game::components::ActiveStatus> = status_effects
                     .0
                     .iter()
@@ -1644,7 +1455,6 @@ pub fn project_state_to_ecs(
                     .cloned()
                     .collect();
 
-                // Projected from engine: translate engine entries to ECS shape.
                 let mut new_list: Vec<crate::game::components::ActiveStatus> = preserved;
                 for engine_s in &unit.statuses {
                     let applier_entity = id_map.get_entity(engine_s.applier).unwrap_or(entity);
@@ -1664,13 +1474,11 @@ pub fn project_state_to_ecs(
 
 // ── init_state_from_ecs system ────────────────────────────────────────────────
 
-/// Initialize / re-initialize `CombatStateRes` from current ECS state.
+/// Initialise engine `CombatState` from the current ECS snapshot.
 ///
-/// Wired to `OnEnter(CombatPhase::AwaitCommand)`: fires once at combat start
-/// and once at the start of each round (after `build_turn_order` refills
-/// MP+reactions in `StartRound`).
-///
-/// Engine is authoritative for state; ECS is a read-only projection.
+/// Called on `OnEnter(CombatPhase::AwaitCommand)` once per round.
+/// After 5c.1: also populates `Unit.caster_context`, `Unit.auras`,
+/// `Unit.enemy_phases` from the corresponding ECS components.
 pub fn init_state_from_ecs(
     combatants: Query<CombatantRow, With<Combatant>>,
     positions: Res<HexPositions>,
@@ -1678,12 +1486,96 @@ pub fn init_state_from_ecs(
     ecs_queue: Res<TurnQueue>,
     mut id_map: ResMut<UnitIdMap>,
     mut combat_state: ResMut<CombatStateRes>,
+    // Extra queries for the new per-combat Unit fields (5c.1).
+    caster_q: Query<(Entity, &Equipment, &CombatStats, Option<&CombatPath>), With<Combatant>>,
+    aoo_q: Query<(Entity, &Equipment, &CombatStats, &Abilities, Has<Dead>), With<Combatant>>,
+    aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
+    phases_q: Query<(Entity, &EnemyPhases), With<Combatant>>,
+    active_content: Res<ActiveContent>,
 ) {
+    use crate::content::encounters::AuraAffects;
+
     let mut state = from_ecs(&combatants, &positions, combat_context.round, &mut id_map);
 
-    // Populate the engine turn queue from the ECS Res<TurnQueue>.
-    // Entities without a UnitId in the map (shouldn't happen at init, but be
-    // defensive) are silently skipped rather than panicking.
+    // ── Populate new Unit fields ──────────────────────────────────────────────
+
+    // Build caster_context for every unit (alive or dead) from Equipment + CombatStats.
+    for (entity, equipment, stats, combat_path) in caster_q.iter() {
+        let Some(uid) = id_map.get_id(entity) else { continue };
+        let bevy_ctx = CasterContext::new(stats, Some(equipment), &active_content.weapons);
+        let crit_fail_outcome = combat_path
+            .and_then(|cp| active_content.paths.get(&cp.0))
+            .map_or(CritFailEffect::Miss, |p| p.crit_fail_effect.clone());
+        let engine_ctx = combat_engine::CasterContext {
+            str_mod: bevy_ctx.str_mod,
+            int_mod: bevy_ctx.int_mod,
+            spell_power: bevy_ctx.spell_power,
+            weapon_dice: bevy_ctx.weapon_dice,
+            crit_fail_outcome: crate::combat::ai::plan::sim::map_crit_fail_effect(&crit_fail_outcome),
+        };
+        if let Some(unit) = state.unit_mut(uid) {
+            unit.caster_context = engine_ctx;
+        }
+    }
+
+    // Build aoo_dice for alive units with a melee WeaponAttack ability + weapon.
+    // Mirrors the pre-5c.1 `build_ecs_content_view` AoO eligibility filter so
+    // that ranged units (no melee ability) don't AoO even though they have a
+    // weapon equipped. Strength modifier is baked into the dice bonus here so
+    // the engine's `unit_aoo_dice` returns the final damage formula directly.
+    for (entity, equipment, stats, abilities, is_dead) in aoo_q.iter() {
+        if is_dead { continue; }
+        let Some(uid) = id_map.get_id(entity) else { continue };
+        let has_melee = abilities.0.iter().any(|aid| {
+            active_content.abilities.get(aid).is_some_and(|def| {
+                matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
+            })
+        });
+        if !has_melee { continue; }
+        let ctx = CasterContext::new(stats, Some(equipment), &active_content.weapons);
+        let Some(core_dice) = ctx.weapon_dice else { continue };
+        let engine_dice = EngineDiceExpr::new(
+            core_dice.count,
+            core_dice.sides,
+            core_dice.bonus + modifier(stats.strength),
+        );
+        if let Some(unit) = state.unit_mut(uid) {
+            unit.aoo_dice = Some(engine_dice);
+        }
+    }
+
+    // Build auras from AuraSource components (alive sources only).
+    for (entity, aura_src) in aura_q.iter() {
+        let Some(uid) = id_map.get_id(entity) else { continue };
+        let applies_to = match aura_src.affects {
+            AuraAffects::Enemies => TeamRelation::Enemies,
+            AuraAffects::Allies  => TeamRelation::Allies,
+            AuraAffects::All     => TeamRelation::All,
+        };
+        if let Some(unit) = state.unit_mut(uid) {
+            unit.auras.push(AuraDef {
+                radius: aura_src.radius,
+                status_id: aura_src.status.clone(),
+                applies_to,
+            });
+        }
+    }
+
+    // Build enemy_phases from EnemyPhases.pending (first entry only per unit).
+    for (entity, phases) in phases_q.iter() {
+        let Some(uid) = id_map.get_id(entity) else { continue };
+        if let Some(unit) = state.unit_mut(uid) {
+            unit.enemy_phases = phases.pending.iter().map(|phase| {
+                let pct = match phase.trigger {
+                    crate::content::encounters::PhaseTrigger::HpBelowPct(p) => p,
+                };
+                let new_max_hp = phase.stats.as_ref().map(|s| s.max_hp).unwrap_or(0);
+                combat_engine::PhaseEntry { pct, new_max_hp, heal_to_full: phase.heal_to_full }
+            }).collect();
+        }
+    }
+
+    // ── Populate the engine turn queue from the ECS Res<TurnQueue> ───────────
     let uid_order: Vec<UnitId> = ecs_queue
         .order
         .iter()
@@ -1693,3 +1585,4 @@ pub fn init_state_from_ecs(
 
     combat_state.0 = state;
 }
+

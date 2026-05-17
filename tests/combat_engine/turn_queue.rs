@@ -23,10 +23,8 @@ use hexx::Hex;
 struct StubContent;
 
 impl ContentView for StubContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { None }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
-        -> Option<storyforge::combat_engine::AbilityDef> { None }
+    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> {
         Some(storyforge::combat_engine::StatusDef {
             causes_disadvantage: false,
@@ -39,11 +37,7 @@ impl ContentView for StubContent {
             hp_percent_dot: 0,
         })
     }
-    fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext {
-        storyforge::combat_engine::CasterContext::default()
-    }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
-    fn auras_of(&self, _: UnitId) -> Vec<storyforge::combat_engine::AuraDef> { vec![] }
 }
 
 fn uid(n: u64) -> UnitId { UnitId(n) }
@@ -69,6 +63,10 @@ fn make_unit(id: UnitId, alive: bool, reactions_max: i32) -> Unit {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
 }
 

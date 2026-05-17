@@ -291,7 +291,7 @@ pub fn apply_effect(
 
             let max_hp = state.unit(*target).map(|u| u.max_hp).unwrap_or(0);
             if let Some((phase_idx, _transition)) =
-                content.check_phase_trigger(*target, hp_after, max_hp)
+                state.unit(*target).and_then(|u| u.check_phase_trigger(hp_after, max_hp))
             {
                 derived.push(Effect::EnterPhase { unit: *target, phase_idx });
             } else if hp_after <= 0 {
@@ -581,8 +581,9 @@ pub fn apply_effect(
             // transition data.  The bridge's EnemyPhases.pending has not been
             // popped yet (pop happens in bridge translator on Event::PhaseEntered),
             // so this returns the same result as the Damage arm's call.
-            let transition = content
-                .check_phase_trigger(*unit, state.unit(*unit).map(|u| u.hp).unwrap_or(0), prev_max_hp)
+            let transition = state
+                .unit(*unit)
+                .and_then(|u| u.check_phase_trigger(u.hp, prev_max_hp))
                 .map(|(_, t)| t);
 
             let (new_max_hp, new_armor, new_base_speed, heal_to_full) =
@@ -728,6 +729,10 @@ pub fn apply_effect(
                 mana: if template.mana_max > 0 { Some((template.mana_max, template.mana_max)) } else { None },
                 energy: if template.energy_max > 0 { Some((template.energy_max, template.energy_max)) } else { None },
                 summoner: Some(*summoner),
+                caster_context: crate::content::CasterContext::default(),
+                aoo_dice: None,
+                auras: Vec::new(),
+                enemy_phases: Vec::new(),
             };
 
             state.insert_unit(new_unit);

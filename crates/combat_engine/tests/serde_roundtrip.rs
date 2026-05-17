@@ -62,6 +62,10 @@ fn unit_all_some(id: u64) -> Unit {
         mana: Some((15, 20)),
         energy: Some((0, 5)),
         summoner: Some(uid(42)),
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
 }
 
@@ -308,6 +312,10 @@ fn unit_all_none_fields() {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     });
 }
 

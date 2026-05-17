@@ -10,7 +10,7 @@
 //! Callers implement this trait for real (`ActiveContent` adapter); the engine
 //! only ever calls through the trait object.  Step 8+ agent extends as needed.
 
-use crate::{dice::DiceExpr, state::UnitId, AbilityId, ResourceKind, StatusId};
+use crate::{dice::DiceExpr, AbilityId, ResourceKind, StatusId};
 
 /// Outcome when a cast crit-fails (d20 roll lands on 1).
 ///
@@ -32,7 +32,7 @@ pub enum CritFailOutcome {
 
 /// Cached caster stats needed for damage / heal formulas.
 /// Mirrors `crate::content::abilities::CasterContext`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CasterContext {
     pub str_mod: i32,
     pub int_mod: i32,
@@ -250,14 +250,34 @@ pub struct PhaseTransition {
     pub heal_to_full: bool,
 }
 
-pub trait ContentView {
-    /// Weapon dice for the attacker's AoO strike.
-    ///
-    /// Returns `None` if the unit has no equipped melee weapon — in which case
-    /// `expand_reaction` will not emit an AoO (mirroring `movement_system`'s
-    /// "prefer weapon dice; if no weapon, skip" logic).
-    fn aoo_dice(&self, attacker: UnitId) -> Option<DiceExpr>;
+/// Per-phase trigger data stored on `Unit.enemy_phases`.
+///
+/// Replaces the `PhaseEntry` that was previously on `EcsContentView` in the
+/// bridge (5c.1).  The first entry in `Unit.enemy_phases` is the next pending
+/// phase; `check_phase_trigger` peeks at `[0]` without consuming it (the
+/// bridge translator pops it on `Event::PhaseEntered`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct PhaseEntry {
+    /// HP-below-percent threshold (0..=100).
+    /// Fires when `new_hp * 100 <= max_hp * pct`.
+    pub pct: i32,
+    /// New max HP after the phase fires.  0 means "keep current max_hp".
+    pub new_max_hp: i32,
+    /// Whether to heal the unit to `new_max_hp` after the phase fires.
+    pub heal_to_full: bool,
+}
 
+/// Static content lookup for the engine.
+///
+/// After 5c.1, this trait carries ONLY static content (definitions that are
+/// the same for every combat instance). Per-combat state lives on `Unit`:
+/// - `Unit.caster_context` (was `ContentView::caster_context`)
+/// - `Unit.auras` (was `ContentView::auras_of`)
+/// - `Unit.enemy_phases` / `Unit::check_phase_trigger` (was `ContentView::check_phase_trigger`)
+/// - AoO dice: derived from `Unit.caster_context.weapon_dice` via `reaction::unit_aoo_dice`
+///
+/// Trait has exactly 4 methods: `status_bonuses`, `ability_def`, `status_def`, `unit_template`.
+pub trait ContentView {
     /// Stat bonuses granted by a single status instance.
     ///
     /// Returns `StatusBonuses::default()` (all zeros) for unknown status ids.
@@ -274,40 +294,7 @@ pub trait ContentView {
     /// Engine-side status definition.  `None` if the id is unknown.
     fn status_def(&self, id: &StatusId) -> Option<StatusDef>;
 
-    /// Caster stat bundle for damage / heal formulas.  Returns
-    /// `CasterContext::default()` for unknown units.
-    fn caster_context(&self, actor: UnitId) -> CasterContext;
-
     /// Resolved unit template (stats + equipment armor already folded in).
     /// Returns `None` for unknown template ids.
     fn unit_template(&self, id: &str) -> Option<UnitTemplate>;
-
-    /// Passive aura definitions emitted by `source`.
-    ///
-    /// Returns all `AuraDef` entries for the unit.  Called by
-    /// `CombatState::aura_effects_on` and `aura_membership_set` when walking
-    /// alive aura sources.  Returns empty `Vec` for units with no auras or
-    /// unknown ids.
-    fn auras_of(&self, source: UnitId) -> Vec<AuraDef>;
-
-    /// Check whether `unit_id` should enter a new phase after its HP dropped
-    /// to `new_hp` (out of `max_hp`).
-    ///
-    /// Called by `apply_effect(Damage)` AFTER the HP delta is applied but
-    /// BEFORE `Effect::Death` is derived — phase trigger preempts death.
-    ///
-    /// Returns `(phase_idx, transition)` for the first pending phase whose
-    /// threshold is crossed, or `None` if no phase fires.
-    ///
-    /// The default implementation returns `None` (no phases).  Only
-    /// `EcsContentView` provides a real implementation that reads
-    /// `EnemyPhases.pending`.
-    fn check_phase_trigger(
-        &self,
-        _unit_id: UnitId,
-        _new_hp: i32,
-        _max_hp: i32,
-    ) -> Option<(usize, PhaseTransition)> {
-        None
-    }
 }

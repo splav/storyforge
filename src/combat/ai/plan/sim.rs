@@ -259,21 +259,12 @@ impl<'a> SimState<'a> {
 
 // ── Engine shim helpers ───────────────────────────────────────────────────────
 
-/// `ContentView` adapter that derives AoO dice from `UnitSnapshot::aoo_expected_damage`.
+/// `ContentView` adapter for the AI sim (5c.1: static content only).
 ///
-/// The engine's `ExpectedValue` dice source calls `roll(DiceExpr)` which returns
-/// `round(expected)`.  We encode the pre-computed expected damage as a
-/// constant-bonus `DiceExpr { count: 0, sides: 1, bonus: round(raw) }` so the
-/// engine gets the exact same integer value the legacy sim used.
-///
-/// For Cast steps, `abilities` and `statuses` are populated from the Bevy
-/// `ContentView` (see `with_content`) so that engine legality checks resolve
-/// ability and status definitions correctly.
+/// After 5c.1, per-combat state (caster contexts, AoO dice) lives on engine
+/// `Unit` fields populated by `snapshot_to_combat_state`. This struct only
+/// carries static content: ability and status definitions for engine legality.
 struct SnapshotContentView {
-    /// `UnitId → raw AoO damage` for units that can perform an AoO.
-    aoo_damage: std::collections::HashMap<UnitId, f32>,
-    /// `UnitId → caster context` for damage formula evaluation.
-    caster_contexts: std::collections::HashMap<UnitId, combat_engine::CasterContext>,
     /// Engine-format ability definitions (populated for Cast steps).
     abilities: std::collections::HashMap<combat_engine::AbilityId, combat_engine::AbilityDef>,
     /// Engine-format status definitions (populated for Cast steps).
@@ -299,11 +290,8 @@ pub(crate) fn map_crit_fail_effect(e: &CritFailEffect) -> combat_engine::CritFai
 }
 
 impl SnapshotContentView {
-    fn from_snapshot(snap: &BattleSnapshot) -> Self {
-        let (aoo_damage, caster_contexts) = Self::build_unit_maps(snap);
+    fn from_snapshot(_snap: &BattleSnapshot) -> Self {
         Self {
-            aoo_damage,
-            caster_contexts,
             abilities: std::collections::HashMap::new(),
             statuses: std::collections::HashMap::new(),
         }
@@ -311,9 +299,7 @@ impl SnapshotContentView {
 
     /// Full constructor for Cast steps: populates ability + status definitions
     /// from the Bevy `ContentView` so that engine legality can resolve them.
-    fn with_content(snap: &BattleSnapshot, content: &ContentView) -> Self {
-        let (aoo_damage, caster_contexts) = Self::build_unit_maps(snap);
-
+    fn with_content(_snap: &BattleSnapshot, content: &ContentView) -> Self {
         let abilities = content.abilities.iter().map(|(id, def)| {
             let engine_def = combat_engine::AbilityDef {
                 key: def.key.clone(),
@@ -372,47 +358,11 @@ impl SnapshotContentView {
             (id.clone(), engine_def)
         }).collect();
 
-        Self { aoo_damage, caster_contexts, abilities, statuses }
-    }
-
-    fn build_unit_maps(snap: &BattleSnapshot) -> (
-        std::collections::HashMap<UnitId, f32>,
-        std::collections::HashMap<UnitId, combat_engine::CasterContext>,
-    ) {
-        let aoo_damage = snap
-            .units
-            .iter()
-            .filter_map(|u| {
-                let raw = u.aoo_expected_damage?;
-                Some((entity_to_uid(u.entity), raw))
-            })
-            .collect();
-        let caster_contexts = snap
-            .units
-            .iter()
-            .map(|u| {
-                let ctx = combat_engine::CasterContext {
-                    str_mod: u.caster_ctx.str_mod,
-                    int_mod: u.caster_ctx.int_mod,
-                    spell_power: u.caster_ctx.spell_power,
-                    weapon_dice: u.caster_ctx.weapon_dice,
-                    crit_fail_outcome: map_crit_fail_effect(&u.crit_fail_effect),
-                };
-                (entity_to_uid(u.entity), ctx)
-            })
-            .collect();
-        (aoo_damage, caster_contexts)
+        Self { abilities, statuses }
     }
 }
 
 impl EngineContentView for SnapshotContentView {
-    fn aoo_dice(&self, attacker: UnitId) -> Option<EngineDiceExpr> {
-        let raw = self.aoo_damage.get(&attacker)?;
-        // Constant-bonus dice: count=0, sides=1 → expected = bonus.
-        // round() converts to i32; `ExpectedValue::roll` returns expected().round().
-        Some(EngineDiceExpr::new(0, 1, raw.round() as i32))
-    }
-
     fn status_bonuses(&self, id: &combat_engine::StatusId) -> EngineStatusBonuses {
         self.statuses.get(id).map(|def| EngineStatusBonuses {
             armor_bonus: def.armor_bonus,
@@ -428,20 +378,9 @@ impl EngineContentView for SnapshotContentView {
         self.statuses.get(id).cloned()
     }
 
-    fn caster_context(&self, actor: UnitId) -> combat_engine::CasterContext {
-        self.caster_contexts.get(&actor).cloned().unwrap_or_default()
-    }
-
     fn unit_template(&self, _id: &str) -> Option<combat_engine::UnitTemplate> {
         // Sim never generates summons; return None.
-        // If sim needs to model summons in the future, populate templates on SnapshotContentView.
         None
-    }
-
-    fn auras_of(&self, _source: UnitId) -> Vec<combat_engine::AuraDef> {
-        // Sim snapshots don't carry aura definitions — auras are ECS-only
-        // until the sim is extended in a later phase.
-        vec![]
     }
 }
 
@@ -449,6 +388,9 @@ impl EngineContentView for SnapshotContentView {
 ///
 /// Uses `entity_to_uid(entity)` for id mapping (same encoding as `engine_bridge::from_ecs`).
 /// Copies hp, pos, movement_points, reactions_left, rage, mana, energy directly.
+///
+/// After 5c.1: `caster_context` is populated from the snapshot's `caster_ctx`;
+/// `auras` and `enemy_phases` are empty (sim doesn't model auras or boss phases).
 fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
     use combat_engine::state::ActiveStatus;
 
@@ -473,6 +415,18 @@ fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
                     applier: entity_to_uid(u.entity),
                 })
                 .collect();
+            let caster_context = combat_engine::CasterContext {
+                str_mod: u.caster_ctx.str_mod,
+                int_mod: u.caster_ctx.int_mod,
+                spell_power: u.caster_ctx.spell_power,
+                weapon_dice: u.caster_ctx.weapon_dice,
+                crit_fail_outcome: map_crit_fail_effect(&u.crit_fail_effect),
+            };
+            // AoO dice = pre-computed expected damage from the snapshot
+            // (already includes melee-ability filter + str_mod). Encoded as
+            // a constant-bonus 0d1+raw so ExpectedValue rolls return raw.
+            let aoo_dice = u.aoo_expected_damage
+                .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
             EngineUnit {
                 id: entity_to_uid(u.entity),
                 team,
@@ -493,6 +447,10 @@ fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
                 mana: u.mana,
                 energy: u.energy,
                 summoner: None,
+                caster_context,
+                aoo_dice,
+                auras: Vec::new(),
+                enemy_phases: Vec::new(),
             }
         })
         .collect();

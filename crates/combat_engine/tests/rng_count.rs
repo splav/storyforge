@@ -42,6 +42,10 @@ fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
 }
 
@@ -51,26 +55,23 @@ fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
 struct NoWeaponContent;
 
 impl ContentView for NoWeaponContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { None }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, _: &AbilityId) -> Option<AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
-    fn caster_context(&self, _: UnitId) -> CasterContext { CasterContext::default() }
     fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
-    fn auras_of(&self, _: UnitId) -> Vec<AuraDef> { vec![] }
 }
 
-/// Fixed weapon dice for all attackers (AoO).
+/// Minimal content stub for AoO tests (weapon dice now on unit.caster_context).
+#[allow(dead_code)]
 struct WithWeaponContent(DiceExpr);
 
+/// Weapon dice now live on Unit.caster_context.weapon_dice (5c.1).
+/// This impl provides only the 4 static-content methods.
 impl ContentView for WithWeaponContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { Some(self.0) }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, _: &AbilityId) -> Option<AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
-    fn caster_context(&self, _: UnitId) -> CasterContext { CasterContext::default() }
     fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
-    fn auras_of(&self, _: UnitId) -> Vec<AuraDef> { vec![] }
 }
 
 /// Single ability definition, crit-fail = Miss.
@@ -80,20 +81,12 @@ struct CastContent {
 }
 
 impl ContentView for CastContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { None }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
         if id.0 == self.id { Some(self.def.clone()) } else { None }
     }
     fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
-    fn caster_context(&self, _: UnitId) -> CasterContext {
-        CasterContext {
-            crit_fail_outcome: CritFailOutcome::Miss,
-            ..Default::default()
-        }
-    }
     fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
-    fn auras_of(&self, _: UnitId) -> Vec<AuraDef> { vec![] }
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -148,10 +141,11 @@ fn move_with_one_aoo_consumes_one_roll() {
     assert_eq!(Hex::ZERO.unsigned_distance_to(enemy_pos), 1, "enemy adjacent to start");
     assert_ne!(dest.unsigned_distance_to(enemy_pos), 1, "dest must not be adjacent to enemy");
 
-    let mut state = CombatState::new(vec![actor, enemy], 1, RoundPhase::ActorTurn, 0);
-
-    // Weapon: 1d6 (count=1 → exactly 1 roll_d call). Script to 1 (non-lethal).
+    // Weapon: 1d6 (count=1 → exactly 1 roll_d call). Now lives on unit.caster_context.
     let weapon = DiceExpr::new(1, 6, 0);
+    enemy.caster_context.weapon_dice = Some(weapon);
+
+    let mut state = CombatState::new(vec![actor, enemy], 1, RoundPhase::ActorTurn, 0);
     let mut rng = DiceRng::with_seed(0xCAFE);
     rng.script(&[1]); // AoO roll = 1
 
@@ -175,6 +169,8 @@ fn cast_3_targets_consumes_d20_plus_3_damage_rolls() {
 
     let mut actor = make_unit(1, Team::Player, Hex::ZERO);
     actor.action_points = 4;
+    // CritFailOutcome is now on the unit (5c.1); CastContent only needs ability_def.
+    actor.caster_context.crit_fail_outcome = CritFailOutcome::Miss;
 
     let ea = make_unit(10, Team::Enemy, target_pos);
     let eb = make_unit(11, Team::Enemy, neighbors[0]);

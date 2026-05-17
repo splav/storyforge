@@ -45,9 +45,24 @@ impl StubContent {
         Self { abilities, caster_ctx: HashMap::new(), templates: HashMap::new() }
     }
 
+    /// Record a per-unit CasterContext to be applied to the CombatState.
+    ///
+    /// Call `apply_caster_contexts(&mut state)` after constructing the state.
     fn with_caster(mut self, uid: UnitId, ctx: storyforge::combat_engine::CasterContext) -> Self {
         self.caster_ctx.insert(uid, ctx);
         self
+    }
+
+    /// Apply stored CasterContexts to unit fields.
+    ///
+    /// Must be called after `state_with(...)` because CasterContext now lives on
+    /// `Unit.caster_context` (5c.1), not on `ContentView`.
+    fn apply_caster_contexts(&self, state: &mut storyforge::combat_engine::state::CombatState) {
+        for (&uid, ctx) in &self.caster_ctx {
+            if let Some(u) = state.unit_mut(uid) {
+                u.caster_context = ctx.clone();
+            }
+        }
     }
 
     fn with_template(mut self, id: &str, tmpl: storyforge::combat_engine::UnitTemplate) -> Self {
@@ -57,17 +72,12 @@ impl StubContent {
 }
 
 impl ContentView for StubContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> { None }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> { self.abilities.get(id).cloned() }
     fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
-    fn caster_context(&self, actor: UnitId) -> storyforge::combat_engine::CasterContext {
-        self.caster_ctx.get(&actor).cloned().unwrap_or_default()
-    }
     fn unit_template(&self, id: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
         self.templates.get(id).copied()
     }
-    fn auras_of(&self, _: UnitId) -> Vec<storyforge::combat_engine::AuraDef> { vec![] }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -93,6 +103,10 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
 }
 
@@ -291,6 +305,7 @@ fn cast_damage_hits_target_with_str_mod() {
     };
     let content = StubContent::with_ability("strike", ability)
         .with_caster(UnitId(1), CasterContext { str_mod: 3, ..Default::default() });
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -327,6 +342,7 @@ fn cast_spell_damage_pierces_armor() {
     };
     let content = StubContent::with_ability("firebolt", ability)
         .with_caster(UnitId(1), CasterContext { int_mod: 2, spell_power: 1, ..Default::default() });
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -365,6 +381,7 @@ fn cast_weapon_attack_uses_weapon_dice() {
             weapon_dice: Some(DiceExpr::new(1, 8, 0)),
             ..Default::default()
         });
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -455,6 +472,7 @@ fn cast_aoe_damages_targets_in_per_target_order() {
     };
     let content = StubContent::with_ability("fireball", ability)
         .with_caster(UnitId(1), CasterContext { str_mod: 0, ..Default::default() });
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -555,6 +573,7 @@ fn cast_heal_restores_target_hp() {
     };
     let content = StubContent::with_ability("heal", ability)
         .with_caster(UnitId(1), CasterContext { int_mod: 2, spell_power: 1, ..Default::default() });
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -732,6 +751,7 @@ fn cast_crit_fail_miss_skips_damage() {
         UnitId(1),
         CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
     );
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -772,6 +792,7 @@ fn cast_crit_fail_double_cost() {
         UnitId(1),
         CasterContext { crit_fail_outcome: CritFailOutcome::DoubleCost, ..Default::default() },
     );
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -815,6 +836,7 @@ fn cast_crit_fail_self_damage() {
             ..Default::default()
         },
     );
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -855,6 +877,7 @@ fn cast_crit_fail_apply_status() {
             ..Default::default()
         },
     );
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -897,6 +920,7 @@ fn cast_crit_fail_emits_event() {
         UnitId(1),
         CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
     );
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -942,6 +966,7 @@ fn cast_no_crit_fail_no_event_when_d20_non_one() {
         UnitId(1),
         CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
     );
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -978,6 +1003,7 @@ fn cast_proceeds_normally_when_d20_not_one() {
         UnitId(1),
         CasterContext { crit_fail_outcome: CritFailOutcome::Miss, ..Default::default() },
     );
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: UnitId(1),
@@ -1133,6 +1159,7 @@ fn cast_summon_crit_fail_miss_skips_spawn_but_pays_cost() {
             crit_fail_outcome: CritFailOutcome::Miss,
             ..Default::default()
         });
+    content.apply_caster_contexts(&mut state);
 
     let action = Action::Cast {
         actor: summoner_id,

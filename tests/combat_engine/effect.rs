@@ -43,9 +43,6 @@ impl StubContent {
 }
 
 impl ContentView for StubContent {
-    fn aoo_dice(&self, _: UnitId) -> Option<DiceExpr> {
-        None
-    }
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses {
         StatusBonuses {
             speed_bonus: self.speed_bonus,
@@ -65,11 +62,9 @@ impl ContentView for StubContent {
             hp_percent_dot: self.hp_percent_dot,
         })
     }
-    fn caster_context(&self, _: UnitId) -> storyforge::combat_engine::CasterContext { storyforge::combat_engine::CasterContext::default() }
     fn unit_template(&self, id: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
         self.templates.get(id).copied()
     }
-    fn auras_of(&self, _: UnitId) -> Vec<storyforge::combat_engine::AuraDef> { vec![] }
 }
 
 fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
@@ -93,6 +88,10 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
         mana: None,
         energy: None,
         summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
 }
 

@@ -85,7 +85,7 @@ pub mod trace;
 pub mod turn_queue;
 
 pub use dice::{DiceExpr, DiceRng};
-pub use content::{AbilityDef, AbilityRange, AoEShape, AuraDef, AuraEffects, CasterContext, Cost, CritFailOutcome, EffectDef, PhaseTransition, StatusApplication, StatusBonuses, StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate};
+pub use content::{AbilityDef, AbilityRange, AoEShape, AuraDef, AuraEffects, CasterContext, Cost, CritFailOutcome, EffectDef, PhaseEntry, PhaseTransition, StatusApplication, StatusBonuses, StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate};
 pub use effect::SpawnBlockedReason;
 pub use legality::{check_legality, ActionState, ActorView, IllegalReason, LegalAction, ProposedAction};
 pub use turn_queue::TurnQueue;

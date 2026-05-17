@@ -103,35 +103,23 @@ fn build_scenario() -> (BattleSnapshot, Entity, Vec<storyforge::game::hex::Hex>)
 
 // ── ContentView adapter for engine bench ─────────────────────────────────────
 
-struct BenchContent {
-    aoo: std::collections::HashMap<UnitId, f32>,
-}
+/// Minimal ContentView stub for engine benchmarks.
+///
+/// AoO dice now live on Unit.caster_context.weapon_dice (5c.1); this struct
+/// carries only the 4 static-content methods.
+struct BenchContent;
 
 impl BenchContent {
-    fn from_snap(snap: &BattleSnapshot) -> Self {
-        let aoo = snap
-            .units
-            .iter()
-            .filter_map(|u| Some((entity_to_uid(u.entity), u.aoo_expected_damage?)))
-            .collect();
-        Self { aoo }
-    }
+    fn from_snap(_snap: &BattleSnapshot) -> Self { Self }
 }
 
 impl EngineContentView for BenchContent {
-    fn aoo_dice(&self, attacker: UnitId) -> Option<EngineDiceExpr> {
-        let raw = self.aoo.get(&attacker)?;
-        // Constant-bonus expr: count=0 → expected = bonus.
-        Some(EngineDiceExpr::new(0, 1, raw.round() as i32))
-    }
     fn status_bonuses(&self, _: &combat_engine::StatusId) -> EngineStatusBonuses {
         EngineStatusBonuses::default()
     }
     fn ability_def(&self, _: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> { None }
-    fn caster_context(&self, _: UnitId) -> combat_engine::CasterContext { combat_engine::CasterContext::default() }
     fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
-    fn auras_of(&self, _: UnitId) -> Vec<combat_engine::AuraDef> { vec![] }
 }
 
 fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
@@ -144,6 +132,9 @@ fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
                 Team::Player => EngineTeam::Player,
                 Team::Enemy  => EngineTeam::Enemy,
             };
+            // AoO dice lives on Unit.aoo_dice (post-5c.1 follow-up).
+            let aoo_dice = u.aoo_expected_damage
+                .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
             EngineUnit {
                 id: entity_to_uid(u.entity),
                 team,
@@ -173,6 +164,10 @@ fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
                 mana: u.mana,
                 energy: u.energy,
                 summoner: None,
+                caster_context: combat_engine::CasterContext::default(),
+                aoo_dice,
+                auras: Vec::new(),
+                enemy_phases: Vec::new(),
             }
         })
         .collect();
