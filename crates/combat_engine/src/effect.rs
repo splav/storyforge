@@ -175,6 +175,12 @@ pub struct ApplyCtx {
     /// Set by `EnterPhase`: carries (prev_max_hp, new_max_hp) so the event
     /// translator can populate `Event::PhaseEntered` correctly.
     pub phase_entered: Option<(i32, i32)>,
+    /// Number of RNG calls consumed by this `step()` invocation (Phase 5 D2).
+    ///
+    /// Populated by `step()` as `rng.call_count()` after − before the effect
+    /// cascade. Used by the trace writer to record a per-step canary; replay
+    /// re-seeds the same `DiceRng` and asserts the delta matches.
+    pub rng_calls: u64,
 }
 
 fn skip_or_settle_current(

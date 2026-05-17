@@ -132,6 +132,7 @@ fn step_cast_returns_err_illegal_for_unknown_ability() {
     };
 
     let err = step(&mut state, action, &mut ExpectedValue, &StubContent::empty())
+        .map(|(ev, _)| ev)
         .expect_err("unknown ability should be rejected");
 
     assert_eq!(err, ActionError::Illegal(IllegalReason::UnknownAbility));
@@ -157,6 +158,7 @@ fn step_cast_returns_err_illegal_for_dead_target() {
     };
 
     let err = step(&mut state, action, &mut ExpectedValue, &content)
+        .map(|(ev, _)| ev)
         .expect_err("dead target should be rejected");
 
     assert_eq!(err, ActionError::Illegal(IllegalReason::TargetDead));
@@ -189,7 +191,7 @@ fn step_cast_returns_ok_when_legal() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    let events = step(&mut state, action, &mut ExpectedValue, &content)
+    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal cast should succeed");
 
     // Exactly ActionStarted + ActionFinished — no effect events.
@@ -226,7 +228,7 @@ fn cast_legal_pays_ap_cost() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    let events = step(&mut state, action, &mut ExpectedValue, &content)
+    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal cast should succeed");
 
     assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 1, "AP decremented by 1");
@@ -297,7 +299,7 @@ fn cast_damage_hits_target_with_str_mod() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    let events = step(&mut state, action, &mut ExpectedValue, &content)
+    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal cast should succeed");
 
     assert_eq!(state.unit(UnitId(2)).unwrap().hp, 3, "hp = 10 - (4+3) = 3");
@@ -463,7 +465,7 @@ fn cast_aoe_damages_targets_in_per_target_order() {
         target_pos,
     };
 
-    let events = step(&mut state, action, &mut ExpectedValue, &content)
+    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal AoE cast should succeed");
 
     // All three enemies take 2 damage: hp 5→3.
@@ -512,7 +514,7 @@ fn cast_legal_pays_no_cost_when_zero() {
         target_pos: hex_from_offset(1, 0),
     };
 
-    let events = step(&mut state, action, &mut ExpectedValue, &content)
+    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal cast should succeed");
 
     // No DecrementAP or PayCost fired — both produce no event — so only
@@ -906,7 +908,7 @@ fn cast_crit_fail_emits_event() {
     let mut rng = DiceRng::with_seed(0);
     rng.script(&[1]); // d20=1 → crit-fail
 
-    let events = step(&mut state, action, &mut rng, &content).expect("should succeed");
+    let (events, _ctx) = step(&mut state, action, &mut rng, &content).expect("should succeed");
 
     let crit_failed = events.iter().any(|e| {
         matches!(e, Event::CritFailed { actor: UnitId(1), outcome: CritFailOutcome::Miss })
@@ -951,7 +953,7 @@ fn cast_no_crit_fail_no_event_when_d20_non_one() {
     let mut rng = DiceRng::with_seed(0);
     rng.script(&[11, 3]); // d20=11 (no crit-fail), damage=3
 
-    let events = step(&mut state, action, &mut rng, &content).expect("should succeed");
+    let (events, _ctx) = step(&mut state, action, &mut rng, &content).expect("should succeed");
 
     let has_crit_failed = events.iter().any(|e| matches!(e, Event::CritFailed { .. }));
     assert!(!has_crit_failed, "CritFailed must NOT be present when d20=11; got: {:?}", events);
@@ -1087,7 +1089,7 @@ fn cast_summon_ability_pushes_spawn_effect_and_creates_unit() {
     let mut rng = DiceRng::with_seed(0);
     rng.script(&[11]);
 
-    let events = step(&mut state, action, &mut rng, &content).expect("summon should succeed");
+    let (events, _ctx) = step(&mut state, action, &mut rng, &content).expect("summon should succeed");
 
     // Event stream contains UnitSpawned.
     let spawned = events.iter().find_map(|e| {
@@ -1142,7 +1144,7 @@ fn cast_summon_crit_fail_miss_skips_spawn_but_pays_cost() {
     let mut rng = DiceRng::with_seed(0);
     rng.script(&[1]); // d20=1 → crit-fail
 
-    let events = step(&mut state, action, &mut rng, &content).expect("should succeed");
+    let (events, _ctx) = step(&mut state, action, &mut rng, &content).expect("should succeed");
 
     // AP still paid.
     assert_eq!(state.unit(summoner_id).unwrap().action_points, 1, "AP paid on crit-fail");
@@ -1177,7 +1179,7 @@ fn cast_summon_at_max_cap_emits_spawn_blocked() {
     let mut rng = DiceRng::with_seed(0);
     rng.script(&[11]); // no crit-fail
 
-    let events = step(&mut state, action, &mut rng, &content).expect("should succeed");
+    let (events, _ctx) = step(&mut state, action, &mut rng, &content).expect("should succeed");
 
     // SpawnBlocked event with MaxActiveReached.
     let blocked = events.iter().find_map(|e| {

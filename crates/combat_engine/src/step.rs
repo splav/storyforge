@@ -38,7 +38,7 @@ use crate::{
     action::{Action, ActionError},
     content::{AbilityDef, CasterContext, ContentView, EffectDef, StatusDef},
     dice::{DiceExpr, DiceSource},
-    effect::{apply_effect, Effect},
+    effect::{apply_effect, ApplyCtx, Effect},
     event::{effect_to_event, Event},
     legality::{check_legality, ActionState, ActorView, ProposedAction},
     reaction::{expand_reaction, scan_reactions, Reaction, ReactionKind},
@@ -226,8 +226,14 @@ fn effect_for_target(
 
 /// Advance `state` by one action.
 ///
-/// Returns the ordered list of events that occurred, or an error if the action
-/// was illegal or a strict-failure condition was hit (see `ActionError`).
+/// Returns the ordered list of events that occurred and a side-channel
+/// [`ApplyCtx`] carrying the per-step RNG-call delta (`ctx.rng_calls`), or
+/// an error if the action was illegal or a strict-failure condition was hit
+/// (see `ActionError`).
+///
+/// `ctx.rng_calls` is the number of [`DiceSource::roll`] invocations consumed
+/// by this step — used as a trace canary (Phase 5 D2). The count spans the
+/// entire effect cascade including AoO sub-queues.
 ///
 /// State is rolled back (no mutation) on any error.
 pub fn step(
@@ -235,16 +241,24 @@ pub fn step(
     action: Action,
     rng: &mut dyn DiceSource,
     content: &dyn ContentView,
-) -> Result<Vec<Event>, ActionError> {
+) -> Result<(Vec<Event>, ApplyCtx), ActionError> {
     // Clone state at entry for rollback on error (decision 6.5).
     let snapshot = state.clone();
 
+    let before = rng.call_count();
     let result = step_inner(state, action, rng, content);
+    let after = rng.call_count();
 
-    if result.is_err() {
-        *state = snapshot;
+    match result {
+        Ok(events) => {
+            let ctx = ApplyCtx { rng_calls: after - before, ..Default::default() };
+            Ok((events, ctx))
+        }
+        Err(e) => {
+            *state = snapshot;
+            Err(e)
+        }
     }
-    result
 }
 
 fn step_inner(

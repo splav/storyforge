@@ -125,7 +125,7 @@ fn mid_round_handoff() {
         0,
     );
 
-    let events = step(
+    let (events, _ctx) = step(
         &mut state,
         Action::EndTurn { actor: uid(1) },
         &mut ExpectedValue,
@@ -154,7 +154,7 @@ fn end_of_round_wraps_and_emits_round_started() {
     );
     let content = StubContent::plain();
 
-    let events = step(
+    let (events, _ctx) = step(
         &mut state,
         Action::EndTurn { actor: uid(2) },
         &mut ExpectedValue,
@@ -184,7 +184,7 @@ fn dead_skip_in_middle_of_round() {
         0,
     );
 
-    let events = step(
+    let (events, _ctx) = step(
         &mut state,
         Action::EndTurn { actor: uid(1) },
         &mut ExpectedValue,
@@ -218,7 +218,7 @@ fn stunned_skip_via_direct_status_wraps_to_next_round() {
     );
     let content = StubContent::with_stun(stun_id);
 
-    let events = step(
+    let (events, _ctx) = step(
         &mut state,
         Action::EndTurn { actor: uid(1) },
         &mut ExpectedValue,
@@ -251,7 +251,7 @@ fn round_wrap_skips_first_actor_if_stunned() {
     );
     let content = StubContent::with_stun(stun_id);
 
-    let events = step(
+    let (events, _ctx) = step(
         &mut state,
         Action::EndTurn { actor: uid(3) },
         &mut ExpectedValue,
@@ -294,7 +294,7 @@ fn sirota_dot_propagates_when_dead_unit_skipped() {
     );
     let content = StubContent::with_dot(dot_id.clone());
 
-    let events = step(
+    let (events, _ctx) = step(
         &mut state,
         Action::EndTurn { actor: uid(1) },
         &mut ExpectedValue,
@@ -363,7 +363,7 @@ fn all_stunned_budget_breaks_loop() {
     );
 
     assert!(result.is_ok(), "budget guard must prevent infinite loop and return Ok");
-    let events = result.unwrap();
+    let (events, _ctx) = result.unwrap();
     // ActionStarted must be first; total events should be reasonable.
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
     assert!(events.len() < 50, "too many events — possible loop: {} events", events.len());

@@ -81,7 +81,7 @@ fn step_move_no_enemies() {
     let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
     let action = Action::Move { actor: UnitId(1), path: path.clone() };
 
-    let events = step(&mut state, action, &mut ExpectedValue, &StubContent::no_weapon())
+    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &StubContent::no_weapon())
         .expect("move should succeed");
 
     // Event sequence.
@@ -108,6 +108,7 @@ fn step_returns_out_of_mp_error() {
     let action = Action::Move { actor: UnitId(1), path };
 
     let err = step(&mut state, action, &mut ExpectedValue, &StubContent::no_weapon())
+        .map(|(ev, _)| ev)
         .expect_err("should fail with OutOfMP");
     assert_eq!(err, ActionError::OutOfMP);
     // State unchanged (rollback).
@@ -123,6 +124,7 @@ fn step_returns_unknown_actor_error() {
     let action = Action::Move { actor: UnitId(999), path: vec![hex_from_offset(1, 0)] };
 
     let err = step(&mut state, action, &mut ExpectedValue, &StubContent::no_weapon())
+        .map(|(ev, _)| ev)
         .expect_err("should fail with UnknownActor");
     assert_eq!(err, ActionError::UnknownActor);
 }
@@ -156,7 +158,7 @@ fn step_move_with_aoo_chain() {
     let content = StubContent::with_weapon(DiceExpr::new(0, 6, 3)); // fixed 3 raw damage
 
     let path = vec![step1, step2];
-    let events = step(
+    let (events, _ctx) = step(
         &mut state,
         Action::Move { actor: UnitId(1), path },
         &mut ExpectedValue,
@@ -243,7 +245,7 @@ fn step_actor_death_mid_path_truncates_remaining_aoos() {
     );
 
     // Must succeed — no rollback.
-    let events = result.expect("actor-death truncation should not return Err");
+    let (events, _ctx) = result.expect("actor-death truncation should not return Err");
 
     // Mover must be dead at step1.
     let mover_after = state.unit(UnitId(1)).unwrap();
@@ -419,7 +421,7 @@ fn step_two_flankers_only_first_fires_when_lethal() {
     // Fixed +5 damage — kills the 1-hp mover on the first AoO.
     let content = StubContent::with_weapon(DiceExpr::new(0, 6, 5));
 
-    let events = step(
+    let (events, _ctx) = step(
         &mut state,
         Action::Move { actor: UnitId(1), path: vec![dest] },
         &mut ExpectedValue,
@@ -526,7 +528,7 @@ fn endturn_emits_turn_events_for_mid_round_handoff() {
     let mut state = state_with(vec![a, b]);
     state.set_turn_queue(vec![UnitId(1), UnitId(2)], 0);
 
-    let events = step(
+    let (events, _ctx) = step(
         &mut state,
         Action::EndTurn { actor: UnitId(1) },
         &mut ExpectedValue,

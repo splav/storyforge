@@ -6,6 +6,16 @@
 //!
 //! Design decision 6.4: `DiceSource::roll(DiceExpr)` is the **only** RNG
 //! entry point in the engine.  No implicit advances.
+//!
+//! # RNG call-count contract (Phase 5 D2)
+//!
+//! `DiceSource::call_count` is the per-source cumulative number of `roll()`
+//! invocations. `step()` records before/after deltas into `ApplyCtx::rng_calls`
+//! so replay can detect engine drift via a per-step canary.
+//!
+//! **Any engine change that adds or removes `rng.roll()` calls inside an
+//! Action's resolution = TRACE SCHEMA BUMP.** Old traces become unreplayable.
+//! Bump `combat_engine::trace::SCHEMA_VERSION` and re-record fixture logs.
 
 /// A dice expression `NdS + bonus`.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -65,6 +75,12 @@ pub trait DiceSource {
     /// Roll under disadvantage: real RNG rolls twice and takes the min;
     /// `ExpectedValue` returns the analytical per-die disadvantaged mean.
     fn roll_disadvantage(&mut self, dice: DiceExpr) -> i32;
+    /// Cumulative number of `roll()` calls since construction.
+    ///
+    /// Used by `step()` to compute per-action RNG-call deltas for the trace
+    /// canary (Phase 5 D2). Replay re-seeds the same RNG and asserts the
+    /// per-step delta matches; mismatch pinpoints the divergent step.
+    fn call_count(&self) -> u64;
 }
 
 // ── ExpectedValue ─────────────────────────────────────────────────────────────
@@ -86,6 +102,11 @@ impl DiceSource for ExpectedValue {
     fn roll_disadvantage(&mut self, dice: DiceExpr) -> i32 {
         dice.expected_disadvantage().round() as i32
     }
+
+    fn call_count(&self) -> u64 {
+        // Deterministic source: never advances an RNG stream.
+        0
+    }
 }
 
 // ── DiceRng ───────────────────────────────────────────────────────────────────
@@ -97,17 +118,19 @@ impl DiceSource for ExpectedValue {
 pub struct DiceRng {
     state: u64,
     scripted: std::collections::VecDeque<i32>,
+    /// Cumulative count of `roll()` calls — used as a replay canary (D2).
+    call_count: u64,
 }
 
 impl Default for DiceRng {
     fn default() -> Self {
-        Self { state: 0xDEAD_BEEF_CAFE_1337, scripted: std::collections::VecDeque::new() }
+        Self { state: 0xDEAD_BEEF_CAFE_1337, scripted: std::collections::VecDeque::new(), call_count: 0 }
     }
 }
 
 impl DiceRng {
     pub fn with_seed(seed: u64) -> Self {
-        Self { state: seed, scripted: std::collections::VecDeque::new() }
+        Self { state: seed, scripted: std::collections::VecDeque::new(), call_count: 0 }
     }
 
     /// Queue scripted roll results. While non-empty, `roll_d` pops from here.
@@ -124,6 +147,10 @@ impl DiceRng {
     }
 
     pub fn roll_d(&mut self, sides: u32) -> i32 {
+        // call_count is incremented here — `roll_d` is the single RNG-advance
+        // leaf; all higher-level methods (`roll`, `roll_dice`, etc.) funnel
+        // through it so the count stays accurate.
+        self.call_count += 1;
         if let Some(v) = self.scripted.pop_front() {
             return v;
         }
@@ -173,5 +200,9 @@ impl DiceSource for DiceRng {
         let a = Self::roll(self, &dice);
         let b = Self::roll(self, &dice);
         a.min(b)
+    }
+
+    fn call_count(&self) -> u64 {
+        self.call_count
     }
 }

@@ -255,7 +255,7 @@ fn aura_stun_causes_skip_on_advance_turn() {
 
     let mut state = state;
     let mut rng = ExpectedValue;
-    let events = step(
+    let (events, _ctx) = step(
         &mut state,
         Action::EndTurn { actor: src },
         &mut rng,
@@ -291,7 +291,7 @@ fn aura_gained_when_mover_enters_radius() {
     let path = vec![Hex::new(-4, 0), Hex::new(-3, 0), Hex::new(-2, 0)];
     let mut state = state;
     let mut rng = ExpectedValue;
-    let events = step(&mut state, Action::Move { actor: mover, path }, &mut rng, &content)
+    let (events, _ctx) = step(&mut state, Action::Move { actor: mover, path }, &mut rng, &content)
         .expect("Move must succeed");
 
     let gained = events.iter().any(|e| matches!(
@@ -321,7 +321,7 @@ fn aura_lost_when_mover_leaves_radius() {
     let path = vec![Hex::new(2, 0), Hex::new(3, 0)];
     let mut state = state;
     let mut rng = ExpectedValue;
-    let events = step(&mut state, Action::Move { actor: mover, path }, &mut rng, &content)
+    let (events, _ctx) = step(&mut state, Action::Move { actor: mover, path }, &mut rng, &content)
         .expect("Move must succeed");
 
     let lost = events.iter().any(|e| matches!(
@@ -365,7 +365,7 @@ fn source_moves_out_emits_lost_for_multiple_targets() {
 
     let mut state = state;
     let mut rng = ExpectedValue;
-    let events = step(&mut state, Action::Move { actor: src, path }, &mut rng, &content)
+    let (events, _ctx) = step(&mut state, Action::Move { actor: src, path }, &mut rng, &content)
         .expect("Move must succeed");
 
     let lost_count = events

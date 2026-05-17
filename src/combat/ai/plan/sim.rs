@@ -145,7 +145,7 @@ impl<'a> SimState<'a> {
         let step_result = step(&mut self.combat_state, action, &mut EngineExpectedValue, &content_view);
 
         match step_result {
-            Ok(_events) => {
+            Ok((_events, _ctx)) => {
                 project_engine_to_snapshot(&self.combat_state, &mut self.snapshot, self.status_tags);
             }
             Err(_) => {
@@ -195,7 +195,7 @@ impl<'a> SimState<'a> {
         let step_result = step(&mut self.combat_state, action, &mut EngineExpectedValue, &content_view);
 
         match step_result {
-            Ok(events) => {
+            Ok((events, _ctx)) => {
                 project_engine_to_snapshot(&self.combat_state, &mut self.snapshot, self.status_tags);
 
                 // ── Populate StepOutcome from engine events ────────────────────
@@ -226,7 +226,7 @@ impl<'a> SimState<'a> {
                         }
                         Event::StatusApplied { target: t_uid, status } => {
                             // Check skips_turn via the content view's status_def.
-                            let skips = content.statuses.get(status)
+                            let skips = content.statuses.get(status.0.as_str())
                                 .is_some_and(|sd| sd.skips_turn);
                             if skips {
                                 if let Some(ent) = self.snapshot.units.iter()

@@ -991,7 +991,7 @@ pub fn process_action_system(
                 let content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
 
                 match step(&mut combat_state.0, action, &mut rng.0, &content) {
-                    Ok(events) => {
+                    Ok((events, _ctx)) => {
                         translate_move_events(
                             *actor,
                             &events,
@@ -1050,7 +1050,7 @@ pub fn process_action_system(
                     .map(|(c, _)| c);
 
                 match step(&mut combat_state.0, action, &mut rng.0, &content) {
-                    Ok(events) => {
+                    Ok((events, _ctx)) => {
                         translate_cast_events(
                             *actor,
                             ability,
@@ -1089,7 +1089,7 @@ pub fn process_action_system(
                             {
                                 // AP and MP exhausted after cast — auto-end turn via engine.
                                 let end_content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
-                                if let Ok(end_events) = step(&mut combat_state.0, Action::EndTurn { actor: actor_uid }, &mut rng.0, &end_content) {
+                                if let Ok((end_events, _ctx)) = step(&mut combat_state.0, Action::EndTurn { actor: actor_uid }, &mut rng.0, &end_content) {
                                     translate_end_turn_events(&end_events, &id_map, &mut commands, &mut log, &mut next_phase);
                                     // Phase transitions during auto-end-turn (e.g. DoT ticks).
                                     for ev in &end_events {
@@ -1124,7 +1124,7 @@ pub fn process_action_system(
                 let content = build_ecs_content_view(&combatants, &id_map, &active_content, &content_params.aura_q, &content_params.phases_q);
 
                 match step(&mut combat_state.0, Action::EndTurn { actor: actor_uid }, &mut rng.0, &content) {
-                    Ok(events) => {
+                    Ok((events, _ctx)) => {
                         translate_end_turn_events(
                             &events,
                             &id_map,
