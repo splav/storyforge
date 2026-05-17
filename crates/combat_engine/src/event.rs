@@ -75,6 +75,19 @@ pub enum Event {
     /// A unit left an aura's radius (or the source moved away / died),
     /// causing `status_id` to no longer be active on `target` from `source`.
     AuraStatusLost { target: UnitId, source: UnitId, status_id: StatusId },
+    /// A boss entered a new phase.  Emitted by `apply_effect(EnterPhase)`
+    /// after the cascade (SetMaxHp, SetArmor, SetBaseSpeed, Heal,
+    /// RefreshAggregates) is derived.
+    ///
+    /// Bridge translator reads this to write ECS-only deltas (name, abilities,
+    /// AxisProfile, flavor text, `pop_front()` on `EnemyPhases.pending`,
+    /// remove `Dead` if `heal_to_full` revived the unit).
+    PhaseEntered {
+        unit: UnitId,
+        phase_idx: usize,
+        prev_max_hp: i32,
+        new_max_hp: i32,
+    },
 }
 
 /// Why a unit's turn was skipped in `Effect::AdvanceTurn`.
@@ -185,5 +198,17 @@ pub fn effect_to_event(
         // state.round was already incremented in BumpRound's apply arm before
         // effect_to_event is called, so this reflects the new round number.
         Effect::BumpRound => Some(Event::RoundStarted { round: state.round }),
+        // Phase-transition atomics (4d): SetMaxHp/SetArmor/SetBaseSpeed produce
+        // no observable events; EnterPhase produces PhaseEntered.
+        Effect::SetMaxHp { .. } | Effect::SetArmor { .. } | Effect::SetBaseSpeed { .. } => None,
+        Effect::EnterPhase { unit, phase_idx } => {
+            let (prev_max_hp, new_max_hp) = ctx.phase_entered.unwrap_or((0, 0));
+            Some(Event::PhaseEntered {
+                unit: *unit,
+                phase_idx: *phase_idx,
+                prev_max_hp,
+                new_max_hp,
+            })
+        }
     }
 }

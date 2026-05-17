@@ -41,3 +41,6 @@ mod end_turn;
 
 #[path = "combat_engine/aura.rs"]
 mod aura;
+
+#[path = "combat_engine/phase.rs"]
+mod phase;

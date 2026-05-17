@@ -227,6 +227,27 @@ pub struct AuraEffects {
     pub causes_disadvantage: bool,
 }
 
+/// Engine-side resolved deltas for a boss phase transition.
+///
+/// Returned by `ContentView::check_phase_trigger`.  Carries only the fields
+/// the engine can act on directly; ECS-only deltas (name, abilities,
+/// `AxisProfile`, flavor) live in `EnemyPhases.pending` and are read by the
+/// bridge translator on `Event::PhaseEntered`.
+#[derive(Debug, Clone)]
+pub struct PhaseTransition {
+    /// New maximum HP for the unit.  The unit's `hp` is only changed by the
+    /// cascade's `Heal { amount: new_max_hp }` when `heal_to_full` is true.
+    pub new_max_hp: i32,
+    /// New base armor value.  0 means no change (current `PhaseDef` data
+    /// model does not carry per-phase armor overrides).
+    pub new_armor: i32,
+    /// New base speed.  0 means no change (same rationale as `new_armor`).
+    pub new_base_speed: i32,
+    /// If true, the cascade sets `hp = new_max_hp` via `Heal`, allowing a
+    /// lethal hit to be reversed before `Effect::Death` is derived.
+    pub heal_to_full: bool,
+}
+
 pub trait ContentView {
     /// Weapon dice for the attacker's AoO strike.
     ///
@@ -266,4 +287,25 @@ pub trait ContentView {
     /// alive aura sources.  Returns empty `Vec` for units with no auras or
     /// unknown ids.
     fn auras_of(&self, source: UnitId) -> Vec<AuraDef>;
+
+    /// Check whether `unit_id` should enter a new phase after its HP dropped
+    /// to `new_hp` (out of `max_hp`).
+    ///
+    /// Called by `apply_effect(Damage)` AFTER the HP delta is applied but
+    /// BEFORE `Effect::Death` is derived — phase trigger preempts death.
+    ///
+    /// Returns `(phase_idx, transition)` for the first pending phase whose
+    /// threshold is crossed, or `None` if no phase fires.
+    ///
+    /// The default implementation returns `None` (no phases).  Only
+    /// `EcsContentView` provides a real implementation that reads
+    /// `EnemyPhases.pending`.
+    fn check_phase_trigger(
+        &self,
+        _unit_id: UnitId,
+        _new_hp: i32,
+        _max_hp: i32,
+    ) -> Option<(usize, PhaseTransition)> {
+        None
+    }
 }

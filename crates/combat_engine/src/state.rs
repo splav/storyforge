@@ -469,6 +469,7 @@ mod tests {
         }
         fn caster_context(&self, _: UnitId) -> CasterContext { CasterContext::default() }
         fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+        fn auras_of(&self, _: UnitId) -> Vec<crate::content::AuraDef> { vec![] }
     }
 
     fn make_unit(id: UnitId, action_points: i32, max_ap: i32, mana: Option<Pool>) -> Unit {

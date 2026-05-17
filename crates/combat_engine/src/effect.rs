@@ -104,6 +104,27 @@ pub enum Effect {
     /// queue index, phase), and derive `RefreshAggregates` for every alive unit.
     /// Emits `Event::RoundStarted`.
     BumpRound,
+
+    // ── Phase-transition atomics (Phase 4 step 4d) ────────────────────────
+
+    /// Boss enters phase `phase_idx`.  Cascades into `SetMaxHp`, `SetArmor`,
+    /// `SetBaseSpeed`, optionally `Heal`, and `RefreshAggregates`.
+    ///
+    /// Derived by `apply_effect(Damage)` when
+    /// `content.check_phase_trigger(target, new_hp, max_hp)` returns `Some`.
+    /// **This derivation preempts `Effect::Death`**: if the triggering damage
+    /// was lethal AND `heal_to_full`, the unit's HP is restored before any
+    /// death check sees it.
+    EnterPhase { unit: UnitId, phase_idx: usize },
+
+    /// Set `unit.max_hp` to `max_hp`.  No derived effects.
+    SetMaxHp { unit: UnitId, max_hp: i32 },
+
+    /// Set `unit.armor` (base armor) to `armor`.  No derived effects.
+    SetArmor { unit: UnitId, armor: i32 },
+
+    /// Set `unit.base_speed` to `base_speed`.  No derived effects.
+    SetBaseSpeed { unit: UnitId, base_speed: i32 },
 }
 
 /// Structured damage breakdown produced by the `Damage` effect arm.
@@ -149,6 +170,9 @@ pub struct ApplyCtx {
     /// stunned). The pump loop in `step()` drains these into the main event
     /// stream after calling `effect_to_event`.
     pub turn_skip_events: Vec<crate::event::Event>,
+    /// Set by `EnterPhase`: carries (prev_max_hp, new_max_hp) so the event
+    /// translator can populate `Event::PhaseEntered` correctly.
+    pub phase_entered: Option<(i32, i32)>,
 }
 
 fn skip_or_settle_current(
@@ -246,12 +270,23 @@ pub fn apply_effect(
                 0
             };
 
-            // Derive: GainRage{source}, GainRage{target}, Death{target} — in that order.
+            // Derive: GainRage{source}, GainRage{target}, then phase-or-death.
+            //
+            // Phase check MUST come before Death: if a phase trigger fires with
+            // `heal_to_full=true`, the cascade restores HP above 0 before any
+            // Death check sees the unit — the boss never enters `Dead` state.
+            // See spec §8 "Phase preempts Death — derived-effect ordering".
             let mut derived = vec![
                 Effect::GainRage { target: *source },
                 Effect::GainRage { target: *target },
             ];
-            if hp_after <= 0 {
+
+            let max_hp = state.unit(*target).map(|u| u.max_hp).unwrap_or(0);
+            if let Some((phase_idx, _transition)) =
+                content.check_phase_trigger(*target, hp_after, max_hp)
+            {
+                derived.push(Effect::EnterPhase { unit: *target, phase_idx });
+            } else if hp_after <= 0 {
                 derived.push(Effect::Death { unit: *target });
             }
 
@@ -526,6 +561,69 @@ pub fn apply_effect(
 
             // Not a wrap: check whether the new cursor actor can act.
             skip_or_settle_current(state, content)
+        }
+
+        // ── Phase-transition atomics (4d) ─────────────────────────────────────
+
+        Effect::EnterPhase { unit, phase_idx: _ } => {
+            // Re-read the current max_hp before any mutation for the event.
+            let prev_max_hp = state.unit(*unit).map(|u| u.max_hp).unwrap_or(0);
+
+            // Re-call check_phase_trigger with current hp/max_hp to recover the
+            // transition data.  The bridge's EnemyPhases.pending has not been
+            // popped yet (pop happens in bridge translator on Event::PhaseEntered),
+            // so this returns the same result as the Damage arm's call.
+            let transition = content
+                .check_phase_trigger(*unit, state.unit(*unit).map(|u| u.hp).unwrap_or(0), prev_max_hp)
+                .map(|(_, t)| t);
+
+            let (new_max_hp, new_armor, new_base_speed, heal_to_full) =
+                transition.map(|t| (t.new_max_hp, t.new_armor, t.new_base_speed, t.heal_to_full))
+                    .unwrap_or((prev_max_hp, 0, 0, false));
+
+            let mut derived: Vec<Effect> = vec![Effect::SetMaxHp { unit: *unit, max_hp: new_max_hp }];
+            if new_armor != 0 {
+                derived.push(Effect::SetArmor { unit: *unit, armor: new_armor });
+            }
+            if new_base_speed != 0 {
+                derived.push(Effect::SetBaseSpeed { unit: *unit, base_speed: new_base_speed });
+            }
+            if heal_to_full {
+                derived.push(Effect::Heal { target: *unit, amount: new_max_hp });
+            }
+            derived.push(Effect::RefreshAggregates { unit: *unit });
+
+            let ctx = ApplyCtx {
+                phase_entered: Some((prev_max_hp, new_max_hp)),
+                ..ApplyCtx::default()
+            };
+            (derived, ctx)
+        }
+
+        Effect::SetMaxHp { unit, max_hp } => {
+            if let Some(u) = state.unit_mut(*unit) {
+                u.max_hp = *max_hp;
+                // Clamp current hp to new max in case it exceeds it.
+                u.hp = u.hp.min(u.max_hp);
+            }
+            (vec![], ApplyCtx::default())
+        }
+
+        Effect::SetArmor { unit, armor } => {
+            if let Some(u) = state.unit_mut(*unit) {
+                u.armor = *armor;
+            }
+            (vec![], ApplyCtx::default())
+        }
+
+        Effect::SetBaseSpeed { unit, base_speed } => {
+            if let Some(u) = state.unit_mut(*unit) {
+                u.base_speed = *base_speed;
+                // Also update effective speed to match (RefreshAggregates will
+                // fine-tune it, but keeping them in sync avoids a stale window).
+                u.speed = *base_speed;
+            }
+            (vec![], ApplyCtx::default())
         }
 
         Effect::BumpRound => {
