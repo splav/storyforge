@@ -7,12 +7,15 @@
 use bevy::prelude::*;
 
 use crate::app_state::{AppState, CombatPhase};
-use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap, engine_turn_start_system, init_state_from_ecs, process_action_system, project_state_to_ecs};
+use crate::combat::engine_bridge::{
+    CombatStateRes, UnitIdMap, apply_phase_transitions_system, engine_turn_start_system,
+    init_state_from_ecs, PendingPhaseTransitions, process_action_system, project_state_to_ecs,
+};
 use crate::ui;
 
 use super::{
-    advance_turn, auras, command_input, enemy_popup, phases,
-    skip_dead, start_combat_system, turn_order,
+    advance_turn, command_input, enemy_popup,
+    start_combat_system, turn_order,
     CombatStep,
 };
 
@@ -22,7 +25,8 @@ impl Plugin for CombatPipelinePlugin {
     fn build(&self, app: &mut App) {
         // Engine state resources (Phase 0: transitional, ECS still authoritative).
         app.init_resource::<CombatStateRes>()
-            .init_resource::<UnitIdMap>();
+            .init_resource::<UnitIdMap>()
+            .init_resource::<PendingPhaseTransitions>();
 
         // Initialize engine state once per round (on enter AwaitCommand).
         app.add_systems(
@@ -58,13 +62,7 @@ impl Plugin for CombatPipelinePlugin {
         )
         .add_systems(
             Update,
-            (
-                engine_turn_start_system,
-                skip_dead::skip_dead_turn_system,
-                skip_dead::skip_stunned_turn_system,
-                auras::apply_auras_system,
-            )
-                .chain()
+            engine_turn_start_system
                 .in_set(CombatStep::TurnStart),
         )
         .add_systems(
@@ -82,11 +80,7 @@ impl Plugin for CombatPipelinePlugin {
         )
         .add_systems(
             Update,
-            (
-                process_action_system,
-                project_state_to_ecs,
-                phases::phase_transition_system,
-            )
+            (process_action_system, project_state_to_ecs, apply_phase_transitions_system)
                 .chain()
                 .in_set(CombatStep::Execute),
         )

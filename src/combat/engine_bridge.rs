@@ -33,10 +33,11 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
 
+use crate::app_state::CombatPhase;
 use crate::content::abilities::{CasterContext, EffectDef};
 use crate::content::content_view::ActiveContent;
 use crate::content::races::CritFailEffect;
-use crate::combat::ai::config::role::infer_profile;
+use crate::combat::ai::config::role::{infer_profile, AxisProfile};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::game::combat_log::{CombatEvent, CombatLog};
@@ -47,7 +48,7 @@ use crate::game::components::{
 };
 use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
-use crate::game::messages::{ActionInput, EndTurn};
+use crate::game::messages::ActionInput;
 use crate::game::resources::{CombatContext, HexPositions, TurnQueue};
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
@@ -416,6 +417,17 @@ pub(crate) type AooRow<'a> = (
     Option<&'a CombatPath>,
 );
 
+/// Deferred queue of phase transitions to apply at the end of `Execute`.
+///
+/// `process_action_system` / `engine_turn_start_system` push `(UnitId, phase_idx)`
+/// for each `Event::PhaseEntered` they see.
+/// `apply_phase_transitions_system` drains the queue and writes ECS-only deltas
+/// (Name, Abilities, AxisProfile, EnemyPhases.pending pop, Dead removal, max_hp).
+/// Running as a separate system after `project_state_to_ecs` avoids a Bevy
+/// query conflict between the phase-write query and the projector's `&mut Vital`.
+#[derive(Resource, Default)]
+pub struct PendingPhaseTransitions(pub Vec<(UnitId, usize)>);
+
 /// Build `EcsContentView` from the current ECS state.
 ///
 /// Called from `engine_turn_start_system`, `process_action_system`, and
@@ -533,6 +545,122 @@ pub(crate) fn build_ecs_content_view<'a>(
     }
 
     EcsContentView { aoo_per_unit, caster_contexts, active_content: content, aura_sources, phase_triggers }
+}
+
+// ── apply_phase_ecs_writes ────────────────────────────────────────────────────
+
+/// Apply ECS-only deltas for a boss phase transition.
+///
+/// Called for each `Event::PhaseEntered` seen in a translator event stream.
+/// Reproduces the logic of the deleted `phase_transition_system` (4d/4e):
+///   1. Reads `EnemyPhases.pending[phase_idx]` for the new Name, Abilities,
+///      CombatStats, and flavor text.
+///   2. Mutates ECS components: `Name`, `Abilities`, `CombatStats`, `Vital`
+///      (re-infers `AxisProfile`; removes `Dead` if `heal_to_full` revived).
+///   3. Pops `pending[phase_idx]` (spec §8: exactly one pop per event).
+///   4. Pushes `CombatEvent::PhaseEntered` with `prev_name`/`next_name`/`flavor`.
+///
+/// Called from `apply_phase_transitions_system` which runs AFTER `project_state_to_ecs`
+/// to avoid a query conflict over `&mut Vital` between the two systems.
+/// `process_action_system` / `engine_turn_start_system` record `(unit, phase_idx)`
+/// pairs into `PendingPhaseTransitions`; this helper drains them.
+fn apply_phase_ecs_writes(
+    unit: UnitId,
+    phase_idx: usize,
+    id_map: &UnitIdMap,
+    commands: &mut Commands,
+    log: &mut CombatLog,
+    q: &mut Query<(
+        &mut EnemyPhases,
+        &mut Vital,
+        &mut CombatStats,
+        &mut Abilities,
+        Option<&mut AxisProfile>,
+        &mut Name,
+        Has<Dead>,
+    )>,
+    content: &ActiveContent,
+    tag_cache: &AbilityTagCache,
+) {
+    let Some(ent) = id_map.get_entity(unit) else { return };
+    let Ok((mut phases, mut vital, mut stats, mut abilities, role_opt, mut name, is_dead)) =
+        q.get_mut(ent)
+    else {
+        return;
+    };
+
+    let Some(phase) = phases.pending.get(phase_idx).cloned() else { return };
+
+    // Capture name before mutation so the log shows the actual "was → now".
+    let prev_name = name.as_str().to_string();
+
+    if let Some(new_stats) = &phase.stats {
+        *stats = new_stats.clone();
+        vital.max_hp = new_stats.max_hp;
+        // Clamp current HP to new max; heal_to_full overrides below.
+        // project_state_to_ecs writes vital.hp from engine state (which already
+        // committed the phase transition), but does NOT write vital.max_hp.
+        vital.hp = vital.hp.min(vital.max_hp);
+    }
+    if phase.heal_to_full {
+        vital.hp = vital.max_hp;
+    }
+    if is_dead && vital.hp > 0 {
+        commands.entity(ent).remove::<Dead>();
+    }
+    if let Some(ref new_ability_ids) = phase.ability_ids {
+        abilities.0 = new_ability_ids.clone();
+    }
+    if let Some(mut role) = role_opt {
+        if phase.stats.is_some() || phase.ability_ids.is_some() {
+            // Re-infer AxisProfile when the inputs (abilities / max_hp / armor) changed.
+            *role = infer_profile(&abilities.0, vital.max_hp, vital.armor, content, tag_cache);
+        }
+    }
+
+    let next_name = phase.name.clone().unwrap_or_else(|| prev_name.clone());
+    if phase.name.is_some() {
+        *name = Name::new(next_name.clone());
+    }
+
+    log.push(CombatEvent::PhaseEntered {
+        actor: ent,
+        prev_name,
+        next_name,
+        flavor: phase.flavor.clone(),
+    });
+
+    // Pop exactly once per event (spec §8).
+    phases.pending.remove(phase_idx);
+}
+
+/// Drain `PendingPhaseTransitions` and write ECS-only phase deltas.
+///
+/// Runs AFTER `project_state_to_ecs` in the `Execute` step to avoid a Bevy
+/// query conflict: `project_state_to_ecs` needs `&mut Vital` for HP projection;
+/// phase writes also need `&mut Vital` for `max_hp` and `heal_to_full`.
+/// Running as a separate system after the projector resolves the ambiguity.
+pub fn apply_phase_transitions_system(
+    mut pending: ResMut<PendingPhaseTransitions>,
+    id_map: Res<UnitIdMap>,
+    mut commands: Commands,
+    mut log: ResMut<CombatLog>,
+    active_content: Res<ActiveContent>,
+    tag_cache: Res<AbilityTagCache>,
+    mut q: Query<(
+        &mut EnemyPhases,
+        &mut Vital,
+        &mut CombatStats,
+        &mut Abilities,
+        Option<&mut AxisProfile>,
+        &mut Name,
+        Has<Dead>,
+    )>,
+) {
+    let transitions = std::mem::take(&mut pending.0);
+    for (unit, phase_idx) in transitions {
+        apply_phase_ecs_writes(unit, phase_idx, &id_map, &mut commands, &mut log, &mut q, &active_content, &tag_cache);
+    }
 }
 
 // ── spawn_ecs_entity_from_engine_unit ────────────────────────────────────────
@@ -729,18 +857,13 @@ pub(crate) fn translate_tick_events(
             | Event::CritFailed { .. }
             | Event::UnitSpawned { .. }
             | Event::SpawnBlocked { .. }
-            // Phase 4b/4c: turn/round/aura events produced by engine but not yet
-            // translated to CombatEvent here — bridge wiring lands in 4e.
             | Event::TurnEnded { .. }
             | Event::TurnStarted { .. }
             | Event::TurnSkipped { .. }
             | Event::RoundStarted { .. }
             | Event::AuraStatusGained { .. }
-            | Event::AuraStatusLost { .. } => {}
-            // Phase 4d: PhaseEntered — ECS writes handled by legacy
-            // phase_transition_system during dual-run; just suppress here.
-            // Full bridge translation lands in 4e once legacy is deleted.
-            Event::PhaseEntered { .. } => {}
+            | Event::AuraStatusLost { .. }
+            | Event::PhaseEntered { .. } => {}
         }
     }
 }
@@ -763,9 +886,9 @@ pub fn engine_turn_start_system(
     active_content: Res<ActiveContent>,
     aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
     phases_q: Query<(Entity, &EnemyPhases)>,
-    status_q: Query<(Entity, Option<&StatusEffects>), With<Combatant>>,
     mut commands: Commands,
     mut log: ResMut<CombatLog>,
+    mut pending_phases: ResMut<PendingPhaseTransitions>,
     mut last_active: Local<Option<Entity>>,
 ) {
     let current = active_q.single().ok();
@@ -791,82 +914,15 @@ pub fn engine_turn_start_system(
         }
     }
 
-    // Parity assertion (4c): cross-check engine aura_effects_on vs ECS StatusEffects
-    // aura entries written by legacy apply_auras_system.
-    // Catches divergence between the engine query and the ECS parallel run.
-    // strip in 4e once apply_auras_system is deleted.
-    #[cfg(debug_assertions)]
-    {
-        // Build a set of which ECS entities are known AuraSource entities.
-        let any_source_entity: std::collections::HashSet<Entity> =
-            aura_q.iter().map(|(e, _)| e).collect();
-
-        for (ent, maybe_se) in status_q.iter() {
-            let Some(uid) = id_map.get_id(ent) else { continue };
-
-            // Engine's view of aura effects on this unit.
-            let engine_fx = combat_state.0.aura_effects_on(uid, &content);
-
-            // ECS view: statuses applied by an aura source.
-            let ecs_aura_statuses: Vec<&StatusId> = maybe_se
-                .map(|se| {
-                    se.0.iter()
-                        .filter(|s| any_source_entity.contains(&s.applier))
-                        .map(|s| &s.id)
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            // Check: engine says skips_turn from aura → ECS should have an
-            // aura-applied status that skips_turn.
-            if engine_fx.skips_turn {
-                let ecs_has_stun_aura = ecs_aura_statuses.iter().any(|sid| {
-                    active_content
-                        .statuses
-                        .get(*sid)
-                        .is_some_and(|d| d.skips_turn)
-                });
-                if !ecs_has_stun_aura {
-                    bevy::log::warn!(
-                        "4c parity: engine says skips_turn from aura for {:?} but ECS has no stun aura status",
-                        ent
-                    );
-                }
-            }
-        }
-    }
-
-    // Parity assertion (4d): after project_state_to_ecs has written engine max_hp
-    // back to ECS Vital, and phase_transition_system has written its ECS max_hp,
-    // both should agree.  Divergence means the engine EnterPhase cascade and the
-    // legacy system computed different new_max_hp values.
-    // strip in 4e once phase_transition_system is deleted.
-    #[cfg(debug_assertions)]
-    {
-        for (ent, phases) in phases_q.iter() {
-            // Only check units that have had at least one phase triggered (pending
-            // shrank below its initial length — proxy: pending is non-empty means
-            // at least one phase remains, but we need to cross-check all that fired).
-            // Simple heuristic: check all units that have EnemyPhases but whose
-            // first pending phase trigger is NOT currently firing (i.e., the last
-            // fired phase already moved past).  Instead, we cross-check max_hp
-            // whenever the unit is alive in the engine.
-            let Some(uid) = id_map.get_id(ent) else { continue };
-            let Some(engine_unit) = combat_state.0.unit(uid) else { continue };
-            // ECS Vital.max_hp is not directly accessible here without an extra
-            // query; the lightweight assertion checks that if no pending phases
-            // exist (all consumed), engine max_hp is positive (not a regression).
-            let _ = phases; // phases query is still checked; suppress unused warning
-            if engine_unit.max_hp <= 0 {
-                bevy::log::warn!(
-                    "4d parity: engine max_hp={} for {:?} is non-positive after phase",
-                    engine_unit.max_hp, ent
-                );
-            }
-        }
-    }
-
     translate_tick_events(&events, &id_map, &mut commands, &mut log);
+
+    // Queue ECS-only phase deltas for apply_phase_transitions_system (runs after
+    // project_state_to_ecs to avoid &mut Vital conflict).
+    for ev in &events {
+        if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
+            pending_phases.0.push((*unit, *phase_idx));
+        }
+    }
 }
 
 /// `Update` system — authoritative action handler via `combat_engine::step()`.
@@ -897,10 +953,11 @@ pub fn process_action_system(
     mut rng: ResMut<crate::combat::DiceRngRes>,
     mut log: ResMut<CombatLog>,
     mut anim_queue: ResMut<AnimationQueue>,
-    mut end_turn: MessageWriter<EndTurn>,
     mut positions: ResMut<HexPositions>,
     tag_cache: Res<AbilityTagCache>,
     render: RenderResources,
+    mut next_phase: Option<ResMut<NextState<CombatPhase>>>,
+    mut pending_phases: ResMut<PendingPhaseTransitions>,
 ) {
     for msg in reader.read() {
         match msg {
@@ -933,6 +990,12 @@ pub fn process_action_system(
                             &render.grid_offset,
                             &render.tokens,
                         );
+                        // AoO on a move can cross a phase threshold; queue for apply system.
+                        for ev in &events {
+                            if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
+                                pending_phases.0.push((*unit, *phase_idx));
+                            }
+                        }
                     }
                     Err(e) => {
                         warn!(
@@ -993,6 +1056,13 @@ pub fn process_action_system(
                             &render.token_mesh,
                             &render.grid_offset,
                         );
+                        // Queue phase transitions from cast events (most common case:
+                        // boss crosses HP threshold from a direct damage spell).
+                        for ev in &events {
+                            if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
+                                pending_phases.0.push((*unit, *phase_idx));
+                            }
+                        }
                         // End turn only when both AP and MP are exhausted, and the
                         // ability isn't GrantMovement (which exists specifically to
                         // extend the move budget). Mirrors the legacy
@@ -1007,7 +1077,18 @@ pub fn process_action_system(
                                 && unit.action_points <= 0
                                 && unit.movement_points <= 0
                             {
-                                end_turn.write(EndTurn { actor: *actor });
+                                // AP and MP exhausted after cast — auto-end turn via engine.
+                                let end_content = build_ecs_content_view(&combatants, &id_map, &active_content, &aura_q, &phases_q);
+                                if let Ok(end_events) = step(&mut combat_state.0, Action::EndTurn { actor: actor_uid }, &mut rng.0, &end_content) {
+                                    translate_end_turn_events(&end_events, &id_map, &mut commands, &mut log, &mut next_phase);
+                                    // Phase transitions during auto-end-turn (e.g. DoT ticks).
+                                    for ev in &end_events {
+                                        if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
+                                            pending_phases.0.push((*unit, *phase_idx));
+                                        }
+                                    }
+                                }
+
                             }
                         }
                     }
@@ -1021,9 +1102,118 @@ pub fn process_action_system(
                     }
                 }
             }
+            ActionInput::EndTurn { actor } => {
+                let Some(actor_uid) = id_map.get_id(*actor) else {
+                    warn!(
+                        "process_action_system: no UnitId for EndTurn actor {:?} — skipping",
+                        actor
+                    );
+                    continue;
+                };
+
+                let content = build_ecs_content_view(&combatants, &id_map, &active_content, &aura_q, &phases_q);
+
+                match step(&mut combat_state.0, Action::EndTurn { actor: actor_uid }, &mut rng.0, &content) {
+                    Ok(events) => {
+                        translate_end_turn_events(
+                            &events,
+                            &id_map,
+                            &mut commands,
+                            &mut log,
+                            &mut next_phase,
+                        );
+                        // DoT ticks at end of turn can cross a phase threshold.
+                        for ev in &events {
+                            if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
+                                pending_phases.0.push((*unit, *phase_idx));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "process_action_system: EndTurn step() error for actor {:?} (uid {:?}): {:?}",
+                            actor, actor_uid, e
+                        );
+                    }
+                }
+            }
         }
     }
 }
+
+// ── translate_end_turn_events ─────────────────────────────────────────────────
+
+/// Translate engine events from `Action::EndTurn` into `CombatLog` entries
+/// and ECS side-effects.
+///
+/// - `TurnEnded`     → `CombatEvent::TurnEnded`
+/// - `TurnSkipped`   → `CombatEvent::TurnSkipped`
+/// - `TurnStarted`   → `CombatEvent::TurnStarted` + `ActiveCombatant` insert (mid-round only)
+/// - `RoundStarted`  → `CombatEvent::RoundStarted` + `NextState<CombatPhase>::StartRound`
+/// - `AuraStatusGained`/`Lost` → `CombatEvent::StatusApplied`/`StatusExpired`
+/// - All other events forwarded to `translate_tick_events`.
+fn translate_end_turn_events(
+    events: &[Event],
+    id_map: &UnitIdMap,
+    commands: &mut Commands,
+    log: &mut CombatLog,
+    next_phase: &mut Option<ResMut<NextState<CombatPhase>>>,
+) {
+    let mut round_started = false;
+
+    for ev in events {
+        match ev {
+            Event::TurnEnded { actor } => {
+                if let Some(ent) = id_map.get_entity(*actor) {
+                    log.push(CombatEvent::TurnEnded { actor: ent });
+                }
+            }
+            Event::TurnSkipped { actor, .. } => {
+                if let Some(ent) = id_map.get_entity(*actor) {
+                    log.push(CombatEvent::TurnSkipped { actor: ent });
+                }
+            }
+            Event::RoundStarted { round } => {
+                log.push(CombatEvent::RoundStarted { round: *round });
+                if let Some(ref mut np) = next_phase {
+                    np.set(CombatPhase::StartRound);
+                }
+                round_started = true;
+            }
+            Event::TurnStarted { actor } => {
+                if let Some(ent) = id_map.get_entity(*actor) {
+                    if !round_started {
+                        // Mid-round handoff: insert ActiveCombatant on the new actor.
+                        // After RoundStarted, build_turn_order inserts it on re-entry.
+                        commands.entity(ent).insert(ActiveCombatant);
+                    }
+                    log.push(CombatEvent::TurnStarted { actor: ent });
+                }
+            }
+            Event::AuraStatusGained { target, status_id, .. } => {
+                if let Some(tgt_ent) = id_map.get_entity(*target) {
+                    log.push(CombatEvent::StatusApplied {
+                        target: tgt_ent,
+                        status: status_id.clone(),
+                    });
+                }
+            }
+            Event::AuraStatusLost { target, status_id, .. } => {
+                if let Some(tgt_ent) = id_map.get_entity(*target) {
+                    log.push(CombatEvent::StatusExpired {
+                        target: tgt_ent,
+                        status: status_id.clone(),
+                    });
+                }
+            }
+            other => {
+                translate_tick_events(std::slice::from_ref(other), id_map, commands, log);
+            }
+        }
+    }
+}
+
+// ── translate_cast_events ─────────────────────────────────────────────────────
 
 /// Translate the engine `Event` stream from a single `Action::Cast` into
 /// Bevy-land side effects (CombatLog entries, Dead markers).
@@ -1190,18 +1380,15 @@ fn translate_cast_events(
             | Event::ManaRegenerated { .. }
             | Event::EnergyRegenerated { .. }
             | Event::StatusTicked { .. }
-            // Phase 4b/4c: turn/round/aura events not yet translated here — 4e wires them.
+            // Turn/round/aura events not produced by Cast.
+            // PhaseEntered: ECS writes handled at caller level (apply_phase_ecs_writes).
             | Event::TurnEnded { .. }
             | Event::TurnStarted { .. }
             | Event::TurnSkipped { .. }
             | Event::RoundStarted { .. }
             | Event::AuraStatusGained { .. }
             | Event::AuraStatusLost { .. }
-            // Phase 4d: PhaseEntered ECS writes handled by legacy phase_transition_system
-            // during dual-run; full translation lands in 4e.
-            | Event::PhaseEntered { .. } => {
-                // No log entry — handled separately or n/a for Cast.
-            }
+            | Event::PhaseEntered { .. } => {}
         }
     }
 
@@ -1315,15 +1502,14 @@ fn translate_move_events(
             | Event::SpawnBlocked { .. } => {}
             Event::ActionStarted { .. } | Event::ActionFinished { .. } => {}
             Event::ManaRegenerated { .. } | Event::EnergyRegenerated { .. } => {}
-            // Phase 4b/4c: turn/round/aura events not yet translated here — 4e wires them.
+            // Turn/round/aura events not produced by Move.
+            // PhaseEntered: AoO damage handled at caller level (apply_phase_ecs_writes).
             Event::TurnEnded { .. }
             | Event::TurnStarted { .. }
             | Event::TurnSkipped { .. }
             | Event::RoundStarted { .. }
             | Event::AuraStatusGained { .. }
             | Event::AuraStatusLost { .. }
-            // Phase 4d: PhaseEntered — AoO damage can't trigger boss phases in
-            // current content; ECS writes handled by legacy during dual-run.
             | Event::PhaseEntered { .. } => {}
         }
     }

@@ -13,7 +13,7 @@ use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, Energy, Equipment,
     Faction, Mana, Rage, Team, Vital,
 };
-use crate::game::messages::{ActionInput, EndTurn};
+use crate::game::messages::ActionInput;
 use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 
@@ -444,7 +444,7 @@ pub fn end_turn_button_system(
     combatants: Query<&Faction, (With<Combatant>, Without<Dead>)>,
     buttons: Query<&Interaction, (Changed<Interaction>, With<EndTurnButton>)>,
     mut sel: ResMut<SelectionState>,
-    mut end_turn: MessageWriter<EndTurn>,
+    mut action_input: MessageWriter<ActionInput>,
 ) {
     if !buttons.iter().any(|i| *i == Interaction::Pressed) {
         return;
@@ -454,7 +454,7 @@ pub fn end_turn_button_system(
     if faction.0 != Team::Player {
         return;
     }
-    end_turn.write(EndTurn { actor });
+    action_input.write(ActionInput::EndTurn { actor });
     sel.clear();
 }
 

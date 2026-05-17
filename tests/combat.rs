@@ -19,8 +19,6 @@ mod ai_scenarios;
 #[path = "combat/aoo.rs"]
 mod aoo;
 
-#[path = "combat/auras.rs"]
-mod auras;
 
 #[path = "combat/equipment.rs"]
 mod equipment;

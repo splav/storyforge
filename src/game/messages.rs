@@ -15,6 +15,7 @@ pub struct StartCombat {
 /// `process_action_system` in `engine_bridge` reads this message and routes it
 /// to `combat_engine::step()`.  The engine is the sole authority for both
 /// `Action::Move` (since Phase 1) and `Action::Cast` (since Phase 2 step 9d).
+/// `Action::EndTurn` routes here since Phase 4 step 4e.
 #[derive(Message, Debug)]
 pub enum ActionInput {
     Move { actor: Entity, path: Vec<hexx::Hex> },
@@ -24,11 +25,7 @@ pub enum ActionInput {
         target: Entity,
         target_pos: hexx::Hex,
     },
-}
-
-#[derive(Message)]
-pub struct EndTurn {
-    pub actor: Entity,
+    EndTurn { actor: Entity },
 }
 
 /// Перезапустить текущий бой: восстановить всех участников, сохранив инициативу.

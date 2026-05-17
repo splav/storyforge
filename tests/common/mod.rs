@@ -7,8 +7,10 @@ use bevy::state::app::StatesPlugin;
 use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
     ai::world::reservations::Reservations,
-    engine_bridge::{init_state_from_ecs, process_action_system, project_state_to_ecs,
-                    CombatStateRes, UnitIdMap},
+    engine_bridge::{
+        apply_phase_transitions_system, init_state_from_ecs, PendingPhaseTransitions,
+        process_action_system, project_state_to_ecs, CombatStateRes, UnitIdMap,
+    },
 };
 use storyforge::content::content_view::ActiveContent;
 use storyforge::content::settings::GameSettings;
@@ -18,7 +20,7 @@ use storyforge::game::bundles::{enemy_bundle, hero_bundle};
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{CombatStats, Equipment};
 use storyforge::combat::ai::world::tags::AbilityTagCache;
-use storyforge::game::messages::{ActionInput, EndTurn};
+use storyforge::game::messages::ActionInput;
 use storyforge::game::resources::{
     CombatContext, CombatObjective, GameDb, HexPositions, SelectionState, TurnQueue,
 };
@@ -106,6 +108,7 @@ pub fn movement_app() -> App {
         .insert_resource(HexGridOffset(Vec2::ZERO))
         .init_resource::<CombatStateRes>()
         .init_resource::<UnitIdMap>()
+        .init_resource::<PendingPhaseTransitions>()
         .insert_resource(AbilityTagCache::default())
         .insert_resource(HexMaterials {
             empty: Handle::default(),
@@ -131,14 +134,13 @@ pub fn movement_app() -> App {
             ring: Handle::default(),
         })
         .add_message::<ActionInput>()
-        .add_message::<EndTurn>()
         .add_systems(
             OnEnter(CombatPhase::AwaitCommand),
             init_state_from_ecs,
         )
         .add_systems(
             Update,
-            (process_action_system, project_state_to_ecs)
+            (process_action_system, project_state_to_ecs, apply_phase_transitions_system)
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand)),
         )

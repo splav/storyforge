@@ -3,7 +3,7 @@ use crate::content::content_view::ActiveContent;
 use crate::combat::ai::system::has_ai_control_status;
 use crate::content::abilities::{EffectDef, TargetType};
 use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, StatusEffects, Team};
-use crate::game::messages::{ActionInput, EndTurn};
+use crate::game::messages::ActionInput;
 use crate::game::resources::{HexPositions, SelectionState};
 use bevy::prelude::*;
 
@@ -33,7 +33,6 @@ pub fn player_command_system(
     positions: Res<HexPositions>,
     mut selection: ResMut<SelectionState>,
     mut action_input: MessageWriter<ActionInput>,
-    mut end_turn: MessageWriter<EndTurn>,
     active_q: Query<Entity, With<ActiveCombatant>>,
     combatants: Query<PlayerCombatantQ, (With<Combatant>, Without<Dead>)>,
     statuses: Query<&StatusEffects>,
@@ -62,7 +61,7 @@ pub fn player_command_system(
 
     // Auto-end turn if both resources are spent.
     if c.ap.action_points <= 0 && !c.ap.can_move() {
-        end_turn.write(EndTurn { actor });
+        action_input.write(ActionInput::EndTurn { actor });
         selection.clear();
         return;
     }
@@ -139,7 +138,7 @@ pub fn player_command_system(
 
     // E → manually end turn.
     if keyboard.just_pressed(KeyCode::KeyE) {
-        end_turn.write(EndTurn { actor });
+        action_input.write(ActionInput::EndTurn { actor });
         selection.clear();
         return;
     }

@@ -21,7 +21,7 @@ use crate::core::DiceRng;
 use crate::game::components::{
     ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, StatusEffects, Team,
 };
-use crate::game::messages::{ActionInput, EndTurn};
+use crate::game::messages::ActionInput;
 use crate::game::resources::{CombatContext, HexPositions};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -32,7 +32,6 @@ use std::collections::HashMap;
 #[derive(SystemParam)]
 pub struct AiMessages<'w> {
     action_input: MessageWriter<'w, ActionInput>,
-    end_turn: MessageWriter<'w, EndTurn>,
 }
 
 /// Shared read-only resources used during AI decision making. Bundling
@@ -111,7 +110,7 @@ fn run_ai_turn(
     let status_tags: &StatusTagCache = &env.status_tags;
     let Some(actor_pos) = positions.get(&actor) else {
         warn!("AI: actor {:?} has no position, ending turn", actor);
-        msgs.end_turn.write(EndTurn { actor });
+        msgs.action_input.write(ActionInput::EndTurn { actor });
         return;
     };
 
@@ -125,7 +124,7 @@ fn run_ai_turn(
     );
 
     if snap.unit(actor).is_none() {
-        msgs.end_turn.write(EndTurn { actor });
+        msgs.action_input.write(ActionInput::EndTurn { actor });
         return;
     }
     // SAFETY: checked immediately above.
@@ -185,7 +184,7 @@ fn run_ai_turn(
                 agenda: None,
             });
         }
-        msgs.end_turn.write(EndTurn { actor });
+        msgs.action_input.write(ActionInput::EndTurn { actor });
         return;
     }
 
@@ -328,7 +327,7 @@ fn run_ai_turn(
             msgs.action_input.write(ActionInput::Move { actor, path });
         }
         AiDecision::EndTurn => {
-            msgs.end_turn.write(EndTurn { actor });
+            msgs.action_input.write(ActionInput::EndTurn { actor });
         }
     }
 }
