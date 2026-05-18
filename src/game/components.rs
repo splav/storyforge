@@ -93,14 +93,6 @@ impl Vital {
     pub fn is_alive(&self) -> bool {
         self.hp > 0
     }
-
-    pub fn apply_damage(&mut self, amount: i32) {
-        self.hp = (self.hp - amount).max(0);
-    }
-
-    pub fn apply_heal(&mut self, amount: i32) {
-        self.hp = (self.hp + amount).min(self.max_hp);
-    }
 }
 
 /// How many hex cells the unit can move per turn.
@@ -353,27 +345,6 @@ mod tests {
             max_hp,
             armor: 0,
         }
-    }
-
-    #[test]
-    fn damage_does_not_go_below_zero() {
-        let mut v = vital(5, 10);
-        v.apply_damage(100);
-        assert_eq!(v.hp, 0);
-    }
-
-    #[test]
-    fn damage_reduces_hp() {
-        let mut v = vital(10, 10);
-        v.apply_damage(3);
-        assert_eq!(v.hp, 7);
-    }
-
-    #[test]
-    fn heal_does_not_exceed_max_hp() {
-        let mut v = vital(1, 10);
-        v.apply_heal(100);
-        assert_eq!(v.hp, 10);
     }
 
     #[test]

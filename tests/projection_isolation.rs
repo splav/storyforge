@@ -20,9 +20,6 @@
 //!
 //! - `src/combat/engine_bridge.rs` — the projector itself + phase-transition
 //!   helper that preserves the `hp <= max_hp` invariant after a max_hp delta.
-//! - `src/game/components.rs` — defines `Vital::apply_damage` / `apply_heal`
-//!   methods (currently called only by their own unit tests; kept for the
-//!   public Bevy-Component API).
 //!
 //! # Skipped subtrees
 //!
@@ -42,9 +39,6 @@ use std::path::{Path, PathBuf};
 const ALLOWED_FILES: &[&str] = &[
     // The projector itself + phase_transition's hp/max_hp invariant fix-up.
     "src/combat/engine_bridge.rs",
-    // Method impls of Vital::apply_damage / apply_heal + their unit tests.
-    // Not called from production after Phase 5; engine writes vital.hp directly.
-    "src/game/components.rs",
     // Round-start initiative roll + reaction refill. Runs on
     // `OnEnter(CombatPhase::StartRound)` BEFORE `init_state_from_ecs` reads
     // ECS state into the engine; if removed, the engine would seed reactions
