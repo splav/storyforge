@@ -1,5 +1,5 @@
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-use crate::combat::effects_math::final_damage_f32;
+use combat_engine::final_damage_f32;
 use crate::content::content_view::ContentView;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::content::abilities::{AbilityDef, CasterContext, TargetType};

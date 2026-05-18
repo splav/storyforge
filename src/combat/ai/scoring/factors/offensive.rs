@@ -9,7 +9,7 @@
 use super::{crit_fail_adjusted, OffensiveFactors};
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::effects_math::aoe_cells;
+use combat_engine::aoe_cells;
 use crate::content::abilities::{AbilityDef, EffectDef};
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
@@ -116,10 +116,10 @@ pub(crate) fn compute_offensive(
 }
 
 /// Expand an AoE def into the set of affected tiles. Thin wrapper over
-/// `effects_math::aoe_cells` that materialises the result as a `HashSet` for
+/// `combat_engine::aoe_cells` that materialises the result as a `HashSet` for
 /// fast `contains` checks in the planner.
 pub fn aoe_area(def: &AbilityDef, target_pos: Hex, caster_tile: Hex) -> HashSet<Hex> {
-    aoe_cells(def.aoe, caster_tile, target_pos).into_iter().collect()
+    aoe_cells(def.aoe.into(), caster_tile, target_pos).into_iter().collect()
 }
 
 #[cfg(test)]

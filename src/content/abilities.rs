@@ -56,6 +56,16 @@ pub enum AoEShape {
     Line { length: u32 },
 }
 
+impl From<AoEShape> for combat_engine::AoEShape {
+    fn from(s: AoEShape) -> Self {
+        match s {
+            AoEShape::None => combat_engine::AoEShape::None,
+            AoEShape::Circle { radius } => combat_engine::AoEShape::Circle { radius },
+            AoEShape::Line { length } => combat_engine::AoEShape::Line { length },
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ResourceCost {
     pub resource: ResourceKind,

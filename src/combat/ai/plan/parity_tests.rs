@@ -20,7 +20,7 @@ mod tests {
     use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, UnitBuilder};
-    use crate::combat::effects_math::final_damage_f32;
+    use combat_engine::final_damage_f32;
     use crate::combat::effects_outcome::{
         compute_ability_outcome, ExpectedValue, OutcomePrimary,
     };

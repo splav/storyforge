@@ -210,7 +210,7 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
     use storyforge::combat::ai::plan::types::PlanStep;
     use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use storyforge::combat::ai::world::tags::AiTags;
-    use storyforge::combat::effects_math::final_damage_f32;
+    use combat_engine::final_damage_f32;
     use storyforge::core::StatusId;
     use storyforge::game::components::Team;
     use storyforge::game::hex::hex_from_offset;
@@ -441,7 +441,7 @@ fn parity_aoo_real_vs_sim() {
     use storyforge::combat::ai::plan::types::PlanStep;
     use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
-    use storyforge::combat::effects_math::final_damage_f32;
+    use combat_engine::final_damage_f32;
     use storyforge::game::components::Team;
     use storyforge::game::hex::hex_from_offset;
     use storyforge::content::abilities::CasterContext;

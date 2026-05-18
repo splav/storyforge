@@ -21,11 +21,13 @@ use crate::event::TurnSkipReason;
 use crate::state::{ActiveStatus, CombatState, Unit, UnitId};
 use crate::{ResourceKind, StatusId};
 
-/// Expected-value variant of final-damage math (inline copy; mirrors
-/// `storyforge::combat::effects_math::final_damage_f32`).
+/// Expected-value final-damage formula shared between live engine path and
+/// AI sim / scoring projections.
 ///
-/// `max(1.0, raw − (armor unless pierced) + vulnerability)`
-fn final_damage_f32(raw: f32, armor: f32, vulnerability: f32, pierces_armor: bool) -> f32 {
+/// `max(1.0, raw − (armor unless pierced) + vulnerability)` — the min-1 floor
+/// matches the live contract: any damage-intent attack that hits leaves at
+/// least 1 HP of impact, even vs. heavy armor.
+pub fn final_damage_f32(raw: f32, armor: f32, vulnerability: f32, pierces_armor: bool) -> f32 {
     let armor = if pierces_armor { 0.0 } else { armor };
     (raw - armor + vulnerability).max(1.0)
 }

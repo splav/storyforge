@@ -13,7 +13,7 @@
 //! `compute_affected_targets` consume the trait and live once.
 
 use crate::content::abilities::{AbilityDef, AoEShape};
-use crate::combat::effects_math::aoe_cells;
+use combat_engine::aoe_cells;
 use crate::game::components::Team;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
@@ -64,7 +64,7 @@ pub fn compute_affected_targets<S: TargetState>(
         None => return Vec::new(),
     };
 
-    let cells = aoe_cells(def.aoe, actor_pos, target_pos);
+    let cells = aoe_cells(def.aoe.into(), actor_pos, target_pos);
     let mut out = Vec::new();
     for cell in cells {
         let Some(r) = state.unit_at_cell(cell) else { continue };
