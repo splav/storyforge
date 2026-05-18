@@ -11,7 +11,7 @@
 
 use crate::combat::ai::scoring::policy;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
-use crate::content::abilities::{AbilityDef, CasterContext, EffectDef};
+use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, EffectDef};
 use crate::content::content_view::ContentView;
 use crate::core::DiceExpr;
 use crate::game::components::Team;

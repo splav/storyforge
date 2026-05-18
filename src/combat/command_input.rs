@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 use crate::content::content_view::ActiveContent;
 use crate::combat::ai::system::has_ai_control_status;
-use crate::content::abilities::{EffectDef, TargetType};
+use crate::content::abilities::TargetType;
 use crate::game::components::{ActiveCombatant, Combatant, Dead, PlayerCombatantQ, StatusEffects, Team};
 use crate::game::messages::ActionInput;
 use crate::game::resources::{HexPositions, SelectionState};
@@ -88,7 +88,7 @@ pub fn player_command_system(
             continue;
         }
 
-        if matches!(def.effect, EffectDef::ToggleMoveMode) {
+        if def.is_move_toggle {
             if c.ap.can_move() {
                 selection.move_mode = !selection.move_mode;
                 if selection.move_mode {

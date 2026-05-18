@@ -5,7 +5,7 @@
 use crate::content::content_view::{ActiveContent, ContentView};
 use super::{AbilityDescPanel, AbilityDescText, AbilitySlot, AbilitySlotLabel, EndTurnButton};
 use crate::content::abilities::{
-    AbilityDef, AoEShape, CasterContext, EffectDef, StatusOn, TargetType,
+    AbilityDef, AoEShape, CasterContext, EffectCalcExt, EffectDef, StatusOn, TargetType,
 };
 use crate::content::statuses::StatusDef;
 use crate::core::{AbilityId, DiceExpr, ResourceKind};
@@ -216,7 +216,7 @@ pub fn update_ability_panel(
         let idx = slot.0;
         let ability_id = displayed.get(idx).cloned();
         let def = ability_id.as_ref().and_then(|id| content.abilities.get(id));
-        let is_move = def.is_some_and(|d| matches!(d.effect, EffectDef::ToggleMoveMode));
+        let is_move = def.is_some_and(|d| d.is_move_toggle);
 
         let selected = if is_move {
             sel.move_mode
@@ -260,7 +260,7 @@ pub fn update_ability_panel(
         let idx = label.0;
         let Some(id) = displayed.get(idx).cloned() else { continue };
         let Some(def) = content.abilities.get(&id) else { continue };
-        let is_move = matches!(def.effect, EffectDef::ToggleMoveMode);
+        let is_move = def.is_move_toggle;
 
         let prefix = if let Some(ref key) = def.key {
             key.clone()
@@ -331,7 +331,7 @@ pub fn update_ability_description(
             .find(|id| {
                 content.abilities
                     .get(*id)
-                    .is_some_and(|d| matches!(d.effect, EffectDef::ToggleMoveMode))
+                    .is_some_and(|d| d.is_move_toggle)
             })
             .cloned()
     } else {
@@ -394,7 +394,7 @@ pub fn ability_slot_click_system(
         let Some(id) = displayed.get(slot.0).cloned() else { continue };
         let Some(def) = content.abilities.get(&id) else { continue };
 
-        if matches!(def.effect, EffectDef::ToggleMoveMode) {
+        if def.is_move_toggle {
             if ap.can_move() {
                 sel.move_mode = !sel.move_mode;
 
@@ -568,16 +568,18 @@ fn effect_line_ru(def: &AbilityDef, ctx: Option<&CasterContext>) -> String {
     match &def.effect {
         EffectDef::GrantMovement { distance } => format!("движение +{distance}"),
         EffectDef::RestoreResources => "восстанавливает HP/ману/ярость/энергию +1".into(),
-        EffectDef::ToggleMoveMode => "режим перемещения".into(),
-        EffectDef::None => String::new(),
+        EffectDef::None => {
+            // is_move_toggle abilities show a fixed label instead of an effect line.
+            if def.is_move_toggle { "режим перемещения".into() } else { String::new() }
+        }
         // Fallbacks when ctx is None — show raw dice if available.
         EffectDef::Damage { dice } | EffectDef::SpellDamage { dice } | EffectDef::Heal { dice } => {
             format!("{}d{}", dice.count, dice.sides)
         }
         EffectDef::WeaponAttack => "атака оружием".into(),
-        EffectDef::Summon { template, max_active } => match max_active {
-            Some(cap) => format!("призыв {template} (не более {cap})"),
-            None => format!("призыв {template}"),
+        EffectDef::Summon { template_id, max_active } => match max_active {
+            Some(cap) => format!("призыв {template_id} (не более {cap})"),
+            None => format!("призыв {template_id}"),
         },
     }
 }

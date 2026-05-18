@@ -222,7 +222,7 @@ pub fn primary_effect_from_steps(
         EffectDef::GrantMovement { .. } => "GrantMovement",
         EffectDef::RestoreResources => "RestoreResources",
         EffectDef::Summon { .. } => "Summon",
-        EffectDef::None | EffectDef::ToggleMoveMode => "None",
+        EffectDef::None => "None",
     };
     Some(label.to_string())
 }

@@ -295,6 +295,7 @@ fn aoo_dice_flows_from_equipment_through_process_action_system() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
     let mut content_view = ContentView::default();
     content_view.abilities.insert(melee_ability_id.clone(), melee_ability);
@@ -427,6 +428,7 @@ fn aoo_does_not_fire_from_stunned_enemy() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
     // Stub StatusDef with skips_turn = true.
     let stun_def = StatusDef {
@@ -561,6 +563,7 @@ fn make_melee_content(ability_id: &AbilityId, weapon_id: &WeaponId) -> ContentVi
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
     let mut cv = ContentView::default();
     cv.abilities.insert(ability_id.clone(), melee_ability);
@@ -951,6 +954,7 @@ fn cast_emits_damage_result_log_entry() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     let mut app = bridge_app();
@@ -1042,6 +1046,7 @@ fn cast_emits_status_applied_log_entry() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     let mut app = bridge_app();
@@ -1115,6 +1120,7 @@ fn cast_emits_mana_changed_log_entry() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     let mut app = bridge_app();
@@ -1226,6 +1232,7 @@ fn process_action_system_routes_cast_into_engine() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
     app.world_mut().resource_mut::<ActiveContent>().0.abilities.insert(zap_id.clone(), zap_def);
 
@@ -1624,6 +1631,7 @@ fn cast_crit_fail_miss_emits_critical_miss_log_entry() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     let mut app = bridge_app();
@@ -1697,6 +1705,7 @@ fn cast_no_crit_fail_no_crit_fail_log_when_d20_non_one() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     let mut app = bridge_app();
@@ -1770,7 +1779,7 @@ fn cast_summon_creates_ecs_entity_synchronously() {
         target_type: TargetType::Myself,
         range: AbilityRange { min: 0, max: 0 },
         effect: EffectDef::Summon {
-            template: template_id.into(),
+            template_id: template_id.into(),
             max_active: None,
         },
         costs: vec![],
@@ -1782,6 +1791,7 @@ fn cast_summon_creates_ecs_entity_synchronously() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     let template = UnitTemplateDef {
@@ -1903,6 +1913,7 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     let mut app = bridge_app();

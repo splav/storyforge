@@ -702,6 +702,7 @@ mod affordability_tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 

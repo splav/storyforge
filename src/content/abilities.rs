@@ -18,22 +18,46 @@ pub use combat_engine::AoEShape;
 
 
 
-impl From<&EffectDef> for combat_engine::EffectDef {
-    fn from(e: &EffectDef) -> Self {
-        match e {
-            EffectDef::None => combat_engine::EffectDef::None,
-            EffectDef::WeaponAttack => combat_engine::EffectDef::WeaponAttack,
-            EffectDef::Damage { dice } => combat_engine::EffectDef::Damage { dice: *dice },
-            EffectDef::SpellDamage { dice } => combat_engine::EffectDef::SpellDamage { dice: *dice },
-            EffectDef::Heal { dice } => combat_engine::EffectDef::Heal { dice: *dice },
-            EffectDef::GrantMovement { distance } => combat_engine::EffectDef::GrantMovement { distance: *distance },
-            EffectDef::RestoreResources => combat_engine::EffectDef::RestoreResources,
-            EffectDef::Summon { template, max_active } => combat_engine::EffectDef::Summon {
-                template_id: template.clone(),
-                max_active: *max_active,
-            },
-            // ToggleMoveMode: UI-only, no engine effect.
-            EffectDef::ToggleMoveMode => combat_engine::EffectDef::None,
+// EffectDef is re-exported from the engine — the canonical source of truth.
+pub use combat_engine::EffectDef;
+
+/// Extension trait that adds bridge-side effect computation to `EffectDef`.
+/// Requires `CasterContext`, which is a bridge/game-layer type.
+pub trait EffectCalcExt {
+    fn calc(&self, ctx: &CasterContext) -> Option<EffectCalc>;
+}
+
+impl EffectCalcExt for EffectDef {
+    fn calc(&self, ctx: &CasterContext) -> Option<EffectCalc> {
+        match self {
+            EffectDef::WeaponAttack => Some(EffectCalc {
+                dice: ctx.weapon_dice.clone(),
+                bonus: ctx.str_mod,
+                pierces_armor: false,
+                is_heal: false,
+            }),
+            EffectDef::Damage { dice } => Some(EffectCalc {
+                dice: Some(*dice),
+                bonus: ctx.str_mod,
+                pierces_armor: false,
+                is_heal: false,
+            }),
+            EffectDef::SpellDamage { dice } => Some(EffectCalc {
+                dice: Some(*dice),
+                bonus: ctx.int_mod + ctx.spell_power,
+                pierces_armor: true,
+                is_heal: false,
+            }),
+            EffectDef::Heal { dice } => Some(EffectCalc {
+                dice: Some(*dice),
+                bonus: ctx.int_mod + ctx.spell_power,
+                pierces_armor: false,
+                is_heal: true,
+            }),
+            EffectDef::None
+            | EffectDef::GrantMovement { .. }
+            | EffectDef::RestoreResources
+            | EffectDef::Summon { .. } => None,
         }
     }
 }
@@ -44,11 +68,11 @@ impl From<&AbilityDef> for combat_engine::AbilityDef {
             key: def.key.clone(),
             cost_ap: def.cost_ap,
             costs: def.costs.clone(),
-            range: def.range.into(),
-            target_type: def.target_type.into(),
-            aoe: def.aoe.into(),
+            range: def.range,
+            target_type: def.target_type,
+            aoe: def.aoe,
             friendly_fire: def.friendly_fire,
-            effect: (&def.effect).into(),
+            effect: def.effect.clone(),
             statuses: def.statuses.clone(),
         }
     }
@@ -82,38 +106,9 @@ pub struct AbilityDef {
     /// Tag-name strings are validated (panic on unknown) in `tags::cache::build_caches`.
     /// Stored raw here to avoid content layer depending on the AI layer.
     pub ai_tags_override: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone)]
-pub enum EffectDef {
-    /// No direct damage or heal — ability only applies statuses.
-    None,
-    WeaponAttack,
-    Damage {
-        dice: DiceExpr,
-    },
-    /// spell_power + intelligence + dice, bypasses armor
-    SpellDamage {
-        dice: DiceExpr,
-    },
-    /// spell_power + intelligence + dice, heals target (capped at max_hp)
-    Heal {
-        dice: DiceExpr,
-    },
-    /// Grants bonus movement to the actor. Does NOT end the turn.
-    GrantMovement {
-        distance: i32,
-    },
-    /// Restores HP and all resources (mana, rage, energy) by 1.
-    RestoreResources,
-    /// UI-only: toggles move mode. Does not go through resolution pipeline.
-    ToggleMoveMode,
-    /// Instantiates a new combatant from a unit template at a free hex near the caster.
-    /// `max_active` caps concurrent summons from one caster; `None` = unlimited.
-    Summon {
-        template: String,
-        max_active: Option<u32>,
-    },
+    /// UI sentinel: this ability toggles move mode instead of going through the
+    /// resolution pipeline. Set when TOML has `effect = "toggle_move_mode"`.
+    pub is_move_toggle: bool,
 }
 
 // ── Unified effect computation ──────────────────────────────────────────────
@@ -156,44 +151,6 @@ pub struct EffectCalc {
 impl EffectCalc {
     pub fn expected(&self) -> f32 {
         self.dice.as_ref().map_or(0.0, |d| d.expected()) + self.bonus as f32
-    }
-}
-
-impl EffectDef {
-    /// Compute effect parameters from caster context.
-    /// Returns None for effects without damage/heal (None, GrantMovement).
-    pub fn calc(&self, ctx: &CasterContext) -> Option<EffectCalc> {
-        match self {
-            EffectDef::WeaponAttack => Some(EffectCalc {
-                dice: ctx.weapon_dice.clone(),
-                bonus: ctx.str_mod,
-                pierces_armor: false,
-                is_heal: false,
-            }),
-            EffectDef::Damage { dice } => Some(EffectCalc {
-                dice: Some(dice.clone()),
-                bonus: ctx.str_mod,
-                pierces_armor: false,
-                is_heal: false,
-            }),
-            EffectDef::SpellDamage { dice } => Some(EffectCalc {
-                dice: Some(dice.clone()),
-                bonus: ctx.int_mod + ctx.spell_power,
-                pierces_armor: true,
-                is_heal: false,
-            }),
-            EffectDef::Heal { dice } => Some(EffectCalc {
-                dice: Some(dice.clone()),
-                bonus: ctx.int_mod + ctx.spell_power,
-                pierces_armor: false,
-                is_heal: true,
-            }),
-            EffectDef::None
-            | EffectDef::GrantMovement { .. }
-            | EffectDef::RestoreResources
-            | EffectDef::ToggleMoveMode
-            | EffectDef::Summon { .. } => None,
-        }
     }
 }
 
@@ -296,29 +253,30 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                     0,
                 )
             };
-            let effect = match r.effect.as_str() {
-                "" | "none" => EffectDef::None,
-                "weapon_attack" => EffectDef::WeaponAttack,
-                "damage" => EffectDef::Damage {
+            let (effect, is_move_toggle) = match r.effect.as_str() {
+                "" | "none" => (EffectDef::None, false),
+                "weapon_attack" => (EffectDef::WeaponAttack, false),
+                "damage" => (EffectDef::Damage {
                     dice: need_dice(&r.id, r.dice_count, r.dice_sides),
-                },
-                "spell_damage" => EffectDef::SpellDamage {
+                }, false),
+                "spell_damage" => (EffectDef::SpellDamage {
                     dice: need_dice(&r.id, r.dice_count, r.dice_sides),
-                },
-                "heal" => EffectDef::Heal {
+                }, false),
+                "heal" => (EffectDef::Heal {
                     dice: need_dice(&r.id, r.dice_count, r.dice_sides),
-                },
-                "grant_movement" => EffectDef::GrantMovement {
+                }, false),
+                "grant_movement" => (EffectDef::GrantMovement {
                     distance: r.distance,
-                },
-                "restore_resources" => EffectDef::RestoreResources,
-                "toggle_move_mode" => EffectDef::ToggleMoveMode,
-                "summon" => EffectDef::Summon {
-                    template: r.summon_template.clone().unwrap_or_else(|| {
+                }, false),
+                "restore_resources" => (EffectDef::RestoreResources, false),
+                // UI-only sentinel: no engine effect; flag set on AbilityDef.
+                "toggle_move_mode" => (EffectDef::None, true),
+                "summon" => (EffectDef::Summon {
+                    template_id: r.summon_template.clone().unwrap_or_else(|| {
                         panic!("{path}: ability '{}' effect=summon missing summon_template", r.id)
                     }),
                     max_active: r.summon_max_active,
-                },
+                }, false),
                 other => panic!("{path}: unknown effect '{other}'"),
             };
             let statuses = r
@@ -378,6 +336,7 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                 magic_method: r.magic_method,
                 key: r.key,
                 ai_tags_override: r.ai_tags_override,
+                is_move_toggle,
             }
         })
         .collect()

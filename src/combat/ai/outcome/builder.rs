@@ -16,7 +16,7 @@ use crate::combat::ai::plan::types::PlanStep;
 use crate::combat::ai::scoring::status_applications;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::orchestration::AiWorld;
-use crate::content::abilities::{AbilityDef, AoEShape, CasterContext};
+use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectCalcExt};
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;
 use crate::core::ResourceKind;
@@ -728,6 +728,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
@@ -749,6 +750,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
@@ -777,6 +779,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         };
         let status = StatusDef {
             id: status_id,
@@ -814,6 +817,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 

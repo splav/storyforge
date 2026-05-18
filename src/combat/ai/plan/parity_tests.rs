@@ -93,6 +93,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
@@ -346,7 +347,7 @@ mod tests {
             target_type: TargetType::Myself,
             range: AbilityRange { min: 0, max: 0 },
             effect: EffectDef::Summon {
-                template: "spirit".to_string(),
+                template_id: "spirit".to_string(),
                 max_active: None,
             },
             costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
@@ -358,6 +359,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         };
         content.abilities.insert(def.id.clone(), def.clone());
 

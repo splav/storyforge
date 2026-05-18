@@ -2,7 +2,7 @@ use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use combat_engine::final_damage_f32;
 use crate::content::content_view::ContentView;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
-use crate::content::abilities::{AbilityDef, CasterContext, TargetType};
+use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, TargetType};
 use crate::content::statuses::StatusDef;
 use crate::core::ResourceKind;
 use crate::game::components::Abilities;
@@ -415,6 +415,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
@@ -434,6 +435,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
@@ -522,6 +524,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         };
         let content = content_with(vec![ping.clone()]);
         let abilities = Abilities(vec![ping.id.clone()]);

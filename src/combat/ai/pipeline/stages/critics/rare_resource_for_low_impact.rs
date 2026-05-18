@@ -22,6 +22,7 @@
 
 use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
+use crate::content::abilities::EffectCalcExt;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::orchestration::ScoringCtx;
 use crate::core::ResourceKind;
@@ -163,6 +164,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 

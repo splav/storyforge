@@ -22,6 +22,8 @@ use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
+#[cfg(test)]
+use crate::content::abilities::EffectCalcExt;
 use crate::core::AbilityId;
 use crate::game::hex::Hex;
 use crate::game::pathfinding::ReachableMap;
@@ -727,6 +729,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
@@ -1074,6 +1077,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
@@ -1097,6 +1101,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
@@ -1116,6 +1121,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
@@ -1439,6 +1445,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         };
 
         let mut content = empty_content();
@@ -1562,6 +1569,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         };
 
         let mut content = empty_content();
@@ -1637,7 +1645,7 @@ mod tests {
             target_type: TargetType::Myself,
             range: AbilityRange { min: 0, max: 0 },
             effect: EffectDef::Summon {
-                template: "spirit".into(),
+                template_id: "spirit".into(),
                 max_active: Some(2),
             },
             costs: Vec::new(),
@@ -1649,6 +1657,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         };
 
         let mut content = empty_content();
@@ -1693,7 +1702,7 @@ mod tests {
             target_type: TargetType::Myself,
             range: AbilityRange { min: 0, max: 0 },
             effect: EffectDef::Summon {
-                template: "spirit".into(),
+                template_id: "spirit".into(),
                 max_active: Some(2),
             },
             costs: Vec::new(),
@@ -1705,6 +1714,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         };
 
         let mut content = empty_content();
@@ -1744,7 +1754,7 @@ mod tests {
             target_type: TargetType::Myself,
             range: AbilityRange { min: 0, max: 0 },
             effect: EffectDef::Summon {
-                template: "spirit".into(),
+                template_id: "spirit".into(),
                 max_active: Some(1),
             },
             costs: Vec::new(),
@@ -1756,6 +1766,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         };
 
         let mut content = empty_content();

@@ -101,6 +101,7 @@ fn parity_haste_speed_real_vs_sim() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     use storyforge::content::content_view::ContentView;
@@ -259,6 +260,7 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     // Damage ability: 1d6 (EV=3.5→4) + str_mod=4 → raw=8.
@@ -277,6 +279,7 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     let mut content = ContentView {
@@ -697,6 +700,7 @@ fn parity_rage_real_vs_sim() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     let mut content = ContentView {
@@ -816,6 +820,7 @@ fn parity_rage_aoe_real_vs_sim() {
         magic_method: String::new(),
         key: None,
         ai_tags_override: None,
+        is_move_toggle: false,
     };
 
     let mut content = ContentView {

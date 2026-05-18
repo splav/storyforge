@@ -38,7 +38,7 @@ use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::plan::TurnPlan;
 use crate::combat::ai::scoring::horizon::horizon_avg;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::content::abilities::{StatusOn, TargetType};
+use crate::content::abilities::{EffectCalcExt, StatusOn, TargetType};
 use crate::content::content_view::ContentView;
 
 /// Expected remaining acting rounds for any unit. MVP2 constant; Phase
@@ -361,6 +361,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
@@ -384,6 +385,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 

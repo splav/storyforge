@@ -39,6 +39,8 @@ use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::estimate_st_damage;
 use crate::combat::ai::orchestration::{AiWorld, ScoringCtx};
 use crate::content::abilities::{CasterContext, EffectDef};
+#[cfg(test)]
+use crate::content::abilities::EffectCalcExt;
 use crate::core::modifier;
 use crate::game::components::Abilities;
 use bevy::prelude::Entity;
@@ -263,12 +265,12 @@ pub fn build_summon_dpr_cache(
         for step in &plan.steps {
             let PlanStep::Cast { ability, .. } = step else { continue };
             let Some(def) = ctx.content.abilities.get(ability) else { continue };
-            let EffectDef::Summon { template, .. } = &def.effect else { continue };
-            if cache.contains_key(template) {
+            let EffectDef::Summon { template_id, .. } = &def.effect else { continue };
+            if cache.contains_key(template_id) {
                 continue;
             }
-            let Some(tpl) = ctx.content.unit_templates.get(template) else {
-                cache.insert(template.clone(), 0.0);
+            let Some(tpl) = ctx.content.unit_templates.get(template_id) else {
+                cache.insert(template_id.clone(), 0.0);
                 continue;
             };
             let weapon = ctx.content.weapons.get(&tpl.equipment.main_hand);
@@ -280,7 +282,7 @@ pub fn build_summon_dpr_cache(
             };
             let abilities = Abilities(tpl.ability_ids.clone());
             let dpr = estimate_st_damage(&caster_ctx, &abilities, ctx.content);
-            cache.insert(template.clone(), dpr);
+            cache.insert(template_id.clone(), dpr);
         }
     }
     cache

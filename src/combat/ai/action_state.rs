@@ -59,7 +59,7 @@ impl ActionState for SnapshotActionState<'_> {
                 abilities::EffectDef::Heal { dice } => EngineEffectDef::Heal { dice: *dice },
                 abilities::EffectDef::GrantMovement { distance } => EngineEffectDef::GrantMovement { distance: *distance },
                 abilities::EffectDef::RestoreResources => EngineEffectDef::RestoreResources,
-                abilities::EffectDef::Summon { .. } | abilities::EffectDef::ToggleMoveMode => EngineEffectDef::None,
+                abilities::EffectDef::Summon { .. } => EngineEffectDef::None,
             },
             statuses: def.statuses.iter().map(|s| EngineStatusApplication {
                 status: s.status.clone(),
@@ -178,6 +178,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
@@ -197,6 +198,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 

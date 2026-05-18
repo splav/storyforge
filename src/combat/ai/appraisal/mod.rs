@@ -140,6 +140,7 @@ pub(crate) mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: Some(tags.iter().map(|s| s.to_string()).collect()),
+            is_move_toggle: false,
         }
     }
 

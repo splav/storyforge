@@ -44,7 +44,7 @@ impl PlanModifier for SummonBonus {
         for step in &plan.steps {
             let PlanStep::Cast { ability, .. } = step else { continue };
             let Some(def) = world.content.abilities.get(ability) else { continue };
-            let EffectDef::Summon { template, max_active } = &def.effect else { continue };
+            let EffectDef::Summon { template_id, max_active } = &def.effect else { continue };
 
             let cap = max_active.unwrap_or(3).max(1) as f32;
             let decay = (1.0 - (count / cap)).max(0.0);
@@ -52,7 +52,7 @@ impl PlanModifier for SummonBonus {
                 continue;
             }
 
-            let dpr = summon_dpr.get(template).copied().unwrap_or(0.0);
+            let dpr = summon_dpr.get(template_id).copied().unwrap_or(0.0);
             total += dpr * decay * saturation_mult;
             count += 1.0;
         }
@@ -140,7 +140,7 @@ mod tests {
         let Some((summon_name, summon_def)) = summon_ability else {
             return; // no Summon ability in real content — zero-path test still covers guard
         };
-        let EffectDef::Summon { template, max_active } = &summon_def.effect else { unreachable!() };
+        let EffectDef::Summon { template_id, max_active } = &summon_def.effect else { unreachable!() };
 
         // ── 2. Context ──
         let world = AiWorld {
@@ -160,7 +160,7 @@ mod tests {
         // ── 3. ModifierCtx ──
         let injected_dpr = 7.0_f32;
         let mut dpr_cache = HashMap::new();
-        dpr_cache.insert(template.clone(), injected_dpr);
+        dpr_cache.insert(template_id.clone(), injected_dpr);
         let actor_value = unit_value(&actor, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
         let ctx = ModifierCtx { stage: &stage, summon_dpr: &dpr_cache, actor_value, repair_weights };

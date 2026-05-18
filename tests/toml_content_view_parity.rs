@@ -15,47 +15,20 @@ use std::path::Path;
 use storyforge::content::content_view::ContentView as BridgeContentView;
 use storyforge::combat_engine::{
     content::ContentView as EngineContentView,
-    AbilityDef, AbilityId, Cost, EffectDef,
+    AbilityDef, AbilityId, EffectDef,
     StatusApplication, StatusBonuses, StatusDef,
     StatusId, TomlContentView, UnitTemplate,
 };
-use storyforge::content::abilities::EffectDef as BridgeEffectDef;
+// BridgeEffectDef removed — EffectDef is now pub use combat_engine::EffectDef in bridge.
 use storyforge::game::components::Equipment;
 
 // ── Helpers to map bridge types → engine types (mirrors EcsContentView) ───────
 
 fn map_ability(content: &BridgeContentView, id: &AbilityId) -> Option<AbilityDef> {
-    let def = content.abilities.get(id)?;
-    Some(AbilityDef {
-        key: def.key.clone(),
-        cost_ap: def.cost_ap,
-        // ResourceKind in core is re-exported from combat_engine — same type.
-        costs: def.costs.iter().map(|c| Cost { resource: c.resource, amount: c.amount }).collect(),
-        range: def.range,
-        target_type: def.target_type,
-        aoe: def.aoe,
-        friendly_fire: def.friendly_fire,
-        effect: match &def.effect {
-            BridgeEffectDef::None                    => EffectDef::None,
-            BridgeEffectDef::WeaponAttack             => EffectDef::WeaponAttack,
-            BridgeEffectDef::Damage      { dice }    => EffectDef::Damage      { dice: *dice },
-            BridgeEffectDef::SpellDamage { dice }    => EffectDef::SpellDamage { dice: *dice },
-            BridgeEffectDef::Heal        { dice }    => EffectDef::Heal        { dice: *dice },
-            BridgeEffectDef::GrantMovement { distance } => EffectDef::GrantMovement { distance: *distance },
-            BridgeEffectDef::RestoreResources         => EffectDef::RestoreResources,
-            // ToggleMoveMode is UI-only; no engine effect (same as EcsContentView).
-            BridgeEffectDef::ToggleMoveMode           => EffectDef::None,
-            BridgeEffectDef::Summon { template, max_active } => EffectDef::Summon {
-                template_id: template.clone(),
-                max_active: *max_active,
-            },
-        },
-        statuses: def.statuses.iter().map(|s| StatusApplication {
-            status: s.status.clone(),
-            duration_rounds: s.duration_rounds,
-            on: s.on,
-        }).collect(),
-    })
+    // Since EffectDef is now pub use combat_engine::EffectDef in the bridge,
+    // bridge AbilityDef fields are the same types as engine fields.
+    // is_move_toggle abilities have EffectDef::None as their engine effect.
+    Some((&*content.abilities.get(id)?).into())
 }
 
 fn map_status(content: &BridgeContentView, id: &StatusId) -> Option<StatusDef> {

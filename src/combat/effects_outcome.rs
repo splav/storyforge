@@ -11,7 +11,7 @@
 //! side effects, combat log events, end-of-turn emission. Those are
 //! backend-specific glue around the outcome.
 
-use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, StatusOn};
+use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, EffectDef, StatusOn};
 use crate::content::races::CritFailEffect;
 use crate::core::{DiceExpr, DiceRng, ResourceKind, StatusId};
 use bevy::prelude::Entity;
@@ -234,11 +234,11 @@ pub fn compute_ability_outcome<R: DiceSource>(
                     distance: *distance,
                 },
                 EffectDef::RestoreResources => OutcomePrimary::RestoreResources,
-                EffectDef::Summon { template, max_active } => OutcomePrimary::Summon {
-                    template: template.clone(),
+                EffectDef::Summon { template_id, max_active } => OutcomePrimary::Summon {
+                    template: template_id.clone(),
                     max_active: *max_active,
                 },
-                // `None` (pure-status ability) and `ToggleMoveMode` both land here.
+                // `None` (pure-status ability) both land here.
                 _ => OutcomePrimary::None,
             };
             (p, String::new())
@@ -377,6 +377,7 @@ mod tests {
             magic_method: String::new(),
             key: None,
             ai_tags_override: None,
+            is_move_toggle: false,
         }
     }
 
