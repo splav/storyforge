@@ -621,6 +621,76 @@ Engine mutates state synchronously; UI projects on next frame. Animations are ev
 
 **Gate:** replay determinism test — re-run from log produces identical final state and event sequence; `cargo fuzz` over Action sequences finds zero engine panics.
 
+#### Phase 5 retrospective (closed 2026-05-18)
+
+**What landed (7 sub-steps, commits `fb81964`–5g; full plan in `step_unisim5_plan.md`):**
+
+- **5a** (`fb81964`) — Serde derives on `Action`/`Effect`/`Event`/`Unit`/`UnitId`/`RoundPhase`/`Team`/`ActiveStatus`/`TurnQueue` + dependent payloads. `aura_membership_set` HashSet → BTreeSet (only known non-determinism in the engine after Phase 4). New `content_hash.rs` (BLAKE3 over TOML-sorted-key concat), new `trace.rs` (pure `serialize_*`/`parse_*` helpers, `post_state_hash`/`_hex`, `SCHEMA_VERSION`).
+- **5b** (`27e37e5`) — `DiceSource::call_count(&self) -> u64` accessor. `step()` reports per-action RNG delta via `ApplyCtx::rng_calls` (matches 4d's `phase_entered` precedent). New `engine_purity.rs` test greps `crates/combat_engine/src/**/*.rs` for forbidden imports (`SystemTime`, `std::env`, `std::process`, `thread_local`); zero finds.
+- **5c.1** (`8417752`) — Engine `Unit` absorbs per-combat state: `caster_context`, `auras`, `enemy_phases`, `aoo_dice`. `ContentView` trait contracts from 8 methods to 4 (`ability_def`, `status_def`, `status_bonuses`, `unit_template` — all static). `EcsContentView` shrinks; `init_state_from_ecs` is the only site that populates the new Unit fields from ECS components.
+- **5c.2** (`87b238e`) — `crates/combat_engine/src/toml_content_view.rs`: Bevy-free `TomlContentView` parsing `assets/data/*.toml` directly. Path B (duplicate TOML record structs) rather than Path A (extract pure types from `src/content/`) — bridge parsers import Bevy-tied `CombatStats`/`Equipment`. Parity test `tests/toml_content_view_parity.rs` cross-checks 18 abilities + 10 statuses against `EcsContentView`.
+- **5d** (`a2abc0f`) — Folder-per-fight filesystem layout: `logs/<fight_id>/{ai,engine}.jsonl`. `build_combat_log_path` → `build_combat_log_dir`. New `EngineTraceWriter` Bevy resource + `CombatLogSession` resource carrying `session_id` (= folder name, D11). Single combat-start hook `open_combat_logs_on_combat_enter` creates both writers; engine InitLine written on `OnEnter(CombatPhase::AwaitCommand)` chained after `init_state_from_ecs` (idempotent via `step_counter == 0`). `process_action_system` writes one StepLine per engine `step()` before projection. `DiceRng` gains `pub fn seed()`. `mine_ai_logs` glob → `logs/*/ai.jsonl`. AI log SCHEMA_VERSION unchanged (D4); `combat_log_header` event added (other event_types skipped by `actor_tick` filter).
+- **5e** (`771bbfd`) — `InitLine` grows `round`/`phase`/`turn_queue` (SCHEMA_VERSION 37→38) — without them replay couldn't reconstruct starting state. `CombatState::set_next_synthetic_uid()` setter. New `crates/combat_engine/tests/replay.rs`: 5 canonical scenarios (pure_move, aoo_chain, cast_damage, phase_trigger, endturn) + 2 divergence sentinels + size benchmark (8 tests). New `src/bin/replay_engine_trace.rs` binary with `--strict-content` (D3) + `--tolerance` (D10) flags. `bridge_smoke` gains `engine_trace_full_combat_record_replay` (gate #14).
+- **5g** (this step) — `replay_ai_log.rs` cleanup: stale `if ver != 27` gate replaced by `parse_actor_tick` (v33+ accepted per `MIN_SUPPORTED`). Top-of-file usage docstring updated to the `logs/<fight_id>/ai.jsonl` layout. Retrospective written here.
+
+**Architecture deltas vs plan:**
+
+- **`session_id` as a folder name, not a UUID.** §5.5 originally said "session_id = UUID". User feedback during 5d planning (post-5a discoveries §10 item 6) pushed for folder-per-fight layout: the folder name (timestamp + scenario + encounter, sanitized) IS the `session_id`, dropping the UUID dependency. Both `ai.jsonl` header and `engine.jsonl` InitLine self-describe via this field.
+- **InitLine extension late in 5e.** Original plan §3 listed `units`/`next_synthetic_uid`/`content_hash`/`session_id` for InitLine. Building the replay binary surfaced an obvious gap: `post_state_hash` covers `round`/`phase`/`turn_queue`, so the first replayed step's hash would mismatch unless the InitLine carries them. SCHEMA_VERSION bump 37→38 was a clean break (no production logs at v37 yet).
+- **`ContentView` trait contraction (5c.1) was a re-scoping.** Original 5c was just "TomlContentView". Audit during 5b found 4 trait methods returned PER-COMBAT-INSTANCE data (`auras_of`, `check_phase_trigger`, `caster_context`, `aoo_dice`) built from ECS components — not loadable from TOML. Option (A): absorb the data into engine `Unit`; trait surface contracts to static-only. This added ~3 days for 5c.1 but made 5c.2 trivial (~1 day) and replay determinism becomes trivially correct (same `Unit` → same behaviour, no precomputed map drift).
+- **`build_entry` and AI log carry-fields.** `ActorTickEvent`/`ActorTickInput` gained `session_id: String` + `engine_step_range: Option<(u64, u64)>` fields in 5d. The `engine_step_range` field is currently always `None` — populating it is Phase 6 work (the bridge has no place to track this yet, since `process_action_system` and `pick_action` aren't co-located). Field exists for forward-compat.
+- **Per-stream schema versioning (D4).** Engine trace started at SCHEMA_VERSION 37 (collision with the AI log's 36 was cosmetic — different files). 5e bumped it to 38 on InitLine extension. AI log SCHEMA_VERSION stayed at 36 throughout Phase 5 (no AI-log content changed; the `combat_log_header` event is a new `event_type`, not a schema-bumping field addition). Independent counters, no shared constant.
+
+**Sub-step 5f deferred (fuzz harness, gate #6):**
+
+- **Status:** Not executed in Phase 5. Requires `cargo-fuzz` + nightly Rust, neither installed on the build host. Skipped after user decision (5g preferred over investing in toolchain setup).
+- **What's not done:** No `fuzz/` sibling crate, no `step_random_actions` target, no 10M iter run.
+- **Risk assessment:** Low for now. The replay tests (5e) and `engine_purity` test (5b) provide most of the determinism guard. Engine `step()` panicking on an unusual `Vec<Action>` would surface in real-combat playtest; CI greenness across 1071 tests covers the broad surface.
+- **Reopen condition:** When nightly + cargo-fuzz become available, ship `fuzz/` per §5 D7 / §3 row "5f" of the plan. Plan stays valid as written.
+
+**Gate criteria status (§7 items 1–15):**
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | All engine types round-trip via serde with byte-equality | ✓ `crates/combat_engine/tests/serde_roundtrip.rs` (5a) |
+| 2 | RNG call-count accurate: `step(Action::Cast { targets: N })` consumes exactly N rolls | ✓ `crates/combat_engine/tests/rng_count.rs` (5b) |
+| 3 | `aura_membership_set` BTreeSet; replay byte-equal across re-runs on recording host | ✓ `tests/aura_determinism.rs` (5a) + replay loop (5e) |
+| 4 | Replay determinism on recording host: 5 canonical scenarios with `--tolerance 0` | ✓ `crates/combat_engine/tests/replay.rs` 5 scenarios + 2 divergence sentinels (5e) |
+| 5 | `TomlContentView` parity with `EcsContentView` | ✓ `tests/toml_content_view_parity.rs` (5c.2) |
+| 6 | `cargo +nightly fuzz run step_random_actions` → 10M iters zero engine panics | **Deferred — no cargo-fuzz/nightly available; see 5f sub-section above** |
+| 7 | Engine purity audit: zero forbidden imports inside `crates/combat_engine/src/` | ✓ `tests/engine_purity.rs` (5b) |
+| 8 | `replay_ai_log` stale `ver != 27` gate fixed; reads from `logs/*/ai.jsonl` | ✓ (5g) — `parse_actor_tick` (v33+) replaces hardcoded gate; doc updated |
+| 9 | `engine_trace.jsonl` size measured + documented | ✓ `measure_trace_size_per_round` (5e): ~493 B/step, ~4930 B/round |
+| 10 | Cross-host replay with default `--tolerance 1.0` warns but does not panic on known-divergent f32 | ⚠ Flag plumbed in `replay_engine_trace`; manual verification deferred (no known-divergent f32 case in current Event variants; `--tolerance` is a no-op until f32 fields appear in Damage/Heal events) |
+| 11 | Both `<dir>/engine.jsonl` InitLine AND `<dir>/ai.jsonl` header carry same `session_id`; AI decisions optionally back-reference engine step ranges | ✓ (5d) — both writers share `CombatLogSession`; `engine_step_range` field plumbed (population is Phase 6) |
+| 12 | Filesystem layout: `logs/<fight_id>/{ai,engine}.jsonl` present after combat | ✓ (5d) — verified by `engine_trace_writer_init_and_step` + `engine_trace_full_combat_record_replay` |
+| 13 | `process_action_system` param count stays ≤14 | ✓ — 13 params after 5d (`+EngineTraceWriter` brought 12→13) |
+| 14 | Bridge integration test: full combat encounter produces a trace that re-runs deterministically | ✓ `bridge_smoke::engine_trace_full_combat_record_replay` (5e) |
+| 15 | Full `cargo test` suite green; manual playtest reproduces trace | ✓ 1071 tests green; manual playtest deferred to user-side verification |
+
+**LOC delta:**
+- Phase 5 total (`e069ac3..HEAD`): +4762 / -662, net **+4100** across 46 files.
+- Largest additions: `crates/combat_engine/tests/replay.rs` (~900 LOC, 5e), `crates/combat_engine/src/toml_content_view.rs` (~570 LOC, 5c.2), `src/combat/ai/log/mod.rs` (5d expansion), `crates/combat_engine/tests/serde_roundtrip.rs` (5a), `src/bin/replay_engine_trace.rs` (5e).
+
+**Surprises / known follow-ups for Phase 6+:**
+
+- **AI-log filesystem migration is a hard break.** Old flat-layout `logs/*.jsonl` files become orphans under the new `logs/<dir>/ai.jsonl` layout. Per D5, no migration script — users who need them must `git checkout unisim/phase4-complete`.
+- **`engine_step_range` per-decision field is plumbed but always `None`.** Wiring the bridge to track engine step ranges across an AI decision (between `pick_action` and the subsequent action apply) needs `process_action_system` and `pick_action` to share state. Deferred to Phase 6.
+- **f32 tolerance (`--tolerance`) is currently a no-op.** No Event variant carries f32 fields today; the flag exists for forward-compat when `Damage`/`Heal` events gain `final_damage_f32` fields (gate #10).
+- **`replay_engine_trace` hardcodes `assets/data` as the content directory.** Run from project root for now; Phase 6 can probe via `CARGO_MANIFEST_DIR`.
+- **`AooRow` type alias in `engine_bridge.rs` is dead** (pre-existing baseline warning; survived 5c.1 cleanup). Worth a small follow-up.
+- **fuzz harness (5f) is the only deferred gate.** Re-open when nightly toolchain is available on the build host.
+
+**What worked / what didn't:**
+
+- **Worked:** sub-step discipline (5a → 5g each independently green) prevented broken intermediate states. Every commit was independently testable; replaying any sub-step in isolation works.
+- **Worked:** the per-step `post_state_hash` canary made replay-tests precise — a 1-bit drift fails the *exact* step rather than the final state, dramatically shortening debug. Two divergence sentinels (`replay_event_divergence_detected`, `replay_rng_count_divergence_detected`) prove the harness catches real drift.
+- **Worked:** TomlContentView parity test (5c.2) caught the post-5c.1 Unit field omission (`aoo_dice`) in `make_unit` test helper. The cross-check was load-bearing during the trait contraction.
+- **Worked:** 5c.1 trait contraction was a non-obvious but high-value re-scope. The original "ContentView read" assumption was wrong — half the methods were really per-combat state. Catching this in audit (post-5b) rather than during 5e replay would have caused weeks of confusion.
+- **Didn't / needed adjustment:** InitLine field set was incomplete in 5a. 5e had to extend it with `round`/`phase`/`turn_queue` and bump the schema (37→38). Should have been in 5a; cost was minimal because no v37 logs were in production yet.
+- **Didn't:** fuzz harness (5f) — deferred for tooling reasons. Loses defense-in-depth for `step()` panic-safety; replay tests cover most of the determinism surface but not the "unusual input" surface.
+- **Didn't:** AI log `engine_step_range` field is plumbed but not populated. Cross-stream correlation works via `session_id` (folder name) but step-range join is Phase 6 work.
+
 ### 5.6 Phase 6 — ECS projection cleanup (Week 12)
 
 **Goal:** legacy combat systems removed.

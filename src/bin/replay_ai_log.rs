@@ -1,8 +1,9 @@
-//! Replay an AI decision log (v29 JSONL) and compare current `pick_action`
+//! Replay an AI decision log (JSONL) and compare current `pick_action`
 //! output against logged decisions.
 //!
 //! For every `actor_tick` event the tool:
-//! 1. Parses the event (`ActorTickEvent`, schema v29).
+//! 1. Parses the event via `parse_actor_tick` (accepts schema v33+, including
+//!    the current v36; older versions are rejected with `UnsupportedSchema`).
 //! 2. Rebuilds `InfluenceMaps` from the embedded snapshot.
 //! 3. Calls the production `pick_action` with the logged snapshot.
 //! 4. Compares the re-picked decision with the logged decision.
@@ -16,10 +17,11 @@
 //! `--assert [<overlay.expected.toml>]`: run the production pipeline on the
 //! entry selected by `[scope].plan_id` in the overlay, check expectations.
 //!
-//! Usage:
-//!   `cargo run --bin replay_ai_log -- logs/<file>.jsonl [--verbose]`
-//!   `cargo run --bin replay_ai_log -- logs/<file>.jsonl --capture-golden golden.jsonl`
-//!   `cargo run --bin replay_ai_log -- logs/<file>.jsonl --compare-golden golden.jsonl`
+//! Usage (Phase 5d filesystem layout — one folder per fight):
+//!   `cargo run --bin replay_ai_log -- logs/<fight_id>/ai.jsonl [--verbose]`
+//!   `cargo run --bin replay_ai_log -- logs/<fight_id>/ai.jsonl --capture-golden golden.jsonl`
+//!   `cargo run --bin replay_ai_log -- logs/<fight_id>/ai.jsonl --compare-golden golden.jsonl`
+//!   Shell glob across all fights: `cargo run --bin replay_ai_log -- logs/*/ai.jsonl`
 
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -29,7 +31,9 @@ use bevy::prelude::Entity;
 use storyforge::combat::ai::config::difficulty::DifficultyProfile;
 use storyforge::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 use storyforge::combat::ai::intent::AiMemory;
-use storyforge::combat::ai::log::{ActorTickEvent, LoggedDecision, LoggedPlan};
+use storyforge::combat::ai::log::{
+    parse_actor_tick, ActorTickEvent, LogError, LoggedDecision, LoggedPlan,
+};
 use storyforge::combat::ai::plan::PlanStep;
 use storyforge::combat::ai::replay::{
     assert_v28_log_file, default_overlay_path, print_assertion_failure, AssertResult, GoldenRecord,
@@ -574,24 +578,26 @@ fn main() {
             };
             if line.trim().is_empty() { continue; }
 
-            // Schema version check.
+            // Pre-filter: only `actor_tick` events. Other event types
+            // (e.g. `combat_log_header` from Phase 5d) are silently skipped.
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
-                if let Some(ver) = val.get("schema_version").and_then(|v| v.as_u64()) {
-                    if ver != 27 {
-                        eprintln!(
-                            "error: schema v{ver} unsupported, v27+ required (file: {})",
-                            path.display()
-                        );
-                        std::process::exit(1);
-                    }
-                }
                 if val.get("event_type").and_then(|v| v.as_str()) != Some("actor_tick") {
                     continue;
                 }
             }
 
-            let event: ActorTickEvent = match serde_json::from_str(&line) {
+            // Parse via the shared `parse_actor_tick` so the version gate
+            // matches the rest of the toolchain (v33+ accepted; lower rejected
+            // with `UnsupportedSchema`).
+            let event: ActorTickEvent = match parse_actor_tick(&line) {
                 Ok(e) => e,
+                Err(LogError::UnsupportedSchema { found, required, hint }) => {
+                    eprintln!(
+                        "error: schema v{found} unsupported, v{required} required (file: {}): {hint}",
+                        path.display()
+                    );
+                    std::process::exit(1);
+                }
                 Err(e) => { eprintln!("parse error: {e}"); continue; }
             };
 
