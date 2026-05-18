@@ -19,10 +19,7 @@ use storyforge::combat_engine::{
     StatusApplication, StatusBonuses, StatusDef,
     StatusId, StatusOn, TargetType, TomlContentView, UnitTemplate,
 };
-use storyforge::content::abilities::{
-    EffectDef as BridgeEffectDef,
-    AoEShape as BridgeAoEShape,
-};
+use storyforge::content::abilities::EffectDef as BridgeEffectDef;
 use storyforge::game::components::Equipment;
 
 // ── Helpers to map bridge types → engine types (mirrors EcsContentView) ───────
@@ -36,11 +33,7 @@ fn map_ability(content: &BridgeContentView, id: &AbilityId) -> Option<AbilityDef
         costs: def.costs.iter().map(|c| Cost { resource: c.resource, amount: c.amount }).collect(),
         range: AbilityRange { min: def.range.min, max: def.range.max },
         target_type: def.target_type,
-        aoe: match def.aoe {
-            BridgeAoEShape::None              => AoEShape::None,
-            BridgeAoEShape::Circle { radius } => AoEShape::Circle { radius },
-            BridgeAoEShape::Line   { length } => AoEShape::Line   { length },
-        },
+        aoe: def.aoe,
         friendly_fire: def.friendly_fire,
         effect: match &def.effect {
             BridgeEffectDef::None                    => EffectDef::None,

@@ -28,26 +28,7 @@ impl AbilityRange {
     pub const MELEE: Self = Self { min: 0, max: 1 };
 }
 
-/// Area-of-effect pattern. `None` = single-target (default).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum AoEShape {
-    #[default]
-    None,
-    /// All cells within hex-distance ≤ radius from the target point.
-    Circle { radius: u32 },
-    /// Line of `length` cells from caster through target direction.
-    Line { length: u32 },
-}
-
-impl From<AoEShape> for combat_engine::AoEShape {
-    fn from(s: AoEShape) -> Self {
-        match s {
-            AoEShape::None => combat_engine::AoEShape::None,
-            AoEShape::Circle { radius } => combat_engine::AoEShape::Circle { radius },
-            AoEShape::Line { length } => combat_engine::AoEShape::Line { length },
-        }
-    }
-}
+pub use combat_engine::AoEShape;
 
 
 
