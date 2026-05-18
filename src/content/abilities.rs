@@ -3,17 +3,7 @@ use crate::core::{modifier, AbilityId, DiceExpr, ResourceKind, StatusId, WeaponI
 use crate::game::components::{CombatStats, Equipment};
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TargetType {
-    SingleEnemy,
-    SingleAlly,
-    Myself,
-    /// Player picks a cell (no entity target). `target` in `UseAbility` is a
-    /// sentinel set to the actor; the effect is position-based via
-    /// `target_pos`. Pairs naturally with `aoe != None`; with `aoe = None`
-    /// it's still legal (reserved for future teleport / ground-spawn abilities).
-    Ground,
-}
+pub use combat_engine::TargetType;
 
 /// To whom a status is applied when the ability resolves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,16 +56,6 @@ impl From<AoEShape> for combat_engine::AoEShape {
     }
 }
 
-impl From<TargetType> for combat_engine::TargetType {
-    fn from(t: TargetType) -> Self {
-        match t {
-            TargetType::SingleEnemy => combat_engine::TargetType::SingleEnemy,
-            TargetType::SingleAlly => combat_engine::TargetType::SingleAlly,
-            TargetType::Myself => combat_engine::TargetType::Myself,
-            TargetType::Ground => combat_engine::TargetType::Ground,
-        }
-    }
-}
 
 impl From<StatusOn> for combat_engine::StatusOn {
     fn from(o: StatusOn) -> Self {

@@ -22,7 +22,6 @@ use storyforge::combat_engine::{
 use storyforge::content::abilities::{
     EffectDef as BridgeEffectDef,
     StatusOn as BridgeStatusOn,
-    TargetType as BridgeTargetType,
     AoEShape as BridgeAoEShape,
 };
 use storyforge::game::components::Equipment;
@@ -37,12 +36,7 @@ fn map_ability(content: &BridgeContentView, id: &AbilityId) -> Option<AbilityDef
         // ResourceKind in core is re-exported from combat_engine — same type.
         costs: def.costs.iter().map(|c| Cost { resource: c.resource, amount: c.amount }).collect(),
         range: AbilityRange { min: def.range.min, max: def.range.max },
-        target_type: match def.target_type {
-            BridgeTargetType::SingleEnemy => TargetType::SingleEnemy,
-            BridgeTargetType::SingleAlly  => TargetType::SingleAlly,
-            BridgeTargetType::Myself      => TargetType::Myself,
-            BridgeTargetType::Ground      => TargetType::Ground,
-        },
+        target_type: def.target_type,
         aoe: match def.aoe {
             BridgeAoEShape::None              => AoEShape::None,
             BridgeAoEShape::Circle { radius } => AoEShape::Circle { radius },
