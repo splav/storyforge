@@ -15,7 +15,6 @@ use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
 use crate::combat::ai::world::tags::cache::StatusBonuses;
 use crate::combat::ai::world::tags::StatusTagSet;
 use bevy::prelude::*;
-use std::cell::RefCell;
 use std::collections::HashMap;
 
 // ── Snapshot types ────────────────────────────────────────────────────────────
@@ -24,15 +23,17 @@ use std::collections::HashMap;
 pub struct BattleSnapshot {
     pub units: Vec<UnitSnapshot>,
     pub round: u32,
-    /// O(1) entity → units[index] cache. Private so the invariant "in sync
-    /// with `units`" can't be silently broken via struct-literal
-    /// construction; callers go through [`BattleSnapshot::new`] or the
-    /// serde path (which gives a `None` cache, lazy-built on first
-    /// `unit()` call). Sim calls [`BattleSnapshot::invalidate_index`] after
-    /// `units.retain` / other shape-changing mutations so the next read
-    /// rebuilds. Read through `unit()` — never poke this field directly.
+    /// O(1) entity → units[index] cache. Populated eagerly by
+    /// [`BattleSnapshot::new`]. Serde-skipped: after deserialization the
+    /// cache is empty and `unit()` falls back to an O(n) linear scan.
+    /// Hot paths that want O(1) after deserialize can call
+    /// [`BattleSnapshot::rebuild_index`].
+    ///
+    /// Invariant: either empty, or every value is a valid index into
+    /// `units` for the entity-keyed pair. Read through `unit()`; never
+    /// poke this field directly.
     #[serde(skip)]
-    by_entity: RefCell<Option<HashMap<Entity, usize>>>,
+    by_entity: HashMap<Entity, usize>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -455,44 +456,36 @@ impl BattleSnapshot {
     /// `#[derive(Default)]` / serde-deserialized snapshots get an empty
     /// cache that lazy-builds on first `unit()` call.
     pub fn new(units: Vec<UnitSnapshot>, round: u32) -> Self {
-        let map = units
+        let by_entity = units
             .iter()
             .enumerate()
             .map(|(i, u)| (u.entity, i))
             .collect();
-        Self {
-            units,
-            round,
-            by_entity: RefCell::new(Some(map)),
-        }
+        Self { units, round, by_entity }
     }
 
-    /// Discard the entity index. Call after any mutation of `units` that
-    /// changes length or order (e.g. sim's `retain` for killed units). The
-    /// next `unit()` call rebuilds lazily.
-    pub fn invalidate_index(&mut self) {
-        *self.by_entity.borrow_mut() = None;
+    /// Rebuild the entity index from the current `units` vector. Call after
+    /// deserialization (the cache is `#[serde(skip)]`) or any mutation that
+    /// changes `units` length or order. No-op if `units` is empty.
+    pub fn rebuild_index(&mut self) {
+        self.by_entity = self
+            .units
+            .iter()
+            .enumerate()
+            .map(|(i, u)| (u.entity, i))
+            .collect();
     }
 
-    /// O(1) lookup by entity. Transparently lazy-builds the index when
-    /// missing (fresh deserialized snapshot or post-`invalidate_index`).
+    /// Lookup by entity. O(1) when the index is populated (the common path
+    /// for snapshots built via `new`); O(n) linear scan as fallback when
+    /// the index is empty (post-deserialize without explicit
+    /// `rebuild_index`).
     pub fn unit(&self, entity: Entity) -> Option<&UnitSnapshot> {
-        // Scope the RefCell borrow so the resulting `&UnitSnapshot` doesn't
-        // alias it.
-        let idx = {
-            let mut slot = self.by_entity.borrow_mut();
-            if slot.is_none() {
-                *slot = Some(
-                    self.units
-                        .iter()
-                        .enumerate()
-                        .map(|(i, u)| (u.entity, i))
-                        .collect(),
-                );
-            }
-            slot.as_ref().expect("just filled").get(&entity).copied()?
-        };
-        self.units.get(idx)
+        if !self.by_entity.is_empty() {
+            let idx = *self.by_entity.get(&entity)?;
+            return self.units.get(idx);
+        }
+        self.units.iter().find(|u| u.entity == entity)
     }
 
     /// Position lookup stays linear — there's no per-tile index, and

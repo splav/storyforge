@@ -199,12 +199,7 @@ fn run_ai_turn(
                 band: None,
                 agenda: None,
             });
-            // Serialize to Value immediately so we don't store BattleSnapshot
-            // (which is !Sync due to RefCell) in a Resource.
-            match serde_json::to_value(&event) {
-                Ok(v) => pending_ai_log.entries.push((v, start_step)),
-                Err(e) => warn!("AI log skip-path serialise failed: {e}"),
-            }
+            pending_ai_log.entries.push((event, start_step));
         }
         msgs.action_input.write(ActionInput::EndTurn { actor });
         return;
@@ -301,10 +296,7 @@ fn run_ai_turn(
             band: Some(result.band.clone()),
             agenda: Some(&result.agenda),
         });
-        match serde_json::to_value(&event) {
-            Ok(v) => pending_ai_log.entries.push((v, start_step)),
-            Err(e) => warn!("AI log full-path serialise failed: {e}"),
-        }
+        pending_ai_log.entries.push((event, start_step));
     }
 
     // Reservations — record committed prefix for this tick.

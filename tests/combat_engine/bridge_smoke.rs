@@ -2302,19 +2302,22 @@ fn ai_log_engine_step_range_populated() {
     let step_before = app.world().resource::<EngineTraceWriter>().step_counter();
     assert_eq!(step_before, 0, "step counter must start at 0");
 
-    // Build a minimal actor_tick JSON value (mimics what the AI system would push).
+    // Build a minimal actor_tick event (mimics what the AI system would push).
     // We push it directly into PendingAiLogEntries with start_step = 0.
-    let fake_entry = serde_json::json!({
-        "event_type": "actor_tick",
-        "schema_version": 36,
-        "round": 1,
-        "timestamp_ms": 0u64,
-        "actor_id": 0u64,
-        "actor_name": "test_actor",
-        "snapshot": {"units": [], "round": 1},
-        "plans": [],
-        "decision": {"kind": "EndTurn"}
-    });
+    let fake_entry: storyforge::combat::ai::log::ActorTickEvent = serde_json::from_value(
+        serde_json::json!({
+            "event_type": "actor_tick",
+            "schema_version": 36,
+            "round": 1,
+            "timestamp_ms": 0u64,
+            "actor_id": 0u64,
+            "actor_name": "test_actor",
+            "snapshot": {"units": [], "round": 1},
+            "plans": [],
+            "decision": {"kind": "end_turn"}
+        }),
+    )
+    .expect("test fixture parses as ActorTickEvent");
     app.world_mut()
         .resource_mut::<PendingAiLogEntries>()
         .entries

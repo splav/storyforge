@@ -265,12 +265,9 @@ pub struct AiLogEntry<'a> {
     /// Fight folder name shared with `engine.jsonl` init line (D11).
     pub session_id: &'a str,
     /// Half-open engine step range `[start, end_exclusive)` that this AI
-    /// decision corresponds to. Populated by the bridge between AI tick and
-    /// engine apply.
-    ///
-    /// TODO (Phase 6): populate in `process_action_system` once the bridge
-    /// co-locates `pick_action` and `step()` so the range is observable.
-    /// For Phase 5d this is always `None`.
+    /// decision corresponds to. Populated by `flush_pending_ai_log_system`
+    /// after `process_action_system` runs; `None` when the engine trace
+    /// writer was not open at flush time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub engine_step_range: Option<(u64, u64)>,
     pub plan_id: u64,
@@ -1143,11 +1140,10 @@ pub struct ActorTickEvent {
     pub agenda: Vec<AgendaItemLog>,
     /// Phase 5 step 5d (D11): half-open range `[start, end)` of engine step
     /// indices that correspond to the bridge actions applied for this AI
-    /// decision. `None` when not yet wired or on the skip-path.
-    ///
-    /// TODO (Phase 6): populate in `process_action_system` once the bridge
-    /// co-locates `pick_action` and `step()` so the range is observable.
-    /// For Phase 5d this is always `None`.
+    /// decision. `None` only when the engine trace writer was not open
+    /// at flush time (replay disabled). Populated by
+    /// `flush_pending_ai_log_system` after `process_action_system` runs.
+    /// Skip-path entries produce zero-length ranges `(n, n)`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub engine_step_range: Option<(u64, u64)>,
 }
@@ -1351,16 +1347,10 @@ pub fn write_actor_tick_event(logger: &mut AiLogger, event: &ActorTickEvent) -> 
 /// completes in the same Update frame, at which point `engine_step_range` is
 /// populated from the trace writer's step counter.
 ///
-/// We store each entry as a pre-serialized `serde_json::Value` rather than
-/// `ActorTickEvent` directly because `BattleSnapshot` contains a `RefCell`
-/// and is therefore `!Sync`, which violates the `Resource: Send + Sync` bound.
-/// The JSON value is `Send + Sync` and patching `engine_step_range` into it
-/// at flush time is O(1).
-///
-/// Each tuple is `(json_value, start_step)`.
+/// Each tuple is `(event, start_step)`.
 #[derive(Resource, Default)]
 pub struct PendingAiLogEntries {
-    pub entries: Vec<(serde_json::Value, u64)>,
+    pub entries: Vec<(ActorTickEvent, u64)>,
 }
 
 /// System: flush the pending AI log queue, populating `engine_step_range` from
@@ -1392,7 +1382,7 @@ pub fn flush_pending_ai_log_system(
     let current_end = trace_writer.step_counter();
     // Drain into an owned Vec so we can peek the *next* entry's start_step
     // to compute per-actor end boundaries precisely (multi-actor ticks).
-    let mut entries: Vec<(serde_json::Value, u64)> = pending.entries.drain(..).collect();
+    let mut entries: Vec<(ActorTickEvent, u64)> = pending.entries.drain(..).collect();
     let n = entries.len();
     for i in 0..n {
         let start_step = entries[i].1;
@@ -1400,24 +1390,10 @@ pub fn flush_pending_ai_log_system(
         // range). Last actor uses the live step counter.
         let end_step = if i + 1 < n { entries[i + 1].1 } else { current_end };
         if trace_open {
-            // Patch engine_step_range directly into the JSON value.
-            if let serde_json::Value::Object(ref mut map) = entries[i].0 {
-                map.insert(
-                    "engine_step_range".to_owned(),
-                    serde_json::json!([start_step, end_step]),
-                );
-            }
+            entries[i].0.engine_step_range = Some((start_step, end_step));
         }
-        // Write the (possibly patched) JSON value as a JSONL line.
-        if let Some(w) = logger.writer.as_mut() {
-            match serde_json::to_string(&entries[i].0) {
-                Ok(json) => {
-                    if let Err(e) = writeln!(w, "{json}").and_then(|_| w.flush()) {
-                        warn!("AI log flush write failed: {e}");
-                    }
-                }
-                Err(e) => warn!("AI log flush serialise failed: {e}"),
-            }
+        if let Err(e) = write_actor_tick_event(&mut logger, &entries[i].0) {
+            warn!("AI log flush write failed: {e}");
         }
     }
 }
