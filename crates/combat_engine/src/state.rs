@@ -265,6 +265,14 @@ impl CombatState {
         self.next_synthetic_uid
     }
 
+    /// Restore the synthetic UID counter after deserialization (replay).
+    ///
+    /// Call this after constructing `CombatState::new(...)` from an `InitLine`
+    /// to ensure spawned units receive the same IDs as in the original run.
+    pub fn set_next_synthetic_uid(&mut self, n: u64) {
+        self.next_synthetic_uid = n;
+    }
+
     /// Look up a unit by id. Returns `None` if not present.
     pub fn unit(&self, id: UnitId) -> Option<&Unit> {
         self.idx.get(&id).map(|&i| &self.units[i])

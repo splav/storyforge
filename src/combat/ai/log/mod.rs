@@ -660,6 +660,9 @@ pub fn write_engine_trace_init_system(
         rng_seed: rng.0.seed(),
         units: state.units().to_vec(),
         next_synthetic_uid: state.next_synthetic_uid(),
+        round: state.round,
+        phase: state.phase,
+        turn_queue: state.turn_queue.clone(),
         content_hash,
     };
     if let Err(e) = trace_writer.write_init(&init) {

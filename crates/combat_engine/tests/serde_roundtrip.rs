@@ -329,6 +329,9 @@ fn init_line_roundtrip() {
         rng_seed: 0xDEAD_BEEF_1234_5678,
         units: vec![unit_all_some(1), unit_all_some(2)],
         next_synthetic_uid: 1000,
+        round: 1,
+        phase: RoundPhase::ActorTurn,
+        turn_queue: TurnQueue { order: vec![uid(1), uid(2)], index: 0 },
         content_hash: "blake3:aabbcc".to_string(),
     };
     roundtrip(line);

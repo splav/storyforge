@@ -2,6 +2,7 @@
 
 use combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
 use combat_engine::trace::{parse_init, post_state_hash, serialize_init, InitLine, SCHEMA_VERSION};
+use combat_engine::TurnQueue;
 use hexx::Hex;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -92,6 +93,9 @@ fn serialize_init_produces_parseable_jsonl() {
         rng_seed: 0xCAFE_BABE,
         units: vec![make_unit(1, 30), make_unit(2, 25)],
         next_synthetic_uid: 1000,
+        round: 1,
+        phase: RoundPhase::ActorTurn,
+        turn_queue: TurnQueue::default(),
         content_hash: "blake3:aabbccdd".to_string(),
     };
 
@@ -117,6 +121,9 @@ fn serialize_init_byte_equal_on_second_pass() {
         rng_seed: 1,
         units: vec![make_unit(5, 10)],
         next_synthetic_uid: 500,
+        round: 2,
+        phase: RoundPhase::PreRound,
+        turn_queue: TurnQueue { order: vec![UnitId(5)], index: 0 },
         content_hash: "blake3:ff".to_string(),
     };
     let json1 = serialize_init(&init).unwrap();

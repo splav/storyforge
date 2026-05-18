@@ -26,7 +26,7 @@ use crate::{
 
 /// Trace schema version.  Matches the AI-log `SCHEMA_VERSION` after 5f.
 /// Bump on any change that adds/removes RNG calls or modifies record shape.
-pub const SCHEMA_VERSION: u32 = 37;
+pub const SCHEMA_VERSION: u32 = 38;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 
@@ -40,6 +40,12 @@ pub struct InitLine {
     pub rng_seed: u64,
     pub units: Vec<Unit>,
     pub next_synthetic_uid: u64,
+    /// Round number at combat start (needed to reconstruct `CombatState` for replay).
+    pub round: u32,
+    /// Round phase at combat start.
+    pub phase: RoundPhase,
+    /// Turn queue at combat start (order + cursor index).
+    pub turn_queue: TurnQueue,
     pub content_hash: String,
 }
 
