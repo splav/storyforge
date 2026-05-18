@@ -1,5 +1,15 @@
 # Architecture
 
+> **Post-unisim note (2026-05-18):** the canonical engine ↔ Bevy boundary is
+> documented in [`engine-architecture.md`](engine-architecture.md). The
+> "Module Map" section below predates the migration and may name files that
+> have moved or been deleted (e.g. `combat/apply_effects.rs`, `combat/movement.rs`,
+> `combat/resolution.rs`, `combat/validation.rs`, `combat/phases.rs`,
+> `combat/statuses.rs`, `combat/auras.rs`, `combat/skip_dead.rs` are all gone
+> — engine owns the behaviour). State machines and content-resolution
+> sections remain accurate. See unisim §5.6 retrospective for the full
+> deletion list.
+
 ## State Machines
 
 ### AppState (primary)

@@ -1,5 +1,17 @@
 # Combat Pipeline
 
+> **Post-unisim note (2026-05-18):** the "System Details" section below names
+> several systems that were absorbed into the engine and deleted during
+> Phases 3–5 (`apply_auras_system`, `movement_system`, `validate_action_system`,
+> `resolve_action_system`, `apply_effects_system`, `tick_status_effects_system`,
+> `phase_transition_system`, `skip_dead_turn_system`). The actual current
+> pipeline is two systems: `process_action_system` (consumes `ActionInput`,
+> calls engine `step()`, translates events) and `project_state_to_ecs`
+> (writes engine state back to ECS), chained with `apply_phase_transitions_system`
+> and `flush_pending_ai_log_system`. See
+> [`engine-architecture.md`](engine-architecture.md) §3 for the canonical
+> schedule.
+
 ## System Chain
 
 Systems in `CombatPhase::AwaitCommand`, grouped by `CombatStep` sets, gated by `combat_ready()` (no active animations or popups). Ordered via `.chain()` within sets, sets themselves chained: `TurnStart → Command → Execute → Finalize`.

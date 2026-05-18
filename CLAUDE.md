@@ -73,8 +73,9 @@ Bevy ECS тактическая RPG. Состояния: `AppState` (Boot → St
 
 | Документ | Содержание |
 |----------|-----------|
-| [Architecture](docs/architecture.md) | Модули, состояния, карта файлов, зависимости |
-| [Combat Pipeline](docs/combat-pipeline.md) | 10 систем цепочки, поток сообщений, детали каждой системы |
+| [Engine Architecture](docs/engine-architecture.md) | **Канонический пост-unisim layout** — engine boundary, bridge, AI/UI/render interactions, replay/determinism |
+| [Architecture](docs/architecture.md) | Top-level state machines + module map (некоторые combat-разделы могут быть устаревшими — см. engine-architecture.md) |
+| [Combat Pipeline](docs/combat-pipeline.md) | Per-system schedule details (раздел "System Details" устарел post-Phase-4 — см. engine-architecture.md §3) |
 | [Mechanics](docs/mechanics.md) | Характеристики, урон, лечение, мана/ярость, статусы, инициатива |
 | [AI](docs/ai/ai.md) | Обзор + ссылки на per-layer доки (decision-cycle, scoring, intent, critics, …) |
 | [AI Replay](docs/ai/replay.md) | Оффлайн-реплей `logs/*.jsonl`: `cargo run --bin replay_ai_log -- <file>` — пересчёт скоров/sanity текущим кодом, поиск изменившихся решений |
