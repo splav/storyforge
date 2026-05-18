@@ -5,14 +5,7 @@ use serde::Deserialize;
 
 pub use combat_engine::TargetType;
 
-/// To whom a status is applied when the ability resolves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StatusOn {
-    /// The ability's resolved target (enemy, ally, or self depending on target_type).
-    Target,
-    /// Always the actor who used the ability.
-    MySelf,
-}
+pub use combat_engine::StatusOn;
 
 #[derive(Debug, Clone)]
 pub struct StatusApplication {
@@ -57,14 +50,6 @@ impl From<AoEShape> for combat_engine::AoEShape {
 }
 
 
-impl From<StatusOn> for combat_engine::StatusOn {
-    fn from(o: StatusOn) -> Self {
-        match o {
-            StatusOn::Target => combat_engine::StatusOn::Target,
-            StatusOn::MySelf => combat_engine::StatusOn::MySelf,
-        }
-    }
-}
 
 impl From<&StatusApplication> for combat_engine::StatusApplication {
     fn from(s: &StatusApplication) -> Self {

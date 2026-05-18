@@ -21,7 +21,6 @@ use storyforge::combat_engine::{
 };
 use storyforge::content::abilities::{
     EffectDef as BridgeEffectDef,
-    StatusOn as BridgeStatusOn,
     AoEShape as BridgeAoEShape,
 };
 use storyforge::game::components::Equipment;
@@ -61,10 +60,7 @@ fn map_ability(content: &BridgeContentView, id: &AbilityId) -> Option<AbilityDef
         statuses: def.statuses.iter().map(|s| StatusApplication {
             status: StatusId::from(s.status.0.as_str()),
             duration_rounds: s.duration_rounds,
-            on: match s.on {
-                BridgeStatusOn::Target => StatusOn::Target,
-                BridgeStatusOn::MySelf => StatusOn::MySelf,
-            },
+            on: s.on,
         }).collect(),
     })
 }
