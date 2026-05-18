@@ -703,6 +703,149 @@ Engine mutates state synchronously; UI projects on next frame. Animations are ev
 
 **Gate:** full test suite green; docs current; no behaviour drift since Phase 1 baseline.
 
+#### Phase 6 retrospective (closed 2026-05-18)
+
+**Pre-step audit (significant scope revision):** the original Phase 6 task list
+above is **stale**. All four files named for deletion (`apply_effects.rs`,
+`movement.rs`, `status_apply.rs`, `status_tick.rs`) were already deleted in
+Phase 4 step 4e ("bridge wiring + ECS deletion sweep"). The post-Phase-5
+audit (delegated to an Explore agent, summary in this session's context)
+confirmed all 12 remaining `src/combat/*.rs` files are load-bearing; there
+is no legacy code left to delete in Phase 6.
+
+The phase was re-scoped to **six tactical follow-ups** identified during the
+audit:
+
+**What landed (6 sub-steps, commits `add0bd5`–`977eed3`):**
+
+- **6a** (`add0bd5`) — Dead code cleanup. Deleted the `AooRow` type alias in
+  `engine_bridge.rs` (zero references since the 5c.1 trait contraction).
+  Cleared 8 carry-over baseline warnings from Phase 5d/5e in test files +
+  benches: unused `DiceExpr`/`hexx::Hex`/`UnitId`/`CasterContext`/`AuraDef`
+  imports, dead `aoo_dice`/`aoo` fields in `StubContent`/`SnapContent`.
+  `StubContent` / `SnapContent` become unit structs; `with_weapon(_d)`
+  retains the constructor for callsite-intent but the `DiceExpr` argument is
+  now `_d` to document intentional disuse post-5c.1. `cargo check
+  --workspace --all-targets` ends at **zero warnings**.
+- **6b** (`4b5b672`) — Projection isolation grep test. Added
+  `tests/projection_isolation.rs` — substring-pattern walk over `src/**/*.rs`
+  (skipping the `src/combat/ai/` subtree which uses its own `UnitSnapshot`)
+  that fails CI if engine-projected ECS components (`Vital.hp`,
+  `ActionPoints.{action,movement}_points`, `Reactions.remaining`) are written
+  outside the bridge. Allowlist of 3 files with one-line justifications.
+  Replaces the `#[engine_projected]` newtype/proc-macro idea from the
+  original plan; the lightweight grep approach has zero runtime cost and
+  caught one legitimate exemption (`turn_order.rs` round-start refill) which
+  is now documented in the allowlist.
+- **6c** (`3361ed6`) — `engine_step_range` wiring (deferred AI-log write).
+  Phase 5d plumbed the field but always wrote `None`. 6c implements the
+  deferred-write architecture: AI tick reads `EngineTraceWriter.step_counter()`
+  → `start_step`, builds the `ActorTickEvent`, serializes to `serde_json::Value`
+  (workaround for `BattleSnapshot` being `!Sync`), and pushes to a new
+  `PendingAiLogEntries` resource. New `flush_pending_ai_log_system` runs after
+  `process_action_system`, walks the queue, assigns each entry's `end_step`
+  from the next entry's `start_step` (multi-actor correctness), and writes
+  the patched JSON to disk. Test `bridge_smoke::ai_log_engine_step_range_populated`
+  verifies the `[0, 1]` range on a one-action tick.
+- **6d** (`0742f14`) — Extension-checklist update. Rewrites
+  `docs/ai/extension-checklist.md` to reflect post-engine reality: all stale
+  paths fixed (Phase 4 module renames + engine ownership absorption),
+  `Новый EffectDef` section shrinks from 8 hops to 3–5 ("~3–5 файлов в
+  типичном случае"), new sections added for `engine.jsonl` schema bumps
+  (Phase 5 D4 per-stream versioning) and ECS-projected component contract
+  (Phase 6 D6). The Phase 5/6 motto "правишь движок → правишь content →
+  правишь мост → правишь AI" replaces the old per-stage list.
+- **6e** (`977eed3`) — Perf baseline + bench documentation. Captured Phase 6
+  baseline numbers via `cargo bench --bench engine_move -- --save-baseline phase6`.
+  Results: engine **3.964 µs**, legacy **4.520 µs**; engine ≈ **0.88×
+  legacy** (~14% **faster**). Comfortably under the Phase 0 spike's gate
+  of ≤1.2×. Phase 0 did not check a labelled baseline into the repo, so
+  `phase6` becomes the first persisted reference point. New
+  `benches/README.md` documents how to compare future runs.
+- **6f** (this step) — Phase 6 retrospective + suggest `unisim/phase6-complete` tag.
+
+**Architecture deltas vs plan:**
+
+- **No `#[engine_projected]` newtype/proc-macro.** The plan called for either
+  a wrapper newtype or a proc-macro to enforce projection isolation at
+  compile time. The audit found that the contract is already manually held
+  (manual code review of `project_state_to_ecs` callers in Phase 4–5
+  surfaced zero violations), and a substring-grep test gives the same
+  guarantee for ~50 lines of test code vs ~500+ lines of macro infrastructure.
+  Trade-off: a developer can technically silence the grep test by typing
+  the mutation in a sneaky way (e.g. `let h = &mut vital.hp; *h = 0;`),
+  but the realistic violation patterns are caught.
+- **No "delete 4 files" task.** As noted in the pre-step audit, the work was
+  already done in Phase 4 step 4e. The phase was re-scoped before any
+  implementation.
+- **`engine_step_range` requires a deferred-write architecture.** The Phase 5d
+  TODO comment ("populate in `process_action_system` once the bridge co-locates
+  `pick_action` and `step()`") was wishful — those are in different Bevy
+  systems and can't be co-located. 6c introduces `PendingAiLogEntries` as the
+  proper buffer. `BattleSnapshot` being `!Sync` (it carries a `RefCell` deep
+  inside) forced storing pre-serialized `serde_json::Value`s instead of typed
+  events; this is a Phase 6 implementation pragmatism, not a permanent shape.
+  Future cleanup: make `BattleSnapshot` `Sync` (`Cell` → atomic, or restructure
+  the cached field) so the buffer can hold typed `ActorTickEvent`s.
+
+**Gate criteria status:**
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | Full test suite green | ✓ 1198 tests pass (was 1071 post-Phase-5e; +127 from new tests across phase) |
+| 2 | Docs current | ✓ `extension-checklist.md` rewritten (6d); `unisim.md` retrospective updated (this step) |
+| 3 | No behaviour drift since Phase 1 baseline | ✓ engine bench shows engine ≈ 0.88× legacy (no regression vs the Phase 0 ≤1.2× gate); engine test suite green; bridge integration test green |
+| 4 | Legacy systems deleted (revised: confirm none remain) | ✓ pre-step audit confirmed Phase 4 step 4e closed this. No remaining legacy modules in `src/combat/`. |
+| 5 | Projection isolation guard active | ✓ `tests/projection_isolation.rs` (6b); 3-file allowlist; CI fails on regression |
+| 6 | `engine_step_range` populated end-to-end | ✓ (6c); test `bridge_smoke::ai_log_engine_step_range_populated` verifies |
+| 7 | Perf baseline persisted for future comparison | ✓ `target/criterion/.../phase6/`; documented in `benches/README.md` |
+
+**LOC delta:**
+- Phase 6 total (`4699ef7..977eed3`): +553 / -97, net **+456** across 18 files.
+- Largest additions: `docs/ai/rework/unisim.md` (this retro), `tests/combat_engine/bridge_smoke.rs` (6c's new test), `tests/projection_isolation.rs` (6b), `docs/ai/extension-checklist.md` (6d rewrite), `src/combat/ai/log/mod.rs` (6c's deferred-write infrastructure).
+
+**Surprises / known follow-ups:**
+
+- **`BattleSnapshot: !Sync`.** Forced 6c to pre-serialize JSON in
+  `PendingAiLogEntries` instead of holding typed events. The fix is small
+  but invasive across the AI module. Tracked as a Phase 6+ cleanup ticket.
+- **`turn_order.rs` ECS-side reaction refill is redundant.** Engine's
+  `start_round` already refills reactions; the ECS-side `r.remaining = r.max`
+  is load-bearing only because `init_state_from_ecs` reseeds the engine
+  from ECS each round and would otherwise read 0. Could be deleted if the
+  schedule were reordered to call engine `start_round` before
+  `init_state_from_ecs`. Out of Phase 6 scope.
+- **`Vital::apply_damage` / `apply_heal` are dead in production.** Used only
+  by their own unit tests. Could be deleted, but they're a public Bevy
+  Component API; leaving for now.
+- **`replay_engine_trace` hardcodes `assets/data`.** Run from project root
+  for now; future iteration could probe via `CARGO_MANIFEST_DIR`.
+- **fuzz harness (5f) still deferred.** No nightly / cargo-fuzz on the build
+  host. Re-open separately when tooling is available.
+
+**What worked / what didn't:**
+
+- **Worked:** the pre-step audit (delegated to Explore agent) caught the stale
+  plan early. Without it, 6a–6e would have been wasted trying to delete files
+  that don't exist. The audit memo became the working spec for the phase.
+- **Worked:** small commits per sub-step. 6a (warnings) → 6b (guard) → 6c
+  (architecture) → 6d (docs) → 6e (bench) → 6f (retro) — each independently
+  testable, each independently revertable.
+- **Worked:** the substring-grep approach for projection isolation. Zero
+  false positives in the baseline run after a single legitimate-exemption
+  allowlist add (`turn_order.rs`).
+- **Didn't:** original plan §5.6 ageing. The "delete 4 files + add
+  `#[engine_projected]` macro" tasks were both invalidated by Phase 4
+  decisions. Future phase plans should be re-audited at phase entry.
+- **Didn't (medium):** the `BattleSnapshot: !Sync` workaround in 6c. The
+  `serde_json::Value` buffer works but it's structurally weak — patching a
+  JSON field is fragile if the field name changes. A future cleanup should
+  make `BattleSnapshot` `Sync` and hold typed events.
+
+After this commit the user can tag `unisim/phase6-complete`. Phase 6 closes
+the unisim migration; sub-step 5f (fuzz harness) is the only remaining
+deferred item from the entire 6-phase plan.
+
 ### 5.7 Cross-cutting
 
 - **Parity harness** (`tests/parity.rs`) expands every phase — each phase adds canonical scenarios; suite never shrinks.
