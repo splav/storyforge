@@ -51,7 +51,7 @@ fn map_ability(content: &BridgeContentView, id: &AbilityId) -> Option<AbilityDef
             },
         },
         statuses: def.statuses.iter().map(|s| StatusApplication {
-            status: StatusId::from(s.status.0.as_str()),
+            status: s.status.clone(),
             duration_rounds: s.duration_rounds,
             on: s.on,
         }).collect(),

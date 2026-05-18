@@ -7,12 +7,7 @@ pub use combat_engine::TargetType;
 
 pub use combat_engine::StatusOn;
 
-#[derive(Debug, Clone)]
-pub struct StatusApplication {
-    pub status: StatusId,
-    pub duration_rounds: u32,
-    pub on: StatusOn,
-}
+pub use combat_engine::StatusApplication;
 
 pub use combat_engine::AbilityRange;
 
@@ -20,15 +15,6 @@ pub use combat_engine::AoEShape;
 
 
 
-impl From<&StatusApplication> for combat_engine::StatusApplication {
-    fn from(s: &StatusApplication) -> Self {
-        combat_engine::StatusApplication {
-            status: s.status.clone(),
-            duration_rounds: s.duration_rounds,
-            on: s.on.into(),
-        }
-    }
-}
 
 impl From<&ResourceCost> for combat_engine::Cost {
     fn from(c: &ResourceCost) -> Self {
@@ -68,7 +54,7 @@ impl From<&AbilityDef> for combat_engine::AbilityDef {
             aoe: def.aoe.into(),
             friendly_fire: def.friendly_fire,
             effect: (&def.effect).into(),
-            statuses: def.statuses.iter().map(Into::into).collect(),
+            statuses: def.statuses.clone(),
         }
     }
 }
