@@ -846,6 +846,25 @@ After this commit the user can tag `unisim/phase6-complete`. Phase 6 closes
 the unisim migration; sub-step 5f (fuzz harness) is the only remaining
 deferred item from the entire 6-phase plan.
 
+#### Post-Phase-6 cleanups (2026-05-18, commits `a80bc7c`–`3e491be`)
+
+After Phase 6 closed, a post-mortem audit (Explore agent) surfaced five
+quick wins. Four landed; the fifth was declared a non-issue after closer
+inspection.
+
+| # | Commit | Title | Effect |
+|---|---|---|---|
+| 1 | `a80bc7c` | Delete `effects_math.rs` duplicate | -41 LOC; `aoe_cells` / `final_damage_f32` now have a single authoritative home in `combat_engine::{targeting,effect}` |
+| 2 | `ca23d81` | Delete `Vital::apply_damage`/`apply_heal` | -2 dead methods; `ALLOWED_FILES` exception removed |
+| 3 | `b26e887` | `BattleSnapshot.RefCell → HashMap`; typed `PendingAiLogEntries` | -36 LOC; the 6c `serde_json::Value` workaround is unwound; `BattleSnapshot` is now `Sync` |
+| 4 | `3e491be` | Drop ECS-side reaction refill in `build_turn_order` | -1 `ALLOWED_FILES` exception (allowlist down to 1 entry: `engine_bridge.rs` only); engine `start_round` is now the sole reaction-refill owner |
+| 5 | (wontfix) | `caster_context` build into engine | Declared **no-op**: 5c.1 already absorbed `caster_context` as a `Unit` field. `TomlContentView` never builds CasterContext (it loads a fully-serialized `Unit` from the trace), so the "drift vector" the audit feared doesn't exist. The 20 lines of `init_state_from_ecs` ECS-derivation logic are I/O glue, not a duplicate evaluation path. |
+
+Net post-Phase-6 LOC delta: -94 LOC across 17 files. Tests: 1198 pass (was
+1198; one `aoo::reactions_refill_on_round_start` test deleted in #4 as it
+covered a removed bridge-side contract, offset by typed-buffer's improved
+clarity in #3).
+
 ### 5.7 Cross-cutting
 
 - **Parity harness** (`tests/parity.rs`) expands every phase — each phase adds canonical scenarios; suite never shrinks.
