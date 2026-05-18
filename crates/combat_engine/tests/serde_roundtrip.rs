@@ -325,6 +325,7 @@ fn unit_all_none_fields() {
 fn init_line_roundtrip() {
     let line = InitLine {
         schema: SCHEMA_VERSION,
+        session_id: "test_session".to_owned(),
         rng_seed: 0xDEAD_BEEF_1234_5678,
         units: vec![unit_all_some(1), unit_all_some(2)],
         next_synthetic_uid: 1000,

@@ -104,6 +104,7 @@ pub fn movement_app() -> App {
         .init_resource::<AnimationQueue>()
         .init_resource::<Reservations>()
         .init_resource::<storyforge::combat::ai::log::AiLogger>()
+        .init_resource::<storyforge::combat::ai::log::engine_trace::EngineTraceWriter>()
         .init_resource::<PresetInitiative>()
         .insert_resource(HexGridOffset(Vec2::ZERO))
         .init_resource::<CombatStateRes>()

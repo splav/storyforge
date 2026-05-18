@@ -794,6 +794,7 @@ pub fn process_action_system(
     visuals: VisualAssets,
     mut next_phase: Option<ResMut<NextState<CombatPhase>>>,
     mut pending_phases: ResMut<PendingPhaseTransitions>,
+    mut trace_writer: ResMut<crate::combat::ai::log::engine_trace::EngineTraceWriter>,
 ) {
     for msg in reader.read() {
         match msg {
@@ -813,8 +814,15 @@ pub fn process_action_system(
 
                 let content = build_ecs_content_view(&active_content);
 
+                let action_for_trace = action.clone();
                 match step(&mut combat_state.0, action, &mut rng.0, &content) {
-                    Ok((events, _ctx)) => {
+                    Ok((events, ctx)) => {
+                        // Write trace BEFORE ECS projection so a crash mid-projection
+                        // doesn't corrupt the trace (plan spec §4 wiring note).
+                        let hash = combat_engine::trace::post_state_hash_hex(&combat_state.0);
+                        if let Err(e) = trace_writer.write_step(&action_for_trace, &events, ctx.rng_calls, hash) {
+                            warn!("Engine trace step write failed: {e}");
+                        }
                         translate_move_events(
                             *actor,
                             &events,
@@ -872,8 +880,14 @@ pub fn process_action_system(
                     .and_then(|u| u.mana)
                     .map(|(c, _)| c);
 
+                let action_for_trace = action.clone();
                 match step(&mut combat_state.0, action, &mut rng.0, &content) {
-                    Ok((events, _ctx)) => {
+                    Ok((events, ctx)) => {
+                        // Write trace BEFORE ECS projection.
+                        let hash = combat_engine::trace::post_state_hash_hex(&combat_state.0);
+                        if let Err(e) = trace_writer.write_step(&action_for_trace, &events, ctx.rng_calls, hash) {
+                            warn!("Engine trace step write failed: {e}");
+                        }
                         translate_cast_events(
                             *actor,
                             ability,
@@ -911,8 +925,14 @@ pub fn process_action_system(
                                 && unit.movement_points <= 0
                             {
                                 // AP and MP exhausted after cast — auto-end turn via engine.
+                                let auto_end = Action::EndTurn { actor: actor_uid };
                                 let end_content = build_ecs_content_view(&active_content);
-                                if let Ok((end_events, _ctx)) = step(&mut combat_state.0, Action::EndTurn { actor: actor_uid }, &mut rng.0, &end_content) {
+                                if let Ok((end_events, end_ctx)) = step(&mut combat_state.0, auto_end.clone(), &mut rng.0, &end_content) {
+                                    // Trace the auto-end-turn step too.
+                                    let end_hash = combat_engine::trace::post_state_hash_hex(&combat_state.0);
+                                    if let Err(e) = trace_writer.write_step(&auto_end, &end_events, end_ctx.rng_calls, end_hash) {
+                                        warn!("Engine trace auto-end-turn step write failed: {e}");
+                                    }
                                     translate_end_turn_events(&end_events, &id_map, &mut commands, &mut log, &mut next_phase);
                                     // Phase transitions during auto-end-turn (e.g. DoT ticks).
                                     for ev in &end_events {
@@ -946,8 +966,14 @@ pub fn process_action_system(
 
                 let content = build_ecs_content_view(&active_content);
 
-                match step(&mut combat_state.0, Action::EndTurn { actor: actor_uid }, &mut rng.0, &content) {
-                    Ok((events, _ctx)) => {
+                let end_action = Action::EndTurn { actor: actor_uid };
+                match step(&mut combat_state.0, end_action.clone(), &mut rng.0, &content) {
+                    Ok((events, ctx)) => {
+                        // Write trace BEFORE ECS projection.
+                        let hash = combat_engine::trace::post_state_hash_hex(&combat_state.0);
+                        if let Err(e) = trace_writer.write_step(&end_action, &events, ctx.rng_calls, hash) {
+                            warn!("Engine trace step write failed: {e}");
+                        }
                         translate_end_turn_events(
                             &events,
                             &id_map,

@@ -133,6 +133,11 @@ impl DiceRng {
         Self { state: seed, scripted: std::collections::VecDeque::new(), call_count: 0 }
     }
 
+    /// Returns the current RNG state (= initial seed before any rolls).
+    /// Useful for capturing the initial seed into an `InitLine` at combat
+    /// start, before any roll has advanced the state.
+    pub fn seed(&self) -> u64 { self.state }
+
     /// Queue scripted roll results. While non-empty, `roll_d` pops from here.
     pub fn script(&mut self, results: &[i32]) {
         self.scripted.extend(results);

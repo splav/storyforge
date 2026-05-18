@@ -88,6 +88,7 @@ fn post_state_hash_excludes_dead_units() {
 fn serialize_init_produces_parseable_jsonl() {
     let init = InitLine {
         schema: SCHEMA_VERSION,
+        session_id: "test_session".to_owned(),
         rng_seed: 0xCAFE_BABE,
         units: vec![make_unit(1, 30), make_unit(2, 25)],
         next_synthetic_uid: 1000,
@@ -112,6 +113,7 @@ fn serialize_init_produces_parseable_jsonl() {
 fn serialize_init_byte_equal_on_second_pass() {
     let init = InitLine {
         schema: SCHEMA_VERSION,
+        session_id: "test_session".to_owned(),
         rng_seed: 1,
         units: vec![make_unit(5, 10)],
         next_synthetic_uid: 500,

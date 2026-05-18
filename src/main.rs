@@ -46,6 +46,7 @@ fn main() {
         })
         .init_resource::<combat::ai::world::reservations::Reservations>()
         .init_resource::<combat::ai::log::AiLogger>()
+        .init_resource::<combat::ai::log::engine_trace::EngineTraceWriter>()
         .init_resource::<combat::ai::world::influence::InfluenceConfig>()
         .init_resource::<AiTuning>()
         .insert_resource(settings)
@@ -114,7 +115,7 @@ fn main() {
             OnEnter(AppState::Combat),
             (
                 scenario::combat_scene::spawn_combat_scene,
-                combat::ai::log::open_ai_log_on_combat_enter,
+                combat::ai::log::open_combat_logs_on_combat_enter,
             ),
         )
         .add_systems(
@@ -122,6 +123,7 @@ fn main() {
             (
                 scenario::combat_scene::despawn_combatants,
                 combat::ai::log::close_ai_log_on_combat_exit,
+                combat::ai::log::close_engine_trace_on_combat_exit,
             ),
         )
         // ── Combat UI (runs every frame during combat) ───────────────────

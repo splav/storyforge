@@ -1343,16 +1343,19 @@ fn main() {
         std::process::exit(2);
     });
 
+    // New layout: logs/<fight_id>/ai.jsonl (Phase 5 step 5d).
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("cannot read dir {}: {e}", dir.display()))
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
+        .filter(|p| p.is_dir())
+        .map(|p| p.join("ai.jsonl"))
+        .filter(|p| p.exists())
         .collect();
     files.sort();
 
     if files.is_empty() {
-        eprintln!("no *.jsonl files found in {}", dir.display());
+        eprintln!("no <dir>/*/ai.jsonl files found in {}", dir.display());
         std::process::exit(1);
     }
 
@@ -2438,6 +2441,7 @@ mod tests {
         ActorTickEvent {
             event_type: "actor_tick".to_owned(),
             schema_version: 32,
+            session_id: String::new(),
             round: 1,
             timestamp_ms: 0,
             actor_id,
@@ -2452,6 +2456,7 @@ mod tests {
             band: None,
             band_reason: None,
             agenda: vec![],
+            engine_step_range: None,
         }
     }
 

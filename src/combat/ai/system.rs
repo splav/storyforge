@@ -6,7 +6,7 @@ use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::memory::goal::lifecycle as goal_lifecycle;
-use crate::combat::ai::log::{AiLogger, ActorTickInput, write_actor_tick_log};
+use crate::combat::ai::log::{AiLogger, ActorTickInput, CombatLogSession, write_actor_tick_log};
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::world::snapshot::build_snapshot;
@@ -66,16 +66,19 @@ pub fn enemy_ai_system(
     roles: Query<&AxisProfile>,
     mut memories: Query<&mut AiMemory>,
     names: Query<&Name>,
+    session: Option<Res<CombatLogSession>>,
 ) {
     let Ok(actor) = active_q.single() else { return };
     let Ok(c) = combatants.get(actor) else { return };
     if c.faction.0 != Team::Enemy || !c.vital.is_alive() || c.abilities.0.is_empty() {
         return;
     }
+    let session_id = session.as_ref().map(|s| s.session_id.as_str()).unwrap_or("");
     run_ai_turn(
         actor, &c, &env, &mut **rng, &mut reservations,
         &mut logger, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
+        session_id,
     );
 }
 
@@ -99,6 +102,7 @@ fn run_ai_turn(
     memories: &mut Query<&mut AiMemory>,
     debug_state: &mut AiDebugState,
     names: &Query<&Name>,
+    session_id: &str,
 ) {
     let content: &ContentView = &env.content;
     let settings = &env.settings;
@@ -167,6 +171,7 @@ fn run_ai_turn(
                 })
                 .collect();
             write_actor_tick_log(logger, ActorTickInput {
+                session_id,
                 round: combat_ctx.round,
                 actor,
                 actor_name: &actor_name,
@@ -257,6 +262,7 @@ fn run_ai_turn(
     // section of the actor_tick event.
     if logger.is_enabled() {
         write_actor_tick_log(logger, ActorTickInput {
+            session_id,
             round: combat_ctx.round,
             actor,
             actor_name: debug_names.get(&actor).map(|s| s.as_str()).unwrap_or("unknown"),
@@ -354,6 +360,7 @@ pub fn pact_ai_system(
     roles: Query<&AxisProfile>,
     mut memories: Query<&mut AiMemory>,
     names: Query<&Name>,
+    session: Option<Res<CombatLogSession>>,
 ) {
     let Ok(actor) = active_q.single() else { return };
     let Ok(c) = combatants.get(actor) else { return };
@@ -363,10 +370,12 @@ pub fn pact_ai_system(
     if !has_ai_control_status(actor, &statuses, &env.content) {
         return;
     }
+    let session_id = session.as_ref().map(|s| s.session_id.as_str()).unwrap_or("");
     run_ai_turn(
         actor, &c, &env, &mut **rng, &mut reservations,
         &mut logger, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
+        session_id,
     );
 }
 

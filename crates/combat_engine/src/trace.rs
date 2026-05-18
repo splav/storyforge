@@ -34,6 +34,9 @@ pub const SCHEMA_VERSION: u32 = 37;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InitLine {
     pub schema: u32,
+    /// Fight folder name = `session_id` (D11). Shared with `ai.jsonl` header
+    /// so external tools can join both files by `(session_id, step_range)`.
+    pub session_id: String,
     pub rng_seed: u64,
     pub units: Vec<Unit>,
     pub next_synthetic_uid: u64,

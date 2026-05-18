@@ -874,6 +874,7 @@ mod tests {
         ActorTickEvent {
             event_type: "actor_tick".to_owned(),
             schema_version: 33,
+            session_id: String::new(),
             round: 1,
             timestamp_ms: 0,
             actor_id: 1,
@@ -888,6 +889,7 @@ mod tests {
             band: None,
             band_reason: None,
             agenda: vec![],
+            engine_step_range: None,
         }
     }
 

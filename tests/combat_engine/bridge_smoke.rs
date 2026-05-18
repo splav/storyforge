@@ -112,6 +112,7 @@ fn bridge_app() -> App {
             ring: Handle::default(),
         })
         .init_resource::<PendingPhaseTransitions>()
+        .init_resource::<storyforge::combat::ai::log::engine_trace::EngineTraceWriter>()
         .add_message::<ActionInput>()
         .add_systems(
             Update,
@@ -1989,4 +1990,79 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
     assert_eq!(pe_prev, "Boss", "PhaseEntered.prev_name must be original boss name");
     assert_eq!(pe_next, "Phase Two", "PhaseEntered.next_name must be new phase name");
     assert_eq!(pe_flavor, Some("Boss enters phase two!".into()), "PhaseEntered.flavor must match");
+}
+
+// ── EngineTraceWriter smoke test (Phase 5 step 5d, gate #11 / #12 / #14) ─────
+
+/// Verifies that `EngineTraceWriter` can open a file, write an `InitLine`
+/// with a `session_id`, then write two `StepLine`s, and that the resulting
+/// JSONL is parseable with correct field values.
+#[test]
+fn engine_trace_writer_init_and_step() {
+    use combat_engine::action::Action;
+    use combat_engine::state::UnitId;
+    use combat_engine::trace::{parse_init, parse_step, InitLine, SCHEMA_VERSION};
+    use hexx::Hex;
+    use std::io::BufRead;
+    use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
+
+    // Use a temp path unique to this test run (epoch-ns suffix).
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!("engine_trace_smoke_{ts}.jsonl"));
+
+    let mut writer = EngineTraceWriter::default();
+    writer.open(&path).expect("open trace file");
+
+    // Write init line.
+    let init = InitLine {
+        schema: SCHEMA_VERSION,
+        session_id: "test_session".to_owned(),
+        rng_seed: 0xDEAD_BEEF,
+        units: vec![],
+        next_synthetic_uid: 0,
+        content_hash: "blake3:test".to_owned(),
+    };
+    writer.write_init(&init).expect("write init");
+
+    // Write two step lines.
+    let action0 = Action::Move {
+        actor: UnitId(1),
+        path: vec![Hex::new(0, 0), Hex::new(1, 0)],
+    };
+    let action1 = Action::EndTurn { actor: UnitId(1) };
+    writer
+        .write_step(&action0, &[], 0, "blake3:hash0".to_owned())
+        .expect("write step 0");
+    writer
+        .write_step(&action1, &[], 0, "blake3:hash1".to_owned())
+        .expect("write step 1");
+    writer.close();
+
+    // Parse the file back.
+    let file = std::fs::File::open(&path).expect("open for read");
+    let mut lines = std::io::BufReader::new(file).lines();
+
+    // Line 1: InitLine.
+    let line1 = lines.next().expect("line 1 missing").expect("io");
+    let parsed_init = parse_init(&line1).expect("parse init");
+    assert_eq!(parsed_init.session_id, "test_session");
+    assert_eq!(parsed_init.rng_seed, 0xDEAD_BEEF);
+
+    // Line 2: StepLine step=0.
+    let line2 = lines.next().expect("line 2 missing").expect("io");
+    let parsed_step0 = parse_step(&line2).expect("parse step 0");
+    assert_eq!(parsed_step0.step, 0);
+    assert!(matches!(parsed_step0.action, Action::Move { .. }));
+
+    // Line 3: StepLine step=1.
+    let line3 = lines.next().expect("line 3 missing").expect("io");
+    let parsed_step1 = parse_step(&line3).expect("parse step 1");
+    assert_eq!(parsed_step1.step, 1);
+    assert!(matches!(parsed_step1.action, Action::EndTurn { .. }));
+
+    assert!(lines.next().is_none(), "no extra lines");
+    let _ = std::fs::remove_file(&path);
 }

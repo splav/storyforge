@@ -29,9 +29,10 @@ impl Plugin for CombatPipelinePlugin {
             .init_resource::<PendingPhaseTransitions>();
 
         // Initialize engine state once per round (on enter AwaitCommand).
+        // Engine trace init runs immediately after, so it sees the fresh state.
         app.add_systems(
             OnEnter(CombatPhase::AwaitCommand),
-            init_state_from_ecs,
+            (init_state_from_ecs, crate::combat::ai::log::write_engine_trace_init_system).chain(),
         );
 
         app.add_systems(

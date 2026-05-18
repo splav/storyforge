@@ -573,6 +573,7 @@ pub fn write_decision_log_from_result(
     }).count();
 
     let entry = log::build_entry(
+        "", // session_id — this function is superseded by write_actor_tick_log; pass empty
         plan_id, decision_time_ms, active, actor_name, snap, intent_block,
         plans.len(), shown, plan_entries, &result.decision,
         gate_applied,

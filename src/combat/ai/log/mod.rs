@@ -27,6 +27,7 @@
 #![allow(clippy::too_many_arguments)]
 
 pub mod debug;
+pub mod engine_trace;
 pub mod serde_helpers;
 
 use std::fs::{create_dir_all, File};
@@ -188,6 +189,14 @@ use crate::game::hex::Hex;
 /// since refresh_aggregates didn't propagate them).
 pub const SCHEMA_VERSION: u32 = 36;
 
+/// Carries the fight folder name (== session_id D11) into systems that need
+/// to include it in their writes — both AI log entries and engine trace init
+/// line. Inserted by `open_combat_logs_on_combat_enter`.
+#[derive(Resource, Clone, Default)]
+pub struct CombatLogSession {
+    pub session_id: String,
+}
+
 /// Bevy resource owning the log writer. Absent / `None` writer = logging off.
 /// Plan id counter is kept even when writer is off so analysis tools can
 /// relate manual console traces by id if one is attached mid-session.
@@ -240,9 +249,30 @@ impl AiLogger {
 
 // ── Entry schema ───────────────────────────────────────────────────────────
 
+/// Header line written as the first entry of `ai.jsonl` at combat start.
+/// Carries `session_id` so the file is self-describing if extracted/moved.
+/// Old miners skip it via `event_type != "actor_tick"` filter.
+#[derive(Serialize)]
+pub struct CombatLogHeader<'a> {
+    pub event_type: &'static str, // always "combat_log_header"
+    pub schema_version: u32,
+    pub session_id: &'a str,
+}
+
 #[derive(Serialize)]
 pub struct AiLogEntry<'a> {
     pub schema_version: u32,
+    /// Fight folder name shared with `engine.jsonl` init line (D11).
+    pub session_id: &'a str,
+    /// Half-open engine step range `[start, end_exclusive)` that this AI
+    /// decision corresponds to. Populated by the bridge between AI tick and
+    /// engine apply.
+    ///
+    /// TODO (Phase 6): populate in `process_action_system` once the bridge
+    /// co-locates `pick_action` and `step()` so the range is observable.
+    /// For Phase 5d this is always `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_step_range: Option<(u64, u64)>,
     pub plan_id: u64,
     pub timestamp_ms: u128,
     pub decision_time_ms: u64,
@@ -465,8 +495,10 @@ pub fn sanitize_for_filename(s: &str) -> String {
         .collect()
 }
 
-/// Build the per-combat log path under `logs/` relative to the CWD.
-pub fn build_combat_log_path(
+/// Build the per-combat log folder path under `logs/` relative to the CWD.
+/// Returns a folder `PathBuf` (no file extension). The folder name is the
+/// `session_id` shared by both `ai.jsonl` and `engine.jsonl` inside it.
+pub fn build_combat_log_dir(
     campaign: &str,
     scenario: &str,
     encounter: &str,
@@ -474,7 +506,7 @@ pub fn build_combat_log_path(
 ) -> PathBuf {
     let ts = format_timestamp_utc(now_epoch_s);
     let name = format!(
-        "{ts}_{}_{}_{}.jsonl",
+        "{ts}_{}_{}_{}" ,
         sanitize_for_filename(campaign),
         sanitize_for_filename(scenario),
         sanitize_for_filename(encounter),
@@ -530,20 +562,21 @@ pub fn plan_to_log_entry<'a>(
     }
 }
 
-/// System: open a fresh log file for the combat we're entering. Runs on
-/// `OnEnter(AppState::Combat)`. Silently no-op if `ai_log` setting is off or
-/// the required scenario state isn't available. Failure to create the file is
-/// a `warn!` — the game proceeds without logging.
-pub fn open_ai_log_on_combat_enter(
+/// System: open both log files for the combat we're entering.
+///
+/// Runs on `OnEnter(AppState::Combat)`. Creates the per-fight folder and
+/// dispatches `ai.jsonl` (conditional on `ai_log` setting) and
+/// `engine.jsonl` (unconditional — required for replay). Inserts
+/// `CombatLogSession` resource so downstream systems can read `session_id`.
+pub fn open_combat_logs_on_combat_enter(
     settings: Res<crate::content::settings::GameSettings>,
     scenario: Option<Res<crate::game::resources::ScenarioState>>,
     campaign: Option<Res<crate::game::resources::CampaignState>>,
     db: Res<crate::game::resources::GameDb>,
     mut logger: ResMut<AiLogger>,
+    mut trace_writer: ResMut<engine_trace::EngineTraceWriter>,
+    mut commands: Commands,
 ) {
-    if !settings.ai_log {
-        return;
-    }
     let Some(scen_state) = scenario else { return };
     let Some(scen_def) = db.scenarios.get(&scen_state.scenario_id) else { return };
     let encounter_id = match scen_def.scenes.get(scen_state.scene_index) {
@@ -562,22 +595,115 @@ pub fn open_ai_log_on_combat_enter(
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    let path = build_combat_log_path(campaign_id, &scen_state.scenario_id, encounter_id, now_epoch_s);
-    match logger.open(path.clone()) {
-        Ok(()) => info!("AI log → {}", path.display()),
-        Err(e) => warn!("AI log open failed at {}: {}", path.display(), e),
+    let dir = build_combat_log_dir(campaign_id, &scen_state.scenario_id, encounter_id, now_epoch_s);
+    if let Err(e) = create_dir_all(&dir) {
+        warn!("Combat log dir create failed at {}: {}", dir.display(), e);
+    }
+
+    let session_id = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "unknown_session".to_owned());
+    commands.insert_resource(CombatLogSession { session_id: session_id.clone() });
+
+    // Engine trace is always opened (independent of ai_log setting) — it is
+    // the replay path.
+    let engine_path = dir.join("engine.jsonl");
+    match trace_writer.open(&engine_path) {
+        Ok(()) => info!("Engine trace → {}", engine_path.display()),
+        Err(e) => warn!("Engine trace open failed at {}: {}", engine_path.display(), e),
+    }
+
+    if !settings.ai_log { return; }
+    let ai_path = dir.join("ai.jsonl");
+    match logger.open(ai_path.clone()) {
+        Ok(()) => {
+            info!("AI log → {}", ai_path.display());
+            let header = CombatLogHeader {
+                event_type: "combat_log_header",
+                schema_version: SCHEMA_VERSION,
+                session_id: &session_id,
+            };
+            if let Err(e) = logger.write_entry(&header) {
+                warn!("AI log header write failed: {e}");
+            }
+        }
+        Err(e) => warn!("AI log open failed at {}: {}", ai_path.display(), e),
     }
 }
 
-/// System: close the current log writer on `OnExit(AppState::Combat)` so
+/// System: close the current AI log writer on `OnExit(AppState::Combat)` so
 /// each combat produces a self-contained file.
 pub fn close_ai_log_on_combat_exit(mut logger: ResMut<AiLogger>) {
     logger.close();
 }
 
+/// System: writes `engine.jsonl` InitLine once `CombatStateRes` is ready.
+///
+/// Registered on `OnEnter(CombatPhase::AwaitCommand)` chained after
+/// `init_state_from_ecs`. The `step_counter == 0` guard makes it idempotent
+/// across subsequent AwaitCommand entries (round transitions).
+pub fn write_engine_trace_init_system(
+    mut trace_writer: ResMut<engine_trace::EngineTraceWriter>,
+    combat_state: Option<Res<crate::combat::engine_bridge::CombatStateRes>>,
+    rng: Option<Res<crate::combat::DiceRngRes>>,
+    session: Option<Res<CombatLogSession>>,
+) {
+    if !trace_writer.is_open() || trace_writer.step_counter() > 0 { return; }
+    let (Some(combat_state), Some(rng)) = (combat_state, rng) else { return };
+    let session_id = session.as_ref().map(|s| s.session_id.clone()).unwrap_or_default();
+    let content_hash = compute_data_dir_hash();
+    let state = &combat_state.0;
+    let init = combat_engine::trace::InitLine {
+        schema: combat_engine::trace::SCHEMA_VERSION,
+        session_id,
+        rng_seed: rng.0.seed(),
+        units: state.units().to_vec(),
+        next_synthetic_uid: state.next_synthetic_uid(),
+        content_hash,
+    };
+    if let Err(e) = trace_writer.write_init(&init) {
+        warn!("Engine trace init write failed: {e}");
+    }
+}
+
+/// System: closes engine trace on `OnExit(AppState::Combat)`.
+pub fn close_engine_trace_on_combat_exit(mut trace_writer: ResMut<engine_trace::EngineTraceWriter>) {
+    trace_writer.close();
+}
+
+/// Hash `assets/data/*.toml` files deterministically for the InitLine
+/// `content_hash` field (D3). Returns `blake3:<hex>` string.
+fn compute_data_dir_hash() -> String {
+    let data_dir = std::path::Path::new("assets/data");
+    let mut pairs: Vec<(String, String)> = match std::fs::read_dir(data_dir) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|ext| ext == "toml"))
+            .filter_map(|p| {
+                let name = p.file_name()?.to_string_lossy().into_owned();
+                let contents = std::fs::read_to_string(&p).ok()?;
+                Some((name, contents))
+            })
+            .collect(),
+        Err(e) => {
+            warn!("content hash: cannot read assets/data: {e}");
+            vec![]
+        }
+    };
+    // Sort by filename for determinism.
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    let refs: Vec<(&str, &str)> = pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let digest = combat_engine::content_hash::hash_content(&refs);
+    combat_engine::content_hash::format_hex(&digest)
+}
+
 /// Build an entry for a given decision. Caller fills the `plans` list and
 /// provides the snapshot + intent + actor data via its owning scope.
+/// `session_id` comes from `CombatLogSession` resource (D11).
 pub fn build_entry<'a>(
+    session_id: &'a str,
     plan_id: u64,
     decision_time_ms: u64,
     active: &'a UnitSnapshot,
@@ -606,6 +732,8 @@ pub fn build_entry<'a>(
 
     AiLogEntry {
         schema_version: SCHEMA_VERSION,
+        session_id,
+        engine_step_range: None,
         plan_id,
         timestamp_ms: now_ms(),
         decision_time_ms,
@@ -960,6 +1088,11 @@ pub struct AgendaItemLog {
 pub struct ActorTickEvent {
     pub event_type: String,
     pub schema_version: u32,
+    /// Fight folder name shared with `engine.jsonl` init line (D11).
+    /// Empty string when `CombatLogSession` was not available at log time
+    /// (e.g. logging enabled but combat-start hook hasn't run yet).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub session_id: String,
     pub round: u32,
     pub timestamp_ms: u64,
     pub actor_id: u64,
@@ -1005,12 +1138,24 @@ pub struct ActorTickEvent {
     /// Empty on skip-path.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agenda: Vec<AgendaItemLog>,
+    /// Phase 5 step 5d (D11): half-open range `[start, end)` of engine step
+    /// indices that correspond to the bridge actions applied for this AI
+    /// decision. `None` when not yet wired or on the skip-path.
+    ///
+    /// TODO (Phase 6): populate in `process_action_system` once the bridge
+    /// co-locates `pick_action` and `step()` so the range is observable.
+    /// For Phase 5d this is always `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_step_range: Option<(u64, u64)>,
 }
 
 // ── ActorTickInput + build helpers ────────────────────────────────────────
 
 /// All inputs needed to assemble an `ActorTickEvent`.
 pub struct ActorTickInput<'a> {
+    /// Fight session ID (= fight folder name, D11). Pass empty str when
+    /// `CombatLogSession` resource is not available.
+    pub session_id: &'a str,
     pub round: u32,
     pub actor: Entity,
     pub actor_name: &'a str,
@@ -1101,6 +1246,7 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
     ActorTickEvent {
         event_type: "actor_tick".to_owned(),
         schema_version: SCHEMA_VERSION,
+        session_id: input.session_id.to_owned(),
         round: input.round,
         timestamp_ms: now_ms() as u64,
         actor_id,
@@ -1115,6 +1261,7 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
         band,
         band_reason,
         agenda,
+        engine_step_range: None,
     }
 }
 
@@ -1309,11 +1456,35 @@ mod tests {
     }
 
     #[test]
-    fn log_path_has_expected_shape() {
-        let p = build_combat_log_path("main", "scene1", "goblin_camp", 1_776_609_022);
-        let s = p.to_string_lossy();
-        assert!(s.starts_with("logs"), "prefix logs/: {s}");
-        assert!(s.ends_with("20260419T143022_main_scene1_goblin_camp.jsonl"), "{s}");
+    fn build_combat_log_dir_shape() {
+        let d = build_combat_log_dir("main", "scene1", "goblin_camp", 1_776_609_022);
+        assert_eq!(d, PathBuf::from("logs").join("20260419T143022_main_scene1_goblin_camp"));
+        // Folder name == session_id (no .jsonl extension).
+        let name = d.file_name().unwrap().to_string_lossy();
+        assert_eq!(name, "20260419T143022_main_scene1_goblin_camp");
+    }
+
+    /// Gate #11 / #12: `CombatLogHeader` serializes with `event_type =
+    /// "combat_log_header"` and is skipped by the `actor_tick` filter used
+    /// in `mine_ai_logs`.
+    #[test]
+    fn combat_log_header_serializes_and_is_skipped_by_miner_filter() {
+        let header = CombatLogHeader {
+            event_type: "combat_log_header",
+            schema_version: SCHEMA_VERSION,
+            session_id: "20260419T143022_main_scene1_goblin_camp",
+        };
+        let json = serde_json::to_string(&header).expect("serialize");
+        let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        assert_eq!(v["event_type"], "combat_log_header");
+        assert_eq!(v["schema_version"], SCHEMA_VERSION);
+        assert_eq!(v["session_id"], "20260419T143022_main_scene1_goblin_camp");
+        // mine_ai_logs filter: skip non-"actor_tick" events.
+        assert_ne!(
+            v.get("event_type").and_then(|t| t.as_str()),
+            Some("actor_tick"),
+            "header must be skipped by actor_tick filter"
+        );
     }
 
     #[test]
@@ -1330,6 +1501,8 @@ mod tests {
         let memory = crate::combat::ai::intent::AiMemory::default();
         let entry = AiLogEntry {
             schema_version: SCHEMA_VERSION,
+            session_id: "test_session",
+            engine_step_range: None,
             plan_id: 0,
             timestamp_ms: 0,
             decision_time_ms: 0,
@@ -1448,6 +1621,7 @@ mod tests {
         debug_names: &'a std::collections::HashMap<Entity, String>,
     ) -> ActorTickInput<'a> {
         ActorTickInput {
+            session_id: "test_session",
             round: 1,
             actor,
             actor_name: "TestEnemy",
@@ -1519,6 +1693,7 @@ mod tests {
         let decision = AiDecision::EndTurn;
         let test_reason = crate::combat::ai::intent::IntentReason::NoRuleDefault;
         let input = ActorTickInput {
+            session_id: "test_session",
             round: 2,
             actor,
             actor_name: "Boss",
@@ -1571,6 +1746,7 @@ mod tests {
         let decision = AiDecision::EndTurn;
         let reason = crate::combat::ai::intent::IntentReason::NoRuleDefault;
         let input = ActorTickInput {
+            session_id: "test_session",
             round: 1,
             actor,
             actor_name: "Tester",
@@ -1740,6 +1916,7 @@ mod tests {
         let agenda = Agenda { band, items: vec![agenda_item] };
 
         let input = ActorTickInput {
+            session_id: "test_session",
             round: 1,
             actor,
             actor_name: "TestActor",
