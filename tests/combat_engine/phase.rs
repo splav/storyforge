@@ -8,8 +8,6 @@
 //! - Phase cascade applies all atomic effects: SetMaxHp, Heal, RefreshAggregates.
 //! - Event::PhaseEntered carries correct prev_max_hp / new_max_hp.
 
-use hexx::Hex;
-
 use storyforge::combat_engine::{
     content::{ContentView, PhaseEntry, StatusBonuses},
     event::Event,

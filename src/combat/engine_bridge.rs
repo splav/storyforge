@@ -336,19 +336,6 @@ impl<'a> EngineContentView for EcsContentView<'a> {
     }
 }
 
-/// Query row for building `EcsContentView`.
-pub(crate) type AooRow<'a> = (
-    Entity,
-    &'a Equipment,
-    &'a CombatStats,
-    &'a Abilities,
-    &'a Vital,
-    Option<&'a StatusEffects>,
-    &'a Reactions,
-    Has<Dead>,
-    Option<&'a CombatPath>,
-);
-
 /// Deferred queue of phase transitions to apply at the end of `Execute`.
 ///
 /// `process_action_system` / `engine_turn_start_system` push `(UnitId, phase_idx)`

@@ -9,7 +9,7 @@ use hexx::Hex;
 use storyforge::combat_engine::{
     action::{Action, ActionError},
     content::{ContentView, StatusBonuses},
-    dice::{DiceExpr, ExpectedValue},
+    dice::ExpectedValue,
     event::{Event, TurnSkipReason},
     legality::IllegalReason,
     state::{ActiveStatus, CombatState, RoundPhase, Team, Unit, UnitId},

@@ -11,7 +11,6 @@
 
 use storyforge::combat_engine::{
     content::{ContentView, StatusBonuses},
-    dice::DiceExpr,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     turn_queue::TurnQueue,
     StatusId,

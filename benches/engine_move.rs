@@ -21,7 +21,7 @@ use storyforge::combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
     dice::{DiceExpr as EngineDiceExpr, ExpectedValue},
-    state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit, UnitId},
+    state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit},
     step::step,
 };
 use storyforge::combat::engine_bridge::entity_to_uid;

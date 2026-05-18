@@ -16,7 +16,7 @@ use storyforge::combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
     dice::{DiceExpr as EngineDiceExpr, ExpectedValue},
-    state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit, UnitId},
+    state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit},
     step::step,
 };
 use storyforge::combat::engine_bridge::entity_to_uid;
@@ -143,19 +143,14 @@ fn run_sim(snap: &BattleSnapshot, actor_id: Entity, path: Vec<storyforge::game::
     sim.snapshot
 }
 
-/// ContentView adapter that reads AoO dice from snapshot's `aoo_expected_damage`.
-struct SnapContent {
-    aoo: std::collections::HashMap<UnitId, f32>,
-}
+/// ContentView adapter for parity tests. After Phase 5c.1 the engine reads
+/// AoO dice directly from `Unit.aoo_dice` (set by `init_state_from_ecs`),
+/// so this stub no longer needs to materialize the dice map itself.
+struct SnapContent;
 
 impl SnapContent {
-    fn from_snap(snap: &BattleSnapshot) -> Self {
-        let aoo = snap
-            .units
-            .iter()
-            .filter_map(|u| Some((entity_to_uid(u.entity), u.aoo_expected_damage?)))
-            .collect();
-        Self { aoo }
+    fn from_snap(_snap: &BattleSnapshot) -> Self {
+        Self
     }
 }
 

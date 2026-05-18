@@ -21,14 +21,17 @@ use storyforge::game::hex::hex_from_offset;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-struct StubContent {
-    /// If Some, all units return this dice for AoO. None = no weapon.
-    aoo_dice: Option<DiceExpr>,
-}
+/// Stub `ContentView` for step-level integration tests. After Phase 5c.1 the
+/// engine reads AoO dice directly from `Unit.aoo_dice` rather than from
+/// content; the `DiceExpr` passed to `with_weapon` is currently unused
+/// (callers wanting AoO must set the field on their `Unit` directly).
+/// The `with_weapon` / `no_weapon` distinction is preserved as a semantic
+/// marker at callsites.
+struct StubContent;
 
 impl StubContent {
-    fn no_weapon() -> Self { Self { aoo_dice: None } }
-    fn with_weapon(d: DiceExpr) -> Self { Self { aoo_dice: Some(d) } }
+    fn no_weapon() -> Self { Self }
+    fn with_weapon(_d: DiceExpr) -> Self { Self }
 }
 
 impl ContentView for StubContent {

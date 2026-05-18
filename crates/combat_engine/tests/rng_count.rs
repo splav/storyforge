@@ -6,7 +6,7 @@
 
 use combat_engine::{
     AbilityId,
-    AuraDef, CasterContext, UnitTemplate,
+    UnitTemplate,
     action::Action,
     content::{
         AbilityDef, AbilityRange, AoEShape, ContentView, CritFailOutcome, EffectDef,

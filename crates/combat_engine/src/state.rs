@@ -511,8 +511,7 @@ mod tests {
     use super::*;
     use hexx::Hex;
     use crate::content::{ContentView, StatusBonuses};
-    use crate::dice::DiceExpr;
-    use crate::{AbilityDef, AbilityId, CasterContext, StatusDef, StatusId};
+    use crate::{AbilityDef, AbilityId, StatusDef, StatusId};
 
     /// No-op `ContentView` for state-level unit tests. `start_actor_turn` and
     /// `tick_actor_statuses` take `&dyn ContentView` because their generic
