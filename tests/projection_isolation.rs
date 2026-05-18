@@ -39,14 +39,6 @@ use std::path::{Path, PathBuf};
 const ALLOWED_FILES: &[&str] = &[
     // The projector itself + phase_transition's hp/max_hp invariant fix-up.
     "src/combat/engine_bridge.rs",
-    // Round-start initiative roll + reaction refill. Runs on
-    // `OnEnter(CombatPhase::StartRound)` BEFORE `init_state_from_ecs` reads
-    // ECS state into the engine; if removed, the engine would seed reactions
-    // at 0 each round. Engine's `start_round` ALSO refills reactions, but the
-    // ECS-side refill is load-bearing for the pre-engine seed path.
-    // Phase 6 follow-up: could be folded into the engine by ordering
-    // start_round → init_state_from_ecs at round boundary.
-    "src/combat/turn_order.rs",
 ];
 
 /// Subtrees skipped entirely (sim state, not ECS-projected).

@@ -228,33 +228,13 @@ fn enemy_mover_hero_provokes() {
     assert!(app.world().get::<Vital>(goblin).unwrap().hp < hp_before);
 }
 
-/// Reactions refill on StartRound (#3): deplete via AoO, run build_turn_order, expect full again.
-#[test]
-fn reactions_refill_on_round_start() {
-    use bevy::prelude::NextState;
-    use storyforge::app_state::CombatPhase;
-
-    let mut app = movement_app();
-    app.world_mut().resource_mut::<storyforge::combat::DiceRngRes>().script(&[3]);
-
-    let hero = spawn_at(&mut app, start_pos(), test_hero(base_stats()), "Hero");
-    let goblin = spawn_at(&mut app, goblin_pos(), test_enemy(base_stats()), "Goblin");
-    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
-    init_engine_state(&mut app);
-
-    write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
-    app.update();
-    assert_eq!(app.world().get::<Reactions>(goblin).unwrap().remaining, 0);
-
-    // Simulate round rollover: enter StartRound, let build_turn_order run.
-    app.world_mut()
-        .resource_mut::<NextState<CombatPhase>>()
-        .set(CombatPhase::StartRound);
-    app.update(); // transition + build_turn_order refills reactions and advances to AwaitCommand.
-
-    let r = app.world().get::<Reactions>(goblin).unwrap();
-    assert_eq!(r.remaining, r.max, "reaction should refill at StartRound");
-}
+// (Deleted in Phase 6 cleanup #4) `reactions_refill_on_round_start` tested
+// the now-removed ECS-side `r.remaining = r.max` write in `build_turn_order`.
+// The new contract: engine `CombatState::start_round` refills `reactions_left`
+// via the `BumpRound` effect at end of EndTurn cascade, and projection writes
+// the result back to ECS. Coverage of that path lives in:
+//   - `crates/combat_engine/tests/turn_queue.rs::start_round_resets_reactions_for_alive_units_only`
+//   - bridge_smoke (end-to-end through EndTurn → projection)
 
 #[test]
 fn move_within_adjacency_no_trigger() {

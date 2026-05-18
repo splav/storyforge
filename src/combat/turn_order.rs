@@ -3,7 +3,7 @@ use crate::app_state::CombatPhase;
 use crate::combat::ai::world::reservations::Reservations;
 use crate::core::modifier;
 use crate::combat::DiceRngRes;
-use crate::game::components::{ActiveCombatant, CombatStats, Combatant, Initiative, Reactions, Vital};
+use crate::game::components::{ActiveCombatant, CombatStats, Combatant, Initiative, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{CombatContext, PresetInitiative, TurnQueue};
 use bevy::prelude::*;
@@ -28,7 +28,6 @@ pub fn build_turn_order(
             &mut Initiative,
             &CombatStats,
             &Vital,
-            Option<&mut Reactions>,
         ),
         With<Combatant>,
     >,
@@ -47,7 +46,7 @@ pub fn build_turn_order(
     // get a "virtual turn" where their applied statuses tick down.
     let mut order: Vec<(Entity, i32)> = combatants
         .iter_mut()
-        .map(|(e, name, mut init, stats, v, reactions)| {
+        .map(|(e, name, mut init, stats, _v)| {
             if first_round {
                 if use_preset {
                     if let Some(&saved) = preset.0.get(name.as_str()) {
@@ -65,11 +64,12 @@ pub fn build_turn_order(
                     init_rolls.push((e, dex_mod, roll, init.0));
                 }
             }
-            if v.is_alive() {
-                if let Some(mut r) = reactions {
-                    r.remaining = r.max;
-                }
-            }
+            // Reaction refill is owned by the engine (`CombatState::start_round`,
+            // invoked at round boundary via `Effect::BumpRound`). The previous
+            // ECS-side `r.remaining = r.max` write here was redundant on round
+            // 2+ (engine refills internally, projector writes back) and
+            // unnecessary on round 1 (CombatantBundle initialises Reactions at
+            // max). Deleted in Phase 6 cleanup #4.
             (e, init.0)
         })
         .collect();
