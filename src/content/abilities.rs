@@ -16,11 +16,6 @@ pub use combat_engine::AoEShape;
 
 
 
-impl From<&ResourceCost> for combat_engine::Cost {
-    fn from(c: &ResourceCost) -> Self {
-        combat_engine::Cost { resource: c.resource, amount: c.amount }
-    }
-}
 
 
 impl From<&EffectDef> for combat_engine::EffectDef {
@@ -48,7 +43,7 @@ impl From<&AbilityDef> for combat_engine::AbilityDef {
         combat_engine::AbilityDef {
             key: def.key.clone(),
             cost_ap: def.cost_ap,
-            costs: def.costs.iter().map(Into::into).collect(),
+            costs: def.costs.clone(),
             range: def.range.into(),
             target_type: def.target_type.into(),
             aoe: def.aoe.into(),
@@ -59,11 +54,7 @@ impl From<&AbilityDef> for combat_engine::AbilityDef {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ResourceCost {
-    pub resource: ResourceKind,
-    pub amount: i32,
-}
+pub use combat_engine::Cost as ResourceCost;
 
 #[derive(Debug, Clone)]
 pub struct AbilityDef {

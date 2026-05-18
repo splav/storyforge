@@ -15,9 +15,9 @@ use std::path::Path;
 use storyforge::content::content_view::ContentView as BridgeContentView;
 use storyforge::combat_engine::{
     content::ContentView as EngineContentView,
-    AbilityDef, AbilityId, AbilityRange, AoEShape, Cost, EffectDef,
+    AbilityDef, AbilityId, Cost, EffectDef,
     StatusApplication, StatusBonuses, StatusDef,
-    StatusId, StatusOn, TargetType, TomlContentView, UnitTemplate,
+    StatusId, TomlContentView, UnitTemplate,
 };
 use storyforge::content::abilities::EffectDef as BridgeEffectDef;
 use storyforge::game::components::Equipment;
