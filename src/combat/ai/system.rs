@@ -6,7 +6,11 @@ use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::world::influence::{build_influence_maps, InfluenceConfig};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::memory::goal::lifecycle as goal_lifecycle;
-use crate::combat::ai::log::{AiLogger, ActorTickInput, CombatLogSession, write_actor_tick_log};
+use crate::combat::ai::log::{
+    AiLogger, ActorTickInput, CombatLogSession, PendingAiLogEntries,
+    build_actor_tick_event,
+};
+use crate::combat::ai::log::engine_trace::EngineTraceWriter;
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::world::snapshot::build_snapshot;
@@ -58,6 +62,8 @@ pub fn enemy_ai_system(
     mut rng: ResMut<DiceRngRes>,
     mut reservations: ResMut<Reservations>,
     mut logger: ResMut<AiLogger>,
+    trace_writer: Res<EngineTraceWriter>,
+    mut pending_ai_log: ResMut<PendingAiLogEntries>,
     mut msgs: AiMessages,
     mut debug_state: ResMut<AiDebugState>,
     active_q: Query<Entity, With<ActiveCombatant>>,
@@ -76,7 +82,7 @@ pub fn enemy_ai_system(
     let session_id = session.as_ref().map(|s| s.session_id.as_str()).unwrap_or("");
     run_ai_turn(
         actor, &c, &env, &mut **rng, &mut reservations,
-        &mut logger, &mut msgs,
+        &mut logger, &trace_writer, &mut pending_ai_log, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
         session_id,
     );
@@ -95,6 +101,8 @@ fn run_ai_turn(
     rng: &mut DiceRng,
     reservations: &mut Reservations,
     logger: &mut AiLogger,
+    trace_writer: &EngineTraceWriter,
+    pending_ai_log: &mut PendingAiLogEntries,
     msgs: &mut AiMessages,
     combatants: &Query<AiCombatantQ, With<Combatant>>,
     statuses: &Query<&StatusEffects>,
@@ -153,7 +161,9 @@ fn run_ai_turn(
     goal_lifecycle::pre_tick(memory_ref, &snap, actor_snap, &env.status_tags);
 
     if c.ap.action_points <= 0 && !c.ap.can_move() {
-        // Step 7.5: write actor_tick log for skip path (no AP/MP).
+        // Step 7.5 / Phase 6c: push actor_tick for skip path (no AP/MP) to
+        // pending queue. start_step == end_step — no engine steps advance for
+        // this actor (zero-length range is correct semantics).
         if logger.is_enabled() {
             let actor_name = names
                 .get(actor)
@@ -170,7 +180,8 @@ fn run_ai_turn(
                     (u.entity, name)
                 })
                 .collect();
-            write_actor_tick_log(logger, ActorTickInput {
+            let start_step = trace_writer.step_counter();
+            let event = build_actor_tick_event(ActorTickInput {
                 session_id,
                 round: combat_ctx.round,
                 actor,
@@ -188,6 +199,12 @@ fn run_ai_turn(
                 band: None,
                 agenda: None,
             });
+            // Serialize to Value immediately so we don't store BattleSnapshot
+            // (which is !Sync due to RefCell) in a Resource.
+            match serde_json::to_value(&event) {
+                Ok(v) => pending_ai_log.entries.push((v, start_step)),
+                Err(e) => warn!("AI log skip-path serialise failed: {e}"),
+            }
         }
         msgs.action_input.write(ActionInput::EndTurn { actor });
         return;
@@ -227,6 +244,10 @@ fn run_ai_turn(
         HashMap::new()
     };
 
+    // Phase 6c: capture step counter BEFORE dispatching ActionInput messages.
+    // flush_pending_ai_log_system will use this to compute [start, end) range.
+    let start_step = trace_writer.step_counter();
+
     // Step 7.4: pick_action is now a pure function (does not mutate memory).
     // update_memory runs AFTER pick_action so that select_intent inside
     // pick_action reads the pre-tick memory state (matching original semantics).
@@ -257,11 +278,12 @@ fn run_ai_turn(
         })
     };
 
-    // Step 7.5: write unified actor_tick log (replaces write_decision_log_from_result
-    // and the divergence-log block). Divergence data now lives in the continuation
-    // section of the actor_tick event.
+    // Step 7.5 / Phase 6c: build actor_tick event and push to pending queue.
+    // engine_step_range is populated by flush_pending_ai_log_system after
+    // process_action_system advances the step counter.
+    // Serialize to Value immediately so we don't store BattleSnapshot (!Sync) in a Resource.
     if logger.is_enabled() {
-        write_actor_tick_log(logger, ActorTickInput {
+        let event = build_actor_tick_event(ActorTickInput {
             session_id,
             round: combat_ctx.round,
             actor,
@@ -279,6 +301,10 @@ fn run_ai_turn(
             band: Some(result.band.clone()),
             agenda: Some(&result.agenda),
         });
+        match serde_json::to_value(&event) {
+            Ok(v) => pending_ai_log.entries.push((v, start_step)),
+            Err(e) => warn!("AI log full-path serialise failed: {e}"),
+        }
     }
 
     // Reservations — record committed prefix for this tick.
@@ -352,6 +378,8 @@ pub fn pact_ai_system(
     mut rng: ResMut<DiceRngRes>,
     mut reservations: ResMut<Reservations>,
     mut logger: ResMut<AiLogger>,
+    trace_writer: Res<EngineTraceWriter>,
+    mut pending_ai_log: ResMut<PendingAiLogEntries>,
     mut msgs: AiMessages,
     mut debug_state: ResMut<AiDebugState>,
     active_q: Query<Entity, With<ActiveCombatant>>,
@@ -373,7 +401,7 @@ pub fn pact_ai_system(
     let session_id = session.as_ref().map(|s| s.session_id.as_str()).unwrap_or("");
     run_ai_turn(
         actor, &c, &env, &mut **rng, &mut reservations,
-        &mut logger, &mut msgs,
+        &mut logger, &trace_writer, &mut pending_ai_log, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
         session_id,
     );

@@ -1338,6 +1338,90 @@ pub fn write_actor_tick_log(logger: &mut AiLogger, input: ActorTickInput<'_>) {
     }
 }
 
+/// Serialize a pre-built `ActorTickEvent` as a JSONL line and write to logger.
+///
+/// This is the deferred-write path: called by `flush_pending_ai_log_system`
+/// after `engine_step_range` has been populated.
+pub fn write_actor_tick_event(logger: &mut AiLogger, event: &ActorTickEvent) -> std::io::Result<()> {
+    logger.write_entry(event)
+}
+
+/// Buffer of pending AI log entries not yet written to disk.
+/// Flushed by `flush_pending_ai_log_system` after `process_action_system`
+/// completes in the same Update frame, at which point `engine_step_range` is
+/// populated from the trace writer's step counter.
+///
+/// We store each entry as a pre-serialized `serde_json::Value` rather than
+/// `ActorTickEvent` directly because `BattleSnapshot` contains a `RefCell`
+/// and is therefore `!Sync`, which violates the `Resource: Send + Sync` bound.
+/// The JSON value is `Send + Sync` and patching `engine_step_range` into it
+/// at flush time is O(1).
+///
+/// Each tuple is `(json_value, start_step)`.
+#[derive(Resource, Default)]
+pub struct PendingAiLogEntries {
+    pub entries: Vec<(serde_json::Value, u64)>,
+}
+
+/// System: flush the pending AI log queue, populating `engine_step_range` from
+/// the engine trace writer's current step counter.
+///
+/// Must run AFTER `process_action_system` in the same Update frame so that the
+/// step counter reflects all bridge actions dispatched by this tick's AI decision.
+///
+/// **Multi-actor semantics**: when multiple actors are processed in one tick,
+/// each entry carries its own `start_step`. The `end_step` for entry `i` is the
+/// `start_step` of entry `i+1`; for the last entry it is the current counter.
+/// This gives each actor a precise `[start, end)` range rather than
+/// overstating earlier actors' ranges.
+///
+/// **Skip-path**: actors with no AP/MP produce zero-length ranges `(n, n)`.
+/// This is correct — no engine steps advanced for them.
+///
+/// **Trace disabled**: when the trace writer is not open, `engine_step_range`
+/// is left `None` (the field serializes as absent due to `skip_serializing_if`).
+pub fn flush_pending_ai_log_system(
+    mut pending: ResMut<PendingAiLogEntries>,
+    trace_writer: Res<crate::combat::ai::log::engine_trace::EngineTraceWriter>,
+    mut logger: ResMut<AiLogger>,
+) {
+    if pending.entries.is_empty() {
+        return;
+    }
+    let trace_open = trace_writer.is_open();
+    let current_end = trace_writer.step_counter();
+    // Drain into an owned Vec so we can peek the *next* entry's start_step
+    // to compute per-actor end boundaries precisely (multi-actor ticks).
+    let mut entries: Vec<(serde_json::Value, u64)> = pending.entries.drain(..).collect();
+    let n = entries.len();
+    for i in 0..n {
+        let start_step = entries[i].1;
+        // end_step for actor i = start_step of actor i+1 (precise [start, end)
+        // range). Last actor uses the live step counter.
+        let end_step = if i + 1 < n { entries[i + 1].1 } else { current_end };
+        if trace_open {
+            // Patch engine_step_range directly into the JSON value.
+            if let serde_json::Value::Object(ref mut map) = entries[i].0 {
+                map.insert(
+                    "engine_step_range".to_owned(),
+                    serde_json::json!([start_step, end_step]),
+                );
+            }
+        }
+        // Write the (possibly patched) JSON value as a JSONL line.
+        if let Some(w) = logger.writer.as_mut() {
+            match serde_json::to_string(&entries[i].0) {
+                Ok(json) => {
+                    if let Err(e) = writeln!(w, "{json}").and_then(|_| w.flush()) {
+                        warn!("AI log flush write failed: {e}");
+                    }
+                }
+                Err(e) => warn!("AI log flush serialise failed: {e}"),
+            }
+        }
+    }
+}
+
 // ── Schema-versioned parsing ───────────────────────────────────────────────
 
 /// Error returned by [`parse_actor_tick`].

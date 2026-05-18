@@ -46,6 +46,7 @@ fn main() {
         })
         .init_resource::<combat::ai::world::reservations::Reservations>()
         .init_resource::<combat::ai::log::AiLogger>()
+        .init_resource::<combat::ai::log::PendingAiLogEntries>()
         .init_resource::<combat::ai::log::engine_trace::EngineTraceWriter>()
         .init_resource::<combat::ai::world::influence::InfluenceConfig>()
         .init_resource::<AiTuning>()

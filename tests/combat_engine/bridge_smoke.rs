@@ -113,10 +113,17 @@ fn bridge_app() -> App {
         })
         .init_resource::<PendingPhaseTransitions>()
         .init_resource::<storyforge::combat::ai::log::engine_trace::EngineTraceWriter>()
+        .init_resource::<storyforge::combat::ai::log::AiLogger>()
+        .init_resource::<storyforge::combat::ai::log::PendingAiLogEntries>()
         .add_message::<ActionInput>()
         .add_systems(
             Update,
-            (process_action_system, project_state_to_ecs, apply_phase_transitions_system).chain(),
+            (
+                process_action_system,
+                project_state_to_ecs,
+                apply_phase_transitions_system,
+                storyforge::combat::ai::log::flush_pending_ai_log_system,
+            ).chain(),
         );
     app
 }
@@ -2236,4 +2243,121 @@ fn engine_trace_full_combat_record_replay() {
     }
 
     let _ = std::fs::remove_file(&path);
+}
+
+// ── Gate #15: engine_step_range populated by deferred flush ──────────────────
+
+/// Verifies Phase 6c: `engine_step_range` in AI log entries is populated with
+/// the correct step-counter window `[start, end)` by `flush_pending_ai_log_system`.
+///
+/// Flow:
+///   1. Open AiLogger + EngineTraceWriter to temp files.
+///   2. Push one pending entry with start_step = 0 (trace counter before dispatch).
+///   3. Drive a Move action through the bridge (step counter → 1).
+///   4. flush_pending_ai_log_system runs (in the same chain as process_action_system).
+///   5. Read the produced ai.jsonl line; assert engine_step_range == [0, 1].
+#[test]
+fn ai_log_engine_step_range_populated() {
+    use storyforge::combat::ai::log::{AiLogger, PendingAiLogEntries};
+    use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
+    use std::io::BufRead;
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let ai_path = std::env::temp_dir().join(format!("ai_step_range_smoke_{ts}.jsonl"));
+    let trace_path = std::env::temp_dir().join(format!("engine_step_range_trace_{ts}.jsonl"));
+
+    let mut app = bridge_app();
+
+    // Spawn a combatant and seed engine state.
+    let start_hex = hex_from_offset(0, 0);
+    let target_hex = hex_from_offset(1, 0);
+    let actor = app
+        .world_mut()
+        .spawn(CombatantBundle::new(
+            Team::Player,
+            test_stats(),
+            0,
+            6,
+            vec![],
+            test_equipment(),
+        ))
+        .id();
+    app.world_mut().resource_mut::<HexPositions>().insert(actor, start_hex);
+    init_bridge_engine_state(&mut app);
+
+    // Open both writers.
+    app.world_mut()
+        .resource_mut::<EngineTraceWriter>()
+        .open(&trace_path)
+        .expect("open trace file");
+    app.world_mut()
+        .resource_mut::<AiLogger>()
+        .open(ai_path.clone())
+        .expect("open ai log");
+
+    // Verify step counter starts at 0.
+    let step_before = app.world().resource::<EngineTraceWriter>().step_counter();
+    assert_eq!(step_before, 0, "step counter must start at 0");
+
+    // Build a minimal actor_tick JSON value (mimics what the AI system would push).
+    // We push it directly into PendingAiLogEntries with start_step = 0.
+    let fake_entry = serde_json::json!({
+        "event_type": "actor_tick",
+        "schema_version": 36,
+        "round": 1,
+        "timestamp_ms": 0u64,
+        "actor_id": 0u64,
+        "actor_name": "test_actor",
+        "snapshot": {"units": [], "round": 1},
+        "plans": [],
+        "decision": {"kind": "EndTurn"}
+    });
+    app.world_mut()
+        .resource_mut::<PendingAiLogEntries>()
+        .entries
+        .push((fake_entry, 0));
+
+    // Dispatch Move — process_action_system advances step counter to 1,
+    // then flush_pending_ai_log_system writes the entry with range [0, 1).
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Move { actor, path: vec![target_hex] });
+    app.update();
+
+    // Step counter should now be 1 (one Move step was applied).
+    let step_after = app.world().resource::<EngineTraceWriter>().step_counter();
+    assert_eq!(step_after, 1, "step counter must be 1 after one Move");
+
+    // Close writers.
+    app.world_mut().resource_mut::<EngineTraceWriter>().close();
+    app.world_mut().resource_mut::<AiLogger>().close();
+
+    // Pending queue must be empty after flush.
+    assert!(
+        app.world().resource::<PendingAiLogEntries>().entries.is_empty(),
+        "pending queue must be empty after flush"
+    );
+
+    // Read and verify the ai.jsonl line.
+    let file = std::fs::File::open(&ai_path).expect("open ai log for read");
+    let lines: Vec<String> = std::io::BufReader::new(file)
+        .lines()
+        .filter_map(|l| l.ok())
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    assert_eq!(lines.len(), 1, "expected exactly 1 actor_tick line");
+    let v: serde_json::Value = serde_json::from_str(&lines[0]).expect("parse actor_tick json");
+
+    let range = v.get("engine_step_range").expect("engine_step_range must be present");
+    let arr = range.as_array().expect("engine_step_range must be an array");
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[0].as_u64().unwrap(), 0, "start_step must be 0");
+    assert_eq!(arr[1].as_u64().unwrap(), 1, "end_step must be 1");
+
+    let _ = std::fs::remove_file(&ai_path);
+    let _ = std::fs::remove_file(&trace_path);
 }

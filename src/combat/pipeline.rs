@@ -81,7 +81,12 @@ impl Plugin for CombatPipelinePlugin {
         )
         .add_systems(
             Update,
-            (process_action_system, project_state_to_ecs, apply_phase_transitions_system)
+            (
+                process_action_system,
+                project_state_to_ecs,
+                apply_phase_transitions_system,
+                super::ai::log::flush_pending_ai_log_system,
+            )
                 .chain()
                 .in_set(CombatStep::Execute),
         )
