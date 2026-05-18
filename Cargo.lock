@@ -1949,6 +1949,7 @@ dependencies = [
  "hexx",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]

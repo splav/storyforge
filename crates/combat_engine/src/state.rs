@@ -552,6 +552,7 @@ mod tests {
             energy: None,
             summoner: None,
             caster_context: Default::default(),
+            aoo_dice: None,
             auras: Vec::new(),
             enemy_phases: Vec::new(),
         }

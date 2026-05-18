@@ -71,6 +71,7 @@ pub enum ResourceKind {
 }
 
 pub mod action;
+pub mod toml_content_view;
 pub mod content;
 pub mod content_hash;
 pub mod dice;
@@ -87,5 +88,6 @@ pub mod turn_queue;
 pub use dice::{DiceExpr, DiceRng};
 pub use content::{AbilityDef, AbilityRange, AoEShape, AuraDef, AuraEffects, CasterContext, Cost, CritFailOutcome, EffectDef, PhaseEntry, PhaseTransition, StatusApplication, StatusBonuses, StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate};
 pub use effect::SpawnBlockedReason;
+pub use toml_content_view::{TomlContentView, LoadError};
 pub use legality::{check_legality, ActionState, ActorView, IllegalReason, LegalAction, ProposedAction};
 pub use turn_queue::TurnQueue;

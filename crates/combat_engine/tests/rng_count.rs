@@ -141,9 +141,9 @@ fn move_with_one_aoo_consumes_one_roll() {
     assert_eq!(Hex::ZERO.unsigned_distance_to(enemy_pos), 1, "enemy adjacent to start");
     assert_ne!(dest.unsigned_distance_to(enemy_pos), 1, "dest must not be adjacent to enemy");
 
-    // Weapon: 1d6 (count=1 → exactly 1 roll_d call). Now lives on unit.caster_context.
+    // Weapon: 1d6 (count=1 → exactly 1 roll_d call). AoO dice lives on unit.aoo_dice (5c.1).
     let weapon = DiceExpr::new(1, 6, 0);
-    enemy.caster_context.weapon_dice = Some(weapon);
+    enemy.aoo_dice = Some(weapon);
 
     let mut state = CombatState::new(vec![actor, enemy], 1, RoundPhase::ActorTurn, 0);
     let mut rng = DiceRng::with_seed(0xCAFE);
