@@ -62,7 +62,7 @@ use combat_engine::{
     step::step,
     StatusId,
 };
-use combat_engine::{dice::DiceExpr as EngineDiceExpr, EffectDef as EngineEffectDef, StatusApplication as EngineStatusApplication, StatusOn as EngineStatusOn};
+use combat_engine::dice::DiceExpr as EngineDiceExpr;
 use crate::core::modifier;
 
 // ── Entity ↔ UnitId mapping ───────────────────────────────────────────────────
@@ -251,66 +251,11 @@ impl<'a> EngineContentView for EcsContentView<'a> {
     }
 
     fn ability_def(&self, id: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> {
-        let def = self.active_content.abilities.get(id)?;
-        Some(combat_engine::AbilityDef {
-            key: def.key.clone(),
-            cost_ap: def.cost_ap,
-            costs: def
-                .costs
-                .iter()
-                .map(|c| combat_engine::Cost { resource: c.resource, amount: c.amount })
-                .collect(),
-            range: combat_engine::AbilityRange { min: def.range.min, max: def.range.max },
-            target_type: match def.target_type {
-                crate::content::abilities::TargetType::SingleEnemy => combat_engine::TargetType::SingleEnemy,
-                crate::content::abilities::TargetType::SingleAlly => combat_engine::TargetType::SingleAlly,
-                crate::content::abilities::TargetType::Myself => combat_engine::TargetType::Myself,
-                crate::content::abilities::TargetType::Ground => combat_engine::TargetType::Ground,
-            },
-            aoe: match def.aoe {
-                crate::content::abilities::AoEShape::None => combat_engine::AoEShape::None,
-                crate::content::abilities::AoEShape::Circle { radius } => combat_engine::AoEShape::Circle { radius },
-                crate::content::abilities::AoEShape::Line { length } => combat_engine::AoEShape::Line { length },
-            },
-            friendly_fire: def.friendly_fire,
-            effect: match &def.effect {
-                EffectDef::None => EngineEffectDef::None,
-                EffectDef::WeaponAttack => EngineEffectDef::WeaponAttack,
-                EffectDef::Damage { dice } => EngineEffectDef::Damage { dice: *dice },
-                EffectDef::SpellDamage { dice } => EngineEffectDef::SpellDamage { dice: *dice },
-                EffectDef::Heal { dice } => EngineEffectDef::Heal { dice: *dice },
-                EffectDef::GrantMovement { distance } => EngineEffectDef::GrantMovement { distance: *distance },
-                EffectDef::RestoreResources => EngineEffectDef::RestoreResources,
-                EffectDef::Summon { template, max_active } => EngineEffectDef::Summon {
-                    template_id: template.clone(),
-                    max_active: *max_active,
-                },
-                // ToggleMoveMode: UI-only, no engine effect.
-                EffectDef::ToggleMoveMode => EngineEffectDef::None,
-            },
-            statuses: def.statuses.iter().map(|s| EngineStatusApplication {
-                status: s.status.clone(),
-                duration_rounds: s.duration_rounds,
-                on: match s.on {
-                    crate::content::abilities::StatusOn::Target => EngineStatusOn::Target,
-                    crate::content::abilities::StatusOn::MySelf => EngineStatusOn::MySelf,
-                },
-            }).collect(),
-        })
+        self.active_content.abilities.get(id).map(Into::into)
     }
 
     fn status_def(&self, id: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> {
-        let def = self.active_content.statuses.get(id)?;
-        Some(combat_engine::StatusDef {
-            causes_disadvantage: def.causes_disadvantage,
-            blocks_mana_abilities: def.blocks_mana_abilities,
-            forces_targeting: def.forces_targeting,
-            skips_turn: def.skips_turn,
-            armor_bonus: def.armor_bonus,
-            damage_taken_bonus: def.damage_taken_bonus,
-            speed_bonus: def.speed_bonus,
-            hp_percent_dot: def.hp_percent_dot,
-        })
+        self.active_content.statuses.get(id).map(Into::into)
     }
 
     fn unit_template(&self, id: &str) -> Option<combat_engine::UnitTemplate> {

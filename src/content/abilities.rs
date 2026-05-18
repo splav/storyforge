@@ -66,6 +66,84 @@ impl From<AoEShape> for combat_engine::AoEShape {
     }
 }
 
+impl From<TargetType> for combat_engine::TargetType {
+    fn from(t: TargetType) -> Self {
+        match t {
+            TargetType::SingleEnemy => combat_engine::TargetType::SingleEnemy,
+            TargetType::SingleAlly => combat_engine::TargetType::SingleAlly,
+            TargetType::Myself => combat_engine::TargetType::Myself,
+            TargetType::Ground => combat_engine::TargetType::Ground,
+        }
+    }
+}
+
+impl From<StatusOn> for combat_engine::StatusOn {
+    fn from(o: StatusOn) -> Self {
+        match o {
+            StatusOn::Target => combat_engine::StatusOn::Target,
+            StatusOn::MySelf => combat_engine::StatusOn::MySelf,
+        }
+    }
+}
+
+impl From<&StatusApplication> for combat_engine::StatusApplication {
+    fn from(s: &StatusApplication) -> Self {
+        combat_engine::StatusApplication {
+            status: s.status.clone(),
+            duration_rounds: s.duration_rounds,
+            on: s.on.into(),
+        }
+    }
+}
+
+impl From<&ResourceCost> for combat_engine::Cost {
+    fn from(c: &ResourceCost) -> Self {
+        combat_engine::Cost { resource: c.resource, amount: c.amount }
+    }
+}
+
+impl From<AbilityRange> for combat_engine::AbilityRange {
+    fn from(r: AbilityRange) -> Self {
+        combat_engine::AbilityRange { min: r.min, max: r.max }
+    }
+}
+
+impl From<&EffectDef> for combat_engine::EffectDef {
+    fn from(e: &EffectDef) -> Self {
+        match e {
+            EffectDef::None => combat_engine::EffectDef::None,
+            EffectDef::WeaponAttack => combat_engine::EffectDef::WeaponAttack,
+            EffectDef::Damage { dice } => combat_engine::EffectDef::Damage { dice: *dice },
+            EffectDef::SpellDamage { dice } => combat_engine::EffectDef::SpellDamage { dice: *dice },
+            EffectDef::Heal { dice } => combat_engine::EffectDef::Heal { dice: *dice },
+            EffectDef::GrantMovement { distance } => combat_engine::EffectDef::GrantMovement { distance: *distance },
+            EffectDef::RestoreResources => combat_engine::EffectDef::RestoreResources,
+            EffectDef::Summon { template, max_active } => combat_engine::EffectDef::Summon {
+                template_id: template.clone(),
+                max_active: *max_active,
+            },
+            // ToggleMoveMode: UI-only, no engine effect.
+            EffectDef::ToggleMoveMode => combat_engine::EffectDef::None,
+        }
+    }
+}
+
+impl From<&AbilityDef> for combat_engine::AbilityDef {
+    fn from(def: &AbilityDef) -> Self {
+        combat_engine::AbilityDef {
+            key: def.key.clone(),
+            cost_ap: def.cost_ap,
+            costs: def.costs.iter().map(Into::into).collect(),
+            range: def.range.into(),
+            target_type: def.target_type.into(),
+            aoe: def.aoe.into(),
+            friendly_fire: def.friendly_fire,
+            effect: (&def.effect).into(),
+            statuses: def.statuses.iter().map(Into::into).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ResourceCost {
     pub resource: ResourceKind,

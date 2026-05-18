@@ -30,6 +30,21 @@ pub struct StatusDef {
     pub buff_class: Option<BuffClass>,
 }
 
+impl From<&StatusDef> for combat_engine::StatusDef {
+    fn from(d: &StatusDef) -> Self {
+        combat_engine::StatusDef {
+            causes_disadvantage: d.causes_disadvantage,
+            blocks_mana_abilities: d.blocks_mana_abilities,
+            forces_targeting: d.forces_targeting,
+            skips_turn: d.skips_turn,
+            armor_bonus: d.armor_bonus,
+            damage_taken_bonus: d.damage_taken_bonus,
+            speed_bonus: d.speed_bonus,
+            hp_percent_dot: d.hp_percent_dot,
+        }
+    }
+}
+
 // ── TOML loading ──────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]

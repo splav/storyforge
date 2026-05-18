@@ -13,13 +13,8 @@
 use bevy::prelude::*;
 
 use combat_engine::legality::{ActionState, ActorView};
-use combat_engine::{
-    AbilityDef, AbilityId, AbilityRange, AoEShape, Cost, EffectDef as EngineEffectDef,
-    StatusApplication as EngineStatusApplication, StatusDef, StatusId, StatusOn as EngineStatusOn,
-    TargetType,
-};
+use combat_engine::{AbilityDef, AbilityId, StatusDef, StatusId};
 
-use crate::content::abilities;
 use crate::content::content_view::ActiveContent;
 use crate::game::components::{Team, ValidationActorQ, ValidationTargetQ};
 use crate::game::hex::{in_bounds, Hex};
@@ -43,61 +38,11 @@ impl ActionState for BevyActions<'_, '_, '_> {
     type Id = Entity;
 
     fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
-        let def = self.content.abilities.get(id)?;
-        Some(AbilityDef {
-            key: def.key.clone(),
-            cost_ap: def.cost_ap,
-            costs: def
-                .costs
-                .iter()
-                .map(|c| Cost { resource: c.resource, amount: c.amount })
-                .collect(),
-            range: AbilityRange { min: def.range.min, max: def.range.max },
-            target_type: match def.target_type {
-                abilities::TargetType::SingleEnemy => TargetType::SingleEnemy,
-                abilities::TargetType::SingleAlly => TargetType::SingleAlly,
-                abilities::TargetType::Myself => TargetType::Myself,
-                abilities::TargetType::Ground => TargetType::Ground,
-            },
-            aoe: match def.aoe {
-                abilities::AoEShape::None => AoEShape::None,
-                abilities::AoEShape::Circle { radius } => AoEShape::Circle { radius },
-                abilities::AoEShape::Line { length } => AoEShape::Line { length },
-            },
-            friendly_fire: def.friendly_fire,
-            effect: match &def.effect {
-                abilities::EffectDef::None => EngineEffectDef::None,
-                abilities::EffectDef::WeaponAttack => EngineEffectDef::WeaponAttack,
-                abilities::EffectDef::Damage { dice } => EngineEffectDef::Damage { dice: *dice },
-                abilities::EffectDef::SpellDamage { dice } => EngineEffectDef::SpellDamage { dice: *dice },
-                abilities::EffectDef::Heal { dice } => EngineEffectDef::Heal { dice: *dice },
-                abilities::EffectDef::GrantMovement { distance } => EngineEffectDef::GrantMovement { distance: *distance },
-                abilities::EffectDef::RestoreResources => EngineEffectDef::RestoreResources,
-                abilities::EffectDef::Summon { .. } | abilities::EffectDef::ToggleMoveMode => EngineEffectDef::None,
-            },
-            statuses: def.statuses.iter().map(|s| EngineStatusApplication {
-                status: s.status.clone(),
-                duration_rounds: s.duration_rounds,
-                on: match s.on {
-                    abilities::StatusOn::Target => EngineStatusOn::Target,
-                    abilities::StatusOn::MySelf => EngineStatusOn::MySelf,
-                },
-            }).collect(),
-        })
+        self.content.abilities.get(id).map(Into::into)
     }
 
     fn status_def(&self, id: &StatusId) -> Option<StatusDef> {
-        let def = self.content.statuses.get(id)?;
-        Some(StatusDef {
-            causes_disadvantage: def.causes_disadvantage,
-            blocks_mana_abilities: def.blocks_mana_abilities,
-            forces_targeting: def.forces_targeting,
-            skips_turn: def.skips_turn,
-            armor_bonus: def.armor_bonus,
-            damage_taken_bonus: def.damage_taken_bonus,
-            speed_bonus: def.speed_bonus,
-            hp_percent_dot: def.hp_percent_dot,
-        })
+        self.content.statuses.get(id).map(Into::into)
     }
 
     fn actor_view(&self, actor: Entity) -> Option<ActorView> {
