@@ -31,7 +31,7 @@ fn map_ability(content: &BridgeContentView, id: &AbilityId) -> Option<AbilityDef
         cost_ap: def.cost_ap,
         // ResourceKind in core is re-exported from combat_engine — same type.
         costs: def.costs.iter().map(|c| Cost { resource: c.resource, amount: c.amount }).collect(),
-        range: AbilityRange { min: def.range.min, max: def.range.max },
+        range: def.range,
         target_type: def.target_type,
         aoe: def.aoe,
         friendly_fire: def.friendly_fire,

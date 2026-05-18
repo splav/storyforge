@@ -116,11 +116,17 @@ pub enum TargetType {
 }
 
 /// Range in hex-steps.  `max == 0` means self-only.
-/// Mirrors `crate::content::abilities::AbilityRange`.
 #[derive(Debug, Clone, Copy)]
 pub struct AbilityRange {
     pub min: u32,
     pub max: u32,
+}
+
+impl AbilityRange {
+    /// Self-only: min=0, max=0.
+    pub const SELF_ONLY: Self = Self { min: 0, max: 0 };
+    /// Melee range: min=0, max=1.
+    pub const MELEE: Self = Self { min: 0, max: 1 };
 }
 
 /// Area-of-effect pattern.  Mirrors `crate::content::abilities::AoEShape`.

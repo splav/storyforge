@@ -14,19 +14,7 @@ pub struct StatusApplication {
     pub on: StatusOn,
 }
 
-/// Range constraints for an ability.
-#[derive(Debug, Clone, Copy)]
-pub struct AbilityRange {
-    /// Minimum comfortable range. Below this the attack is at disadvantage.
-    pub min: u32,
-    /// Maximum range in hex steps. 0 = self-only.
-    pub max: u32,
-}
-
-impl AbilityRange {
-    pub const SELF_ONLY: Self = Self { min: 0, max: 0 };
-    pub const MELEE: Self = Self { min: 0, max: 1 };
-}
+pub use combat_engine::AbilityRange;
 
 pub use combat_engine::AoEShape;
 
@@ -48,11 +36,6 @@ impl From<&ResourceCost> for combat_engine::Cost {
     }
 }
 
-impl From<AbilityRange> for combat_engine::AbilityRange {
-    fn from(r: AbilityRange) -> Self {
-        combat_engine::AbilityRange { min: r.min, max: r.max }
-    }
-}
 
 impl From<&EffectDef> for combat_engine::EffectDef {
     fn from(e: &EffectDef) -> Self {
