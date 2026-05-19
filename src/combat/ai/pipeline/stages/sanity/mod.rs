@@ -835,7 +835,7 @@ mod tests {
 
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let utility = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&utility, &snap, &maps, &reservations, &actor);
@@ -885,7 +885,7 @@ mod tests {
         let content = empty_content();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
         let mut maps = empty_maps();
         let dest = hex_from_offset(2, 0);
         maps.danger.add(dest, 0.9);

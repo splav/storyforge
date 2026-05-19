@@ -572,7 +572,7 @@ pub fn build_snapshot(
 
     // Build index and cache via `new`, then overwrite `state` with the
     // authoritative engine CombatState (avoids re-deriving from snapshot).
-    let mut snap = BattleSnapshot::new(units, round);
+    let mut snap = BattleSnapshot::new_from_unit_snapshots(units, round);
     snap.state = combat_state;
     snap
 }
@@ -580,12 +580,22 @@ pub fn build_snapshot(
 // ── Helpers on BattleSnapshot ─────────────────────────────────────────────────
 
 impl BattleSnapshot {
-    /// Construct a snapshot with its entity index eagerly built.
-    ///
-    /// Also builds `self.state` (engine `CombatState`) from the unit list,
-    /// so that `unit()` (the `UnitView`-returning accessor) works immediately —
-    /// including in test fixtures that don't go through `build_snapshot`.
-    pub fn new(units: Vec<UnitSnapshot>, round: u32) -> Self {
+    /// Build a snapshot directly from engine `CombatState` + `AiCache`.
+    /// Authoritative path — no lossy projection. The `units` field is left
+    /// empty; callers that have fully migrated away from `UnitSnapshot` use
+    /// this constructor exclusively.
+    pub fn new(state: combat_engine::state::CombatState, cache: AiCache) -> Self {
+        let round = state.round;
+        let units = Vec::new();
+        let by_entity = HashMap::new();
+        Self { units, round, by_entity, cache, state }
+    }
+
+    /// LEGACY constructor — builds a snapshot from a `Vec<UnitSnapshot>` by
+    /// projecting them into a `CombatState` via the lossy
+    /// `unit_snapshots_to_combat_state` function. Will be deleted once all
+    /// callsites are migrated to `snapshot_from` / `BattleSnapshot::new`.
+    pub fn new_from_unit_snapshots(units: Vec<UnitSnapshot>, round: u32) -> Self {
         let by_entity = units
             .iter()
             .enumerate()
@@ -1025,7 +1035,7 @@ mod affordability_tests {
         corpse.entity = Entity::from_raw_u32(2).expect("valid");
         corpse.team = Team::Player;
         corpse.hp = 0;
-        let snap = BattleSnapshot::new(vec![alive.clone(), corpse.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![alive.clone(), corpse.clone()], 1);
 
         assert!(snap.unit(corpse.entity).is_some(), "corpse must stay in units");
         assert_eq!(
@@ -1325,7 +1335,7 @@ mod snapshot_api_tests {
             0,
         );
 
-        let mut snap = BattleSnapshot::new(vec![snap_unit.clone()], 1);
+        let mut snap = BattleSnapshot::new_from_unit_snapshots(vec![snap_unit.clone()], 1);
         snap.state = combat_state;
 
         let view = snap.unit(entity).expect("view must resolve for known entity");

@@ -222,7 +222,7 @@ mod tests {
         content.abilities.insert(AbilityId::from("heal"), heal_ability("heal"));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![caster.clone(), target], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
@@ -272,7 +272,7 @@ mod tests {
         content.abilities.insert(AbilityId::from("heal"), heal_ability("heal"));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![caster.clone(), low_hp_target], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![caster.clone(), low_hp_target], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
@@ -310,7 +310,7 @@ mod tests {
             .hp(23)
             .max_hp(30)
             .build();
-        let snap_f = BattleSnapshot::new(vec![caster.clone(), target_fires], 1);
+        let snap_f = BattleSnapshot::new_from_unit_snapshots(vec![caster.clone(), target_fires], 1);
         let maps_f = empty_maps();
         let ctx_f = make_scoring_ctx(&world, &snap_f, &maps_f, &reservations, &caster);
         let (plan_f, ann_f) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 3.0);
@@ -321,7 +321,7 @@ mod tests {
             .hp(15)
             .max_hp(30)
             .build();
-        let snap_p = BattleSnapshot::new(vec![caster.clone(), target_passes], 1);
+        let snap_p = BattleSnapshot::new_from_unit_snapshots(vec![caster.clone(), target_passes], 1);
         let maps_p = empty_maps();
         let ctx_p = make_scoring_ctx(&world, &snap_p, &maps_p, &reservations, &caster);
         let (plan_p, ann_p) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 8.0);

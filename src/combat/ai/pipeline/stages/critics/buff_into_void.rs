@@ -191,7 +191,7 @@ mod tests {
         content.abilities.insert(AbilityId::from("buff_shield"), buff_ability("buff_shield", "shield"));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![caster.clone(), target], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
@@ -237,7 +237,7 @@ mod tests {
         content.abilities.insert(AbilityId::from("buff_shield"), buff_ability("buff_shield", "shield"));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![caster.clone(), target], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
@@ -272,7 +272,7 @@ mod tests {
         content.abilities.insert(AbilityId::from("buff_shield"), buff_ability("buff_shield", "shield"));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new(vec![caster.clone(), target], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![caster.clone(), target], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);

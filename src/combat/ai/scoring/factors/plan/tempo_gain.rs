@@ -115,7 +115,7 @@ mod tests {
             .ability_names(&["melee_attack"])
             .build();
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
@@ -149,7 +149,7 @@ mod tests {
             .ability_names(&["melee_attack"])
             .build();
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
@@ -187,7 +187,7 @@ mod tests {
             .ability_names(&["melee_attack"])
             .build();
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
@@ -231,7 +231,7 @@ mod tests {
             .ability_names(&["melee_attack"])
             .build();
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();

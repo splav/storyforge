@@ -207,7 +207,7 @@ mod tests {
         let tile = hex_from_offset(4, 3);
         let active = unit(0, Team::Enemy, tile);
         let enemy = unit(1, Team::Player, hex_from_offset(3, 3));
-        let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 1);
+        let s = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), enemy.clone()], 1);
         let (content, diff) = scarcity_fixture();
         let ctx = make_test_ctx(&content, &diff);
 
@@ -225,7 +225,7 @@ mod tests {
             .hp(1)
             .build();
 
-        let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 1);
+        let s = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), enemy.clone()], 1);
         let (content, diff) = scarcity_fixture();
         let ctx = make_test_ctx(&content, &diff);
 
@@ -248,7 +248,7 @@ mod tests {
             .hp(5)
             .build();
 
-        let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], 1);
+        let s = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), enemy.clone()], 1);
         let (content, diff) = scarcity_fixture();
         let ctx = make_test_ctx(&content, &diff);
 
@@ -273,7 +273,7 @@ mod tests {
         let e2 = unit(2, Team::Player, neighbors[0]);
         let e3 = unit(3, Team::Player, neighbors[1]);
 
-        let s = BattleSnapshot::new(
+        let s = BattleSnapshot::new_from_unit_snapshots(
             vec![active.clone(), e1.clone(), e2.clone(), e3.clone()],
             3,
         );
@@ -301,7 +301,7 @@ mod tests {
         let ab = AbilityId::from("fireball");
         let step = cast_step(tile, &ab, enemy.pos, enemy.entity);
         let pair = |round: u32| -> f32 {
-            let s = BattleSnapshot::new(vec![active.clone(), enemy.clone()], round);
+            let s = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), enemy.clone()], round);
             score(&step, 0.0, &ctx, &s, &active)
         };
         let (score_r1, score_r3) = (pair(1), pair(3));

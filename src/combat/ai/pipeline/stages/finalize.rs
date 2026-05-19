@@ -171,7 +171,7 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, pos).full_hp(20).build();
         // Compute the initial Default-mode score using the same context as
         // the harness builds internally.
-        let snap = crate::combat::ai::world::snapshot::BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = crate::combat::ai::world::snapshot::BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let maps = empty_maps();
         let content = empty_content();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();

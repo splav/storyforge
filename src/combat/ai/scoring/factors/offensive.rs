@@ -160,7 +160,7 @@ mod tests {
             .max_hp(100)
             .threat(20.0)
             .build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
@@ -237,7 +237,7 @@ mod tests {
             .full_hp(100)
             .build();
 
-        let snap = BattleSnapshot::new(
+        let snap = BattleSnapshot::new_from_unit_snapshots(
             vec![actor.clone(), low_hp.clone(), high_hp.clone()],
             1,
         );
@@ -324,7 +324,7 @@ mod tests {
             .full_hp(100)
             .build();
 
-        let snap = BattleSnapshot::new(
+        let snap = BattleSnapshot::new_from_unit_snapshots(
             vec![actor.clone(), enemy_target.clone(), ally.clone()],
             1,
         );

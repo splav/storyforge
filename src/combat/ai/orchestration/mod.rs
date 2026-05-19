@@ -622,7 +622,7 @@ mod tests {
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
 
-        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let actor_entity = actor.entity;
         let reservations = Reservations::default();
@@ -713,7 +713,7 @@ mod tests {
             .ap(2)
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let memory = crate::combat::ai::intent::AiMemory::default();

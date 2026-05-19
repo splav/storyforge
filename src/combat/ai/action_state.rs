@@ -161,7 +161,7 @@ mod tests {
     }
 
     fn snapshot_with(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot::new(units, 1)
+        BattleSnapshot::new_from_unit_snapshots(units, 1)
     }
 
     #[test]

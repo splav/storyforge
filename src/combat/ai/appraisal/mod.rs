@@ -103,7 +103,7 @@ pub(crate) mod tests {
     }
 
     pub fn snap(units: Vec<crate::combat::ai::world::snapshot::UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot::new(units, 1)
+        BattleSnapshot::new_from_unit_snapshots(units, 1)
     }
 
     /// Convenience helper: build an `AppraisalCtx` for unit tests that call

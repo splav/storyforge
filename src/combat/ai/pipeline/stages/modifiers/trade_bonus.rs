@@ -71,7 +71,7 @@ mod tests {
         // ── 2. Context (uses real content for melee_attack ability) ──
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let world = AiWorld {
@@ -122,7 +122,7 @@ mod tests {
         // ── 2. Context ──
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
-        let snap = BattleSnapshot::new(vec![actor.clone(), support.clone(), rat.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), support.clone(), rat.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let world = AiWorld {

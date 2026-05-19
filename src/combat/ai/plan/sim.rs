@@ -542,7 +542,7 @@ mod tests {
     }
 
     fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot::new(units, 1)
+        BattleSnapshot::new_from_unit_snapshots(units, 1)
     }
 
     fn ctx(str_mod: i32, int_mod: i32) -> CasterContext {

@@ -116,7 +116,7 @@ mod tests {
             .hp(5)
             .build();
         let target_ent = target.entity;
-        let snap = BattleSnapshot::new(vec![target.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![target.clone()], 1);
         let mut reservations = Reservations::default();
         // Reserve 10 HP of incoming damage against a 5-HP target — lethal.
         reservations.reserve_damage(target_ent, 10.0);

@@ -434,7 +434,7 @@ mod tests {
             team: Team::Player,
             ..dummy_unit(hex_from_offset(0, 0))
         };
-        let snap = BattleSnapshot::new(vec![active.clone(), enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), enemy], 1);
         let content = ContentView::load_global_for_tests();
         let intent = TacticalIntent::Reposition;
         let difficulty = DifficultyProfile::default();
@@ -636,7 +636,7 @@ mod tests {
             .build();
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(5, 0))
             .build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
         let maps = empty_maps();
         let content = ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
@@ -669,7 +669,7 @@ mod tests {
         let target_pos = hex_from_offset(1, 0);
         let target = UnitBuilder::new(2, Team::Player, target_pos).hp(20).build();
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
         let maps = empty_maps();
         let difficulty = DifficultyProfile::default();
 
@@ -781,7 +781,7 @@ mod tests {
         let focus = UnitBuilder::new(2, Team::Player, focus_pos).hp(20).build();
         let other = UnitBuilder::new(3, Team::Player, other_pos).hp(20).build();
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), focus.clone(), other.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), focus.clone(), other.clone()], 1);
         let maps = empty_maps();
         let difficulty = DifficultyProfile::default();
 
@@ -888,7 +888,7 @@ mod tests {
 
             let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
             let focus = UnitBuilder::new(2, Team::Player, focus_pos).hp(50).max_hp(100).build();
-            let snap = BattleSnapshot::new(vec![actor.clone(), focus.clone()], 1);
+            let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), focus.clone()], 1);
             let maps = empty_maps();
             let difficulty = DifficultyProfile::default();
             let reservations = Reservations::default();
@@ -926,7 +926,7 @@ mod tests {
             let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
             let focus = UnitBuilder::new(2, Team::Player, focus_pos).hp(50).max_hp(100).build();
             let direct_target = UnitBuilder::new(3, Team::Player, aoe_target_pos).hp(50).max_hp(100).build();
-            let snap = BattleSnapshot::new(vec![actor.clone(), focus.clone(), direct_target.clone()], 1);
+            let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), focus.clone(), direct_target.clone()], 1);
             let maps = empty_maps();
             let difficulty = DifficultyProfile::default();
             let reservations = Reservations::default();
@@ -982,7 +982,7 @@ mod tests {
             let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
             let focus = UnitBuilder::new(2, Team::Player, focus_pos).hp(50).max_hp(100).build();
             let other = UnitBuilder::new(3, Team::Player, aoe_target_pos).hp(50).max_hp(100).build();
-            let snap = BattleSnapshot::new(vec![actor.clone(), focus.clone(), other.clone()], 1);
+            let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), focus.clone(), other.clone()], 1);
             let maps = empty_maps();
             let difficulty = DifficultyProfile::default();
             let reservations = Reservations::default();
@@ -1017,7 +1017,7 @@ mod tests {
 
             let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
             let cc_target = UnitBuilder::new(2, Team::Player, target_pos).hp(50).max_hp(100).build();
-            let snap = BattleSnapshot::new(vec![actor.clone(), cc_target.clone()], 1);
+            let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), cc_target.clone()], 1);
             let maps = empty_maps();
             let difficulty = DifficultyProfile::default();
             let reservations = Reservations::default();

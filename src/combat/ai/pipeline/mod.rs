@@ -195,7 +195,7 @@ mod tests {
         use crate::game::hex::hex_from_offset;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let maps = empty_maps();
         let content = crate::combat::ai::test_helpers::empty_content();
         let difficulty = DifficultyProfile::default();
@@ -263,7 +263,7 @@ mod tests {
         use crate::game::hex::hex_from_offset;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let maps = empty_maps();
         let content = empty_content();
         let difficulty = DifficultyProfile::default();

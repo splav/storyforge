@@ -324,7 +324,7 @@ mod tests {
     fn exposure_at_end_zero_when_no_danger() {
         let actor_pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -341,7 +341,7 @@ mod tests {
     fn exposure_at_end_high_in_dangerous_tile() {
         let actor_pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -369,7 +369,7 @@ mod tests {
         let actor_pos = hex_from_offset(0, 0);
         let enemy_adjacent = hex_from_offset(1, 0); // actor will end at actor_pos in danger
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -394,7 +394,7 @@ mod tests {
     fn exposure_at_end_zero_in_safe_backline() {
         let actor_pos = hex_from_offset(5, 5); // far from any enemy
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -422,9 +422,9 @@ mod tests {
             .speed(3)
             .threat(10.0)
             .build();
-        let end_snap = BattleSnapshot::new(vec![dead_actor, enemy], 1);
+        let end_snap = BattleSnapshot::new_from_unit_snapshots(vec![dead_actor, enemy], 1);
 
-        let initial_snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let initial_snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -447,7 +447,7 @@ mod tests {
             .max_attack_range(1)
             .threat(8.0)
             .build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), far_enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), far_enemy], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -471,7 +471,7 @@ mod tests {
             .max_attack_range(1)
             .threat(12.0) // DPR=12, actor HP=5 → ratio=2.4 → clamped to 1.0
             .build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -503,7 +503,7 @@ mod tests {
             .max_attack_range(2)
             .threat(20.0)
             .build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), e1, e2], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), e1, e2], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -531,7 +531,7 @@ mod tests {
             .max_attack_range(1)
             .threat(8.0)
             .build();
-        let initial_snap = BattleSnapshot::new(vec![actor.clone(), far_enemy], 1);
+        let initial_snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), far_enemy], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -631,7 +631,7 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
         // Ally has full HP — not endangered
         let ally = UnitBuilder::new(2, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), ally], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), ally], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -652,8 +652,8 @@ mod tests {
         // Ally at 20% HP — endangered; stays low in end snap
         let ally_initial = UnitBuilder::new(2, Team::Enemy, ally_pos).hp(4).max_hp(20).build();
         let ally_end = UnitBuilder::new(2, Team::Enemy, ally_pos).hp(4).max_hp(20).build();
-        let initial_snap = BattleSnapshot::new(vec![actor.clone(), ally_initial], 1);
-        let end_snap = BattleSnapshot::new(vec![actor.clone(), ally_end], 1);
+        let initial_snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), ally_initial], 1);
+        let end_snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), ally_end], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -676,8 +676,8 @@ mod tests {
         // Ally at 20% HP initially (4/20), recovered to 80% (16/20) at end
         let ally_initial = UnitBuilder::new(2, Team::Enemy, ally_pos).hp(4).max_hp(20).build();
         let ally_end = UnitBuilder::new(2, Team::Enemy, ally_pos).hp(16).max_hp(20).build();
-        let initial_snap = BattleSnapshot::new(vec![actor.clone(), ally_initial], 1);
-        let end_snap = BattleSnapshot::new(vec![actor.clone(), ally_end], 1);
+        let initial_snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), ally_initial], 1);
+        let end_snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), ally_end], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -700,7 +700,7 @@ mod tests {
         let actor_pos = hex_from_offset(0, 0);
         // Actor itself is at low HP and in high danger — should be ignored
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).hp(4).max_hp(20).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -720,7 +720,7 @@ mod tests {
     fn board_control_gain_zero_when_pos_unchanged() {
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -739,7 +739,7 @@ mod tests {
         let start_pos = hex_from_offset(0, 0);
         let end_pos = hex_from_offset(1, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, start_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -769,7 +769,7 @@ mod tests {
         let start_pos = hex_from_offset(0, 0);
         let end_pos = hex_from_offset(1, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, start_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -802,7 +802,7 @@ mod tests {
         let enemy_pos = hex_from_offset(1, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build(); // abilities=[]
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -825,11 +825,11 @@ mod tests {
             .ability_names(&["melee_attack"])
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
-        let end_snap = BattleSnapshot::new(vec![actor_dead, enemy], 1);
+        let end_snap = BattleSnapshot::new_from_unit_snapshots(vec![actor_dead, enemy], 1);
         let actor_initial = UnitBuilder::new(1, Team::Enemy, actor_pos)
             .ability_names(&["melee_attack"])
             .build();
-        let initial_snap = BattleSnapshot::new(vec![actor_initial.clone()], 1);
+        let initial_snap = BattleSnapshot::new_from_unit_snapshots(vec![actor_initial.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -851,7 +851,7 @@ mod tests {
             .ability_names(&["melee_attack"]) // range=1
             .build();
         let far_enemy = UnitBuilder::new(2, Team::Player, far_enemy_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), far_enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), far_enemy], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -882,7 +882,7 @@ mod tests {
         let reservations = Reservations::default();
 
         // 1 enemy in range → ~0.33
-        let snap1 = BattleSnapshot::new(vec![actor.clone(), e1.clone()], 1);
+        let snap1 = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), e1.clone()], 1);
         let ctx1 = make_scoring_ctx(&world, &snap1, &maps, &reservations, &actor);
         let plan1 = idle_plan(actor_pos, snap1.clone());
         let score1 = compute_line_actionability(&plan1, &snap1, &ctx1);
@@ -892,7 +892,7 @@ mod tests {
         );
 
         // 3 enemies in range → 1.0 (clamped)
-        let snap3 = BattleSnapshot::new(vec![actor.clone(), e1, e2, e3], 1);
+        let snap3 = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), e1, e2, e3], 1);
         let ctx3 = make_scoring_ctx(&world, &snap3, &maps, &reservations, &actor);
         let plan3 = idle_plan(actor_pos, snap3.clone());
         let score3 = compute_line_actionability(&plan3, &snap3, &ctx3);
@@ -908,7 +908,7 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build(); // tags=empty
         let e1 = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
         let e2 = UnitBuilder::new(3, Team::Player, hex_from_offset(0, 1)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), e1, e2], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), e1, e2], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -929,7 +929,7 @@ mod tests {
             .tags(AiTags::HAS_AOE)
             .build();
         let far_enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(5, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), far_enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), far_enemy], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -952,7 +952,7 @@ mod tests {
         let e1 = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build();
         let e2 = UnitBuilder::new(3, Team::Player, hex_from_offset(0, 1)).build();
         let e3 = UnitBuilder::new(4, Team::Player, hex_from_offset(2, 0)).build();
-        let snap = BattleSnapshot::new(vec![actor.clone(), e1, e2, e3], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), e1, e2, e3], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -972,7 +972,7 @@ mod tests {
         // final_pos == start_pos, ally_support is uniform → delta = 0.
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -991,7 +991,7 @@ mod tests {
         let start_pos = hex_from_offset(0, 0);
         let end_pos = hex_from_offset(1, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, start_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -1024,7 +1024,7 @@ mod tests {
         let start_pos = hex_from_offset(0, 0);
         let end_pos = hex_from_offset(1, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, start_pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);

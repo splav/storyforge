@@ -74,7 +74,7 @@ mod tests {
         let enemy = unit(3, Team::Player, hex_from_offset(0, 1));
         let offscreen_enemy = unit(4, Team::Player, hex_from_offset(5, 5));
 
-        let snap = BattleSnapshot::new(
+        let snap = BattleSnapshot::new_from_unit_snapshots(
             vec![actor.clone(), ally.clone(), enemy.clone(), offscreen_enemy],
             1,
         );
@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn actor_never_leaks_into_allies() {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let area: HashSet<Hex> = [actor.pos].into_iter().collect();
 
         let hits = aoe_hits(&area, &actor, &snap);
@@ -108,7 +108,7 @@ mod tests {
     fn units_outside_area_are_ignored() {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let far_enemy = unit(2, Team::Player, hex_from_offset(10, 10));
-        let snap = BattleSnapshot::new(vec![actor.clone(), far_enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), far_enemy], 1);
         let area: HashSet<Hex> = [actor.pos].into_iter().collect();
 
         let hits = aoe_hits(&area, &actor, &snap);

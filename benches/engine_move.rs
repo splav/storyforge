@@ -90,7 +90,7 @@ fn build_scenario() -> (BattleSnapshot, Entity, Vec<storyforge::game::hex::Hex>)
 
     let mut units = vec![actor, enemy_a, enemy_b];
     units.extend(fillers);
-    let snap = BattleSnapshot::new(units, 1);
+    let snap = BattleSnapshot::new_from_unit_snapshots(units, 1);
 
     let path = vec![
         hex_from_offset(1, 0),

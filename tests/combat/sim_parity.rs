@@ -176,7 +176,7 @@ fn parity_haste_speed_real_vs_sim() {
         ai_tuning_override: None,
     };
     let actor_id = actor.entity;
-    let snap = BattleSnapshot::new(vec![actor], 1);
+    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor], 1);
 
     // --- Sim side ---
     let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tag_cache);
@@ -388,7 +388,7 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
     let target_id = target.entity;
     let attacker_id = attacker.entity;
 
-    let snap = BattleSnapshot::new(vec![buffer, target, attacker], 1);
+    let snap = BattleSnapshot::new_from_unit_snapshots(vec![buffer, target, attacker], 1);
 
     // Step 1: apply stone_skin to target.
     let mut sim = SimState::from_snapshot(&snap, buffer_id, &status_tag_cache);
@@ -512,7 +512,7 @@ fn parity_aoo_real_vs_sim() {
         ai_tuning_override: None,
     };
     let actor_id = actor.entity;
-    let snap = BattleSnapshot::new(vec![actor, enemy], 1);
+    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy], 1);
 
     let status_tags = StatusTagCache::default();
     let content = ContentView::default();
@@ -601,7 +601,7 @@ fn parity_aoo_decrements_reactions_real_vs_sim() {
     };
     let actor_id = actor.entity;
     let enemy_id = enemy.entity;
-    let snap = BattleSnapshot::new(vec![actor, enemy], 1);
+    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy], 1);
 
     let status_tags = StatusTagCache::default();
     let content = ContentView::default();
@@ -730,7 +730,7 @@ fn parity_rage_real_vs_sim() {
     };
     content.abilities.insert(strike_def.id.clone(), strike_def.clone());
 
-    let snap = BattleSnapshot::new(vec![attacker, defender], 1);
+    let snap = BattleSnapshot::new_from_unit_snapshots(vec![attacker, defender], 1);
     let status_tags = StatusTagCache::default();
     let mut sim = SimState::from_snapshot(&snap, attacker_id, &status_tags);
 
@@ -852,7 +852,7 @@ fn parity_rage_aoe_real_vs_sim() {
     };
     content.abilities.insert(blast_def.id.clone(), blast_def.clone());
 
-    let snap = BattleSnapshot::new(vec![attacker, d1, d2, d3], 1);
+    let snap = BattleSnapshot::new_from_unit_snapshots(vec![attacker, d1, d2, d3], 1);
     let status_tags = StatusTagCache::default();
     let mut sim = SimState::from_snapshot(&snap, attacker_id, &status_tags);
 
@@ -948,7 +948,7 @@ fn parity_aoo_grants_rage_real_vs_sim() {
     };
     let actor_id = actor.entity;
     let enemy_id = enemy.entity;
-    let snap = BattleSnapshot::new(vec![actor, enemy], 1);
+    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy], 1);
 
     let status_tags = StatusTagCache::default();
     let content = ContentView::default();

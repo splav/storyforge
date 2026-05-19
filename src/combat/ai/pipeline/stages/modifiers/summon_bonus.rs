@@ -93,7 +93,7 @@ mod tests {
         // ── 2. Context ──
         let content = empty_content();
         let difficulty = DifficultyProfile::default();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let world = make_test_ctx(&content, &difficulty);
@@ -152,7 +152,7 @@ mod tests {
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
         };
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         let mut rng = crate::core::DiceRng::default();
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);

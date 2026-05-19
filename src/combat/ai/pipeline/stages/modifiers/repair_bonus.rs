@@ -99,7 +99,7 @@ mod tests {
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
         };
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         (world, actor, snap)
     }
 
@@ -231,7 +231,7 @@ mod tests {
         let content = empty_content();
         let difficulty = DifficultyProfile::default();
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new(vec![actor.clone()], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let target_entity = bevy::prelude::Entity::from_raw_u32(42).unwrap();

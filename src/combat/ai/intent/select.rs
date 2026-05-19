@@ -594,7 +594,7 @@ mod tests {
             .full_hp(3)
             .build();
 
-        let snap = BattleSnapshot::new(vec![actor.clone(), enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let memory = AiMemory::default();
         let difficulty = DifficultyProfile::default();
@@ -644,7 +644,7 @@ mod tests {
         let e2 = UnitBuilder::new(2, Team::Player, e2_pos).full_hp(10).build();
         let e2_entity = e2.entity;
 
-        let snap = BattleSnapshot::new(vec![actor.clone(), e2], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), e2], 1);
 
         // Danger on actor tile so ProtectSelf urgency = self_preserve * danger.
         let mut maps = empty_maps();

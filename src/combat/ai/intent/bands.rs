@@ -217,7 +217,7 @@ mod tests {
             .tags(AiTags::FORCES_TARGETING)
             .build();
         let taunter_entity = taunter.entity;
-        let snap = BattleSnapshot::new(vec![active.clone(), taunter], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), taunter], 1);
         let maps = empty_maps();
         let tuning = default_tuning();
         let difficulty = default_difficulty();
@@ -234,7 +234,7 @@ mod tests {
     fn band_critical_self_preservation_fires_on_panic() {
         let active = UnitBuilder::new(1, Team::Enemy, origin()).hp(2).max_hp(20).build();
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0)).build();
-        let snap = BattleSnapshot::new(vec![active.clone(), enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), enemy], 1);
 
         let tuning = default_tuning();
         let difficulty = default_difficulty();
@@ -273,7 +273,7 @@ mod tests {
             .hp(1)
             .max_hp(20)
             .build();
-        let snap = BattleSnapshot::new(vec![active.clone(), ally], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), ally], 1);
         let maps = empty_maps();
         let tuning = default_tuning();
         let difficulty = default_difficulty();
@@ -300,7 +300,7 @@ mod tests {
     fn band_normal_tactical_fallback() {
         let active = UnitBuilder::new(1, Team::Enemy, origin()).build();
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0)).build();
-        let snap = BattleSnapshot::new(vec![active.clone(), enemy], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), enemy], 1);
         let maps = empty_maps(); // no danger
         let tuning = default_tuning();
         let difficulty = default_difficulty();
@@ -323,7 +323,7 @@ mod tests {
             .tags(AiTags::FORCES_TARGETING)
             .build();
         let taunter_entity = taunter.entity;
-        let snap = BattleSnapshot::new(vec![active.clone(), taunter], 1);
+        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), taunter], 1);
 
         let tuning = default_tuning();
         let difficulty = default_difficulty();

@@ -833,7 +833,7 @@ mod tests {
 
     fn make_snap(units: Vec<crate::combat::ai::world::snapshot::UnitSnapshot>) -> crate::combat::ai::world::snapshot::BattleSnapshot {
         let n = units.len() as u32;
-        crate::combat::ai::world::snapshot::BattleSnapshot::new(units, n)
+        crate::combat::ai::world::snapshot::BattleSnapshot::new_from_unit_snapshots(units, n)
     }
 
     // ── enemy_damage matches sim for single-target ─────────────────────────

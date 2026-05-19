@@ -196,7 +196,7 @@ mod tests {
         let expected_pos = hex_from_offset(3, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, expected_pos).hp(10).build();
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(5, 0)).build();
-        let _snap = BattleSnapshot::new(vec![actor.clone(), target.clone()], 1);
+        let _snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
 
         let stored = PlanSnapshot::capture(&actor, Some(&target), expected_pos);
         assert_eq!(stored.mismatch(&actor, Some(&target)), None);
@@ -207,7 +207,7 @@ mod tests {
         let pos = hex_from_offset(0, 0);
         let actor_before = UnitBuilder::new(1, Team::Enemy, pos).hp(10).build();
         let actor_after = UnitBuilder::new(1, Team::Enemy, pos).hp(8).build(); // AoO hit
-        let _snap = BattleSnapshot::new(vec![actor_before.clone()], 1);
+        let _snap = BattleSnapshot::new_from_unit_snapshots(vec![actor_before.clone()], 1);
 
         let stored = PlanSnapshot::capture(&actor_before, None, pos);
         assert_eq!(stored.mismatch(&actor_after, None), Some("actor_hp_drop"));

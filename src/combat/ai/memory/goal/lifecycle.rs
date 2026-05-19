@@ -152,11 +152,11 @@ mod tests {
     }
 
     fn make_snap_with_round(round: u32) -> BattleSnapshot {
-        BattleSnapshot::new(vec![], round)
+        BattleSnapshot::new_from_unit_snapshots(vec![], round)
     }
 
     fn make_snap_with_units(units: Vec<UnitSnapshot>, round: u32) -> BattleSnapshot {
-        BattleSnapshot::new(units, round)
+        BattleSnapshot::new_from_unit_snapshots(units, round)
     }
 
     fn default_tuning() -> AiTuning {
