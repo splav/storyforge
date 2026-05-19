@@ -1343,9 +1343,31 @@ pub fn write_actor_tick_event(logger: &mut AiLogger, event: &ActorTickEvent) -> 
 }
 
 /// Buffer of pending AI log entries not yet written to disk.
-/// Flushed by `flush_pending_ai_log_system` after `process_action_system`
-/// completes in the same Update frame, at which point `engine_step_range` is
-/// populated from the trace writer's step counter.
+///
+/// # Why deferred?
+///
+/// `ActorTickEvent.engine_step_range` carries the range of `engine.jsonl`
+/// step indices caused by this actor's decision. That range can only be
+/// known **after** `process_action_system` has actually executed those
+/// steps — the AI system itself, which produces the event, runs *before*
+/// the engine applies anything. Writing the event synchronously inside
+/// the AI system would leave `engine_step_range = None`.
+///
+/// So the AI system pushes `(event, start_step)` here (capturing the
+/// engine trace writer's step counter at decision time as `start_step`),
+/// and `flush_pending_ai_log_system` runs after `process_action_system`
+/// in the same `Update` frame: it reads the new step counter as
+/// `end_step`, populates `engine_step_range = Some((start_step, end_step))`,
+/// and writes the entry to `ai_decisions.jsonl`.
+///
+/// Alternative considered: have the engine emit an `EngineStepBoundary`
+/// event and correlate via event-bus subscription. Rejected as more
+/// machinery for no determinism win — the deferred-write pattern works
+/// because AI and `process_action_system` run in fixed order within one
+/// frame.
+///
+/// Correlation contract is tested by
+/// `tests/engine_step_range_correlation.rs`.
 ///
 /// Each tuple is `(event, start_step)`.
 #[derive(Resource, Default)]
