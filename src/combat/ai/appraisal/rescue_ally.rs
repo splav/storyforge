@@ -1,5 +1,6 @@
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::AbilityTag;
+use bevy::prelude::Entity;
 use super::AppraisalCtx;
 
 pub(super) fn compute_rescue_ally(ctx: &AppraisalCtx<'_>) -> f32 {
@@ -14,10 +15,11 @@ pub(super) fn compute_rescue_ally(ctx: &AppraisalCtx<'_>) -> f32 {
         return 0.0;
     }
 
+    let actor_entity = ctx.active.entity;
     // Find most-endangered ally within reach budget.
     let reach = (ctx.active.speed.max(0) as u32).saturating_add(ctx.active.max_attack_range);
-    let best_danger: f32 = ctx.snap.units.iter()
-        .filter(|a| a.team == ctx.active.team && a.entity != ctx.active.entity)
+    let best_danger: f32 = ctx.snap.allies_of(ctx.active.team)
+        .filter(|a| a.entity() != actor_entity)
         .filter(|a| ctx.active.pos.unsigned_distance_to(a.pos) <= reach)
         .map(|a| {
             let hp_low = (1.0 - a.hp_pct()).clamp(0.0, 1.0);
@@ -33,11 +35,10 @@ pub(super) fn compute_rescue_ally(ctx: &AppraisalCtx<'_>) -> f32 {
 /// enemies in attack range of the ally, normalised to ≈ [0, 1] by dividing by
 /// 10 (mid-game DPR ceiling). Reuses `scoring::horizon_avg` for consistency
 /// with the scoring layer.
-pub(crate) fn ally_threat_proxy(ally: &UnitSnapshot, snap: &BattleSnapshot) -> f32 {
-    snap.units.iter()
-        .filter(|e| e.team != ally.team)
-        .filter(|e| e.pos.unsigned_distance_to(ally.pos) <= e.max_attack_range)
-        .map(crate::combat::ai::scoring::horizon_avg)
+pub(crate) fn ally_threat_proxy(ally: UnitView<'_>, snap: &BattleSnapshot) -> f32 {
+    snap.enemies_of(ally.team)
+        .filter(|e| e.pos.unsigned_distance_to(ally.pos) <= e.cache.max_attack_range)
+        .map(|e| crate::combat::ai::scoring::horizon_avg(e))
         .fold(0.0_f32, f32::max)
         / 10.0
 }

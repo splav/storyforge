@@ -767,7 +767,7 @@ mod tests {
         }
         fn unit_at_cell(&self, pos: crate::game::hex::Hex) -> Option<TargetRef> {
             let u = self.0.unit_at(pos)?;
-            Some(TargetRef { entity: u.entity, team: u.team, alive: true })
+            Some(TargetRef { entity: u.entity(), team: u.team, alive: true })
         }
         fn team_of(&self, entity: Entity) -> Option<Team> {
             self.0.unit(entity).map(|u| u.team)

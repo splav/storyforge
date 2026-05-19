@@ -101,7 +101,7 @@ pub(crate) fn compute_ally_rescue(
 
     for ally_initial in initial_snap.allies_of(ctx.active.team) {
         // Skip self — ally_rescue is about *other* friendlies.
-        if ally_initial.entity == ctx.active.entity {
+        if ally_initial.entity() == ctx.active.entity {
             continue;
         }
         let was_endangered = ally_initial.hp_pct() < 0.4
@@ -109,7 +109,7 @@ pub(crate) fn compute_ally_rescue(
         if !was_endangered {
             continue;
         }
-        if let Some(ally_end) = end_snap.unit(ally_initial.entity) {
+        if let Some(ally_end) = end_snap.unit(ally_initial.entity()) {
             if ally_end.hp_pct() > 0.6 {
                 // Credit proportional to how endangered they were.
                 total += (1.0 - ally_initial.hp_pct()).max(0.0);
@@ -163,7 +163,7 @@ pub(crate) fn compute_next_turn_lethality(
         .enemies_of(ctx.active.team)
         .filter(|e| e.hp > 0)
         .filter(|e| {
-            let reach = (e.speed.max(0) as u32).saturating_add(e.max_attack_range);
+            let reach = (e.speed.max(0) as u32).saturating_add(e.cache.max_attack_range);
             final_pos.unsigned_distance_to(e.pos) <= reach
         })
         .map(crate::combat::ai::scoring::horizon_avg)

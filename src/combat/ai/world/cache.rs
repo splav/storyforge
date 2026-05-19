@@ -159,25 +159,24 @@ mod cache_parity_tests {
         let snap = snapshot_from(vec![u1, u2], 1);
 
         for entity in entities {
-            // Use unit_snapshot() to access the raw UnitSnapshot (still present in D-step-3..5).
-            let us = snap.unit_snapshot(entity).expect("unit in snapshot");
+            let u = snap.unit(entity).expect("unit in snapshot");
             let uc = snap.cache.unit(entity).expect("unit in cache");
 
-            assert_eq!(uc.entity, us.entity, "entity mismatch");
-            assert_eq!(uc.role, us.role, "role mismatch for {:?}", entity);
-            assert_eq!(uc.threat, us.threat, "threat mismatch for {:?}", entity);
-            assert_eq!(uc.tags, us.tags, "tags mismatch for {:?}", entity);
-            assert_eq!(uc.max_attack_range, us.max_attack_range,
+            assert_eq!(uc.entity, u.entity(), "entity mismatch");
+            assert_eq!(uc.role, u.cache.role, "role mismatch for {:?}", entity);
+            assert_eq!(uc.threat, u.cache.threat, "threat mismatch for {:?}", entity);
+            assert_eq!(uc.tags, u.cache.tags, "tags mismatch for {:?}", entity);
+            assert_eq!(uc.max_attack_range, u.cache.max_attack_range,
                 "max_attack_range mismatch for {:?}", entity);
-            assert_eq!(uc.aoo_expected_damage, us.aoo_expected_damage,
+            assert_eq!(uc.aoo_expected_damage, u.cache.aoo_expected_damage,
                 "aoo_expected_damage mismatch for {:?}", entity);
-            assert_eq!(uc.damage_horizon, us.damage_horizon,
+            assert_eq!(uc.damage_horizon, u.cache.damage_horizon,
                 "damage_horizon mismatch for {:?}", entity);
-            assert_eq!(uc.crit_fail_effect, us.crit_fail_effect,
+            assert_eq!(uc.crit_fail_effect, u.cache.crit_fail_effect,
                 "crit_fail_effect mismatch for {:?}", entity);
-            assert_eq!(uc.ai_tuning_override, us.ai_tuning_override,
+            assert_eq!(uc.ai_tuning_override, u.cache.ai_tuning_override,
                 "ai_tuning_override mismatch for {:?}", entity);
-            assert_eq!(uc.abilities, us.abilities,
+            assert_eq!(uc.abilities, u.cache.abilities,
                 "abilities mismatch for {:?}", entity);
         }
     }

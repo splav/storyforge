@@ -5,7 +5,7 @@
 use super::{AiDecision, MoveOrigin};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::plan::reach_from;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
 use crate::combat::ai::world::tags::AiTags;
 use crate::game::hex::Hex;
 
@@ -18,7 +18,7 @@ pub(super) fn fallback_move(
         return AiDecision::EndTurn;
     }
 
-    let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
+    let enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
     if enemies.is_empty() {
         return AiDecision::EndTurn;
     }

@@ -817,10 +817,10 @@ impl BattleSnapshot {
         Some(UnitView { state, cache })
     }
 
-    /// Raw `UnitSnapshot` lookup — used during the D-step-3→5 transition period
-    /// by internal code that still needs the snapshot layer directly (e.g.
-    /// sim's `project_engine_to_snapshot`, the parity test, functions that take
-    /// `&UnitSnapshot`). Will be removed in D-step-5.
+    /// Raw `UnitSnapshot` lookup via the legacy `units` vec — for use only by
+    /// the memory module functions (`mismatch`, `check_continuation`, `capture`)
+    /// that still accept `&UnitSnapshot`. Will be removed in step 3 when those
+    /// functions are migrated to `UnitView`.
     pub fn unit_snapshot(&self, entity: Entity) -> Option<&UnitSnapshot> {
         if !self.by_entity.is_empty() {
             let idx = *self.by_entity.get(&entity)?;
@@ -829,45 +829,67 @@ impl BattleSnapshot {
         self.units.iter().find(|u| u.entity == entity)
     }
 
-    /// Position lookup — returns `UnitSnapshot` (backed by `self.units`).
-    /// Used by sim's `compute_affected_targets` and legacy code.
-    pub fn unit_at(&self, pos: Hex) -> Option<&UnitSnapshot> {
-        self.units.iter().find(|u| u.pos == pos)
+    /// Position lookup — returns the `UnitView` for the unit at `pos` (if any).
+    pub fn unit_at(&self, pos: Hex) -> Option<UnitView<'_>> {
+        self.state.units().iter().find(|u| u.pos == pos).and_then(|u| {
+            let entity = Entity::from_bits(u.id.0);
+            let cache = self.cache.unit(entity)?;
+            Some(UnitView { state: u, cache })
+        })
     }
 
-    /// Live enemies of `team` as `&UnitSnapshot` refs. Dead units on the opposing
-    /// team stay in `units` but are filtered here.
-    pub fn enemies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
+    /// Live enemies of `team` as `UnitView`s. Dead units on the opposing
+    /// team are filtered out.
+    pub fn enemies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         let opponent = opponent_team(team);
-        self.units
-            .iter()
-            .filter(move |u| u.team == opponent && u.is_alive())
+        self.state.units().iter().filter_map(move |u| {
+            if u.team != opponent || u.hp <= 0 { return None; }
+            let entity = Entity::from_bits(u.id.0);
+            let cache = self.cache.unit(entity)?;
+            Some(UnitView { state: u, cache })
+        })
     }
 
     /// Live allies of `team` (mirrors `enemies_of` contract).
-    pub fn allies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
-        self.units
-            .iter()
-            .filter(move |u| u.team == team && u.is_alive())
+    pub fn allies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
+        self.state.units().iter().filter_map(move |u| {
+            if u.team != team || u.hp <= 0 { return None; }
+            let entity = Entity::from_bits(u.id.0);
+            let cache = self.cache.unit(entity)?;
+            Some(UnitView { state: u, cache })
+        })
     }
 
     /// Enemies of `team` **including corpses**.
-    pub fn all_enemies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
+    pub fn all_enemies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         let opponent = opponent_team(team);
-        self.units.iter().filter(move |u| u.team == opponent)
+        self.state.units().iter().filter_map(move |u| {
+            if u.team != opponent { return None; }
+            let entity = Entity::from_bits(u.id.0);
+            let cache = self.cache.unit(entity)?;
+            Some(UnitView { state: u, cache })
+        })
     }
 
     /// Dead opposing-team units only.
-    pub fn dead_enemies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
+    pub fn dead_enemies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         let opponent = opponent_team(team);
-        self.units
-            .iter()
-            .filter(move |u| u.team == opponent && !u.is_alive())
+        self.state.units().iter().filter_map(move |u| {
+            if u.team != opponent || u.hp > 0 { return None; }
+            let entity = Entity::from_bits(u.id.0);
+            let cache = self.cache.unit(entity)?;
+            Some(UnitView { state: u, cache })
+        })
     }
 
     /// Every dead unit in the snapshot regardless of team.
-    pub fn dead_units(&self) -> impl Iterator<Item = &UnitSnapshot> {
-        self.units.iter().filter(|u| !u.is_alive())
+    pub fn dead_units(&self) -> impl Iterator<Item = UnitView<'_>> {
+        self.state.units().iter().filter_map(|u| {
+            if u.hp > 0 { return None; }
+            let entity = Entity::from_bits(u.id.0);
+            let cache = self.cache.unit(entity)?;
+            Some(UnitView { state: u, cache })
+        })
     }
 }
 

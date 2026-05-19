@@ -1,4 +1,4 @@
-use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::combat::ai::world::snapshot::UnitView;
 use crate::combat::ai::world::tags::{AbilityTag, StatusTag, StatusTagCache};
 use super::AppraisalCtx;
 
@@ -13,11 +13,10 @@ pub(super) fn compute_apply_cc(ctx: &AppraisalCtx<'_>) -> f32 {
     }
 
     let reach = (ctx.active.speed.max(0) as u32).saturating_add(ctx.active.max_attack_range);
-    let best_threat: f32 = ctx.snap.units.iter()
-        .filter(|e| e.team != ctx.active.team)
+    let best_threat: f32 = ctx.snap.enemies_of(ctx.active.team)
         .filter(|e| ctx.active.pos.unsigned_distance_to(e.pos) <= reach)
-        .filter(|e| !target_already_hardcc(e, ctx.status_tags))
-        .map(crate::combat::ai::scoring::horizon_avg)
+        .filter(|e| !target_already_hardcc(*e, ctx.status_tags))
+        .map(|e| crate::combat::ai::scoring::horizon_avg(e))
         .fold(0.0_f32, f32::max);
 
     // LinearClamped — explicit DPR bounds [2, 10]; more robust than magic /10.
@@ -25,7 +24,7 @@ pub(super) fn compute_apply_cc(ctx: &AppraisalCtx<'_>) -> f32 {
 }
 
 /// Returns true if the unit already has a HardCC status applied.
-fn target_already_hardcc(unit: &UnitSnapshot, cache: &StatusTagCache) -> bool {
+fn target_already_hardcc(unit: UnitView<'_>, cache: &StatusTagCache) -> bool {
     unit.statuses.iter().any(|st| cache.get(&st.id).contains_tag(StatusTag::HardCC))
 }
 

@@ -142,11 +142,11 @@ pub fn assign_band(
     // 1. ForcedTargeting — hard taunt rule.
     if let Some(taunter) = snap
         .enemies_of(active.team)
-        .find(|e| e.tags.contains(AiTags::FORCES_TARGETING))
+        .find(|e| e.cache.tags.contains(AiTags::FORCES_TARGETING))
     {
         return (
             PriorityBand::ForcedTargeting,
-            BandReason::TauntForced { taunter: taunter.entity },
+            BandReason::TauntForced { taunter: taunter.entity() },
         );
     }
 

@@ -15,7 +15,7 @@ use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::scoring::factors::aggregate::rescore_with_per_plan_modes;
 use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
 use crate::combat::ai::plan::TurnPlan;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
 use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::content_view::ContentView;
 
@@ -158,7 +158,7 @@ pub fn select_evaluation_modes(
     }
 
     // ── Per-plan rule: ExpectedSelfLethal ─────────────────────────────────
-    let enemies: Vec<&UnitSnapshot> = ctx.snap.enemies_of(active.team).collect();
+    let enemies: Vec<UnitView<'_>> = ctx.snap.enemies_of(active.team).collect();
     let hp_cutoff = active.hp as f32;
     for (i, plan) in plans.iter().enumerate() {
         if active.hp <= 0 {
@@ -284,7 +284,7 @@ pub fn apply_adaptation(
     // "final useful action" table evaluates it on its own terms (kill >
     // cc > damage), so the plan competes honestly against defensive
     // alternatives.
-    let enemies: Vec<&UnitSnapshot> = ctx.snap.enemies_of(active.team).collect();
+    let enemies: Vec<UnitView<'_>> = ctx.snap.enemies_of(active.team).collect();
     let hp_cutoff = active.hp as f32;
     let mut any_switched = false;
     for (i, plan) in plans.iter().enumerate() {

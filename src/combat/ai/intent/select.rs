@@ -6,7 +6,7 @@ use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::scoring::target_selection::{highest_priority_enemy, target_selection_score};
 use crate::combat::ai::world::influence::InfluenceMaps;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
 use crate::combat::ai::world::tags::AiTags;
 use crate::game::hex::Hex;
 use super::kinds::{IntentKind, IntentReason, TacticalIntent};
@@ -101,7 +101,7 @@ pub(crate) fn select_intent_normal(
     if let Some(target) = killable {
         let kill_score = 1.2 + need_signals.finish_target * 0.3;
         consider(
-            TacticalIntent::FocusTarget { target: target.entity },
+            TacticalIntent::FocusTarget { target: target.entity() },
             kill_score,
             IntentReason::Killable {
                 threat: active.threat,
@@ -113,7 +113,7 @@ pub(crate) fn select_intent_normal(
     } else if let Some(target) = highest_priority_enemy(active, snap) {
         let prio = target_selection_score(active, target, snap);
         consider(
-            TacticalIntent::FocusTarget { target: target.entity },
+            TacticalIntent::FocusTarget { target: target.entity() },
             0.5 + prio * 0.3,
             IntentReason::BestPriority { priority: prio },
         );
@@ -123,17 +123,17 @@ pub(crate) fn select_intent_normal(
     if active.tags.contains(AiTags::CAN_CC) {
         let cc_target = snap
             .enemies_of(active.team)
-            .filter(|e| !e.tags.contains(AiTags::IS_STUNNED))
+            .filter(|e| !e.cache.tags.contains(AiTags::IS_STUNNED))
             .max_by(|a, b| {
-                let da = crate::combat::ai::scoring::horizon_avg(a);
-                let db = crate::combat::ai::scoring::horizon_avg(b);
+                let da = crate::combat::ai::scoring::horizon_avg(*a);
+                let db = crate::combat::ai::scoring::horizon_avg(*b);
                 da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
             });
         if let Some(target) = cc_target {
             let dpr = crate::combat::ai::scoring::horizon_avg(target);
             let cc_score = 0.8 + dpr * 0.1;
             consider(
-                TacticalIntent::ApplyCC { target: target.entity },
+                TacticalIntent::ApplyCC { target: target.entity() },
                 cc_score,
                 IntentReason::ApplyCc { dpr },
             );
@@ -142,7 +142,7 @@ pub(crate) fn select_intent_normal(
 
     // SetupAOE: enemies clustered.
     if active.tags.contains(AiTags::HAS_AOE) {
-        let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
+        let enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
         let cluster_count = enemies.iter().enumerate().filter(|(i, a)| {
             enemies[*i + 1..]
                 .iter()
@@ -306,7 +306,7 @@ pub fn select_intent(
             let ally_pct = ally.hp_pct();
             let urgency = 1.0 - ally_pct;
             consider(
-                TacticalIntent::ProtectAlly { ally: ally.entity },
+                TacticalIntent::ProtectAlly { ally: ally.entity() },
                 urgency,
                 IntentReason::ProtectAlly {
                     ally_hp_pct: ally_pct,
@@ -322,24 +322,24 @@ pub fn select_intent(
     // pick an unreachable "priority" target and then fall back through the viability
     // guard — that produced confusing "Priority target: X … fallback to Y" logs.
     let taunter = snap.enemies_of(active.team)
-        .find(|e| e.tags.contains(AiTags::FORCES_TARGETING));
+        .find(|e| e.cache.tags.contains(AiTags::FORCES_TARGETING));
 
     if let Some(t) = taunter {
         // Forced engagement. Score on par with killable so it beats default FocusTarget
         // but can still lose to ProtectSelf/ProtectAlly in a survival crisis.
         consider(
-            TacticalIntent::FocusTarget { target: t.entity },
+            TacticalIntent::FocusTarget { target: t.entity() },
             1.2,
             IntentReason::TauntForced,
         );
-        if active.tags.contains(AiTags::CAN_CC) && !t.tags.contains(AiTags::IS_STUNNED) {
+        if active.tags.contains(AiTags::CAN_CC) && !t.cache.tags.contains(AiTags::IS_STUNNED) {
             // Intent score uses horizon-average (DPR) rather than peak
             // `threat` so CC-ing a burst mage with empty mana doesn't
             // over-commit the planner; a sustained fighter still scores
             // high. Constants unchanged.
             let dpr = crate::combat::ai::scoring::horizon_avg(t);
             consider(
-                TacticalIntent::ApplyCC { target: t.entity },
+                TacticalIntent::ApplyCC { target: t.entity() },
                 0.8 + dpr * 0.1,
                 IntentReason::TauntCc { dpr },
             );
@@ -363,7 +363,7 @@ pub fn select_intent(
             // finish_target reflects the best killable opportunity overall.
             let kill_score = 1.2 + need_signals.finish_target * 0.3;
             consider(
-                TacticalIntent::FocusTarget { target: target.entity },
+                TacticalIntent::FocusTarget { target: target.entity() },
                 kill_score,
                 IntentReason::Killable {
                     threat: active.threat,
@@ -375,7 +375,7 @@ pub fn select_intent(
         } else if let Some(target) = highest_priority_enemy(active, snap) {
             let prio = target_selection_score(active, target, snap);
             consider(
-                TacticalIntent::FocusTarget { target: target.entity },
+                TacticalIntent::FocusTarget { target: target.entity() },
                 0.5 + prio * 0.3,
                 IntentReason::BestPriority { priority: prio },
             );
@@ -389,17 +389,17 @@ pub fn select_intent(
             // fighters, matching the stun-value scoring downstream.
             let cc_target = snap
                 .enemies_of(active.team)
-                .filter(|e| !e.tags.contains(AiTags::IS_STUNNED))
+                .filter(|e| !e.cache.tags.contains(AiTags::IS_STUNNED))
                 .max_by(|a, b| {
-                    let da = crate::combat::ai::scoring::horizon_avg(a);
-                    let db = crate::combat::ai::scoring::horizon_avg(b);
+                    let da = crate::combat::ai::scoring::horizon_avg(*a);
+                    let db = crate::combat::ai::scoring::horizon_avg(*b);
                     da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
                 });
             if let Some(target) = cc_target {
                 let dpr = crate::combat::ai::scoring::horizon_avg(target);
                 let cc_score = 0.8 + dpr * 0.1;
                 consider(
-                    TacticalIntent::ApplyCC { target: target.entity },
+                    TacticalIntent::ApplyCC { target: target.entity() },
                     cc_score,
                     IntentReason::ApplyCc { dpr },
                 );
@@ -409,7 +409,7 @@ pub fn select_intent(
 
     // SetupAOE: enemies clustered.
     if active.tags.contains(AiTags::HAS_AOE) {
-        let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
+        let enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
         let cluster_count = enemies.iter().enumerate().filter(|(i, a)| {
             enemies[*i + 1..]
                 .iter()
@@ -511,14 +511,14 @@ pub fn default_focus_target(
 
     let pick_best = |include_reachable_only: bool| {
         snap.enemies_of(active.team)
-            .filter(|e| Some(e.entity) != exclude)
-            .filter(|e| !include_reachable_only || reachable.contains(&e.entity))
+            .filter(|e| Some(e.entity()) != exclude)
+            .filter(|e| !include_reachable_only || reachable.contains(&e.entity()))
             .max_by(|a, b| {
-                target_selection_score(active, a, snap)
-                    .partial_cmp(&target_selection_score(active, b, snap))
+                target_selection_score(active, *a, snap)
+                    .partial_cmp(&target_selection_score(active, *b, snap))
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
-            .map(|e| e.entity)
+            .map(|e| e.entity())
     };
 
     pick_best(true).or_else(|| pick_best(false))

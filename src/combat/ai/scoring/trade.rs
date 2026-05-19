@@ -36,8 +36,7 @@
 
 use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::plan::TurnPlan;
-use crate::combat::ai::scoring::horizon::horizon_avg;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
 use crate::content::abilities::{EffectCalcExt, StatusOn, TargetType};
 use crate::content::content_view::ContentView;
 
@@ -90,11 +89,15 @@ fn lifetime_rounds(_u: &UnitSnapshot) -> f32 {
     FIXED_LIFETIME_ROUNDS
 }
 
-/// HP/round damage output. Reuses `scoring::horizon_avg` — DPR-correct
-/// via `damage_horizon`, falls back to `threat` when the horizon is
-/// empty (legacy logs / partial fixtures).
+/// HP/round damage output. DPR-correct via `damage_horizon`, falls back
+/// to `threat` when the horizon is empty (legacy logs / partial fixtures).
 fn offense_projection(u: &UnitSnapshot) -> f32 {
-    horizon_avg(u).max(0.0)
+    if u.damage_horizon.is_empty() {
+        u.threat.max(0.0)
+    } else {
+        let n = u.damage_horizon.len() as f32;
+        (u.damage_horizon.iter().sum::<f32>() / n.max(1.0)).max(0.0)
+    }
 }
 
 /// HP/round healing output. **Best single legal heal**, no `× max_ap`
@@ -256,7 +259,7 @@ pub fn trade_delta(
     // fires this tick is step 0 (bundled prefix is `[Move]` or
     // `[Move, Cast]`). For full-plan prefixes (no Move in prefix) this
     // returns 0 because there's no path-transition to scan. Safe.
-    let enemies: Vec<&UnitSnapshot> = initial_snap.enemies_of(active.team).collect();
+    let enemies: Vec<UnitView<'_>> = initial_snap.enemies_of(active.team).collect();
     let aoo_dmg = if prefix_is_move_shaped(plan, prefix_len) {
         expected_aoo_damage(active, plan, &enemies)
     } else {

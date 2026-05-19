@@ -533,7 +533,7 @@ fn priority_target_debug(
     names: &HashMap<Entity, String>,
 ) -> Option<(String, f32)> {
     highest_priority_enemy(active, snap)
-        .map(|t| (name_of(t.entity, names), target_selection_score(active, t, snap)))
+        .map(|t| (name_of(t.entity(), names), target_selection_score(active, t, snap)))
 }
 
 /// Build the AiDebugSnapshot for a normal (non-fallback) pick_action path.

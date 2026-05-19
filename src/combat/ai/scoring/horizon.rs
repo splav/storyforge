@@ -1,7 +1,7 @@
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use combat_engine::final_damage_f32;
 use crate::content::content_view::ContentView;
-use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::combat::ai::world::snapshot::{UnitSnapshot, UnitView};
 use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, TargetType};
 use crate::content::statuses::StatusDef;
 use crate::core::ResourceKind;
@@ -77,12 +77,12 @@ pub fn horizon_window_sum(target: &UnitSnapshot, duration: f32) -> f32 {
 /// Used where the call site needs a single per-round scalar (scarcity
 /// bonus, intent CC weight) and wants the DPR-equivalent rather than a
 /// duration-specific sum.
-pub fn horizon_avg(target: &UnitSnapshot) -> f32 {
-    if target.damage_horizon.is_empty() {
-        return target.threat;
+pub fn horizon_avg(target: UnitView<'_>) -> f32 {
+    if target.cache.damage_horizon.is_empty() {
+        return target.cache.threat;
     }
-    let n = target.damage_horizon.len() as f32;
-    target.damage_horizon.iter().sum::<f32>() / n.max(1.0)
+    let n = target.cache.damage_horizon.len() as f32;
+    target.cache.damage_horizon.iter().sum::<f32>() / n.max(1.0)
 }
 
 /// Best single-target expected damage from one ability (before armor).
@@ -305,14 +305,14 @@ pub(crate) struct AooHit {
 pub(crate) fn scan_aoo_hits_for_step(
     start_pos: Hex,
     path: &[Hex],
-    enemies: &[&UnitSnapshot],
+    enemies: &[UnitView<'_>],
 ) -> Vec<AooHit> {
     let mut hits = Vec::new();
     for (enemy_idx, e) in enemies.iter().enumerate() {
         if e.reactions_left <= 0 {
             continue;
         }
-        let Some(raw) = e.aoo_expected_damage else { continue };
+        let Some(raw) = e.cache.aoo_expected_damage else { continue };
         // Walk the path: detect first transition that leaves adjacency with
         // this enemy (prev adjacent, next not). Each enemy triggers at most
         // once per step.
@@ -345,7 +345,7 @@ pub(crate) fn scan_aoo_hits_for_step(
 pub(crate) fn expected_aoo_damage(
     active: &UnitSnapshot,
     plan: &TurnPlan,
-    enemies: &[&UnitSnapshot],
+    enemies: &[UnitView<'_>],
 ) -> f32 {
     let mut total = 0.0f32;
     let mitigation = (active.armor + active.armor_bonus) as f32;

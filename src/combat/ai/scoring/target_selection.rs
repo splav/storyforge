@@ -1,45 +1,50 @@
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
 use crate::combat::ai::world::tags::AiTags;
 
 pub fn highest_priority_enemy<'a>(
     active: &UnitSnapshot,
     snap: &'a BattleSnapshot,
-) -> Option<&'a UnitSnapshot> {
-    snap.units.iter()
-        .filter(|u| u.team != active.team && u.is_alive())
-        .max_by(|a, b| {
-            target_selection_score(active, a, snap)
-                .partial_cmp(&target_selection_score(active, b, snap))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
+) -> Option<UnitView<'a>> {
+    snap.enemies_of(active.team).max_by(|a, b| {
+        target_selection_score(active, *a, snap)
+            .partial_cmp(&target_selection_score(active, *b, snap))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })
 }
 
 pub fn target_selection_score(
     active: &UnitSnapshot,
-    target: &UnitSnapshot,
+    target: UnitView<'_>,
     snap: &BattleSnapshot,
 ) -> f32 {
     let max_threat = snap
+        .cache
         .units
         .iter()
         .map(|u| u.threat)
         .fold(0.0f32, f32::max)
         .max(1.0);
 
-    let threat = target.threat / max_threat;
+    let threat = target.cache.threat / max_threat;
     let killability = target.killability();
     let eff_hp = target.eff_hp() as f32;
 
     // Threat density: damage output per HP-to-kill.
     let max_density = snap
-        .units
+        .state
+        .units()
         .iter()
-        .map(|u| u.threat / (u.eff_hp().max(1)) as f32)
+        .filter_map(|u| {
+            let entity = bevy::prelude::Entity::from_bits(u.id.0);
+            let c = snap.cache.unit(entity)?;
+            let eff = (u.hp + u.armor + u.armor_bonus).max(1) as f32;
+            Some(c.threat / eff)
+        })
         .fold(0.0f32, f32::max)
         .max(0.01);
-    let density = (target.threat / eff_hp.max(1.0)) / max_density;
+    let density = (target.cache.threat / eff_hp.max(1.0)) / max_density;
 
-    let vulnerability = if target.tags.contains(AiTags::LOW_HP) {
+    let vulnerability = if target.cache.tags.contains(AiTags::LOW_HP) {
         0.3
     } else {
         0.0
@@ -49,7 +54,7 @@ pub fn target_selection_score(
         0.0
     };
 
-    let role_value = target.role.role_value();
+    let role_value = target.cache.role.role_value();
 
     let dist = active.pos.unsigned_distance_to(target.pos) as f32;
     let proximity = 1.0 / (1.0 + dist);
@@ -83,8 +88,10 @@ mod tests {
             .build();
 
         let s = snapshot_from(vec![active.clone(), healthy.clone(), wounded.clone()], 1);
-        let ph = target_selection_score(&active, &healthy, &s);
-        let pw = target_selection_score(&active, &wounded, &s);
+        let vh = s.unit(healthy.entity).unwrap();
+        let vw = s.unit(wounded.entity).unwrap();
+        let ph = target_selection_score(&active, vh, &s);
+        let pw = target_selection_score(&active, vw, &s);
         assert!(pw > ph, "wounded target should have higher priority");
     }
 
@@ -97,8 +104,10 @@ mod tests {
         let bruiser = unit(2, Team::Enemy, hex_from_offset(3, 3));
 
         let s = snapshot_from(vec![active.clone(), support.clone(), bruiser.clone()], 1);
-        let ps = target_selection_score(&active, &support, &s);
-        let pb = target_selection_score(&active, &bruiser, &s);
+        let vs = s.unit(support.entity).unwrap();
+        let vb = s.unit(bruiser.entity).unwrap();
+        let ps = target_selection_score(&active, vs, &s);
+        let pb = target_selection_score(&active, vb, &s);
         assert!(ps > pb, "support should be higher priority than bruiser");
     }
 }

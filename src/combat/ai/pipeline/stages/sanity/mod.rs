@@ -26,7 +26,7 @@ use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::combat::ai::world::snapshot::{UnitSnapshot, UnitView};
 use crate::content::abilities::AoEShape;
 use crate::game::hex::Hex;
 use std::collections::HashSet;
@@ -143,9 +143,9 @@ pub fn sanity_adjust_plans(
     let active = ctx.active;
     let snap = ctx.snap;
     let maps = ctx.maps;
-    let allies: Vec<&UnitSnapshot> = snap
+    let allies: Vec<UnitView<'_>> = snap
         .allies_of(active.team)
-        .filter(|u| u.entity != active.entity)
+        .filter(|u| u.entity() != active.entity)
         .collect();
     let ally_positions: HashSet<Hex> = allies.iter().map(|a| a.pos).collect();
     let current_pos_eval = evaluate_position(active.pos, &active.role, ctx.world.tuning, maps);
@@ -766,9 +766,13 @@ mod tests {
         for row in &rows {
             let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0), row.actor_hp);
             actor.armor = row.actor_armor;
-            let enemy_refs: Vec<&crate::combat::ai::world::snapshot::UnitSnapshot> = row.enemies.iter().collect();
+            let snap = snapshot_from(row.enemies.clone(), 1);
+            let enemy_views: Vec<crate::combat::ai::world::snapshot::UnitView<'_>> =
+                row.enemies.iter()
+                    .filter_map(|e| snap.unit(e.entity))
+                    .collect();
             let plan = move_plan(row.path.clone());
-            let dmg = expected_aoo_damage(&actor, &plan, &enemy_refs);
+            let dmg = expected_aoo_damage(&actor, &plan, &enemy_views);
             let name = row.name;
             match row.expected {
                 Aoo::Zero => assert_eq!(dmg, 0.0, "[{name}] expected 0, got {dmg}"),

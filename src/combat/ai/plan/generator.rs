@@ -18,7 +18,7 @@ use crate::combat::engine_bridge::entity_to_uid;
 use crate::combat::ai::outcome::builder as outcome_builder;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
 use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
@@ -475,25 +475,25 @@ fn rank_targets(
         TargetType::SingleEnemy => {
             // Filter to legal opponents first, then rank — top-K is now
             // K legal targets by design.
-            let pool: Vec<&UnitSnapshot> = sim
+            let pool: Vec<UnitView<'_>> = sim
                 .snapshot
                 .enemies_of(actor.team)
-                .filter(|u| is_legal(u.entity, u.pos))
+                .filter(|u| is_legal(u.entity(), u.pos))
                 .collect();
 
-            let mut by_threat: Vec<&UnitSnapshot> = pool.clone();
-            by_threat.sort_by(|a, b| b.threat.total_cmp(&a.threat));
+            let mut by_threat: Vec<UnitView<'_>> = pool.clone();
+            by_threat.sort_by(|a, b| b.cache.threat.total_cmp(&a.cache.threat));
             by_threat.truncate(TARGETS_BY_THREAT);
 
-            let mut by_killability: Vec<&UnitSnapshot> = pool;
+            let mut by_killability: Vec<UnitView<'_>> = pool;
             by_killability.sort_by(|a, b| b.killability().total_cmp(&a.killability()));
             by_killability.truncate(TARGETS_BY_KILLABILITY);
 
             let mut seen: HashSet<Entity> = HashSet::new();
             let mut out: Vec<(Entity, Hex)> = Vec::new();
             for u in by_threat.into_iter().chain(by_killability) {
-                if seen.insert(u.entity) {
-                    out.push((u.entity, u.pos));
+                if seen.insert(u.entity()) {
+                    out.push((u.entity(), u.pos));
                 }
             }
             out
@@ -502,8 +502,8 @@ fn rank_targets(
             let mut picks: Vec<(Entity, Hex, f32)> = sim
                 .snapshot
                 .allies_of(actor.team)
-                .filter(|u| is_legal(u.entity, u.pos))
-                .map(|u| (u.entity, u.pos, (u.max_hp - u.hp).max(0) as f32))
+                .filter(|u| is_legal(u.entity(), u.pos))
+                .map(|u| (u.entity(), u.pos, (u.max_hp - u.hp).max(0) as f32))
                 .collect();
             picks.sort_by(|a, b| b.2.total_cmp(&a.2));
             picks.truncate(TARGETS_BY_THREAT + TARGETS_BY_KILLABILITY);
@@ -524,17 +524,17 @@ fn rank_targets(
         // so a suboptimal landing cell still loses to a better one in the
         // beam-search ranking — we don't need to bake that into enumeration.
         TargetType::Ground => {
-            let pool: Vec<&UnitSnapshot> = sim
+            let pool: Vec<UnitView<'_>> = sim
                 .snapshot
                 .enemies_of(actor.team)
                 .filter(|u| is_legal(actor.entity, u.pos))
                 .collect();
 
-            let mut by_threat: Vec<&UnitSnapshot> = pool.clone();
-            by_threat.sort_by(|a, b| b.threat.total_cmp(&a.threat));
+            let mut by_threat: Vec<UnitView<'_>> = pool.clone();
+            by_threat.sort_by(|a, b| b.cache.threat.total_cmp(&a.cache.threat));
             by_threat.truncate(TARGETS_BY_THREAT);
 
-            let mut by_killability: Vec<&UnitSnapshot> = pool;
+            let mut by_killability: Vec<UnitView<'_>> = pool;
             by_killability.sort_by(|a, b| b.killability().total_cmp(&a.killability()));
             by_killability.truncate(TARGETS_BY_KILLABILITY);
 
@@ -601,7 +601,7 @@ fn pick_top_move_tiles(
     let priority_enemy = sim.actor_unit().and_then(|actor| {
         sim.snapshot
             .enemies_of(actor.team)
-            .max_by(|a, b| a.threat.total_cmp(&b.threat))
+            .max_by(|a, b| a.cache.threat.total_cmp(&b.cache.threat))
     });
 
     let mut seen: HashSet<Hex> = HashSet::new();

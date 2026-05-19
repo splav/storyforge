@@ -19,7 +19,7 @@ use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::outcome::builder::hypothetical as estimate_hypothetical;
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
 use crate::combat::ai::scoring::target_selection::target_selection_score;
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::orchestration::ScoringCtx;
@@ -211,7 +211,7 @@ fn attack_component_intent(
 
         TacticalIntent::SetupAOE => {
             // Best AoE ability × position with the most enemies hit.
-            let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
+            let enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
             if enemies.is_empty() { return 0.0; }
 
             let mut best: f32 = 0.0;
@@ -234,11 +234,11 @@ fn attack_component_intent(
 
         // Default: top-3 enemies by priority (original Phase 7 logic).
         _ => {
-            let mut enemies: Vec<&UnitSnapshot> = snap.enemies_of(active.team).collect();
+            let mut enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
             if enemies.is_empty() { return 0.0; }
             enemies.sort_by(|a, b| {
-                target_selection_score(active, b, snap)
-                    .partial_cmp(&target_selection_score(active, a, snap))
+                target_selection_score(active, *b, snap)
+                    .partial_cmp(&target_selection_score(active, *a, snap))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
             let top_enemies = &enemies[..enemies.len().min(3)];
@@ -247,9 +247,10 @@ fn attack_component_intent(
             for target in top_enemies {
                 let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
                 if dist > reach_budget { continue; }
+                let Some(target_snap) = snap.unit_snapshot(target.entity()) else { continue };
                 for ability_id in &active.abilities {
                     let Some(def) = content.abilities.get(ability_id) else { continue };
-                    let s = damage_value(def, target);
+                    let s = damage_value(def, target_snap);
                     if s > best { best = s; }
                 }
             }

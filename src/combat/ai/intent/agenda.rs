@@ -166,7 +166,7 @@ fn build_forced_targeting(
     // Score: use target_priority for ordering consistency with legacy path;
     // falls back to 1.0 if the taunter is no longer in the snapshot.
     let raw_score = snap
-        .unit_snapshot(taunter)
+        .unit(taunter)
         .map(|t| target_selection_score(active, t, snap))
         .unwrap_or(1.0);
 
@@ -247,10 +247,10 @@ fn build_hard_rescue_opportunity(
     // Find most-endangered ally: highest (1 - hp_pct) × threat_proxy score.
     let ally = snap
         .allies_of(active.team)
-        .filter(|a| a.entity != active.entity)
+        .filter(|a| a.entity() != active.entity)
         .max_by(|a, b| {
-            let score_a = (1.0 - a.hp_pct()) * ally_threat_proxy(a, snap);
-            let score_b = (1.0 - b.hp_pct()) * ally_threat_proxy(b, snap);
+            let score_a = (1.0 - a.hp_pct()) * ally_threat_proxy(*a, snap);
+            let score_b = (1.0 - b.hp_pct()) * ally_threat_proxy(*b, snap);
             score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
         });
 
@@ -269,7 +269,7 @@ fn build_hard_rescue_opportunity(
         }];
     };
 
-    let ally_entity = endangered_ally.entity;
+    let ally_entity = endangered_ally.entity();
     let rescue_score = needs.rescue_ally;
 
     // Item 1: ProtectAlly.
@@ -292,10 +292,10 @@ fn build_hard_rescue_opportunity(
     // is preferable to an artificial FocusTarget without a target.
     let threat = snap
         .enemies_of(active.team)
-        .filter(|e| e.pos.unsigned_distance_to(endangered_ally.pos) <= e.max_attack_range)
+        .filter(|e| e.pos.unsigned_distance_to(endangered_ally.pos) <= e.cache.max_attack_range)
         .max_by(|a, b| {
-            crate::combat::ai::scoring::horizon_avg(a)
-                .partial_cmp(&crate::combat::ai::scoring::horizon_avg(b))
+            crate::combat::ai::scoring::horizon_avg(*a)
+                .partial_cmp(&crate::combat::ai::scoring::horizon_avg(*b))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
@@ -307,7 +307,7 @@ fn build_hard_rescue_opportunity(
     let focus_score = rescue_score * 0.8; // slightly lower than ProtectAlly
     let focus_item = AgendaItem {
         kind: IntentKind::FocusTarget,
-        target: Some(threat.entity),
+        target: Some(threat.entity()),
         raw_score: focus_score,
         reason: IntentReason::BestPriority { priority: focus_score },
         considerations: IntentConsiderations::default(),
