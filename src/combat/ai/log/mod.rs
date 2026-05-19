@@ -187,7 +187,10 @@ use crate::game::hex::Hex;
 /// v35 logs lack `base_speed` → post-load reconstructor in `parse_actor_tick`
 /// lifts `base_speed = speed` (safe: no v35 corpus had mid-plan speed bonuses
 /// since refresh_aggregates didn't propagate them).
-pub const SCHEMA_VERSION: u32 = 36;
+/// v37: Phase A of BattleSnapshot refactor. Clean break — v33–v36 migration
+/// reconstructor removed from `parse_actor_tick`. Logs below v37 now return
+/// `LogError::UnsupportedSchema` without migration (per Phase A3 direction).
+pub const SCHEMA_VERSION: u32 = 37;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init
@@ -1465,39 +1468,22 @@ struct SchemaHeader {
 /// Parse a single JSONL line as an [`ActorTickEvent`], rejecting old schemas
 /// with a clear error.
 ///
-/// v33, v34, and v35 logs are schema-additive with v36:
-/// - v35 lacks `base_speed` (added in v36) → decodes as 0; post-load
-///   reconstructor sets `base_speed = speed` (safe assumption — no v35 corpus
-///   had mid-plan speed-bonus statuses).
-/// - v34 lacks `chosen_intent` (added in v35) → decodes as `None`.
-/// - v33 lacks both `chosen_intent` and `evaluation_mode_reason` → both `None`.
-///
-/// Returns `Err(LogError::UnsupportedSchema)` when the line carries a
-/// `schema_version` lower than 33. Tools should show this error to the user
-/// and ask for a fresh v33+ playtest.
+/// v37 is a clean break: v36 and all earlier logs are rejected with
+/// `LogError::UnsupportedSchema`. No migration is performed.
+/// Rebuild logs from a v37+ playtest to use replay/mining tools.
 pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
     let header: SchemaHeader = serde_json::from_str(line)?;
-    // v33, v34, and v35 are schema-additive with v36 (new fields absent → defaults).
-    // v32 and below are hard breaks (score_trace_log and earlier fields missing).
-    const MIN_SUPPORTED: u32 = 33;
+    // v37 is the minimum supported version. All earlier logs are hard breaks
+    // (Phase A3 clean break — no migration, per user direction).
+    const MIN_SUPPORTED: u32 = 37;
     if header.schema_version < MIN_SUPPORTED {
         return Err(LogError::UnsupportedSchema {
             found: header.schema_version,
             required: SCHEMA_VERSION,
-            hint: "v32 logs pre-date score_trace_log (v33); rebuild logs from v33+ playtest",
+            hint: "logs below v37 are unsupported (Phase A3 clean break); rebuild from a v37+ playtest",
         });
     }
-    let mut event: ActorTickEvent = serde_json::from_str(line)?;
-    // Post-load reconstructor for v33–v35 logs: `base_speed` was absent
-    // (added in v36) → defaulted to 0. Lift to `speed` so step-12.1+ logic
-    // sees a non-zero base.
-    // Safe assumption: v33–v35 corpus has no mid-plan speed-bonus statuses,
-    // so `speed` at snapshot time equals the true base speed.
-    for unit in &mut event.snapshot.units {
-        if unit.base_speed == 0 {
-            unit.base_speed = unit.speed;
-        }
-    }
+    let event: ActorTickEvent = serde_json::from_str(line)?;
     Ok(event)
 }
 
@@ -1865,8 +1851,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":27}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 36, .. })),
-            "v27 must produce UnsupportedSchema(found=27, required=36), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 37, .. })),
+            "v27 must produce UnsupportedSchema(found=27, required=37), got: {result:?}",
         );
     }
 
@@ -1876,8 +1862,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":26}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 36, .. })),
-            "v26 must produce UnsupportedSchema(found=26, required=36), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 37, .. })),
+            "v26 must produce UnsupportedSchema(found=26, required=37), got: {result:?}",
         );
     }
 
@@ -1887,8 +1873,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":28}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 36, .. })),
-            "v28 must produce UnsupportedSchema(found=28, required=36), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 37, .. })),
+            "v28 must produce UnsupportedSchema(found=28, required=37), got: {result:?}",
         );
     }
 
@@ -1898,8 +1884,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":29}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 36, .. })),
-            "v29 must produce UnsupportedSchema(found=29, required=36), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 37, .. })),
+            "v29 must produce UnsupportedSchema(found=29, required=37), got: {result:?}",
         );
     }
 
@@ -1909,8 +1895,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":30}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 36, .. })),
-            "v30 must produce UnsupportedSchema(found=30, required=36), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 37, .. })),
+            "v30 must produce UnsupportedSchema(found=30, required=37), got: {result:?}",
         );
     }
 
@@ -1920,8 +1906,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":31}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 36, .. })),
-            "v31 must produce UnsupportedSchema(found=31, required=36), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 37, .. })),
+            "v31 must produce UnsupportedSchema(found=31, required=37), got: {result:?}",
         );
     }
 
@@ -2071,15 +2057,14 @@ mod tests {
         }"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 32, required: 36, .. })),
-            "v32 must produce UnsupportedSchema(found=32, required=36), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 32, required: 37, .. })),
+            "v32 must produce UnsupportedSchema(found=32, required=37), got: {result:?}",
         );
     }
 
-    /// v33 corpus (without evaluation_mode_reason field) is accepted by the v34 parser.
-    /// evaluation_mode_reason defaults to None — schema-additive backward compat.
+    /// v33 corpus is now rejected (Phase A3 clean break — MIN_SUPPORTED = 37).
     #[test]
-    fn schema_v33_accepted_as_additive_with_evaluation_mode_reason_none() {
+    fn schema_v33_rejected_as_pre_v37_clean_break() {
         let json = r#"{
             "event_type": "actor_tick",
             "schema_version": 33,
@@ -2088,19 +2073,17 @@ mod tests {
             "actor_id": 1,
             "actor_name": "x",
             "snapshot": {"units": [], "round": 0},
-            "plans": [{"rank": 1, "steps": [], "annotation": {"score": 2.5}}],
+            "plans": [],
             "decision": {"kind": "end_turn"},
             "continuation": null,
             "band": null,
             "band_reason": null,
             "agenda": []
         }"#;
-        let event = parse_actor_tick(json).expect("v33 must parse as schema-additive");
-        assert_eq!(event.schema_version, 33);
-        assert_eq!(event.plans.len(), 1);
+        let result = parse_actor_tick(json);
         assert!(
-            event.evaluation_mode_reason.is_none(),
-            "evaluation_mode_reason absent in v33 → None"
+            matches!(result, Err(LogError::UnsupportedSchema { found: 33, required: 37, .. })),
+            "v33 must produce UnsupportedSchema(found=33, required=37) after Phase A3, got: {result:?}",
         );
     }
 
@@ -2113,7 +2096,7 @@ mod tests {
             panic!("expected UnsupportedSchema, got: {result:?}");
         };
         assert_eq!(found, 31);
-        assert_eq!(required, 36);
+        assert_eq!(required, 37);
     }
 
     /// v36 `UnitSnapshot` serializes `base_speed` explicitly and round-trips
@@ -2165,68 +2148,15 @@ mod tests {
         assert_eq!(parsed.speed, 5, "speed round-trips intact");
     }
 
-    /// v35 log (no `base_speed` field in JSON) → post-load reconstructor in
-    /// `parse_actor_tick` sets `base_speed = speed` for every unit.
-    /// Uses the same `#[serde(default)]` path that v35 logs take.
+    /// v35 log is now rejected (Phase A3 clean break — MIN_SUPPORTED = 37).
+    /// The v33–v35 base_speed reconstructor was removed along with the migration.
     #[test]
-    fn v35_log_base_speed_reconstructed_from_speed() {
-        use crate::combat::ai::world::snapshot::UnitSnapshot;
-        use crate::combat::ai::config::role::AxisProfile;
-        use crate::combat::ai::world::tags::AiTags;
-        use crate::content::races::CritFailEffect;
-        use bevy::prelude::Entity;
-        use hexx::Hex;
-
-        // Build a UnitSnapshot, serialize it, then strip `base_speed` to
-        // simulate what a v35 log looks like (field absent → serde default 0).
-        let unit = UnitSnapshot {
-            entity: Entity::from_raw_u32(7).expect("valid entity"),
-            team: crate::game::components::Team::Enemy,
-            role: AxisProfile::default(),
-            pos: Hex::ZERO,
-            hp: 10, max_hp: 10,
-            armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-            action_points: 2, max_ap: 2, movement_points: 4,
-            base_speed: 0, // will be stripped — simulate v35
-            speed: 4,
-            mana: None, rage: None, energy: None,
-            abilities: vec![],
-            threat: 0.0,
-            tags: AiTags::empty(),
-            max_attack_range: 0,
-            summoner: None,
-            reactions_left: 1,
-            aoo_expected_damage: None,
-            statuses: vec![],
-            caster_ctx: Default::default(),
-            crit_fail_effect: CritFailEffect::default(),
-            damage_horizon: vec![],
-            ai_tuning_override: None,
-        };
-
-        // Serialize with base_speed=0, then parse back — simulates a v35 log
-        // that never had the field (defaulted to 0 by `#[serde(default)]`).
-        let json = serde_json::to_string(&unit).expect("serialize");
-        // Replace base_speed:0 with absent field (pure v35 simulation).
-        let json_v35 = json.replace(",\"base_speed\":0", "").replace("\"base_speed\":0,", "");
+    fn v35_log_rejected_as_pre_v37_clean_break() {
+        let json = r#"{"event_type":"actor_tick","schema_version":35}"#;
+        let result = parse_actor_tick(json);
         assert!(
-            !json_v35.contains("base_speed"),
-            "v35 simulation: base_speed must be absent, json={json_v35}",
-        );
-
-        let parsed: UnitSnapshot = serde_json::from_str(&json_v35).expect("deserialize without base_speed");
-        // After plain deserialise, base_speed is 0 (the serde default).
-        assert_eq!(parsed.base_speed, 0, "raw deserialise before reconstructor: base_speed=0");
-
-        // Now apply the same reconstructor logic as parse_actor_tick does for v33–v35 logs.
-        let mut unit2 = parsed;
-        if unit2.base_speed == 0 {
-            unit2.base_speed = unit2.speed;
-        }
-        assert_eq!(
-            unit2.base_speed, unit2.speed,
-            "after reconstructor: base_speed must equal speed (got base_speed={}, speed={})",
-            unit2.base_speed, unit2.speed,
+            matches!(result, Err(LogError::UnsupportedSchema { found: 35, required: 37, .. })),
+            "v35 must produce UnsupportedSchema(found=35, required=37) after Phase A3, got: {result:?}",
         );
     }
 }
