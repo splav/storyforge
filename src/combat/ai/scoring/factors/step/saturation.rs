@@ -91,6 +91,7 @@ fn buff_saturation_penalty(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
     use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, TargetType};
     use crate::content::content_view::ContentView;
@@ -105,7 +106,7 @@ mod tests {
     }
 
     fn snap_with(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot::new_from_unit_snapshots(units, 1)
+        snapshot_from(units, 1)
     }
 
     fn armor_buff_status(id: &str) -> StatusDef {

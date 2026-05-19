@@ -400,6 +400,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::UnitBuilder;
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::components::Team;
     use crate::game::hex::Hex;
@@ -415,7 +416,7 @@ mod tests {
 
     /// Build a minimal `BattleSnapshot` with a single unit at `pos`.
     fn snap_with_unit(unit: crate::combat::ai::world::snapshot::UnitSnapshot) -> BattleSnapshot {
-        BattleSnapshot::new_from_unit_snapshots(vec![unit], 1)
+        snapshot_from(vec![unit], 1)
     }
 
     // Convenience: no-op outcomes (no kills estimated).
@@ -536,7 +537,7 @@ mod tests {
     /// SetupAOE + step[1] = Cast → GoalKind::SetupAOE with the ability recovered.
     #[test]
     fn extract_setupaoe_recovers_planned_ability() {
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![], 1);
+        let snap = snapshot_from(vec![], 1);
         let tuning = default_tuning();
         let ability_id = AbilityId::from("fireball");
 
@@ -570,7 +571,7 @@ mod tests {
     /// SetupAOE + step[1] is not a Cast → None (no goal representable).
     #[test]
     fn extract_setupaoe_returns_none_without_cast_step() {
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![], 1);
+        let snap = snapshot_from(vec![], 1);
         let tuning = default_tuning();
 
         let steps = vec![move_step(), move_step()]; // step[1] is Move, not Cast
@@ -594,7 +595,7 @@ mod tests {
     /// ProtectSelf → Retreat with region_anchor == chosen_final_pos.
     #[test]
     fn extract_retreat_uses_final_pos_anchor() {
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![], 1);
+        let snap = snapshot_from(vec![], 1);
         let tuning = default_tuning();
         let final_pos = Hex::new(2, 3);
 
@@ -619,7 +620,7 @@ mod tests {
     /// confidence = chosen_score / pool_max_score, clamped to [0, 1].
     #[test]
     fn confidence_clamps_to_unit_interval() {
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![], 1);
+        let snap = snapshot_from(vec![], 1);
         let tuning = default_tuning();
 
         // chosen_score > pool_max → confidence clamped to 1.0
@@ -658,7 +659,7 @@ mod tests {
     /// pool_max_score = 0.0 → confidence is finite and ≤ 1.0 (no NaN/inf).
     #[test]
     fn confidence_zero_safe_when_pool_max_zero() {
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![], 1);
+        let snap = snapshot_from(vec![], 1);
         let tuning = default_tuning();
 
         let ctx = extract_goal_context(

@@ -528,6 +528,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::world::snapshot::ActiveStatusView;
     use crate::combat::ai::test_helpers::UnitBuilder;
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::content_view::ContentView;
     use crate::core::{AbilityId, StatusId};
     use crate::game::components::Team;
@@ -833,7 +834,7 @@ mod tests {
 
     fn make_snap(units: Vec<crate::combat::ai::world::snapshot::UnitSnapshot>) -> crate::combat::ai::world::snapshot::BattleSnapshot {
         let n = units.len() as u32;
-        crate::combat::ai::world::snapshot::BattleSnapshot::new_from_unit_snapshots(units, n)
+        snapshot_from(units, n)
     }
 
     // ── enemy_damage matches sim for single-target ─────────────────────────

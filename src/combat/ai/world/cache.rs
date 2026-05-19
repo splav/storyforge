@@ -136,6 +136,7 @@ mod cache_parity_tests {
     use crate::game::components::Team;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::UnitBuilder;
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::game::hex::hex_from_offset;
 
     /// Verify that every field in `AiCache` matches its counterpart in
@@ -155,7 +156,7 @@ mod cache_parity_tests {
             .build();
 
         let entities = [u1.entity, u2.entity];
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![u1, u2], 1);
+        let snap = snapshot_from(vec![u1, u2], 1);
 
         for entity in entities {
             // Use unit_snapshot() to access the raw UnitSnapshot (still present in D-step-3..5).

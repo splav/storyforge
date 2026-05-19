@@ -595,6 +595,7 @@ mod tests {
     use crate::combat::ai::world::tags::AbilityTag;
     use crate::combat::ai::world::tags::cache::build_caches;
     use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
@@ -622,7 +623,7 @@ mod tests {
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let actor_entity = actor.entity;
         let reservations = Reservations::default();
@@ -713,7 +714,7 @@ mod tests {
             .ap(2)
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let memory = crate::combat::ai::intent::AiMemory::default();

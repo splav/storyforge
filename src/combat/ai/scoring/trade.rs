@@ -315,6 +315,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::config::role::AxisProfile;
     use crate::combat::ai::test_helpers::UnitBuilder;
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, StatusApplication,
     };
@@ -640,7 +641,7 @@ mod tests {
             .role(AxisProfile { support: 1.0, ..Default::default() })
             .threat(4.0)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), victim.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), victim.clone()], 1);
         let plan = static_kill_plan(actor.pos, vec![victim.entity]);
         let c = content();
 
@@ -669,7 +670,7 @@ mod tests {
             .role(AxisProfile { ranged: 0.7, control: 0.3, ..Default::default() })
             .threat(8.0)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(
+        let snap = snapshot_from(
             vec![actor.clone(), rat.clone(), ally_controller.clone()],
             1,
         );
@@ -694,7 +695,7 @@ mod tests {
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
             .aoo(5.0, 1)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
         let plan = move_plan_killing(vec![hex_from_offset(-1, 0)], Vec::new());
         let c = content();
 
@@ -721,7 +722,7 @@ mod tests {
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
             .aoo(5.0, 1)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
         // Plan moves away (triggers AoO by the provoker above) AND the sim
         // outcome declares the actor dead. Under double-counting we'd lose
         // 2×unit_value(actor); the guard caps it at 1×.
@@ -745,7 +746,7 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .threat(5.0)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let plan = TurnPlan {
             steps: Vec::new(),
             final_pos: actor.pos,
@@ -770,7 +771,7 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .threat(5.0)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let plan = static_kill_plan(actor.pos, vec![ent(99)]);
         let c = content();
 
@@ -792,7 +793,7 @@ mod tests {
         let tail_victim = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0))
             .role(AxisProfile { support: 1.0, ..Default::default() })
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), tail_victim.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), tail_victim.clone()], 1);
 
         // Prefix `[Cast]`; step-2 Cast has the kill. Step-2 is lookahead
         // and must not contribute to trade_delta under any prefix.
@@ -842,7 +843,7 @@ mod tests {
             .role(AxisProfile { support: 1.0, ..Default::default() })
             .threat(4.0)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), victim.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), victim.clone()], 1);
 
         let plan = TurnPlan {
             steps: vec![

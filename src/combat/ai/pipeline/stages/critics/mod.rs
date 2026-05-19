@@ -231,6 +231,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
         StageTestHarness, UnitBuilder,
+        snapshot_from,
     };
     use crate::combat::ai::orchestration::ScoringCtx;
     use crate::core::DiceRng;
@@ -414,7 +415,7 @@ mod tests {
         // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(10).max_hp(20).build();
-        let snap = crate::combat::ai::world::snapshot::BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
 
         // Two plans: one with LastStand adaptation, one with Default (no adaptation).
         let plans = vec![TurnPlan::default(), TurnPlan::default()];

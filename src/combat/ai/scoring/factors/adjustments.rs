@@ -78,6 +78,7 @@ mod tests {
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+        snapshot_from,
     };
     use crate::content::content_view::ContentView;
     use crate::core::AbilityId;
@@ -116,7 +117,7 @@ mod tests {
             .hp(5)
             .build();
         let target_ent = target.entity;
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![target.clone()], 1);
+        let snap = snapshot_from(vec![target.clone()], 1);
         let mut reservations = Reservations::default();
         // Reserve 10 HP of incoming damage against a 5-HP target — lethal.
         reservations.reserve_damage(target_ent, 10.0);

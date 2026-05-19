@@ -416,6 +416,89 @@ impl UnitSnapshot {
             self.tags |= AiTags::FORCES_TARGETING;
         }
     }
+
+    /// Convert this `UnitSnapshot` into the two authoritative halves:
+    /// an engine `Unit` (for `CombatState`) and a `UnitAiCache` (for
+    /// `AiCache`). Used by `snapshot_from` in test helpers to build
+    /// `BattleSnapshot::new(state, cache)` without the lossy
+    /// `unit_snapshots_to_combat_state` projection.
+    ///
+    /// Mirrors `unit_snapshots_to_combat_state` for a single unit.
+    #[cfg(test)]
+    pub fn as_pair(&self) -> (combat_engine::state::Unit, crate::combat::ai::world::cache::UnitAiCache) {
+        use combat_engine::state::{ActiveStatus, Team as EngineTeam, UnitId};
+        use combat_engine::CritFailOutcome as Out;
+        use crate::content::races::CritFailEffect as Cfe;
+        use combat_engine::dice::DiceExpr as EngineDiceExpr;
+        let team = match self.team {
+            crate::game::components::Team::Player => EngineTeam::Player,
+            crate::game::components::Team::Enemy  => EngineTeam::Enemy,
+        };
+        let uid = UnitId(self.entity.to_bits());
+        let statuses: Vec<ActiveStatus> = self.statuses.iter().map(|s| ActiveStatus {
+            id: s.id.clone(),
+            rounds_remaining: s.rounds_remaining,
+            dot_per_tick: s.dot_per_tick,
+            applier: uid,
+        }).collect();
+        let crit_fail_outcome = match &self.crit_fail_effect {
+            Cfe::Miss          => Out::Miss,
+            Cfe::ManaOverload  => Out::DoubleCost,
+            Cfe::BrokenFaith   => Out::ApplyStatus(combat_engine::StatusId::from("broken_faith")),
+            Cfe::CircuitBreach => Out::SelfDamage(combat_engine::DiceExpr::new(0, 1, 2)),
+            Cfe::Exhaustion    => Out::ApplyStatus(combat_engine::StatusId::from("exhaustion")),
+            Cfe::PactControl   => Out::ApplyStatus(combat_engine::StatusId::from("pact_control")),
+        };
+        let caster_context = combat_engine::CasterContext {
+            str_mod:     self.caster_ctx.str_mod,
+            int_mod:     self.caster_ctx.int_mod,
+            spell_power: self.caster_ctx.spell_power,
+            weapon_dice: self.caster_ctx.weapon_dice,
+            crit_fail_outcome,
+        };
+        let aoo_dice = self.aoo_expected_damage
+            .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
+        let engine_unit = combat_engine::state::Unit {
+            id: uid,
+            team,
+            pos: self.pos,
+            hp: self.hp,
+            max_hp: self.max_hp,
+            armor: self.armor,
+            armor_bonus: self.armor_bonus,
+            damage_taken_bonus: self.damage_taken_bonus,
+            base_speed: self.base_speed,
+            speed: self.speed,
+            action_points: self.action_points,
+            max_ap: self.max_ap,
+            movement_points: self.movement_points,
+            reactions_left: self.reactions_left,
+            reactions_max: 1,
+            statuses,
+            rage: self.rage,
+            mana: self.mana,
+            energy: self.energy,
+            summoner: None,
+            caster_context,
+            aoo_dice,
+            auras: Vec::new(),
+            enemy_phases: Vec::new(),
+        };
+        let ai_cache = crate::combat::ai::world::cache::UnitAiCache {
+            entity:              self.entity,
+            role:                self.role,
+            threat:              self.threat,
+            tags:                self.tags,
+            max_attack_range:    self.max_attack_range,
+            aoo_expected_damage: self.aoo_expected_damage,
+            damage_horizon:      self.damage_horizon.clone(),
+            crit_fail_effect:    self.crit_fail_effect.clone(),
+            ai_tuning_override:  self.ai_tuning_override.clone(),
+            abilities:           self.abilities.clone(),
+            caster_ctx:          self.caster_ctx.clone(),
+        };
+        (engine_unit, ai_cache)
+    }
 }
 
 /// Low-level resource-pool lookup. The one place that knows the

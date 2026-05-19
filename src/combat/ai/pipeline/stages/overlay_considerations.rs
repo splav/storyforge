@@ -417,6 +417,7 @@ mod tests {
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, StageTestHarness, UnitBuilder,
+        snapshot_from,
     };
     use crate::core::DiceRng;
     use crate::game::components::Team;
@@ -671,7 +672,7 @@ mod tests {
             .hp(40)
             .max_hp(40)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target], 1);
+        let snap = snapshot_from(vec![actor.clone(), target], 1);
 
         let agenda = Agenda {
             band: PriorityBand::NormalTactical,
@@ -712,7 +713,7 @@ mod tests {
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
         let target = UnitBuilder::new(10, Team::Player, hex_from_offset(2, 0)).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target], 1);
+        let snap = snapshot_from(vec![actor.clone(), target], 1);
 
         let agenda = Agenda {
             band: PriorityBand::NormalTactical,
@@ -757,7 +758,7 @@ mod tests {
             .hp(10)
             .max_hp(30)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), ally], 1);
+        let snap = snapshot_from(vec![actor.clone(), ally], 1);
 
         let agenda = Agenda {
             band: PriorityBand::NormalTactical,
@@ -837,7 +838,7 @@ mod tests {
 
         let actor_pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
 
         // Custom danger map: 0.6 at actor_pos, 0 elsewhere.
         let mut danger = InfluenceMap::new();
@@ -982,7 +983,7 @@ mod tests {
             .hp(50)
             .max_hp(50)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), unit_a], 1);
+        let snap = snapshot_from(vec![actor.clone(), unit_a], 1);
 
         let agenda = Agenda {
             band: PriorityBand::NormalTactical,
@@ -1025,7 +1026,7 @@ mod tests {
         let target_b = make_entity(11);
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
 
         let agenda = Agenda {
             band: PriorityBand::NormalTactical,
@@ -1180,7 +1181,7 @@ mod tests {
             .hp(40)
             .max_hp(40)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target], 1);
+        let snap = snapshot_from(vec![actor.clone(), target], 1);
 
         let agenda = Agenda {
             band: PriorityBand::NormalTactical,

@@ -126,6 +126,7 @@ pub fn aoe_area(def: &AbilityDef, target_pos: Hex, caster_tile: Hex) -> HashSet<
 mod tests {
     use super::*;
     use crate::combat::ai::test_helpers::UnitBuilder;
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::outcome::ActionOutcomeEstimate;
     use crate::combat::ai::scoring::policy;
     use crate::core::AbilityId;
@@ -145,6 +146,7 @@ mod tests {
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
+        use crate::combat::ai::test_helpers::snapshot_from;
 
         let content = db();
         let difficulty = DifficultyProfile::default();
@@ -160,7 +162,7 @@ mod tests {
             .max_hp(100)
             .threat(20.0)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
@@ -218,6 +220,7 @@ mod tests {
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{ent, empty_maps, make_scoring_ctx, make_test_ctx};
+        use crate::combat::ai::test_helpers::snapshot_from;
 
         let content = db();
         let difficulty = DifficultyProfile::default();
@@ -237,7 +240,7 @@ mod tests {
             .full_hp(100)
             .build();
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(
+        let snap = snapshot_from(
             vec![actor.clone(), low_hp.clone(), high_hp.clone()],
             1,
         );
@@ -306,6 +309,7 @@ mod tests {
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
+        use crate::combat::ai::test_helpers::snapshot_from;
 
         let content = db();
         let difficulty = DifficultyProfile::default();
@@ -324,7 +328,7 @@ mod tests {
             .full_hp(100)
             .build();
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(
+        let snap = snapshot_from(
             vec![actor.clone(), enemy_target.clone(), ally.clone()],
             1,
         );

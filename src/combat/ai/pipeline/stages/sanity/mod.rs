@@ -227,6 +227,7 @@ mod tests {
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::scoring::horizon::expected_aoo_damage;
     use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
 
@@ -824,6 +825,7 @@ mod tests {
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
         let actor_pos = hex_from_offset(0, 0);
         let actor = unit(1, Team::Enemy, actor_pos, 20);
@@ -835,7 +837,7 @@ mod tests {
 
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let utility = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&utility, &snap, &maps, &reservations, &actor);
@@ -876,6 +878,7 @@ mod tests {
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::world::snapshot::BattleSnapshot;
         use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx};
+        use crate::combat::ai::test_helpers::snapshot_from;
 
         let actor_pos = hex_from_offset(3, 0);
         let actor = unit(1, Team::Enemy, actor_pos, 5); // low HP (was survival trigger)
@@ -885,7 +888,7 @@ mod tests {
         let content = empty_content();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
         let mut maps = empty_maps();
         let dest = hex_from_offset(2, 0);
         maps.danger.add(dest, 0.9);

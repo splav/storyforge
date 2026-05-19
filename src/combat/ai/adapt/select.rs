@@ -319,6 +319,7 @@ mod tests {
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+        snapshot_from,
     };
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
@@ -358,7 +359,7 @@ mod tests {
             .aoo(5.0, 1)
             .build();
         let mut plans = vec![move_plan(vec![hex_from_offset(-1, 0)])];
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let content = empty_content();
@@ -403,7 +404,7 @@ mod tests {
         };
         let lethal_move = move_plan(vec![hex_from_offset(-1, 0)]);
         let mut plans = vec![empty_defensive, lethal_move];
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let content = empty_content();
@@ -441,7 +442,7 @@ mod tests {
         let danger_tile = hex_from_offset(3, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).hp(5).build();
         let mut plans = vec![move_plan(vec![danger_tile])];
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let mut maps = empty_maps();
         maps.danger.add(danger_tile, 2.0);
         let reservations = Reservations::default();
@@ -531,7 +532,7 @@ mod tests {
     /// pair a placeholder Cast step with the injected post-state so the
     /// `sim_snapshots.len() == steps.len()` shape invariant holds.
     fn rescue_plan(actor_post: UnitSnapshot) -> TurnPlan {
-        let post_snap = BattleSnapshot::new_from_unit_snapshots(vec![actor_post.clone()], 1);
+        let post_snap = snapshot_from(vec![actor_post.clone()], 1);
         TurnPlan {
             steps: vec![PlanStep::Cast {
                 ability: crate::core::AbilityId::from("heal"),
@@ -581,7 +582,7 @@ mod tests {
         });
 
         let mut plans = vec![skip_plan(actor_with_dot.pos)];
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor_with_dot.clone()], 1);
+        let snap = snapshot_from(vec![actor_with_dot.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let content = empty_content();
@@ -629,7 +630,7 @@ mod tests {
         actor_healed.hp = 12;
 
         let mut plans = vec![rescue_plan(actor_healed)];
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor_doomed.clone()], 1);
+        let snap = snapshot_from(vec![actor_doomed.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let mut content = empty_content();
@@ -673,7 +674,7 @@ mod tests {
         actor_cleansed.statuses.clear();
 
         let mut plans = vec![rescue_plan(actor_cleansed)];
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor_doomed.clone()], 1);
+        let snap = snapshot_from(vec![actor_doomed.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let mut content = empty_content();
@@ -735,7 +736,7 @@ mod tests {
             .aoo(5.0, 1)
             .build();
         let mut plans = vec![move_plan(vec![hex_from_offset(-1, 0)])];
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let content = empty_content();
@@ -770,7 +771,7 @@ mod tests {
             .hp(20)
             .build();
         let mut plans = vec![move_plan(vec![hex_from_offset(1, 1)])];
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let content = empty_content();
@@ -818,7 +819,7 @@ mod tests {
             },
             move_plan(vec![hex_from_offset(-1, 0)]),
         ];
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let content = empty_content();

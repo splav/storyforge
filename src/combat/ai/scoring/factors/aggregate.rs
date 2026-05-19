@@ -581,6 +581,7 @@ mod tests {
     use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::make_scoring_ctx;
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
 
@@ -707,6 +708,7 @@ mod tests {
     #[test]
     fn sum_factors_scale_by_step_weight() {
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
         use crate::core::DiceExpr;
 
@@ -724,7 +726,7 @@ mod tests {
             })
             .build();
         let focus = unit(2, Team::Player, hex_from_offset(1, 0)); // adjacent: ranged not needed
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), focus.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), focus.clone()], 1);
         let content =
             crate::content::content_view::ContentView::load_global_for_tests();
         let mut difficulty = DifficultyProfile::hard();
@@ -803,7 +805,7 @@ mod tests {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let target = unit(2, Team::Player, hex_from_offset(1, 0));
         let other = unit(3, Team::Player, hex_from_offset(2, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(
+        let snap = snapshot_from(
             vec![actor.clone(), target.clone(), other.clone()],
             1,
         );
@@ -879,7 +881,7 @@ mod tests {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let focus_a = unit(2, Team::Player, hex_from_offset(3, 0));
         let focus_b = unit(3, Team::Player, hex_from_offset(2, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(
+        let snap = snapshot_from(
             vec![actor.clone(), focus_a.clone(), focus_b.clone()],
             1,
         );
@@ -937,7 +939,7 @@ mod tests {
 
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let enemy = unit(2, Team::Player, hex_from_offset(1, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let _abilities = crate::game::components::Abilities(vec!["melee_attack".into()]);
@@ -984,7 +986,7 @@ mod tests {
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
         let focus_a = unit(2, Team::Player, hex_from_offset(1, 0));
         let focus_b = unit(3, Team::Player, hex_from_offset(2, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(
+        let snap = snapshot_from(
             vec![actor.clone(), focus_a.clone(), focus_b.clone()],
             1,
         );
@@ -1043,6 +1045,7 @@ mod tests {
         use crate::combat::ai::pipeline::stages::modifiers::{ModifierCtx, PLAN_MODIFIERS};
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::core::DiceRng;
         use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 
@@ -1054,7 +1057,7 @@ mod tests {
         let rat = UnitBuilder::new(3, Team::Player, hex_from_offset(2, 0))
             .threat(1.0)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(
+        let snap = snapshot_from(
             vec![actor.clone(), support.clone(), rat.clone()],
             1,
         );
@@ -1120,6 +1123,7 @@ mod tests {
         use crate::combat::ai::plan::types::{PlanStep, StepOutcome};
         use crate::combat::ai::config::role::AxisProfile;
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::combat::ai::intent::TacticalIntent;
         use crate::content::abilities::CasterContext;
         use crate::core::DiceExpr;
@@ -1143,7 +1147,7 @@ mod tests {
             .max_hp(20)
             .build();
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let ctx = test_ctx(&content, &difficulty);
@@ -1214,13 +1218,14 @@ mod tests {
     #[test]
     fn pure_move_chain_intent_equals_single_pursuit() {
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .ap(6)
             .speed(6)
             .build();
         let target = unit(2, Team::Player, hex_from_offset(5, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let ctx = test_ctx(&content, &difficulty);
@@ -1296,7 +1301,7 @@ mod tests {
             .max_attack_range(1)
             .build();
         let target_unit = unit(2, Team::Player, target_pos);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target_unit.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target_unit.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let ctx = test_ctx(&content, &difficulty);
@@ -1342,6 +1347,7 @@ mod tests {
     #[test]
     fn cast_after_moves_keeps_cast_intent() {
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
         use crate::core::DiceExpr;
 
@@ -1357,7 +1363,7 @@ mod tests {
             })
             .build();
         let target = unit(2, Team::Player, hex_from_offset(3, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let ctx = test_ctx(&content, &difficulty);
@@ -1382,7 +1388,7 @@ mod tests {
         };
         annotate_plan(&mut pure_cast, &actor, &snap, &content, 0.0);
 
-        let move_then_cast_snap = BattleSnapshot::new_from_unit_snapshots(
+        let move_then_cast_snap = snapshot_from(
             vec![{
                 let mut a = actor.clone();
                 a.pos = hex_from_offset(2, 0); // actor moved closer
@@ -1421,6 +1427,7 @@ mod tests {
     #[test]
     fn goal_achieved_latch_still_works() {
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
         use crate::core::DiceExpr;
 
@@ -1436,7 +1443,7 @@ mod tests {
             .build();
         let target = unit(2, Team::Player, hex_from_offset(1, 0));
         let other = unit(3, Team::Player, hex_from_offset(2, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(
+        let snap = snapshot_from(
             vec![actor.clone(), target.clone(), other.clone()],
             1,
         );
@@ -1504,6 +1511,7 @@ mod tests {
     #[test]
     fn cast_plus_move_tail_collapses_to_single_pursuit() {
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
         use crate::core::DiceExpr;
 
@@ -1519,7 +1527,7 @@ mod tests {
             })
             .build();
         let target = unit(2, Team::Player, hex_from_offset(4, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let ctx = test_ctx(&content, &difficulty);
@@ -1592,6 +1600,7 @@ mod tests {
     #[test]
     fn cast_plus_roundtrip_tail_no_credit() {
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
         use crate::core::DiceExpr;
 
@@ -1609,7 +1618,7 @@ mod tests {
             })
             .build();
         let target = UnitBuilder::new(2, Team::Player, hex_from_offset(6, 6)).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_step_discount = 0.9;
@@ -1667,6 +1676,7 @@ mod tests {
     #[test]
     fn cast_plus_approach_tail_earns_credit() {
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
         use crate::core::DiceExpr;
 
@@ -1682,7 +1692,7 @@ mod tests {
             })
             .build();
         let target = unit(2, Team::Player, hex_from_offset(4, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let ctx = test_ctx(&content, &difficulty);
@@ -1741,6 +1751,7 @@ mod tests {
     #[test]
     fn cast_kills_then_tail_no_credit() {
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
         use crate::core::DiceExpr;
 
@@ -1756,7 +1767,7 @@ mod tests {
             })
             .build();
         let target = unit(2, Team::Player, hex_from_offset(4, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let ctx = test_ctx(&content, &difficulty);
@@ -1821,6 +1832,7 @@ mod tests {
     #[test]
     fn cast_then_cast_then_move_uses_first_cast_as_boundary() {
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
         use crate::core::DiceExpr;
 
@@ -1836,7 +1848,7 @@ mod tests {
             })
             .build();
         let target = unit(2, Team::Player, hex_from_offset(4, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let ctx = test_ctx(&content, &difficulty);
@@ -1912,7 +1924,7 @@ mod tests {
         let pos = hex_from_offset(0, 0);
         let actor = unit(1, Team::Enemy, pos);
         let ally = unit(2, Team::Enemy, hex_from_offset(1, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), ally.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), ally.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
         let ctx = test_ctx(&content, &difficulty);
@@ -1933,6 +1945,7 @@ mod tests {
     fn terminal_aggregator_amplified_by_self_preserve() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
 
         let pos = hex_from_offset(0, 0);
         let final_pos = hex_from_offset(5, 0); // far from enemies
@@ -1948,8 +1961,8 @@ mod tests {
             .build();
         let enemy = unit(2, Team::Player, final_pos); // enemy standing at final_pos
 
-        let snap_low  = BattleSnapshot::new_from_unit_snapshots(vec![actor_low.clone(), enemy.clone()], 1);
-        let snap_full = BattleSnapshot::new_from_unit_snapshots(vec![actor_full.clone(), enemy.clone()], 1);
+        let snap_low  = snapshot_from(vec![actor_low.clone(), enemy.clone()], 1);
+        let snap_full = snapshot_from(vec![actor_full.clone(), enemy.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
@@ -1993,8 +2006,8 @@ mod tests {
             .hp(30).max_hp(30)
             .build();
 
-        let snap_tank   = BattleSnapshot::new_from_unit_snapshots(vec![actor_tank.clone(), enemy.clone()], 1);
-        let snap_ranged = BattleSnapshot::new_from_unit_snapshots(vec![actor_ranged.clone(), enemy.clone()], 1);
+        let snap_tank   = snapshot_from(vec![actor_tank.clone(), enemy.clone()], 1);
+        let snap_ranged = snapshot_from(vec![actor_ranged.clone(), enemy.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
@@ -2028,13 +2041,14 @@ mod tests {
     fn repair_bonus_zero_when_severity_invalidating() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
         use crate::combat::ai::repair::RepairAffinity;
 
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos)
             .hp(10).max_hp(20)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
         let world = test_ctx(&content, &difficulty);
@@ -2067,7 +2081,7 @@ mod tests {
     fn aggregate_factors_to_score_no_longer_writes_noise() {
         let pos = hex_from_offset(0, 0);
         let actor = unit(1, Team::Enemy, pos);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
         let world = test_ctx(&content, &difficulty);
@@ -2094,7 +2108,7 @@ mod tests {
 
         let pos = hex_from_offset(0, 0);
         let actor = unit(1, Team::Enemy, pos);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
         let world = test_ctx(&content, &difficulty);
@@ -2124,7 +2138,7 @@ mod tests {
 
         let pos = hex_from_offset(0, 0);
         let actor = unit(1, Team::Enemy, pos);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
         let world = test_ctx(&content, &difficulty);
@@ -2144,13 +2158,14 @@ mod tests {
     fn continuation_doesnt_break_protect_self_mask() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::test_helpers::UnitBuilder;
+        use crate::combat::ai::test_helpers::snapshot_from;
 
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos)
             .hp(5).max_hp(20)
             .build();
         let enemy = unit(2, Team::Player, hex_from_offset(1, 0));
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
         let world = test_ctx(&content, &difficulty);
@@ -2183,7 +2198,7 @@ mod tests {
 
         let pos = hex_from_offset(0, 0);
         let actor = unit(1, Team::Enemy, pos);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::default();
         let world = test_ctx(&content, &difficulty);

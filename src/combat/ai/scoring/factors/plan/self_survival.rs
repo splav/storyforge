@@ -123,6 +123,7 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -149,7 +150,7 @@ mod tests {
             .hp(10)
             .ability_names(&["heal"])
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -180,7 +181,7 @@ mod tests {
             .max_hp(22)
             .hp(4)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -189,7 +190,7 @@ mod tests {
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
         // A plan that does NOT target self (cast targeting someone else)
-        let other_entity = crate::combat::ai::world::snapshot::BattleSnapshot::new_from_unit_snapshots(
+        let other_entity = snapshot_from(
             vec![UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0)).build()], 1
         );
         let _ = other_entity; // just to note the plan targets actor itself but with non-heal
@@ -216,7 +217,7 @@ mod tests {
             .max_hp(20)
             .hp(5)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -249,7 +250,7 @@ mod tests {
             .hp(10)
             .ability_names(&["heal"])
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -286,7 +287,7 @@ mod tests {
             .ability_names(&["melee_attack", "heal"])
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -335,7 +336,7 @@ mod tests {
             .ability_names(&["melee_attack"])
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -382,7 +383,7 @@ mod tests {
             .ability_names(&["melee_attack"])
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -428,7 +429,7 @@ mod tests {
             .max_hp(20)
             .hp(5)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -470,7 +471,7 @@ mod tests {
             .ability_names(&["melee_attack", "taunt"])
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::hard();
         let world = make_test_ctx(&content, &difficulty);
@@ -518,7 +519,7 @@ mod tests {
         let world = make_test_ctx(&content, &diff);
         let tile = hex_from_offset(0, 0);
         let active = UnitBuilder::new(0, Team::Enemy, tile).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone()], 1);
+        let snap = snapshot_from(vec![active.clone()], 1);
         let maps = empty_maps();
         let res = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &res, &active);

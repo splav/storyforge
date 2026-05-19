@@ -38,6 +38,7 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::scoring::trade::unit_value;
     use crate::combat::ai::orchestration::AiWorld;
     use crate::game::components::Team;
@@ -71,7 +72,7 @@ mod tests {
         // ── 2. Context (uses real content for melee_attack ability) ──
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let world = AiWorld {
@@ -122,7 +123,7 @@ mod tests {
         // ── 2. Context ──
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::hard();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), support.clone(), rat.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), support.clone(), rat.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let world = AiWorld {

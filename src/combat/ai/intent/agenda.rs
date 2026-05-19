@@ -362,6 +362,7 @@ mod tests {
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -382,7 +383,7 @@ mod tests {
             .tags(AiTags::FORCES_TARGETING)
             .build();
         let taunter_entity = taunter.entity;
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), taunter], 1);
+        let snap = snapshot_from(vec![active.clone(), taunter], 1);
         let maps = empty_maps();
         let tuning = default_tuning();
         let difficulty = default_difficulty();
@@ -412,7 +413,7 @@ mod tests {
     fn agenda_critical_self_preservation_emits_two_items() {
         let active = UnitBuilder::new(1, Team::Enemy, origin()).hp(2).max_hp(20).build();
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0)).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), enemy], 1);
+        let snap = snapshot_from(vec![active.clone(), enemy], 1);
 
         let tuning = default_tuning();
         let difficulty = default_difficulty();
@@ -464,7 +465,7 @@ mod tests {
             .threat(8.0)
             .max_attack_range(2)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), ally.clone(), threat], 1);
+        let snap = snapshot_from(vec![active.clone(), ally.clone(), threat], 1);
         let maps = empty_maps();
         let tuning = default_tuning();
         let difficulty = default_difficulty();
@@ -510,7 +511,7 @@ mod tests {
             .max_hp(20)
             .build();
         // No enemy in the snapshot — no threat to find.
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), ally.clone()], 1);
+        let snap = snapshot_from(vec![active.clone(), ally.clone()], 1);
         let maps = empty_maps();
         let tuning = default_tuning();
         let difficulty = default_difficulty();
@@ -551,7 +552,7 @@ mod tests {
     fn agenda_normal_tactical_emits_at_least_one() {
         let active = UnitBuilder::new(1, Team::Enemy, origin()).build();
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0)).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), enemy], 1);
+        let snap = snapshot_from(vec![active.clone(), enemy], 1);
         let maps = empty_maps();
         let tuning = default_tuning();
         let difficulty = default_difficulty();
@@ -582,7 +583,7 @@ mod tests {
         // Use CriticalSelf — guaranteed 2 items with known ordering invariant.
         let active = UnitBuilder::new(1, Team::Enemy, origin()).hp(2).max_hp(20).build();
         let enemy = UnitBuilder::new(2, Team::Player, hex_from_offset(2, 0)).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), enemy], 1);
+        let snap = snapshot_from(vec![active.clone(), enemy], 1);
 
         let tuning = default_tuning();
         let difficulty = default_difficulty();

@@ -314,17 +314,25 @@ impl UnitBuilder {
 }
 
 /// Build a `BattleSnapshot` via the authoritative `BattleSnapshot::new(state, cache)`
-/// constructor from a vec of `(Unit, UnitAiCache)` pairs produced by
-/// `UnitBuilder::build_pair()`.
+/// constructor from a vec of `UnitSnapshot` values.
 ///
-/// Drop-in replacement for `BattleSnapshot::new_from_unit_snapshots(units, round)` in
-/// tests that have been migrated away from `UnitSnapshot`.
+/// Drop-in replacement for `snapshot_from(units, round)`.
+/// Each `UnitSnapshot` is projected to `(Unit, UnitAiCache)` via `as_pair()`.
 #[allow(dead_code)]
 pub(crate) fn snapshot_from(
+    units: Vec<UnitSnapshot>,
+    round: u32,
+) -> BattleSnapshot {
+    snapshot_from_pairs(units.iter().map(|u| u.as_pair()).collect(), round)
+}
+
+/// Lower-level variant for callers that already have `build_pair()` output.
+#[allow(dead_code)]
+pub(crate) fn snapshot_from_pairs(
     pairs: Vec<(combat_engine::state::Unit, UnitAiCache)>,
     round: u32,
 ) -> BattleSnapshot {
-    use combat_engine::state::{RoundPhase};
+    use combat_engine::state::RoundPhase;
     let (engine_units, ai_units): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
     let state = combat_engine::state::CombatState::new(
         engine_units,
@@ -468,7 +476,7 @@ impl StageTestHarness {
         let world = make_test_ctx(&content, &self.difficulty);
         let mut snap_units = vec![self.actor.clone()];
         snap_units.extend(self.extra_units.iter().cloned());
-        let snap = BattleSnapshot::new_from_unit_snapshots(snap_units, 1);
+        let snap = snapshot_from(snap_units, 1);
         let scoring = make_scoring_ctx(&world, &snap, &self.maps, &self.reservations, &self.actor);
         let mut rng = DiceRng::default();
         let mut ctx = StageCtx::new(

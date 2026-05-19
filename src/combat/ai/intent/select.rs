@@ -571,6 +571,7 @@ mod tests {
     use crate::combat::ai::config::tuning::AiTuning;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -594,7 +595,7 @@ mod tests {
             .full_hp(3)
             .build();
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy], 1);
         let maps = empty_maps();
         let memory = AiMemory::default();
         let difficulty = DifficultyProfile::default();
@@ -644,7 +645,7 @@ mod tests {
         let e2 = UnitBuilder::new(2, Team::Player, e2_pos).full_hp(10).build();
         let e2_entity = e2.entity;
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), e2], 1);
+        let snap = snapshot_from(vec![actor.clone(), e2], 1);
 
         // Danger on actor tile so ProtectSelf urgency = self_preserve * danger.
         let mut maps = empty_maps();

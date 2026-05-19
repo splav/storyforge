@@ -86,6 +86,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -103,7 +104,7 @@ pub(crate) mod tests {
     }
 
     pub fn snap(units: Vec<crate::combat::ai::world::snapshot::UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot::new_from_unit_snapshots(units, 1)
+        snapshot_from(units, 1)
     }
 
     /// Convenience helper: build an `AppraisalCtx` for unit tests that call

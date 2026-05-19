@@ -259,6 +259,7 @@ mod algorithm_tests {
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{ent, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::core::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -304,7 +305,7 @@ mod algorithm_tests {
             .hp(hp)
             .max_hp(20)
             .build();
-        BattleSnapshot::new_from_unit_snapshots(vec![target], 1)
+        snapshot_from(vec![target], 1)
     }
 
     fn default_modes(n: usize) -> Vec<EvaluationMode> {
@@ -430,7 +431,7 @@ mod algorithm_tests {
             .hp(20).max_hp(20).build();
         let other_unit = UnitBuilder::new(3, Team::Player, hex_from_offset(4, 0))
             .hp(10).max_hp(20).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![target_unit, other_unit], 1);
+        let snap = snapshot_from(vec![target_unit, other_unit], 1);
         let intent = TacticalIntent::FocusTarget { target };
 
         let stats = apply_killable_gate(&plans, &raw, &mut scores, &modes, &intent, &snap);
@@ -472,7 +473,7 @@ mod algorithm_tests {
             .hp(20).max_hp(20).build();
         let other_unit = UnitBuilder::new(3, Team::Player, hex_from_offset(4, 0))
             .hp(20).max_hp(20).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![target_unit, other_unit], 1);
+        let snap = snapshot_from(vec![target_unit, other_unit], 1);
         let intent = TacticalIntent::FocusTarget { target };
 
         let stats = apply_killable_gate(&plans, &raw, &mut scores, &modes, &intent, &snap);
@@ -610,7 +611,7 @@ mod stage_tests {
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
-        StageTestHarness, UnitBuilder, ent,
+        StageTestHarness, UnitBuilder, ent, snapshot_from,
     };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -703,7 +704,7 @@ mod stage_tests {
 
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).hp(1).max_hp(10).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
         // Plan 0: offensive vs target with kill_now=1.0 (can finish).
         let offensive_plan = TurnPlan {
@@ -760,7 +761,7 @@ mod stage_tests {
 
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).hp(10).max_hp(10).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
         let scores = vec![0.5_f32, 0.4_f32];
@@ -794,7 +795,7 @@ mod stage_tests {
 
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).hp(1).max_hp(10).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
         let offensive_plan = TurnPlan {
             steps: vec![PlanStep::Cast {
@@ -866,7 +867,7 @@ mod stage_tests {
 
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).hp(1).max_hp(10).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
         let offensive_plan = TurnPlan {
             steps: vec![PlanStep::Cast {

@@ -137,6 +137,7 @@ mod tests {
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
+        snapshot_from,
     };
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
@@ -220,7 +221,7 @@ mod tests {
         content.abilities.insert(AbilityId::from("bolt"), expensive_spell("bolt", 40, dice));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![caster.clone(), target], 1);
+        let snap = snapshot_from(vec![caster.clone(), target], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
@@ -264,7 +265,7 @@ mod tests {
         content.abilities.insert(AbilityId::from("effective"), expensive_spell("effective", 40, dice));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![caster.clone(), target], 1);
+        let snap = snapshot_from(vec![caster.clone(), target], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
@@ -305,7 +306,7 @@ mod tests {
         content.abilities.insert(AbilityId::from("bolt"), expensive_spell("bolt", 40, dice));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![caster.clone(), target], 1);
+        let snap = snapshot_from(vec![caster.clone(), target], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
@@ -363,7 +364,7 @@ mod tests {
         content.abilities.insert(AbilityId::from("hard_stun"), stun);
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![caster.clone(), target], 1);
+        let snap = snapshot_from(vec![caster.clone(), target], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);

@@ -686,6 +686,7 @@ mod tests {
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, empty_status_tag_cache, ent, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
     };
@@ -760,7 +761,7 @@ mod tests {
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, target], 1);
+        let snap = snapshot_from(vec![actor, target], 1);
         let maps = empty_maps();
 
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
@@ -804,7 +805,7 @@ mod tests {
         difficulty.plan_max_depth = 1;
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let maps = empty_maps();
 
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
@@ -864,7 +865,7 @@ mod tests {
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(units, 1);
+        let snap = snapshot_from(units, 1);
         let maps = empty_maps();
 
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
@@ -902,7 +903,7 @@ mod tests {
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, weak, other], 1);
+        let snap = snapshot_from(vec![actor, weak, other], 1);
         let maps = empty_maps();
 
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
@@ -945,7 +946,7 @@ mod tests {
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, target], 1);
+        let snap = snapshot_from(vec![actor, target], 1);
         let maps = empty_maps();
 
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
@@ -1174,7 +1175,7 @@ mod tests {
         let _abilities = Abilities(vec![heal.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), fine.clone(), hurt.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), fine.clone(), hurt.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
 
         assert!(
@@ -1206,7 +1207,7 @@ mod tests {
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), stunned.clone(), awake.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), stunned.clone(), awake.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
 
         assert!(
@@ -1237,7 +1238,7 @@ mod tests {
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), stunned.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), stunned.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
 
         assert!(
@@ -1264,7 +1265,7 @@ mod tests {
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
 
         assert!(
@@ -1290,7 +1291,7 @@ mod tests {
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), e1.clone(), e2.clone(), ally.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), e1.clone(), e2.clone(), ally.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
 
         assert!(
@@ -1321,7 +1322,7 @@ mod tests {
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, taunter, adjacent_non_taunter], 1);
+        let snap = snapshot_from(vec![actor, taunter, adjacent_non_taunter], 1);
         let maps = empty_maps();
 
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
@@ -1399,7 +1400,7 @@ mod tests {
         let _abilities = Abilities(vec![mana_bolt.id.clone(), melee.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy], 1);
+        let snap = snapshot_from(vec![actor, enemy], 1);
         let maps = empty_maps();
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
@@ -1467,7 +1468,7 @@ mod tests {
         let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 1;
         let ctx = make_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy_a, enemy_b], 1);
+        let snap = snapshot_from(vec![actor, enemy_a, enemy_b], 1);
         let maps = empty_maps();
 
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
@@ -1532,7 +1533,7 @@ mod tests {
         let _abilities = Abilities(vec![def.id.clone()]);
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(
+        let snap = snapshot_from(
             vec![actor, far1, far2, far3, close],
             1,
         );
@@ -1617,7 +1618,7 @@ mod tests {
         let maps = empty_maps();
 
         // Baseline: no status.
-        let snap_base = BattleSnapshot::new_from_unit_snapshots(vec![base_actor(), target.clone()], 1);
+        let snap_base = snapshot_from(vec![base_actor(), target.clone()], 1);
         let plans_base = generate_plans(actor_id, &ctx, &snap_base, &maps);
         let dmg_base: f32 = cast_damage_sum(&plans_base);
 
@@ -1628,7 +1629,7 @@ mod tests {
             rounds_remaining: 3,
             dot_per_tick: 0,
         });
-        let snap_dis = BattleSnapshot::new_from_unit_snapshots(vec![dis_actor, target], 1);
+        let snap_dis = snapshot_from(vec![dis_actor, target], 1);
         let plans_dis = generate_plans(actor_id, &ctx, &snap_dis, &maps);
         let dmg_dis: f32 = cast_damage_sum(&plans_dis);
 
@@ -1686,7 +1687,7 @@ mod tests {
         difficulty.plan_max_depth = 2;
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy, s1, s2], 1);
+        let snap = snapshot_from(vec![actor, enemy, s1, s2], 1);
         let maps = empty_maps();
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
@@ -1745,7 +1746,7 @@ mod tests {
         difficulty.plan_max_depth = 1;
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy, alive, dead], 1);
+        let snap = snapshot_from(vec![actor, enemy, alive, dead], 1);
         let maps = empty_maps();
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
@@ -1799,7 +1800,7 @@ mod tests {
         difficulty.plan_max_depth = 3;
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy], 1);
+        let snap = snapshot_from(vec![actor, enemy], 1);
         let maps = empty_maps();
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
@@ -1861,7 +1862,7 @@ mod tests {
         difficulty.plan_beam_width = 20; // wide beam to see all branches
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy], 1);
+        let snap = snapshot_from(vec![actor, enemy], 1);
         let maps = empty_maps();
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
@@ -1909,7 +1910,7 @@ mod tests {
         difficulty.plan_beam_width = 20;
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy], 1);
+        let snap = snapshot_from(vec![actor, enemy], 1);
         let maps = empty_maps();
         let plans = generate_plans(actor_id, &ctx, &snap, &maps);
 
@@ -1992,7 +1993,7 @@ mod tests {
         difficulty.plan_beam_width = 10;
         let ctx = make_ctx(&content, &difficulty);
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let maps = empty_maps();
         let depth1_plans = generate_plans(actor_id, &ctx, &snap, &maps);
 

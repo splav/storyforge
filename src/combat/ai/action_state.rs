@@ -108,6 +108,7 @@ mod tests {
     use combat_engine::legality::{check_legality, IllegalReason, ProposedAction};
     use crate::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
     use crate::combat::ai::test_helpers::{empty_content, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, TargetType,
     };
@@ -161,7 +162,7 @@ mod tests {
     }
 
     fn snapshot_with(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot::new_from_unit_snapshots(units, 1)
+        snapshot_from(units, 1)
     }
 
     #[test]

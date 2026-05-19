@@ -350,6 +350,7 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::{make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::abilities::CasterContext;
     use crate::core::DiceExpr;
     use crate::game::components::Team;
@@ -516,7 +517,7 @@ mod tests {
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
 
@@ -549,7 +550,7 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
             .ability_names(&["melee_attack"])
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
@@ -573,7 +574,7 @@ mod tests {
         let nearby = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3)).build();
         // Far enemy: distance > speed + range.
         let far = UnitBuilder::new(3, Team::Player, hex_from_offset(10, 10)).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), nearby.clone(), far.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), nearby.clone(), far.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
@@ -596,7 +597,7 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
 
         // No blockers — full ring area.
-        let snap_empty = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap_empty = snapshot_from(vec![actor.clone()], 1);
         let mob_free = mobility_component(pos, 3, &snap_empty);
 
         // Many blockers — reduced mobility.
@@ -605,7 +606,7 @@ mod tests {
             let blocker = UnitBuilder::new(10 + i, Team::Player, hex_from_offset(5 + (i as i32 % 3) + 1, 5)).build();
             units.push(blocker);
         }
-        let snap_blocked = BattleSnapshot::new_from_unit_snapshots(units, 1);
+        let snap_blocked = snapshot_from(units, 1);
         let mob_blocked = mobility_component(pos, 3, &snap_blocked);
 
         assert!(mob_free >= mob_blocked, "more blockers → lower mobility component");
@@ -619,7 +620,7 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, pos)
             .ability_names(&["melee_attack"])
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
 
         let mut danger_map = InfluenceMap::new();
         danger_map.add(pos, 0.4);
@@ -654,7 +655,7 @@ mod tests {
     #[test]
     fn empty_plans_returns_empty() {
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
@@ -680,7 +681,7 @@ mod tests {
             .ability_names(&["melee_attack"])
             .build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
@@ -728,7 +729,7 @@ mod tests {
             .ability_names(&["melee_attack"])
             .build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
@@ -773,7 +774,7 @@ mod tests {
             .build();
         let enemy_a = UnitBuilder::new(2, Team::Player, pos_a).build();
         let enemy_b = UnitBuilder::new(3, Team::Player, pos_b).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(
+        let snap = snapshot_from(
             vec![actor.clone(), enemy_a.clone(), enemy_b.clone()],
             1,
         );
@@ -823,7 +824,7 @@ mod tests {
             escape: InfluenceMap::new(),
         };
 
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();
         let world = make_test_ctx(&content, &difficulty);
@@ -877,7 +878,7 @@ mod tests {
             .caster_ctx(melee_caster())
             .build();
         let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), enemy.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
 
         let content = crate::content::content_view::ContentView::load_global_for_tests();
         let difficulty = DifficultyProfile::normal();

@@ -120,6 +120,7 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::content_view::ContentView;
     use crate::core::AbilityId;
     use crate::game::components::Team;
@@ -150,7 +151,7 @@ mod tests {
             .max_hp(100)
             .threat(20.0)
             .build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone(), target.clone()], 1);
         let maps = empty_maps();
         let res = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &res, &actor);
@@ -201,7 +202,7 @@ mod tests {
         let world = make_test_ctx(&content, &diff);
         let tile = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, tile).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let maps = empty_maps();
         let res = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &res, &actor);

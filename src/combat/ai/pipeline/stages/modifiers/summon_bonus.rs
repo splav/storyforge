@@ -73,6 +73,7 @@ mod tests {
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_maps, empty_content, make_scoring_ctx, make_test_ctx, UnitBuilder,
+        snapshot_from,
     };
     use crate::combat::ai::scoring::trade::unit_value;
     use crate::combat::ai::orchestration::AiWorld;
@@ -93,7 +94,7 @@ mod tests {
         // ── 2. Context ──
         let content = empty_content();
         let difficulty = DifficultyProfile::default();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let maps = empty_maps();
         let reservations = Reservations::default();
         let world = make_test_ctx(&content, &difficulty);
@@ -152,7 +153,7 @@ mod tests {
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
         };
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
         let mut rng = crate::core::DiceRng::default();
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);

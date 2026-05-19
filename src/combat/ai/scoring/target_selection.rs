@@ -69,6 +69,7 @@ mod tests {
     use crate::combat::ai::config::role::AxisProfile;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{unit, UnitBuilder};
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -81,7 +82,7 @@ mod tests {
             .tags(AiTags::LOW_HP)
             .build();
 
-        let s = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), healthy.clone(), wounded.clone()], 1);
+        let s = snapshot_from(vec![active.clone(), healthy.clone(), wounded.clone()], 1);
         let ph = target_selection_score(&active, &healthy, &s);
         let pw = target_selection_score(&active, &wounded, &s);
         assert!(pw > ph, "wounded target should have higher priority");
@@ -95,7 +96,7 @@ mod tests {
             .build();
         let bruiser = unit(2, Team::Enemy, hex_from_offset(3, 3));
 
-        let s = BattleSnapshot::new_from_unit_snapshots(vec![active.clone(), support.clone(), bruiser.clone()], 1);
+        let s = snapshot_from(vec![active.clone(), support.clone(), bruiser.clone()], 1);
         let ps = target_selection_score(&active, &support, &s);
         let pb = target_selection_score(&active, &bruiser, &s);
         assert!(ps > pb, "support should be higher priority than bruiser");

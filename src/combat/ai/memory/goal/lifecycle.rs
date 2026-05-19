@@ -110,6 +110,7 @@ mod tests {
     use crate::combat::ai::plan::types::{TurnPlan, PlanStep};
     use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
     use crate::combat::ai::world::snapshot::BattleSnapshot;
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::orchestration::ChosenInfo;
     use crate::game::hex::hex_from_offset;
     use crate::game::components::Team;
@@ -152,11 +153,11 @@ mod tests {
     }
 
     fn make_snap_with_round(round: u32) -> BattleSnapshot {
-        BattleSnapshot::new_from_unit_snapshots(vec![], round)
+        snapshot_from(vec![], round)
     }
 
     fn make_snap_with_units(units: Vec<UnitSnapshot>, round: u32) -> BattleSnapshot {
-        BattleSnapshot::new_from_unit_snapshots(units, round)
+        snapshot_from(units, round)
     }
 
     fn default_tuning() -> AiTuning {

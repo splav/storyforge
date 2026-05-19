@@ -59,6 +59,7 @@ mod tests {
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder, UnitBuilder, ent,
+        snapshot_from,
     };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -120,7 +121,7 @@ mod tests {
         // ── 1. Test data ──
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let plans = vec![TurnPlan::default(), TurnPlan::default()];
 
         // ── 2–4. Act (helper handles setup) ──
@@ -150,7 +151,7 @@ mod tests {
 
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
         let target_unit = UnitBuilder::new(2, Team::Player, target_pos).hp(8).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target_unit], 1);
+        let snap = snapshot_from(vec![actor.clone(), target_unit], 1);
         let stored = stored_finish(target, 0);
 
         // Plan that pursues the same FocusTarget → should get goal_alignment > 0

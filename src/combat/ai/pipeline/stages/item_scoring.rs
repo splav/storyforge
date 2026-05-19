@@ -250,6 +250,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
         StageTestHarness, UnitBuilder,
+        snapshot_from,
     };
     use crate::core::DiceRng;
     use crate::game::components::Team;
@@ -436,7 +437,7 @@ mod tests {
         // Build ctx WITHOUT attaching agenda.
         let pos = hex_from_offset(0, 0);
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone()], 1);
+        let snap = snapshot_from(vec![actor.clone()], 1);
         let maps = empty_maps();
         let content = empty_content();
         let difficulty = DifficultyProfile::default();
@@ -500,7 +501,7 @@ mod tests {
 
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
         let taunter = UnitBuilder::new(99, Team::Player, taunter_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), taunter], 1);
+        let snap = snapshot_from(vec![actor.clone(), taunter], 1);
 
         // One move-only plan: no offensive cast → pool_offensive_targets is empty.
         let move_plan = move_plan_to(closer_pos);
@@ -536,7 +537,7 @@ mod tests {
 
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
         let taunter = UnitBuilder::new(99, Team::Player, taunter_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), taunter], 1);
+        let snap = snapshot_from(vec![actor.clone(), taunter], 1);
 
         // Plan 0: offensive cast at taunter → pool_offensive_targets contains taunter_ent.
         let cast_plan = cast_plan_at(taunter_ent, taunter_pos);
@@ -583,7 +584,7 @@ mod tests {
 
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
         let target_unit = UnitBuilder::new(99, Team::Player, target_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target_unit], 1);
+        let snap = snapshot_from(vec![actor.clone(), target_unit], 1);
 
         // Move-only plan: no offensive cast → pool_offensive_targets is empty.
         let move_plan = move_plan_to(closer_pos);
@@ -628,7 +629,7 @@ mod tests {
 
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
         let taunter = UnitBuilder::new(99, Team::Player, taunter_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), taunter], 1);
+        let snap = snapshot_from(vec![actor.clone(), taunter], 1);
 
         // Move-only plan that moves AWAY from taunter (no approach).
         let move_away = move_plan_to(farther_pos);
@@ -672,7 +673,7 @@ mod tests {
 
         let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).build();
         let target_unit = UnitBuilder::new(99, Team::Player, target_pos).build();
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor.clone(), target_unit], 1);
+        let snap = snapshot_from(vec![actor.clone(), target_unit], 1);
 
         // Plan 0: offensive cast at target → pool_offensive_targets contains target_ent.
         let cast_plan = cast_plan_at(target_ent, target_pos);
