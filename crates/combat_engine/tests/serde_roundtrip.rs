@@ -454,3 +454,39 @@ fn damage_ctx_roundtrip() {
         final_amount: 10,
     });
 }
+
+#[test]
+fn combat_state_roundtrip() {
+    // Construct a CombatState with 2 units, a non-empty TurnQueue, an active
+    // status, and a non-default random seed. Round-trip through JSON; assert
+    // field-by-field equality (idx is a skip-cache; we verify accessible state
+    // via the public API).
+    use combat_engine::state::CombatState;
+    let u1 = unit_all_some(1);
+    let u2 = unit_all_some(2);
+    let ids = vec![u1.id, u2.id];
+    let mut state = CombatState::new(vec![u1, u2], 3, RoundPhase::ActorTurn, 42);
+    state.set_turn_queue(ids, 1);
+
+    let json = serde_json::to_string(&state).unwrap();
+    let decoded: CombatState = serde_json::from_str(&json).unwrap();
+
+    // Field-by-field checks via public API.
+    assert_eq!(state.round, decoded.round);
+    assert_eq!(state.phase, decoded.phase);
+    assert_eq!(state.turn_queue, decoded.turn_queue);
+    assert_eq!(state.random_seed, decoded.random_seed);
+    // Units are accessible; check counts and a sampled field.
+    assert_eq!(state.units().len(), decoded.units().len());
+    let orig_u1 = state.unit(UnitId(1)).unwrap();
+    let dec_u1  = decoded.unit(UnitId(1)).unwrap();
+    assert_eq!(orig_u1.hp, dec_u1.hp);
+    assert_eq!(orig_u1.statuses.len(), dec_u1.statuses.len());
+    assert_eq!(orig_u1.damage_taken_bonus, dec_u1.damage_taken_bonus);
+    // idx rebuilt: both units must be reachable by UnitId lookup.
+    assert!(decoded.unit(UnitId(1)).is_some());
+    assert!(decoded.unit(UnitId(2)).is_some());
+    // Second serialization must be byte-equal (stable field order).
+    let json2 = serde_json::to_string(&decoded).unwrap();
+    assert_eq!(json, json2, "second serialization must be byte-equal");
+}

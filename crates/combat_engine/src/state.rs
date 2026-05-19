@@ -173,10 +173,15 @@ pub(crate) const SYNTHETIC_UID_BASE: u64 = 1u64 << 63;
 /// `units` is the authoritative list; `idx` is a derived cache — always in
 /// sync via `insert_unit` / `remove_unit`.  Never mutate `units` directly;
 /// go through the provided methods so the cache stays consistent.
-#[derive(Debug, Clone)]
+///
+/// Serialization skips `idx` (it is a pure cache); deserialization rebuilds
+/// it automatically via the `From<CombatStateRepr>` conversion.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(into = "CombatStateRepr")]
 pub struct CombatState {
     units: Vec<Unit>,
     /// `UnitId → index` in `units`. Rebuilt by `rebuild_idx` after bulk mutations.
+    /// Skipped during serialization (derived from `units`).
     idx: HashMap<UnitId, usize>,
     pub round: u32,
     pub phase: RoundPhase,
@@ -187,6 +192,54 @@ pub struct CombatState {
     /// Seed carried along for replay reproducibility.
     pub random_seed: u64,
     next_synthetic_uid: u64,
+}
+
+/// Wire format for `CombatState` — identical layout except `idx` is absent.
+/// Used by `serde(into/from)` so the index cache is automatically rebuilt on
+/// deserialization without a custom `Deserialize` impl.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CombatStateRepr {
+    units: Vec<Unit>,
+    pub round: u32,
+    pub phase: RoundPhase,
+    pub turn_queue: TurnQueue,
+    pub random_seed: u64,
+    next_synthetic_uid: u64,
+}
+
+impl From<CombatState> for CombatStateRepr {
+    fn from(s: CombatState) -> Self {
+        CombatStateRepr {
+            units: s.units,
+            round: s.round,
+            phase: s.phase,
+            turn_queue: s.turn_queue,
+            random_seed: s.random_seed,
+            next_synthetic_uid: s.next_synthetic_uid,
+        }
+    }
+}
+
+impl From<CombatStateRepr> for CombatState {
+    fn from(r: CombatStateRepr) -> Self {
+        let mut s = CombatState {
+            units: r.units,
+            idx: HashMap::new(),
+            round: r.round,
+            phase: r.phase,
+            turn_queue: r.turn_queue,
+            random_seed: r.random_seed,
+            next_synthetic_uid: r.next_synthetic_uid,
+        };
+        s.rebuild_idx();
+        s
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for CombatState {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(CombatState::from(CombatStateRepr::deserialize(d)?))
+    }
 }
 
 impl Default for CombatState {
