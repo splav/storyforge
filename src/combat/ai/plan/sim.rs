@@ -553,19 +553,21 @@ mod tests {
         AbilityDef {
             id: AbilityId::from(id),
             name: id.to_string(),
-            target_type,
-            range: AbilityRange { min: 0, max: range },
-            effect,
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                effect,
+                target_type,
+                range: AbilityRange { min: 0, max: range },
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 

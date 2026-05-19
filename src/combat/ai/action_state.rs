@@ -4,15 +4,10 @@
 //! ECS world.
 
 use combat_engine::legality::{ActionState, ActorView};
-use combat_engine::{
-    AbilityDef, AbilityId, AbilityRange, AoEShape, Cost, EffectDef as EngineEffectDef,
-    StatusApplication as EngineStatusApplication, StatusDef, StatusId, StatusOn as EngineStatusOn,
-    TargetType,
-};
+use combat_engine::{AbilityDef, AbilityId, StatusDef, StatusId};
 
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::combat::ai::world::tags::AiTags;
-use crate::content::abilities;
 use crate::content::content_view::ContentView;
 use crate::game::components::Team;
 use crate::game::hex::{in_bounds, Hex};
@@ -30,46 +25,7 @@ impl ActionState for SnapshotActionState<'_> {
 
     fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
         let def = self.content.abilities.get(id)?;
-        Some(AbilityDef {
-            key: def.key.clone(),
-            cost_ap: def.cost_ap,
-            costs: def
-                .costs
-                .iter()
-                .map(|c| Cost { resource: c.resource, amount: c.amount })
-                .collect(),
-            range: AbilityRange { min: def.range.min, max: def.range.max },
-            target_type: match def.target_type {
-                abilities::TargetType::SingleEnemy => TargetType::SingleEnemy,
-                abilities::TargetType::SingleAlly => TargetType::SingleAlly,
-                abilities::TargetType::Myself => TargetType::Myself,
-                abilities::TargetType::Ground => TargetType::Ground,
-            },
-            aoe: match def.aoe {
-                abilities::AoEShape::None => AoEShape::None,
-                abilities::AoEShape::Circle { radius } => AoEShape::Circle { radius },
-                abilities::AoEShape::Line { length } => AoEShape::Line { length },
-            },
-            friendly_fire: def.friendly_fire,
-            effect: match &def.effect {
-                abilities::EffectDef::None => EngineEffectDef::None,
-                abilities::EffectDef::WeaponAttack => EngineEffectDef::WeaponAttack,
-                abilities::EffectDef::Damage { dice } => EngineEffectDef::Damage { dice: *dice },
-                abilities::EffectDef::SpellDamage { dice } => EngineEffectDef::SpellDamage { dice: *dice },
-                abilities::EffectDef::Heal { dice } => EngineEffectDef::Heal { dice: *dice },
-                abilities::EffectDef::GrantMovement { distance } => EngineEffectDef::GrantMovement { distance: *distance },
-                abilities::EffectDef::RestoreResources => EngineEffectDef::RestoreResources,
-                abilities::EffectDef::Summon { .. } => EngineEffectDef::None,
-            },
-            statuses: def.statuses.iter().map(|s| EngineStatusApplication {
-                status: s.status.clone(),
-                duration_rounds: s.duration_rounds,
-                on: match s.on {
-                    abilities::StatusOn::Target => EngineStatusOn::Target,
-                    abilities::StatusOn::MySelf => EngineStatusOn::MySelf,
-                },
-            }).collect(),
-        })
+        Some(def.engine.clone())
     }
 
     fn status_def(&self, id: &StatusId) -> Option<StatusDef> {
@@ -166,19 +122,21 @@ mod tests {
         AbilityDef {
             id: AbilityId::from("strike"),
             name: "strike".into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 2 },
-            effect: EffectDef::WeaponAttack,
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 2 },
+                effect: EffectDef::WeaponAttack,
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 
@@ -186,19 +144,21 @@ mod tests {
         AbilityDef {
             id: AbilityId::from("mana_bolt"),
             name: "mana_bolt".into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 3 },
-            effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 6, 0) },
-            costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 5 }],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 3 },
+                effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 6, 0) },
+                costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 5 }],
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 

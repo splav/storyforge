@@ -361,23 +361,25 @@ mod tests {
         AbilityDef {
             id: AbilityId::from("strike"),
             name: "Strike".into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 1 },
-            effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
-            costs: if mana_cost > 0 {
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            ai_tags_override: None,
+            is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 1 },
+                effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+                costs: if mana_cost > 0 {
                 vec![ResourceCost { resource: ResourceKind::Mana, amount: mana_cost }]
             } else {
                 Vec::new()
             },
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            key: None,
-            ai_tags_override: None,
-            is_move_toggle: false,
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 

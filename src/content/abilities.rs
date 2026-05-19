@@ -64,43 +64,26 @@ impl EffectCalcExt for EffectDef {
 
 impl From<&AbilityDef> for combat_engine::AbilityDef {
     fn from(def: &AbilityDef) -> Self {
-        combat_engine::AbilityDef {
-            key: def.key.clone(),
-            cost_ap: def.cost_ap,
-            costs: def.costs.clone(),
-            range: def.range,
-            target_type: def.target_type,
-            aoe: def.aoe,
-            friendly_fire: def.friendly_fire,
-            effect: def.effect.clone(),
-            statuses: def.statuses.clone(),
-        }
+        def.engine.clone()
     }
 }
 
 pub use combat_engine::Cost as ResourceCost;
 
+/// Bridge ability definition.
+///
+/// Gameplay fields live in `engine` (the `combat_engine::AbilityDef`); this
+/// struct adds metadata fields that the engine doesn't need.
+/// `Deref` makes all engine fields directly accessible: `def.cost_ap`, `def.aoe`, etc.
 #[derive(Debug, Clone)]
 pub struct AbilityDef {
+    // ── metadata (bridge-only) ────────────────────────────────────────────
     pub id: AbilityId,
     pub name: String,
-    pub target_type: TargetType,
-    pub range: AbilityRange,
-    pub effect: EffectDef,
-    pub costs: Vec<ResourceCost>,
-    /// Action-point cost. Default 1. Zero = reaction / free utility.
-    pub cost_ap: i32,
-    pub aoe: AoEShape,
-    /// If true, AoE damages allies too (e.g. fireball).
-    pub friendly_fire: bool,
-    /// Status effects applied when the ability resolves.
-    pub statuses: Vec<StatusApplication>,
     /// Magic domains this ability belongs to (empty for non-magical abilities).
     pub magic_domains: Vec<String>,
     /// Magic method (empty string for non-magical abilities).
     pub magic_method: String,
-    /// Custom hotkey (e.g. "M", "R"). Abilities with keys are universal (available to all).
-    pub key: Option<String>,
     /// Optional override for AI semantic tags (replaces derived, not appends).
     /// `Some(vec![])` = explicitly empty tag set. `None` = use derived tags.
     /// Tag-name strings are validated (panic on unknown) in `tags::cache::build_caches`.
@@ -109,6 +92,22 @@ pub struct AbilityDef {
     /// UI sentinel: this ability toggles move mode instead of going through the
     /// resolution pipeline. Set when TOML has `effect = "toggle_move_mode"`.
     pub is_move_toggle: bool,
+    // ── gameplay (engine) ─────────────────────────────────────────────────
+    /// All gameplay fields. Access via Deref: `def.cost_ap`, `def.effect`, etc.
+    pub engine: combat_engine::AbilityDef,
+}
+
+impl std::ops::Deref for AbilityDef {
+    type Target = combat_engine::AbilityDef;
+    fn deref(&self) -> &Self::Target {
+        &self.engine
+    }
+}
+
+impl std::ops::DerefMut for AbilityDef {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.engine
+    }
 }
 
 // ── Unified effect computation ──────────────────────────────────────────────
@@ -324,19 +323,21 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
             AbilityDef {
                 id: AbilityId::from(r.id.as_str()),
                 name: r.name,
-                target_type,
-                range: AbilityRange { min: r.min_range, max: r.range },
-                effect,
-                costs,
-                cost_ap: r.cost_ap,
-                aoe,
-                friendly_fire: r.friendly_fire,
-                statuses,
                 magic_domains: r.magic_domains,
                 magic_method: r.magic_method,
-                key: r.key,
                 ai_tags_override: r.ai_tags_override,
                 is_move_toggle,
+                engine: combat_engine::AbilityDef {
+                    key: r.key,
+                    cost_ap: r.cost_ap,
+                    costs,
+                    range: AbilityRange { min: r.min_range, max: r.range },
+                    target_type,
+                    aoe,
+                    friendly_fire: r.friendly_fire,
+                    effect,
+                    statuses,
+                },
             }
         })
         .collect()

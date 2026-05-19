@@ -403,19 +403,21 @@ mod tests {
         AbilityDef {
             id: AbilityId::from(id),
             name: id.into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 1 },
-            effect: EffectDef::Damage { dice },
-            costs: Vec::new(),
-            cost_ap,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 1 },
+                effect: EffectDef::Damage { dice },
+                costs: Vec::new(),
+                cost_ap,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 
@@ -423,19 +425,21 @@ mod tests {
         AbilityDef {
             id: AbilityId::from(id),
             name: id.into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 5 },
-            effect: EffectDef::Damage { dice },
-            costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: mana_cost }],
-            cost_ap,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 5 },
+                effect: EffectDef::Damage { dice },
+                costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: mana_cost }],
+                cost_ap,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 
@@ -508,23 +512,26 @@ mod tests {
         let ping = AbilityDef {
             id: AbilityId::from("inspire"),
             name: "inspire".into(),
-            target_type: TargetType::SingleAlly,   // not SingleEnemy
-            range: AbilityRange { min: 0, max: 2 },
-            effect: EffectDef::None,
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: vec![StatusApplication {
-                status: StatusId::from("inspired"),
-                duration_rounds: 2,
-                on: StatusOn::Target,
-            }],
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                // not SingleEnemy
+                target_type: TargetType::SingleAlly,
+                range: AbilityRange { min: 0, max: 2 },
+                effect: EffectDef::None,
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: vec![StatusApplication {
+                    status: StatusId::from("inspired"),
+                    duration_rounds: 2,
+                    on: StatusOn::Target,
+                }],
+                key: None,
+            },
         };
         let content = content_with(vec![ping.clone()]);
         let abilities = Abilities(vec![ping.id.clone()]);

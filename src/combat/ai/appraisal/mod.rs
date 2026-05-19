@@ -128,19 +128,21 @@ pub(crate) mod tests {
         AbilityDef {
             id: "test".into(),
             name: "test".into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange::MELEE,
-            effect: EffectDef::None,
-            costs: vec![],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: vec![],
             magic_domains: vec![],
             magic_method: String::new(),
-            key: None,
             ai_tags_override: Some(tags.iter().map(|s| s.to_string()).collect()),
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange::MELEE,
+                effect: EffectDef::None,
+                costs: vec![],
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: vec![],
+                key: None,
+            },
         }
     }
 

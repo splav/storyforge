@@ -715,21 +715,23 @@ mod tests {
         AbilityDef {
             id: AbilityId::from(id),
             name: id.to_string(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: range },
-            effect: EffectDef::Damage {
-                dice: DiceExpr::new(1, 6, 0),
-            },
-            costs: Vec::new(),
-            cost_ap,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: range },
+                effect: EffectDef::Damage {
+                    dice: DiceExpr::new(1, 6, 0),
+                },
+                costs: Vec::new(),
+                cost_ap,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 
@@ -1065,19 +1067,21 @@ mod tests {
         AbilityDef {
             id: AbilityId::from(id),
             name: id.to_string(),
-            target_type: TargetType::SingleAlly,
-            range: AbilityRange { min: 0, max: range },
-            effect: EffectDef::Heal { dice: DiceExpr::new(1, 6, 0) },
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleAlly,
+                range: AbilityRange { min: 0, max: range },
+                effect: EffectDef::Heal { dice: DiceExpr::new(1, 6, 0) },
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 
@@ -1085,23 +1089,25 @@ mod tests {
         AbilityDef {
             id: AbilityId::from(id),
             name: id.to_string(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: range },
-            effect: EffectDef::None,
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe,
-            friendly_fire: false,
-            statuses: vec![StatusApplication {
-                status: StatusId::from("stun"),
-                duration_rounds: 1,
-                on: StatusOn::Target,
-            }],
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: range },
+                effect: EffectDef::None,
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe,
+                friendly_fire: false,
+                statuses: vec![StatusApplication {
+                    status: StatusId::from("stun"),
+                    duration_rounds: 1,
+                    on: StatusOn::Target,
+                }],
+                key: None,
+            },
         }
     }
 
@@ -1109,19 +1115,21 @@ mod tests {
         AbilityDef {
             id: AbilityId::from(id),
             name: id.to_string(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: range },
-            effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 6, 0) },
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::Circle { radius },
-            friendly_fire: true,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: range },
+                effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 6, 0) },
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::Circle { radius },
+                friendly_fire: true,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 
@@ -1433,19 +1441,21 @@ mod tests {
         let fireball = AbilityDef {
             id: AbilityId::from("fireball"),
             name: "fireball".into(),
-            target_type: TargetType::Ground,
-            range: AbilityRange { min: 0, max: 5 },
-            effect: EffectDef::SpellDamage { dice: DiceExpr::new(2, 3, 0) },
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::Circle { radius: 1 },
-            friendly_fire: true,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::Ground,
+                range: AbilityRange { min: 0, max: 5 },
+                effect: EffectDef::SpellDamage { dice: DiceExpr::new(2, 3, 0) },
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::Circle { radius: 1 },
+                friendly_fire: true,
+                statuses: Vec::new(),
+                key: None,
+            },
         };
 
         let mut content = empty_content();
@@ -1557,19 +1567,21 @@ mod tests {
         let def = AbilityDef {
             id: AbilityId::from("strike"),
             name: "strike".into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 1 },
-            effect: EffectDef::Damage { dice: DiceExpr::new(2, 6, 0) },
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 1 },
+                effect: EffectDef::Damage { dice: DiceExpr::new(2, 6, 0) },
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         };
 
         let mut content = empty_content();
@@ -1642,22 +1654,24 @@ mod tests {
         let summon_def = AbilityDef {
             id: AbilityId::from("summon_spirit"),
             name: "summon_spirit".into(),
-            target_type: TargetType::Myself,
-            range: AbilityRange { min: 0, max: 0 },
-            effect: EffectDef::Summon {
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            ai_tags_override: None,
+            is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::Myself,
+                range: AbilityRange { min: 0, max: 0 },
+                effect: EffectDef::Summon {
                 template_id: "spirit".into(),
                 max_active: Some(2),
             },
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            key: None,
-            ai_tags_override: None,
-            is_move_toggle: false,
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         };
 
         let mut content = empty_content();
@@ -1699,22 +1713,24 @@ mod tests {
         let summon_def = AbilityDef {
             id: AbilityId::from("summon_spirit"),
             name: "summon_spirit".into(),
-            target_type: TargetType::Myself,
-            range: AbilityRange { min: 0, max: 0 },
-            effect: EffectDef::Summon {
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            ai_tags_override: None,
+            is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::Myself,
+                range: AbilityRange { min: 0, max: 0 },
+                effect: EffectDef::Summon {
                 template_id: "spirit".into(),
                 max_active: Some(2),
             },
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            key: None,
-            ai_tags_override: None,
-            is_move_toggle: false,
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         };
 
         let mut content = empty_content();
@@ -1751,22 +1767,24 @@ mod tests {
         let summon_def = AbilityDef {
             id: AbilityId::from("summon_spirit"),
             name: "summon_spirit".into(),
-            target_type: TargetType::Myself,
-            range: AbilityRange { min: 0, max: 0 },
-            effect: EffectDef::Summon {
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            ai_tags_override: None,
+            is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::Myself,
+                range: AbilityRange { min: 0, max: 0 },
+                effect: EffectDef::Summon {
                 template_id: "spirit".into(),
                 max_active: Some(1),
             },
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            key: None,
-            ai_tags_override: None,
-            is_move_toggle: false,
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         };
 
         let mut content = empty_content();

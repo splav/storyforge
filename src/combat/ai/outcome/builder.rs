@@ -716,19 +716,21 @@ mod tests {
         AbilityDef {
             id: crate::core::AbilityId::from("test_strike"),
             name: "test_strike".into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 1 },
-            effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
-            costs: vec![],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: vec![],
             magic_domains: vec![],
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 1 },
+                effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+                costs: vec![],
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: vec![],
+                key: None,
+            },
         }
     }
 
@@ -738,19 +740,21 @@ mod tests {
         AbilityDef {
             id: crate::core::AbilityId::from("test_fireball"),
             name: "test_fireball".into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 3 },
-            effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
-            costs: vec![],
-            cost_ap: 1,
-            aoe: AoEShape::Circle { radius },
-            friendly_fire: true,
-            statuses: vec![],
             magic_domains: vec![],
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 3 },
+                effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+                costs: vec![],
+                cost_ap: 1,
+                aoe: AoEShape::Circle { radius },
+                friendly_fire: true,
+                statuses: vec![],
+                key: None,
+            },
         }
     }
 
@@ -763,23 +767,25 @@ mod tests {
         let def = AbilityDef {
             id: crate::core::AbilityId::from("test_stun"),
             name: "test_stun".into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 1 },
-            effect: EffectDef::None,
-            costs: vec![],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: vec![StatusApplication {
+            magic_domains: vec![],
+            magic_method: String::new(),
+            ai_tags_override: None,
+            is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 1 },
+                effect: EffectDef::None,
+                costs: vec![],
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: vec![StatusApplication {
                 status: status_id.clone(),
                 duration_rounds: 2,
                 on: StatusOn::Target,
             }],
-            magic_domains: vec![],
-            magic_method: String::new(),
-            key: None,
-            ai_tags_override: None,
-            is_move_toggle: false,
+                key: None,
+            },
         };
         let status = StatusDef {
             id: status_id,
@@ -805,19 +811,21 @@ mod tests {
         AbilityDef {
             id: crate::core::AbilityId::from("test_heal"),
             name: "test_heal".into(),
-            target_type: TargetType::SingleAlly,
-            range: AbilityRange { min: 0, max: 1 },
-            effect: EffectDef::Heal { dice: DiceExpr::new(2, 6, 0) }, // expected = 7
-            costs: vec![],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: vec![],
             magic_domains: vec![],
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleAlly,
+                range: AbilityRange { min: 0, max: 1 },
+                effect: EffectDef::Heal { dice: DiceExpr::new(2, 6, 0) },
+                costs: vec![],
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: vec![],
+                key: None,
+            },
         }
     }
 

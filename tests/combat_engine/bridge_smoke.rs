@@ -283,19 +283,21 @@ fn aoo_dice_flows_from_equipment_through_process_action_system() {
     let melee_ability = AbilityDef {
         id: melee_ability_id.clone(),
         name: "Test Attack".into(),
-        target_type: storyforge::content::abilities::TargetType::SingleEnemy,
-        range: AbilityRange::MELEE,
-        effect: EffectDef::WeaponAttack,
-        costs: vec![],
-        cost_ap: 1,
-        aoe: AoEShape::None,
-        friendly_fire: false,
-        statuses: vec![],
         magic_domains: vec![],
         magic_method: String::new(),
-        key: None,
         ai_tags_override: None,
         is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: storyforge::content::abilities::TargetType::SingleEnemy,
+            range: AbilityRange::MELEE,
+            effect: EffectDef::WeaponAttack,
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+        },
     };
     let mut content_view = ContentView::default();
     content_view.abilities.insert(melee_ability_id.clone(), melee_ability);
@@ -416,19 +418,21 @@ fn aoo_does_not_fire_from_stunned_enemy() {
     let melee_ability = AbilityDef {
         id: melee_ability_id.clone(),
         name: "Test Attack".into(),
-        target_type: storyforge::content::abilities::TargetType::SingleEnemy,
-        range: AbilityRange::MELEE,
-        effect: EffectDef::WeaponAttack,
-        costs: vec![],
-        cost_ap: 1,
-        aoe: AoEShape::None,
-        friendly_fire: false,
-        statuses: vec![],
         magic_domains: vec![],
         magic_method: String::new(),
-        key: None,
         ai_tags_override: None,
         is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: storyforge::content::abilities::TargetType::SingleEnemy,
+            range: AbilityRange::MELEE,
+            effect: EffectDef::WeaponAttack,
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+        },
     };
     // Stub StatusDef with skips_turn = true.
     let stun_def = StatusDef {
@@ -551,19 +555,21 @@ fn make_melee_content(ability_id: &AbilityId, weapon_id: &WeaponId) -> ContentVi
     let melee_ability = AbilityDef {
         id: ability_id.clone(),
         name: "Test Attack".into(),
-        target_type: storyforge::content::abilities::TargetType::SingleEnemy,
-        range: AbilityRange::MELEE,
-        effect: EffectDef::WeaponAttack,
-        costs: vec![],
-        cost_ap: 1,
-        aoe: AoEShape::None,
-        friendly_fire: false,
-        statuses: vec![],
         magic_domains: vec![],
         magic_method: String::new(),
-        key: None,
         ai_tags_override: None,
         is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: storyforge::content::abilities::TargetType::SingleEnemy,
+            range: AbilityRange::MELEE,
+            effect: EffectDef::WeaponAttack,
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+        },
     };
     let mut cv = ContentView::default();
     cv.abilities.insert(ability_id.clone(), melee_ability);
@@ -941,20 +947,22 @@ fn cast_emits_damage_result_log_entry() {
     let ability_def = AbilityDef {
         id: ability_id.clone(),
         name: "Fireball".into(),
-        target_type: TargetType::SingleEnemy,
-        range: AbilityRange { min: 0, max: 5 },
-        // 0d1+5 = constant 5; no random draws beyond the crit-fail d20.
-        effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 5) },
-        costs: vec![],
-        cost_ap: 1,
-        aoe: AoEShape::None,
-        friendly_fire: false,
-        statuses: vec![],
         magic_domains: vec![],
         magic_method: String::new(),
-        key: None,
         ai_tags_override: None,
         is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            // 0d1+5 = constant 5; no random draws beyond the crit-fail d20.
+            effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 5) },
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 5 },
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+        },
     };
 
     let mut app = bridge_app();
@@ -1034,19 +1042,21 @@ fn cast_emits_status_applied_log_entry() {
     let ability_def = AbilityDef {
         id: ability_id.clone(),
         name: "Burning Touch".into(),
-        target_type: TargetType::SingleEnemy,
-        range: AbilityRange { min: 0, max: 5 },
-        effect: EffectDef::None,
-        costs: vec![],
-        cost_ap: 1,
-        aoe: AoEShape::None,
-        friendly_fire: false,
-        statuses: vec![StatusApplication { status: status_id.clone(), duration_rounds: 2, on: StatusOn::Target }],
         magic_domains: vec![],
         magic_method: String::new(),
-        key: None,
         ai_tags_override: None,
         is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 5 },
+            effect: EffectDef::None,
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![StatusApplication { status: status_id.clone(), duration_rounds: 2, on: StatusOn::Target }],
+            key: None,
+        },
     };
 
     let mut app = bridge_app();
@@ -1108,19 +1118,22 @@ fn cast_emits_mana_changed_log_entry() {
     let ability_def = AbilityDef {
         id: ability_id.clone(),
         name: "Mana Blast".into(),
-        target_type: TargetType::SingleEnemy,
-        range: AbilityRange { min: 0, max: 5 },
-        effect: EffectDef::None,
-        costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
-        cost_ap: 0,   // no AP cost so we don't need to bump AP
-        aoe: AoEShape::None,
-        friendly_fire: false,
-        statuses: vec![],
         magic_domains: vec![],
         magic_method: String::new(),
-        key: None,
         ai_tags_override: None,
         is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 5 },
+            effect: EffectDef::None,
+            costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
+            // no AP cost so we don't need to bump AP
+            cost_ap: 0,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+        },
     };
 
     let mut app = bridge_app();
@@ -1220,19 +1233,22 @@ fn process_action_system_routes_cast_into_engine() {
     let zap_def = AbilityDef {
         id: zap_id.clone(),
         name: "zap".into(),
-        target_type: TargetType::SingleEnemy,
-        range: AbilityRange { min: 0, max: 5 },
-        effect: EffectDef::None,  // No damage in 7a — just verify cost flows through
-        costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
-        cost_ap: 1,
-        aoe: AoEShape::None,
-        friendly_fire: false,
-        statuses: Vec::new(),
         magic_domains: Vec::new(),
         magic_method: String::new(),
-        key: None,
         ai_tags_override: None,
         is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 5 },
+            effect: EffectDef::None,
+            // No damage in 7a — just verify cost flows through
+            costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: Vec::new(),
+            key: None,
+        },
     };
     app.world_mut().resource_mut::<ActiveContent>().0.abilities.insert(zap_id.clone(), zap_def);
 
@@ -1619,19 +1635,21 @@ fn cast_crit_fail_miss_emits_critical_miss_log_entry() {
     let ability_def = AbilityDef {
         id: ability_id.clone(),
         name: "CF Miss".into(),
-        target_type: TargetType::SingleEnemy,
-        range: AbilityRange { min: 0, max: 5 },
-        effect: EffectDef::None,
-        costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
-        cost_ap: 1,
-        aoe: AoEShape::None,
-        friendly_fire: false,
-        statuses: vec![],
         magic_domains: vec![],
         magic_method: String::new(),
-        key: None,
         ai_tags_override: None,
         is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 5 },
+            effect: EffectDef::None,
+            costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+        },
     };
 
     let mut app = bridge_app();
@@ -1692,20 +1710,22 @@ fn cast_no_crit_fail_no_crit_fail_log_when_d20_non_one() {
     let ability_def = AbilityDef {
         id: ability_id.clone(),
         name: "CF Normal".into(),
-        target_type: TargetType::SingleEnemy,
-        range: AbilityRange { min: 0, max: 5 },
-        // 0d1+5 = constant 5; only one random draw (the crit-fail d20).
-        effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 5) },
-        costs: vec![],
-        cost_ap: 1,
-        aoe: AoEShape::None,
-        friendly_fire: false,
-        statuses: vec![],
         magic_domains: vec![],
         magic_method: String::new(),
-        key: None,
         ai_tags_override: None,
         is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            // 0d1+5 = constant 5; only one random draw (the crit-fail d20).
+            effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 5) },
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 5 },
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+        },
     };
 
     let mut app = bridge_app();
@@ -1776,22 +1796,24 @@ fn cast_summon_creates_ecs_entity_synchronously() {
     let ability_def = AbilityDef {
         id: ability_id.clone(),
         name: "Призвать беса".into(),
-        target_type: TargetType::Myself,
-        range: AbilityRange { min: 0, max: 0 },
-        effect: EffectDef::Summon {
+        magic_domains: vec![],
+        magic_method: String::new(),
+        ai_tags_override: None,
+        is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: TargetType::Myself,
+            range: AbilityRange { min: 0, max: 0 },
+            effect: EffectDef::Summon {
             template_id: template_id.into(),
             max_active: None,
         },
-        costs: vec![],
-        cost_ap: 1,
-        aoe: AoEShape::None,
-        friendly_fire: false,
-        statuses: vec![],
-        magic_domains: vec![],
-        magic_method: String::new(),
-        key: None,
-        ai_tags_override: None,
-        is_move_toggle: false,
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+        },
     };
 
     let template = UnitTemplateDef {
@@ -1901,19 +1923,21 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
     let ability_def = AbilityDef {
         id: ability_id.clone(),
         name: "Phase Nuke".into(),
-        target_type: TargetType::SingleEnemy,
-        range: AbilityRange { min: 0, max: 5 },
-        effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 60) },
-        costs: vec![],
-        cost_ap: 1,
-        aoe: AoEShape::None,
-        friendly_fire: false,
-        statuses: vec![],
         magic_domains: vec![],
         magic_method: String::new(),
-        key: None,
         ai_tags_override: None,
         is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 5 },
+            effect: EffectDef::Damage { dice: DiceExpr::new(0, 1, 60) },
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+        },
     };
 
     let mut app = bridge_app();

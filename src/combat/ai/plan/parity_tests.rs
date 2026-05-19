@@ -81,19 +81,21 @@ mod tests {
         AbilityDef {
             id: AbilityId::from(id),
             name: id.to_string(),
-            target_type,
-            range: AbilityRange { min: 0, max: range },
-            effect,
-            costs,
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                effect,
+                target_type,
+                range: AbilityRange { min: 0, max: range },
+                costs,
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 
@@ -344,22 +346,24 @@ mod tests {
         let def = AbilityDef {
             id: AbilityId::from("summon_spirit"),
             name: "Summon Spirit".into(),
-            target_type: TargetType::Myself,
-            range: AbilityRange { min: 0, max: 0 },
-            effect: EffectDef::Summon {
+            magic_domains: Vec::new(),
+            magic_method: String::new(),
+            ai_tags_override: None,
+            is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::Myself,
+                range: AbilityRange { min: 0, max: 0 },
+                effect: EffectDef::Summon {
                 template_id: "spirit".to_string(),
                 max_active: None,
             },
-            costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
-            magic_domains: Vec::new(),
-            magic_method: String::new(),
-            key: None,
-            ai_tags_override: None,
-            is_move_toggle: false,
+                costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: 3 }],
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         };
         content.abilities.insert(def.id.clone(), def.clone());
 

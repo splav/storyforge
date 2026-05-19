@@ -486,19 +486,21 @@ mod tests {
         AbilityDef {
             id: AbilityId::from("heal"),
             name: "heal".into(),
-            target_type: TargetType::SingleAlly,
-            range: AbilityRange { min: 0, max: 0 },
-            effect: EffectDef::Heal { dice: DiceExpr::new(1, 6, 0) },
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleAlly,
+                range: AbilityRange { min: 0, max: 0 },
+                effect: EffectDef::Heal { dice: DiceExpr::new(1, 6, 0) },
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 

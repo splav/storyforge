@@ -152,19 +152,21 @@ mod tests {
         AbilityDef {
             id: AbilityId::from(id),
             name: id.into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 5 },
-            effect: EffectDef::SpellDamage { dice },
-            costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: mana_cost }],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 5 },
+                effect: EffectDef::SpellDamage { dice },
+                costs: vec![ResourceCost { resource: ResourceKind::Mana, amount: mana_cost }],
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 

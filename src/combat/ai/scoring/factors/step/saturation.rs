@@ -130,23 +130,25 @@ mod tests {
         AbilityDef {
             id: AbilityId::from(id),
             name: id.into(),
-            effect: EffectDef::None,
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 1 },
-            costs: vec![],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: vec![StatusApplication {
+            magic_domains: vec![],
+            magic_method: String::new(),
+            ai_tags_override: None,
+            is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                effect: EffectDef::None,
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 1 },
+                costs: vec![],
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: vec![StatusApplication {
                 status: StatusId::from(status_id),
                 duration_rounds: 2,
                 on,
             }],
-            magic_domains: vec![],
-            magic_method: String::new(),
-            key: None,
-            ai_tags_override: None,
-            is_move_toggle: false,
+                key: None,
+            },
         }
     }
 

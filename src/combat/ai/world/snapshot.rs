@@ -690,19 +690,21 @@ mod affordability_tests {
         AbilityDef {
             id: AbilityId::from("x"),
             name: "x".into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 1 },
-            effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
-            costs,
-            cost_ap,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 1 },
+                effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
+                costs,
+                cost_ap,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 

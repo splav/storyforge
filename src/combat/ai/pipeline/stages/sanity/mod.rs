@@ -801,19 +801,21 @@ mod tests {
         AbilityDef {
             id: AbilityId::from("fireball"),
             name: "fireball".into(),
-            target_type: TargetType::SingleEnemy,
-            range: AbilityRange { min: 0, max: 5 },
-            effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 6, 0) },
-            costs: Vec::new(),
-            cost_ap: 1,
-            aoe: AoEShape::Circle { radius },
-            friendly_fire: true,
-            statuses: Vec::new(),
             magic_domains: Vec::new(),
             magic_method: String::new(),
-            key: None,
             ai_tags_override: None,
             is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: TargetType::SingleEnemy,
+                range: AbilityRange { min: 0, max: 5 },
+                effect: EffectDef::SpellDamage { dice: DiceExpr::new(1, 6, 0) },
+                costs: Vec::new(),
+                cost_ap: 1,
+                aoe: AoEShape::Circle { radius },
+                friendly_fire: true,
+                statuses: Vec::new(),
+                key: None,
+            },
         }
     }
 
