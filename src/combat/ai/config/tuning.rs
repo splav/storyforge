@@ -412,7 +412,7 @@ impl Default for Difficulty {
 /// iteration. `difficulty` (LerpCurve) and `tables` (role-axis matrices)
 /// intentionally omitted — add `Option<...Override>` fields here when a concrete
 /// quirk needs them.
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct AiTuningOverride {
     #[serde(default)]
     pub thresholds: Option<ThresholdsOverride>,
@@ -423,7 +423,7 @@ pub struct AiTuningOverride {
 
 /// Per-unit partial override of `Thresholds`. Each field that is `Some(v)`
 /// replaces the global value; `None` fields leave the global untouched.
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct ThresholdsOverride {
     #[serde(default)] pub survival_floor: Option<f32>,
     #[serde(default)] pub low_hp_factor: Option<f32>,

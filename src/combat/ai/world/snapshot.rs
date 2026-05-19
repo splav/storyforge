@@ -1,3 +1,4 @@
+use crate::combat::ai::world::cache::{AiCache, UnitAiCache};
 use crate::content::content_view::ContentView;
 use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
@@ -34,6 +35,12 @@ pub struct BattleSnapshot {
     /// poke this field directly.
     #[serde(skip)]
     by_entity: HashMap<Entity, usize>,
+    /// AI-derived per-unit metrics. Populated at `build_snapshot` time
+    /// alongside `units`; read by scoring/intent (Phase C).
+    /// Until Phase D, `UnitSnapshot` holds duplicate copies of these fields.
+    /// Schema: absent in pre-Phase-B logs → `Default` (empty cache).
+    #[serde(default)]
+    pub cache: AiCache,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -461,7 +468,21 @@ impl BattleSnapshot {
             .enumerate()
             .map(|(i, u)| (u.entity, i))
             .collect();
-        Self { units, round, by_entity }
+        let cache = AiCache::from_units(
+            units.iter().map(|u| UnitAiCache {
+                entity:              u.entity,
+                role:                u.role,
+                threat:              u.threat,
+                tags:                u.tags,
+                max_attack_range:    u.max_attack_range,
+                aoo_expected_damage: u.aoo_expected_damage,
+                damage_horizon:      u.damage_horizon.clone(),
+                crit_fail_effect:    u.crit_fail_effect.clone(),
+                ai_tuning_override:  u.ai_tuning_override.clone(),
+                abilities:           u.abilities.clone(),
+            }).collect()
+        );
+        Self { units, round, by_entity, cache }
     }
 
     /// Rebuild the entity index from the current `units` vector. Call after
