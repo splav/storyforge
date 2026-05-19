@@ -70,6 +70,7 @@ struct AuraContent {
     stun: bool,
     speed_bonus: i32,
     armor_bonus: i32,
+    cached_def: StatusDef,
 }
 
 /// Attach one aura to a unit (helper for test construction).
@@ -83,6 +84,18 @@ fn with_aura(mut unit: Unit, content: &AuraContent) -> Unit {
 }
 
 impl AuraContent {
+    fn build_def(stun: bool, speed_bonus: i32, armor_bonus: i32) -> StatusDef {
+        StatusDef {
+            causes_disadvantage: false,
+            blocks_mana_abilities: false,
+            forces_targeting: false,
+            skips_turn: stun,
+            armor_bonus,
+            damage_taken_bonus: 0,
+            speed_bonus,
+            hp_percent_dot: 0,
+        }
+    }
     fn new(radius: u32, status: &str, applies_to: TeamRelation) -> Self {
         Self {
             radius,
@@ -91,11 +104,24 @@ impl AuraContent {
             stun: false,
             speed_bonus: 0,
             armor_bonus: 0,
+            cached_def: Self::build_def(false, 0, 0),
         }
     }
-    fn with_stun(mut self) -> Self { self.stun = true; self }
-    fn with_speed(mut self, v: i32) -> Self { self.speed_bonus = v; self }
-    fn with_armor(mut self, v: i32) -> Self { self.armor_bonus = v; self }
+    fn with_stun(mut self) -> Self {
+        self.stun = true;
+        self.cached_def = Self::build_def(true, self.speed_bonus, self.armor_bonus);
+        self
+    }
+    fn with_speed(mut self, v: i32) -> Self {
+        self.speed_bonus = v;
+        self.cached_def = Self::build_def(self.stun, v, self.armor_bonus);
+        self
+    }
+    fn with_armor(mut self, v: i32) -> Self {
+        self.armor_bonus = v;
+        self.cached_def = Self::build_def(self.stun, self.speed_bonus, v);
+        self
+    }
 }
 
 impl ContentView for AuraContent {
@@ -108,23 +134,10 @@ impl ContentView for AuraContent {
     }
 
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
-        -> Option<storyforge::combat_engine::AbilityDef> { None }
+        -> Option<&storyforge::combat_engine::AbilityDef> { None }
 
-    fn status_def(&self, id: &StatusId) -> Option<StatusDef> {
-        if *id == self.status_id {
-            Some(StatusDef {
-                causes_disadvantage: false,
-                blocks_mana_abilities: false,
-                forces_targeting: false,
-                skips_turn: self.stun,
-                armor_bonus: self.armor_bonus,
-                damage_taken_bonus: 0,
-                speed_bonus: self.speed_bonus,
-                hp_percent_dot: 0,
-            })
-        } else {
-            None
-        }
+    fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
+        if *id == self.status_id { Some(&self.cached_def) } else { None }
     }
 
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }

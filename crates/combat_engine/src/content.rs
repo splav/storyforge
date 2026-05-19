@@ -295,10 +295,10 @@ pub trait ContentView {
     ///
     /// Used by `check_legality` (Phase 2 step 2c) and `expand_action(Cast)`
     /// (Phase 2 step 6).
-    fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef>;
+    fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef>;
 
     /// Engine-side status definition.  `None` if the id is unknown.
-    fn status_def(&self, id: &StatusId) -> Option<StatusDef>;
+    fn status_def(&self, id: &StatusId) -> Option<&StatusDef>;
 
     /// Resolved unit template (stats + equipment armor already folded in).
     /// Returns `None` for unknown template ids.

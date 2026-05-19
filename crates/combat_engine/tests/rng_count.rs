@@ -56,8 +56,8 @@ struct NoWeaponContent;
 
 impl ContentView for NoWeaponContent {
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-    fn ability_def(&self, _: &AbilityId) -> Option<AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
+    fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
     fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
 }
 
@@ -69,8 +69,8 @@ struct WithWeaponContent(DiceExpr);
 /// This impl provides only the 4 static-content methods.
 impl ContentView for WithWeaponContent {
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-    fn ability_def(&self, _: &AbilityId) -> Option<AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
+    fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
     fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
 }
 
@@ -82,10 +82,10 @@ struct CastContent {
 
 impl ContentView for CastContent {
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-    fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
-        if id.0 == self.id { Some(self.def.clone()) } else { None }
+    fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
+        if id.0 == self.id { Some(&self.def) } else { None }
     }
-    fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
+    fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
     fn unit_template(&self, _: &str) -> Option<UnitTemplate> { None }
 }
 

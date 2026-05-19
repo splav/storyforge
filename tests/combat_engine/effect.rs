@@ -20,20 +20,37 @@ struct StubContent {
     armor_bonus: i32,
     hp_percent_dot: i32,
     templates: std::collections::HashMap<String, storyforge::combat_engine::UnitTemplate>,
+    cached_status_def: storyforge::combat_engine::StatusDef,
 }
 
 impl StubContent {
+    fn make_status_def(speed_bonus: i32, armor_bonus: i32, hp_percent_dot: i32) -> storyforge::combat_engine::StatusDef {
+        storyforge::combat_engine::StatusDef {
+            causes_disadvantage: false,
+            blocks_mana_abilities: false,
+            forces_targeting: false,
+            skips_turn: false,
+            armor_bonus,
+            damage_taken_bonus: 0,
+            speed_bonus,
+            hp_percent_dot,
+        }
+    }
     fn neutral() -> Self {
-        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot: 0, templates: Default::default() }
+        let d = Self::make_status_def(0, 0, 0);
+        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot: 0, templates: Default::default(), cached_status_def: d }
     }
     fn with_speed(speed_bonus: i32) -> Self {
-        Self { speed_bonus, armor_bonus: 0, hp_percent_dot: 0, templates: Default::default() }
+        let d = Self::make_status_def(speed_bonus, 0, 0);
+        Self { speed_bonus, armor_bonus: 0, hp_percent_dot: 0, templates: Default::default(), cached_status_def: d }
     }
     fn with_armor(armor_bonus: i32) -> Self {
-        Self { speed_bonus: 0, armor_bonus, hp_percent_dot: 0, templates: Default::default() }
+        let d = Self::make_status_def(0, armor_bonus, 0);
+        Self { speed_bonus: 0, armor_bonus, hp_percent_dot: 0, templates: Default::default(), cached_status_def: d }
     }
     fn with_hp_percent_dot(hp_percent_dot: i32) -> Self {
-        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot, templates: Default::default() }
+        let d = Self::make_status_def(0, 0, hp_percent_dot);
+        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot, templates: Default::default(), cached_status_def: d }
     }
     fn with_template(mut self, id: &str, tpl: storyforge::combat_engine::UnitTemplate) -> Self {
         self.templates.insert(id.to_string(), tpl);
@@ -48,18 +65,9 @@ impl ContentView for StubContent {
             armor_bonus: self.armor_bonus,
         }
     }
-    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> {
-        Some(storyforge::combat_engine::StatusDef {
-            causes_disadvantage: false,
-            blocks_mana_abilities: false,
-            forces_targeting: false,
-            skips_turn: false,
-            armor_bonus: self.armor_bonus,
-            damage_taken_bonus: 0,
-            speed_bonus: self.speed_bonus,
-            hp_percent_dot: self.hp_percent_dot,
-        })
+    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<&storyforge::combat_engine::AbilityDef> { None }
+    fn status_def(&self, _: &StatusId) -> Option<&storyforge::combat_engine::StatusDef> {
+        Some(&self.cached_status_def)
     }
     fn unit_template(&self, id: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
         self.templates.get(id).copied()

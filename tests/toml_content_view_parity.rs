@@ -143,7 +143,7 @@ fn toml_content_view_matches_ecs_content_view() {
     // ── ability_def ───────────────────────────────────────────────────────────
     for (id, _) in &bridge_view.abilities {
         let expected = map_ability(&bridge_view, id);
-        let got      = toml_view.ability_def(id);
+        let got      = toml_view.ability_def(id).cloned();
 
         match (&expected, &got) {
             (Some(e), Some(g)) => {
@@ -168,7 +168,7 @@ fn toml_content_view_matches_ecs_content_view() {
     // ── status_def ────────────────────────────────────────────────────────────
     for (id, _) in &bridge_view.statuses {
         let expected = map_status(&bridge_view, id);
-        let got      = toml_view.status_def(id);
+        let got      = toml_view.status_def(id).copied();
 
         match (&expected, &got) {
             (Some(e), Some(g)) => {

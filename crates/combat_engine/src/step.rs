@@ -64,11 +64,11 @@ impl<'a> ActionState for EngineCheckState<'a> {
     type Id = crate::state::UnitId;
 
     fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
-        self.content.ability_def(id)
+        self.content.ability_def(id).cloned()
     }
 
     fn status_def(&self, id: &StatusId) -> Option<StatusDef> {
-        self.content.status_def(id)
+        self.content.status_def(id).copied()
     }
 
     fn actor_view(&self, actor: crate::state::UnitId) -> Option<ActorView> {
@@ -79,8 +79,8 @@ impl<'a> ActionState for EngineCheckState<'a> {
             |(d, m), s| {
                 let def = self.content.status_def(&s.id);
                 (
-                    d || def.as_ref().is_some_and(|x| x.causes_disadvantage),
-                    m || def.as_ref().is_some_and(|x| x.blocks_mana_abilities),
+                    d || def.is_some_and(|x| x.causes_disadvantage),
+                    m || def.is_some_and(|x| x.blocks_mana_abilities),
                 )
             },
         );

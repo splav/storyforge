@@ -370,12 +370,12 @@ impl EngineContentView for SnapshotContentView {
         }).unwrap_or_default()
     }
 
-    fn ability_def(&self, id: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> {
-        self.abilities.get(id).cloned()
+    fn ability_def(&self, id: &combat_engine::AbilityId) -> Option<&combat_engine::AbilityDef> {
+        self.abilities.get(id)
     }
 
-    fn status_def(&self, id: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> {
-        self.statuses.get(id).cloned()
+    fn status_def(&self, id: &combat_engine::StatusId) -> Option<&combat_engine::StatusDef> {
+        self.statuses.get(id)
     }
 
     fn unit_template(&self, _id: &str) -> Option<combat_engine::UnitTemplate> {

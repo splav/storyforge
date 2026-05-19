@@ -106,12 +106,12 @@ impl ContentView for TomlContentView {
         }).unwrap_or_default()
     }
 
-    fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
-        self.abilities.get(id).cloned()
+    fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
+        self.abilities.get(id)
     }
 
-    fn status_def(&self, id: &StatusId) -> Option<StatusDef> {
-        self.statuses.get(id).cloned()
+    fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
+        self.statuses.get(id)
     }
 
     fn unit_template(&self, id: &str) -> Option<UnitTemplate> {

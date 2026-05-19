@@ -21,20 +21,22 @@ use hexx::Hex;
 
 struct StubContent;
 
+static STUB_STATUS_DEF: storyforge::combat_engine::StatusDef = storyforge::combat_engine::StatusDef {
+    causes_disadvantage: false,
+    blocks_mana_abilities: false,
+    forces_targeting: false,
+    skips_turn: false,
+    armor_bonus: 0,
+    damage_taken_bonus: 0,
+    speed_bonus: 0,
+    hp_percent_dot: 0,
+};
+
 impl ContentView for StubContent {
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> {
-        Some(storyforge::combat_engine::StatusDef {
-            causes_disadvantage: false,
-            blocks_mana_abilities: false,
-            forces_targeting: false,
-            skips_turn: false,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            speed_bonus: 0,
-            hp_percent_dot: 0,
-        })
+    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<&storyforge::combat_engine::AbilityDef> { None }
+    fn status_def(&self, _: &StatusId) -> Option<&storyforge::combat_engine::StatusDef> {
+        Some(&STUB_STATUS_DEF)
     }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
 }

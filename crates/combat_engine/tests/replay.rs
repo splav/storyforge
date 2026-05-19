@@ -177,8 +177,8 @@ fn replay_pure_move_no_enemies() {
     struct NoContent;
     impl ContentView for NoContent {
         fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-        fn ability_def(&self, _: &AbilityId) -> Option<AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
         fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
     }
 
@@ -220,8 +220,8 @@ fn replay_move_with_aoo_chain() {
     struct AooContent;
     impl ContentView for AooContent {
         fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-        fn ability_def(&self, _: &AbilityId) -> Option<AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
         fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
     }
 
@@ -281,10 +281,10 @@ fn replay_cast_damage_basic() {
     }
     impl ContentView for DamageContent {
         fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-        fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
-            if id == &self.ability_id { Some(self.ability.clone()) } else { None }
+        fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
+            if id == &self.ability_id { Some(&self.ability) } else { None }
         }
-        fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
         fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
     }
 
@@ -354,10 +354,10 @@ fn replay_phase_trigger() {
     }
     impl ContentView for PhaseContent {
         fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-        fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
-            if id == &self.ability_id { Some(self.ability.clone()) } else { None }
+        fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
+            if id == &self.ability_id { Some(&self.ability) } else { None }
         }
-        fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
         fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
     }
 
@@ -399,8 +399,8 @@ fn replay_endturn_advances_queue() {
     struct NoContent;
     impl ContentView for NoContent {
         fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-        fn ability_def(&self, _: &AbilityId) -> Option<AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
         fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
     }
 
@@ -427,8 +427,8 @@ fn replay_event_divergence_detected() {
     struct NoContent;
     impl ContentView for NoContent {
         fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-        fn ability_def(&self, _: &AbilityId) -> Option<AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
         fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
     }
 
@@ -502,10 +502,10 @@ fn replay_rng_count_divergence_detected() {
     struct DmgContent { ability: AbilityDef, id: AbilityId }
     impl ContentView for DmgContent {
         fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-        fn ability_def(&self, id: &AbilityId) -> Option<AbilityDef> {
-            if id == &self.id { Some(self.ability.clone()) } else { None }
+        fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
+            if id == &self.id { Some(&self.ability) } else { None }
         }
-        fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
         fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
     }
 
@@ -574,8 +574,8 @@ fn measure_trace_size_per_round() {
     struct SizeContent;
     impl ContentView for SizeContent {
         fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-        fn ability_def(&self, _: &AbilityId) -> Option<AbilityDef> { None }
-        fn status_def(&self, _: &StatusId) -> Option<StatusDef> { None }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
         fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
     }
 

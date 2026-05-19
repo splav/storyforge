@@ -36,8 +36,8 @@ impl StubContent {
 
 impl ContentView for StubContent {
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<storyforge::combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<storyforge::combat_engine::StatusDef> { None }
+    fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<&storyforge::combat_engine::AbilityDef> { None }
+    fn status_def(&self, _: &StatusId) -> Option<&storyforge::combat_engine::StatusDef> { None }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
 }
 

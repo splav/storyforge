@@ -21,22 +21,37 @@ use storyforge::combat_engine::{
 
 /// StubContent that can report `skips_turn=true` for a specific status id.
 struct StubContent {
-    stun_status: Option<StatusId>,
-    /// If set, this status has dot_per_tick=5 and no other special flags.
-    dot_status: Option<StatusId>,
+    defs: std::collections::HashMap<StatusId, StatusDef>,
+}
+
+fn make_def(skips_turn: bool) -> StatusDef {
+    StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn,
+        armor_bonus: 0,
+        damage_taken_bonus: 0,
+        speed_bonus: 0,
+        hp_percent_dot: 0,
+    }
 }
 
 impl StubContent {
     fn plain() -> Self {
-        Self { stun_status: None, dot_status: None }
+        Self { defs: Default::default() }
     }
 
     fn with_stun(id: StatusId) -> Self {
-        Self { stun_status: Some(id), dot_status: None }
+        let mut defs = std::collections::HashMap::new();
+        defs.insert(id, make_def(true));
+        Self { defs }
     }
 
     fn with_dot(id: StatusId) -> Self {
-        Self { stun_status: None, dot_status: Some(id) }
+        let mut defs = std::collections::HashMap::new();
+        defs.insert(id, make_def(false));
+        Self { defs }
     }
 }
 
@@ -44,21 +59,10 @@ impl ContentView for StubContent {
     fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
 
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
-        -> Option<storyforge::combat_engine::AbilityDef> { None }
+        -> Option<&storyforge::combat_engine::AbilityDef> { None }
 
-    fn status_def(&self, id: &StatusId) -> Option<StatusDef> {
-        let skips = self.stun_status.as_ref().is_some_and(|s| s == id);
-        let is_dot = self.dot_status.as_ref().is_some_and(|s| s == id);
-        Some(StatusDef {
-            causes_disadvantage: false,
-            blocks_mana_abilities: false,
-            forces_targeting: false,
-            skips_turn: skips,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            speed_bonus: 0,
-            hp_percent_dot: if is_dot { 0 } else { 0 },
-        })
+    fn status_def(&self, id: &StatusId) -> Option<&StatusDef> {
+        self.defs.get(id)
     }
 
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }

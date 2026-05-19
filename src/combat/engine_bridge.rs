@@ -250,12 +250,12 @@ impl<'a> EngineContentView for EcsContentView<'a> {
         StatusBonuses::default()
     }
 
-    fn ability_def(&self, id: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> {
-        self.active_content.abilities.get(id).map(Into::into)
+    fn ability_def(&self, id: &combat_engine::AbilityId) -> Option<&combat_engine::AbilityDef> {
+        self.active_content.abilities.get(id).map(|a| &a.engine)
     }
 
-    fn status_def(&self, id: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> {
-        self.active_content.statuses.get(id).map(|s| s.engine)
+    fn status_def(&self, id: &combat_engine::StatusId) -> Option<&combat_engine::StatusDef> {
+        self.active_content.statuses.get(id).map(|s| &s.engine)
     }
 
     fn unit_template(&self, id: &str) -> Option<combat_engine::UnitTemplate> {
