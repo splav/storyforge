@@ -510,17 +510,19 @@ mod tests {
         StatusDef {
             id: StatusId::from(id),
             name: id.into(),
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            skips_turn: false,
-            forces_targeting: false,
             dot_dice: None as Option<DiceExpr>,
-            blocks_mana_abilities: false,
-            speed_bonus: 0,
-            hp_percent_dot,
             ai_controlled: false,
-            causes_disadvantage: false,
             buff_class: None,
+            engine: combat_engine::StatusDef {
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                skips_turn: false,
+                forces_targeting: false,
+                blocks_mana_abilities: false,
+                speed_bonus: 0,
+                hp_percent_dot,
+                causes_disadvantage: false,
+            },
         }
     }
 

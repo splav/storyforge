@@ -112,17 +112,19 @@ mod tests {
         StatusDef {
             id: StatusId::from(id),
             name: id.into(),
-            armor_bonus: 4,
-            damage_taken_bonus: 0,
-            skips_turn: false,
-            forces_targeting: false,
             dot_dice: None,
-            blocks_mana_abilities: false,
-            speed_bonus: 0,
-            hp_percent_dot: 0,
             ai_controlled: false,
-            causes_disadvantage: false,
             buff_class: Some(BuffClass::ArmorBuff),
+            engine: combat_engine::StatusDef {
+                armor_bonus: 4,
+                damage_taken_bonus: 0,
+                skips_turn: false,
+                forces_targeting: false,
+                blocks_mana_abilities: false,
+                speed_bonus: 0,
+                hp_percent_dot: 0,
+                causes_disadvantage: false,
+            },
         }
     }
 
@@ -208,17 +210,19 @@ mod tests {
             StatusDef {
                 id: StatusId::from("haste_buff"),
                 name: "haste_buff".into(),
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
-                skips_turn: false,
-                forces_targeting: false,
                 dot_dice: None,
-                blocks_mana_abilities: false,
-                speed_bonus: 1,
-                hp_percent_dot: 0,
                 ai_controlled: false,
-                causes_disadvantage: false,
                 buff_class: Some(BuffClass::Haste),
+                engine: combat_engine::StatusDef {
+                    armor_bonus: 0,
+                    damage_taken_bonus: 0,
+                    skips_turn: false,
+                    forces_targeting: false,
+                    blocks_mana_abilities: false,
+                    speed_bonus: 1,
+                    hp_percent_dot: 0,
+                    causes_disadvantage: false,
+                },
             },
         );
 

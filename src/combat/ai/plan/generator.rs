@@ -1137,17 +1137,19 @@ mod tests {
         StatusDef {
             id: StatusId::from("stun"),
             name: "stun".into(),
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            skips_turn: true,
-            forces_targeting: false,
             dot_dice: None,
-            blocks_mana_abilities: false,
-            speed_bonus: 0,
-            hp_percent_dot: 0,
             ai_controlled: false,
-            causes_disadvantage: false,
             buff_class: None,
+            engine: combat_engine::StatusDef {
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                skips_turn: true,
+                forces_targeting: false,
+                blocks_mana_abilities: false,
+                speed_bonus: 0,
+                hp_percent_dot: 0,
+                causes_disadvantage: false,
+            },
         }
     }
 
@@ -1375,17 +1377,19 @@ mod tests {
             StatusDef {
                 id: StatusId::from("broken_faith"),
                 name: "broken_faith".into(),
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
-                skips_turn: false,
-                forces_targeting: false,
                 dot_dice: None,
-                blocks_mana_abilities: true,
-                speed_bonus: 0,
-                hp_percent_dot: 0,
                 ai_controlled: false,
-                causes_disadvantage: false,
                 buff_class: None,
+                engine: combat_engine::StatusDef {
+                    armor_bonus: 0,
+                    damage_taken_bonus: 0,
+                    skips_turn: false,
+                    forces_targeting: false,
+                    blocks_mana_abilities: true,
+                    speed_bonus: 0,
+                    hp_percent_dot: 0,
+                    causes_disadvantage: false,
+                },
             },
         );
 
@@ -1591,17 +1595,19 @@ mod tests {
             StatusDef {
                 id: StatusId::from("disoriented"),
                 name: "disoriented".into(),
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
-                skips_turn: false,
-                forces_targeting: false,
                 dot_dice: None,
-                blocks_mana_abilities: false,
-                speed_bonus: 0,
-                hp_percent_dot: 0,
                 ai_controlled: false,
-                causes_disadvantage: true,
                 buff_class: None,
+                engine: combat_engine::StatusDef {
+                    armor_bonus: 0,
+                    damage_taken_bonus: 0,
+                    skips_turn: false,
+                    forces_targeting: false,
+                    blocks_mana_abilities: false,
+                    speed_bonus: 0,
+                    hp_percent_dot: 0,
+                    causes_disadvantage: true,
+                },
             },
         );
 
@@ -1949,17 +1955,19 @@ mod tests {
         let poison_def = StatusDef {
             id: poison_id.clone(),
             name: "poison".into(),
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            skips_turn: false,
-            forces_targeting: false,
             dot_dice: Some(crate::core::DiceExpr::new(0, 0, 3)),
-            blocks_mana_abilities: false,
-            speed_bonus: 0,
-            hp_percent_dot: 0,
             ai_controlled: false,
-            causes_disadvantage: false,
             buff_class: None,
+            engine: combat_engine::StatusDef {
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                skips_turn: false,
+                forces_targeting: false,
+                blocks_mana_abilities: false,
+                speed_bonus: 0,
+                hp_percent_dot: 0,
+                causes_disadvantage: false,
+            },
         };
         content.statuses.insert(poison_id.clone(), poison_def);
 

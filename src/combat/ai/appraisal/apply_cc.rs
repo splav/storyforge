@@ -79,17 +79,19 @@ mod tests {
         let status_def = StatusDef {
             id: "stunned".into(),
             name: "Stunned".into(),
-            skips_turn: true, // HardCC — derive_status_tags: skips_turn → HardCC
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            forces_targeting: false,
             dot_dice: None,
-            blocks_mana_abilities: false,
-            speed_bonus: 0,
-            hp_percent_dot: 0,
             ai_controlled: false,
-            causes_disadvantage: false,
             buff_class: None,
+            engine: combat_engine::StatusDef {
+                skips_turn: true, // HardCC — derive_status_tags: skips_turn → HardCC
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                forces_targeting: false,
+                blocks_mana_abilities: false,
+                speed_bonus: 0,
+                hp_percent_dot: 0,
+                causes_disadvantage: false,
+            },
         };
         content.statuses.insert("stunned".into(), status_def);
 

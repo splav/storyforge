@@ -790,17 +790,19 @@ mod tests {
         let status = StatusDef {
             id: status_id,
             name: "stun_test".into(),
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            skips_turn: true,
-            forces_targeting: false,
             dot_dice: None,
-            blocks_mana_abilities: false,
-            speed_bonus: 0,
-            hp_percent_dot: 0,
             ai_controlled: false,
-            causes_disadvantage: false,
             buff_class: None,
+            engine: combat_engine::StatusDef {
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                skips_turn: true,
+                forces_targeting: false,
+                blocks_mana_abilities: false,
+                speed_bonus: 0,
+                hp_percent_dot: 0,
+                causes_disadvantage: false,
+            },
         };
         (def, status)
     }

@@ -255,7 +255,7 @@ impl<'a> EngineContentView for EcsContentView<'a> {
     }
 
     fn status_def(&self, id: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> {
-        self.active_content.statuses.get(id).map(Into::into)
+        self.active_content.statuses.get(id).map(|s| s.engine)
     }
 
     fn unit_template(&self, id: &str) -> Option<combat_engine::UnitTemplate> {

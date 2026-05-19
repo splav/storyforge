@@ -29,17 +29,7 @@ impl ActionState for SnapshotActionState<'_> {
     }
 
     fn status_def(&self, id: &StatusId) -> Option<StatusDef> {
-        let def = self.content.statuses.get(id)?;
-        Some(StatusDef {
-            causes_disadvantage: def.causes_disadvantage,
-            blocks_mana_abilities: def.blocks_mana_abilities,
-            forces_targeting: def.forces_targeting,
-            skips_turn: def.skips_turn,
-            armor_bonus: def.armor_bonus,
-            damage_taken_bonus: def.damage_taken_bonus,
-            speed_bonus: def.speed_bonus,
-            hp_percent_dot: def.hp_percent_dot,
-        })
+        self.content.statuses.get(id).map(|s| s.engine)
     }
 
     fn actor_view(&self, actor: Entity) -> Option<ActorView> {
@@ -246,16 +236,18 @@ mod tests {
                 id: StatusId::from("broken_faith"),
                 name: "broken_faith".into(),
                 dot_dice: None,
-                forces_targeting: false,
-                speed_bonus: 0,
-                hp_percent_dot: 0,
                 ai_controlled: false,
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
-                skips_turn: false,
-                causes_disadvantage: false,
-                blocks_mana_abilities: true,
                 buff_class: None,
+                engine: combat_engine::StatusDef {
+                    forces_targeting: false,
+                    speed_bonus: 0,
+                    hp_percent_dot: 0,
+                    armor_bonus: 0,
+                    damage_taken_bonus: 0,
+                    skips_turn: false,
+                    causes_disadvantage: false,
+                    blocks_mana_abilities: true,
+                },
             },
         );
         let snap = snapshot_with(vec![actor.clone(), target.clone()]);
@@ -325,16 +317,18 @@ mod tests {
                 id: StatusId::from("disoriented"),
                 name: "disoriented".into(),
                 dot_dice: None,
-                forces_targeting: false,
-                speed_bonus: 0,
-                hp_percent_dot: 0,
                 ai_controlled: false,
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
-                skips_turn: false,
-                causes_disadvantage: true,
-                blocks_mana_abilities: false,
                 buff_class: None,
+                engine: combat_engine::StatusDef {
+                    forces_targeting: false,
+                    speed_bonus: 0,
+                    hp_percent_dot: 0,
+                    armor_bonus: 0,
+                    damage_taken_bonus: 0,
+                    skips_turn: false,
+                    causes_disadvantage: true,
+                    blocks_mana_abilities: false,
+                },
             },
         );
         let snap = snapshot_with(vec![actor.clone(), target.clone()]);

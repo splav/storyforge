@@ -12,36 +12,41 @@ pub enum BuffClass {
     Shield,
 }
 
+/// Bridge status definition.
+///
+/// Gameplay fields live in `engine` (the `combat_engine::StatusDef`); this
+/// struct adds metadata fields that the engine doesn't need.
+/// `Deref` makes all engine fields directly accessible: `def.armor_bonus`, `def.skips_turn`, etc.
 #[derive(Debug, Clone)]
 pub struct StatusDef {
+    // ── metadata (bridge-only) ────────────────────────────────────────────
     pub id: StatusId,
     pub name: String,
-    pub armor_bonus: i32,        // снижает урон от физических атак
-    pub damage_taken_bonus: i32, // увеличивает весь получаемый урон (применяется после брони)
-    pub skips_turn: bool,
-    pub forces_targeting: bool,  // враги вынуждены атаковать цель с этим статусом
-    pub dot_dice: Option<DiceExpr>, // кубик урона за тик (бросается один раз при наложении)
-    pub blocks_mana_abilities: bool, // faith: запрет способностей с маной
-    pub speed_bonus: i32,            // heritage: модификатор скорости
-    pub hp_percent_dot: i32,         // heritage: % от max_hp урона за тик (ceil)
+    pub dot_dice: Option<DiceExpr>,
     pub ai_controlled: bool,         // pact: AI управляет персонажем
-    pub causes_disadvantage: bool,   // носитель бросает все броски с disadvantage
     /// AI buff-class for saturation tracking. `None` = not a tracked buff.
     pub buff_class: Option<BuffClass>,
+    // ── gameplay (engine) ─────────────────────────────────────────────────
+    /// All gameplay fields. Access via Deref: `def.armor_bonus`, `def.skips_turn`, etc.
+    pub engine: combat_engine::StatusDef,
 }
 
 impl From<&StatusDef> for combat_engine::StatusDef {
     fn from(d: &StatusDef) -> Self {
-        combat_engine::StatusDef {
-            causes_disadvantage: d.causes_disadvantage,
-            blocks_mana_abilities: d.blocks_mana_abilities,
-            forces_targeting: d.forces_targeting,
-            skips_turn: d.skips_turn,
-            armor_bonus: d.armor_bonus,
-            damage_taken_bonus: d.damage_taken_bonus,
-            speed_bonus: d.speed_bonus,
-            hp_percent_dot: d.hp_percent_dot,
-        }
+        d.engine
+    }
+}
+
+impl std::ops::Deref for StatusDef {
+    type Target = combat_engine::StatusDef;
+    fn deref(&self) -> &Self::Target {
+        &self.engine
+    }
+}
+
+impl std::ops::DerefMut for StatusDef {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.engine
     }
 }
 
@@ -117,17 +122,19 @@ pub fn parse_statuses(path: &str, src: &str) -> Vec<StatusDef> {
             StatusDef {
                 id: StatusId::from(r.id.as_str()),
                 name: r.name,
-                armor_bonus: r.armor_bonus,
-                damage_taken_bonus: r.damage_taken_bonus,
-                skips_turn: r.skips_turn,
-                forces_targeting: r.forces_targeting,
                 dot_dice,
-                blocks_mana_abilities: r.blocks_mana_abilities,
-                speed_bonus: r.speed_bonus,
-                hp_percent_dot: r.hp_percent_dot,
                 ai_controlled: r.ai_controlled,
-                causes_disadvantage: r.causes_disadvantage,
                 buff_class,
+                engine: combat_engine::StatusDef {
+                    armor_bonus: r.armor_bonus,
+                    damage_taken_bonus: r.damage_taken_bonus,
+                    skips_turn: r.skips_turn,
+                    forces_targeting: r.forces_targeting,
+                    blocks_mana_abilities: r.blocks_mana_abilities,
+                    speed_bonus: r.speed_bonus,
+                    hp_percent_dot: r.hp_percent_dot,
+                    causes_disadvantage: r.causes_disadvantage,
+                },
             }
         })
         .collect()

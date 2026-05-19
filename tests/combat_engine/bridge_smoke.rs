@@ -438,17 +438,19 @@ fn aoo_does_not_fire_from_stunned_enemy() {
     let stun_def = StatusDef {
         id: stun_id.clone(),
         name: "Test Stun".into(),
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        skips_turn: true,
-        forces_targeting: false,
         dot_dice: None,
-        blocks_mana_abilities: false,
-        speed_bonus: 0,
-        hp_percent_dot: 0,
         ai_controlled: false,
-        causes_disadvantage: false,
         buff_class: None,
+        engine: storyforge::combat_engine::StatusDef {
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            skips_turn: true,
+            forces_targeting: false,
+            blocks_mana_abilities: false,
+            speed_bonus: 0,
+            hp_percent_dot: 0,
+            causes_disadvantage: false,
+        },
     };
 
     let mut content_view = ContentView::default();

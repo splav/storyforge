@@ -113,17 +113,19 @@ fn parity_haste_speed_real_vs_sim() {
     let haste_status = StatusDef {
         id: haste_id.clone(),
         name: "Haste".into(),
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        skips_turn: false,
-        forces_targeting: false,
         dot_dice: None,
-        blocks_mana_abilities: false,
-        speed_bonus: 2,
-        hp_percent_dot: 0,
         ai_controlled: false,
-        causes_disadvantage: false,
         buff_class: None,
+        engine: combat_engine::StatusDef {
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            skips_turn: false,
+            forces_targeting: false,
+            blocks_mana_abilities: false,
+            speed_bonus: 2,
+            hp_percent_dot: 0,
+            causes_disadvantage: false,
+        },
     };
 
     let mut content = ContentView {
@@ -229,17 +231,19 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
     let stone_skin_def = StatusDef {
         id: stone_skin_id.clone(),
         name: "Stone Skin".into(),
-        armor_bonus: 5,
-        damage_taken_bonus: 0,
-        skips_turn: false,
-        forces_targeting: false,
         dot_dice: None,
-        blocks_mana_abilities: false,
-        speed_bonus: 0,
-        hp_percent_dot: 0,
         ai_controlled: false,
-        causes_disadvantage: false,
         buff_class: None,
+        engine: combat_engine::StatusDef {
+            armor_bonus: 5,
+            damage_taken_bonus: 0,
+            skips_turn: false,
+            forces_targeting: false,
+            blocks_mana_abilities: false,
+            speed_bonus: 0,
+            hp_percent_dot: 0,
+            causes_disadvantage: false,
+        },
     };
 
     // Buff ability: SingleEnemy (so it reaches a target in tests).

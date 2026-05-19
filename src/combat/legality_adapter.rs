@@ -42,7 +42,7 @@ impl ActionState for BevyActions<'_, '_, '_> {
     }
 
     fn status_def(&self, id: &StatusId) -> Option<StatusDef> {
-        self.content.statuses.get(id).map(Into::into)
+        self.content.statuses.get(id).map(|s| s.engine)
     }
 
     fn actor_view(&self, actor: Entity) -> Option<ActorView> {

@@ -575,18 +575,20 @@ mod tests {
         let def = StatusDef {
             id: crate::core::StatusId::from("test_compulsion"),
             name: "test_compulsion".to_string(),
-            forces_targeting: true,
-            // All other fields at their zero/None values — pure forces_targeting effect.
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            skips_turn: false,
             dot_dice: None,
-            blocks_mana_abilities: false,
-            speed_bonus: 0,
-            hp_percent_dot: 0,
             ai_controlled: false,
-            causes_disadvantage: false,
             buff_class: None,
+            engine: combat_engine::StatusDef {
+                // All other fields at their zero/None values — pure forces_targeting effect.
+                forces_targeting: true,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                skips_turn: false,
+                blocks_mana_abilities: false,
+                speed_bonus: 0,
+                hp_percent_dot: 0,
+                causes_disadvantage: false,
+            },
         };
         let tags = derive_status_tags(&def);
         assert_eq!(tags, StatusTagSet::COMPULSION, "sole forces_targeting → only Compulsion");
