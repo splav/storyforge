@@ -52,6 +52,7 @@ fn make_unit(id: UnitId, alive: bool, reactions_max: i32) -> Unit {
         max_hp: 10,
         armor: 0,
         armor_bonus: 0,
+        damage_taken_bonus: 0,
         base_speed: 3,
         speed: 3,
         action_points: 2,

@@ -79,6 +79,12 @@ pub struct Unit {
     pub armor: i32,
     /// Armor bonus from active statuses (recomputed by `RefreshAggregates`).
     pub armor_bonus: i32,
+    /// Incoming-damage multiplier bonus from active statuses (recomputed by
+    /// `RefreshAggregates`). Positive = unit takes more damage (vulnerability).
+    /// Mirrors `UnitSnapshot.damage_taken_bonus`; kept in sync via the engine's
+    /// aggregate refresh.
+    #[serde(default)]
+    pub damage_taken_bonus: i32,
     /// Base speed (without status speed_bonus).
     pub base_speed: i32,
     /// Effective speed = base_speed + speed bonuses from statuses.
@@ -548,6 +554,7 @@ mod tests {
             max_hp: 10,
             armor: 0,
             armor_bonus: 0,
+            damage_taken_bonus: 0,
             base_speed: 3,
             speed: 3,
             action_points,
@@ -768,5 +775,50 @@ mod tests {
 
         assert_eq!(events.len(), 1);
         assert!(matches!(events[0], Event::ManaRegenerated { .. }));
+    }
+
+    /// ContentView stub that returns a StatusDef with damage_taken_bonus = 2
+    /// for any status id, used for the aggregate-refresh unit test.
+    struct VulnContent;
+    static VULN_STATUS_DEF: StatusDef = StatusDef {
+        causes_disadvantage: false,
+        blocks_mana_abilities: false,
+        forces_targeting: false,
+        skips_turn: false,
+        armor_bonus: 0,
+        damage_taken_bonus: 2,
+        speed_bonus: 0,
+        hp_percent_dot: 0,
+    };
+    impl ContentView for VulnContent {
+        fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
+        fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+        fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&VULN_STATUS_DEF) }
+        fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+    }
+
+    #[test]
+    fn refresh_aggregates_recomputes_damage_taken_bonus() {
+        // A unit with one active status that carries damage_taken_bonus = 2.
+        // After RefreshAggregates fires, unit.damage_taken_bonus must equal 2.
+        use crate::effect::{apply_effect, Effect};
+        let uid = UnitId(1);
+        let mut unit = make_unit(uid, 0, 2, None);
+        unit.statuses.push(ActiveStatus {
+            id: StatusId("vuln".into()),
+            rounds_remaining: 3,
+            dot_per_tick: 0,
+            applier: uid,
+        });
+        let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
+        let content = VulnContent;
+
+        apply_effect(&mut state, &Effect::RefreshAggregates { unit: uid }, &content);
+
+        assert_eq!(
+            state.unit(uid).unwrap().damage_taken_bonus,
+            2,
+            "damage_taken_bonus must reflect the active status bonus after RefreshAggregates"
+        );
     }
 }

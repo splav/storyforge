@@ -83,6 +83,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
         max_hp,
         armor: 0,
         armor_bonus: 0,
+        damage_taken_bonus: 0,
         base_speed: 4,
         speed: 4,
         action_points: 2,

@@ -435,6 +435,7 @@ fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
                 max_hp: u.max_hp,
                 armor: u.armor,
                 armor_bonus: u.armor_bonus,
+                damage_taken_bonus: u.damage_taken_bonus,
                 base_speed: u.base_speed,
                 speed: u.speed,
                 action_points: u.action_points,

@@ -474,25 +474,32 @@ pub fn apply_effect(
         }
 
                 Effect::RefreshAggregates { unit } => {
-            // Recompute speed and armor_bonus from active statuses + aura effects (4c).
+            // Recompute speed, armor_bonus, and damage_taken_bonus from active
+            // statuses + aura effects.
             // Reads status bonuses via ContentView — no Bevy dep in the engine.
             let unit_id = *unit;
             if let Some(u) = state.unit_mut(unit_id) {
                 let mut speed_bonus: i32 = 0;
                 let mut armor_bonus: i32 = 0;
+                let mut damage_taken_bonus: i32 = 0;
                 for s in &u.statuses {
                     let b = content.status_bonuses(&s.id);
                     speed_bonus += b.speed_bonus;
                     armor_bonus += b.armor_bonus;
+                    if let Some(def) = content.status_def(&s.id) {
+                        damage_taken_bonus += def.damage_taken_bonus;
+                    }
                 }
                 u.speed = u.base_speed + speed_bonus;
                 u.armor_bonus = armor_bonus;
+                u.damage_taken_bonus = damage_taken_bonus;
             }
             // Fold aura bonuses on top of status-derived aggregates.
             let aura_fx = state.aura_effects_on(unit_id, content);
             if let Some(u) = state.unit_mut(unit_id) {
-                u.speed       += aura_fx.speed_bonus;
-                u.armor_bonus += aura_fx.armor_bonus;
+                u.speed              += aura_fx.speed_bonus;
+                u.armor_bonus        += aura_fx.armor_bonus;
+                u.damage_taken_bonus += aura_fx.damage_taken_bonus;
             }
             (vec![], ApplyCtx::default())
         }
@@ -719,6 +726,7 @@ pub fn apply_effect(
                 max_hp: template.max_hp,
                 armor: template.armor,
                 armor_bonus: 0,
+                damage_taken_bonus: 0,
                 base_speed: template.base_speed,
                 speed: template.base_speed,
                 action_points: template.max_ap,

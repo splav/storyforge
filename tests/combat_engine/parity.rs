@@ -95,6 +95,7 @@ fn run_engine(snap: &BattleSnapshot, actor_id: Entity, path: Vec<storyforge::gam
             max_hp: u.max_hp,
             armor: u.armor,
             armor_bonus: u.armor_bonus,
+            damage_taken_bonus: u.damage_taken_bonus,
             base_speed: u.base_speed,
             speed: u.speed,
             action_points: u.action_points,
@@ -402,6 +403,7 @@ fn parity_aoo_kills_mover_mid_path_truncates() {
         EngineUnit {
             id: entity_to_uid(u.entity), team, pos: u.pos,
             hp: u.hp, max_hp: u.max_hp, armor: u.armor, armor_bonus: u.armor_bonus,
+            damage_taken_bonus: u.damage_taken_bonus,
             base_speed: u.base_speed, speed: u.speed,
             action_points: u.action_points, max_ap: u.max_ap, movement_points: u.movement_points,
             reactions_left: u.reactions_left,

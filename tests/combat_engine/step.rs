@@ -51,6 +51,7 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
         max_hp: 20,
         armor: 0,
         armor_bonus: 0,
+        damage_taken_bonus: 0,
         base_speed: 6,
         speed: 6,
         action_points: 2,

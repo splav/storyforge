@@ -209,6 +209,7 @@ pub fn from_ecs(
                 max_hp: vital.max_hp,
                 armor: vital.armor,
                 armor_bonus: 0,           // Phase 0: status bonuses deferred to step 8+
+                damage_taken_bonus: 0,    // Phase 0: recomputed by RefreshAggregates after init
                 base_speed: speed.0,
                 speed: speed.0,           // Phase 0: status speed_bonus deferred to step 8+
                 action_points: ap.action_points,
