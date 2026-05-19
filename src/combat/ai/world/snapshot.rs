@@ -41,6 +41,12 @@ pub struct BattleSnapshot {
     /// Schema: absent in pre-Phase-B logs → `Default` (empty cache).
     #[serde(default)]
     pub cache: AiCache,
+    /// Authoritative engine state for this snapshot round.
+    /// Added in Phase D-step-2; populated from `CombatStateRes` at build time.
+    /// Co-exists with `units: Vec<UnitSnapshot>` until D-step-5 removes the
+    /// duplicate. Use `view(e)` to get a `UnitView` combining both halves.
+    #[serde(default)]
+    pub state: combat_engine::state::CombatState,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -352,6 +358,7 @@ pub fn build_snapshot(
     roles: &Query<&AxisProfile>,
     content: &ContentView,
     difficulty: &DifficultyProfile,
+    combat_state: combat_engine::state::CombatState,
 ) -> BattleSnapshot {
     let horizon_rounds = difficulty.damage_horizon_rounds;
     // Dead combatants stay in the snapshot (hp=0 marker). Downstream
@@ -474,7 +481,9 @@ pub fn build_snapshot(
         })
         .collect();
 
-    BattleSnapshot::new(units, round)
+    let mut snap = BattleSnapshot::new(units, round);
+    snap.state = combat_state;
+    snap
 }
 
 // ── Helpers on BattleSnapshot ─────────────────────────────────────────────────
@@ -505,7 +514,7 @@ impl BattleSnapshot {
                 abilities:           u.abilities.clone(),
             }).collect()
         );
-        Self { units, round, by_entity, cache }
+        Self { units, round, by_entity, cache, state: Default::default() }
     }
 
     /// Rebuild the entity index from the current `units` vector. Call after
@@ -577,6 +586,18 @@ impl BattleSnapshot {
     /// Every dead unit in the snapshot regardless of team.
     pub fn dead_units(&self) -> impl Iterator<Item = &UnitSnapshot> {
         self.units.iter().filter(|u| !u.is_alive())
+    }
+
+    /// Build a `UnitView` for `entity`: engine `Unit` from `self.state` plus
+    /// AI metrics from `self.cache`. Returns `None` if either lookup fails
+    /// (entity unknown to engine or cache).
+    ///
+    /// Available after D-step-2 once `self.state` is populated.
+    pub fn view(&self, entity: Entity) -> Option<UnitView<'_>> {
+        let uid = combat_engine::state::UnitId(entity.to_bits());
+        let state = self.state.unit(uid)?;
+        let cache = self.cache.unit(entity)?;
+        Some(UnitView { state, cache })
     }
 }
 
@@ -1053,5 +1074,65 @@ mod snapshot_api_tests {
         // Non-status-derived bits must be untouched
         assert!(unit.tags.contains(AiTags::LOW_HP), "LOW_HP must survive refresh");
         assert!(unit.tags.contains(AiTags::MELEE_ONLY), "MELEE_ONLY must survive refresh");
+    }
+
+    /// Parity test: `BattleSnapshot::view(e).state` must agree with the
+    /// corresponding `UnitSnapshot` on hp, pos, and ap.
+    /// Catches divergence while both representations coexist (D-step-2 → D-step-5).
+    #[test]
+    fn view_state_matches_unit_snapshot_basic_fields() {
+        use combat_engine::state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit, UnitId};
+
+        let pos = hex_from_offset(2, 3);
+        let entity = Entity::from_raw_u32(42).expect("valid");
+        let uid = UnitId(entity.to_bits());
+
+        // Build matching UnitSnapshot and engine Unit with the same fields.
+        let snap_unit = UnitBuilder::new(42, Team::Player, pos)
+            .hp(15)
+            .ap(2)
+            .build();
+
+        let engine_unit = EngineUnit {
+            id: uid,
+            team: EngineTeam::Player,
+            pos,
+            hp: 15,
+            max_hp: 20,
+            armor: 0,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            base_speed: 3,
+            speed: 3,
+            action_points: 2,
+            max_ap: 2,
+            movement_points: 3,
+            reactions_left: 0,
+            reactions_max: 1,
+            statuses: vec![],
+            rage: None,
+            mana: None,
+            energy: None,
+            summoner: None,
+            caster_context: Default::default(),
+            aoo_dice: None,
+            auras: Vec::new(),
+            enemy_phases: Vec::new(),
+        };
+
+        let combat_state = CombatState::new(
+            vec![engine_unit],
+            1,
+            RoundPhase::ActorTurn,
+            0,
+        );
+
+        let mut snap = BattleSnapshot::new(vec![snap_unit.clone()], 1);
+        snap.state = combat_state;
+
+        let view = snap.view(entity).expect("view must resolve for known entity");
+        assert_eq!(view.hp, snap_unit.hp, "view.hp must match UnitSnapshot.hp");
+        assert_eq!(view.pos, snap_unit.pos, "view.pos must match UnitSnapshot.pos");
+        assert_eq!(view.action_points, snap_unit.action_points, "view.ap must match");
     }
 }

@@ -27,6 +27,7 @@ use crate::game::components::{
 };
 use crate::game::messages::ActionInput;
 use crate::game::resources::{CombatContext, HexPositions};
+use crate::combat::engine_bridge::CombatStateRes;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -53,6 +54,8 @@ pub struct AiEnv<'w> {
     ability_tags: Res<'w, AbilityTagCache>,
     /// Step 9.B commit 2: status tag cache for `compute_apply_cc` HardCC filter.
     status_tags: Res<'w, StatusTagCache>,
+    /// Phase D-step-2: engine state cloned into BattleSnapshot.state at build time.
+    combat_state: Res<'w, CombatStateRes>,
 }
 
 // ── Main system ────────────────────────────────────────────────────────────
@@ -133,6 +136,7 @@ fn run_ai_turn(
     let actor_team = c.faction.0;
     let snap = build_snapshot(
         combat_ctx.round, combatants, statuses, positions, roles, content, difficulty,
+        env.combat_state.0.clone(),
     );
 
     if snap.unit(actor).is_none() {
