@@ -15,6 +15,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use bevy::prelude::Entity;
 use storyforge::combat::ai::plan::sim::SimState;
 use storyforge::combat::ai::plan::types::PlanStep;
+use storyforge::combat::ai::test_helpers::snapshot_from;
 use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
 use storyforge::combat_engine::{
@@ -90,7 +91,7 @@ fn build_scenario() -> (BattleSnapshot, Entity, Vec<storyforge::game::hex::Hex>)
 
     let mut units = vec![actor, enemy_a, enemy_b];
     units.extend(fillers);
-    let snap = BattleSnapshot::new_from_unit_snapshots(units, 1);
+    let snap = snapshot_from(units, 1);
 
     let path = vec![
         hex_from_offset(1, 0),

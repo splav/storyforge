@@ -66,6 +66,7 @@ fn parity_no_op_scenario_zero_drift() {
 fn parity_haste_speed_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::test_helpers::snapshot_from;
     use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use storyforge::combat::ai::world::tags::{StatusTagCache, StatusTagSet};
     use storyforge::combat::ai::world::tags::cache::StatusBonuses;
@@ -176,7 +177,7 @@ fn parity_haste_speed_real_vs_sim() {
         ai_tuning_override: None,
     };
     let actor_id = actor.entity;
-    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor], 1);
+    let snap = snapshot_from(vec![actor], 1);
 
     // --- Sim side ---
     let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tag_cache);
@@ -213,6 +214,7 @@ fn parity_haste_speed_real_vs_sim() {
 fn parity_armor_buff_mitigation_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::test_helpers::snapshot_from;
     use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use storyforge::combat::ai::world::tags::AiTags;
     use combat_engine::final_damage_f32;
@@ -388,7 +390,7 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
     let target_id = target.entity;
     let attacker_id = attacker.entity;
 
-    let snap = BattleSnapshot::new_from_unit_snapshots(vec![buffer, target, attacker], 1);
+    let snap = snapshot_from(vec![buffer, target, attacker], 1);
 
     // Step 1: apply stone_skin to target.
     let mut sim = SimState::from_snapshot(&snap, buffer_id, &status_tag_cache);
@@ -452,6 +454,7 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
 fn parity_aoo_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::test_helpers::snapshot_from;
     use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
     use combat_engine::final_damage_f32;
@@ -512,7 +515,7 @@ fn parity_aoo_real_vs_sim() {
         ai_tuning_override: None,
     };
     let actor_id = actor.entity;
-    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy], 1);
+    let snap = snapshot_from(vec![actor, enemy], 1);
 
     let status_tags = StatusTagCache::default();
     let content = ContentView::default();
@@ -546,6 +549,7 @@ fn parity_aoo_real_vs_sim() {
 fn parity_aoo_decrements_reactions_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::test_helpers::snapshot_from;
     use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
     use storyforge::content::content_view::ContentView;
@@ -601,7 +605,7 @@ fn parity_aoo_decrements_reactions_real_vs_sim() {
     };
     let actor_id = actor.entity;
     let enemy_id = enemy.entity;
-    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy], 1);
+    let snap = snapshot_from(vec![actor, enemy], 1);
 
     let status_tags = StatusTagCache::default();
     let content = ContentView::default();
@@ -634,6 +638,7 @@ fn parity_aoo_decrements_reactions_real_vs_sim() {
 fn parity_rage_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::test_helpers::snapshot_from;
     use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
     use storyforge::content::abilities::{
@@ -730,7 +735,7 @@ fn parity_rage_real_vs_sim() {
     };
     content.abilities.insert(strike_def.id.clone(), strike_def.clone());
 
-    let snap = BattleSnapshot::new_from_unit_snapshots(vec![attacker, defender], 1);
+    let snap = snapshot_from(vec![attacker, defender], 1);
     let status_tags = StatusTagCache::default();
     let mut sim = SimState::from_snapshot(&snap, attacker_id, &status_tags);
 
@@ -771,6 +776,7 @@ fn parity_rage_real_vs_sim() {
 fn parity_rage_aoe_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::test_helpers::snapshot_from;
     use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
     use storyforge::content::abilities::{
@@ -852,7 +858,7 @@ fn parity_rage_aoe_real_vs_sim() {
     };
     content.abilities.insert(blast_def.id.clone(), blast_def.clone());
 
-    let snap = BattleSnapshot::new_from_unit_snapshots(vec![attacker, d1, d2, d3], 1);
+    let snap = snapshot_from(vec![attacker, d1, d2, d3], 1);
     let status_tags = StatusTagCache::default();
     let mut sim = SimState::from_snapshot(&snap, attacker_id, &status_tags);
 
@@ -892,6 +898,7 @@ fn parity_rage_aoe_real_vs_sim() {
 fn parity_aoo_grants_rage_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
+    use storyforge::combat::ai::test_helpers::snapshot_from;
     use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
     use storyforge::content::abilities::CasterContext;
@@ -948,7 +955,7 @@ fn parity_aoo_grants_rage_real_vs_sim() {
     };
     let actor_id = actor.entity;
     let enemy_id = enemy.entity;
-    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy], 1);
+    let snap = snapshot_from(vec![actor, enemy], 1);
 
     let status_tags = StatusTagCache::default();
     let content = ContentView::default();

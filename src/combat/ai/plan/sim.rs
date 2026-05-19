@@ -522,7 +522,7 @@ fn project_engine_to_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, UnitBuilder};
+    use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder};
     use crate::combat::ai::world::tags::AiTags;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,
@@ -542,7 +542,7 @@ mod tests {
     }
 
     fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot::new_from_unit_snapshots(units, 1)
+        snapshot_from(units, 1)
     }
 
     fn ctx(str_mod: i32, int_mod: i32) -> CasterContext {

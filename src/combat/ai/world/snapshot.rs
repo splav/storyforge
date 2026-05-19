@@ -424,7 +424,6 @@ impl UnitSnapshot {
     /// `unit_snapshots_to_combat_state` projection.
     ///
     /// Mirrors `unit_snapshots_to_combat_state` for a single unit.
-    #[cfg(test)]
     pub fn as_pair(&self) -> (combat_engine::state::Unit, crate::combat::ai::world::cache::UnitAiCache) {
         use combat_engine::state::{ActiveStatus, Team as EngineTeam, UnitId};
         use combat_engine::CritFailOutcome as Out;
@@ -478,7 +477,7 @@ impl UnitSnapshot {
             rage: self.rage,
             mana: self.mana,
             energy: self.energy,
-            summoner: None,
+            summoner: self.summoner.map(|e| combat_engine::state::UnitId(e.to_bits())),
             caster_context,
             aoo_dice,
             auras: Vec::new(),
@@ -537,7 +536,7 @@ pub fn build_snapshot(
     // accessors like `enemies_of` / `allies_of` filter them out; death-
     // aware code (resurrection, on-kill triggers, replay) reads them via
     // `all_enemies_of` / `dead_units`.
-    let units = combatants
+    let units: Vec<UnitSnapshot> = combatants
         .iter()
         .filter_map(|c| {
             let pos = positions.get(&c.entity)?;
@@ -653,24 +652,81 @@ pub fn build_snapshot(
         })
         .collect();
 
-    // Build index and cache via `new`, then overwrite `state` with the
-    // authoritative engine CombatState (avoids re-deriving from snapshot).
-    let mut snap = BattleSnapshot::new_from_unit_snapshots(units, round);
-    snap.state = combat_state;
-    snap
+    // Build snapshot directly: authoritative CombatState + AI cache from units.
+    // No lossy projection — `state` is the engine CombatState passed in by the caller.
+    let by_entity = units.iter().enumerate().map(|(i, u)| (u.entity, i)).collect();
+    let cache = AiCache::from_units(
+        units.iter().map(|u| UnitAiCache {
+            entity:              u.entity,
+            role:                u.role,
+            threat:              u.threat,
+            tags:                u.tags,
+            max_attack_range:    u.max_attack_range,
+            aoo_expected_damage: u.aoo_expected_damage,
+            damage_horizon:      u.damage_horizon.clone(),
+            crit_fail_effect:    u.crit_fail_effect.clone(),
+            ai_tuning_override:  u.ai_tuning_override.clone(),
+            abilities:           u.abilities.clone(),
+            caster_ctx:          u.caster_ctx.clone(),
+        }).collect()
+    );
+    BattleSnapshot { units, round, by_entity, cache, state: combat_state }
 }
 
 // ── Helpers on BattleSnapshot ─────────────────────────────────────────────────
 
 impl BattleSnapshot {
     /// Build a snapshot directly from engine `CombatState` + `AiCache`.
-    /// Authoritative path — no lossy projection. The `units` field is left
-    /// empty; callers that have fully migrated away from `UnitSnapshot` use
-    /// this constructor exclusively.
+    /// Authoritative path — `state` is the engine source of truth, `cache`
+    /// holds AI-derived metrics. As a Pass-2 transitional measure, also
+    /// reverse-projects state+cache into the legacy `units` field so that
+    /// readers still iterating `snap.units` (or calling `snap.unit_snapshot`,
+    /// `snap.enemies_of`, etc.) keep working until Pass 3 migrates them.
     pub fn new(state: combat_engine::state::CombatState, cache: AiCache) -> Self {
         let round = state.round;
-        let units = Vec::new();
-        let by_entity = HashMap::new();
+        let units: Vec<UnitSnapshot> = state.units().iter().filter_map(|u| {
+            let entity = Entity::from_bits(u.id.0);
+            let c = cache.unit(entity)?;
+            Some(UnitSnapshot {
+                entity,
+                team: match u.team {
+                    combat_engine::state::Team::Player => Team::Player,
+                    combat_engine::state::Team::Enemy  => Team::Enemy,
+                },
+                role: c.role,
+                pos: u.pos,
+                hp: u.hp,
+                max_hp: u.max_hp,
+                armor: u.armor,
+                armor_bonus: u.armor_bonus,
+                damage_taken_bonus: u.damage_taken_bonus,
+                action_points: u.action_points,
+                max_ap: u.max_ap,
+                movement_points: u.movement_points,
+                base_speed: u.base_speed,
+                speed: u.speed,
+                mana: u.mana,
+                rage: u.rage,
+                energy: u.energy,
+                abilities: c.abilities.clone(),
+                threat: c.threat,
+                tags: c.tags,
+                max_attack_range: c.max_attack_range,
+                summoner: u.summoner.map(|s| Entity::from_bits(s.0)),
+                reactions_left: u.reactions_left,
+                aoo_expected_damage: c.aoo_expected_damage,
+                statuses: u.statuses.iter().map(|s| ActiveStatusView {
+                    id: s.id.clone(),
+                    rounds_remaining: s.rounds_remaining,
+                    dot_per_tick: s.dot_per_tick,
+                }).collect(),
+                caster_ctx: c.caster_ctx.clone(),
+                crit_fail_effect: c.crit_fail_effect.clone(),
+                damage_horizon: c.damage_horizon.clone(),
+                ai_tuning_override: c.ai_tuning_override.clone(),
+            })
+        }).collect();
+        let by_entity = units.iter().enumerate().map(|(i, u)| (u.entity, i)).collect();
         Self { units, round, by_entity, cache, state }
     }
 
@@ -1004,6 +1060,7 @@ fn status_bonuses(
 #[cfg(test)]
 mod affordability_tests {
     use super::*;
+    use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::abilities::{AbilityRange, AoEShape, EffectDef, ResourceCost};
     use crate::core::DiceExpr;
     use crate::game::hex::hex_from_offset;
@@ -1118,7 +1175,7 @@ mod affordability_tests {
         corpse.entity = Entity::from_raw_u32(2).expect("valid");
         corpse.team = Team::Player;
         corpse.hp = 0;
-        let snap = BattleSnapshot::new_from_unit_snapshots(vec![alive.clone(), corpse.clone()], 1);
+        let snap = snapshot_from(vec![alive.clone(), corpse.clone()], 1);
 
         assert!(snap.unit(corpse.entity).is_some(), "corpse must stay in units");
         assert_eq!(
@@ -1141,7 +1198,7 @@ mod affordability_tests {
 #[cfg(test)]
 mod snapshot_api_tests {
     use super::*;
-    use crate::combat::ai::test_helpers::{empty_status_tag_cache, UnitBuilder};
+    use crate::combat::ai::test_helpers::{empty_status_tag_cache, snapshot_from, UnitBuilder};
     use crate::game::hex::hex_from_offset;
     use crate::game::components::Team;
 
@@ -1418,7 +1475,7 @@ mod snapshot_api_tests {
             0,
         );
 
-        let mut snap = BattleSnapshot::new_from_unit_snapshots(vec![snap_unit.clone()], 1);
+        let mut snap = snapshot_from(vec![snap_unit.clone()], 1);
         snap.state = combat_state;
 
         let view = snap.unit(entity).expect("view must resolve for known entity");

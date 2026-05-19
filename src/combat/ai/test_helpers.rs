@@ -96,7 +96,7 @@ pub(crate) fn make_scoring_ctx<'a>(
 /// of `fn unit(...)` that previously hand-rolled 24-field struct literals
 /// with slightly-different defaults in each test module. Call sites override
 /// only the fields that matter for their scenario (`.hp(5).tags(LOW_HP)`).
-pub(crate) struct UnitBuilder {
+pub struct UnitBuilder {
     inner: UnitSnapshot,
 }
 
@@ -290,7 +290,7 @@ impl UnitBuilder {
             rage: u.rage,
             mana: u.mana,
             energy: u.energy,
-            summoner: None,
+            summoner: u.summoner.map(|e| combat_engine::state::UnitId(e.to_bits())),
             caster_context,
             aoo_dice,
             auras: Vec::new(),
@@ -319,7 +319,7 @@ impl UnitBuilder {
 /// Drop-in replacement for `snapshot_from(units, round)`.
 /// Each `UnitSnapshot` is projected to `(Unit, UnitAiCache)` via `as_pair()`.
 #[allow(dead_code)]
-pub(crate) fn snapshot_from(
+pub fn snapshot_from(
     units: Vec<UnitSnapshot>,
     round: u32,
 ) -> BattleSnapshot {
@@ -328,7 +328,7 @@ pub(crate) fn snapshot_from(
 
 /// Lower-level variant for callers that already have `build_pair()` output.
 #[allow(dead_code)]
-pub(crate) fn snapshot_from_pairs(
+pub fn snapshot_from_pairs(
     pairs: Vec<(combat_engine::state::Unit, UnitAiCache)>,
     round: u32,
 ) -> BattleSnapshot {

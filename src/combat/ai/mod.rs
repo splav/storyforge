@@ -18,5 +18,4 @@ pub mod orchestration;
 pub use outcome::{ActionOutcomeEstimate, PlanAnnotation};
 pub use pipeline::stages::sanity::{SanityHit, SanityRule};
 
-#[cfg(test)]
-pub(crate) mod test_helpers;
+pub mod test_helpers;

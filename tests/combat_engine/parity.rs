@@ -10,6 +10,7 @@
 use bevy::prelude::Entity;
 use storyforge::combat::ai::plan::sim::SimState;
 use storyforge::combat::ai::plan::types::PlanStep;
+use storyforge::combat::ai::test_helpers::snapshot_from;
 use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
 use storyforge::combat_engine::{
@@ -171,7 +172,7 @@ impl EngineContentView for SnapContent {
 fn parity_pure_move_no_enemies() {
     let actor = make_snap_unit(1, Team::Player, 0, 0, 20, None, 0);
     let actor_id = actor.entity;
-    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor], 1);
+    let snap = snapshot_from(vec![actor], 1);
     let path = vec![
         hex_from_offset(1, 0),
         hex_from_offset(2, 0),
@@ -232,7 +233,7 @@ fn parity_move_no_aoo_stays_adjacent() {
     assert_eq!(dest.unsigned_distance_to(enemy_pos), 1,
         "enemy must also be adjacent to destination — otherwise AoO fires");
 
-    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy], 1);
+    let snap = snapshot_from(vec![actor, enemy], 1);
     let path = vec![dest];
 
     let engine_state = run_engine(&snap, actor_id, path.clone());
@@ -287,7 +288,7 @@ fn parity_aoo_chain_two_enemies() {
     assert_eq!(step2.unsigned_distance_to(eb_pos), 1, "enemy B adjacent to (3,0)");
     assert_ne!(step3.unsigned_distance_to(eb_pos), 1, "enemy B not adjacent after step to (4,0)");
 
-    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy_a, enemy_b], 1);
+    let snap = snapshot_from(vec![actor, enemy_a, enemy_b], 1);
     let path = vec![
         hex_from_offset(2, 0),
         hex_from_offset(3, 0),
@@ -390,7 +391,7 @@ fn parity_aoo_kills_mover_mid_path_truncates() {
     let actor_id  = actor.entity;
     let enemy_a_id = enemy_a.entity;
     let enemy_b_id = enemy_b.entity;
-    let snap = BattleSnapshot::new_from_unit_snapshots(vec![actor, enemy_a, enemy_b], 1);
+    let snap = snapshot_from(vec![actor, enemy_a, enemy_b], 1);
     let path = vec![step1];
 
     // ── Engine path ───────────────────────────────────────────────────────────

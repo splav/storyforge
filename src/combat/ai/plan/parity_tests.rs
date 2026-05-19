@@ -19,7 +19,7 @@ mod tests {
     use crate::combat::ai::plan::types::PlanStep;
     use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::world::tags::AiTags;
-    use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, UnitBuilder};
+    use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder};
     use combat_engine::final_damage_f32;
     use crate::combat::effects_outcome::{
         compute_ability_outcome, ExpectedValue, OutcomePrimary,
@@ -62,7 +62,7 @@ mod tests {
     // ── Shared fixture helpers ─────────────────────────────────────────────────
 
     fn snap(units: Vec<UnitSnapshot>) -> BattleSnapshot {
-        BattleSnapshot::new_from_unit_snapshots(units, 1)
+        snapshot_from(units, 1)
     }
 
     fn zero_ctx() -> CasterContext {
@@ -504,7 +504,7 @@ mod tests {
             let ctx = zero_ctx();
 
             let units = vec![actor.clone(), target.clone()];
-            let snap_base = BattleSnapshot::new_from_unit_snapshots(units.clone(), 1);
+            let snap_base = snapshot_from(units.clone(), 1);
 
             // Derive disadvantage flag the same way check_legality does: short-range
             // penalty when the cast distance is below the ability's min_range.
@@ -655,7 +655,7 @@ mod tests {
             // Lethal damage: killed units appear in StepOutcome AND have hp=0.
             // (We re-run apply_step here separately to capture the StepOutcome.)
             {
-                let mut sim2 = SimState::from_snapshot(&BattleSnapshot::new_from_unit_snapshots(units.clone(), 1), actor_id, empty_status_tag_cache());
+                let mut sim2 = SimState::from_snapshot(&snapshot_from(units.clone(), 1), actor_id, empty_status_tag_cache());
                 let step_outcome = sim2.apply_step(
                     &PlanStep::Cast {
                         ability: ability_id.clone(),
