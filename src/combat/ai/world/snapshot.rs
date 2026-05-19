@@ -159,6 +159,29 @@ pub struct ActiveStatusView {
     pub dot_per_tick: i32,
 }
 
+/// Borrowed view of one unit: engine gameplay state + AI-derived metrics.
+///
+/// Created on demand by `BattleSnapshot::view(e)` (available after D-step-2
+/// when `BattleSnapshot` carries `state: CombatState`).
+///
+/// `Deref` to `&combat_engine::state::Unit` so gameplay-state reads (`u.hp`,
+/// `u.pos`, `u.statuses`, etc.) keep working unchanged; AI-derived reads go
+/// through `u.cache` (e.g. `u.cache.threat`, `u.cache.tags`).
+///
+/// Pass by value — it's two references (16 bytes).
+#[derive(Clone, Copy)]
+pub struct UnitView<'a> {
+    pub state: &'a combat_engine::state::Unit,
+    pub cache: &'a UnitAiCache,
+}
+
+impl<'a> std::ops::Deref for UnitView<'a> {
+    type Target = combat_engine::state::Unit;
+    fn deref(&self) -> &combat_engine::state::Unit {
+        self.state
+    }
+}
+
 fn default_reactions_left() -> i32 { 1 }
 
 
