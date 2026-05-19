@@ -37,7 +37,7 @@ impl ActionState for SnapshotActionState<'_> {
         // Status flags are content-level — walk active statuses and OR the
         // flags off their definitions. Mirrors the Bevy side's fold; both
         // stay O(statuses) per lookup, and the list is tiny in practice.
-        let (causes_disadvantage, blocks_mana_abilities) = u.statuses.iter().fold(
+        let (causes_disadvantage, blocks_mana_abilities) = u.statuses().iter().fold(
             (false, false),
             |(d, m), s| {
                 let def = self.content.statuses.get(&s.id);
@@ -64,7 +64,7 @@ impl ActionState for SnapshotActionState<'_> {
     fn actor_knows_ability(&self, actor: Entity, ability: &AbilityId) -> bool {
         self.snap
             .unit(actor)
-            .is_some_and(|u| u.abilities.iter().any(|a| a == ability))
+            .is_some_and(|u| u.cache.abilities.iter().any(|a| a == ability))
     }
 
     fn is_target_alive(&self, target: Entity) -> Option<bool> {
@@ -80,11 +80,19 @@ impl ActionState for SnapshotActionState<'_> {
 
     fn taunter_for(&self, actor_team: Team) -> Option<Entity> {
         // Any live enemy with FORCES_TARGETING binds opposing-team casts.
-        // `enemies_of` already filters live.
+        // Iterate units to find a taunt entity, then return its Entity id.
         self.snap
-            .enemies_of(actor_team)
-            .find(|u| u.tags.contains(AiTags::FORCES_TARGETING))
-            .map(|u| u.entity)
+            .units
+            .iter()
+            .filter(|u| u.team != actor_team && u.is_alive())
+            .find_map(|u| {
+                let view = self.snap.unit(u.entity)?;
+                if view.cache.tags.contains(AiTags::FORCES_TARGETING) {
+                    Some(view.entity())
+                } else {
+                    None
+                }
+            })
     }
 
     fn is_in_bounds(&self, pos: Hex) -> bool {

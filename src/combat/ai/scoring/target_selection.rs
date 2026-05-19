@@ -1,24 +1,19 @@
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::world::tags::AiTags;
 
-/// Pick the enemy with the highest `target_selection_score` relative to `active`.
-/// Single source of truth for "what's the most important enemy right now".
 pub fn highest_priority_enemy<'a>(
     active: &UnitSnapshot,
     snap: &'a BattleSnapshot,
 ) -> Option<&'a UnitSnapshot> {
-    snap.enemies_of(active.team).max_by(|a, b| {
-        target_selection_score(active, a, snap)
-            .partial_cmp(&target_selection_score(active, b, snap))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    })
+    snap.units.iter()
+        .filter(|u| u.team != active.team && u.is_alive())
+        .max_by(|a, b| {
+            target_selection_score(active, a, snap)
+                .partial_cmp(&target_selection_score(active, b, snap))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
 }
 
-/// Score how important `target` is as a selection priority relative to `active`.
-///
-/// Returns a value in 0..1 range. This is a *relative ranking* — the score
-/// of unit A cannot be compared directly to unit B from a different actor's
-/// perspective or snapshot.
 pub fn target_selection_score(
     active: &UnitSnapshot,
     target: &UnitSnapshot,
@@ -35,9 +30,7 @@ pub fn target_selection_score(
     let killability = target.killability();
     let eff_hp = target.eff_hp() as f32;
 
-    // Threat density: damage output per HP-to-kill. Captures "ROI per HP burned"
-    // — a low-HP assassin is much more efficient to finish than a tank with
-    // equal threat but more effective HP.
+    // Threat density: damage output per HP-to-kill.
     let max_density = snap
         .units
         .iter()
@@ -56,8 +49,6 @@ pub fn target_selection_score(
         0.0
     };
 
-    // Role value comes from the composed axis profile: Support ≈ 1.0,
-    // Control ≈ 0.8, Ranged ≈ 0.7, Melee ≈ 0.5, Tank ≈ 0.3.
     let role_value = target.role.role_value();
 
     let dist = active.pos.unsigned_distance_to(target.pos) as f32;

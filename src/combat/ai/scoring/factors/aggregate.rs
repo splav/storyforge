@@ -331,7 +331,7 @@ pub fn compute_plan_factors_sans_intent(
 
     for (idx, step) in plan.steps.iter().enumerate() {
         let pre_snap = plan.pre_step_snapshot(idx, snap);
-        let Some(sim_actor) = pre_snap.unit(active.entity).cloned() else {
+        let Some(sim_actor) = pre_snap.unit_snapshot(active.entity).cloned() else {
             break;
         };
 
@@ -424,7 +424,7 @@ pub fn compute_plan_intent_sum(
         let mut step_weight = 1.0f32;
         for (idx, step) in plan.steps.iter().enumerate() {
             let pre_snap = plan.pre_step_snapshot(idx, ctx.snap);
-            let Some(sim_actor) = pre_snap.unit(ctx.active.entity).cloned() else { break; };
+            let Some(sim_actor) = pre_snap.unit_snapshot(ctx.active.entity).cloned() else { break; };
             let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
             let step_ctx = ctx.with_perspective(&sim_actor, pre_snap);
             intent_sum += evaluate_last_stand_step(&scored_step, &step_ctx) * step_weight;
@@ -492,7 +492,7 @@ pub fn compute_plan_intent_sum(
 
     for (idx, step) in plan.steps.iter().enumerate() {
         let pre_snap = plan.pre_step_snapshot(idx, snap);
-        let Some(sim_actor) = pre_snap.unit(active.entity).cloned() else {
+        let Some(sim_actor) = pre_snap.unit_snapshot(active.entity).cloned() else {
             break;
         };
         let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);

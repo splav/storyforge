@@ -27,7 +27,7 @@ pub fn pre_tick(
         memory.last_goal = None;
         return;
     }
-    let target = g.target_entity().and_then(|t| snap.unit(t));
+    let target = g.target_entity().and_then(|t| snap.unit_snapshot(t));
     if matches!(
         g.check_continuation(actor, target, status_tags),
         Some(c) if c.severity == ContinuationSeverity::Invalidating
@@ -78,7 +78,7 @@ pub fn post_tick(
             // Clear only when the continuation outcome is abandoned; otherwise
             // preserve so pre_tick handles TTL/invalidating on the next round.
             if let (Some(stored), Some(c)) = (&memory.last_goal, chosen) {
-                let target = stored.target_entity().and_then(|t| snap.unit(t));
+                let target = stored.target_entity().and_then(|t| snap.unit_snapshot(t));
                 let severity = stored
                     .check_continuation(actor, target, status_tags)
                     .map(|ck| ck.severity);

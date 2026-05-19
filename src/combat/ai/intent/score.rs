@@ -217,7 +217,7 @@ pub fn evaluate_last_stand_step(step: &ScoredStep, step_ctx: &ScoringCtx) -> f32
         score += 0.5;
     }
     if let Some(target_unit) = snap.unit(target) {
-        if applies_cc(def, content) && !target_unit.tags.contains(AiTags::IS_STUNNED) {
+        if applies_cc(def, content) && !target_unit.cache.tags.contains(AiTags::IS_STUNNED) {
             score += 0.8;
         }
     }

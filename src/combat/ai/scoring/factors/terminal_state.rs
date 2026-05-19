@@ -203,7 +203,7 @@ pub(crate) fn compute_line_actionability(
     // Max range across all abilities (mirrors snapshot build_snapshot logic,
     // but over all target types — we want "can I reach and hit anything?").
     let max_range: u32 = actor_at_end
-        .abilities
+        .cache.abilities
         .iter()
         .filter_map(|id| ctx.world.content.abilities.get(id))
         .map(|def| def.range.max)

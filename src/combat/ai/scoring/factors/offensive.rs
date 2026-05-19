@@ -93,7 +93,7 @@ pub(crate) fn compute_offensive(
     let heal = if outcome.hp_restored > 0.0 {
         snap.unit(target).map_or(0.0, |t| {
             let danger = ctx.maps.danger.get(t.pos);
-            let horizon_sum: f32 = t.damage_horizon.iter().sum::<f32>().max(t.threat);
+            let horizon_sum: f32 = t.cache.damage_horizon.iter().sum::<f32>().max(t.cache.threat);
             let raw = policy::heal::value(outcome.hp_restored, t.max_hp, t.hp, danger, horizon_sum);
             crit_fail_adjusted(raw, def, &active.crit_fail_effect, ctx.world.crit_fail_chance)
         })

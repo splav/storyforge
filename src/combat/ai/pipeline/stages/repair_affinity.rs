@@ -24,7 +24,7 @@ impl PlanStage for RepairAffinityStage {
             let actor_snap = ctx.scoring.active;
             let target_snap = stored_goal
                 .target_entity()
-                .and_then(|t| ctx.scoring.snap.unit(t));
+                .and_then(|t| ctx.scoring.snap.unit_snapshot(t));
             stored_goal
                 .check_continuation(actor_snap, target_snap, ctx.scoring.world.status_tags)
                 .map(|c| c.severity)

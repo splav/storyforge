@@ -60,7 +60,7 @@ pub fn from_sim_step(
                     ..Default::default()
                 };
             };
-            let target_unit = pre_snap.unit(*target);
+            let target_unit = pre_snap.unit_snapshot(*target);
 
             // ── Kill facts ──
             let p_kill_now = if outcome.killed.is_empty() { 0.0 } else { 1.0 };
@@ -436,7 +436,7 @@ pub(crate) fn build_status_facts(
 
     // Collect enemies that will receive status applications.
     let enemy_targets: Vec<&UnitSnapshot> = if def.aoe == AoEShape::None {
-        pre_snap.unit(target).into_iter().collect()
+        pre_snap.unit_snapshot(target).into_iter().collect()
     } else {
         let area = aoe_area(def, target_pos, caster_tile);
         pre_snap.units.iter()

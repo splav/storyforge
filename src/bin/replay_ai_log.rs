@@ -613,7 +613,7 @@ fn main() {
                 Some(e) => e,
                 None => { eprintln!("invalid actor_id {}, skipping", event.actor_id); continue; }
             };
-            let Some(active) = event.snapshot.unit(actor).cloned() else {
+            let Some(active) = event.snapshot.unit_snapshot(actor).cloned() else {
                 eprintln!("actor not found in snapshot, skipping");
                 continue;
             };

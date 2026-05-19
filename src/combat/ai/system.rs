@@ -144,7 +144,7 @@ fn run_ai_turn(
         return;
     }
     // SAFETY: checked immediately above.
-    let actor_snap = snap.unit(actor).unwrap();
+    let actor_snap = snap.unit_snapshot(actor).unwrap();
 
     // Borrow the actor's persistent `AiMemory` directly from the query —
     // writes land in place, no take/put dance. Actors without the component

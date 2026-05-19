@@ -166,7 +166,7 @@ fn build_forced_targeting(
     // Score: use target_priority for ordering consistency with legacy path;
     // falls back to 1.0 if the taunter is no longer in the snapshot.
     let raw_score = snap
-        .unit(taunter)
+        .unit_snapshot(taunter)
         .map(|t| target_selection_score(active, t, snap))
         .unwrap_or(1.0);
 

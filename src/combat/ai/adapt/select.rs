@@ -78,7 +78,7 @@ fn plan_has_self_rescue(
     content: &ContentView,
 ) -> bool {
     let post = plan.sim_snapshots.last().unwrap_or(initial);
-    let Some(actor_post) = post.unit(active.entity) else {
+    let Some(actor_post) = post.unit_snapshot(active.entity) else {
         return false;
     };
     if actor_post.hp <= 0 {

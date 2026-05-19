@@ -215,7 +215,7 @@ pub fn assert_v28_log_file(
 
     let actor = Entity::try_from_bits(event.actor_id)
         .ok_or(AssertError::InvalidActorId(event.actor_id))?;
-    let active = event.snapshot.unit(actor).cloned().ok_or(AssertError::ActorNotFound {
+    let active = event.snapshot.unit_snapshot(actor).cloned().ok_or(AssertError::ActorNotFound {
         actor_id: event.actor_id,
     })?;
 

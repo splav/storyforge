@@ -222,7 +222,7 @@ pub fn pick_action(
     debug: bool,
     debug_names: &HashMap<Entity, String>,
 ) -> PickResult {
-    let Some(active) = snap.unit(actor) else {
+    let Some(active) = snap.unit_snapshot(actor) else {
         return PickResult {
             decision: AiDecision::EndTurn,
             best_idx: 0,

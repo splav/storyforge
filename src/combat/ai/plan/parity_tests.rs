@@ -618,7 +618,7 @@ mod tests {
             for sa in &expected_outcome.statuses {
                 if let Some(sd) = content.statuses.get(&sa.status) {
                     if sd.skips_turn {
-                        if let Some(u) = sim.snapshot.unit(sa.target) {
+                        if let Some(u) = sim.snapshot.unit_snapshot(sa.target) {
                             assert!(
                                 u.tags.contains(AiTags::IS_STUNNED),
                                 "[{label}] status '{}' skips_turn but IS_STUNNED not set on {:?}",
@@ -631,7 +631,7 @@ mod tests {
             }
 
             // Costs: AP and each resource deducted on the actor.
-            if let Some(actor_after) = sim.snapshot.unit(actor_id) {
+            if let Some(actor_after) = sim.snapshot.unit_snapshot(actor_id) {
                 // AP.
                 let expected_ap = (actor.action_points - def.cost_ap).max(0);
                 assert_eq!(

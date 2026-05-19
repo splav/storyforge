@@ -238,7 +238,7 @@ pub fn trade_delta(
         }
         let pre = plan.pre_step_snapshot(k, initial_snap);
         for &e in &outcome.killed {
-            let Some(victim) = pre.unit(e) else { continue };
+            let Some(victim) = pre.unit_snapshot(e) else { continue };
             let v = unit_value(victim, content);
             if victim.entity == active.entity {
                 self_in_killed = true;

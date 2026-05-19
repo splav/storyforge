@@ -55,11 +55,10 @@ mod serde_entity {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-/// Per-unit AI-derived metrics. Contains exactly the 9 fields that the AI
+/// Per-unit AI-derived metrics. Contains exactly the fields that the AI
 /// scoring and intent layers need — gameplay state lives in `CombatState`.
 ///
-/// Phase C will migrate callsites from `snapshot.unit(e).threat` etc. to
-/// `snapshot.cache.unit(e).threat`. Until then, both copies exist.
+/// After Phase D, this is the single source of AI-derived data per unit.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UnitAiCache {
     /// Entity bits stored inline so each row is self-contained in JSON.
@@ -79,6 +78,11 @@ pub struct UnitAiCache {
     pub ai_tuning_override: Option<AiTuningOverride>,
     #[serde(default)]
     pub abilities: Vec<AbilityId>,
+    /// Caster parameters (str/int mod, spell power, weapon dice). Migrated
+    /// from `UnitSnapshot.caster_ctx` in Phase D-step-3.
+    /// Schema: absent in pre-Phase-D logs → `CasterContext::default()`.
+    #[serde(default)]
+    pub caster_ctx: crate::content::abilities::CasterContext,
 }
 
 /// Side-table of AI-derived per-unit metrics. Populated once at
@@ -137,8 +141,8 @@ mod cache_parity_tests {
     /// Verify that every field in `AiCache` matches its counterpart in
     /// `UnitSnapshot` for a freshly built snapshot.
     ///
-    /// This is the canary for Phase C: any divergence here means the cache
-    /// population logic is wrong, not Phase C's read-migration.
+    /// This is the canary for Phase C→D: any divergence here means the cache
+    /// population logic is wrong.
     #[test]
     fn cache_fields_match_unit_snapshot_for_all_units() {
         let u1 = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
@@ -154,7 +158,8 @@ mod cache_parity_tests {
         let snap = BattleSnapshot::new(vec![u1, u2], 1);
 
         for entity in entities {
-            let us = snap.unit(entity).expect("unit in snapshot");
+            // Use unit_snapshot() to access the raw UnitSnapshot (still present in D-step-3..5).
+            let us = snap.unit_snapshot(entity).expect("unit in snapshot");
             let uc = snap.cache.unit(entity).expect("unit in cache");
 
             assert_eq!(uc.entity, us.entity, "entity mismatch");

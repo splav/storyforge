@@ -71,7 +71,7 @@ impl<'a> SimState<'a> {
     /// retain'd vec. Planning callers that terminate on actor death see
     /// `None` as before.
     pub fn actor_unit(&self) -> Option<&UnitSnapshot> {
-        self.snapshot.unit(self.actor).filter(|u| u.is_alive())
+        self.snapshot.unit_snapshot(self.actor).filter(|u| u.is_alive())
     }
 
     /// Apply one plan step to the simulated state, returning per-step
@@ -509,6 +509,10 @@ fn project_engine_to_snapshot(
             unit_snap.refresh_aggregates(status_tags);
         }
     }
+    // Sync snap.state so that UnitView-based lookups (snap.unit()) stay
+    // consistent with the updated snap.units. The engine is the source of
+    // truth after apply_step; project_engine_to_snapshot writes both layers.
+    snap.state = engine.clone();
     // No need to invalidate_index: we changed unit fields but not order/length,
     // so the entity→index mapping is still valid.
 }
@@ -845,7 +849,7 @@ mod tests {
         );
 
         assert_eq!(outcome.stunned, vec![target_id]);
-        let t = sim.snapshot.unit(target_id).unwrap();
+        let t = sim.snapshot.unit_snapshot(target_id).unwrap();
         assert!(t.tags.contains(AiTags::IS_STUNNED));
     }
 

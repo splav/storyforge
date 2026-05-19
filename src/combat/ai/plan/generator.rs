@@ -52,7 +52,7 @@ pub fn generate_plans(
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
 ) -> Vec<TurnPlan> {
-    let Some(actor_u) = snap.unit(actor) else {
+    let Some(actor_u) = snap.unit_snapshot(actor) else {
         return Vec::new();
     };
     let max_depth = ctx.difficulty.plan_max_depth.max(1);
@@ -406,7 +406,7 @@ fn ai_policy_ok(
 
     // Wasted single-target CC on already-stunned target.
     if applies_cc(def, ctx.content) && def.aoe == AoEShape::None {
-        if let Some(t) = sim.snapshot.unit(target) {
+        if let Some(t) = sim.snapshot.unit_snapshot(target) {
             if t.tags.contains(AiTags::IS_STUNNED) {
                 return false;
             }

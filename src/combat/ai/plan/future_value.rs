@@ -187,7 +187,7 @@ fn attack_component_intent(
 
     match intent {
         TacticalIntent::FocusTarget { target: target_entity } => {
-            let Some(target) = snap.unit(*target_entity) else { return 0.0 };
+            let Some(target) = snap.unit_snapshot(*target_entity) else { return 0.0 };
             let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
             if dist > reach_budget { return 0.0; }
             let best = active.abilities.iter()
@@ -198,7 +198,7 @@ fn attack_component_intent(
         }
 
         TacticalIntent::ApplyCC { target: target_entity } => {
-            let Some(target) = snap.unit(*target_entity) else { return 0.0 };
+            let Some(target) = snap.unit_snapshot(*target_entity) else { return 0.0 };
             let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
             if dist > reach_budget { return 0.0; }
             let best = active.abilities.iter()

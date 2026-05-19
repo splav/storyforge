@@ -70,7 +70,7 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
     // swing_value: situational justification for spending.
     let mut swing = 0.0f32;
 
-    let target_unit = snap.unit(*target);
+    let target_unit = snap.unit_snapshot(*target);
 
     // Classify AoE hits once; both the victim pick and the multi-hit bonus
     // below read from the same list.

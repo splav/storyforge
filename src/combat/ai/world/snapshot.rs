@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 // ── Snapshot types ────────────────────────────────────────────────────────────
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct BattleSnapshot {
     pub units: Vec<UnitSnapshot>,
     pub round: u32,
@@ -47,6 +47,38 @@ pub struct BattleSnapshot {
     /// duplicate. Use `view(e)` to get a `UnitView` combining both halves.
     #[serde(default)]
     pub state: combat_engine::state::CombatState,
+}
+
+/// Wire format for `BattleSnapshot`. Mirrors the on-disk representation
+/// (no `by_entity` which is `#[serde(skip)]`). Used by the custom
+/// `Deserialize` impl to rebuild derived caches after loading — the same
+/// pattern `CombatState` uses for its index.
+#[derive(serde::Deserialize)]
+struct BattleSnapshotRepr {
+    units: Vec<UnitSnapshot>,
+    round: u32,
+    #[serde(default)]
+    cache: AiCache,
+    #[serde(default)]
+    state: combat_engine::state::CombatState,
+}
+
+impl<'de> serde::Deserialize<'de> for BattleSnapshot {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let repr = BattleSnapshotRepr::deserialize(d)?;
+        let mut snap = BattleSnapshot {
+            by_entity: HashMap::new(),
+            units: repr.units,
+            round: repr.round,
+            cache: repr.cache,
+            state: repr.state,
+        };
+        // Rebuild all derived caches. If `state` was absent in the log
+        // (old schema) it deserialises as empty; rebuild_index re-derives
+        // it from `units` so that `snap.unit(e)` works immediately.
+        snap.rebuild_index();
+        Ok(snap)
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -185,6 +217,63 @@ impl<'a> std::ops::Deref for UnitView<'a> {
     type Target = combat_engine::state::Unit;
     fn deref(&self) -> &combat_engine::state::Unit {
         self.state
+    }
+}
+
+impl<'a> UnitView<'a> {
+    /// Map `UnitView` entity id back to Bevy `Entity`.
+    pub fn entity(&self) -> bevy::prelude::Entity {
+        bevy::prelude::Entity::from_bits(self.state.id.0)
+    }
+
+    /// `hp > 0`.
+    pub fn is_alive(&self) -> bool {
+        self.state.hp > 0
+    }
+
+    /// Read-only view of active statuses (engine `ActiveStatus` slice).
+    pub fn statuses(&self) -> &[combat_engine::state::ActiveStatus] {
+        &self.state.statuses
+    }
+
+    /// Effective HP: raw HP plus armor + armor_bonus — the real damage budget
+    /// needed to drop this unit.
+    pub fn eff_hp(&self) -> i32 {
+        self.state.hp + self.state.armor + self.state.armor_bonus
+    }
+
+    /// Effective max HP, clamped ≥ 1 to protect against division.
+    pub fn eff_max_hp(&self) -> i32 {
+        (self.state.max_hp + self.state.armor + self.state.armor_bonus).max(1)
+    }
+
+    /// Current HP as a fraction of max HP. Clamped max ≥ 1 to avoid div-by-zero.
+    pub fn hp_pct(&self) -> f32 {
+        self.state.hp as f32 / self.state.max_hp.max(1) as f32
+    }
+
+    /// Killability signal: `1 − eff_hp / eff_max_hp`. 1.0 = dead, 0.0 = full.
+    pub fn killability(&self) -> f32 {
+        let eff_max = self.eff_max_hp() as f32;
+        if eff_max <= 0.0 { return 0.0; }
+        1.0 - (self.eff_hp() as f32 / eff_max)
+    }
+
+    /// Current amount in the spendable pool for `kind`.
+    pub fn resource_amount(&self, kind: crate::core::ResourceKind) -> i32 {
+        pool_amount(
+            kind,
+            self.state.hp,
+            self.state.mana.map(|(c, _)| c).unwrap_or(0),
+            self.state.rage.map(|(c, _)| c).unwrap_or(0),
+            self.state.energy.map(|(c, _)| c).unwrap_or(0),
+        )
+    }
+
+    /// True iff the unit has enough AP and every resource cost to cast `def`.
+    pub fn can_afford(&self, def: &crate::content::abilities::AbilityDef) -> bool {
+        self.state.action_points >= def.cost_ap
+            && def.costs.iter().all(|c| self.resource_amount(c.resource) >= c.amount)
     }
 }
 
@@ -481,6 +570,8 @@ pub fn build_snapshot(
         })
         .collect();
 
+    // Build index and cache via `new`, then overwrite `state` with the
+    // authoritative engine CombatState (avoids re-deriving from snapshot).
     let mut snap = BattleSnapshot::new(units, round);
     snap.state = combat_state;
     snap
@@ -489,11 +580,11 @@ pub fn build_snapshot(
 // ── Helpers on BattleSnapshot ─────────────────────────────────────────────────
 
 impl BattleSnapshot {
-    /// Construct a snapshot with its entity index eagerly built. The index
-    /// backs `unit()` — O(1) instead of the linear scan the old literal
-    /// construction produced. Use this everywhere (prod + tests);
-    /// `#[derive(Default)]` / serde-deserialized snapshots get an empty
-    /// cache that lazy-builds on first `unit()` call.
+    /// Construct a snapshot with its entity index eagerly built.
+    ///
+    /// Also builds `self.state` (engine `CombatState`) from the unit list,
+    /// so that `unit()` (the `UnitView`-returning accessor) works immediately —
+    /// including in test fixtures that don't go through `build_snapshot`.
     pub fn new(units: Vec<UnitSnapshot>, round: u32) -> Self {
         let by_entity = units
             .iter()
@@ -512,14 +603,23 @@ impl BattleSnapshot {
                 crit_fail_effect:    u.crit_fail_effect.clone(),
                 ai_tuning_override:  u.ai_tuning_override.clone(),
                 abilities:           u.abilities.clone(),
+                caster_ctx:          u.caster_ctx.clone(),
             }).collect()
         );
-        Self { units, round, by_entity, cache, state: Default::default() }
+        let state = unit_snapshots_to_combat_state(&units, round);
+        Self { units, round, by_entity, cache, state }
     }
 
-    /// Rebuild the entity index from the current `units` vector. Call after
-    /// deserialization (the cache is `#[serde(skip)]`) or any mutation that
-    /// changes `units` length or order. No-op if `units` is empty.
+    /// Rebuild all derived caches from the current `units` vector.
+    ///
+    /// Rebuilds:
+    /// - `by_entity`: the O(1) entity→index map (always rebuilt)
+    /// - `cache`: the AI-derived per-unit metrics (rebuilt when empty)
+    /// - `state`: the engine `CombatState` (rebuilt when empty — this
+    ///   covers old JSONL logs that pre-date the `state` field)
+    ///
+    /// Call after deserialization or any mutation that changes `units`
+    /// length or order. No-op on the index if `units` is empty.
     pub fn rebuild_index(&mut self) {
         self.by_entity = self
             .units
@@ -527,13 +627,52 @@ impl BattleSnapshot {
             .enumerate()
             .map(|(i, u)| (u.entity, i))
             .collect();
+
+        // Rebuild `state` from `units` if state is empty (absent in log).
+        // This covers old JSONL snapshots that pre-date the `state` field:
+        // they deserialise with `state = CombatState::default()` (no units),
+        // and we reconstruct it here so `snap.unit(e)` works immediately.
+        if self.state.units().is_empty() && !self.units.is_empty() {
+            self.state = unit_snapshots_to_combat_state(&self.units, self.round);
+        }
+
+        // Rebuild `cache` from `units` if cache is empty (absent in log).
+        // Covers pre-Phase-B logs that lack `cache`; also covers test fixtures
+        // built via struct literal without going through `BattleSnapshot::new`.
+        if self.cache.units.is_empty() && !self.units.is_empty() {
+            self.cache = AiCache::from_units(
+                self.units.iter().map(|u| UnitAiCache {
+                    entity:              u.entity,
+                    role:                u.role,
+                    threat:              u.threat,
+                    tags:                u.tags,
+                    max_attack_range:    u.max_attack_range,
+                    aoo_expected_damage: u.aoo_expected_damage,
+                    damage_horizon:      u.damage_horizon.clone(),
+                    crit_fail_effect:    u.crit_fail_effect.clone(),
+                    ai_tuning_override:  u.ai_tuning_override.clone(),
+                    abilities:           u.abilities.clone(),
+                    caster_ctx:          u.caster_ctx.clone(),
+                }).collect()
+            );
+        }
     }
 
-    /// Lookup by entity. O(1) when the index is populated (the common path
-    /// for snapshots built via `new`); O(n) linear scan as fallback when
-    /// the index is empty (post-deserialize without explicit
-    /// `rebuild_index`).
-    pub fn unit(&self, entity: Entity) -> Option<&UnitSnapshot> {
+    /// Lookup by entity — returns a `UnitView` combining engine state + AI cache.
+    /// O(1) when the engine-state index is populated; returns `None` if entity
+    /// is unknown to either the engine state or the AI cache.
+    pub fn unit(&self, entity: Entity) -> Option<UnitView<'_>> {
+        let uid = combat_engine::state::UnitId(entity.to_bits());
+        let state = self.state.unit(uid)?;
+        let cache = self.cache.unit(entity)?;
+        Some(UnitView { state, cache })
+    }
+
+    /// Raw `UnitSnapshot` lookup — used during the D-step-3→5 transition period
+    /// by internal code that still needs the snapshot layer directly (e.g.
+    /// sim's `project_engine_to_snapshot`, the parity test, functions that take
+    /// `&UnitSnapshot`). Will be removed in D-step-5.
+    pub fn unit_snapshot(&self, entity: Entity) -> Option<&UnitSnapshot> {
         if !self.by_entity.is_empty() {
             let idx = *self.by_entity.get(&entity)?;
             return self.units.get(idx);
@@ -541,17 +680,14 @@ impl BattleSnapshot {
         self.units.iter().find(|u| u.entity == entity)
     }
 
-    /// Position lookup stays linear — there's no per-tile index, and
-    /// callers use it sparingly (mostly in sim's `compute_affected_targets`).
+    /// Position lookup — returns `UnitSnapshot` (backed by `self.units`).
+    /// Used by sim's `compute_affected_targets` and legacy code.
     pub fn unit_at(&self, pos: Hex) -> Option<&UnitSnapshot> {
         self.units.iter().find(|u| u.pos == pos)
     }
 
-    /// Live enemies of `team`. Dead units on the opposing team stay in
-    /// `units` (kept for resurrection / death triggers / replay fidelity)
-    /// but are filtered here because every tactical caller wants the
-    /// "who can I actually fight" view. For the raw list including
-    /// corpses, use `all_enemies_of`.
+    /// Live enemies of `team` as `&UnitSnapshot` refs. Dead units on the opposing
+    /// team stay in `units` but are filtered here.
     pub fn enemies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
         let opponent = opponent_team(team);
         self.units
@@ -566,16 +702,13 @@ impl BattleSnapshot {
             .filter(move |u| u.team == team && u.is_alive())
     }
 
-    /// Enemies of `team` **including corpses**. Used by death-aware code
-    /// (resurrection targeting, on-kill effect resolution, replay) that
-    /// needs to see the entity even after it died.
+    /// Enemies of `team` **including corpses**.
     pub fn all_enemies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
         let opponent = opponent_team(team);
         self.units.iter().filter(move |u| u.team == opponent)
     }
 
-    /// Dead opposing-team units only. Empty on live-only snapshots; the
-    /// resurrection/death-trigger call sites poll this.
+    /// Dead opposing-team units only.
     pub fn dead_enemies_of(&self, team: Team) -> impl Iterator<Item = &UnitSnapshot> {
         let opponent = opponent_team(team);
         self.units
@@ -587,25 +720,90 @@ impl BattleSnapshot {
     pub fn dead_units(&self) -> impl Iterator<Item = &UnitSnapshot> {
         self.units.iter().filter(|u| !u.is_alive())
     }
-
-    /// Build a `UnitView` for `entity`: engine `Unit` from `self.state` plus
-    /// AI metrics from `self.cache`. Returns `None` if either lookup fails
-    /// (entity unknown to engine or cache).
-    ///
-    /// Available after D-step-2 once `self.state` is populated.
-    pub fn view(&self, entity: Entity) -> Option<UnitView<'_>> {
-        let uid = combat_engine::state::UnitId(entity.to_bits());
-        let state = self.state.unit(uid)?;
-        let cache = self.cache.unit(entity)?;
-        Some(UnitView { state, cache })
-    }
 }
 
-fn opponent_team(team: Team) -> Team {
+pub(crate) fn opponent_team(team: Team) -> Team {
     match team {
         Team::Player => Team::Enemy,
         Team::Enemy => Team::Player,
     }
+}
+
+/// Build a `CombatState` from a slice of `UnitSnapshot` entries.
+///
+/// Used by `BattleSnapshot::new` to populate `self.state` so that all
+/// `UnitView`-based accessors work immediately — including in test fixtures
+/// that bypass `build_snapshot`.
+///
+/// Mirrors the logic of `sim::snapshot_to_combat_state` but lives here to
+/// avoid a circular dependency (snapshot → sim → snapshot).
+pub(crate) fn unit_snapshots_to_combat_state(
+    units: &[UnitSnapshot],
+    round: u32,
+) -> combat_engine::state::CombatState {
+    use combat_engine::state::{ActiveStatus, RoundPhase, Team as EngineTeam, Unit as EngineUnit, UnitId};
+    use combat_engine::dice::DiceExpr as EngineDiceExpr;
+
+    let engine_units: Vec<EngineUnit> = units.iter().map(|u| {
+        let team = match u.team {
+            Team::Player => EngineTeam::Player,
+            Team::Enemy  => EngineTeam::Enemy,
+        };
+        let uid = UnitId(u.entity.to_bits());
+        let statuses: Vec<ActiveStatus> = u.statuses.iter().map(|s| ActiveStatus {
+            id: s.id.clone(),
+            rounds_remaining: s.rounds_remaining,
+            dot_per_tick: s.dot_per_tick,
+            applier: uid,
+        }).collect();
+        use crate::content::races::CritFailEffect as Cfe;
+        use combat_engine::CritFailOutcome as Out;
+        let crit_fail_outcome = match &u.crit_fail_effect {
+            Cfe::Miss          => Out::Miss,
+            Cfe::ManaOverload  => Out::DoubleCost,
+            Cfe::BrokenFaith   => Out::ApplyStatus(combat_engine::StatusId::from("broken_faith")),
+            Cfe::CircuitBreach => Out::SelfDamage(combat_engine::DiceExpr::new(0, 1, 2)),
+            Cfe::Exhaustion    => Out::ApplyStatus(combat_engine::StatusId::from("exhaustion")),
+            Cfe::PactControl   => Out::ApplyStatus(combat_engine::StatusId::from("pact_control")),
+        };
+        let caster_context = combat_engine::CasterContext {
+            str_mod: u.caster_ctx.str_mod,
+            int_mod: u.caster_ctx.int_mod,
+            spell_power: u.caster_ctx.spell_power,
+            weapon_dice: u.caster_ctx.weapon_dice,
+            crit_fail_outcome,
+        };
+        let aoo_dice = u.aoo_expected_damage
+            .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
+        EngineUnit {
+            id: uid,
+            team,
+            pos: u.pos,
+            hp: u.hp,
+            max_hp: u.max_hp,
+            armor: u.armor,
+            armor_bonus: u.armor_bonus,
+            damage_taken_bonus: u.damage_taken_bonus,
+            base_speed: u.base_speed,
+            speed: u.speed,
+            action_points: u.action_points,
+            max_ap: u.max_ap,
+            movement_points: u.movement_points,
+            reactions_left: u.reactions_left,
+            reactions_max: 1,
+            statuses,
+            rage: u.rage,
+            mana: u.mana,
+            energy: u.energy,
+            summoner: None,
+            caster_context,
+            aoo_dice,
+            auras: Vec::new(),
+            enemy_phases: Vec::new(),
+        }
+    }).collect();
+
+    combat_engine::state::CombatState::new(engine_units, round, RoundPhase::ActorTurn, 0)
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -1130,7 +1328,7 @@ mod snapshot_api_tests {
         let mut snap = BattleSnapshot::new(vec![snap_unit.clone()], 1);
         snap.state = combat_state;
 
-        let view = snap.view(entity).expect("view must resolve for known entity");
+        let view = snap.unit(entity).expect("view must resolve for known entity");
         assert_eq!(view.hp, snap_unit.hp, "view.hp must match UnitSnapshot.hp");
         assert_eq!(view.pos, snap_unit.pos, "view.pos must match UnitSnapshot.pos");
         assert_eq!(view.action_points, snap_unit.action_points, "view.ap must match");

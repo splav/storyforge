@@ -77,7 +77,7 @@ fn extract_cast_triples_from_line(
     let Some(actor_entity) = bevy::prelude::Entity::try_from_bits(event.actor_id) else {
         return vec![];
     };
-    let Some(actor_snap) = event.snapshot.unit(actor_entity).cloned() else {
+    let Some(actor_snap) = event.snapshot.unit_snapshot(actor_entity).cloned() else {
         return vec![];
     };
     let caster_ctx = actor_snap.caster_ctx.clone();
@@ -87,7 +87,7 @@ fn extract_cast_triples_from_line(
         for step in &plan.steps {
             let PlanStep::Cast { ability, target, .. } = step else { continue };
             let Some(def) = content.abilities.get(ability).cloned() else { continue };
-            let Some(target_snap) = event.snapshot.unit(*target).cloned() else { continue };
+            let Some(target_snap) = event.snapshot.unit_snapshot(*target).cloned() else { continue };
             triples.push((def, target_snap, caster_ctx.clone()));
         }
     }

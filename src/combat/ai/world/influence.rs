@@ -1,4 +1,4 @@
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, opponent_team};
 use crate::combat::ai::world::tags::AiTags;
 use crate::game::components::Team;
 use crate::game::hex::{can_stop_on, hex_from_offset, is_passable, Hex, GRID_ROWS, row_cols};
@@ -131,10 +131,11 @@ pub fn build_influence_maps(
 ) -> InfluenceMaps {
     let cells = all_cells();
 
-    let enemies: Vec<&UnitSnapshot> = snap.enemies_of(active_team).collect();
-    let allies: Vec<&UnitSnapshot> = snap
-        .allies_of(active_team)
-        .filter(|u| u.entity != active_entity)
+    let enemies: Vec<&UnitSnapshot> = snap.units.iter()
+        .filter(|u| u.team == opponent_team(active_team) && u.is_alive())
+        .collect();
+    let allies: Vec<&UnitSnapshot> = snap.units.iter()
+        .filter(|u| u.team == active_team && u.is_alive() && u.entity != active_entity)
         .collect();
 
     let ally_positions: HashSet<Hex> = snap.allies_of(active_team).map(|u| u.pos).collect();
@@ -176,8 +177,6 @@ fn build_danger(
     let total_threat: f32 = enemies.iter().map(|e| e.threat).sum();
 
     for enemy in enemies {
-        // Non-attacker fallback: project 1-tile melee reach so the unit still
-        // colours adjacent tiles with its raw threat (would be zero otherwise).
         let max_range = enemy.max_attack_range.max(1);
 
         // BFS: enemy passes through own teammates, blocked by our units.
@@ -311,7 +310,7 @@ mod tests {
     /// (speed=2, MELEE_ONLY). Influence-map tests are sensitive to reach
     /// radius, so keep these explicit instead of relying on the generic
     /// `unit()` defaults.
-    fn unit(entity_id: u32, team: Team, pos: Hex) -> UnitSnapshot {
+    fn unit(entity_id: u32, team: Team, pos: Hex) -> crate::combat::ai::world::snapshot::UnitSnapshot {
         UnitBuilder::new(entity_id, team, pos)
             .speed(2)
             .tags(AiTags::MELEE_ONLY)
