@@ -55,9 +55,13 @@ const REACTION_DEPTH_LIMIT: usize = 100;
 /// Bundles the engine's authoritative state (`CombatState`) with a
 /// `ContentView` reference so `check_legality` can answer questions about
 /// abilities, statuses, and units uniformly.
-struct EngineCheckState<'a> {
-    state: &'a CombatState,
-    content: &'a dyn ContentView,
+///
+/// Exposed as `pub` so that integration tests can construct the engine-side
+/// `ActionState` directly and compare it against the Bevy `BevyActions`
+/// adapter for legality-parity assertions.
+pub struct EngineCheckState<'a> {
+    pub state: &'a CombatState,
+    pub content: &'a dyn ContentView,
 }
 
 impl<'a> ActionState for EngineCheckState<'a> {
