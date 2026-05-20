@@ -384,6 +384,26 @@ pub fn compute_status_delta(
     StatusDelta { added, removed }
 }
 
+/// Variant of [`compute_status_delta`] for callers that have an engine
+/// `ActiveStatus` slice (via `UnitView` Deref to engine `Unit`). Compares
+/// `id` fields only — identical semantics to the `ActiveStatusView` form.
+pub fn compute_status_delta_engine(
+    stored: &[StatusId],
+    current: &[combat_engine::state::ActiveStatus],
+) -> StatusDelta {
+    let added: Vec<StatusId> = current
+        .iter()
+        .filter(|av| !stored.contains(&av.id))
+        .map(|av| av.id.clone())
+        .collect();
+    let removed: Vec<StatusId> = stored
+        .iter()
+        .filter(|sid| !current.iter().any(|av| &av.id == *sid))
+        .cloned()
+        .collect();
+    StatusDelta { added, removed }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

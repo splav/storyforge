@@ -145,6 +145,7 @@ fn run_ai_turn(
     }
     // SAFETY: checked immediately above.
     let actor_snap = snap.unit_snapshot(actor).unwrap();
+    let actor_view = snap.unit(actor).unwrap();
 
     // Borrow the actor's persistent `AiMemory` directly from the query —
     // writes land in place, no take/put dance. Actors without the component
@@ -162,7 +163,7 @@ fn run_ai_turn(
 
     // Step 7.3: centralised goal lifecycle — TTL decay + invalidating clear.
     // Replaces the inline FIXME(step 7) TTL clear on the early-return path.
-    goal_lifecycle::pre_tick(memory_ref, &snap, actor_snap, &env.status_tags);
+    goal_lifecycle::pre_tick(memory_ref, &snap, actor_view, &env.status_tags);
 
     if c.ap.action_points <= 0 && !c.ap.can_move() {
         // Step 7.5 / Phase 6c: push actor_tick for skip path (no AP/MP) to
@@ -336,7 +337,7 @@ fn run_ai_turn(
         &decision,
         fresh_chosen.as_ref(),
         &snap,
-        actor_snap,
+        actor_view,
         combat_ctx.round,
         world.tuning,
         &env.status_tags,

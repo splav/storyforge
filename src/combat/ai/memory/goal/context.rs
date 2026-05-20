@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::plan::types::PlanStep;
-use crate::combat::ai::repair::{PlanContinuationCheck, StatusDelta, classify_mismatch, compute_status_delta, MismatchContext};
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::repair::{PlanContinuationCheck, StatusDelta, classify_mismatch, compute_status_delta_engine, MismatchContext};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::StatusTagCache;
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::intent::TacticalIntent;
@@ -171,8 +171,8 @@ impl StoredGoalContext {
     /// (removed in step 6.6).
     pub fn check_continuation(
         &self,
-        actor: &UnitSnapshot,
-        target: Option<&UnitSnapshot>,
+        actor: UnitView<'_>,
+        target: Option<UnitView<'_>>,
         status_tags: &StatusTagCache,
     ) -> Option<PlanContinuationCheck> {
         // 1. Actor position mismatch — topology broken.
@@ -198,9 +198,9 @@ impl StoredGoalContext {
             });
         }
         // 4. Actor status set changed — compute delta for semantic classification.
-        if crate::combat::ai::intent::status_hash(&actor.statuses) != self.actor_status_hash {
+        if crate::combat::ai::memory::ai_memory::status_hash_engine(&actor.statuses) != self.actor_status_hash {
             let delta: StatusDelta =
-                compute_status_delta(&self.actor_statuses_at_store, &actor.statuses);
+                compute_status_delta_engine(&self.actor_statuses_at_store, &actor.statuses);
             let delta_ctx = MismatchContext { status_delta: Some(&delta), status_tags };
             return Some(PlanContinuationCheck {
                 severity: classify_mismatch("actor_status_changed", &delta_ctx),
@@ -217,7 +217,7 @@ impl StoredGoalContext {
                     });
                 }
                 Some(t) => {
-                    if Some(t.entity) != self.target_entity() {
+                    if Some(t.entity()) != self.target_entity() {
                         return Some(PlanContinuationCheck {
                             severity: classify_mismatch("target_entity_changed", &no_delta_ctx),
                             reason_code: "target_entity_changed",
@@ -276,7 +276,7 @@ pub fn extract_goal_context(
     chosen_score: f32,
     pool_max_score: f32,
     snap: &BattleSnapshot,
-    actor: &UnitSnapshot,
+    actor: UnitView<'_>,
     round: u32,
     tuning: &AiTuning,
 ) -> Option<StoredGoalContext> {
@@ -292,13 +292,13 @@ pub fn extract_goal_context(
 
     let confidence = (chosen_score / pool_max_score.max(1e-6)).clamp(0.0, 1.0);
 
-    // Capture severity-check fields from the actor snapshot (step 6.6).
+    // Capture severity-check fields from the actor view (step 6.6).
     // target_snap is looked up from the goal kind so the same entity used for
     // region_anchor is also captured for the target severity checks.
     let target_entity = kind.target_entity();
     let target_snap = target_entity.and_then(|e| snap.unit(e));
     let actor_rage_at_store = actor.rage.map(|(r, _)| r).unwrap_or(0);
-    let actor_status_hash = crate::combat::ai::intent::status_hash(&actor.statuses);
+    let actor_status_hash = crate::combat::ai::memory::ai_memory::status_hash_engine(&actor.statuses);
     // Status id list for delta-based severity classification (step 9.B.3).
     let actor_statuses_at_store: Vec<crate::core::StatusId> =
         actor.statuses.iter().map(|s| s.id.clone()).collect();
@@ -414,9 +414,11 @@ mod tests {
         AiTuning::default()
     }
 
-    /// Build a minimal `BattleSnapshot` with a single unit at `pos`.
+    /// Build a minimal `BattleSnapshot` with the dummy actor (id=1) plus an
+    /// optional extra unit. The dummy actor is always present so that
+    /// `snap.unit(ent(1))` succeeds for `extract_goal_context` calls.
     fn snap_with_unit(unit: crate::combat::ai::world::snapshot::UnitSnapshot) -> BattleSnapshot {
-        snapshot_from(vec![unit], 1)
+        snapshot_from(vec![dummy_actor_snapshot(), unit], 1)
     }
 
     // Convenience: no-op outcomes (no kills estimated).
@@ -425,7 +427,7 @@ mod tests {
     }
 
     // Dummy actor snapshot for tests that don't care about severity-check fields.
-    fn dummy_actor() -> crate::combat::ai::world::snapshot::UnitSnapshot {
+    fn dummy_actor_snapshot() -> crate::combat::ai::world::snapshot::UnitSnapshot {
         UnitBuilder::new(1, Team::Enemy, Hex::ZERO).build()
     }
 
@@ -454,6 +456,7 @@ mod tests {
             .max_hp(20) // hp_pct = 0.25 < 0.30
             .build();
         let snap = snap_with_unit(target_unit);
+        let actor = snap.unit(ent(1)).unwrap();
         let tuning = default_tuning();
 
         let result = extract_goal_context(
@@ -464,7 +467,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
-            &dummy_actor(),
+            actor,
             1,
             &tuning,
         );
@@ -484,6 +487,7 @@ mod tests {
             .max_hp(20) // hp_pct = 0.80
             .build();
         let snap = snap_with_unit(target_unit);
+        let actor = snap.unit(ent(1)).unwrap();
         let tuning = default_tuning();
 
         let result = extract_goal_context(
@@ -494,7 +498,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
-            &dummy_actor(),
+            actor,
             1,
             &tuning,
         );
@@ -512,6 +516,7 @@ mod tests {
             .max_hp(20) // hp_pct = 0.80, would be Pressure…
             .build();
         let snap = snap_with_unit(target_unit);
+        let actor = snap.unit(ent(1)).unwrap();
         let tuning = default_tuning(); // goal_finish_p_kill = 0.6
 
         // …but p_kill_now = 0.7 ≥ 0.6 → Finish
@@ -525,7 +530,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
-            &dummy_actor(),
+            actor,
             1,
             &tuning,
         );
@@ -537,7 +542,8 @@ mod tests {
     /// SetupAOE + step[1] = Cast → GoalKind::SetupAOE with the ability recovered.
     #[test]
     fn extract_setupaoe_recovers_planned_ability() {
-        let snap = snapshot_from(vec![], 1);
+        let snap = snapshot_from(vec![dummy_actor_snapshot()], 1);
+        let actor = snap.unit(ent(1)).unwrap();
         let tuning = default_tuning();
         let ability_id = AbilityId::from("fireball");
 
@@ -551,7 +557,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
-            &dummy_actor(),
+            actor,
             1,
             &tuning,
         );
@@ -571,7 +577,8 @@ mod tests {
     /// SetupAOE + step[1] is not a Cast → None (no goal representable).
     #[test]
     fn extract_setupaoe_returns_none_without_cast_step() {
-        let snap = snapshot_from(vec![], 1);
+        let snap = snapshot_from(vec![dummy_actor_snapshot()], 1);
+        let actor = snap.unit(ent(1)).unwrap();
         let tuning = default_tuning();
 
         let steps = vec![move_step(), move_step()]; // step[1] is Move, not Cast
@@ -584,7 +591,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
-            &dummy_actor(),
+            actor,
             1,
             &tuning,
         );
@@ -595,7 +602,8 @@ mod tests {
     /// ProtectSelf → Retreat with region_anchor == chosen_final_pos.
     #[test]
     fn extract_retreat_uses_final_pos_anchor() {
-        let snap = snapshot_from(vec![], 1);
+        let snap = snapshot_from(vec![dummy_actor_snapshot()], 1);
+        let actor = snap.unit(ent(1)).unwrap();
         let tuning = default_tuning();
         let final_pos = Hex::new(2, 3);
 
@@ -607,7 +615,7 @@ mod tests {
             1.0,
             1.0,
             &snap,
-            &dummy_actor(),
+            actor,
             1,
             &tuning,
         );
@@ -620,7 +628,8 @@ mod tests {
     /// confidence = chosen_score / pool_max_score, clamped to [0, 1].
     #[test]
     fn confidence_clamps_to_unit_interval() {
-        let snap = snapshot_from(vec![], 1);
+        let snap = snapshot_from(vec![dummy_actor_snapshot()], 1);
+        let actor = snap.unit(ent(1)).unwrap();
         let tuning = default_tuning();
 
         // chosen_score > pool_max → confidence clamped to 1.0
@@ -632,7 +641,7 @@ mod tests {
             2.0, // chosen_score
             1.0, // pool_max_score
             &snap,
-            &dummy_actor(),
+            actor,
             1,
             &tuning,
         )
@@ -648,7 +657,7 @@ mod tests {
             0.5, // chosen_score
             1.0, // pool_max_score
             &snap,
-            &dummy_actor(),
+            actor,
             1,
             &tuning,
         )
@@ -659,7 +668,8 @@ mod tests {
     /// pool_max_score = 0.0 → confidence is finite and ≤ 1.0 (no NaN/inf).
     #[test]
     fn confidence_zero_safe_when_pool_max_zero() {
-        let snap = snapshot_from(vec![], 1);
+        let snap = snapshot_from(vec![dummy_actor_snapshot()], 1);
+        let actor = snap.unit(ent(1)).unwrap();
         let tuning = default_tuning();
 
         let ctx = extract_goal_context(
@@ -670,7 +680,7 @@ mod tests {
             0.5, // chosen_score
             0.0, // pool_max_score (degenerate)
             &snap,
-            &dummy_actor(),
+            actor,
             1,
             &tuning,
         )

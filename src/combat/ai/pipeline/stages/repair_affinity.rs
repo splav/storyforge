@@ -21,12 +21,13 @@ impl PlanStage for RepairAffinityStage {
         let Some(stored_goal) = ctx.scoring.last_goal else { return };
 
         let severity = {
-            let actor_snap = ctx.scoring.active;
-            let target_snap = stored_goal
+            let actor_view = ctx.scoring.snap.unit(ctx.scoring.active.entity)
+                .expect("actor must be present in snapshot");
+            let target_view = stored_goal
                 .target_entity()
-                .and_then(|t| ctx.scoring.snap.unit_snapshot(t));
+                .and_then(|t| ctx.scoring.snap.unit(t));
             stored_goal
-                .check_continuation(actor_snap, target_snap, ctx.scoring.world.status_tags)
+                .check_continuation(actor_view, target_view, ctx.scoring.world.status_tags)
                 .map(|c| c.severity)
         };
 

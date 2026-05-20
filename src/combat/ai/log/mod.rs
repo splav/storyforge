@@ -1214,13 +1214,12 @@ pub fn build_actor_tick_event(input: ActorTickInput<'_>) -> ActorTickEvent {
 
     // Build continuation section.
     let continuation = input.memory_pre.as_ref().map(|stored| {
-        let actor_snap = input.snapshot.unit_snapshot(input.actor);
-        let target_snap = stored.target_entity().and_then(|t| input.snapshot.unit_snapshot(t));
-        let severity = stored.check_continuation(
-            actor_snap.unwrap_or_else(|| input.snapshot.units.first().expect("non-empty snap")),
-            target_snap,
-            input.status_tags,
-        ).map(|c| c.severity);
+        let actor_snap = input.snapshot.unit(input.actor);
+        let target_snap = stored.target_entity().and_then(|t| input.snapshot.unit(t));
+        let severity = actor_snap.and_then(|actor| {
+            stored.check_continuation(actor, target_snap, input.status_tags)
+                .map(|c| c.severity)
+        });
         let age = input.round.saturating_sub(stored.created_round);
         ContinuationLogSection {
             stored_goal: StoredGoalContextSnapshot::from(stored),
