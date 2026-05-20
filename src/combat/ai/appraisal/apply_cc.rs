@@ -158,4 +158,31 @@ mod tests {
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
         assert_eq!(compute_apply_cc(&ctx), 0.0, "enemies out of reach → signal = 0");
     }
+
+    #[test]
+    fn apply_cc_zero_when_only_dead_enemies_in_reach() {
+        // REGRESSION: до Phase D Pass 3 best_threat итерировался по snap.units без
+        // alive-фильтра, и мёртвые враги с непустыми damage_horizon из cache ложно
+        // стакали ApplyCC need signal. Проверяем, что трупы не дают CC-сигнала.
+        let actor_pos = hex_from_offset(3, 3);
+        let active = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .full_hp(20)
+            .ability_names(&["stun"])
+            .max_attack_range(2)
+            .speed(3)
+            .build();
+        // Два мёртвых врага в reach с непустыми damage_horizon (как было бы в реальном логе).
+        let dead_a = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+            .hp(0).max_hp(20).threat(9.0).damage_horizon(vec![9.0]).build();
+        let dead_b = UnitBuilder::new(3, Team::Player, hex_from_offset(2, 3))
+            .hp(0).max_hp(20).threat(7.0).damage_horizon(vec![7.0]).build();
+        let memory = default_memory();
+        let tuning = AiTuning::default();
+        let s = snap(vec![active.clone(), dead_a, dead_b]);
+        let maps = empty_maps();
+        let (content, at, st) = content_with_apply_cc_ability();
+        let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
+        assert_eq!(compute_apply_cc(&ctx), 0.0,
+            "только мёртвые враги в reach → no CC signal (труп не нужно стакать)");
+    }
 }

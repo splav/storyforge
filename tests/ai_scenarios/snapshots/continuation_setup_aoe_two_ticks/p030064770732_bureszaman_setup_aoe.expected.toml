@@ -15,6 +15,14 @@
 #
 # Source: stormborn_camp playtest 2026-04-28 (v30).
 # v30 rebuild: actor hp=22 (полный), ally entity изменился → hp_at_store обновлён.
+#
+# Scope: overlay покрывает только ПЕРВЫЙ tick actor=34359738005 в логе (round 1).
+# В round 3 этого же лога baseline_v36 ушёл из `cast heal` в `move_and_cast melee_attack`
+# после Phase D Pass 3 (685a4cb): rescue_ally need signal перестал считать мёртвых
+# союзников endangered allies. В round 3 у actor'а оба ally trупы (90194312866, 55834574506),
+# rescue-сигнал корректно = 0, и AI добивает раненого Player (47244639898 hp=4/12).
+# Это accidentally-fixed bug, не регрессия — см. tests rescue_ally_ignores_dead_allies_in_reach
+# в src/combat/ai/appraisal/rescue_ally.rs.
 
 [scope]
 plan_id = 34359738005

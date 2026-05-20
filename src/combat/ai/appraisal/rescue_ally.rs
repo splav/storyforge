@@ -180,4 +180,83 @@ mod tests {
         let ctx = make_ctx(&active, &s, &memory, &tuning, &maps, &content, &at, &st);
         assert_eq!(compute_rescue_ally(&ctx), 0.0, "empty override → gate fails → signal = 0");
     }
+
+    #[test]
+    fn rescue_ally_ignores_dead_allies_in_reach() {
+        // REGRESSION: до Phase D Pass 3 best_danger итерировался по snap.units без
+        // alive-фильтра, и трупы союзников с hp_pct=0 → hp_low=1.0 ложно
+        // триггерили rescue need signal. Проверяем, что мёртвые ally не увеличивают
+        // сигнал по сравнению с baseline (нет живых союзников).
+        let actor_pos = hex_from_offset(3, 3);
+        let active = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .full_hp(20)
+            .ability_names(&["heal"])
+            .max_attack_range(3)
+            .speed(3)
+            .build();
+        // Живой высокоDPR-враг рядом, чтобы было бы что считать через ally_threat_proxy.
+        let enemy = UnitBuilder::new(4, Team::Player, hex_from_offset(4, 3))
+            .full_hp(20).threat(8.0).damage_horizon(vec![8.0]).max_attack_range(1).build();
+        let memory = default_memory();
+        let tuning = AiTuning::default();
+        let (content, at, st) = content_with_rescue_ability();
+        let maps = empty_maps();
+
+        // baseline: нет союзников вообще
+        let s_no_allies = snap(vec![active.clone(), enemy.clone()]);
+        let ctx_no_allies = make_ctx(&active, &s_no_allies, &memory, &tuning, &maps, &content, &at, &st);
+        let baseline = compute_rescue_ally(&ctx_no_allies);
+
+        // test: два мёртвых союзника в reach — не должны поднять сигнал выше baseline
+        let dead_ally_a = UnitBuilder::new(2, Team::Enemy, hex_from_offset(4, 3))
+            .hp(0).max_hp(20).build();
+        let dead_ally_b = UnitBuilder::new(3, Team::Enemy, hex_from_offset(2, 3))
+            .hp(0).max_hp(20).build();
+        let s_with_dead = snap(vec![active.clone(), dead_ally_a, dead_ally_b, enemy]);
+        let ctx_with_dead = make_ctx(&active, &s_with_dead, &memory, &tuning, &maps, &content, &at, &st);
+        let signal = compute_rescue_ally(&ctx_with_dead);
+
+        assert_eq!(signal, baseline,
+            "мёртвые ally в reach = отсутствие живых ally (нет вклада в best_danger); \
+             baseline={baseline}, with_dead={signal}");
+    }
+
+    #[test]
+    fn ally_threat_proxy_ignores_dead_enemies() {
+        // REGRESSION: до Phase D Pass 3 ally_threat_proxy итерировался по snap.units
+        // без alive-фильтра, и мёртвые враги с непустыми damage_horizon (из cache)
+        // ложно поднимали "угрозу союзнику". Проверяем, что мёртвый враг рядом с
+        // живым союзником не поднимает rescue-сигнал выше baseline (нет врагов).
+        let actor_pos = hex_from_offset(3, 3);
+        let ally_pos = hex_from_offset(4, 3);
+        let active = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .full_hp(20)
+            .ability_names(&["heal"])
+            .max_attack_range(3)
+            .speed(3)
+            .build();
+        // Живой союзник на низком HP → есть кого спасать.
+        let ally = UnitBuilder::new(2, Team::Enemy, ally_pos)
+            .hp(4).max_hp(20).build();
+        let memory = default_memory();
+        let tuning = AiTuning::default();
+        let (content, at, st) = content_with_rescue_ability();
+        let maps = empty_maps();
+
+        // baseline: живой ally, НЕТ врагов → threat_to_ally = 0
+        let s_no_enemies = snap(vec![active.clone(), ally.clone()]);
+        let ctx_no_enemies = make_ctx(&active, &s_no_enemies, &memory, &tuning, &maps, &content, &at, &st);
+        let baseline = compute_rescue_ally(&ctx_no_enemies);
+
+        // test: тот же ally + один мёртвый враг рядом → threat не должен вырасти
+        let dead_enemy = UnitBuilder::new(3, Team::Player, ally_pos)
+            .hp(0).max_hp(20).threat(8.0).damage_horizon(vec![8.0]).max_attack_range(1).build();
+        let s_with_dead = snap(vec![active.clone(), ally, dead_enemy]);
+        let ctx_with_dead = make_ctx(&active, &s_with_dead, &memory, &tuning, &maps, &content, &at, &st);
+        let signal = compute_rescue_ally(&ctx_with_dead);
+
+        assert_eq!(signal, baseline,
+            "live low-HP ally + мёртвый враг рядом = live low-HP ally + нет врагов \
+             (мёртвый не добавляет threat); baseline={baseline}, with_dead={signal}");
+    }
 }
