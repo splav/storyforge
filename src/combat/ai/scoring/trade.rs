@@ -581,7 +581,7 @@ mod tests {
     // fallback deserialized plans use. Direct, no sim wiring needed.
 
     use crate::combat::ai::plan::{PlanStep, StepOutcome, TurnPlan};
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
+    
     use bevy::prelude::Entity;
 
     fn ent(id: u32) -> Entity {

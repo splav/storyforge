@@ -374,7 +374,7 @@ mod tests {
     use crate::combat::ai::adapt::EvaluationMode;
     use crate::combat::ai::outcome::ActionOutcomeEstimate;
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::UnitSnapshot;
     use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::{
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder, snapshot_from,

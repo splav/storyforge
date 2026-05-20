@@ -26,7 +26,7 @@ use crate::combat::ai::pipeline::score_trace::{MultiplierHit, MultiplierKind};
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::world::snapshot::{UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::UnitView;
 use crate::content::abilities::AoEShape;
 use crate::game::hex::Hex;
 use std::collections::HashSet;
@@ -827,7 +827,7 @@ mod tests {
     #[test]
     fn plan_has_self_aoe_detects_friendly_fire_circle_on_caster() {
         use crate::combat::ai::world::reservations::Reservations;
-        use crate::combat::ai::world::snapshot::BattleSnapshot;
+        
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
         use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
@@ -880,7 +880,7 @@ mod tests {
     #[test]
     fn sanity_only_fires_residual_rules() {
         use crate::combat::ai::world::reservations::Reservations;
-        use crate::combat::ai::world::snapshot::BattleSnapshot;
+        
         use crate::combat::ai::test_helpers::{empty_content, empty_maps, make_scoring_ctx, make_test_ctx};
         use crate::combat::ai::test_helpers::snapshot_from;
 

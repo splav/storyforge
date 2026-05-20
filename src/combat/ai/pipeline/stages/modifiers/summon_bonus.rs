@@ -70,7 +70,7 @@ mod tests {
     use crate::combat::ai::pipeline::stages::modifiers::ModifierCtx;
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
+    
     use crate::combat::ai::test_helpers::{
         empty_maps, empty_content, make_scoring_ctx, make_test_ctx, UnitBuilder,
         snapshot_from,

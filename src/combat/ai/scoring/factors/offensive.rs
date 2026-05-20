@@ -126,7 +126,7 @@ pub fn aoe_area(def: &AbilityDef, target_pos: Hex, caster_tile: Hex) -> HashSet<
 mod tests {
     use super::*;
     use crate::combat::ai::test_helpers::UnitBuilder;
-    use crate::combat::ai::test_helpers::snapshot_from;
+    
     use crate::combat::ai::outcome::ActionOutcomeEstimate;
     use crate::combat::ai::scoring::policy;
     use crate::core::AbilityId;
@@ -144,7 +144,7 @@ mod tests {
     fn compute_offensive_reads_facts_and_applies_policy() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::world::reservations::Reservations;
-        use crate::combat::ai::world::snapshot::BattleSnapshot;
+        
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
         use crate::combat::ai::test_helpers::snapshot_from;
 
@@ -218,7 +218,7 @@ mod tests {
     fn compute_offensive_aoe_per_entity_progression() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::world::reservations::Reservations;
-        use crate::combat::ai::world::snapshot::BattleSnapshot;
+        
         use crate::combat::ai::test_helpers::{ent, empty_maps, make_scoring_ctx, make_test_ctx};
         use crate::combat::ai::test_helpers::snapshot_from;
 
@@ -307,7 +307,7 @@ mod tests {
     fn compute_offensive_friendly_fire_super_linear() {
         use crate::combat::ai::config::difficulty::DifficultyProfile;
         use crate::combat::ai::world::reservations::Reservations;
-        use crate::combat::ai::world::snapshot::BattleSnapshot;
+        
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx};
         use crate::combat::ai::test_helpers::snapshot_from;
 

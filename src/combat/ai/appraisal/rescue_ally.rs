@@ -1,6 +1,5 @@
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::AbilityTag;
-use bevy::prelude::Entity;
 use super::AppraisalCtx;
 
 pub(super) fn compute_rescue_ally(ctx: &AppraisalCtx<'_>) -> f32 {

@@ -359,7 +359,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
+    
     use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;

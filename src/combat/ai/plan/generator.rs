@@ -684,7 +684,7 @@ fn partial_score(plan: &TurnPlan, maps: &InfluenceMaps) -> f32 {
 mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::UnitSnapshot;
     use crate::combat::ai::test_helpers::{empty_content, empty_maps, empty_status_tag_cache, ent, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::abilities::{

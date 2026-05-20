@@ -181,7 +181,7 @@ pub struct AiMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot};
+    use crate::combat::ai::world::snapshot::ActiveStatusView;
     use crate::combat::ai::test_helpers::UnitBuilder;
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::core::StatusId;

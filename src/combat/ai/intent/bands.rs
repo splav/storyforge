@@ -188,7 +188,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::config::tuning::AiTuning;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
+    
     use crate::combat::ai::world::tags::AiTags;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;

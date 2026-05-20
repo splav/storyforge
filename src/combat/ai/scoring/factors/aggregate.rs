@@ -578,7 +578,7 @@ mod tests {
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::plan::types::{PlanStep, StepOutcome, TurnPlan};
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use crate::combat::ai::world::snapshot::UnitSnapshot;
     use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::make_scoring_ctx;
     use crate::combat::ai::test_helpers::snapshot_from;

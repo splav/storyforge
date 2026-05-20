@@ -67,7 +67,7 @@ fn parity_haste_speed_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
     use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
     use storyforge::combat::ai::world::tags::{StatusTagCache, StatusTagSet};
     use storyforge::combat::ai::world::tags::cache::StatusBonuses;
     use storyforge::core::StatusId;
@@ -215,7 +215,7 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
     use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
     use storyforge::combat::ai::world::tags::AiTags;
     use combat_engine::final_damage_f32;
     use storyforge::core::StatusId;
@@ -455,7 +455,7 @@ fn parity_aoo_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
     use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
     use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
     use combat_engine::final_damage_f32;
     use storyforge::game::components::Team;
@@ -550,7 +550,7 @@ fn parity_aoo_decrements_reactions_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
     use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
     use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
     use storyforge::content::content_view::ContentView;
     use storyforge::game::components::Team;
@@ -639,7 +639,7 @@ fn parity_rage_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
     use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
     use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
     use storyforge::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
@@ -777,7 +777,7 @@ fn parity_rage_aoe_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
     use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
     use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
     use storyforge::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
@@ -899,7 +899,7 @@ fn parity_aoo_grants_rage_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
     use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
     use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
     use storyforge::content::abilities::CasterContext;
     use storyforge::content::content_view::ContentView;

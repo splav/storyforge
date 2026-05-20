@@ -598,7 +598,7 @@ mod tests {
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::world::reservations::Reservations;
-    use crate::combat::ai::world::snapshot::BattleSnapshot;
+    
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use crate::core::DiceRng;
