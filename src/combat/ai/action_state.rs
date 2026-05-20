@@ -7,7 +7,6 @@ use combat_engine::legality::{ActionState, ActorView};
 use combat_engine::{AbilityDef, AbilityId, StatusDef, StatusId};
 
 use crate::combat::ai::world::snapshot::BattleSnapshot;
-use crate::combat::ai::world::tags::AiTags;
 use crate::content::content_view::ContentView;
 use crate::game::components::Team;
 use crate::game::hex::{in_bounds, Hex};
@@ -79,19 +78,19 @@ impl ActionState for SnapshotActionState<'_> {
     }
 
     fn taunter_for(&self, actor_team: Team) -> Option<Entity> {
-        // Any live enemy with FORCES_TARGETING binds opposing-team casts.
-        // Iterate units to find a taunt entity, then return its Entity id.
+        // Any live enemy whose active statuses include forces_targeting binds
+        // opposing-team casts. Walk statuses via content defs — same data path
+        // as the engine-side legality check.
         self.snap
-            .units
-            .iter()
-            .filter(|u| u.team != actor_team && u.is_alive())
-            .find_map(|u| {
-                let view = self.snap.unit(u.entity)?;
-                if view.cache.tags.contains(AiTags::FORCES_TARGETING) {
-                    Some(view.entity())
-                } else {
-                    None
-                }
+            .enemies_of(actor_team)
+            .find_map(|view| {
+                let has_taunt = view.statuses().iter().any(|s| {
+                    self.content
+                        .statuses
+                        .get(&s.id)
+                        .is_some_and(|sd| sd.engine.forces_targeting)
+                });
+                if has_taunt { Some(view.entity()) } else { None }
             })
     }
 

@@ -6,7 +6,6 @@ use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
-use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
@@ -217,7 +216,7 @@ pub fn evaluate_last_stand_step(step: &ScoredStep, step_ctx: &ScoringCtx) -> f32
         score += 0.5;
     }
     if let Some(target_unit) = snap.unit(target) {
-        if applies_cc(def, content) && !target_unit.cache.tags.contains(AiTags::IS_STUNNED) {
+        if applies_cc(def, content) && !target_unit.is_stunned(step_ctx.world.status_tags) {
             score += 0.8;
         }
     }

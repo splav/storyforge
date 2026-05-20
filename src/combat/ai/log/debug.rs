@@ -215,8 +215,6 @@ fn fmt_tags(tags: AiTags) -> String {
     if tags.contains(AiTags::CAN_HEAL) { v.push("CAN_HEAL"); }
     if tags.contains(AiTags::CAN_CC) { v.push("CAN_CC"); }
     if tags.contains(AiTags::HAS_AOE) { v.push("HAS_AOE"); }
-    if tags.contains(AiTags::IS_STUNNED) { v.push("STUNNED"); }
-    if tags.contains(AiTags::FORCES_TARGETING) { v.push("TAUNT"); }
     if tags.contains(AiTags::RANGED) { v.push("RANGED"); }
     if tags.contains(AiTags::MELEE_ONLY) { v.push("MELEE"); }
     if v.is_empty() { "none".into() } else { v.join("|") }

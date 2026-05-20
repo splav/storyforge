@@ -16,7 +16,7 @@ use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-use crate::combat::ai::world::tags::AiTags;
+use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
 use crate::combat::ai::config::tuning::AiTuning;
 
 // ── PriorityBand ─────────────────────────────────────────────────────────────
@@ -138,11 +138,12 @@ pub fn assign_band(
     needs: &NeedSignals,
     difficulty: &DifficultyProfile,
     tuning: &AiTuning,
+    status_tags: &StatusTagCache,
 ) -> (PriorityBand, BandReason) {
     // 1. ForcedTargeting — hard taunt rule.
     if let Some(taunter) = snap
         .enemies_of(active.team)
-        .find(|e| e.cache.tags.contains(AiTags::FORCES_TARGETING))
+        .find(|e| e.forces_targeting(status_tags))
     {
         return (
             PriorityBand::ForcedTargeting,
@@ -185,11 +186,13 @@ mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
+    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder, empty_content};
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::config::tuning::AiTuning;
-    
     use crate::combat::ai::world::tags::AiTags;
+    use crate::combat::ai::world::tags::cache::build_caches;
+    use crate::combat::ai::world::tags::StatusTagCache;
+    use crate::content::statuses::StatusDef;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -211,19 +214,54 @@ mod tests {
 
     // ── 1. ForcedTargeting fires on canonical taunter ─────────────────────
 
+    fn taunt_status_tags() -> StatusTagCache {
+        let mut content = empty_content();
+        let status_def = StatusDef {
+            id: "taunt".into(),
+            name: "Taunt".into(),
+            dot_dice: None,
+            ai_controlled: false,
+            buff_class: None,
+            engine: combat_engine::StatusDef {
+                skips_turn: false,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                forces_targeting: true,
+                blocks_mana_abilities: false,
+                speed_bonus: 0,
+                hp_percent_dot: 0,
+                causes_disadvantage: false,
+            },
+        };
+        content.statuses.insert("taunt".into(), status_def);
+        let (status_tags, _ability_tags) = build_caches(&content);
+        status_tags
+    }
+
+    fn unit_with_taunt(id: u32, team: Team, pos: crate::game::hex::Hex)
+        -> crate::combat::ai::world::snapshot::UnitSnapshot
+    {
+        let mut unit = UnitBuilder::new(id, team, pos).build();
+        unit.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
+            id: "taunt".into(),
+            rounds_remaining: 1,
+            dot_per_tick: 0,
+        });
+        unit
+    }
+
     #[test]
     fn band_forced_targeting_fires_on_canonical_case() {
         let active = UnitBuilder::new(1, Team::Enemy, origin()).build();
-        let taunter = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-            .tags(AiTags::FORCES_TARGETING)
-            .build();
+        let taunter = unit_with_taunt(2, Team::Player, hex_from_offset(1, 0));
         let taunter_entity = taunter.entity;
         let snap = snapshot_from(vec![active.clone(), taunter], 1);
         let maps = empty_maps();
         let tuning = default_tuning();
         let difficulty = default_difficulty();
+        let status_tags = taunt_status_tags();
 
-        let (band, reason) = assign_band(&active, &snap, &maps, &zero_needs(), &difficulty, &tuning);
+        let (band, reason) = assign_band(&active, &snap, &maps, &zero_needs(), &difficulty, &tuning, &status_tags);
 
         assert_eq!(band, PriorityBand::ForcedTargeting);
         assert_eq!(reason, BandReason::TauntForced { taunter: taunter_entity });
@@ -251,7 +289,7 @@ mod tests {
             ..NeedSignals::default()
         };
 
-        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning);
+        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
 
         assert_eq!(band, PriorityBand::CriticalSelfPreservation);
         match reason {
@@ -284,7 +322,7 @@ mod tests {
             ..NeedSignals::default()
         };
 
-        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning);
+        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
 
         assert_eq!(band, PriorityBand::HardRescueOpportunity);
         match reason {
@@ -308,7 +346,7 @@ mod tests {
         // Zero needs — no panic, no rescue pressure.
         let needs = zero_needs();
 
-        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning);
+        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
 
         assert_eq!(band, PriorityBand::NormalTactical);
         assert_eq!(reason, BandReason::Normal);
@@ -320,14 +358,13 @@ mod tests {
     fn band_priority_order_forced_beats_critical() {
         // Actor is both taunted AND in a panic state — Forced must win.
         let active = UnitBuilder::new(1, Team::Enemy, origin()).hp(2).max_hp(20).build();
-        let taunter = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-            .tags(AiTags::FORCES_TARGETING)
-            .build();
+        let taunter = unit_with_taunt(2, Team::Player, hex_from_offset(1, 0));
         let taunter_entity = taunter.entity;
         let snap = snapshot_from(vec![active.clone(), taunter], 1);
 
         let tuning = default_tuning();
         let difficulty = default_difficulty();
+        let status_tags = taunt_status_tags();
 
         // Set danger above panic threshold.
         let danger_panic = difficulty.awareness_danger_threshold(&tuning);
@@ -341,7 +378,7 @@ mod tests {
             ..NeedSignals::default()
         };
 
-        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning);
+        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning, &status_tags);
 
         assert_eq!(band, PriorityBand::ForcedTargeting, "Forced must beat Critical+HardRescue");
         assert_eq!(reason, BandReason::TauntForced { taunter: taunter_entity });

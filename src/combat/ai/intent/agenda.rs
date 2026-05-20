@@ -119,6 +119,7 @@ pub fn build_agenda(
     difficulty: &DifficultyProfile,
     tuning: &AiTuning,
     memory: &AiMemory,
+    status_tags: &crate::combat::ai::world::tags::StatusTagCache,
 ) -> Agenda {
     let mut items = match band {
         PriorityBand::ForcedTargeting => {
@@ -131,7 +132,7 @@ pub fn build_agenda(
             build_hard_rescue_opportunity(active, snap, needs)
         }
         PriorityBand::NormalTactical => {
-            build_normal_tactical(active, snap, maps, needs, difficulty, tuning, memory)
+            build_normal_tactical(active, snap, maps, needs, difficulty, tuning, memory, status_tags)
         }
     };
 
@@ -332,8 +333,9 @@ fn build_normal_tactical(
     difficulty: &DifficultyProfile,
     tuning: &AiTuning,
     memory: &AiMemory,
+    status_tags: &crate::combat::ai::world::tags::StatusTagCache,
 ) -> Vec<AgendaItem> {
-    let choice = select_intent_normal(active, snap, maps, memory, difficulty, tuning, needs);
+    let choice = select_intent_normal(active, snap, maps, memory, difficulty, tuning, needs, status_tags);
 
     let kind = choice.intent.kind();
     let target = choice.intent.target();
@@ -359,11 +361,14 @@ mod tests {
     use super::*;
     use crate::combat::ai::appraisal::NeedSignals;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    
+
     use crate::combat::ai::world::tags::AiTags;
-    use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
+    use crate::combat::ai::world::tags::StatusTagCache;
+    use crate::combat::ai::world::tags::cache::build_caches;
+    use crate::combat::ai::test_helpers::{empty_maps, empty_content, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::combat::ai::config::tuning::AiTuning;
+    use crate::content::statuses::StatusDef;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -374,20 +379,55 @@ mod tests {
     fn default_difficulty() -> DifficultyProfile { DifficultyProfile::default() }
     fn zero_needs() -> NeedSignals { NeedSignals::default() }
 
+    fn taunt_status_tags() -> StatusTagCache {
+        let mut content = empty_content();
+        let status_def = StatusDef {
+            id: "taunt".into(),
+            name: "Taunt".into(),
+            dot_dice: None,
+            ai_controlled: false,
+            buff_class: None,
+            engine: combat_engine::StatusDef {
+                skips_turn: false,
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                forces_targeting: true,
+                blocks_mana_abilities: false,
+                speed_bonus: 0,
+                hp_percent_dot: 0,
+                causes_disadvantage: false,
+            },
+        };
+        content.statuses.insert("taunt".into(), status_def);
+        let (status_tags, _ability_tags) = build_caches(&content);
+        status_tags
+    }
+
+    fn unit_with_taunt(id: u32, team: Team, pos: crate::game::hex::Hex)
+        -> crate::combat::ai::world::snapshot::UnitSnapshot
+    {
+        let mut unit = UnitBuilder::new(id, team, pos).build();
+        unit.statuses.push(crate::combat::ai::world::snapshot::ActiveStatusView {
+            id: "taunt".into(),
+            rounds_remaining: 1,
+            dot_per_tick: 0,
+        });
+        unit
+    }
+
     // ── 1. ForcedTargeting emits exactly one FocusTarget item ─────────────
 
     #[test]
     fn agenda_forced_targeting_emits_single_item() {
         let active = UnitBuilder::new(1, Team::Enemy, origin()).build();
-        let taunter = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
-            .tags(AiTags::FORCES_TARGETING)
-            .build();
+        let taunter = unit_with_taunt(2, Team::Player, hex_from_offset(1, 0));
         let taunter_entity = taunter.entity;
         let snap = snapshot_from(vec![active.clone(), taunter], 1);
         let maps = empty_maps();
         let tuning = default_tuning();
         let difficulty = default_difficulty();
         let band_reason = BandReason::TauntForced { taunter: taunter_entity };
+        let status_tags = taunt_status_tags();
 
         let agenda = build_agenda(
             PriorityBand::ForcedTargeting,
@@ -399,6 +439,7 @@ mod tests {
             &difficulty,
             &tuning,
             &AiMemory::default(),
+            &status_tags,
         );
 
         assert_eq!(agenda.items.len(), 1, "ForcedTargeting must emit exactly 1 item");
@@ -441,6 +482,7 @@ mod tests {
             &difficulty,
             &tuning,
             &AiMemory::default(),
+            &StatusTagCache::default(),
         );
 
         assert_eq!(agenda.items.len(), 2, "CriticalSelf must emit exactly 2 items");
@@ -486,6 +528,7 @@ mod tests {
             &difficulty,
             &tuning,
             &AiMemory::default(),
+            &StatusTagCache::default(),
         );
 
         assert_eq!(agenda.items.len(), 2, "HardRescue must emit exactly 2 items");
@@ -532,6 +575,7 @@ mod tests {
             &difficulty,
             &tuning,
             &AiMemory::default(),
+            &StatusTagCache::default(),
         );
 
         assert_eq!(
@@ -568,6 +612,7 @@ mod tests {
             &difficulty,
             &tuning,
             &AiMemory::default(),
+            &StatusTagCache::default(),
         );
 
         assert!(
@@ -611,6 +656,7 @@ mod tests {
             &difficulty,
             &tuning,
             &AiMemory::default(),
+            &StatusTagCache::default(),
         );
 
         // Verify strict descending order.

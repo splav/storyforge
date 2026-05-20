@@ -18,7 +18,6 @@ mod tests {
     use crate::combat::ai::plan::sim::SimState;
     use crate::combat::ai::plan::types::PlanStep;
     use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
-    use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder};
     use combat_engine::final_damage_f32;
     use crate::combat::effects_outcome::{
@@ -614,14 +613,14 @@ mod tests {
                 }
             }
 
-            // skips_turn statuses → AiTags::IS_STUNNED.
+            // skips_turn statuses → HARD_CC tag via status cache.
             for sa in &expected_outcome.statuses {
                 if let Some(sd) = content.statuses.get(&sa.status) {
                     if sd.skips_turn {
-                        if let Some(u) = sim.snapshot.unit_snapshot(sa.target) {
+                        if let Some(u) = sim.snapshot.unit(sa.target) {
                             assert!(
-                                u.tags.contains(AiTags::IS_STUNNED),
-                                "[{label}] status '{}' skips_turn but IS_STUNNED not set on {:?}",
+                                u.is_stunned(&status_tag_cache),
+                                "[{label}] status '{}' skips_turn but HARD_CC not set on {:?}",
                                 sa.status.0,
                                 sa.target,
                             );

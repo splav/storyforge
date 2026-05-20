@@ -275,6 +275,24 @@ impl<'a> UnitView<'a> {
         self.state.action_points >= def.cost_ap
             && def.costs.iter().all(|c| self.resource_amount(c.resource) >= c.amount)
     }
+
+    /// True if any active status has the `HARD_CC` tag (stun / paralysis / freeze).
+    ///
+    /// Computed on the fly from current statuses — never stale.
+    pub fn is_stunned(&self, status_tags: &StatusTagCache) -> bool {
+        self.state.statuses.iter().any(|s| {
+            status_tags.get(&s.id).contains(StatusTagSet::HARD_CC)
+        })
+    }
+
+    /// True if any active status has the `COMPULSION` tag (taunt-style binding).
+    ///
+    /// Computed on the fly from current statuses — never stale.
+    pub fn forces_targeting(&self, status_tags: &StatusTagCache) -> bool {
+        self.state.statuses.iter().any(|s| {
+            status_tags.get(&s.id).contains(StatusTagSet::COMPULSION)
+        })
+    }
 }
 
 fn default_reactions_left() -> i32 { 1 }
@@ -372,49 +390,49 @@ impl UnitSnapshot {
         &mut self.statuses
     }
 
-    /// Recompute all derived fields (`speed`, `armor_bonus`, `damage_taken_bonus`,
-    /// and the `IS_STUNNED` / `FORCES_TARGETING` tag bits) from `base_speed` +
-    /// active statuses.
+    /// Recompute numeric derived fields (`speed`, `armor_bonus`,
+    /// `damage_taken_bonus`) from `base_speed` + active statuses.
     ///
-    /// Numeric bonuses are summed over every active status via the cache;
-    /// `IS_STUNNED` is set iff any active status has `HARD_CC` in the cache,
-    /// `FORCES_TARGETING` iff any has `COMPULSION`. All other `AiTags` bits
-    /// (`LOW_HP`, `MELEE_ONLY`, `RANGED`, `CAN_CC`, `CAN_HEAL`, `HAS_AOE`)
-    /// are not status-derived and are left untouched.
+    /// Numeric bonuses are summed over every active status via the cache.
+    /// All `AiTags` bits are left untouched — `IS_STUNNED` and
+    /// `FORCES_TARGETING` have been removed from the bitfield; use
+    /// `UnitView::is_stunned` / `UnitView::forces_targeting` to test those
+    /// conditions on the live status list instead.
     pub fn refresh_aggregates(&mut self, status_tags: &StatusTagCache) {
         let mut speed_bonus: i32 = 0;
         let mut armor_bonus: i32 = 0;
         let mut damage_taken_bonus: i32 = 0;
-        let mut is_stunned = false;
-        let mut forces_targeting = false;
 
         for s in &self.statuses {
             let bonuses = status_tags.bonuses(&s.id);
             speed_bonus += bonuses.speed_bonus;
             armor_bonus += bonuses.armor_bonus;
             damage_taken_bonus += bonuses.damage_taken_bonus;
-
-            let tags = status_tags.get(&s.id);
-            if tags.contains(StatusTagSet::HARD_CC) {
-                is_stunned = true;
-            }
-            if tags.contains(StatusTagSet::COMPULSION) {
-                forces_targeting = true;
-            }
         }
 
         self.speed = self.base_speed + speed_bonus;
         self.armor_bonus = armor_bonus;
         self.damage_taken_bonus = damage_taken_bonus;
+    }
 
-        // Clear only the status-derived tag bits, then re-set them.
-        self.tags.remove(AiTags::IS_STUNNED | AiTags::FORCES_TARGETING);
-        if is_stunned {
-            self.tags |= AiTags::IS_STUNNED;
-        }
-        if forces_targeting {
-            self.tags |= AiTags::FORCES_TARGETING;
-        }
+    /// True if any active status has the `HARD_CC` tag.
+    ///
+    /// Shim for callers that hold a `&UnitSnapshot` (deprecated path /
+    /// test fixtures). Prefer `UnitView::is_stunned` in production code.
+    pub fn is_stunned(&self, status_tags: &StatusTagCache) -> bool {
+        self.statuses.iter().any(|s| {
+            status_tags.get(&s.id).contains(StatusTagSet::HARD_CC)
+        })
+    }
+
+    /// True if any active status has the `COMPULSION` tag.
+    ///
+    /// Shim for callers that hold a `&UnitSnapshot` (deprecated path /
+    /// test fixtures). Prefer `UnitView::forces_targeting` in production code.
+    pub fn forces_targeting(&self, status_tags: &StatusTagCache) -> bool {
+        self.statuses.iter().any(|s| {
+            status_tags.get(&s.id).contains(StatusTagSet::COMPULSION)
+        })
     }
 
     /// Convert this `UnitSnapshot` into the two authoritative halves:
@@ -954,7 +972,7 @@ use crate::game::components::AiCombatantQItem;
 
 fn compute_tags(
     c: &AiCombatantQItem,
-    statuses_q: &Query<&StatusEffects>,
+    _statuses_q: &Query<&StatusEffects>,
     content: &ContentView,
 ) -> AiTags {
     let mut tags = AiTags::empty();
@@ -1011,19 +1029,6 @@ fn compute_tags(
     }
     if has_min_range_2 {
         tags |= AiTags::RANGED;
-    }
-
-    // Status-derived tags
-    if let Ok(se) = statuses_q.get(c.entity) {
-        for s in &se.0 {
-            let Some(sd) = content.statuses.get(&s.id) else { continue };
-            if sd.skips_turn {
-                tags |= AiTags::IS_STUNNED;
-            }
-            if sd.forces_targeting {
-                tags |= AiTags::FORCES_TARGETING;
-            }
-        }
     }
 
     tags
@@ -1369,7 +1374,7 @@ mod snapshot_api_tests {
     }
 
     #[test]
-    fn hard_cc_status_sets_is_stunned_tag() {
+    fn hard_cc_status_makes_unit_is_stunned() {
         let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).build();
         let cache = cache_with_status(
             "stun",
@@ -1377,14 +1382,14 @@ mod snapshot_api_tests {
             StatusBonuses::default(),
         );
         unit.add_status(test_status("stun"), &cache);
-        assert!(unit.tags.contains(AiTags::IS_STUNNED), "HARD_CC status must set IS_STUNNED");
+        assert!(unit.is_stunned(&cache), "HARD_CC status must make is_stunned true");
 
         unit.remove_status(&StatusId::from("stun"), &cache);
-        assert!(!unit.tags.contains(AiTags::IS_STUNNED), "removing stun must clear IS_STUNNED");
+        assert!(!unit.is_stunned(&cache), "removing stun must clear is_stunned");
     }
 
     #[test]
-    fn compulsion_status_sets_forces_targeting_tag() {
+    fn compulsion_status_makes_unit_forces_targeting() {
         let mut unit = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).build();
         let cache = cache_with_status(
             "taunted",
@@ -1392,10 +1397,10 @@ mod snapshot_api_tests {
             StatusBonuses::default(),
         );
         unit.add_status(test_status("taunted"), &cache);
-        assert!(unit.tags.contains(AiTags::FORCES_TARGETING), "COMPULSION status must set FORCES_TARGETING");
+        assert!(unit.forces_targeting(&cache), "COMPULSION status must make forces_targeting true");
 
         unit.remove_status(&StatusId::from("taunted"), &cache);
-        assert!(!unit.tags.contains(AiTags::FORCES_TARGETING), "removing taunt must clear FORCES_TARGETING");
+        assert!(!unit.forces_targeting(&cache), "removing taunt must clear forces_targeting");
     }
 
     #[test]
@@ -1410,9 +1415,9 @@ mod snapshot_api_tests {
         );
         unit.add_status(test_status("stun"), &cache);
 
-        // IS_STUNNED added by refresh_aggregates
-        assert!(unit.tags.contains(AiTags::IS_STUNNED));
-        // Non-status-derived bits must be untouched
+        // is_stunned reflected via lazy method (no longer a tag bit post-Path-E)
+        assert!(unit.is_stunned(&cache));
+        // Non-status-derived tag bits must be untouched by refresh_aggregates
         assert!(unit.tags.contains(AiTags::LOW_HP), "LOW_HP must survive refresh");
         assert!(unit.tags.contains(AiTags::MELEE_ONLY), "MELEE_ONLY must survive refresh");
     }

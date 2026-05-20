@@ -7,7 +7,7 @@ use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::scoring::target_selection::{highest_priority_enemy, target_selection_score};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
-use crate::combat::ai::world::tags::AiTags;
+use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
 use crate::game::hex::Hex;
 use super::kinds::{IntentKind, IntentReason, TacticalIntent};
 use crate::combat::ai::memory::AiMemory;
@@ -44,6 +44,7 @@ pub(crate) fn select_intent_normal(
     difficulty: &DifficultyProfile,
     tuning: &AiTuning,
     need_signals: &NeedSignals,
+    status_tags: &StatusTagCache,
 ) -> IntentChoice {
     let _ = (maps, difficulty); // used by outer select_intent; kept for signature symmetry
     let t = &tuning.thresholds;
@@ -123,7 +124,7 @@ pub(crate) fn select_intent_normal(
     if active.tags.contains(AiTags::CAN_CC) {
         let cc_target = snap
             .enemies_of(active.team)
-            .filter(|e| !e.cache.tags.contains(AiTags::IS_STUNNED))
+            .filter(|e| !e.is_stunned(status_tags))
             .max_by(|a, b| {
                 let da = crate::combat::ai::scoring::horizon_avg(*a);
                 let db = crate::combat::ai::scoring::horizon_avg(*b);
@@ -202,6 +203,7 @@ pub fn select_intent(
     difficulty: &DifficultyProfile,
     tuning: &AiTuning,
     need_signals: &NeedSignals,
+    status_tags: &StatusTagCache,
 ) -> IntentChoice {
     let t = &tuning.thresholds;
     let mut best_score = f32::NEG_INFINITY;
@@ -322,7 +324,7 @@ pub fn select_intent(
     // pick an unreachable "priority" target and then fall back through the viability
     // guard — that produced confusing "Priority target: X … fallback to Y" logs.
     let taunter = snap.enemies_of(active.team)
-        .find(|e| e.cache.tags.contains(AiTags::FORCES_TARGETING));
+        .find(|e| e.forces_targeting(status_tags));
 
     if let Some(t) = taunter {
         // Forced engagement. Score on par with killable so it beats default FocusTarget
@@ -332,7 +334,7 @@ pub fn select_intent(
             1.2,
             IntentReason::TauntForced,
         );
-        if active.tags.contains(AiTags::CAN_CC) && !t.cache.tags.contains(AiTags::IS_STUNNED) {
+        if active.tags.contains(AiTags::CAN_CC) && !t.is_stunned(status_tags) {
             // Intent score uses horizon-average (DPR) rather than peak
             // `threat` so CC-ing a burst mage with empty mana doesn't
             // over-commit the planner; a sustained fighter still scores
@@ -389,7 +391,7 @@ pub fn select_intent(
             // fighters, matching the stun-value scoring downstream.
             let cc_target = snap
                 .enemies_of(active.team)
-                .filter(|e| !e.cache.tags.contains(AiTags::IS_STUNNED))
+                .filter(|e| !e.is_stunned(status_tags))
                 .max_by(|a, b| {
                     let da = crate::combat::ai::scoring::horizon_avg(*a);
                     let db = crate::combat::ai::scoring::horizon_avg(*b);
@@ -572,6 +574,7 @@ mod tests {
     
     use crate::combat::ai::test_helpers::{empty_maps, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::world::tags::StatusTagCache;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -602,7 +605,7 @@ mod tests {
 
         let tuning = AiTuning::default();
         let need_signals = NeedSignals::default();
-        let choice = select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &need_signals);
+        let choice = select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &need_signals, &StatusTagCache::default());
 
         assert!(
             !matches!(choice.reason, IntentReason::Killable { .. }),
@@ -673,7 +676,7 @@ mod tests {
             ..NeedSignals::default()
         };
         let choice_high =
-            select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &ns_high);
+            select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &ns_high, &StatusTagCache::default());
         assert!(
             matches!(choice_high.intent, TacticalIntent::FocusTarget { target } if target == e2_entity),
             "commitment=1.0 → stickiness tips FocusTarget above ProtectSelf; got {:?}",
@@ -688,7 +691,7 @@ mod tests {
             ..NeedSignals::default()
         };
         let choice_low =
-            select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &ns_low);
+            select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &ns_low, &StatusTagCache::default());
         assert!(
             matches!(choice_low.intent, TacticalIntent::ProtectSelf),
             "commitment=0.0 → no stickiness, ProtectSelf beats FocusTarget; got {:?}",

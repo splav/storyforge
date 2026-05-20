@@ -19,7 +19,6 @@ use crate::combat::ai::outcome::builder as outcome_builder;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
-use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 #[cfg(test)]
@@ -406,8 +405,8 @@ fn ai_policy_ok(
 
     // Wasted single-target CC on already-stunned target.
     if applies_cc(def, ctx.content) && def.aoe == AoEShape::None {
-        if let Some(t) = sim.snapshot.unit_snapshot(target) {
-            if t.tags.contains(AiTags::IS_STUNNED) {
+        if let Some(t) = sim.snapshot.unit(target) {
+            if t.is_stunned(ctx.status_tags) {
                 return false;
             }
         }
@@ -1059,7 +1058,7 @@ mod tests {
     // are covered at the `check_legality` layer (actions/mod.rs + arch
     // D.a) and end-to-end via `generate_plans_*` tests below.
 
-    use crate::combat::ai::world::tags::AiTags as Tags;
+    
     use crate::content::abilities::{StatusApplication, StatusOn};
     use crate::content::statuses::StatusDef;
     use crate::core::StatusId;
@@ -1192,9 +1191,12 @@ mod tests {
 
     #[test]
     fn wasted_single_target_cc_on_stunned_rejected() {
+        use crate::combat::ai::world::snapshot::ActiveStatusView;
+        use crate::combat::ai::world::tags::cache::build_caches;
+
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
         let mut stunned = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
-        stunned.tags |= Tags::IS_STUNNED;
+        stunned.statuses.push(ActiveStatusView { id: StatusId::from("stun"), rounds_remaining: 1, dot_per_tick: 0 });
         let awake = unit(3, Team::Player, hex_from_offset(0, 1), 20, 1);
 
         let def = stun_def("stun_bolt", 5, AoEShape::None);
@@ -1205,10 +1207,19 @@ mod tests {
         let difficulty = DifficultyProfile::hard();
         let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let _abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty);
+
+        let (status_tag_cache, ability_tag_cache) = build_caches(&content);
+        let ctx = AiWorld {
+            content: &content,
+            difficulty: &difficulty,
+            tuning: &content.ai_tuning,
+            crit_fail_chance: 0.0,
+            ability_tags: &ability_tag_cache,
+            status_tags: &status_tag_cache,
+        };
 
         let snap = snapshot_from(vec![actor.clone(), stunned.clone(), awake.clone()], 1);
-        let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
+        let sim = SimState::from_snapshot(&snap, actor.entity, &status_tag_cache);
 
         assert!(
             !ai_policy_ok(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx),
@@ -1224,9 +1235,12 @@ mod tests {
     fn aoe_cc_on_stunned_target_still_allowed() {
         // AoE CC keeps the candidate: dropping the whole blast because one
         // enemy in it is stunned is wrong — others in the area still benefit.
+        use crate::combat::ai::world::snapshot::ActiveStatusView;
+        use crate::combat::ai::world::tags::cache::build_caches;
+
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
         let mut stunned = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
-        stunned.tags |= Tags::IS_STUNNED;
+        stunned.statuses.push(ActiveStatusView { id: StatusId::from("stun"), rounds_remaining: 1, dot_per_tick: 0 });
 
         let def = stun_def("aoe_stun", 5, AoEShape::Circle { radius: 1 });
         let mut content = empty_content();
@@ -1236,10 +1250,19 @@ mod tests {
         let difficulty = DifficultyProfile::hard();
         let _caster = CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None };
         let _abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty);
+
+        let (status_tag_cache, ability_tag_cache) = build_caches(&content);
+        let ctx = AiWorld {
+            content: &content,
+            difficulty: &difficulty,
+            tuning: &content.ai_tuning,
+            crit_fail_chance: 0.0,
+            ability_tags: &ability_tag_cache,
+            status_tags: &status_tag_cache,
+        };
 
         let snap = snapshot_from(vec![actor.clone(), stunned.clone()], 1);
-        let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
+        let sim = SimState::from_snapshot(&snap, actor.entity, &status_tag_cache);
 
         assert!(
             ai_policy_ok(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx),
@@ -1305,9 +1328,12 @@ mod tests {
 
     #[test]
     fn generate_plans_excludes_taunt_violating_casts() {
+        use crate::combat::ai::world::snapshot::ActiveStatusView;
+        use crate::combat::ai::world::tags::cache::build_caches;
+
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
         let mut taunter = unit(2, Team::Player, hex_from_offset(5, 0), 20, 1);
-        taunter.tags |= Tags::FORCES_TARGETING;
+        taunter.statuses.push(ActiveStatusView { id: StatusId::from("taunt"), rounds_remaining: 1, dot_per_tick: 0 });
         let adjacent_non_taunter = unit(3, Team::Player, hex_from_offset(1, 0), 20, 1);
         let actor_id = actor.entity;
         let taunter_id = taunter.entity;
@@ -1316,11 +1342,41 @@ mod tests {
         let mut content = empty_content();
         content.abilities.insert(def.id.clone(), def.clone());
 
+        // Add a taunt status with forces_targeting=true so the cache classifies
+        // it as Compulsion and the legality check enforces targeting.
+        let taunt_status = StatusDef {
+            id: StatusId::from("taunt"),
+            name: "Taunt".to_string(),
+            dot_dice: None,
+            ai_controlled: false,
+            buff_class: None,
+            engine: combat_engine::StatusDef {
+                armor_bonus: 0,
+                damage_taken_bonus: 0,
+                skips_turn: false,
+                forces_targeting: true,
+                blocks_mana_abilities: false,
+                speed_bonus: 0,
+                hp_percent_dot: 0,
+                causes_disadvantage: false,
+            },
+        };
+        content.statuses.insert(StatusId::from("taunt"), taunt_status);
+
         let mut difficulty = DifficultyProfile::hard();
         difficulty.plan_max_depth = 1;
         let _caster = CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None };
         let _abilities = Abilities(vec![def.id.clone()]);
-        let ctx = make_ctx(&content, &difficulty);
+
+        let (status_tag_cache, ability_tag_cache) = build_caches(&content);
+        let ctx = AiWorld {
+            content: &content,
+            difficulty: &difficulty,
+            tuning: &content.ai_tuning,
+            crit_fail_chance: 0.0,
+            ability_tags: &ability_tag_cache,
+            status_tags: &status_tag_cache,
+        };
 
         let snap = snapshot_from(vec![actor, taunter, adjacent_non_taunter], 1);
         let maps = empty_maps();

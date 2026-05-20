@@ -523,7 +523,6 @@ fn project_engine_to_snapshot(
 mod tests {
     use super::*;
     use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder};
-    use crate::combat::ai::world::tags::AiTags;
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,
     };
@@ -850,7 +849,7 @@ mod tests {
 
         assert_eq!(outcome.stunned, vec![target_id]);
         let t = sim.snapshot.unit_snapshot(target_id).unwrap();
-        assert!(t.tags.contains(AiTags::IS_STUNNED));
+        assert!(t.is_stunned(&status_tag_cache));
     }
 
     // Regression: drift #2 — heal must neutralise target DoT before restoring

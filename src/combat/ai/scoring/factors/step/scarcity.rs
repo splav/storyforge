@@ -19,7 +19,6 @@ use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::stun_denial_value;
 use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::world::snapshot::UnitSnapshot;
-use crate::combat::ai::world::tags::AiTags;
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ContentView;
 
@@ -115,7 +114,7 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
     // orthogonal axes with different role weights, parallel to how `kill` is
     // mirrored below.
     if let Some(t) = target_unit {
-        if !t.tags.contains(AiTags::IS_STUNNED) {
+        if !t.is_stunned(world.status_tags) {
             let stun_value = stun_denial_value(def, t, world.content);
             if stun_value > 0.0 {
                 // `30.0` ≈ three strong rounds of DPR → full bonus saturation.

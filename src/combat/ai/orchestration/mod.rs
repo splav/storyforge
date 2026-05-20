@@ -266,7 +266,7 @@ pub fn pick_action(
     // ── Step 11.1: band assignment (computed for telemetry plumbing only) ──
     // Band is NOT used for routing here — routing lands in 11.4.
     // Explicit discard so reviewers can see the intent without compiler noise.
-    let (band, band_reason) = assign_band(active, snap, maps, &need_signals, world.difficulty, world.tuning);
+    let (band, band_reason) = assign_band(active, snap, maps, &need_signals, world.difficulty, world.tuning, &world.status_tags);
 
     // ── Step 11.2 / 11.4 / 11.5: agenda construction ─────────────────────
     // In 11.4, agenda is passed into StageCtx so ItemScoringStage and
@@ -283,6 +283,7 @@ pub fn pick_action(
         world.difficulty,
         world.tuning,
         memory,
+        &world.status_tags,
     );
 
     // ── Step 11.5: primary intent derived from agenda ─────────────────────
