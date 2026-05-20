@@ -13,15 +13,18 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 Before implementing:
 - State your assumptions explicitly. If uncertain, ask.
 - If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
 - If something is unclear, stop. Name what's confusing. Ask.
+- If you see legacy or smelling code:
+   * if you are touching it anyway - propose best way to improve and ask
+   * if not - write about it in report after finishing task
+- Always show your architecture plan to a critic agent
 
-### 2. Думать о общем, а не целом
+### 2. Думать обо всей архитектуре в целом
 
 - Изучать варианты
 - Подмечать противоречия и странные решения
 - При возникновении сомнений или выбора всегда спрашивать, а не молча предполагать и делать
-- предлагай рефторинги если видишь хороший варианта (даже если сложный)
+- предлагай рефторинги если видишь хороший вариант (даже если сложный)
 
 ### 3. Тесты
 - тесты должны покрывать освновную логику и сложные краевые случаи, а не тестировать что 2=2
