@@ -730,35 +730,6 @@ impl BattleSnapshot {
         Self { units, round, by_entity, cache, state }
     }
 
-    /// LEGACY constructor — builds a snapshot from a `Vec<UnitSnapshot>` by
-    /// projecting them into a `CombatState` via the lossy
-    /// `unit_snapshots_to_combat_state` function. Will be deleted once all
-    /// callsites are migrated to `snapshot_from` / `BattleSnapshot::new`.
-    pub fn new_from_unit_snapshots(units: Vec<UnitSnapshot>, round: u32) -> Self {
-        let by_entity = units
-            .iter()
-            .enumerate()
-            .map(|(i, u)| (u.entity, i))
-            .collect();
-        let cache = AiCache::from_units(
-            units.iter().map(|u| UnitAiCache {
-                entity:              u.entity,
-                role:                u.role,
-                threat:              u.threat,
-                tags:                u.tags,
-                max_attack_range:    u.max_attack_range,
-                aoo_expected_damage: u.aoo_expected_damage,
-                damage_horizon:      u.damage_horizon.clone(),
-                crit_fail_effect:    u.crit_fail_effect.clone(),
-                ai_tuning_override:  u.ai_tuning_override.clone(),
-                abilities:           u.abilities.clone(),
-                caster_ctx:          u.caster_ctx.clone(),
-            }).collect()
-        );
-        let state = unit_snapshots_to_combat_state(&units, round);
-        Self { units, round, by_entity, cache, state }
-    }
-
     /// Rebuild all derived caches from the current `units` vector.
     ///
     /// Rebuilds:
