@@ -86,7 +86,7 @@ pub fn enemy_ai_system(
     }
     let session_id = session.as_ref().map(|s| s.session_id.as_str()).unwrap_or("");
     run_ai_turn(
-        actor, &c, &env, &mut **rng, &mut reservations,
+        actor, &c, &env, &mut rng, &mut reservations,
         &mut logger, &trace_writer, &mut pending_ai_log, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
         session_id,
@@ -397,7 +397,7 @@ pub fn pact_ai_system(
     }
     let session_id = session.as_ref().map(|s| s.session_id.as_str()).unwrap_or("");
     run_ai_turn(
-        actor, &c, &env, &mut **rng, &mut reservations,
+        actor, &c, &env, &mut rng, &mut reservations,
         &mut logger, &trace_writer, &mut pending_ai_log, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
         session_id,

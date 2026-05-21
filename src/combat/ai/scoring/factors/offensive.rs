@@ -119,7 +119,7 @@ pub(crate) fn compute_offensive(
 /// `combat_engine::aoe_cells` that materialises the result as a `HashSet` for
 /// fast `contains` checks in the planner.
 pub fn aoe_area(def: &AbilityDef, target_pos: Hex, caster_tile: Hex) -> HashSet<Hex> {
-    aoe_cells(def.aoe.into(), caster_tile, target_pos).into_iter().collect()
+    aoe_cells(def.aoe, caster_tile, target_pos).into_iter().collect()
 }
 
 #[cfg(test)]

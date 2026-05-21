@@ -488,7 +488,7 @@ fn step_inner(
                     // Step 6d: target enumeration + damage/heal fanout.
                     let target_state = EngineTargetState { state };
                     affected = crate::targeting::compute_affected_targets(
-                        *actor, &def, *target, *target_pos, &target_state,
+                        *actor, def, *target, *target_pos, &target_state,
                     );
 
                     // Step 6d/6e: per-target effect fanout (damage or heal).
