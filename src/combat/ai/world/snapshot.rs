@@ -229,9 +229,12 @@ impl<'a> std::ops::Deref for UnitView<'a> {
 }
 
 impl<'a> UnitView<'a> {
-    /// Map `UnitView` entity id back to Bevy `Entity`.
+    /// Bevy `Entity` for this unit. Read directly from `UnitAiCache.entity`,
+    /// which carries the real ECS entity registered at `build_snapshot` time.
+    /// Avoids the `Entity::from_bits(self.state.id.0)` shortcut that panics on
+    /// summons with synthetic UnitIds (see B-prime).
     pub fn entity(&self) -> bevy::prelude::Entity {
-        bevy::prelude::Entity::from_bits(self.state.id.0)
+        self.cache.entity
     }
 
     /// `hp > 0`.
