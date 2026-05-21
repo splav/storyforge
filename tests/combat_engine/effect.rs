@@ -18,7 +18,6 @@ use storyforge::game::hex::hex_from_offset;
 struct StubContent {
     speed_bonus: i32,
     armor_bonus: i32,
-    hp_percent_dot: i32,
     templates: std::collections::HashMap<String, storyforge::combat_engine::UnitTemplate>,
     cached_status_def: storyforge::combat_engine::StatusDef,
 }
@@ -38,19 +37,19 @@ impl StubContent {
     }
     fn neutral() -> Self {
         let d = Self::make_status_def(0, 0, 0);
-        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot: 0, templates: Default::default(), cached_status_def: d }
+        Self { speed_bonus: 0, armor_bonus: 0, templates: Default::default(), cached_status_def: d }
     }
     fn with_speed(speed_bonus: i32) -> Self {
         let d = Self::make_status_def(speed_bonus, 0, 0);
-        Self { speed_bonus, armor_bonus: 0, hp_percent_dot: 0, templates: Default::default(), cached_status_def: d }
+        Self { speed_bonus, armor_bonus: 0, templates: Default::default(), cached_status_def: d }
     }
     fn with_armor(armor_bonus: i32) -> Self {
         let d = Self::make_status_def(0, armor_bonus, 0);
-        Self { speed_bonus: 0, armor_bonus, hp_percent_dot: 0, templates: Default::default(), cached_status_def: d }
+        Self { speed_bonus: 0, armor_bonus, templates: Default::default(), cached_status_def: d }
     }
     fn with_hp_percent_dot(hp_percent_dot: i32) -> Self {
         let d = Self::make_status_def(0, 0, hp_percent_dot);
-        Self { speed_bonus: 0, armor_bonus: 0, hp_percent_dot, templates: Default::default(), cached_status_def: d }
+        Self { speed_bonus: 0, armor_bonus: 0, templates: Default::default(), cached_status_def: d }
     }
     fn with_template(mut self, id: &str, tpl: storyforge::combat_engine::UnitTemplate) -> Self {
         self.templates.insert(id.to_string(), tpl);

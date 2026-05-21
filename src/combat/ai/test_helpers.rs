@@ -2,6 +2,13 @@
 //! `cfg(test)` — provides the common `UtilityContext` / `UnitSnapshot` /
 //! `InfluenceMaps` / `ContentView` scaffolding that every scoring-adjacent
 //! test module used to hand-roll.
+//!
+//! Module-wide `allow(dead_code)`: items here are used only from `#[cfg(test)]`
+//! mod blocks across the lib and from integration tests. The lib (non-test)
+//! build still compiles this module (it's `pub mod`, needed by integration
+//! tests like `tests/combat/sim_parity.rs`), so every helper looks dead to
+//! the lib pass and would otherwise spam warnings.
+#![allow(dead_code)]
 
 use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::intent::agenda::Agenda;
@@ -48,7 +55,6 @@ pub(crate) fn empty_status_tag_cache() -> &'static StatusTagCache {
 
 /// Build an empty `(StatusTagCache, AbilityTagCache)` pair for test contexts
 /// that need to pass owned caches (e.g., `pick_action` integration tests).
-#[allow(dead_code)]
 pub(crate) fn empty_caches() -> (StatusTagCache, AbilityTagCache) {
     (StatusTagCache::default(), AbilityTagCache::default())
 }
