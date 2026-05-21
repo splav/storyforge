@@ -10,6 +10,7 @@ use crate::app_state::{AppState, CombatPhase};
 use crate::combat::engine_bridge::{
     CombatStateRes, UnitIdMap, apply_phase_transitions_system, engine_start_first_turn_system,
     init_state_from_ecs, PendingPhaseTransitions, process_action_system, project_state_to_ecs,
+    reset_engine_mirrors_on_exit_combat, reset_engine_mirrors_on_restart,
 };
 use crate::ui;
 
@@ -34,6 +35,14 @@ impl Plugin for CombatPipelinePlugin {
             OnEnter(CombatPhase::AwaitCommand),
             (init_state_from_ecs, engine_start_first_turn_system, crate::combat::ai::log::write_engine_trace_init_system).chain(),
         );
+
+        // Engine mirror teardown — combat plugin owns its own lifecycle:
+        // - OnExit(AppState::Combat) covers normal Victory/Defeat → next combat.
+        // - RestartCombat reader covers in-combat restart (which doesn't exit
+        //   AppState::Combat). Bevy permits independent readers, so this
+        //   coexists with restart_combat_system.
+        app.add_systems(OnExit(AppState::Combat), reset_engine_mirrors_on_exit_combat)
+            .add_systems(Update, reset_engine_mirrors_on_restart);
 
         app.add_systems(
             Update,

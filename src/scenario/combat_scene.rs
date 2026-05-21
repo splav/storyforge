@@ -12,7 +12,6 @@ use crate::game::messages::RestartCombat;
 use crate::game::resources::{
     CombatContext, CombatObjective, GameDb, HexPositions, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
 };
-use crate::combat::engine_bridge::{CombatStateRes, PendingPhaseTransitions, UnitIdMap};
 use crate::combat::enemy_popup::PopupCursor;
 use crate::ui::animation::AnimationQueue;
 use crate::ui::console_log::ConsoleCursor;
@@ -194,9 +193,6 @@ pub fn despawn_combatants(
     mut ctx: ResMut<CombatContext>,
     mut sel: ResMut<SelectionState>,
     mut anim_queue: ResMut<AnimationQueue>,
-    mut combat_state: ResMut<CombatStateRes>,
-    mut id_map: ResMut<UnitIdMap>,
-    mut pending_phases: ResMut<PendingPhaseTransitions>,
     popups: Query<Entity, With<crate::ui::animation::EnemyActionPopup>>,
 ) {
     for entity in combatants.iter().chain(tokens.iter()).chain(popups.iter()).chain(backgrounds.iter()) {
@@ -208,14 +204,9 @@ pub fn despawn_combatants(
     ctx.encounter = None;
     sel.clear();
     anim_queue.0.clear();
-    // Engine state mirrors must be cleared too — otherwise the next combat's
-    // StartRound system `project_state_to_ecs` writes stale positions from the
-    // previous combat into HexPositions before init_state_from_ecs has a chance
-    // to rebuild engine state from the new ECS combatants, causing position
-    // collisions with the freshly spawned units.
-    *combat_state = CombatStateRes::default();
-    id_map.clear();
-    pending_phases.0.clear();
+    // Engine mirror teardown (CombatStateRes / UnitIdMap / PendingPhaseTransitions)
+    // is owned by CombatPipelinePlugin via reset_engine_mirrors_on_exit_combat,
+    // which runs on the same OnExit(AppState::Combat) trigger as this system.
 }
 
 // ── Restart combat ──────────────────────────────────────────────────────────
@@ -243,15 +234,7 @@ pub fn restart_combat_system(
     ),
     mut sel: ResMut<SelectionState>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
-    // Engine state mirrors bundled into one tuple param to stay under Bevy's
-    // 16-system-param limit.
-    mut engine_mirrors: (
-        ResMut<CombatStateRes>,
-        ResMut<UnitIdMap>,
-        ResMut<PendingPhaseTransitions>,
-    ),
 ) {
-    let (combat_state, id_map, pending_phases) = &mut engine_mirrors;
     if reader.read().next().is_none() {
         return;
     }
@@ -276,14 +259,9 @@ pub fn restart_combat_system(
     queue.index = 0;
     sel.clear();
 
-    // Engine state mirrors — same rationale as in despawn_combatants: without
-    // clearing here, the upcoming StartRound's project_state_to_ecs would
-    // project stale combat-1 unit positions into the freshly cleared HexPositions
-    // before init_state_from_ecs rebuilds engine state, colliding with the
-    // newly-spawned units.
-    **combat_state = CombatStateRes::default();
-    id_map.clear();
-    pending_phases.0.clear();
+    // Engine mirror teardown (CombatStateRes / UnitIdMap / PendingPhaseTransitions)
+    // is owned by CombatPipelinePlugin's reset_engine_mirrors_on_restart, which
+    // reads the same RestartCombat message via its own independent reader.
 
     // 3. Spawn fresh combatants + reset state.
     spawn_combatants(&mut commands, &db, &scenario, &mut objective, &tag_cache);

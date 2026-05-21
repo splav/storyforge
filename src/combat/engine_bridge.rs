@@ -48,7 +48,7 @@ use crate::game::components::{
 };
 use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
-use crate::game::messages::ActionInput;
+use crate::game::messages::{ActionInput, RestartCombat};
 use crate::game::resources::{CombatContext, HexPositions, TurnQueue};
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
@@ -1590,3 +1590,51 @@ pub fn engine_start_first_turn_system(
     }
 }
 
+// ── reset_engine_mirrors ──────────────────────────────────────────────────────
+
+/// Clears the engine-side mirrors (`CombatStateRes`, `UnitIdMap`,
+/// `PendingPhaseTransitions`) so a fresh combat starts from a clean slate.
+///
+/// Without this reset, the next combat's `StartRound` system
+/// `project_state_to_ecs` would iterate stale unit data from the previous
+/// combat and try to write its positions into the freshly-cleared
+/// `HexPositions` resource, colliding with the newly-spawned combatants.
+///
+/// Plain helper — both reset systems below delegate here so the "what counts
+/// as an engine mirror" knowledge lives in one place. Add a new mirror? Update
+/// this function only.
+fn reset_engine_mirrors(
+    combat_state: &mut CombatStateRes,
+    id_map: &mut UnitIdMap,
+    pending_phases: &mut PendingPhaseTransitions,
+) {
+    *combat_state = CombatStateRes::default();
+    id_map.clear();
+    pending_phases.0.clear();
+}
+
+/// `OnExit(AppState::Combat)` system — natural combat-end teardown.
+pub fn reset_engine_mirrors_on_exit_combat(
+    mut combat_state: ResMut<CombatStateRes>,
+    mut id_map: ResMut<UnitIdMap>,
+    mut pending_phases: ResMut<PendingPhaseTransitions>,
+) {
+    reset_engine_mirrors(&mut combat_state, &mut id_map, &mut pending_phases);
+}
+
+/// `Update` system listening to `RestartCombat` messages. The restart flow
+/// keeps `AppState::Combat`, so `OnExit` doesn't fire — we need an explicit
+/// reader. Bevy permits multiple independent readers of the same message
+/// stream, so this coexists with `restart_combat_system` (each has its own
+/// cursor).
+pub fn reset_engine_mirrors_on_restart(
+    mut reader: MessageReader<RestartCombat>,
+    mut combat_state: ResMut<CombatStateRes>,
+    mut id_map: ResMut<UnitIdMap>,
+    mut pending_phases: ResMut<PendingPhaseTransitions>,
+) {
+    if reader.read().next().is_none() {
+        return;
+    }
+    reset_engine_mirrors(&mut combat_state, &mut id_map, &mut pending_phases);
+}
