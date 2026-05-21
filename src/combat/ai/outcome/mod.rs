@@ -276,6 +276,7 @@ pub struct PlanAnnotation {
     ///   - `PickBestStage` — agenda composition write
     ///   - `ViabilityStage` — rescore write
     ///   - `pick_action` — initial score write from `score_plans_with_raw`
+    ///
     /// All writers are intra-crate. External consumers use the `score()` getter.
     ///
     /// Phase 3: score is always finite after pipeline (SelectionKey carries

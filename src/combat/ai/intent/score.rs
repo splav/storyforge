@@ -172,17 +172,17 @@ pub(crate) fn intent_offensive_value_on_target(
 
 // ── Intent → utility score (factor[7]) ──────────────────────────────────────
 
-/// Compute how well a scored step aligns with the current intent.
-/// Positive = aligned, zero = neutral, negative = misaligned (soft penalty).
-///
-/// Uses a dot-product of per-step impact factors against intent-specific weight
-/// vectors (via `IntentWeights`) for `FocusTarget` and `ApplyCC`. This makes
-/// alignment proportional to actual impact magnitude — a hit doing 10 damage
-/// outscores a hit doing 1 damage, fixing S5 (low-value armor hits getting full
-/// intent credit under the old hardcoded 1.0 return).
-///
-/// `ProtectSelf`, `ProtectAlly`, `SetupAOE`, `LastStand` preserve their
-/// existing formulas (ported to the new signature).
+// Compute how well a scored step aligns with the current intent.
+// Positive = aligned, zero = neutral, negative = misaligned (soft penalty).
+//
+// Uses a dot-product of per-step impact factors against intent-specific weight
+// vectors (via `IntentWeights`) for `FocusTarget` and `ApplyCC`. This makes
+// alignment proportional to actual impact magnitude — a hit doing 10 damage
+// outscores a hit doing 1 damage, fixing S5 (low-value armor hits getting full
+// intent credit under the old hardcoded 1.0 return).
+//
+// `ProtectSelf`, `ProtectAlly`, `SetupAOE`, `LastStand` preserve their
+// existing formulas (ported to the new signature).
 // ── LastStand step scorer ──────────────────────────────────────────────────
 
 /// Score a single step under the **LastStand** evaluation regime.

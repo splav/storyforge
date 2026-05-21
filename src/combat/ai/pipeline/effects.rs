@@ -25,7 +25,7 @@ use crate::combat::ai::pipeline::{ScoredPool, StageCtx};
 /// Two-bucket semantics — see `docs/ai/tech-debt.md` § A2 / Phase 3 plan:
 ///   - `selectable=true`  → eligible for normal ranking; mercy/jitter apply
 ///   - `selectable=false` → masked OR gated; only used as fallback when no
-///                          selectable plans exist
+///     selectable plans exist
 ///
 /// Within each bucket plans are ordered by `score` descending. Phase 3 does
 /// NOT introduce priority ordering between masked and gated plans (separate

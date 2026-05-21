@@ -1,9 +1,9 @@
-/// Regression test for the ActiveCombatant multi-entity bug fixed in Phase 4e.
-///
-/// Before the fix, `translate_end_turn_events` inserted `ActiveCombatant` on
-/// the new actor but never removed it from the old one.  After a mid-round
-/// handoff `active_q.single()` would return `Err(MultipleEntities)` and combat
-/// would freeze.
+//! Regression test for the ActiveCombatant multi-entity bug fixed in Phase 4e.
+//!
+//! Before the fix, `translate_end_turn_events` inserted `ActiveCombatant` on
+//! the new actor but never removed it from the old one.  After a mid-round
+//! handoff `active_q.single()` would return `Err(MultipleEntities)` and combat
+//! would freeze.
 
 use bevy::prelude::*;
 

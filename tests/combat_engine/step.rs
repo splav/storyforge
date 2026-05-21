@@ -605,6 +605,7 @@ fn endturn_rejects_when_actor_not_current() {
 /// - heroA (uid 1) at offset (1,0) — Player, has `aoo_dice` set (lethal hit).
 /// - enemyB (uid 2) at offset (0,0) — Enemy, current actor, 1 hp.
 /// - enemyB moves to offset (0,2) — leaves heroA adjacency → AoO fires → lethal.
+///
 /// Queue: [A=1, B=2], current = B (index 1).
 ///
 /// Expected after `step(Move { actor: 2, … })`:

@@ -1334,6 +1334,7 @@ type ProjectionRow<'a> = (
 /// - `hp`               → `Vital.hp`
 /// - `movement_points`  → `ActionPoints.movement_points`
 /// - `reactions_left`   → `Reactions.remaining`
+///
 /// Initialise engine `CombatState` from the current ECS snapshot.
 ///
 /// Called on `OnEnter(CombatPhase::AwaitCommand)` once per round (after
@@ -1536,9 +1537,7 @@ pub fn init_state_from_ecs(
         let Some(uid) = id_map.get_id(entity) else { continue };
         if let Some(unit) = state.unit_mut(uid) {
             unit.enemy_phases = phases.pending.iter().map(|phase| {
-                let pct = match phase.trigger {
-                    crate::content::encounters::PhaseTrigger::HpBelowPct(p) => p,
-                };
+                let crate::content::encounters::PhaseTrigger::HpBelowPct(pct) = phase.trigger;
                 let new_max_hp = phase.stats.as_ref().map(|s| s.max_hp).unwrap_or(0);
                 combat_engine::PhaseEntry { pct, new_max_hp, heal_to_full: phase.heal_to_full }
             }).collect();
