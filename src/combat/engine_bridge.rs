@@ -1445,22 +1445,23 @@ pub fn init_state_from_ecs(
     aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
     phases_q: Query<(Entity, &EnemyPhases), With<Combatant>>,
     active_content: Res<ActiveContent>,
-    // B2: run exactly once per combat session (guard against round-wrap re-init).
-    //
-    // Uses `Local<Option<Option<Entity>>>` to distinguish "never run" (outer None)
-    // from "last seen encounter" (Some(inner)), where the inner value may itself
-    // be None when no encounter entity is set (e.g. test harnesses).
-    mut last_encounter: Local<Option<Option<Entity>>>,
 ) {
-    // Skip on round 2+: if the encounter identity hasn't changed we already
-    // initialised the engine state at combat start and must not overwrite it
-    // (that would discard all engine-side mutations — status ticks, AP/MP
-    // refills, etc.).
-    let current_encounter = combat_context.encounter;
-    if *last_encounter == Some(current_encounter) {
+    // B2: run exactly once per combat session — only on round 1.
+    //
+    // `ctx.round` is set to 0 by `start_combat_system` / `reset_combat_state`,
+    // then incremented to 1 by `build_turn_order` before phase transitions to
+    // `AwaitCommand`. So `ctx.round == 1` uniquely identifies the first
+    // `OnEnter(AwaitCommand)` of any fresh combat (initial or restart) and
+    // never matches a round-wrap re-entry (which would have ctx.round >= 2).
+    //
+    // Earlier we tried an encounter-identity guard, but `ctx.encounter` can
+    // collide across consecutive combats when encounter entities are loaded
+    // as persistent game-DB sentinels (same Entity ID), making the guard skip
+    // initialisation for the second combat → id_map ends up empty → silent
+    // EndTurn loop on the first AI turn.
+    if combat_context.round != 1 {
         return;
     }
-    *last_encounter = Some(current_encounter);
 
     use crate::content::encounters::AuraAffects;
 
