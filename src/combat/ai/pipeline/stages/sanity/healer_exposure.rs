@@ -5,7 +5,7 @@
 //! `SanityHit { rule: HealerExposure, multiplier: 0.5 }`.
 
 use crate::combat::ai::pipeline::stages::sanity::SanityHit;
-use crate::combat::ai::world::snapshot::{UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::UnitView;
 use crate::combat::ai::world::tags::AiTags;
 use crate::game::hex::Hex;
 
@@ -17,12 +17,12 @@ use super::SanityRule;
 /// Returns an empty `Vec` when the rule does not apply (active is a healer /
 /// support, or no healer is being abandoned).
 pub(super) fn evaluate(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     final_pos: Hex,
     allies: &[UnitView<'_>],
 ) -> Vec<SanityHit> {
     let mut hits = Vec::new();
-    if active.role.support >= 0.3 {
+    if active.cache.role.support >= 0.3 {
         return hits;
     }
     for ally in allies {

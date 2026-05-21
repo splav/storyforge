@@ -44,8 +44,8 @@ impl PlanStage for ViabilityStage {
 
         // Gate fails — determine fallback intent.
         let scoring = ctx.scoring;
-        let hp_pct = scoring.active.hp_pct();
-        let actor_danger = scoring.maps.danger.get(scoring.active.pos);
+        let hp_pct = scoring.active_view.hp_pct();
+        let actor_danger = scoring.maps.danger.get(scoring.active_view.pos);
         let midpanic_hp = scoring.world.difficulty.midpanic_hp_threshold();
         let panic_danger = scoring.world.difficulty.awareness_danger_threshold(scoring.world.tuning);
         let midpanic = hp_pct < midpanic_hp && actor_danger > panic_danger;
@@ -68,7 +68,7 @@ impl PlanStage for ViabilityStage {
                 _ => None,
             };
             let from_kind = ctx.intent.kind();
-            default_focus_target(scoring.active, scoring.snap, &pool.plans, ctx.actor_pos, exclude)
+            default_focus_target(scoring.active_view, scoring.snap, &pool.plans, ctx.actor_pos, exclude)
                 .map(|t| {
                     (
                         TacticalIntent::FocusTarget { target: t },

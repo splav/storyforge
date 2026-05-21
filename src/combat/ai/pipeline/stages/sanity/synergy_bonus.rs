@@ -6,7 +6,7 @@ use crate::combat::ai::pipeline::stages::sanity::{SanityHit, SanityRule};
 use crate::content::abilities::EffectCalcExt;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::combat::ai::world::snapshot::UnitView;
 use crate::game::hex::Hex;
 
 /// Evaluate the SynergyBonus rule for one plan.
@@ -15,7 +15,7 @@ use crate::game::hex::Hex;
 /// plan moves to a safer or positionally better tile **and** includes a useful
 /// cast. Returns `None` otherwise (including when the plan does not reposition).
 pub(super) fn evaluate(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     plan: &TurnPlan,
     final_pos: Hex,
     current_danger: f32,
@@ -29,7 +29,7 @@ pub(super) fn evaluate(
     }
     let safer_tile = ctx.maps.danger.get(final_pos) + 0.05 < current_danger;
     let better_pos =
-        evaluate_position(final_pos, &active.role, ctx.world.tuning, ctx.maps) > current_pos_eval;
+        evaluate_position(final_pos, &active.cache.role, ctx.world.tuning, ctx.maps) > current_pos_eval;
     if (safer_tile || better_pos) && plan_has_useful_cast(plan, ctx) {
         Some(SanityHit {
             rule: SanityRule::SynergyBonus,
@@ -42,7 +42,7 @@ pub(super) fn evaluate(
 
 fn plan_has_useful_cast(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
     let content = ctx.world.content;
-    let caster = &ctx.active.caster_ctx;
+    let caster = &ctx.active_view.cache.caster_ctx;
     plan.steps.iter().any(|s| {
         if let PlanStep::Cast { ability, .. } = s {
             content.abilities.get(ability).is_some_and(|def| {

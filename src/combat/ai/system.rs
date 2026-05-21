@@ -146,7 +146,7 @@ fn run_ai_turn(
         msgs.action_input.write(ActionInput::EndTurn { actor });
         return;
     };
-    // C2/C3 workaround: update_memory + record_committed_reservations still take &UnitSnapshot.
+    // C3/C4 workaround: record_committed_reservations still takes &UnitSnapshot.
     let actor_snap = snap.unit_snapshot(actor).expect("unit_snapshot present iff unit() is");
 
     // Borrow the actor's persistent `AiMemory` directly from the query —
@@ -260,7 +260,7 @@ fn run_ai_turn(
 
     // Update memory with the intent chosen this tick. Must run after pick_action
     // so select_intent inside it saw the pre-tick memory state.
-    update_memory(memory_ref, actor_snap, &result.intent, &content.ai_tuning);
+    update_memory(memory_ref, actor_view, &result.intent, &content.ai_tuning);
 
     let decision = result.decision.clone();
     let best_idx = result.best_idx;

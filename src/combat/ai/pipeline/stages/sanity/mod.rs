@@ -140,15 +140,15 @@ pub fn sanity_adjust_plans(
         return breakdown;
     }
 
-    let active = ctx.active;
+    let active = ctx.active_view;
     let snap = ctx.snap;
     let maps = ctx.maps;
     let allies: Vec<UnitView<'_>> = snap
         .allies_of(active.team)
-        .filter(|u| u.entity() != active.entity)
+        .filter(|u| u.entity() != active.entity())
         .collect();
     let ally_positions: HashSet<Hex> = allies.iter().map(|a| a.pos).collect();
-    let current_pos_eval = evaluate_position(active.pos, &active.role, ctx.world.tuning, maps);
+    let current_pos_eval = evaluate_position(active.pos, &active.cache.role, ctx.world.tuning, maps);
     let current_danger = maps.danger.get(active.pos);
 
     for (idx, (plan, score)) in plans.iter().zip(scores.iter_mut()).enumerate() {

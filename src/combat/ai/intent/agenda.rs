@@ -23,7 +23,7 @@ use crate::combat::ai::intent::{
 };
 use crate::combat::ai::intent::considerations::{compute_considerations, IntentConsiderations};
 use crate::combat::ai::config::role::AxisProfile;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::scoring::target_selection::target_selection_score;
 use crate::combat::ai::config::tuning::AiTuning;
 
@@ -112,7 +112,7 @@ pub struct Agenda {
 pub fn build_agenda(
     band: PriorityBand,
     band_reason: &BandReason,
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     needs: &NeedSignals,
@@ -138,8 +138,8 @@ pub fn build_agenda(
 
     // ── Step 11.3: compute considerations per item ────────────────────────────
     // `repair = None` — per-plan RepairAffinity arrives in 11.4.
-    // `role` taken from active.role (AxisProfile on UnitSnapshot).
-    let role: &AxisProfile = &active.role;
+    // `role` taken from active.role (AxisProfile on UnitView via Deref).
+    let role: &AxisProfile = &active.cache.role;
     for item in items.iter_mut() {
         item.considerations = compute_considerations(item, needs, role, None);
     }
@@ -155,7 +155,7 @@ pub fn build_agenda(
 /// ForcedTargeting: N=1 — the taunter is the only valid target.
 fn build_forced_targeting(
     band_reason: &BandReason,
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &BattleSnapshot,
 ) -> Vec<AgendaItem> {
     let BandReason::TauntForced { taunter } = band_reason else {
@@ -183,7 +183,7 @@ fn build_forced_targeting(
 /// CriticalSelfPreservation: N=2 — ProtectSelf + best Reposition-away.
 fn build_critical_self_preservation(
     band_reason: &BandReason,
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     needs: &NeedSignals,
@@ -241,14 +241,14 @@ fn build_critical_self_preservation(
 
 /// HardRescueOpportunity: N=2 — ProtectAlly + FocusTarget on the threat to that ally.
 fn build_hard_rescue_opportunity(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &BattleSnapshot,
     needs: &NeedSignals,
 ) -> Vec<AgendaItem> {
     // Find most-endangered ally: highest (1 - hp_pct) × threat_proxy score.
     let ally = snap
         .allies_of(active.team)
-        .filter(|a| a.entity() != active.entity)
+        .filter(|a| a.entity() != active.entity())
         .max_by(|a, b| {
             let score_a = (1.0 - a.hp_pct()) * ally_threat_proxy(*a, snap);
             let score_b = (1.0 - b.hp_pct()) * ally_threat_proxy(*b, snap);
@@ -281,7 +281,7 @@ fn build_hard_rescue_opportunity(
         reason: IntentReason::ProtectAlly {
             ally_hp_pct: endangered_ally.hp_pct(),
             threshold: 0.5, // default threshold; exact value from tuning in 11.3
-            heal_identity: active.role.support.min(1.0),
+            heal_identity: active.cache.role.support.min(1.0),
         },
         considerations: IntentConsiderations::default(),
     };
@@ -326,7 +326,7 @@ fn build_hard_rescue_opportunity(
 /// `memory` is forwarded to preserve stickiness bonuses within normal-tactical
 /// intent selection, matching prior behaviour in `pick_action`.
 fn build_normal_tactical(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     needs: &NeedSignals,
@@ -432,7 +432,7 @@ mod tests {
         let agenda = build_agenda(
             PriorityBand::ForcedTargeting,
             &band_reason,
-            &active,
+            snap.unit(active.entity).expect("active in snap"),
             &snap,
             &maps,
             &zero_needs(),
@@ -475,7 +475,7 @@ mod tests {
         let agenda = build_agenda(
             PriorityBand::CriticalSelfPreservation,
             &band_reason,
-            &active,
+            snap.unit(active.entity).expect("active in snap"),
             &snap,
             &maps,
             &needs,
@@ -521,7 +521,7 @@ mod tests {
         let agenda = build_agenda(
             PriorityBand::HardRescueOpportunity,
             &band_reason,
-            &active,
+            snap.unit(active.entity).expect("active in snap"),
             &snap,
             &maps,
             &needs,
@@ -568,7 +568,7 @@ mod tests {
         let agenda = build_agenda(
             PriorityBand::HardRescueOpportunity,
             &band_reason,
-            &active,
+            snap.unit(active.entity).expect("active in snap"),
             &snap,
             &maps,
             &needs,
@@ -605,7 +605,7 @@ mod tests {
         let agenda = build_agenda(
             PriorityBand::NormalTactical,
             &band_reason,
-            &active,
+            snap.unit(active.entity).expect("active in snap"),
             &snap,
             &maps,
             &zero_needs(),
@@ -649,7 +649,7 @@ mod tests {
         let agenda = build_agenda(
             PriorityBand::CriticalSelfPreservation,
             &band_reason,
-            &active,
+            snap.unit(active.entity).expect("active in snap"),
             &snap,
             &maps,
             &needs,

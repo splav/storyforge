@@ -362,11 +362,11 @@ impl PlanStage for PickBestStage {
                     // ── Reconstruct weights for Intent and TempoGain ──
                     // Mirrors finalize_scores lines 183-201 exactly.
                     let world = scoring.world;
-                    let active = scoring.active;
+                    let active = scoring.active_view;
                     let mut weights = if scoring.last_goal.is_some() {
-                        active.role.factor_weights_continuation(world.tuning)
+                        active.cache.role.factor_weights_continuation(world.tuning)
                     } else {
-                        active.role.factor_weights(world.tuning)
+                        active.cache.role.factor_weights(world.tuning)
                     };
                     weights[StepFactor::count() + PlanFactor::Intent as usize] *=
                         world.difficulty.intent_commitment;

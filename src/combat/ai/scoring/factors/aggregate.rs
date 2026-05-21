@@ -438,7 +438,7 @@ pub fn compute_plan_intent_sum(
         "TurnPlan sim_snapshots must align with steps, or be empty (deserialized)",
     );
 
-    let active = ctx.active;
+    let active = ctx.active_view;
     let snap = ctx.snap;
     let world = ctx.world;
     let content = world.content;
@@ -455,7 +455,7 @@ pub fn compute_plan_intent_sum(
                 return match snap.unit(*target) {
                     Some(t) => {
                         let reach = (active.speed.max(0) as u32)
-                            .saturating_add(active.max_attack_range);
+                            .saturating_add(active.cache.max_attack_range);
                         pursuit_move_score(active.pos, plan.final_pos, t.pos, reach)
                     }
                     None => 0.0,
@@ -492,7 +492,7 @@ pub fn compute_plan_intent_sum(
 
     for (idx, step) in plan.steps.iter().enumerate() {
         let pre_snap = plan.pre_step_snapshot(idx, snap);
-        let Some(sim_actor) = pre_snap.unit_snapshot(active.entity).cloned() else {
+        let Some(sim_actor) = pre_snap.unit_snapshot(active.entity()).cloned() else {
             break;
         };
         let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
@@ -529,7 +529,7 @@ pub fn compute_plan_intent_sum(
                         match snap.unit(*target) {
                             Some(t) => {
                                 let reach = (active.speed.max(0) as u32)
-                                    .saturating_add(active.max_attack_range);
+                                    .saturating_add(active.cache.max_attack_range);
                                 pursuit_move_score(cast_pos, plan.final_pos, t.pos, reach)
                             }
                             None => 0.0,

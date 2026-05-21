@@ -5,7 +5,7 @@ use crate::combat::ai::scoring::factors::{aoe_area, aoe_hits, StepFactor};
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::combat::ai::world::snapshot::UnitView;
 use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::abilities::{AoEShape, TargetType};
@@ -78,15 +78,16 @@ pub fn pursuit_move_score(from_pos: Hex, to_pos: Hex, target_pos: Hex, reach: u3
 /// Falls back to `max_attack_range` when the actor has no CC-tagged
 /// ability (e.g. weapon-attached stun via status that doesn't fire
 /// `applies_cc`). Conservative default — won't over-promise.
-pub fn cc_reach(active: &UnitSnapshot, content: &ContentView) -> u32 {
+pub fn cc_reach(active: UnitView<'_>, content: &ContentView) -> u32 {
     active
+        .cache
         .abilities
         .iter()
         .filter_map(|id| content.abilities.get(id))
         .filter(|def| applies_cc(def, content))
         .map(|def| def.range.max)
         .max()
-        .unwrap_or(active.max_attack_range)
+        .unwrap_or(active.cache.max_attack_range)
 }
 
 // ── IntentWeights ────────────────────────────────────────────────────────────
@@ -193,7 +194,7 @@ pub(crate) fn intent_offensive_value_on_target(
 pub fn evaluate_last_stand_step(step: &ScoredStep, step_ctx: &ScoringCtx) -> f32 {
     let content = step_ctx.world.content;
     let snap = step_ctx.snap;
-    let active = step_ctx.active;
+    let active = step_ctx.active_view;
 
     let cast = match step {
         ScoredStep::Cast { ability, target_pos, target, .. } => {
@@ -242,7 +243,7 @@ pub fn intent_score(
     if mode == EvaluationMode::LastStand {
         return evaluate_last_stand_step(step, step_ctx);
     }
-    let active = step_ctx.active;
+    let active = step_ctx.active_view;
     let snap = step_ctx.snap;
     let maps = step_ctx.maps;
     let content = step_ctx.world.content;
@@ -264,7 +265,7 @@ pub fn intent_score(
                 return match snap.unit(*focus) {
                     Some(t) => {
                         let reach = (active.speed.max(0) as u32)
-                            .saturating_add(active.max_attack_range);
+                            .saturating_add(active.cache.max_attack_range);
                         pursuit_move_score(active.pos, step.caster_tile(), t.pos, reach)
                     }
                     None => 0.0,
@@ -299,8 +300,8 @@ pub fn intent_score(
         TacticalIntent::Reposition => {
             // Tiered: strong improvement rewarded, any improvement neutral,
             // no improvement penalized — mildly if casting, hard if just moving.
-            let current = evaluate_position(active.pos, &active.role, step_ctx.world.tuning, maps);
-            let new = evaluate_position(step.caster_tile(), &active.role, step_ctx.world.tuning, maps);
+            let current = evaluate_position(active.pos, &active.cache.role, step_ctx.world.tuning, maps);
+            let new = evaluate_position(step.caster_tile(), &active.cache.role, step_ctx.world.tuning, maps);
             let improvement = new - current;
             let min_improv = difficulty.reposition_min_improvement(step_ctx.world.tuning);
             if improvement >= min_improv {
@@ -319,7 +320,7 @@ pub fn intent_score(
             // staying put to save yourself is protecting self, regardless of
             // tile danger. Otherwise use tile safety.
             if let Some((ability, _, target)) = cast {
-                if target == active.entity {
+                if target == active.entity() {
                     if let Some(def) = content.abilities.get(ability) {
                         if matches!(def.target_type, TargetType::SingleAlly | TargetType::Myself) {
                             return 1.0;
@@ -360,7 +361,8 @@ pub fn intent_score(
             }
             let area = aoe_area(def, target_pos, step.caster_tile());
             let total = snap.enemies_of(active.team).count() as f32;
-            let hit = aoe_hits(&area, active, snap).enemies.len() as f32;
+            // aoe_hits still takes &UnitSnapshot (migrated in C3); use legacy ctx.active.
+            let hit = aoe_hits(&area, step_ctx.active, snap).enemies.len() as f32;
             if total > 0.0 { hit / total } else { 0.0 }
         }
     }
@@ -610,14 +612,18 @@ mod tests {
             .ability_names(&["stun_shot", "melee_attack"])
             .max_attack_range(3)
             .build();
-        assert_eq!(cc_reach(&actor, &content), 3);
+        let actor_snap = snapshot_from(vec![actor.clone()], 0);
+        let actor_view = actor_snap.unit(actor.entity).expect("actor in snap");
+        assert_eq!(cc_reach(actor_view, &content), 3);
 
         // Actor without any CC ability falls back to max_attack_range.
         let brawler = UnitBuilder::new(2, Team::Enemy, hex_from_offset(0, 0))
             .ability_names(&["melee_attack"])
             .max_attack_range(1)
             .build();
-        assert_eq!(cc_reach(&brawler, &content), 1);
+        let brawler_snap = snapshot_from(vec![brawler.clone()], 0);
+        let brawler_view = brawler_snap.unit(brawler.entity).expect("brawler in snap");
+        assert_eq!(cc_reach(brawler_view, &content), 1);
     }
 
     // ── intent_score wiring: FocusTarget Move uses pursuit ──────────────

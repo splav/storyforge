@@ -6,7 +6,7 @@ use crate::combat::ai::scoring::factors::ScoredStep;
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::scoring::target_selection::{highest_priority_enemy, target_selection_score};
 use crate::combat::ai::world::influence::InfluenceMaps;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
 use crate::game::hex::Hex;
 use super::kinds::{IntentKind, IntentReason, TacticalIntent};
@@ -37,7 +37,7 @@ pub struct IntentChoice {
 ///
 /// Called by `build_normal_tactical` when building the `NormalTactical` band agenda.
 pub(crate) fn select_intent_normal(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     memory: &AiMemory,
@@ -92,11 +92,11 @@ pub(crate) fn select_intent_normal(
     // NOTE: no ProtectSelf / ProtectAlly — handled by band builders.
 
     // FocusTarget killable enemy / best priority target.
-    let reach_budget = (active.speed.max(0) as u32).saturating_add(active.max_attack_range);
+    let reach_budget = (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
     let killable = snap
         .enemies_of(active.team)
         .filter(|_| active.action_points > 0)
-        .filter(|e| active.threat >= e.eff_hp() as f32)
+        .filter(|e| active.cache.threat >= e.eff_hp() as f32)
         .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
         .min_by_key(|e| e.eff_hp());
     if let Some(target) = killable {
@@ -105,7 +105,7 @@ pub(crate) fn select_intent_normal(
             TacticalIntent::FocusTarget { target: target.entity() },
             kill_score,
             IntentReason::Killable {
-                threat: active.threat,
+                threat: active.cache.threat,
                 eff_hp: target.eff_hp(),
                 reach_budget,
                 finish_target: need_signals.finish_target,
@@ -121,7 +121,7 @@ pub(crate) fn select_intent_normal(
     }
 
     // ApplyCC: high-sustained-damage unstunned enemy.
-    if active.tags.contains(AiTags::CAN_CC) {
+    if active.cache.tags.contains(AiTags::CAN_CC) {
         let cc_target = snap
             .enemies_of(active.team)
             .filter(|e| !e.is_stunned(status_tags))
@@ -142,7 +142,7 @@ pub(crate) fn select_intent_normal(
     }
 
     // SetupAOE: enemies clustered.
-    if active.tags.contains(AiTags::HAS_AOE) {
+    if active.cache.tags.contains(AiTags::HAS_AOE) {
         let enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
         let cluster_count = enemies.iter().enumerate().filter(|(i, a)| {
             enemies[*i + 1..]
@@ -196,7 +196,7 @@ pub(crate) fn select_intent_normal(
 #[deprecated(note = "use assign_band → build_agenda flow; direct callers should migrate to \
                      select_intent_normal for NormalTactical. Removal in step 12.")]
 pub fn select_intent(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     memory: &AiMemory,
@@ -297,8 +297,8 @@ pub fn select_intent(
     // pure damage dealer (support=0) keeps 50% threshold (barely triggers),
     // pure healer (support=1.0) triggers at 70% (aggressive preventive heal).
     // Hybrid battle-mages with heal enter healer-mode proportionally earlier.
-    if active.tags.contains(AiTags::CAN_HEAL) {
-        let heal_identity = active.role.support.min(1.0);
+    if active.cache.tags.contains(AiTags::CAN_HEAL) {
+        let heal_identity = active.cache.role.support.min(1.0);
         let threshold = 0.5 + heal_identity * 0.2;
         let most_wounded = snap
             .allies_of(active.team)
@@ -334,7 +334,7 @@ pub fn select_intent(
             1.2,
             IntentReason::TauntForced,
         );
-        if active.tags.contains(AiTags::CAN_CC) && !t.is_stunned(status_tags) {
+        if active.cache.tags.contains(AiTags::CAN_CC) && !t.is_stunned(status_tags) {
             // Intent score uses horizon-average (DPR) rather than peak
             // `threat` so CC-ing a burst mage with empty mana doesn't
             // over-commit the planner; a sustained fighter still scores
@@ -350,11 +350,11 @@ pub fn select_intent(
         // FocusTarget: killable enemy scores highest, otherwise best priority target.
         // "Killable" requires BOTH: (a) effective HP within threat (armor-aware),
         // (b) reachable this turn (dist ≤ speed + max attack range).
-        let reach_budget = (active.speed.max(0) as u32).saturating_add(active.max_attack_range);
+        let reach_budget = (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
         let killable = snap
             .enemies_of(active.team)
             .filter(|_| active.action_points > 0)
-            .filter(|e| active.threat >= e.eff_hp() as f32)
+            .filter(|e| active.cache.threat >= e.eff_hp() as f32)
             .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
             .min_by_key(|e| e.eff_hp());
         if let Some(target) = killable {
@@ -368,7 +368,7 @@ pub fn select_intent(
                 TacticalIntent::FocusTarget { target: target.entity() },
                 kill_score,
                 IntentReason::Killable {
-                    threat: active.threat,
+                    threat: active.cache.threat,
                     eff_hp: target.eff_hp(),
                     reach_budget,
                     finish_target: need_signals.finish_target,
@@ -384,7 +384,7 @@ pub fn select_intent(
         }
 
         // ApplyCC: high-sustained-damage unstunned enemy.
-        if active.tags.contains(AiTags::CAN_CC) {
+        if active.cache.tags.contains(AiTags::CAN_CC) {
             // Rank by DPR (horizon-average) so the CC intent targets who
             // actually contributes the most over the combat window —
             // burst casters with empty pools drop relative to sustained
@@ -410,7 +410,7 @@ pub fn select_intent(
     }
 
     // SetupAOE: enemies clustered.
-    if active.tags.contains(AiTags::HAS_AOE) {
+    if active.cache.tags.contains(AiTags::HAS_AOE) {
         let enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
         let cluster_count = enemies.iter().enumerate().filter(|(i, a)| {
             enemies[*i + 1..]
@@ -498,7 +498,7 @@ pub fn intent_viability_threshold(intent: &TacticalIntent) -> Option<f32> {
 /// `exclude` skips the original unreachable target so we pick a genuinely
 /// different fallback (avoids "fallback from FocusTarget(X) → FocusTarget(X)").
 pub fn default_focus_target(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &BattleSnapshot,
     plans: &[TurnPlan],
     actor_pos: Hex,
@@ -534,7 +534,7 @@ pub fn default_focus_target(
 /// and `turns_in_low_hp` — inputs for the appraisal / need layer (step 3.1).
 pub fn update_memory(
     memory: &mut AiMemory,
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     intent: &TacticalIntent,
     tuning: &AiTuning,
 ) {
@@ -605,7 +605,8 @@ mod tests {
 
         let tuning = AiTuning::default();
         let need_signals = NeedSignals::default();
-        let choice = select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &need_signals, &StatusTagCache::default());
+        let actor_view = snap.unit(actor.entity).expect("actor in snap");
+        let choice = select_intent(actor_view, &snap, &maps, &memory, &difficulty, &tuning, &need_signals, &StatusTagCache::default());
 
         assert!(
             !matches!(choice.reason, IntentReason::Killable { .. }),
@@ -675,8 +676,9 @@ mod tests {
             self_preserve: 0.80, // above soft threshold (0.2)
             ..NeedSignals::default()
         };
+        let actor_view = snap.unit(actor.entity).expect("actor in snap");
         let choice_high =
-            select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &ns_high, &StatusTagCache::default());
+            select_intent(actor_view, &snap, &maps, &memory, &difficulty, &tuning, &ns_high, &StatusTagCache::default());
         assert!(
             matches!(choice_high.intent, TacticalIntent::FocusTarget { target } if target == e2_entity),
             "commitment=1.0 → stickiness tips FocusTarget above ProtectSelf; got {:?}",
@@ -691,7 +693,7 @@ mod tests {
             ..NeedSignals::default()
         };
         let choice_low =
-            select_intent(&actor, &snap, &maps, &memory, &difficulty, &tuning, &ns_low, &StatusTagCache::default());
+            select_intent(actor_view, &snap, &maps, &memory, &difficulty, &tuning, &ns_low, &StatusTagCache::default());
         assert!(
             matches!(choice_low.intent, TacticalIntent::ProtectSelf),
             "commitment=0.0 → no stickiness, ProtectSelf beats FocusTarget; got {:?}",

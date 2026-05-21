@@ -236,10 +236,13 @@ fn attack_component_intent(
         _ => {
             let mut enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
             if enemies.is_empty() { return 0.0; }
+            // C3 workaround: attack_component_intent still takes &UnitSnapshot;
+            // derive UnitView for target_selection_score which now requires it.
+            let active_view = snap.unit(active.entity);
             enemies.sort_by(|a, b| {
-                target_selection_score(active, *b, snap)
-                    .partial_cmp(&target_selection_score(active, *a, snap))
-                    .unwrap_or(std::cmp::Ordering::Equal)
+                let score_b = active_view.map(|av| target_selection_score(av, *b, snap)).unwrap_or(0.0);
+                let score_a = active_view.map(|av| target_selection_score(av, *a, snap)).unwrap_or(0.0);
+                score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
             });
             let top_enemies = &enemies[..enemies.len().min(3)];
 

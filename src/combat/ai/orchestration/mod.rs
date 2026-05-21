@@ -247,8 +247,8 @@ pub fn pick_action(
             agenda: Agenda { band: PriorityBand::NormalTactical, items: vec![] },
         };
     };
-    // C2/C3 workaround: downstream functions (assign_band, build_agenda, fallback,
-    // debug builders) still take `&UnitSnapshot`; re-derive until those are migrated.
+    // C3/C4 workaround: fallback_move and debug builders still take `&UnitSnapshot`;
+    // re-derive until those are migrated (assign_band + build_agenda now take UnitView).
     let active_snap = snap.unit_snapshot(actor).expect("unit_snapshot present iff unit() is");
 
     // Apply per-actor AiTuning override if present.
@@ -281,19 +281,17 @@ pub fn pick_action(
     // ── Step 11.1: band assignment (computed for telemetry plumbing only) ──
     // Band is NOT used for routing here — routing lands in 11.4.
     // Explicit discard so reviewers can see the intent without compiler noise.
-    // C2/C3 workaround: assign_band still takes &UnitSnapshot.
-    let (band, band_reason) = assign_band(active_snap, snap, maps, &need_signals, world.difficulty, world.tuning, world.status_tags);
+    let (band, band_reason) = assign_band(active, snap, maps, &need_signals, world.difficulty, world.tuning, world.status_tags);
 
     // ── Step 11.2 / 11.4 / 11.5: agenda construction ─────────────────────
     // In 11.4, agenda is passed into StageCtx so ItemScoringStage and
     // PickBestStage can perform per-item composition.
     // In 11.5, `memory` is forwarded so NormalTactical band's stickiness
     // bonuses match prior `select_intent` behaviour.
-    // C2/C3 workaround: build_agenda still takes &UnitSnapshot.
     let agenda = crate::combat::ai::intent::build_agenda(
         band,
         &band_reason,
-        active_snap,
+        active,
         snap,
         maps,
         &need_signals,

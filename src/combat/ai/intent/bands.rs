@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::combat::ai::appraisal::NeedSignals;
 use crate::combat::ai::config::difficulty::DifficultyProfile;
 use crate::combat::ai::world::influence::InfluenceMaps;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
 use crate::combat::ai::config::tuning::AiTuning;
 
@@ -132,7 +132,7 @@ pub enum BandReason {
 ///
 /// **11.1 contract**: result is discarded in `pick_action` — no routing change.
 pub fn assign_band(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
     needs: &NeedSignals,
@@ -168,7 +168,7 @@ pub fn assign_band(
     // 3. HardRescueOpportunity — rescue need above hard threshold AND actor can heal.
     // CAN_RESCUE does not exist in this codebase; CAN_HEAL is the sole gate.
     let hard_rescue = tuning.thresholds.hard_rescue_threshold;
-    if needs.rescue_ally >= hard_rescue && active.tags.contains(AiTags::CAN_HEAL) {
+    if needs.rescue_ally >= hard_rescue && active.cache.tags.contains(AiTags::CAN_HEAL) {
         return (
             PriorityBand::HardRescueOpportunity,
             BandReason::HardRescueNeed { rescue_need: needs.rescue_ally },
@@ -261,7 +261,8 @@ mod tests {
         let difficulty = default_difficulty();
         let status_tags = taunt_status_tags();
 
-        let (band, reason) = assign_band(&active, &snap, &maps, &zero_needs(), &difficulty, &tuning, &status_tags);
+        let active_view = snap.unit(active.entity).expect("active in snap");
+        let (band, reason) = assign_band(active_view, &snap, &maps, &zero_needs(), &difficulty, &tuning, &status_tags);
 
         assert_eq!(band, PriorityBand::ForcedTargeting);
         assert_eq!(reason, BandReason::TauntForced { taunter: taunter_entity });
@@ -289,7 +290,8 @@ mod tests {
             ..NeedSignals::default()
         };
 
-        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
+        let active_view = snap.unit(active.entity).expect("active in snap");
+        let (band, reason) = assign_band(active_view, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
 
         assert_eq!(band, PriorityBand::CriticalSelfPreservation);
         match reason {
@@ -322,7 +324,8 @@ mod tests {
             ..NeedSignals::default()
         };
 
-        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
+        let active_view = snap.unit(active.entity).expect("active in snap");
+        let (band, reason) = assign_band(active_view, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
 
         assert_eq!(band, PriorityBand::HardRescueOpportunity);
         match reason {
@@ -346,7 +349,8 @@ mod tests {
         // Zero needs — no panic, no rescue pressure.
         let needs = zero_needs();
 
-        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
+        let active_view = snap.unit(active.entity).expect("active in snap");
+        let (band, reason) = assign_band(active_view, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());
 
         assert_eq!(band, PriorityBand::NormalTactical);
         assert_eq!(reason, BandReason::Normal);
@@ -378,7 +382,8 @@ mod tests {
             ..NeedSignals::default()
         };
 
-        let (band, reason) = assign_band(&active, &snap, &maps, &needs, &difficulty, &tuning, &status_tags);
+        let active_view = snap.unit(active.entity).expect("active in snap");
+        let (band, reason) = assign_band(active_view, &snap, &maps, &needs, &difficulty, &tuning, &status_tags);
 
         assert_eq!(band, PriorityBand::ForcedTargeting, "Forced must beat Critical+HardRescue");
         assert_eq!(reason, BandReason::TauntForced { taunter: taunter_entity });

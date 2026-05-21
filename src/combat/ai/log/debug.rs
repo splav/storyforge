@@ -470,7 +470,9 @@ fn focus_position(
             return Some(u.pos);
         }
     }
-    highest_priority_enemy(active, snap).map(|u| u.pos)
+    // C4 workaround: debug builders still take &UnitSnapshot; derive UnitView for lookup.
+    let active_view = snap.unit(active.entity)?;
+    highest_priority_enemy(active_view, snap).map(|u| u.pos)
 }
 
 fn classify_move(actor_pos: Hex, tile: Hex, focus_pos: Option<Hex>) -> MoveKind {
@@ -530,8 +532,10 @@ fn priority_target_debug(
     snap: &BattleSnapshot,
     names: &HashMap<Entity, String>,
 ) -> Option<(String, f32)> {
-    highest_priority_enemy(active, snap)
-        .map(|t| (name_of(t.entity(), names), target_selection_score(active, t, snap)))
+    // C4 workaround: debug builders still take &UnitSnapshot; derive UnitView for lookup.
+    let active_view = snap.unit(active.entity)?;
+    highest_priority_enemy(active_view, snap)
+        .map(|t| (name_of(t.entity(), names), target_selection_score(active_view, t, snap)))
 }
 
 /// Build the AiDebugSnapshot for a normal (non-fallback) pick_action path.

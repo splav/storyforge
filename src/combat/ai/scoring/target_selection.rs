@@ -1,8 +1,8 @@
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::AiTags;
 
 pub fn highest_priority_enemy<'a>(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &'a BattleSnapshot,
 ) -> Option<UnitView<'a>> {
     snap.enemies_of(active.team).max_by(|a, b| {
@@ -13,7 +13,7 @@ pub fn highest_priority_enemy<'a>(
 }
 
 pub fn target_selection_score(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     target: UnitView<'_>,
     snap: &BattleSnapshot,
 ) -> f32 {
@@ -90,10 +90,11 @@ mod tests {
             .build();
 
         let s = snapshot_from(vec![active.clone(), healthy.clone(), wounded.clone()], 1);
+        let va = s.unit(active.entity).unwrap();
         let vh = s.unit(healthy.entity).unwrap();
         let vw = s.unit(wounded.entity).unwrap();
-        let ph = target_selection_score(&active, vh, &s);
-        let pw = target_selection_score(&active, vw, &s);
+        let ph = target_selection_score(va, vh, &s);
+        let pw = target_selection_score(va, vw, &s);
         assert!(pw > ph, "wounded target should have higher priority");
     }
 
@@ -106,10 +107,11 @@ mod tests {
         let bruiser = unit(2, Team::Enemy, hex_from_offset(3, 3));
 
         let s = snapshot_from(vec![active.clone(), support.clone(), bruiser.clone()], 1);
+        let va = s.unit(active.entity).unwrap();
         let vs = s.unit(support.entity).unwrap();
         let vb = s.unit(bruiser.entity).unwrap();
-        let ps = target_selection_score(&active, vs, &s);
-        let pb = target_selection_score(&active, vb, &s);
+        let ps = target_selection_score(va, vs, &s);
+        let pb = target_selection_score(va, vb, &s);
         assert!(ps > pb, "support should be higher priority than bruiser");
     }
 }
