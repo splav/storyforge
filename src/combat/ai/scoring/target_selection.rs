@@ -35,7 +35,9 @@ pub fn target_selection_score(
         .units()
         .iter()
         .filter_map(|u| {
-            let entity = bevy::prelude::Entity::from_bits(u.id.0);
+            // B-prime: use explicit translation map; `Entity::from_bits(u.id.0)`
+            // panics for summons with synthetic UnitIds.
+            let entity = snap.entity_for_uid(u.id)?;
             let c = snap.cache.unit(entity)?;
             let eff = (u.hp + u.armor + u.armor_bonus).max(1) as f32;
             Some(c.threat / eff)

@@ -854,6 +854,13 @@ impl BattleSnapshot {
         Some(UnitView { state, cache })
     }
 
+    /// Translate engine `UnitId` to Bevy `Entity` via the explicit map.
+    /// Use this instead of `Entity::from_bits(uid.0)` — the shortcut panics
+    /// for summons whose synthetic UnitIds are not valid Entity bits (B-prime).
+    pub fn entity_for_uid(&self, uid: combat_engine::state::UnitId) -> Option<Entity> {
+        self.uid_to_entity.get(&uid).copied()
+    }
+
     /// Raw `UnitSnapshot` lookup via the legacy `units` vec — for use only by
     /// the memory module functions (`mismatch`, `check_continuation`, `capture`)
     /// that still accept `&UnitSnapshot`. Will be removed in step 3 when those
