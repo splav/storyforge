@@ -600,13 +600,22 @@ pub fn apply_effect(
             let prev_max_hp = state.unit(*unit).map(|u| u.max_hp).unwrap_or(0);
 
             // Re-call check_phase_trigger with current hp/max_hp to recover the
-            // transition data.  The bridge's EnemyPhases.pending has not been
-            // popped yet (pop happens in bridge translator on Event::PhaseEntered),
-            // so this returns the same result as the Damage arm's call.
+            // transition data.  Bridge's `EnemyPhases.pending` pop happens later
+            // (in `apply_phase_ecs_writes`), but the engine state's own
+            // `enemy_phases` must be popped HERE — otherwise `check_phase_trigger`
+            // keeps returning the same first entry on every subsequent damage,
+            // causing the same phase (with heal_to_full) to re-fire indefinitely.
             let transition = state
                 .unit(*unit)
                 .and_then(|u| u.check_phase_trigger(u.hp, prev_max_hp))
                 .map(|(_, t)| t);
+
+            // Consume the just-triggered phase entry from engine state.
+            if let Some(u) = state.unit_mut(*unit) {
+                if !u.enemy_phases.is_empty() {
+                    u.enemy_phases.remove(0);
+                }
+            }
 
             let (new_max_hp, new_armor, new_base_speed, heal_to_full) =
                 transition.map(|t| (t.new_max_hp, t.new_armor, t.new_base_speed, t.heal_to_full))

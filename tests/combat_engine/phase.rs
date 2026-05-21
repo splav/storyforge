@@ -110,8 +110,8 @@ impl ContentView for PhaseContent {
 
 /// Minimal ContentView stub for two-phase tests.
 ///
-/// Phase data now lives on `Unit.enemy_phases`; the caller pops phases via
-/// `state.unit_mut(boss).unwrap().enemy_phases.remove(0)` after each cascade.
+/// Phase data lives on `Unit.enemy_phases`. The engine's `Effect::EnterPhase`
+/// handler pops `enemy_phases[0]` automatically after consuming the transition.
 struct TwoPhaseContent;
 
 impl TwoPhaseContent {
@@ -338,14 +338,13 @@ fn multi_threshold_each_damage_fires_own_phase() {
     assert_eq!(state.unit(boss).unwrap().hp, 45);
 
     // Apply Phase 0 cascade (SetMaxHp only; heal_to_full=false).
-    // After applying, pop the phase from pending — mirrors bridge's pending.remove(0).
+    // EnterPhase apply consumes `enemy_phases[0]` automatically — no manual pop.
     for eff in &derived1 {
         if matches!(eff, Effect::EnterPhase { .. }) {
             let (cascade, _) = apply_effect(&mut state, eff, &content);
             for sub in &cascade {
                 apply_effect(&mut state, sub, &content);
             }
-            state.unit_mut(boss).unwrap().enemy_phases.remove(0); // bridge equivalent: EnemyPhases.pending.remove(0)
         }
     }
     // After Phase 0 cascade: max_hp=120, hp=45 (no heal).
