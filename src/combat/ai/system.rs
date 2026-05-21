@@ -27,7 +27,7 @@ use crate::game::components::{
 };
 use crate::game::messages::ActionInput;
 use crate::game::resources::{CombatContext, HexPositions};
-use crate::combat::engine_bridge::CombatStateRes;
+use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -56,6 +56,8 @@ pub struct AiEnv<'w> {
     status_tags: Res<'w, StatusTagCache>,
     /// Phase D-step-2: engine state cloned into BattleSnapshot.state at build time.
     combat_state: Res<'w, CombatStateRes>,
+    /// B-prime: entity↔UnitId translation for namespace-safe snapshot lookup.
+    id_map: Res<'w, UnitIdMap>,
 }
 
 // ── Main system ────────────────────────────────────────────────────────────
@@ -137,6 +139,7 @@ fn run_ai_turn(
     let snap = build_snapshot(
         combat_ctx.round, combatants, statuses, positions, roles, content, difficulty,
         env.combat_state.0.clone(),
+        &env.id_map,
     );
 
     if snap.unit(actor).is_none() {

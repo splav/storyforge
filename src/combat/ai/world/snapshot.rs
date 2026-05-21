@@ -15,6 +15,7 @@ use crate::game::resources::HexPositions;
 use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
 use crate::combat::ai::world::tags::cache::StatusBonuses;
 use crate::combat::ai::world::tags::StatusTagSet;
+use crate::combat::engine_bridge::UnitIdMap;
 use bevy::prelude::*;
 use std::collections::HashMap;
 
@@ -47,6 +48,12 @@ pub struct BattleSnapshot {
     /// duplicate. Use `view(e)` to get a `UnitView` combining both halves.
     #[serde(default)]
     pub state: combat_engine::state::CombatState,
+    /// UnitId → Entity translation. Single source of truth for crossing the
+    /// engine ↔ ECS namespace boundary. Replaces the broken `from_bits` shortcut
+    /// (synthetic UIDs for summons are not valid Entity bits and panic).
+    /// Serde-skipped: rebuilt by `rebuild_index` after deserialization.
+    #[serde(skip)]
+    uid_to_entity: HashMap<combat_engine::state::UnitId, Entity>,
 }
 
 /// Wire format for `BattleSnapshot`. Mirrors the on-disk representation
@@ -68,6 +75,7 @@ impl<'de> serde::Deserialize<'de> for BattleSnapshot {
         let repr = BattleSnapshotRepr::deserialize(d)?;
         let mut snap = BattleSnapshot {
             by_entity: HashMap::new(),
+            uid_to_entity: HashMap::new(),
             units: repr.units,
             round: repr.round,
             cache: repr.cache,
@@ -548,6 +556,7 @@ pub fn build_snapshot(
     content: &ContentView,
     difficulty: &DifficultyProfile,
     combat_state: combat_engine::state::CombatState,
+    id_map: &UnitIdMap,
 ) -> BattleSnapshot {
     let horizon_rounds = difficulty.damage_horizon_rounds;
     // Dead combatants stay in the snapshot (hp=0 marker). Downstream
@@ -688,7 +697,17 @@ pub fn build_snapshot(
             caster_ctx:          u.caster_ctx.clone(),
         }).collect()
     );
-    BattleSnapshot { units, round, by_entity, cache, state: combat_state }
+    // Build uid_to_entity from id_map — the single namespace-safe translation.
+    // Works for both regular units (UnitId == entity.to_bits()) and summons
+    // (synthetic UnitId allocated by engine; entity allocated separately by bridge).
+    let uid_to_entity: HashMap<combat_engine::state::UnitId, Entity> = units
+        .iter()
+        .filter_map(|u| {
+            let uid = id_map.get_id(u.entity)?;
+            Some((uid, u.entity))
+        })
+        .collect();
+    BattleSnapshot { units, round, by_entity, cache, state: combat_state, uid_to_entity }
 }
 
 // ── Helpers on BattleSnapshot ─────────────────────────────────────────────────
@@ -701,9 +720,23 @@ impl BattleSnapshot {
     /// readers still iterating `snap.units` (or calling `snap.unit_snapshot`,
     /// `snap.enemies_of`, etc.) keep working until Pass 3 migrates them.
     pub fn new(state: combat_engine::state::CombatState, cache: AiCache) -> Self {
+        use combat_engine::state::UnitId;
         let round = state.round;
+        // Derive uid_to_entity first — using the non-summon shortcut
+        // (UnitId == entity.to_bits()) that is valid for regular units and for
+        // test/replay paths where summons are absent.  Build it from cache so
+        // we can use it in the units loop below.
+        let uid_to_entity: HashMap<UnitId, Entity> = cache
+            .units
+            .iter()
+            .filter_map(|c| {
+                let uid = UnitId(c.entity.to_bits());
+                // Only include if the engine state actually has this unit.
+                state.unit(uid).map(|_| (uid, c.entity))
+            })
+            .collect();
         let units: Vec<UnitSnapshot> = state.units().iter().filter_map(|u| {
-            let entity = Entity::from_bits(u.id.0);
+            let entity = *uid_to_entity.get(&u.id)?;
             let c = cache.unit(entity)?;
             Some(UnitSnapshot {
                 entity,
@@ -745,7 +778,7 @@ impl BattleSnapshot {
             })
         }).collect();
         let by_entity = units.iter().enumerate().map(|(i, u)| (u.entity, i)).collect();
-        Self { units, round, by_entity, cache, state }
+        Self { units, round, by_entity, cache, state, uid_to_entity }
     }
 
     /// Rebuild all derived caches from the current `units` vector.
@@ -755,6 +788,7 @@ impl BattleSnapshot {
     /// - `cache`: the AI-derived per-unit metrics (rebuilt when empty)
     /// - `state`: the engine `CombatState` (rebuilt when empty — this
     ///   covers old JSONL logs that pre-date the `state` field)
+    /// - `uid_to_entity`: UnitId→Entity map (rebuilt from state+cache)
     ///
     /// Call after deserialization or any mutation that changes `units`
     /// length or order. No-op on the index if `units` is empty.
@@ -794,6 +828,17 @@ impl BattleSnapshot {
                 }).collect()
             );
         }
+
+        // Rebuild uid_to_entity from state cross-referenced with cache.
+        // Uses the non-summon shortcut (UnitId == entity.to_bits()) which is
+        // valid for deserialized logs (replay/tests) where summons are absent.
+        if self.uid_to_entity.is_empty() && !self.state.units().is_empty() {
+            use combat_engine::state::UnitId;
+            self.uid_to_entity = self.cache.units.iter().filter_map(|c| {
+                let uid = UnitId(c.entity.to_bits());
+                self.state.unit(uid).map(|_| (uid, c.entity))
+            }).collect();
+        }
     }
 
     /// Lookup by entity — returns a `UnitView` combining engine state + AI cache.
@@ -821,7 +866,7 @@ impl BattleSnapshot {
     /// Position lookup — returns the `UnitView` for the unit at `pos` (if any).
     pub fn unit_at(&self, pos: Hex) -> Option<UnitView<'_>> {
         self.state.units().iter().find(|u| u.pos == pos).and_then(|u| {
-            let entity = Entity::from_bits(u.id.0);
+            let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
         })
@@ -833,7 +878,7 @@ impl BattleSnapshot {
         let opponent = opponent_team(team);
         self.state.units().iter().filter_map(move |u| {
             if u.team != opponent || u.hp <= 0 { return None; }
-            let entity = Entity::from_bits(u.id.0);
+            let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
         })
@@ -843,7 +888,7 @@ impl BattleSnapshot {
     pub fn allies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         self.state.units().iter().filter_map(move |u| {
             if u.team != team || u.hp <= 0 { return None; }
-            let entity = Entity::from_bits(u.id.0);
+            let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
         })
@@ -854,7 +899,7 @@ impl BattleSnapshot {
         let opponent = opponent_team(team);
         self.state.units().iter().filter_map(move |u| {
             if u.team != opponent { return None; }
-            let entity = Entity::from_bits(u.id.0);
+            let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
         })
@@ -865,7 +910,7 @@ impl BattleSnapshot {
         let opponent = opponent_team(team);
         self.state.units().iter().filter_map(move |u| {
             if u.team != opponent || u.hp > 0 { return None; }
-            let entity = Entity::from_bits(u.id.0);
+            let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
         })
@@ -875,7 +920,7 @@ impl BattleSnapshot {
     pub fn dead_units(&self) -> impl Iterator<Item = UnitView<'_>> {
         self.state.units().iter().filter_map(|u| {
             if u.hp > 0 { return None; }
-            let entity = Entity::from_bits(u.id.0);
+            let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
         })

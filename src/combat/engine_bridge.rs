@@ -1446,20 +1446,20 @@ pub fn init_state_from_ecs(
     phases_q: Query<(Entity, &EnemyPhases), With<Combatant>>,
     active_content: Res<ActiveContent>,
 ) {
-    // B2: run exactly once per combat session — only on round 1.
+    // B2: run only on rounds 0 (test harness) and 1 (production round 1).
+    // Skip on round 2+ — engine state evolves authoritatively via step()
+    // cascade from there, and re-importing would discard those mutations.
     //
-    // `ctx.round` is set to 0 by `start_combat_system` / `reset_combat_state`,
-    // then incremented to 1 by `build_turn_order` before phase transitions to
-    // `AwaitCommand`. So `ctx.round == 1` uniquely identifies the first
-    // `OnEnter(AwaitCommand)` of any fresh combat (initial or restart) and
-    // never matches a round-wrap re-entry (which would have ctx.round >= 2).
+    // Production: `build_turn_order` increments ctx.round 0→1 before phase
+    // transitions to `AwaitCommand`, so init fires once with ctx.round == 1.
+    // Tests: `bridge_smoke` and friends invoke init_state_from_ecs via
+    // `run_system_once` with default `CombatContext { round: 0 }` — that
+    // path is legitimate and must still initialise.
     //
-    // Earlier we tried an encounter-identity guard, but `ctx.encounter` can
-    // collide across consecutive combats when encounter entities are loaded
-    // as persistent game-DB sentinels (same Entity ID), making the guard skip
-    // initialisation for the second combat → id_map ends up empty → silent
-    // EndTurn loop on the first AI turn.
-    if combat_context.round != 1 {
+    // Earlier we gated on `ctx.round != 1` (broke tests) and before that on
+    // encounter-identity (broke second-combat-in-session). Round-bound guard
+    // is the smallest correct shape.
+    if combat_context.round >= 2 {
         return;
     }
 
