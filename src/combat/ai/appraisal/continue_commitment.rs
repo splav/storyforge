@@ -24,7 +24,7 @@ pub(super) fn compute_continue_commitment(ctx: &AppraisalCtx<'_>) -> f32 {
 
         // Reachability check: can we reach the target within speed + attack range?
         let reach_budget = (active.speed.max(0) as u32)
-            .saturating_add(active.max_attack_range);
+            .saturating_add(active.cache.max_attack_range);
         let dist = active.pos.unsigned_distance_to(last_target.pos);
         if dist > reach_budget {
             return None;

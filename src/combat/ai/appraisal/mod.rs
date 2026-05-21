@@ -23,7 +23,10 @@ pub(crate) use rescue_ally::ally_threat_proxy;
 use serde::{Deserialize, Serialize};
 
 use crate::combat::ai::memory::AiMemory;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
+// UnitSnapshot used in #[cfg(test)] make_ctx helper below.
+#[cfg(test)]
+use crate::combat::ai::world::snapshot::UnitSnapshot;
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::world::tags::{AbilityTagCache, StatusTagCache};
 use crate::combat::ai::config::tuning::AiTuning;
@@ -34,7 +37,10 @@ use crate::content::content_view::ContentView;
 /// Provides tag-cache access for `rescue_ally` / `apply_cc` producers alongside
 /// snapshot, influence maps, memory, tuning, and content view.
 pub struct AppraisalCtx<'a> {
-    pub active:       &'a UnitSnapshot,
+    /// Active unit as a `UnitView` — engine state + AI cache.
+    /// Use `active.cache.*` for AI-derived fields; engine fields deref directly.
+    /// U2/C1: flipped from `&'a UnitSnapshot`.
+    pub active:       UnitView<'a>,
     pub snap:         &'a BattleSnapshot,
     pub maps:         &'a InfluenceMaps,
     pub memory:       &'a AiMemory,
@@ -109,6 +115,9 @@ pub(crate) mod tests {
 
     /// Convenience helper: build an `AppraisalCtx` for unit tests that call
     /// individual producer functions. Uses empty caches and empty maps by default.
+    ///
+    /// U2/C1: `active` is resolved to a `UnitView` from `battle_snap`. The unit
+    /// must already be present in the snapshot (built via `snapshot_from`).
     #[allow(clippy::too_many_arguments)]
     pub fn make_ctx<'a>(
         active: &'a UnitSnapshot,
@@ -120,7 +129,10 @@ pub(crate) mod tests {
         ability_tags: &'a crate::combat::ai::world::tags::AbilityTagCache,
         status_tags: &'a crate::combat::ai::world::tags::StatusTagCache,
     ) -> AppraisalCtx<'a> {
-        AppraisalCtx { active, snap: battle_snap, maps, memory, tuning, ability_tags, status_tags, content }
+        let active_view = battle_snap
+            .unit(active.entity)
+            .expect("make_ctx: active unit must be present in battle_snap");
+        AppraisalCtx { active: active_view, snap: battle_snap, maps, memory, tuning, ability_tags, status_tags, content }
     }
 
     /// Minimal `AbilityDef` for tests — only sets the override, everything else default.

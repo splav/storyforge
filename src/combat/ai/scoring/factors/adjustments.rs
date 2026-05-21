@@ -95,17 +95,6 @@ mod tests {
         )
     }
 
-    /// Placeholder active for tests where `apply_reservation_adjustments`
-    /// doesn't actually read the actor — the bundle requires one but the
-    /// coordination logic is actor-agnostic. Any minimal unit works.
-    fn placeholder_active() -> crate::combat::ai::world::snapshot::UnitSnapshot {
-        UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0)).build()
-    }
-
-    /// Overkill penalty must scale `damage` AND `kill` together. Previously
-    /// `kill` was absolute-zeroed while `damage` retained the difficulty
-    /// multiplier's share — leaving overkill plans attractive whenever raw
-    /// damage was high.
     #[test]
     fn overkill_scales_damage_and_kill_uniformly() {
         let (content, diff) = fixture();
@@ -131,8 +120,9 @@ mod tests {
         };
         let mut off = OffensiveFactors { damage: 8.0, heal: 0.0, kill_now: 1.0, kill_promised: 0.0, cc: 0.0 };
         let maps = empty_maps();
-        let active = placeholder_active();
-        let ctx = make_scoring_ctx(&utility, &snap, &maps, &reservations, &active);
+        // `apply_reservation_adjustments` is actor-agnostic; use `target` (already in snap)
+        // so `make_scoring_ctx` can resolve a real `UnitView` without a placeholder.
+        let ctx = make_scoring_ctx(&utility, &snap, &maps, &reservations, &target);
         apply_reservation_adjustments(&step, &mut off, &ctx);
 
         assert!(

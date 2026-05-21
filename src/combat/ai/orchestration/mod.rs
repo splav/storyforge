@@ -29,7 +29,7 @@ use crate::combat::ai::plan::{
     generate_plans, TurnPlan,
 };
 use crate::combat::ai::world::reservations::Reservations;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
 use crate::core::{AbilityId, DiceRng};
 use crate::game::hex::Hex;
 use bevy::prelude::*;
@@ -162,13 +162,23 @@ pub struct AiWorld<'a> {
 /// Two lifetime parameters because perspective `(active, snap)` can be swapped
 /// mid-plan when scoring against a sim'd state — `with_perspective` returns
 /// a fresh `ScoringCtx` reusing the world refs but with a shorter `'p`.
+///
+/// U2/C1 migration: `active_view` (new, `UnitView<'p>`) added alongside the
+/// legacy `active` (`&'p UnitSnapshot`). C2/C3 will migrate all reads to
+/// `active_view`; C4 will remove `active` and rename `active_view` → `active`.
 #[derive(Clone)]
 pub struct ScoringCtx<'w, 'p> {
     pub world: &'w AiWorld<'w>,
     pub maps: &'w InfluenceMaps,
     pub reservations: &'w Reservations,
     pub snap: &'p BattleSnapshot,
+    /// Legacy mirror kept for C2/C3 migration compat. Removed in C4.
     pub active: &'p UnitSnapshot,
+    /// U2/C1: new field — engine state + AI cache. Always present: the actor
+    /// must be in the snapshot (enforced by `pick_action` early-return and the
+    /// `make_scoring_ctx` / `with_perspective` invariants).
+    /// C2/C3 migrate reads here; C4 renames to `active` and drops the old field.
+    pub active_view: UnitView<'p>,
     /// Need signals computed once per actor in `pick_action`; carried through
     /// scoring/factors/intent. Step 3.0 fills with zeros (`Default::default()`);
     /// step 3.1 fills via `appraisal::compute_need_signals`. Owned (Copy) —
@@ -196,6 +206,7 @@ impl<'w, 'p> ScoringCtx<'w, 'p> {
             reservations: self.reservations,
             snap,
             active,
+            active_view: snap.unit(active.entity).expect("perspective actor must be in snap"),
             need_signals: self.need_signals,
             last_goal: None, // perspective-shifted ctx is always a sub-step — no goal needed
         }
@@ -222,7 +233,7 @@ pub fn pick_action(
     debug: bool,
     debug_names: &HashMap<Entity, String>,
 ) -> PickResult {
-    let Some(active) = snap.unit_snapshot(actor) else {
+    let Some(active) = snap.unit(actor) else {
         return PickResult {
             decision: AiDecision::EndTurn,
             best_idx: 0,
@@ -236,9 +247,13 @@ pub fn pick_action(
             agenda: Agenda { band: PriorityBand::NormalTactical, items: vec![] },
         };
     };
+    // C2/C3 workaround: downstream functions (assign_band, build_agenda, fallback,
+    // debug builders) still take `&UnitSnapshot`; re-derive until those are migrated.
+    let active_snap = snap.unit_snapshot(actor).expect("unit_snapshot present iff unit() is");
 
     // Apply per-actor AiTuning override if present.
     let per_actor_tuning = active
+        .cache
         .ai_tuning_override
         .as_ref()
         .map(|ov| world.tuning.apply_override(ov));
@@ -266,24 +281,26 @@ pub fn pick_action(
     // ── Step 11.1: band assignment (computed for telemetry plumbing only) ──
     // Band is NOT used for routing here — routing lands in 11.4.
     // Explicit discard so reviewers can see the intent without compiler noise.
-    let (band, band_reason) = assign_band(active, snap, maps, &need_signals, world.difficulty, world.tuning, &world.status_tags);
+    // C2/C3 workaround: assign_band still takes &UnitSnapshot.
+    let (band, band_reason) = assign_band(active_snap, snap, maps, &need_signals, world.difficulty, world.tuning, world.status_tags);
 
     // ── Step 11.2 / 11.4 / 11.5: agenda construction ─────────────────────
     // In 11.4, agenda is passed into StageCtx so ItemScoringStage and
     // PickBestStage can perform per-item composition.
     // In 11.5, `memory` is forwarded so NormalTactical band's stickiness
     // bonuses match prior `select_intent` behaviour.
+    // C2/C3 workaround: build_agenda still takes &UnitSnapshot.
     let agenda = crate::combat::ai::intent::build_agenda(
         band,
         &band_reason,
-        active,
+        active_snap,
         snap,
         maps,
         &need_signals,
         world.difficulty,
         world.tuning,
         memory,
-        &world.status_tags,
+        world.status_tags,
     );
 
     // ── Step 11.5: primary intent derived from agenda ─────────────────────
@@ -311,10 +328,11 @@ pub fn pick_action(
     let mut plans = generate_plans(actor, world, snap, maps);
 
     if plans.is_empty() {
-        let decision = fallback::fallback_move(active, snap, maps);
+        // C2/C3 workaround: fallback_move + build_fallback_debug still take &UnitSnapshot.
+        let decision = fallback::fallback_move(active_snap, snap, maps);
         let ds = if debug {
             Some(build_fallback_debug(
-                active, actor_pos, &choice.intent, &choice.reason, &decision,
+                active_snap, actor_pos, &choice.intent, &choice.reason, &decision,
                 "no plans generated", snap, world.tuning, maps, debug_names,
             ))
         } else { None };
@@ -333,12 +351,14 @@ pub fn pick_action(
     }
 
     // Bundle the read-only scoring inputs once.
+    // active_snap = C2/C3 compat bridge; active_view = UnitView (new in C1).
     let scoring_ctx = ScoringCtx {
         world,
         maps,
         reservations,
         snap,
-        active,
+        active: active_snap,
+        active_view: active,
         need_signals,
         last_goal: memory.last_goal.as_ref(),
     };
@@ -425,9 +445,10 @@ pub fn pick_action(
             .as_ref()
             .map(|p| p.mechanics.clone())
     }).flatten();
+    // C2/C3 workaround: build_debug_snapshot still takes &UnitSnapshot.
     let debug_snapshot = if debug {
         Some(build_debug_snapshot(
-            active, actor_pos, &final_intent, &final_reason, &pool.plans,
+            active_snap, actor_pos, &final_intent, &final_reason, &pool.plans,
             &scored, &raw_factors, &decision, snap, world.tuning, maps,
             debug_names, pick_mech.as_ref(),
         ))

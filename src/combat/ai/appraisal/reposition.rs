@@ -7,19 +7,23 @@ pub(super) fn compute_reposition(ctx: &AppraisalCtx<'_>) -> f32 {
     let tuning = ctx.tuning;
     let has_ap = active.action_points >= 1;
     let cur_pos_eval = crate::combat::ai::scoring::position_eval::evaluate_position(
-        active.pos, &active.role, tuning, maps,
+        active.pos, &active.cache.role, tuning, maps,
     );
 
     // BFS over reachable tiles (movement_points budget) to find the best
     // position improvement. Uses the same reach helper as the planner so
     // passability / stop rules are consistent.
-    let reach = crate::combat::ai::plan::reach::reach_from(snap, active);
+    // C2/C3 workaround: reach_from still takes &UnitSnapshot; re-derive.
+    let active_snap = snap
+        .unit_snapshot(active.entity())
+        .expect("active unit must be present in snapshot");
+    let reach = crate::combat::ai::plan::reach::reach_from(snap, active_snap);
     let best_position_improvement = reach
         .destinations
         .iter()
         .map(|&tile| {
             let pe = crate::combat::ai::scoring::position_eval::evaluate_position(
-                tile, &active.role, tuning, maps,
+                tile, &active.cache.role, tuning, maps,
             );
             (pe - cur_pos_eval).max(0.0)
         })
@@ -27,7 +31,7 @@ pub(super) fn compute_reposition(ctx: &AppraisalCtx<'_>) -> f32 {
 
     let engagement_gap = snap
         .enemies_of(active.team)
-        .all(|e| active.pos.unsigned_distance_to(e.pos) > active.max_attack_range);
+        .all(|e| active.pos.unsigned_distance_to(e.pos) > active.cache.max_attack_range);
 
     let mut reposition = tuning.curves.reposition_pos_gain.eval(best_position_improvement);
 

@@ -80,6 +80,11 @@ pub(crate) fn make_test_ctx<'a>(
 /// a `ScoringCtx`. Mirrors what `pick_action` builds in production. Callers
 /// own the `maps` / `reservations` so a single test can pre-seed specific
 /// tiles/reservations before handing them in.
+///
+/// U2/C1: populates `active_view` (new `UnitView` field) from `snap`.
+/// The actor entity must be present in the snapshot — panics with a clear message
+/// if not (callers must include `active` in `snapshot_from(vec![..., active.clone()], n)`).
+/// The legacy `active: &UnitSnapshot` field is preserved for C2/C3 compat — removed in C4.
 pub(crate) fn make_scoring_ctx<'a>(
     world: &'a AiWorld<'a>,
     snap: &'a BattleSnapshot,
@@ -87,7 +92,12 @@ pub(crate) fn make_scoring_ctx<'a>(
     reservations: &'a Reservations,
     active: &'a UnitSnapshot,
 ) -> ScoringCtx<'a, 'a> {
-    ScoringCtx { world, maps, reservations, snap, active, need_signals: Default::default(), last_goal: None }
+    // Resolve UnitView — actor must be in the snapshot. Tests that previously
+    // used a placeholder actor not inserted into the snapshot should instead
+    // pass an entity that is in the snap (e.g. the target unit).
+    let active_view = snap.unit(active.entity)
+        .expect("test fixture: active must be in snap — pass an entity present in snapshot_from(...)");
+    ScoringCtx { world, maps, reservations, snap, active, active_view, need_signals: Default::default(), last_goal: None }
 }
 
 // ── Unit snapshot builder ──────────────────────────────────────────────────

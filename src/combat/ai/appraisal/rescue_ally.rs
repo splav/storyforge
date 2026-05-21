@@ -6,7 +6,7 @@ pub(super) fn compute_rescue_ally(ctx: &AppraisalCtx<'_>) -> f32 {
     // Gate: actor has any ability with Rescue tag in effective kit.
     // `ctx.content.abilities.get(id)` existence check ensures the ability is
     // a known content entry; tag lookup is cache-only (no def access needed).
-    let has_rescue_kit = ctx.active.abilities.iter().any(|id| {
+    let has_rescue_kit = ctx.active.cache.abilities.iter().any(|id| {
         ctx.content.abilities.contains_key(id)
             && ctx.ability_tags.effective(id).contains_tag(AbilityTag::Rescue)
     });
@@ -14,9 +14,9 @@ pub(super) fn compute_rescue_ally(ctx: &AppraisalCtx<'_>) -> f32 {
         return 0.0;
     }
 
-    let actor_entity = ctx.active.entity;
+    let actor_entity = ctx.active.entity();
     // Find most-endangered ally within reach budget.
-    let reach = (ctx.active.speed.max(0) as u32).saturating_add(ctx.active.max_attack_range);
+    let reach = (ctx.active.speed.max(0) as u32).saturating_add(ctx.active.cache.max_attack_range);
     let best_danger: f32 = ctx.snap.allies_of(ctx.active.team)
         .filter(|a| a.entity() != actor_entity)
         .filter(|a| ctx.active.pos.unsigned_distance_to(a.pos) <= reach)

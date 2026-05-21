@@ -4,7 +4,7 @@ use super::AppraisalCtx;
 
 pub(super) fn compute_apply_cc(ctx: &AppraisalCtx<'_>) -> f32 {
     // Gate: actor has any ability with ApplyCC tag in effective kit.
-    let has_cc_kit = ctx.active.abilities.iter().any(|id| {
+    let has_cc_kit = ctx.active.cache.abilities.iter().any(|id| {
         ctx.content.abilities.contains_key(id)
             && ctx.ability_tags.effective(id).contains_tag(AbilityTag::ApplyCC)
     });
@@ -12,7 +12,7 @@ pub(super) fn compute_apply_cc(ctx: &AppraisalCtx<'_>) -> f32 {
         return 0.0;
     }
 
-    let reach = (ctx.active.speed.max(0) as u32).saturating_add(ctx.active.max_attack_range);
+    let reach = (ctx.active.speed.max(0) as u32).saturating_add(ctx.active.cache.max_attack_range);
     let best_threat: f32 = ctx.snap.enemies_of(ctx.active.team)
         .filter(|e| ctx.active.pos.unsigned_distance_to(e.pos) <= reach)
         .filter(|e| !target_already_hardcc(*e, ctx.status_tags))

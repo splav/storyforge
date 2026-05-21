@@ -5,14 +5,14 @@ pub(super) fn compute_finish_target(ctx: &AppraisalCtx<'_>) -> f32 {
     let snap = ctx.snap;
     let memory = ctx.memory;
     let tuning = ctx.tuning;
-    let reach_budget = (active.speed.max(0) as u32).saturating_add(active.max_attack_range);
+    let reach_budget = (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
 
     // Best killability metric among reachable killable enemies.
     // None means no killable target exists → signal stays 0.
     let killable_low_hp: Option<f32> = snap
         .enemies_of(active.team)
         .filter(|_| active.action_points > 0)
-        .filter(|e| active.threat >= e.eff_hp() as f32)
+        .filter(|e| active.cache.threat >= e.eff_hp() as f32)
         .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
         .map(|e| 1.0 - e.hp_pct())
         .reduce(f32::max);
@@ -31,7 +31,7 @@ pub(super) fn compute_finish_target(ctx: &AppraisalCtx<'_>) -> f32 {
             // Heuristic for "we dealt damage to this target" — without a shared
             // team blackboard (step 13) we use 1 - hp_pct as a proxy.
             let target_damage_proxy = 1.0 - last.hp_pct();
-            if target_damage_proxy > 0.1 && active.threat >= last.eff_hp() as f32 {
+            if target_damage_proxy > 0.1 && active.cache.threat >= last.eff_hp() as f32 {
                 finish_target = (finish_target + 0.2).min(1.0);
             }
         }

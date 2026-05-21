@@ -142,13 +142,12 @@ fn run_ai_turn(
         &env.id_map,
     );
 
-    if snap.unit(actor).is_none() {
+    let Some(actor_view) = snap.unit(actor) else {
         msgs.action_input.write(ActionInput::EndTurn { actor });
         return;
-    }
-    // SAFETY: checked immediately above.
-    let actor_snap = snap.unit_snapshot(actor).unwrap();
-    let actor_view = snap.unit(actor).unwrap();
+    };
+    // C2/C3 workaround: update_memory + record_committed_reservations still take &UnitSnapshot.
+    let actor_snap = snap.unit_snapshot(actor).expect("unit_snapshot present iff unit() is");
 
     // Borrow the actor's persistent `AiMemory` directly from the query —
     // writes land in place, no take/put dance. Actors without the component
