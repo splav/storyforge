@@ -33,10 +33,14 @@ pub fn build_turn_order(
     >,
 ) {
     ctx.round += 1;
-    log.push(CombatEvent::RoundStarted { round: ctx.round });
+    // On round 2+ the engine already emitted RoundStarted via translate_end_turn_events;
+    // only emit here on round 1 to avoid duplicate log entries.
+    let first_round = ctx.round == 1;
+    if first_round {
+        log.push(CombatEvent::RoundStarted { round: ctx.round });
+    }
     reservations.clear();
 
-    let first_round = ctx.round == 1;
     let use_preset = first_round && !preset.0.is_empty();
 
     // (entity, total) for ordering; (entity, dex_mod, roll, total) for logging on round 1.
@@ -44,9 +48,10 @@ pub fn build_turn_order(
 
     // Include ALL combatants (alive and dead) so that dead units still
     // get a "virtual turn" where their applied statuses tick down.
-    let mut order: Vec<(Entity, i32)> = combatants
+    // Track alive status in the tuple so we can find the first-alive index after sorting.
+    let mut order: Vec<(Entity, i32, bool)> = combatants
         .iter_mut()
-        .map(|(e, name, mut init, stats, _v)| {
+        .map(|(e, name, mut init, stats, v)| {
             if first_round {
                 if use_preset {
                     if let Some(&saved) = preset.0.get(name.as_str()) {
@@ -70,7 +75,7 @@ pub fn build_turn_order(
             // 2+ (engine refills internally, projector writes back) and
             // unnecessary on round 1 (CombatantBundle initialises Reactions at
             // max). Deleted in Phase 6 cleanup #4.
-            (e, init.0)
+            (e, init.0, v.is_alive())
         })
         .collect();
 
@@ -89,13 +94,21 @@ pub fn build_turn_order(
     }
 
     order.sort_by(|a, b| b.1.cmp(&a.1));
-    queue.order = order.into_iter().map(|(e, _)| e).collect();
-    queue.index = 0;
+
+    // First-alive index — dead actors stay in queue.order for status ticks but
+    // mustn't hold ActiveCombatant (freezes AI/player command systems).
+    let first_alive_idx = order.iter().position(|(_, _, alive)| *alive).unwrap_or(0);
+
+    queue.order = order.into_iter().map(|(e, _, _)| e).collect();
+    queue.index = first_alive_idx;
 
     for e in &active_q { commands.entity(e).remove::<ActiveCombatant>(); }
     if let Some(first) = queue.current() {
         commands.entity(first).insert(ActiveCombatant);
-        log.push(CombatEvent::TurnStarted { actor: first });
+        // Same as RoundStarted: on round 2+ the engine already emitted TurnStarted.
+        if first_round {
+            log.push(CombatEvent::TurnStarted { actor: first });
+        }
     }
 
     next_phase.set(CombatPhase::AwaitCommand);

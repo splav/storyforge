@@ -957,11 +957,14 @@ fn translate_end_turn_events(
         match ev {
             Event::TurnEnded { actor } => {
                 if let Some(ent) = id_map.get_entity(*actor) {
+                    // Mirror previous advance_turn_system: drop ActiveCombatant on old actor (lost in Phase 4e sweep)
+                    commands.entity(ent).remove::<ActiveCombatant>();
                     log.push(CombatEvent::TurnEnded { actor: ent });
                 }
             }
             Event::TurnSkipped { actor, .. } => {
                 if let Some(ent) = id_map.get_entity(*actor) {
+                    commands.entity(ent).remove::<ActiveCombatant>();
                     log.push(CombatEvent::TurnSkipped { actor: ent });
                 }
             }

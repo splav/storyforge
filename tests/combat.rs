@@ -20,6 +20,9 @@ mod ai_scenarios;
 mod aoo;
 
 
+#[path = "combat/handoff.rs"]
+mod handoff;
+
 #[path = "combat/equipment.rs"]
 mod equipment;
 
