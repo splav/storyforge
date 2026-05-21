@@ -720,6 +720,7 @@ pub fn process_action_system(
                             &mut anim_queue,
                             &visuals.grid_offset,
                             &visuals.tokens,
+                            &mut next_phase,
                         );
                         // AoO on a move can cross a phase threshold; queue for apply system.
                         for ev in &events {
@@ -789,6 +790,7 @@ pub fn process_action_system(
                             &mut log,
                             &mut positions,
                             &visuals,
+                            &mut next_phase,
                         );
                         // Queue phase transitions from cast events (most common case:
                         // boss crosses HP threshold from a direct damage spell).
@@ -802,6 +804,12 @@ pub fn process_action_system(
                         // extend the move budget). Mirrors the legacy
                         // `resolve_action_system` semantic — leftover MP after a cast
                         // lets the actor spend remaining movement before ending.
+                        // Note: death of the current actor during a cast is handled
+                        // by the engine (B5): Effect::Death derives AdvanceTurn,
+                        // emitting TurnEnded/TurnStarted in the cast event stream,
+                        // which translate_cast_events now forwards via
+                        // translate_end_turn_events. This AP=0&&MP=0 check is a
+                        // separate UX feature for voluntary resource-exhaustion ending.
                         let is_grant_movement = active_content
                             .abilities
                             .get(ability)
@@ -971,6 +979,9 @@ fn translate_end_turn_events(
 /// `CombatEvent::CriticalMiss` (for `Miss` outcome) or
 /// `CombatEvent::CritFailSideEffect` (for `DoubleCost`, `SelfDamage`,
 /// `ApplyStatus` outcomes).
+///
+/// After B5: if a cast kills the current actor (e.g. SelfDamage crit-fail),
+/// turn lifecycle events (TurnEnded/TurnStarted/…) may appear in the stream.
 #[allow(clippy::too_many_arguments)]
 fn translate_cast_events(
     actor: Entity,
@@ -986,6 +997,7 @@ fn translate_cast_events(
     log: &mut CombatLog,
     positions: &mut HexPositions,
     visuals: &VisualAssets,
+    next_phase: &mut Option<ResMut<NextState<CombatPhase>>>,
 ) {
     // Emit AbilityUsed from content lookup; fall back to id-as-name if absent.
     let (ability_name, is_aoe, cost_str) = active_content
@@ -1126,15 +1138,26 @@ fn translate_cast_events(
             | Event::ManaRegenerated { .. }
             | Event::EnergyRegenerated { .. }
             | Event::StatusTicked { .. }
-            // Turn/round/aura events not produced by Cast.
             // PhaseEntered: ECS writes handled at caller level (apply_phase_ecs_writes).
-            | Event::TurnEnded { .. }
+            | Event::PhaseEntered { .. } => {}
+            // Turn/round/aura events: normally not produced by Cast, but after B5
+            // a cast that kills the current actor (e.g. SelfDamage crit-fail) or
+            // exhausts resources triggers engine auto-advance, emitting turn lifecycle
+            // events in this stream. Delegate to the shared turn lifecycle translator.
+            ev @ (Event::TurnEnded { .. }
             | Event::TurnStarted { .. }
             | Event::TurnSkipped { .. }
             | Event::RoundStarted { .. }
             | Event::AuraStatusGained { .. }
-            | Event::AuraStatusLost { .. }
-            | Event::PhaseEntered { .. } => {}
+            | Event::AuraStatusLost { .. }) => {
+                translate_end_turn_events(
+                    std::slice::from_ref(ev),
+                    id_map,
+                    commands,
+                    log,
+                    next_phase,
+                );
+            }
         }
     }
 
@@ -1160,6 +1183,8 @@ fn translate_cast_events(
 /// - `CombatEvent::UnitMoved` (single, aggregated from all per-step moves).
 /// - `Dead` component inserted on the mover if they died.
 /// - `PendingAnim::Movement` enqueued to `AnimationQueue`.
+/// - After B5: turn lifecycle events (TurnEnded/TurnStarted/…) appear when
+///   the mover dies mid-path and the engine auto-advances to the next actor.
 #[allow(clippy::too_many_arguments)]
 fn translate_move_events(
     actor: Entity,
@@ -1171,6 +1196,7 @@ fn translate_move_events(
     anim_queue: &mut AnimationQueue,
     grid_offset: &HexGridOffset,
     tokens: &Query<(Entity, &UnitToken)>,
+    next_phase: &mut Option<ResMut<NextState<CombatPhase>>>,
 ) {
     let mut first_from: Option<hexx::Hex> = None;
     let mut last_to: Option<hexx::Hex> = None;
@@ -1237,7 +1263,7 @@ fn translate_move_events(
                     commands.entity(entity).insert(Dead);
                 }
             }
-            // Heal / status / crit-fail / spawn / turn events not produced by Move.
+            // Heal / status / crit-fail / spawn events not produced by Move.
             // No-op pins for exhaustiveness.
             Event::UnitHealed { .. }
             | Event::StatusApplied { .. }
@@ -1248,15 +1274,26 @@ fn translate_move_events(
             | Event::SpawnBlocked { .. } => {}
             Event::ActionStarted { .. } | Event::ActionFinished { .. } => {}
             Event::ManaRegenerated { .. } | Event::EnergyRegenerated { .. } => {}
-            // Turn/round/aura events not produced by Move.
             // PhaseEntered: AoO damage handled at caller level (apply_phase_ecs_writes).
-            Event::TurnEnded { .. }
+            Event::PhaseEntered { .. } => {}
+            // Turn/round/aura events: normally not produced by Move, but after B5
+            // the mover dying mid-path triggers engine auto-advance, which emits
+            // TurnEnded/TurnStarted/TurnSkipped/RoundStarted/AuraStatus* in this stream.
+            // Delegate to the shared turn lifecycle translator.
+            ev @ (Event::TurnEnded { .. }
             | Event::TurnStarted { .. }
             | Event::TurnSkipped { .. }
             | Event::RoundStarted { .. }
             | Event::AuraStatusGained { .. }
-            | Event::AuraStatusLost { .. }
-            | Event::PhaseEntered { .. } => {}
+            | Event::AuraStatusLost { .. }) => {
+                translate_end_turn_events(
+                    std::slice::from_ref(ev),
+                    id_map,
+                    commands,
+                    log,
+                    next_phase,
+                );
+            }
         }
     }
 

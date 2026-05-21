@@ -465,12 +465,25 @@ pub fn apply_effect(
                 u.hp = 0;
             }
 
-            let derived = statuses_to_clean
+            let mut derived: Vec<Effect> = statuses_to_clean
                 .into_iter()
                 .map(|status| Effect::RemoveStatus { target: *unit, status })
                 .collect();
 
-            (derived, ApplyCtx::default())
+            let mut ctx = ApplyCtx::default();
+
+            // If the dying actor held the current turn, force-end their turn.
+            // Emitting TurnEnded here (via turn_skip_events) and deriving
+            // AdvanceTurn causes the cascade to settle on the next alive actor.
+            // step_inner's "current changed" check will then emit TurnStarted +
+            // start_actor_turn for the new actor.
+            if state.turn_queue.current() == Some(*unit) {
+                ctx.turn_skip_events
+                    .push(crate::event::Event::TurnEnded { actor: *unit });
+                derived.push(Effect::AdvanceTurn);
+            }
+
+            (derived, ctx)
         }
 
                 Effect::RefreshAggregates { unit } => {

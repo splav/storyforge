@@ -280,6 +280,15 @@ fn step_inner(
     // traversal + one round boundary.
     let mut turn_advance_budget: usize = state.turn_queue.order.len() * 3 + 8;
 
+    // Capture (current actor, round) before any effects are applied.
+    // After the pump loop we compare against the final values to detect turn
+    // advances — including cases beyond Action::EndTurn such as the current
+    // actor dying mid-Move from an AoO.
+    // We compare (current, round) rather than just current so that a round-wrap
+    // scenario where the same actor acts again in round N+1 is still detected
+    // as a turn change (initial.round != final.round).
+    let initial_current = (state.turn_queue.current(), state.round);
+
     // ── Pre-validate ──────────────────────────────────────────────────────────
 
     match &action {
@@ -695,11 +704,19 @@ fn step_inner(
         }
     }
 
-    // ── Emit TurnStarted for the next actor (EndTurn path only) ─────────────
-    // Emitted after the full AdvanceTurn cascade has settled so that
-    // TurnStarted always refers to the actor who will actually act next.
-    if matches!(&action, Action::EndTurn { .. }) {
-        if let Some(next_actor) = state.turn_queue.current() {
+    // ── Emit TurnStarted whenever the current actor changed during this step ──
+    //
+    // Covers two paths:
+    //   1. Action::EndTurn — AdvanceTurn cascade always changes current.
+    //   2. Death-mid-action — Effect::Death of the current actor derives
+    //      AdvanceTurn (and pushes TurnEnded via turn_skip_events), which
+    //      advances the queue so final_current != initial_current.
+    //
+    // Emitted after the full pump loop has settled so TurnStarted always
+    // refers to the actor who will actually act next.
+    let final_current = (state.turn_queue.current(), state.round);
+    if initial_current != final_current {
+        if let Some(next_actor) = final_current.0 {
             events.push(Event::TurnStarted { actor: next_actor });
             // Refill AP/MP, regen mana/energy, tick statuses for the incoming actor.
             // Was previously done by bridge's engine_turn_start_system; absorbed here

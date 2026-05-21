@@ -595,3 +595,76 @@ fn endturn_rejects_when_actor_not_current() {
 
     assert_eq!(err, ActionError::Illegal(IllegalReason::NotCurrent));
 }
+
+/// B5: When the **current** actor dies mid-Move (killed by an AoO), the engine
+/// must automatically advance the turn queue and emit the full turn-lifecycle
+/// sequence: `TurnEnded` for the dead actor, then `TurnStarted` for the next
+/// alive actor.  The queue cursor must not remain on the corpse.
+///
+/// Setup (mirrors `aoo_triggers_on_disengage` geometry):
+/// - heroA (uid 1) at offset (1,0) — Player, has `aoo_dice` set (lethal hit).
+/// - enemyB (uid 2) at offset (0,0) — Enemy, current actor, 1 hp.
+/// - enemyB moves to offset (0,2) — leaves heroA adjacency → AoO fires → lethal.
+/// Queue: [A=1, B=2], current = B (index 1).
+///
+/// Expected after `step(Move { actor: 2, … })`:
+/// - events contain `UnitDied { unit: 2 }`, `TurnEnded { actor: 2 }`,
+///   `TurnStarted { actor: 1 }` (in that relative order).
+/// - `state.turn_queue.current() == Some(UnitId(1))`.
+#[test]
+fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
+    let enemy_b_start = hex_from_offset(0, 0); // enemyB starts adjacent to heroA
+    let hero_a_pos    = hex_from_offset(1, 0); // heroA: adjacent to enemyB
+    let enemy_b_dest  = hex_from_offset(0, 2); // dest not adjacent to heroA → AoO fires
+
+    // heroA — Player, AoO attacker with a fixed 5-raw-damage die (no randomness).
+    let mut hero_a = make_unit(1, Team::Player, 1, 0);
+    hero_a.pos = hero_a_pos;
+    hero_a.aoo_dice = Some(DiceExpr::new(0, 6, 5)); // constant 5 damage, kills 1-hp enemy
+
+    // enemyB — Enemy, current actor, only 1 hp so the AoO is lethal.
+    let mut enemy_b = make_unit(2, Team::Enemy, 0, 0);
+    enemy_b.pos = enemy_b_start;
+    enemy_b.hp = 1;
+    enemy_b.movement_points = 6;
+
+    let mut state = state_with(vec![hero_a, enemy_b]);
+    // Queue [A=1, B=2], current = B (index 1).
+    state.set_turn_queue(vec![UnitId(1), UnitId(2)], 1);
+    assert_eq!(state.turn_queue.current(), Some(UnitId(2)));
+
+    // EnemyB moves away from heroA — leaves adjacency → AoO fires → lethal.
+    let (events, _ctx) = step(
+        &mut state,
+        Action::Move { actor: UnitId(2), path: vec![enemy_b_dest] },
+        &mut ExpectedValue,
+        &StubContent::with_weapon(DiceExpr::new(0, 6, 5)),
+    )
+    .expect("Move step must succeed even when mover dies");
+
+    // ── State assertions ──────────────────────────────────────────────────────
+
+    // EnemyB must be dead.
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 0, "enemyB must be dead after lethal AoO");
+
+    // Queue must have advanced past the dead actor and settled on heroA.
+    assert_eq!(
+        state.turn_queue.current(),
+        Some(UnitId(1)),
+        "turn queue must settle on heroA (UnitId(1)) after enemyB dies mid-move"
+    );
+
+    // ── Event sequence assertions ─────────────────────────────────────────────
+
+    let died    = events.iter().position(|e| matches!(e, Event::UnitDied    { unit:  UnitId(2) }));
+    let ended   = events.iter().position(|e| matches!(e, Event::TurnEnded   { actor: UnitId(2) }));
+    let started = events.iter().position(|e| matches!(e, Event::TurnStarted { actor: UnitId(1) }));
+
+    assert!(died.is_some(),    "UnitDied{{2}} must be in the event stream");
+    assert!(ended.is_some(),   "TurnEnded{{2}} must be in the event stream (B5 engine fix)");
+    assert!(started.is_some(), "TurnStarted{{1}} must be in the event stream (B5 engine fix)");
+
+    // Ordering: died → ended → started.
+    assert!(died.unwrap()  < ended.unwrap(),   "UnitDied must precede TurnEnded");
+    assert!(ended.unwrap() < started.unwrap(), "TurnEnded must precede TurnStarted");
+}

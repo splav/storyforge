@@ -192,6 +192,116 @@ pub fn init_state_from_ecs(
 
 ---
 
+### B5 — Death of current actor = involuntary turn end
+
+**Цель**: устранить класс зависаний "current actor died mid-action, turn never advances". Engine — единственный владелец turn lifecycle, включая involuntary endings.
+
+**Симптом**: AI пишет `Move` для актора, во время движения провоцируется AoO, AoO убивает актора. `step(Move)` возвращается успешно, но `turn_queue.current()` всё ещё указывает на труп. Никто не пишет `ActionInput::EndTurn` для мёртвого — `enemy_ai_system` и `player_command_system` молча возвращают на `c.vital.is_alive() == false`. Игра зависает.
+
+Текущий workaround — auto-end в Cast-обработчике bridge'а ([engine_bridge.rs:858](../../../src/combat/engine_bridge.rs)) когда `AP=0 && MP=0`. Это:
+1. Локальный фикс только для Cast, Move не покрыт.
+2. Условие неполное — dead-актор может иметь AP/MP > 0 (если умер до payCost).
+3. Дублирует логику между bridge и engine.
+
+**Engine changes**:
+
+1. **`crates/combat_engine/src/effect.rs`** — `apply_effect` для `Effect::Death`:
+
+   ```rust
+   Effect::Death { unit } => {
+       // ... existing status cleanup + hp=0 ...
+
+       let mut derived: Vec<Effect> = statuses_to_clean
+           .into_iter()
+           .map(|status| Effect::RemoveStatus { target: *unit, status })
+           .collect();
+
+       let mut ctx = ApplyCtx::default();
+
+       // If dying actor was the current turn-holder, force-end their turn.
+       // Cascade emits TurnEnded for them + AdvanceTurn to settle on next alive.
+       // step_inner's "current changed" check below picks up TurnStarted +
+       // start_actor_turn for the new actor.
+       if state.turn_queue.current() == Some(*unit) {
+           ctx.turn_skip_events.push(Event::TurnEnded { actor: *unit });
+           derived.push(Effect::AdvanceTurn);
+       }
+
+       (derived, ctx)
+   }
+   ```
+
+   Reuse `ctx.turn_skip_events` (already drained into main events by step.rs:597) — не нужно новое поле в ApplyCtx.
+
+2. **`crates/combat_engine/src/step.rs`** — `step_inner` TurnStarted emission. Снять gating на `Action::EndTurn`, эмитить когда `turn_queue.current()` изменился за step:
+
+   ```rust
+   // Текущий код (после Phase 1):
+   if matches!(&action, Action::EndTurn { .. }) {
+       if let Some(next_actor) = state.turn_queue.current() {
+           events.push(Event::TurnStarted { actor: next_actor });
+           events.extend(state.start_actor_turn(next_actor, content));
+       }
+   }
+   ```
+
+   →
+
+   ```rust
+   // Capture initial current at top of step_inner:
+   let initial_current = state.turn_queue.current();
+
+   // ... existing logic, including pump loop ...
+
+   // After pump loop: emit TurnStarted + refill whenever current changed.
+   // Covers Action::EndTurn (legitimate ending) AND death-mid-action
+   // (Effect::Death of current actor cascades to AdvanceTurn).
+   let final_current = state.turn_queue.current();
+   if initial_current != final_current {
+       if let Some(next_actor) = final_current {
+           events.push(Event::TurnStarted { actor: next_actor });
+           events.extend(state.start_actor_turn(next_actor, content));
+       }
+   }
+   ```
+
+   Перенос `let initial_current = ...` в самое начало `step_inner` (после декларации events/effect_queue, до pre-validate).
+
+**Bridge changes**:
+
+3. **`src/combat/engine_bridge.rs`** — `translate_move_events` и `translate_cast_events` сейчас игнорируют `TurnEnded`/`TurnStarted`/`TurnSkipped`/`RoundStarted` в "no-op pins for exhaustiveness". После B5 эти события могут появиться в Move/Cast stream'ах (death-mid-action кейс). Решение:
+
+   Extract из `translate_end_turn_events` общий helper `translate_turn_lifecycle_events(events, id_map, commands, log, next_phase)` обрабатывающий 4 turn-related variants + `AuraStatusGained`/`Lost`. Вызвать из всех трёх translator'ов. Move/Cast стримы редко содержат эти события (только в edge-кейсах death-mid-action и phase transitions), но обработка должна быть корректной.
+
+   Альтернатива — inline duplicate logic в каждый translator. Хуже, но проще. Pick whichever — depends on what looks cleaner after reading the code.
+
+4. **Удалить устаревший workaround в Cast handler ([engine_bridge.rs:858](../../../src/combat/engine_bridge.rs))**: блок "End turn only when both AP and MP are exhausted, and the ability isn't GrantMovement" больше не нужен. После B5 engine сам эмитит AdvanceTurn когда current actor умер. Auto-end на исчерпание ресурсов — отдельный invariant (turn автоматически НЕ заканчивается если actor жив но resourceless); если хотите сохранить — оставить, но обновить комментарий что dead-case теперь покрыт engine'ом.
+
+   **Решение**: сохраняем auto-end на ресурсный exhaust (отдельная UX feature — "Cast spent everything, end turn for me"). После B5 одно условие (`AP=0 && MP=0`) станет subset более общего engine-handling'а (`!alive`), не пересекаясь semantically. Никаких изменений в Cast handler не требуется кроме обновления комментария.
+
+**Tests engine**:
+
+5. `crates/combat_engine/tests/effect.rs` или новый файл — тест `death_of_current_actor_derives_advance_turn`:
+   - State с двумя alive юнитами, queue [A, B], current = A.
+   - `apply_effect(state, Effect::Death { unit: A }, content)`.
+   - Assert: `derived` содержит `Effect::AdvanceTurn`; `ctx.turn_skip_events` содержит `Event::TurnEnded { actor: A }`.
+
+6. `crates/combat_engine/tests/step.rs` — тест `current_actor_dies_mid_move_via_aoo_settles_on_next`:
+   - State с heroA (player, has melee AoO), enemyB (current). enemyB attempts move that triggers AoO. AoO kills B.
+   - `step(state, Action::Move { actor: B, path }, &mut rng, &content)`.
+   - Assert: events stream содержит `UnitDied { B }` → `TurnEnded { B }` → (potentially `TurnSkipped` for any dead in queue) → `TurnStarted { A }` (или next alive).
+   - Assert: `state.turn_queue.current() == Some(A)` после step.
+
+7. Существующие тесты на event-counts после `step(EndTurn)` — пройдут без изменений (TurnStarted emission уже срабатывает для EndTurn-пути; gating change не меняет поведение для нормального flow).
+
+**Не делаем**:
+- Не трогаем engine's existing `start_actor_turn` или `start_round`.
+- Не вводим "involuntary end reason" в events stream — `Event::TurnEnded` нейтрален к причине; различение voluntary vs involuntary — задача UI/log layer, не engine.
+
+**Exit**: новый engine test зелёный + bridge корректно обрабатывает турн-события в Move/Cast стримах + user scenario (AI moves into AoO that kills them) больше не виснет.
+
+---
+
 ### B4 — Cleanup и docs
 
 - Обновить `docs/engine-architecture.md` § turn lifecycle ownership — отметить что refill теперь происходит в engine `step()`.
@@ -206,8 +316,10 @@ pub fn init_state_from_ecs(
 ## Зависимости
 
 ```
-B0 (engine) ── B1 (bridge) ── B2 (init guard) ── B3 (tests) ── B4 (docs)
+B0 (engine) ── B1 (bridge) ── B2 (init guard) ── B5 (death) ── B3 (tests) ── B4 (docs)
 ```
+
+B5 добавлен после первого playthrough — закрывает класс "current actor died mid-action, turn never advances". Логически продолжение B0+B1 (engine — sole owner of turn lifecycle, включая involuntary endings), потому идёт перед регрессионными тестами B3 (чтобы B3 покрывал и этот класс через тест из §B5 5–6, плюс bridge-level integration test "AI moves into lethal AoO, combat continues").
 
 Возможны параллельно: B0 и B2 (разные слои), но B1 зависит от B0. Чище делать линейно — каждый коммит атомарен и зелёный.
 
