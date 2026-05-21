@@ -312,7 +312,7 @@ fn engine_step_range_correlates_with_action_actor() {
         let f = std::fs::File::open(&trace_path).expect("open engine.jsonl");
         std::io::BufReader::new(f)
             .lines()
-            .filter_map(|l| l.ok())
+            .map_while(Result::ok)
             .filter(|l| !l.is_empty())
             .collect()
     };
@@ -360,7 +360,7 @@ fn engine_step_range_correlates_with_action_actor() {
         let f = std::fs::File::open(&ai_path).expect("open ai_decisions.jsonl");
         std::io::BufReader::new(f)
             .lines()
-            .filter_map(|l| l.ok())
+            .map_while(Result::ok)
             .filter(|l| !l.is_empty())
             .collect()
     };

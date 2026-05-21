@@ -2223,7 +2223,7 @@ fn engine_trace_full_combat_record_replay() {
     let file = std::fs::File::open(&path).expect("open trace for read");
     let raw_lines: Vec<String> = std::io::BufReader::new(file)
         .lines()
-        .filter_map(|l| l.ok())
+        .map_while(Result::ok)
         .filter(|l| !l.is_empty())
         .collect();
 
@@ -2390,7 +2390,7 @@ fn ai_log_engine_step_range_populated() {
     let file = std::fs::File::open(&ai_path).expect("open ai log for read");
     let lines: Vec<String> = std::io::BufReader::new(file)
         .lines()
-        .filter_map(|l| l.ok())
+        .map_while(Result::ok)
         .filter(|l| !l.is_empty())
         .collect();
 

@@ -248,7 +248,7 @@ fn main() {
     let reader = BufReader::new(file);
     let raw_lines: Vec<String> = reader
         .lines()
-        .filter_map(|l| l.ok())
+        .map_while(Result::ok)
         .filter(|l| !l.is_empty())
         .collect();
 
