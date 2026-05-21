@@ -1,8 +1,11 @@
 # Bridge turn-lifecycle unification — план
 
-**Статус**: draft, готов к исполнению после ревью.
+**Статус**: ✅ выполнен (2026-05-21). Все фазы (B0–B5) + B-prime закоммичены.
+См. § «Hand-off / completion» внизу для commit hash'ей и список выловленных
+по пути bug-классов.
 
-**Текущий HEAD**: `a3915de fix(combat): restore ActiveCombatant lifecycle on turn handoffs`.
+**Стартовый HEAD**: `a3915de fix(combat): restore ActiveCombatant lifecycle on turn handoffs`.
+**Финальный HEAD**: `5ffd874 fix(engine): pop enemy_phases[0] inside Effect::EnterPhase apply`.
 
 **Связь с другими планами**: parallel-ось к [engine_state_unification.md](engine_state_unification.md). Та работа — про AI side (`BattleSnapshot.units` → `UnitView`). Эта — про bridge (Bevy ECS ↔ engine) и владение turn lifecycle. Не блокируют друг друга.
 
@@ -366,9 +369,51 @@ B5 добавлен после первого playthrough — закрывает
 
 ## Exit criteria для всего плана
 
-- `cargo check --tests` clean.
-- `cargo test` зелёный (включая 4 новых regression теста).
-- В user-репро (раунд 2 после exhaust) игрок может ходить.
-- Лог боя: одна `▶ Ход: X` + одна `○ X завершил ход` на ход, без silent skip'ов.
-- `engine_turn_start_system` отсутствует в коде.
-- `init_state_from_ecs` запускается ровно один раз за бой (можно проверить трейсом или `Local<usize>` счётчик в дебаге).
+- `cargo check --tests` clean. ✅
+- `cargo test` зелёный (включая регрессионные тесты в `tests/combat/handoff.rs`). ✅
+- В user-репро (раунд 2 после exhaust) игрок может ходить. ✅
+- Лог боя: одна `▶ Ход: X` + одна `○ X завершил ход` на ход, без silent skip'ов. ✅
+- `engine_turn_start_system` отсутствует в коде. ✅
+- `init_state_from_ecs` запускается один раз за бой (guard `ctx.round < 2`). ✅
+
+---
+
+## Hand-off / completion (2026-05-21)
+
+### Phases as actually shipped
+
+| Phase | Commit(s) | Notes |
+|---|---|---|
+| Pre-work (mid-round + first-actor-dead) | `a3915de` | ActiveCombatant lifecycle on TurnEnded/TurnSkipped + build_turn_order picks first-alive |
+| B0+B1 | `faaaded` | Engine cascade owns `start_actor_turn`; `engine_turn_start_system` deleted; `engine_start_first_turn_system` added for round-1 init |
+| B2 | `ebde94e` → `f5bfc80` → `1b522d3` | init_state_from_ecs once-per-combat. First version used encounter-identity guard (regressed second-combat); second tried `ctx.round == 1` (regressed `bridge_smoke` tests calling init with `ctx.round = 0`); final settled on `ctx.round < 2` covering both production and test paths |
+| B5 | `4879934` | `Effect::Death` of current actor derives `AdvanceTurn`; `step_inner` emits `TurnStarted` whenever `(current, round)` changed (not only on `Action::EndTurn`) |
+| Engine mirror teardown | `80ae900` → `0e09215` | First version inline in `despawn_combatants`/`restart_combat_system`; refactored to `reset_engine_mirrors_on_exit_combat` + `reset_engine_mirrors_on_restart` owned by `CombatPipelinePlugin` (layering fix) |
+| B-prime (NEW — added after first playthrough panic) | `1b522d3` + `eb3ee8a` + `ef45aea` | `BattleSnapshot.uid_to_entity: HashMap<UnitId, Entity>` replaces `Entity::from_bits(u.id.0)` shortcut in 9 callsites (7 in snapshot lookup methods + `UnitView::entity` + `target_selection_score`). Required to fix panic on summoned units whose synthetic UnitId bits aren't valid Bevy Entity bits. |
+| Engine `enemy_phases` pop | `5ffd874` | `Effect::EnterPhase` apply pops `unit.enemy_phases[0]`. Was never popped → same phase re-fired on every damage-below-threshold → boss healed-to-full forever instead of dying |
+| B3 + B4 (this commit) | _this commit_ | 5 new regression tests in `tests/combat/handoff.rs` + docs sync |
+
+### Bugs found and fixed during execution
+
+The plan as originally written anticipated 3 fixes (B0+B1, B2, B5). Actual
+execution surfaced 7 distinct bug classes — each got its own commit:
+
+1. **ActiveCombatant lifecycle** (mid-round handoff + dead-first-actor at round wrap) — pre-Phase-1 latent from the 4e "ECS deletion sweep". Caused silent freezes after the first player turn or after a round wrap onto a dead first-initiative actor.
+2. **Frame-ordering at round boundary** (B0+B1) — engine refilled AP/MP in `TurnStart`, but ECS lagged one frame; Command-step systems read stale ECS and auto-ended silently.
+3. **Double tick on round wrap** (B2) — `init_state_from_ecs` ran every `OnEnter(AwaitCommand)`, re-importing stale ECS statuses; then `start_actor_turn` ticked them a second time.
+4. **Death-mid-action hang** (B5) — AoO kills the mover during their own `Move` action; engine `step()` returns successfully but no system writes EndTurn for the dead actor → silent freeze.
+5. **Multi-combat-session pollution** (engine mirror teardown) — `despawn_combatants` cleared ECS resources but not `CombatStateRes` / `UnitIdMap` / `PendingPhaseTransitions`; next combat's `StartRound → project_state_to_ecs` projected stale combat-1 unit positions into freshly-cleared `HexPositions` → collision panic.
+6. **Synthetic UnitId `from_bits` panic** (B-prime) — engine allocates `UnitId(SYNTHETIC_UID_BASE | counter)` for `Effect::Spawn`; bits aren't valid Bevy Entity. `BattleSnapshot` lookups used `Entity::from_bits(u.id.0)` shortcut → panic on AI tick after any summon. Fixed by introducing an explicit `uid_to_entity` map populated from `UnitIdMap`.
+7. **Engine `enemy_phases` never popped** — `check_phase_trigger` peeked at `enemy_phases.first()` but engine never consumed the entry; bridge popped only ECS-side. Boss with `heal_to_full` phase healed to full on every damage-below-threshold infinitely.
+
+### Long-term direction
+
+The invariant established is: **"Engine UnitId and Bevy Entity are distinct
+namespaces, always translated via an explicit map"**. `from_bits` shortcuts
+across the namespace boundary are gone from production code.
+
+Next steps (out of scope for this plan, lined up in adjacent work):
+
+- **Bevy component hooks** for automatic `id_map` maintenance — `on_add<Combatant>` / `on_remove<Combatant>` to eliminate manual `id_map.insert/clear/from_ecs` callsites. Smaller follow-up.
+- **engine_state_unification U5–U7** ([adjacent plan](engine_state_unification.md)) — drop `UnitSnapshot` / `BattleSnapshot.units`; cache keyed by `UnitId` directly. Removes one direction of the translation map.
+- **Engine spawn allocator** (deferred) — alternative architectural option where engine asks bridge for an Entity bits when spawning, eliminating synthetic UIDs entirely. Doesn't help AI sim (which can't spawn real Bevy entities) → kept as theoretical option, not pursued.

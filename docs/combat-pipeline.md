@@ -11,6 +11,16 @@
 > and `flush_pending_ai_log_system`. See
 > [`engine-architecture.md`](engine-architecture.md) §3 for the canonical
 > schedule.
+>
+> **Post-bridge-turn-lifecycle note (2026-05-21):** additional changes —
+> `engine_turn_start_system` deleted (turn-start refill flows through engine
+> `step()` cascade now), `engine_start_first_turn_system` added for the
+> round-1 first actor (one-shot), `init_state_from_ecs` now runs once per
+> combat (gated on `ctx.round < 2`), and `reset_engine_mirrors_on_exit_combat`
+> + `reset_engine_mirrors_on_restart` clear engine-side resources at combat
+> end. `CombatStep::TurnStart` set is empty. See
+> [`ai/rework/bridge_turn_lifecycle.md`](ai/rework/bridge_turn_lifecycle.md)
+> for the full design.
 
 ## System Chain
 

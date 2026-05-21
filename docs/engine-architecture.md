@@ -133,7 +133,11 @@ pub struct Unit {
 ```
 
 Init: `init_state_from_ecs` (bridge) reads ECS components and fills all these
-fields once per round.
+fields **once per combat session** (gated on `ctx.round < 2` — fires on round 1
+production entry and on round 0 test-harness entry; round 2+ is skipped because
+engine state evolves authoritatively via `step()` cascade from there). On
+combat end (`OnExit(AppState::Combat)`) `reset_engine_mirrors_on_exit_combat`
+clears `CombatStateRes` / `UnitIdMap` / `PendingPhaseTransitions`.
 
 ### 2.3 Determinism contract (Phase 5)
 
@@ -158,11 +162,30 @@ directly. ~1614 lines, ~12 system / function entries:
 
 | Entry | Schedule | Role |
 |---|---|---|
-| `init_state_from_ecs` | `OnEnter(CombatPhase::AwaitCommand)` | Seed `CombatStateRes` from ECS (once per round) |
-| `engine_turn_start_system` | `OnEnter(CombatPhase::TurnStart)` | Call `state.start_actor_turn()` (engine-side turn start) |
+| `init_state_from_ecs` | `OnEnter(CombatPhase::AwaitCommand)` | Seed `CombatStateRes` from ECS **once per combat** (`ctx.round < 2` guard) |
+| `engine_start_first_turn_system` | `OnEnter(CombatPhase::AwaitCommand)` chained after init | Call `state.start_actor_turn()` for round-1 first actor only (`ctx.round == 1` guard) |
 | `process_action_system` | `Update`, gated by `AwaitCommand`, after AI tick | Consume `ActionInput` messages, call `step()`, translate events |
 | `apply_phase_transitions_system` | `Update`, after `project_state_to_ecs` | Apply Bevy-only deltas from `Event::PhaseEntered` (Name, Abilities, AxisProfile) |
 | `project_state_to_ecs` | `Update`, after `process_action_system` | Write engine state back to ECS components |
+| `reset_engine_mirrors_on_exit_combat` | `OnExit(AppState::Combat)` | Clear `CombatStateRes` / `UnitIdMap` / `PendingPhaseTransitions` on combat end |
+| `reset_engine_mirrors_on_restart` | `Update`, reads `RestartCombat` | Same clear, fires on in-place restart (no AppState transition) |
+
+### 3.0 Turn lifecycle ownership (post-Phase-1+B5 bridge work, 2026-05-21)
+
+Engine `step(EndTurn)` is the sole authority for turn transitions. The cascade
+emits `TurnEnded` → `[TurnSkipped]*` → `TurnStarted` for the next actor, then
+**also calls `start_actor_turn` for the new actor** and folds its events
+(AP/MP refill, mana/energy regen, status ticks) into the same stream.
+
+When an actor dies mid-action (e.g. AoO kills the mover), `Effect::Death`
+of the current turn-holder derives `Effect::AdvanceTurn` automatically —
+involuntary turn end is handled by the engine, no bridge-side workaround.
+
+`CombatStep::TurnStart` set is empty (kept as stable hook for future systems).
+The previous `engine_turn_start_system` was deleted because its job is now
+in the engine cascade. All turn-lifecycle events flow through
+`process_action_system → project_state_to_ecs` in a single frame — ECS is
+always in sync at frame boundary.
 
 ### 3.1 ECS-projected components (D6 contract)
 
