@@ -1408,7 +1408,23 @@ pub fn init_state_from_ecs(
     aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
     phases_q: Query<(Entity, &EnemyPhases), With<Combatant>>,
     active_content: Res<ActiveContent>,
+    // B2: run exactly once per combat session (guard against round-wrap re-init).
+    //
+    // Uses `Local<Option<Option<Entity>>>` to distinguish "never run" (outer None)
+    // from "last seen encounter" (Some(inner)), where the inner value may itself
+    // be None when no encounter entity is set (e.g. test harnesses).
+    mut last_encounter: Local<Option<Option<Entity>>>,
 ) {
+    // Skip on round 2+: if the encounter identity hasn't changed we already
+    // initialised the engine state at combat start and must not overwrite it
+    // (that would discard all engine-side mutations — status ticks, AP/MP
+    // refills, etc.).
+    let current_encounter = combat_context.encounter;
+    if *last_encounter == Some(current_encounter) {
+        return;
+    }
+    *last_encounter = Some(current_encounter);
+
     use crate::content::encounters::AuraAffects;
 
     let mut state = from_ecs(&combatants, &positions, combat_context.round, &mut id_map);
