@@ -101,7 +101,7 @@ pub(crate) fn compute_ally_rescue(
 
     for ally_initial in initial_snap.allies_of(ctx.active.team) {
         // Skip self — ally_rescue is about *other* friendlies.
-        if ally_initial.entity() == ctx.active.entity {
+        if ally_initial.entity() == ctx.active.entity() {
             continue;
         }
         let was_endangered = ally_initial.hp_pct() < 0.4
@@ -150,7 +150,7 @@ pub(crate) fn compute_next_turn_lethality(
     ctx: &ScoringCtx,
 ) -> f32 {
     let end_snap = plan.sim_snapshots.last().unwrap_or(initial_snap);
-    let actor_id = ctx.active.entity;
+    let actor_id = ctx.active.entity();
 
     // If the actor died during the plan, threat at end_pos is irrelevant.
     let actor_hp_at_end = match end_snap.unit(actor_id) {
@@ -195,7 +195,7 @@ pub(crate) fn compute_line_actionability(
     let end_snap = plan.sim_snapshots.last().unwrap_or(initial_snap);
 
     // Bail out if actor is dead at end of plan.
-    let actor_at_end = match end_snap.unit(ctx.active.entity) {
+    let actor_at_end = match end_snap.unit(ctx.active.entity()) {
         Some(u) if u.hp > 0 => u,
         _ => return 0.0,
     };
@@ -241,7 +241,7 @@ pub(crate) fn compute_density_value(
     ctx: &ScoringCtx,
 ) -> f32 {
     // Density matters only for actors with AoE abilities.
-    if !ctx.active.tags.contains(AiTags::HAS_AOE) {
+    if !ctx.active.cache.tags.contains(AiTags::HAS_AOE) {
         return 0.0;
     }
 

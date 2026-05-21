@@ -162,23 +162,16 @@ pub struct AiWorld<'a> {
 /// Two lifetime parameters because perspective `(active, snap)` can be swapped
 /// mid-plan when scoring against a sim'd state — `with_perspective` returns
 /// a fresh `ScoringCtx` reusing the world refs but with a shorter `'p`.
-///
-/// U2/C1 migration: `active_view` (new, `UnitView<'p>`) added alongside the
-/// legacy `active` (`&'p UnitSnapshot`). C2/C3 will migrate all reads to
-/// `active_view`; C4 will remove `active` and rename `active_view` → `active`.
 #[derive(Clone)]
 pub struct ScoringCtx<'w, 'p> {
     pub world: &'w AiWorld<'w>,
     pub maps: &'w InfluenceMaps,
     pub reservations: &'w Reservations,
     pub snap: &'p BattleSnapshot,
-    /// Legacy mirror kept for C2/C3 migration compat. Removed in C4.
-    pub active: &'p UnitSnapshot,
-    /// U2/C1: new field — engine state + AI cache. Always present: the actor
+    /// Engine state + AI cache for the acting unit. Always present: the actor
     /// must be in the snapshot (enforced by `pick_action` early-return and the
     /// `make_scoring_ctx` / `with_perspective` invariants).
-    /// C2/C3 migrate reads here; C4 renames to `active` and drops the old field.
-    pub active_view: UnitView<'p>,
+    pub active: UnitView<'p>,
     /// Need signals computed once per actor in `pick_action`; carried through
     /// scoring/factors/intent. Step 3.0 fills with zeros (`Default::default()`);
     /// step 3.1 fills via `appraisal::compute_need_signals`. Owned (Copy) —
@@ -197,7 +190,7 @@ impl<'w, 'p> ScoringCtx<'w, 'p> {
     /// to the simulated actor at that moment).
     pub fn with_perspective<'q>(
         &self,
-        active: &'q UnitSnapshot,
+        active: UnitView<'q>,
         snap: &'q BattleSnapshot,
     ) -> ScoringCtx<'w, 'q> {
         ScoringCtx {
@@ -206,7 +199,6 @@ impl<'w, 'p> ScoringCtx<'w, 'p> {
             reservations: self.reservations,
             snap,
             active,
-            active_view: snap.unit(active.entity).expect("perspective actor must be in snap"),
             need_signals: self.need_signals,
             last_goal: None, // perspective-shifted ctx is always a sub-step — no goal needed
         }
@@ -247,9 +239,7 @@ pub fn pick_action(
             agenda: Agenda { band: PriorityBand::NormalTactical, items: vec![] },
         };
     };
-    // C4 workaround: debug builders (build_fallback_debug, build_debug_snapshot)
-    // still take `&UnitSnapshot`; keep active_snap until those are migrated in C4.
-    let active_snap = snap.unit_snapshot(actor).expect("unit_snapshot present iff unit() is");
+
 
     // Apply per-actor AiTuning override if present.
     let per_actor_tuning = active
@@ -326,11 +316,10 @@ pub fn pick_action(
     let mut plans = generate_plans(actor, world, snap, maps);
 
     if plans.is_empty() {
-        // C2/C3 workaround: fallback_move + build_fallback_debug still take &UnitSnapshot.
         let decision = fallback::fallback_move(active, snap, maps);
         let ds = if debug {
             Some(build_fallback_debug(
-                active_snap, actor_pos, &choice.intent, &choice.reason, &decision,
+                active, actor_pos, &choice.intent, &choice.reason, &decision,
                 "no plans generated", snap, world.tuning, maps, debug_names,
             ))
         } else { None };
@@ -349,14 +338,12 @@ pub fn pick_action(
     }
 
     // Bundle the read-only scoring inputs once.
-    // active_snap = C2/C3 compat bridge; active_view = UnitView (new in C1).
     let scoring_ctx = ScoringCtx {
         world,
         maps,
         reservations,
         snap,
-        active: active_snap,
-        active_view: active,
+        active,
         need_signals,
         last_goal: memory.last_goal.as_ref(),
     };
@@ -443,10 +430,9 @@ pub fn pick_action(
             .as_ref()
             .map(|p| p.mechanics.clone())
     }).flatten();
-    // C2/C3 workaround: build_debug_snapshot still takes &UnitSnapshot.
     let debug_snapshot = if debug {
         Some(build_debug_snapshot(
-            active_snap, actor_pos, &final_intent, &final_reason, &pool.plans,
+            active, actor_pos, &final_intent, &final_reason, &pool.plans,
             &scored, &raw_factors, &decision, snap, world.tuning, maps,
             debug_names, pick_mech.as_ref(),
         ))
@@ -527,7 +513,7 @@ pub fn write_decision_log_from_result(
         .map(|(rank, &(idx, score))| {
             let ann = &pool.annotations[idx];
             let br = crate::combat::ai::scoring::trade::trade_delta(
-                &plans[idx], active, snap, content,
+                &plans[idx], active_view, snap, content,
             );
             let trade = TradeBlock {
                 delta: br.delta,

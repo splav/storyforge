@@ -362,7 +362,7 @@ impl PlanStage for PickBestStage {
                     // ── Reconstruct weights for Intent and TempoGain ──
                     // Mirrors finalize_scores lines 183-201 exactly.
                     let world = scoring.world;
-                    let active = scoring.active_view;
+                    let active = scoring.active;
                     let mut weights = if scoring.last_goal.is_some() {
                         active.cache.role.factor_weights_continuation(world.tuning)
                     } else {
@@ -515,7 +515,7 @@ fn apply_pick_jitter(pool: &mut ScoredPool, ctx: &StageCtx) -> Vec<f32> {
     let spread = (s_max - s_min).max(0.05);
     let effective_amp = noise_amp * spread;
 
-    let actor = ctx.scoring.active.entity;
+    let actor = ctx.scoring.active.entity();
     let round = ctx.scoring.snap.round;
 
     for (i, (plan, ann)) in pool

@@ -21,7 +21,7 @@ impl PlanStage for RepairAffinityStage {
         let Some(stored_goal) = ctx.scoring.last_goal else { return };
 
         let severity = {
-            let actor_view = ctx.scoring.snap.unit(ctx.scoring.active.entity)
+            let actor_view = ctx.scoring.snap.unit(ctx.scoring.active.entity())
                 .expect("actor must be present in snapshot");
             let target_view = stored_goal
                 .target_entity()

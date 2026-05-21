@@ -3,7 +3,7 @@ use crate::combat::ai::world::influence::{InfluenceMap, InfluenceMaps};
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::config::role::AxisProfile;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::scoring::target_selection::{highest_priority_enemy, target_selection_score};
 use crate::combat::ai::scoring::factors::{PlanFactorValues, ScoredStep};
@@ -461,7 +461,7 @@ fn format_intent(intent: &TacticalIntent, names: &HashMap<Entity, String>) -> St
 /// Returning `None` degrades the classification to `MoveKind::Move` (neutral)
 /// instead of lying about approach/retreat.
 fn focus_position(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     intent: &TacticalIntent,
     snap: &BattleSnapshot,
 ) -> Option<Hex> {
@@ -470,9 +470,7 @@ fn focus_position(
             return Some(u.pos);
         }
     }
-    // C4 workaround: debug builders still take &UnitSnapshot; derive UnitView for lookup.
-    let active_view = snap.unit(active.entity)?;
-    highest_priority_enemy(active_view, snap).map(|u| u.pos)
+    highest_priority_enemy(active, snap).map(|u| u.pos)
 }
 
 fn classify_move(actor_pos: Hex, tile: Hex, focus_pos: Option<Hex>) -> MoveKind {
@@ -513,14 +511,14 @@ fn fmt_offset(hex: Hex) -> String {
     format!("({},{})", q, r)
 }
 
-fn actor_debug(active: &UnitSnapshot) -> ActorDebug {
+fn actor_debug(active: UnitView<'_>) -> ActorDebug {
     ActorDebug {
-        role_label: active.role.dominant_label(),
+        role_label: active.cache.role.dominant_label(),
         pos: hex_to_offset(active.pos),
         hp: active.hp,
         max_hp: active.max_hp,
-        threat: active.threat,
-        tags: active.tags,
+        threat: active.cache.threat,
+        tags: active.cache.tags,
         action_points: active.action_points,
         max_ap: active.max_ap,
         movement_points: active.movement_points,
@@ -528,20 +526,18 @@ fn actor_debug(active: &UnitSnapshot) -> ActorDebug {
 }
 
 fn priority_target_debug(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &BattleSnapshot,
     names: &HashMap<Entity, String>,
 ) -> Option<(String, f32)> {
-    // C4 workaround: debug builders still take &UnitSnapshot; derive UnitView for lookup.
-    let active_view = snap.unit(active.entity)?;
-    highest_priority_enemy(active_view, snap)
-        .map(|t| (name_of(t.entity(), names), target_selection_score(active_view, t, snap)))
+    highest_priority_enemy(active, snap)
+        .map(|t| (name_of(t.entity(), names), target_selection_score(active, t, snap)))
 }
 
 /// Build the AiDebugSnapshot for a normal (non-fallback) pick_action path.
 #[allow(clippy::too_many_arguments)]
 pub fn build_debug_snapshot(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     actor_pos: Hex,
     intent: &TacticalIntent,
     intent_reason: &IntentReason,
@@ -588,7 +584,7 @@ pub fn build_debug_snapshot(
                 ability: ability_label,
                 target_name,
                 tile: hex_to_offset(tile),
-                tile_influence: tile_influence_at(tile, &active.role, tuning, maps),
+                tile_influence: tile_influence_at(tile, &active.cache.role, tuning, maps),
                 raw: raw_factors[i].as_array(),
                 total,
                 is_move_only,
@@ -624,7 +620,7 @@ pub fn build_debug_snapshot(
     });
 
     AiDebugSnapshot {
-        actor_name: name_of(active.entity, names),
+        actor_name: name_of(active.entity(), names),
         actor: actor_debug(active),
         intent: IntentReasoning {
             intent: format_intent(intent, names),
@@ -641,7 +637,7 @@ pub fn build_debug_snapshot(
 
 /// Build the AiDebugSnapshot for a fallback path (no candidates or all filtered).
 pub fn build_fallback_debug(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     actor_pos: Hex,
     intent: &TacticalIntent,
     intent_reason: &IntentReason,
@@ -653,7 +649,7 @@ pub fn build_fallback_debug(
     names: &HashMap<Entity, String>,
 ) -> AiDebugSnapshot {
     AiDebugSnapshot {
-        actor_name: name_of(active.entity, names),
+        actor_name: name_of(active.entity(), names),
         actor: actor_debug(active),
         intent: IntentReasoning {
             intent: format_intent(intent, names),
@@ -672,7 +668,7 @@ fn decision_debug(
     decision: &AiDecision,
     actor_pos: Hex,
     fallback_reason: Option<&str>,
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     tuning: &AiTuning,
     maps: &InfluenceMaps,
     names: &HashMap<Entity, String>,
@@ -699,7 +695,7 @@ fn decision_debug(
                     path.len(),
                 ),
                 dest_tile: Some(hex_to_offset(dest)),
-                dest_influence: Some(tile_influence_at(dest, &active.role, tuning, maps)),
+                dest_influence: Some(tile_influence_at(dest, &active.cache.role, tuning, maps)),
             }
         }
         AiDecision::Move { path, origin } => {
@@ -721,7 +717,7 @@ fn decision_debug(
                     path.len(),
                 ),
                 dest_tile: Some(hex_to_offset(dest)),
-                dest_influence: Some(tile_influence_at(dest, &active.role, tuning, maps)),
+                dest_influence: Some(tile_influence_at(dest, &active.cache.role, tuning, maps)),
             }
         }
         AiDecision::EndTurn => DecisionDebug {

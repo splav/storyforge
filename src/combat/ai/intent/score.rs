@@ -194,7 +194,7 @@ pub(crate) fn intent_offensive_value_on_target(
 pub fn evaluate_last_stand_step(step: &ScoredStep, step_ctx: &ScoringCtx) -> f32 {
     let content = step_ctx.world.content;
     let snap = step_ctx.snap;
-    let active = step_ctx.active_view;
+    let active = step_ctx.active;
 
     let cast = match step {
         ScoredStep::Cast { ability, target_pos, target, .. } => {
@@ -243,7 +243,7 @@ pub fn intent_score(
     if mode == EvaluationMode::LastStand {
         return evaluate_last_stand_step(step, step_ctx);
     }
-    let active = step_ctx.active_view;
+    let active = step_ctx.active;
     let snap = step_ctx.snap;
     let maps = step_ctx.maps;
     let content = step_ctx.world.content;
@@ -361,7 +361,7 @@ pub fn intent_score(
             }
             let area = aoe_area(def, target_pos, step.caster_tile());
             let total = snap.enemies_of(active.team).count() as f32;
-            let hit = aoe_hits(&area, step_ctx.active_view, snap).enemies.len() as f32;
+            let hit = aoe_hits(&area, step_ctx.active, snap).enemies.len() as f32;
             if total > 0.0 { hit / total } else { 0.0 }
         }
     }

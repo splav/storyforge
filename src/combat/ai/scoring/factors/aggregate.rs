@@ -194,9 +194,9 @@ pub fn aggregate_factors_to_score(
     // Only the role-axis aggregation changes; sanity-mask, intent/scarcity
     // modulation, and the repair-affinity bonus (6.3) are unchanged.
     let mut weights = if ctx.last_goal.is_some() {
-        active.role.factor_weights_continuation(world.tuning)
+        active.cache.role.factor_weights_continuation(world.tuning)
     } else {
-        active.role.factor_weights(world.tuning)
+        active.cache.role.factor_weights(world.tuning)
     };
     // Intent slot: StepFactor::count() + PlanFactor::Intent as usize = 7 + 0 = 7
     weights[StepFactor::count() + PlanFactor::Intent as usize] *= world.difficulty.intent_commitment;
@@ -235,9 +235,9 @@ pub fn aggregate_factors_to_score(
     {
         // Step 6.4: use continuation terminal weights when actor has a stored goal.
         let tw = if ctx.last_goal.is_some() {
-            active.role.terminal_weights_continuation(world.tuning)
+            active.cache.role.terminal_weights_continuation(world.tuning)
         } else {
-            active.role.terminal_weights(world.tuning)
+            active.cache.role.terminal_weights(world.tuning)
         };
         let needs = ctx.need_signals;
         for (plan, score) in plans.iter().zip(scores.iter_mut()) {
@@ -331,7 +331,7 @@ pub fn compute_plan_factors_sans_intent(
 
     for (idx, step) in plan.steps.iter().enumerate() {
         let pre_snap = plan.pre_step_snapshot(idx, snap);
-        let Some(sim_actor) = pre_snap.unit_snapshot(active.entity).cloned() else {
+        let Some(sim_actor) = pre_snap.unit(active.entity()) else {
             break;
         };
 
@@ -341,7 +341,7 @@ pub fn compute_plan_factors_sans_intent(
             // Mid-plan: shift perspective to the simulated actor + pre-step snap.
             // NOTE: StepFactor::Saturation::compute reads ctx.snap as pre-step
             // snapshot — correct only when called inside this with_perspective block.
-            let step_ctx = ctx.with_perspective(&sim_actor, pre_snap);
+            let step_ctx = ctx.with_perspective(sim_actor, pre_snap);
             let step_outcome = plan.annotation.outcomes.get(idx).cloned().unwrap_or_default();
             for f in StepFactor::iter() {
                 let v = f.compute(&step_ctx, &scored_step, &step_outcome, &ctx.need_signals);
@@ -424,9 +424,9 @@ pub fn compute_plan_intent_sum(
         let mut step_weight = 1.0f32;
         for (idx, step) in plan.steps.iter().enumerate() {
             let pre_snap = plan.pre_step_snapshot(idx, ctx.snap);
-            let Some(sim_actor) = pre_snap.unit_snapshot(ctx.active.entity).cloned() else { break; };
+            let Some(sim_actor) = pre_snap.unit(ctx.active.entity()) else { break; };
             let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
-            let step_ctx = ctx.with_perspective(&sim_actor, pre_snap);
+            let step_ctx = ctx.with_perspective(sim_actor, pre_snap);
             intent_sum += evaluate_last_stand_step(&scored_step, &step_ctx) * step_weight;
             step_weight *= base_discount;
         }
@@ -438,7 +438,7 @@ pub fn compute_plan_intent_sum(
         "TurnPlan sim_snapshots must align with steps, or be empty (deserialized)",
     );
 
-    let active = ctx.active_view;
+    let active = ctx.active;
     let snap = ctx.snap;
     let world = ctx.world;
     let content = world.content;
@@ -492,13 +492,13 @@ pub fn compute_plan_intent_sum(
 
     for (idx, step) in plan.steps.iter().enumerate() {
         let pre_snap = plan.pre_step_snapshot(idx, snap);
-        let Some(sim_actor) = pre_snap.unit_snapshot(active.entity()).cloned() else {
+        let Some(sim_actor) = pre_snap.unit(active.entity()) else {
             break;
         };
         let scored_step = ScoredStep::from_plan_step(step, sim_actor.pos);
 
         if !goal_achieved {
-            let step_ctx = ctx.with_perspective(&sim_actor, pre_snap);
+            let step_ctx = ctx.with_perspective(sim_actor, pre_snap);
             let step_outcome = plan.annotation.outcomes.get(idx).cloned().unwrap_or_default();
             let iv = intent_score(intent, &scored_step, &step_ctx, &step_outcome, EvaluationMode::Default);
             intent_sum += iv * step_weight;

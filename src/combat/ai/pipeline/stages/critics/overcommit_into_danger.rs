@@ -44,7 +44,7 @@ impl PlanCritic for OvercommitIntoDanger {
         _ann: &PlanAnnotation,
         ctx: &ScoringCtx,
     ) -> Option<CriticHit> {
-        let active = ctx.active_view;
+        let active = ctx.active;
         let t = &ctx.world.tuning.thresholds;
 
         // ── Signal 1: Survival path ───────────────────────────────────────────

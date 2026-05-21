@@ -42,7 +42,7 @@ pub(super) fn evaluate(
 
 fn plan_has_useful_cast(plan: &TurnPlan, ctx: &ScoringCtx) -> bool {
     let content = ctx.world.content;
-    let caster = &ctx.active_view.cache.caster_ctx;
+    let caster = &ctx.active.cache.caster_ctx;
     plan.steps.iter().any(|s| {
         if let PlanStep::Cast { ability, .. } = s {
             content.abilities.get(ability).is_some_and(|def| {

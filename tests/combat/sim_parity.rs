@@ -1395,7 +1395,7 @@ fn parity_engine_vs_units_after_apply_step() {
                 // fields is undefined post-death).
                 continue;
             };
-            let Some(snap_unit) = sim.snapshot.unit_snapshot(entity) else {
+            let Some(snap_unit) = sim.snapshot.units.iter().find(|u| u.entity == entity) else {
                 panic!("[{}] entity {:?} missing from snapshot after apply_step", case.label, entity);
             };
 

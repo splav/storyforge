@@ -140,7 +140,7 @@ pub fn sanity_adjust_plans(
         return breakdown;
     }
 
-    let active = ctx.active_view;
+    let active = ctx.active;
     let snap = ctx.snap;
     let maps = ctx.maps;
     let allies: Vec<UnitView<'_>> = snap

@@ -40,7 +40,7 @@ impl PlanCritic for BlindspotRanged {
         _ann: &PlanAnnotation,
         ctx: &ScoringCtx,
     ) -> Option<CriticHit> {
-        let active = ctx.active_view;
+        let active = ctx.active;
 
         // Gate: only applies to ranged units with at least one living enemy.
         if !active.cache.tags.contains(AiTags::RANGED) {

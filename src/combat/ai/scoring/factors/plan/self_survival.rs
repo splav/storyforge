@@ -43,7 +43,7 @@ pub fn compute(plan: &TurnPlan, _intent: &TacticalIntent, ctx: &ScoringCtx) -> f
 pub fn compute_plan_self_survival(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
     let active = ctx.active;
     let max_hp = active.max_hp.max(1) as f32;
-    let caster = &active.caster_ctx;
+    let caster = &active.cache.caster_ctx;
 
     let mut heal_sum = 0.0f32;
     let mut armor_sum = 0.0f32;
@@ -59,7 +59,7 @@ pub fn compute_plan_self_survival(plan: &TurnPlan, ctx: &ScoringCtx) -> f32 {
         }
         let PlanStep::Cast { ability, target, .. } = step else { continue };
         // Only self-directed casts (actor targets themselves).
-        if *target != active.entity {
+        if *target != active.entity() {
             continue;
         }
         let Some(def) = ctx.world.content.abilities.get(ability) else { continue };

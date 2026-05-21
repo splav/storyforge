@@ -328,7 +328,7 @@ pub fn score_plans_prototype(
         .map(|(i, ps)| {
             let committed_pos = committed_prefix_end_pos(&plans[i]);
             let fv = future_value_from_committed_state(
-                ctx.active_view,
+                ctx.active,
                 committed_pos,
                 ctx.snap,
                 ctx.maps,

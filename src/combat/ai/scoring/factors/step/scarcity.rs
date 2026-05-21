@@ -43,7 +43,7 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
     };
     let world = ctx.world;
     let snap = ctx.snap;
-    let active = ctx.active_view;
+    let active = ctx.active;
     let Some(def) = world.content.abilities.get(*ability) else {
         return 0.0;
     };

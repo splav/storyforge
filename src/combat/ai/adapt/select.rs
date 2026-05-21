@@ -118,7 +118,7 @@ pub fn select_evaluation_modes(
         return adaptation;
     }
 
-    let active = ctx.active_view;
+    let active = ctx.active;
     let content = ctx.world.content;
 
     // ── Global rules under ProtectSelf ────────────────────────────────────
@@ -214,7 +214,7 @@ pub fn apply_adaptation(
         return adaptation;
     }
 
-    let active = ctx.active_view;
+    let active = ctx.active;
     let content = ctx.world.content;
 
     // ── Global rules under ProtectSelf ────────────────────────────────────

@@ -71,7 +71,7 @@ fn step_tempo(
 /// self-targeted and ally-targeted abilities).
 fn max_offensive_range(ctx: &ScoringCtx) -> i32 {
     ctx.active
-        .abilities
+        .cache.abilities
         .iter()
         .filter_map(|id| ctx.world.content.abilities.get(id))
         .filter(|def| {

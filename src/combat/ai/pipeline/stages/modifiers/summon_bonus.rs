@@ -28,14 +28,14 @@ impl PlanModifier for SummonBonus {
         let mut count = snap
             .units
             .iter()
-            .filter(|u| u.summoner == Some(active.entity) && u.is_alive())
+            .filter(|u| u.summoner == Some(active.entity()) && u.is_alive())
             .count() as f32;
 
         // Global saturation: total live allies on the actor's team (excluding actor).
         let total_allies = snap
             .units
             .iter()
-            .filter(|u| u.team == active.team && u.entity != active.entity && u.is_alive())
+            .filter(|u| u.team == active.team && u.entity != active.entity() && u.is_alive())
             .count() as f32;
         // Saturation_mult computed once before the loop (legacy line :392).
         let saturation_mult = 0.65_f32.powf(total_allies);

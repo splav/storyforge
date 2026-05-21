@@ -31,7 +31,7 @@ pub fn compute(
 ) -> f32 {
     match step {
         ScoredStep::Cast { ability, target, .. } => {
-            let caster = ctx.active.entity;
+            let caster = ctx.active.entity();
             let pre_snap = ctx.snap; // caller must have applied with_perspective
             buff_saturation_penalty(ability, *target, caster, pre_snap, ctx.world.content)
         }

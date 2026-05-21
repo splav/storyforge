@@ -974,7 +974,7 @@ impl BattleSnapshot {
     /// the memory module functions (`mismatch`, `check_continuation`, `capture`)
     /// that still accept `&UnitSnapshot`. Will be removed in step 3 when those
     /// functions are migrated to `UnitView`.
-    pub fn unit_snapshot(&self, entity: Entity) -> Option<&UnitSnapshot> {
+    pub(crate) fn unit_snapshot(&self, entity: Entity) -> Option<&UnitSnapshot> {
         if !self.by_entity.is_empty() {
             let idx = *self.by_entity.get(&entity)?;
             return self.units.get(idx);

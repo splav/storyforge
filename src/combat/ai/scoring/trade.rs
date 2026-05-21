@@ -36,7 +36,7 @@
 
 use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::plan::TurnPlan;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::content::abilities::{EffectCalcExt, StatusOn, TargetType};
 use crate::content::content_view::ContentView;
 
@@ -221,7 +221,7 @@ pub struct TradeBreakdown {
 /// `lost_value`.
 pub fn trade_delta(
     plan: &TurnPlan,
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     initial_snap: &BattleSnapshot,
     content: &ContentView,
 ) -> TradeBreakdown {
@@ -243,7 +243,7 @@ pub fn trade_delta(
         for &e in &outcome.killed {
             let Some(victim) = pre.unit(e) else { continue };
             let v = unit_value(victim, content);
-            if victim.entity() == active.entity {
+            if victim.entity() == active.entity() {
                 self_in_killed = true;
                 lost_value += v;
             } else if victim.team == active.team {
@@ -261,9 +261,7 @@ pub fn trade_delta(
     // returns 0 because there's no path-transition to scan. Safe.
     let enemies: Vec<UnitView<'_>> = initial_snap.enemies_of(active.team).collect();
     let aoo_dmg = if prefix_is_move_shaped(plan, prefix_len) {
-        let active_view = initial_snap.unit(active.entity)
-            .expect("active unit must be present in initial snapshot");
-        expected_aoo_damage(active_view, plan, &enemies)
+        expected_aoo_damage(active, plan, &enemies)
     } else {
         0.0
     };
@@ -272,9 +270,7 @@ pub fn trade_delta(
     let self_lost = if self_in_killed {
         0.0
     } else if self_lethal_aoo {
-        let active_view = initial_snap.unit(active.entity)
-            .expect("active unit must be present in initial snapshot");
-        unit_value(active_view, content)
+        unit_value(active, content)
     } else {
         0.0
     };
@@ -657,7 +653,7 @@ mod tests {
         let plan = static_kill_plan(actor.pos, vec![victim.entity]);
         let c = content();
 
-        let br = trade_delta(&plan, &actor, &snap, &c);
+        let br = trade_delta(&plan, snap.unit(actor.entity).unwrap(), &snap, &c);
         let expected = unit_value(snap.unit(victim.entity).unwrap(), &c);
 
         assert_eq!(br.killed_value, expected);
@@ -689,7 +685,7 @@ mod tests {
         let plan = static_kill_plan(actor.pos, vec![rat.entity, ally_controller.entity]);
         let c = content();
 
-        let br = trade_delta(&plan, &actor, &snap, &c);
+        let br = trade_delta(&plan, snap.unit(actor.entity).unwrap(), &snap, &c);
         assert!(br.killed_value > 0.0);
         assert!(br.lost_value > br.killed_value, "ally value must dominate");
         assert!(br.delta < 0.0);
@@ -711,7 +707,7 @@ mod tests {
         let plan = move_plan_killing(vec![hex_from_offset(-1, 0)], Vec::new());
         let c = content();
 
-        let br = trade_delta(&plan, &actor, &snap, &c);
+        let br = trade_delta(&plan, snap.unit(actor.entity).unwrap(), &snap, &c);
         let actor_view = snap.unit(actor.entity).unwrap();
         assert!(br.self_lethal);
         assert_eq!(br.killed_value, 0.0);
@@ -745,7 +741,7 @@ mod tests {
         );
         let c = content();
 
-        let br = trade_delta(&plan, &actor, &snap, &c);
+        let br = trade_delta(&plan, snap.unit(actor.entity).unwrap(), &snap, &c);
         let actor_view = snap.unit(actor.entity).unwrap();
         assert!(br.self_lethal);
         assert_eq!(br.self_lost, 0.0, "must not double-charge");
@@ -773,7 +769,7 @@ mod tests {
         };
         let c = content();
 
-        let br = trade_delta(&plan, &actor, &snap, &c);
+        let br = trade_delta(&plan, snap.unit(actor.entity).unwrap(), &snap, &c);
         assert_eq!(br, TradeBreakdown::default());
     }
 
@@ -789,7 +785,7 @@ mod tests {
         let plan = static_kill_plan(actor.pos, vec![ent(99)]);
         let c = content();
 
-        let br = trade_delta(&plan, &actor, &snap, &c);
+        let br = trade_delta(&plan, snap.unit(actor.entity).unwrap(), &snap, &c);
         assert_eq!(br, TradeBreakdown::default());
     }
 
@@ -840,7 +836,7 @@ mod tests {
         };
         let c = content();
 
-        let br = trade_delta(&plan, &actor, &snap, &c);
+        let br = trade_delta(&plan, snap.unit(actor.entity).unwrap(), &snap, &c);
         assert_eq!(br.killed_value, 0.0, "step-2 kill must not be credited");
         assert_eq!(br, TradeBreakdown::default());
     }
@@ -884,7 +880,7 @@ mod tests {
         };
         let c = content();
 
-        let br = trade_delta(&plan, &actor, &snap, &c);
+        let br = trade_delta(&plan, snap.unit(actor.entity).unwrap(), &snap, &c);
         assert_eq!(br.killed_value, unit_value(snap.unit(victim.entity).unwrap(), &c));
         assert!(!br.self_lethal);
     }

@@ -79,7 +79,7 @@ impl PlanCritic for RareResourceForLowImpact {
             // structural, not a waste.
             let Some(expected_damage) = def
                 .effect
-                .calc(&ctx.active.caster_ctx)
+                .calc(&ctx.active.cache.caster_ctx)
                 .map(|ec| ec.expected())
                 .filter(|&e| e > 0.0)
             else {
