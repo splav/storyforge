@@ -2,7 +2,7 @@
 //!
 //! Parallel to `effects_state::compute_affected_targets` (which lives in the
 //! shared core and returns `Vec<Entity>` for sim / real resolution). This
-//! helper works on `&UnitSnapshot` references so scoring can read threat /
+//! helper works on snapshot references so scoring can read threat /
 //! role / HP without re-looking-up, and splits the hits by team relative to
 //! the caster.
 //!
@@ -12,7 +12,7 @@
 //! friendly-fire damage twice (once via `allies_of`, once via the explicit
 //! self-branch).
 
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
 use crate::game::hex::Hex;
 use std::collections::HashSet;
 
@@ -37,7 +37,7 @@ impl AoeHits<'_> {
 /// reused across multiple classifications of the same blast.
 pub fn aoe_hits<'a>(
     area: &HashSet<Hex>,
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &'a BattleSnapshot,
 ) -> AoeHits<'a> {
     let mut enemies = Vec::new();
@@ -47,7 +47,7 @@ pub fn aoe_hits<'a>(
         if !area.contains(&u.pos) {
             continue;
         }
-        if u.entity == active.entity {
+        if u.entity == active.entity() {
             self_hit = true;
             continue;
         }
@@ -81,7 +81,8 @@ mod tests {
         );
         let area: HashSet<Hex> = [actor.pos, ally.pos, enemy.pos].into_iter().collect();
 
-        let hits = aoe_hits(&area, &actor, &snap);
+        let actor_view = snap.unit(actor.entity).unwrap();
+        let hits = aoe_hits(&area, actor_view, &snap);
         assert_eq!(hits.enemies.len(), 1);
         assert_eq!(hits.enemies[0].entity, enemy.entity);
         assert_eq!(hits.allies.len(), 1);
@@ -99,7 +100,8 @@ mod tests {
         let snap = snapshot_from(vec![actor.clone()], 1);
         let area: HashSet<Hex> = [actor.pos].into_iter().collect();
 
-        let hits = aoe_hits(&area, &actor, &snap);
+        let actor_view = snap.unit(actor.entity).unwrap();
+        let hits = aoe_hits(&area, actor_view, &snap);
         assert!(hits.allies.is_empty(), "actor must not be counted as an ally");
         assert!(hits.self_hit);
         assert_eq!(hits.ally_count_with_self(), 1);
@@ -112,7 +114,8 @@ mod tests {
         let snap = snapshot_from(vec![actor.clone(), far_enemy], 1);
         let area: HashSet<Hex> = [actor.pos].into_iter().collect();
 
-        let hits = aoe_hits(&area, &actor, &snap);
+        let actor_view = snap.unit(actor.entity).unwrap();
+        let hits = aoe_hits(&area, actor_view, &snap);
         assert!(hits.enemies.is_empty());
         assert!(hits.allies.is_empty());
         assert!(hits.self_hit);

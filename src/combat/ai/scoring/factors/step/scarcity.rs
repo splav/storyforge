@@ -18,7 +18,7 @@ use crate::combat::ai::scoring::factors::offensive::aoe_area;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::stun_denial_value;
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::world::snapshot::UnitSnapshot;
+use crate::combat::ai::world::snapshot::{UnitSnapshot, UnitView};
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ContentView;
 
@@ -43,7 +43,7 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
     };
     let world = ctx.world;
     let snap = ctx.snap;
-    let active = ctx.active;
+    let active = ctx.active_view;
     let Some(def) = world.content.abilities.get(*ability) else {
         return 0.0;
     };
@@ -139,10 +139,10 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
 }
 
 /// Returns true if the caster has at least one ability with no resource cost.
-/// Reads abilities from the actor's own snapshot — same source
+/// Reads abilities from the actor's own cache — same source
 /// `SnapshotActionState::actor_knows_ability` uses, so no dual-list drift.
-fn has_free_attack(active: &UnitSnapshot, content: &ContentView) -> bool {
-    active.abilities.iter().any(|id| {
+fn has_free_attack(active: UnitView<'_>, content: &ContentView) -> bool {
+    active.cache.abilities.iter().any(|id| {
         content
             .abilities
             .get(id)

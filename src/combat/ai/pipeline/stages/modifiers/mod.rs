@@ -130,7 +130,7 @@ impl ScoreEffectStage for PlanModifiersStage {
     fn compute_effects(&self, ctx: &StageCtx, pool: &ScoredPool) -> Vec<EmittedEffect> {
         // Per-pool setup — migrated from the old apply() body.
         let summon_dpr = build_summon_dpr_cache(&pool.plans, ctx.scoring.world);
-        let actor_value = unit_value(ctx.scoring.active, ctx.scoring.world.content);
+        let actor_value = unit_value(ctx.scoring.active_view, ctx.scoring.world.content);
         let repair_weights = ctx.scoring.active.role.repair_weights(ctx.scoring.world.tuning);
 
         let mctx = ModifierCtx {

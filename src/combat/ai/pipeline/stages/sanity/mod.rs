@@ -766,13 +766,16 @@ mod tests {
         for row in &rows {
             let mut actor = unit(1, Team::Enemy, hex_from_offset(0, 0), row.actor_hp);
             actor.armor = row.actor_armor;
-            let snap = snapshot_from(row.enemies.clone(), 1);
+            let mut all_units = row.enemies.clone();
+            all_units.push(actor.clone());
+            let snap = snapshot_from(all_units, 1);
+            let actor_view = snap.unit(actor.entity).unwrap();
             let enemy_views: Vec<crate::combat::ai::world::snapshot::UnitView<'_>> =
                 row.enemies.iter()
                     .filter_map(|e| snap.unit(e.entity))
                     .collect();
             let plan = move_plan(row.path.clone());
-            let dmg = expected_aoo_damage(&actor, &plan, &enemy_views);
+            let dmg = expected_aoo_damage(actor_view, &plan, &enemy_views);
             let name = row.name;
             match row.expected {
                 Aoo::Zero => assert_eq!(dmg, 0.0, "[{name}] expected 0, got {dmg}"),

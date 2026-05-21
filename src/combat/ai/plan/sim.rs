@@ -7,7 +7,7 @@
 //! `project_engine_to_snapshot` after every step.
 
 use crate::combat::ai::world::snapshot::{
-    ActiveStatusView, BattleSnapshot, UnitSnapshot,
+    ActiveStatusView, BattleSnapshot, UnitView,
 };
 use crate::combat::ai::world::tags::StatusTagCache;
 use crate::content::races::CritFailEffect;
@@ -65,13 +65,13 @@ impl<'a> SimState<'a> {
         }
     }
 
-    /// Live actor snapshot — `None` if the actor died mid-plan. Snapshot
+    /// Live actor view — `None` if the actor died mid-plan. Snapshot
     /// now keeps corpses in `units` (for death-triggered effects, replay),
     /// so the "is_alive" filter lives here rather than implicitly in a
     /// retain'd vec. Planning callers that terminate on actor death see
     /// `None` as before.
-    pub fn actor_unit(&self) -> Option<&UnitSnapshot> {
-        self.snapshot.unit_snapshot(self.actor).filter(|u| u.is_alive())
+    pub fn actor_unit(&self) -> Option<UnitView<'_>> {
+        self.snapshot.unit(self.actor).filter(|u| u.is_alive())
     }
 
     /// Apply one plan step to the simulated state, returning per-step
@@ -522,6 +522,7 @@ fn project_engine_to_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::world::snapshot::UnitSnapshot;
     use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,

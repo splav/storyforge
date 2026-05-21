@@ -343,7 +343,7 @@ pub(crate) fn scan_aoo_hits_for_step(
 /// across Move steps so the same enemy cannot AoO twice within a single plan
 /// (budget: one reaction per round).
 pub(crate) fn expected_aoo_damage(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     plan: &TurnPlan,
     enemies: &[UnitView<'_>],
 ) -> f32 {

@@ -104,7 +104,8 @@ mod tests {
 
         // ── 3. ModifierCtx ──
         let summon_dpr = HashMap::new();
-        let actor_value = unit_value(&actor, world.content);
+        let actor_view = snap.unit(actor.entity).unwrap();
+        let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
         let ctx = ModifierCtx { stage: &stage, summon_dpr: &summon_dpr, actor_value, repair_weights };
 
@@ -162,7 +163,8 @@ mod tests {
         let injected_dpr = 7.0_f32;
         let mut dpr_cache = HashMap::new();
         dpr_cache.insert(template_id.clone(), injected_dpr);
-        let actor_value = unit_value(&actor, world.content);
+        let actor_view = snap.unit(actor.entity).unwrap();
+        let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
         let ctx = ModifierCtx { stage: &stage, summon_dpr: &dpr_cache, actor_value, repair_weights };
 

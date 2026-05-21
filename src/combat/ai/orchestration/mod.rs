@@ -247,8 +247,8 @@ pub fn pick_action(
             agenda: Agenda { band: PriorityBand::NormalTactical, items: vec![] },
         };
     };
-    // C3/C4 workaround: fallback_move and debug builders still take `&UnitSnapshot`;
-    // re-derive until those are migrated (assign_band + build_agenda now take UnitView).
+    // C4 workaround: debug builders (build_fallback_debug, build_debug_snapshot)
+    // still take `&UnitSnapshot`; keep active_snap until those are migrated in C4.
     let active_snap = snap.unit_snapshot(actor).expect("unit_snapshot present iff unit() is");
 
     // Apply per-actor AiTuning override if present.
@@ -327,7 +327,7 @@ pub fn pick_action(
 
     if plans.is_empty() {
         // C2/C3 workaround: fallback_move + build_fallback_debug still take &UnitSnapshot.
-        let decision = fallback::fallback_move(active_snap, snap, maps);
+        let decision = fallback::fallback_move(active, snap, maps);
         let ds = if debug {
             Some(build_fallback_debug(
                 active_snap, actor_pos, &choice.intent, &choice.reason, &decision,
@@ -493,7 +493,9 @@ pub fn write_decision_log_from_result(
     let plans = &pool.plans;
     let best_idx = result.best_idx;
 
-    let actor_value = crate::combat::ai::scoring::trade::unit_value(active, content);
+    let active_view = snap.unit(active.entity)
+        .expect("active unit must be in snapshot for log");
+    let actor_value = crate::combat::ai::scoring::trade::unit_value(active_view, content);
 
     // Rank plans by final (adapted) score, keep top-10 for size budget.
     // Pre-compute evaluation modes (owned) so plan_to_log_entry borrows them

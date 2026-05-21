@@ -88,7 +88,8 @@ mod tests {
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
 
         // ── 3. ModifierCtx ──
-        let actor_value = unit_value(&actor, world.content);
+        let actor_view = snap.unit(actor.entity).unwrap();
+        let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
         let summon_dpr = HashMap::new();
         let ctx = ModifierCtx { stage: &stage, summon_dpr: &summon_dpr, actor_value, repair_weights };
@@ -139,7 +140,8 @@ mod tests {
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
 
         // ── 3. ModifierCtx ──
-        let actor_value = unit_value(&actor, world.content);
+        let actor_view = snap.unit(actor.entity).unwrap();
+        let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
         let summon_dpr = HashMap::new();
         let ctx = ModifierCtx { stage: &stage, summon_dpr: &summon_dpr, actor_value, repair_weights };

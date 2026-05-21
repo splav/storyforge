@@ -146,8 +146,6 @@ fn run_ai_turn(
         msgs.action_input.write(ActionInput::EndTurn { actor });
         return;
     };
-    // C3/C4 workaround: record_committed_reservations still takes &UnitSnapshot.
-    let actor_snap = snap.unit_snapshot(actor).expect("unit_snapshot present iff unit() is");
 
     // Borrow the actor's persistent `AiMemory` directly from the query —
     // writes land in place, no take/put dance. Actors without the component
@@ -311,7 +309,7 @@ fn run_ai_turn(
         let best_plan = &result.pool.plans[best_idx];
         let (_, consumed) = crate::combat::ai::pipeline::stages::pick_best::commit_plan(best_plan, actor_pos);
         record_committed_reservations(
-            best_plan, consumed, actor_snap, &world, &snap, reservations, actor_pos,
+            best_plan, consumed, actor_view, &world, &snap, reservations, actor_pos,
         );
     }
 

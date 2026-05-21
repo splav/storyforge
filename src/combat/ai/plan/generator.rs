@@ -18,7 +18,7 @@ use crate::combat::engine_bridge::entity_to_uid;
 use crate::combat::ai::outcome::builder as outcome_builder;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 #[cfg(test)]
@@ -51,7 +51,7 @@ pub fn generate_plans(
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
 ) -> Vec<TurnPlan> {
-    let Some(actor_u) = snap.unit_snapshot(actor) else {
+    let Some(actor_u) = snap.unit(actor) else {
         return Vec::new();
     };
     let max_depth = ctx.difficulty.plan_max_depth.max(1);
@@ -91,7 +91,7 @@ pub fn generate_plans(
             // Grab the actor's caster snapshot once — str/int/spell-power come
             // from stats + equipment, which sim doesn't mutate, so this is
             // stable for the whole plan extension loop.
-            let caster_ctx = sa.caster_ctx.clone();
+            let caster_ctx = sa.cache.caster_ctx.clone();
 
             // Reuse the same `state` adapter the inner enumerator builds —
             // it captures `&base_sim.snapshot`, exactly the world this step
@@ -186,7 +186,7 @@ pub fn generate_plans(
                     step_damage,
                     &base_sim.snapshot,
                     &caster_ctx,
-                    &sa.crit_fail_effect,
+                    &sa.cache.crit_fail_effect,
                     ctx,
                     maps,
                     sa.pos,
@@ -339,7 +339,7 @@ fn enumerate_next_steps(
     // will consult, so no dual-list drift. `rank_targets` already filters
     // candidates through `check_legality`, so this loop only needs the
     // AI-policy gate on top.
-    for ability_id in &actor.abilities {
+    for ability_id in &actor.cache.abilities {
         let Some(def) = ctx.content.abilities.get(ability_id) else { continue };
         let targets = rank_targets(def, actor, sim, &state);
         for (target, target_pos) in targets {
@@ -388,7 +388,7 @@ fn enumerate_next_steps(
 ///   more friends than enemies justify).
 fn ai_policy_ok(
     def: &AbilityDef,
-    actor: &UnitSnapshot,
+    actor: UnitView<'_>,
     target: Entity,
     target_pos: Hex,
     sim: &SimState,
@@ -447,12 +447,12 @@ fn ai_policy_ok(
 /// - `Myself`: one pair — the actor itself.
 fn rank_targets(
     def: &AbilityDef,
-    actor: &UnitSnapshot,
+    actor: UnitView<'_>,
     sim: &SimState,
     state: &SnapshotActionState,
 ) -> Vec<(Entity, Hex)> {
     let ability_id = &def.id;
-    let actor_entity = actor.entity;
+    let actor_entity = actor.entity();
     let is_legal = |target: Entity, target_pos: Hex| -> bool {
         let proposal = ProposedAction {
             actor: actor_entity,
@@ -465,8 +465,8 @@ fn rank_targets(
 
     match def.target_type {
         TargetType::Myself => {
-            if is_legal(actor.entity, actor.pos) {
-                vec![(actor.entity, actor.pos)]
+            if is_legal(actor.entity(), actor.pos) {
+                vec![(actor.entity(), actor.pos)]
             } else {
                 Vec::new()
             }
@@ -512,7 +512,7 @@ fn rank_targets(
         // Simplest working heuristic: enemy-centered — one candidate cell
         // per reachable enemy, ranked by the same threat ∪ killability
         // union as SingleEnemy. Matches how pre-conversion thunderstrike
-        // was ranked (targetted an enemy, AoE fell on their tile); after
+        // was targeted (targetted an enemy, AoE fell on their tile); after
         // thunderstrike → Ground the AI keeps the same tactical shape
         // without needing a globally optimal cluster-picker.
         //
@@ -526,7 +526,7 @@ fn rank_targets(
             let pool: Vec<UnitView<'_>> = sim
                 .snapshot
                 .enemies_of(actor.team)
-                .filter(|u| is_legal(actor.entity, u.pos))
+                .filter(|u| is_legal(actor.entity(), u.pos))
                 .collect();
 
             let mut by_threat: Vec<UnitView<'_>> = pool.clone();
@@ -546,7 +546,7 @@ fn rank_targets(
                 if seen.insert(u.pos) {
                     // Ground sentinel: target entity = actor. `target_pos`
                     // is where the AoE lands.
-                    out.push((actor.entity, u.pos));
+                    out.push((actor.entity(), u.pos));
                 }
             }
             out
@@ -640,7 +640,7 @@ fn pick_top_move_tiles(
 /// Initial partial score for the empty plan: encourages continuing to act when
 /// the actor's current tile is safe; higher danger pushes the beam to prefer
 /// extensions that improve the situation.
-fn seed_partial_score(actor: &UnitSnapshot, maps: &InfluenceMaps) -> f32 {
+fn seed_partial_score(actor: UnitView<'_>, maps: &InfluenceMaps) -> f32 {
     1.0 - maps.danger.get(actor.pos)
 }
 
@@ -1176,13 +1176,14 @@ mod tests {
 
         let snap = snapshot_from(vec![actor.clone(), fine.clone(), hurt.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         assert!(
-            !ai_policy_ok(&heal, &actor, fine.entity, fine.pos, &sim, &ctx),
+            !ai_policy_ok(&heal, actor_view, fine.entity, fine.pos, &sim, &ctx),
             "heal on near-full ally must be rejected",
         );
         assert!(
-            ai_policy_ok(&heal, &actor, hurt.entity, hurt.pos, &sim, &ctx),
+            ai_policy_ok(&heal, actor_view, hurt.entity, hurt.pos, &sim, &ctx),
             "heal on wounded ally must be allowed",
         );
     }
@@ -1220,13 +1221,14 @@ mod tests {
 
         let snap = snapshot_from(vec![actor.clone(), stunned.clone(), awake.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity, &status_tag_cache);
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         assert!(
-            !ai_policy_ok(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx),
+            !ai_policy_ok(&def, actor_view, stunned.entity, stunned.pos, &sim, &ctx),
             "single-target CC on already-stunned target must be rejected",
         );
         assert!(
-            ai_policy_ok(&def, &actor, awake.entity, awake.pos, &sim, &ctx),
+            ai_policy_ok(&def, actor_view, awake.entity, awake.pos, &sim, &ctx),
             "CC on un-stunned target must be allowed",
         );
     }
@@ -1263,9 +1265,10 @@ mod tests {
 
         let snap = snapshot_from(vec![actor.clone(), stunned.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity, &status_tag_cache);
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         assert!(
-            ai_policy_ok(&def, &actor, stunned.entity, stunned.pos, &sim, &ctx),
+            ai_policy_ok(&def, actor_view, stunned.entity, stunned.pos, &sim, &ctx),
             "AoE CC must not be rejected just because the primary target is stunned",
         );
     }
@@ -1290,9 +1293,10 @@ mod tests {
 
         let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         assert!(
-            !ai_policy_ok(&def, &actor, enemy.entity, enemy.pos, &sim, &ctx),
+            !ai_policy_ok(&def, actor_view, enemy.entity, enemy.pos, &sim, &ctx),
             "friendly-fire AoE that hits self without 2x enemy value must be rejected",
         );
     }
@@ -1316,9 +1320,10 @@ mod tests {
 
         let snap = snapshot_from(vec![actor.clone(), e1.clone(), e2.clone(), ally.clone()], 1);
         let sim = SimState::from_snapshot(&snap, actor.entity, empty_status_tag_cache());
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         assert!(
-            ai_policy_ok(&def, &actor, e1.entity, e1.pos, &sim, &ctx),
+            ai_policy_ok(&def, actor_view, e1.entity, e1.pos, &sim, &ctx),
             "AoE must be accepted when enemies_hit >= 2*allies_hit",
         );
     }

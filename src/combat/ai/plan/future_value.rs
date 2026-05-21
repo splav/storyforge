@@ -130,7 +130,7 @@ pub fn committed_prefix_end_pos(plan: &TurnPlan) -> Hex {
 /// All three are additive, unweighted relative to each other (only `γ` scales
 /// the whole FutureValue against PrefixScore in the outer formula).
 pub fn future_value_from_committed_state(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     committed_pos: Hex,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
@@ -153,8 +153,8 @@ pub fn future_value_from_committed_state(
 }
 
 /// λ_pos: how good is `committed_pos` for this unit's role.
-fn position_component(active: &UnitSnapshot, committed_pos: Hex, tuning: &AiTuning, maps: &InfluenceMaps) -> f32 {
-    evaluate_position(committed_pos, &active.role, tuning, maps)
+fn position_component(active: UnitView<'_>, committed_pos: Hex, tuning: &AiTuning, maps: &InfluenceMaps) -> f32 {
+    evaluate_position(committed_pos, &active.cache.role, tuning, maps)
 }
 
 /// λ_attack = 0.5 × best `estimate_hypothetical(...).expected_damage` for the intent-filtered candidate set.
@@ -167,7 +167,7 @@ fn position_component(active: &UnitSnapshot, committed_pos: Hex, tuning: &AiTuni
 ///
 /// Reachability filter: `distance(committed_pos, target.pos) <= speed + max_attack_range`.
 fn attack_component_intent(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     committed_pos: Hex,
     snap: &BattleSnapshot,
     ctx: &ScoringCtx,
@@ -176,11 +176,11 @@ fn attack_component_intent(
     use crate::combat::ai::scoring::policy;
 
     let content = ctx.world.content;
-    let reach_budget = active.speed.max(0) + active.max_attack_range as i32;
+    let reach_budget = active.speed.max(0) + active.cache.max_attack_range as i32;
 
     // Apply `policy::damage::value` to a hypothetical outcome for a single target.
     let damage_value = |def: &crate::content::abilities::AbilityDef, target: &UnitSnapshot| -> f32 {
-        let h = estimate_hypothetical(def, target, &active.caster_ctx, content);
+        let h = estimate_hypothetical(def, target, &active.cache.caster_ctx, content);
         let damage_progress = (h.enemy_damage / target.hp.max(1) as f32).min(1.0);
         policy::damage::value(h.enemy_damage, damage_progress)
     };
@@ -190,7 +190,7 @@ fn attack_component_intent(
             let Some(target) = snap.unit_snapshot(*target_entity) else { return 0.0 };
             let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
             if dist > reach_budget { return 0.0; }
-            let best = active.abilities.iter()
+            let best = active.cache.abilities.iter()
                 .filter_map(|id| content.abilities.get(id))
                 .map(|def| damage_value(def, target))
                 .fold(0.0f32, f32::max);
@@ -201,7 +201,7 @@ fn attack_component_intent(
             let Some(target) = snap.unit_snapshot(*target_entity) else { return 0.0 };
             let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
             if dist > reach_budget { return 0.0; }
-            let best = active.abilities.iter()
+            let best = active.cache.abilities.iter()
                 .filter_map(|id| content.abilities.get(id))
                 .filter(|def| applies_cc(def, content))
                 .map(|def| damage_value(def, target))
@@ -215,7 +215,7 @@ fn attack_component_intent(
             if enemies.is_empty() { return 0.0; }
 
             let mut best: f32 = 0.0;
-            for ability_id in &active.abilities {
+            for ability_id in &active.cache.abilities {
                 let Some(def) = content.abilities.get(ability_id) else { continue };
                 if def.aoe == AoEShape::None { continue }
                 // Use each enemy's tile as a candidate AoE center.
@@ -236,12 +236,9 @@ fn attack_component_intent(
         _ => {
             let mut enemies: Vec<UnitView<'_>> = snap.enemies_of(active.team).collect();
             if enemies.is_empty() { return 0.0; }
-            // C3 workaround: attack_component_intent still takes &UnitSnapshot;
-            // derive UnitView for target_selection_score which now requires it.
-            let active_view = snap.unit(active.entity);
             enemies.sort_by(|a, b| {
-                let score_b = active_view.map(|av| target_selection_score(av, *b, snap)).unwrap_or(0.0);
-                let score_a = active_view.map(|av| target_selection_score(av, *a, snap)).unwrap_or(0.0);
+                let score_b = target_selection_score(active, *b, snap);
+                let score_a = target_selection_score(active, *a, snap);
                 score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
             });
             let top_enemies = &enemies[..enemies.len().min(3)];
@@ -251,7 +248,7 @@ fn attack_component_intent(
                 let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
                 if dist > reach_budget { continue; }
                 let Some(target_snap) = snap.unit_snapshot(target.entity()) else { continue };
-                for ability_id in &active.abilities {
+                for ability_id in &active.cache.abilities {
                     let Some(def) = content.abilities.get(ability_id) else { continue };
                     let s = damage_value(def, target_snap);
                     if s > best { best = s; }
@@ -331,7 +328,7 @@ pub fn score_plans_prototype(
         .map(|(i, ps)| {
             let committed_pos = committed_prefix_end_pos(&plans[i]);
             let fv = future_value_from_committed_state(
-                ctx.active,
+                ctx.active_view,
                 committed_pos,
                 ctx.snap,
                 ctx.maps,
@@ -524,15 +521,16 @@ mod tests {
         let snap = snapshot_from(vec![actor.clone()], 1);
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         let intent = TacticalIntent::Reposition;
-        let fv = future_value_from_committed_state(&actor, h, &snap, &maps, &ctx, &intent);
+        let fv = future_value_from_committed_state(actor_view, h, &snap, &maps, &ctx, &intent);
         // position_eval returns negative for dangerous tiles for most roles.
         // At minimum the function must not panic and return a finite value.
         assert!(fv.is_finite(), "future_value must be finite: {fv}");
         // Verify λ_pos is present: danger map hit should pull fv non-zero.
         let fv_safe = future_value_from_committed_state(
-            &actor,
+            actor_view,
             hex_from_offset(0, 0), // tile with no danger
             &snap,
             &InfluenceMaps {
@@ -561,9 +559,10 @@ mod tests {
         let maps = crate::combat::ai::test_helpers::empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         let result = attack_component_intent(
-            &actor, actor.pos, &snap, &ctx, &TacticalIntent::Reposition,
+            actor_view, actor.pos, &snap, &ctx, &TacticalIntent::Reposition,
         );
         assert_eq!(result, 0.0, "no enemies → zero attack component");
     }
@@ -586,9 +585,10 @@ mod tests {
         let maps = crate::combat::ai::test_helpers::empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         let with_nearby = attack_component_intent(
-            &actor, committed_pos, &snap, &ctx, &TacticalIntent::Reposition,
+            actor_view, committed_pos, &snap, &ctx, &TacticalIntent::Reposition,
         );
         // Nearby enemy is reachable; far is not. Component should be positive.
         // Exact value depends on ability scoring, but must exceed no-enemy case.
@@ -640,11 +640,12 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         let intent = TacticalIntent::Reposition;
-        let fv = future_value_from_committed_state(&actor, pos, &snap, &maps, &ctx, &intent);
-        let lp = position_component(&actor, pos, ctx.world.tuning, &maps);
-        let la = attack_component_intent(&actor, pos, &snap, &ctx, &intent);
+        let fv = future_value_from_committed_state(actor_view, pos, &snap, &maps, &ctx, &intent);
+        let lp = position_component(actor_view, pos, ctx.world.tuning, &maps);
+        let la = attack_component_intent(actor_view, pos, &snap, &ctx, &intent);
         let lm = mobility_component(pos, actor.speed, &snap);
 
         assert!(
@@ -789,13 +790,14 @@ mod tests {
         let maps = crate::combat::ai::test_helpers::empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         let fv_focus_a = future_value_from_committed_state(
-            &actor, actor_pos, &snap, &maps, &ctx,
+            actor_view, actor_pos, &snap, &maps, &ctx,
             &TacticalIntent::FocusTarget { target: enemy_a.entity },
         );
         let fv_focus_b = future_value_from_committed_state(
-            &actor, actor_pos, &snap, &maps, &ctx,
+            actor_view, actor_pos, &snap, &maps, &ctx,
             &TacticalIntent::FocusTarget { target: enemy_b.entity },
         );
 
@@ -834,21 +836,22 @@ mod tests {
         let world = make_test_ctx(&content, &difficulty);
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         let fv_default = future_value_from_committed_state(
-            &actor, actor_pos, &snap, &maps, &ctx, &TacticalIntent::Reposition,
+            actor_view, actor_pos, &snap, &maps, &ctx, &TacticalIntent::Reposition,
         );
         let fv_protect = future_value_from_committed_state(
-            &actor, actor_pos, &snap, &maps, &ctx, &TacticalIntent::ProtectSelf,
+            actor_view, actor_pos, &snap, &maps, &ctx, &TacticalIntent::ProtectSelf,
         );
 
         // Under ProtectSelf: attack_component = 0 (enemy adjacent, but ignored).
         // pos_component is ×2 vs default ×1.
         // λ_mob is same for both.
         let attack_default = attack_component_intent(
-            &actor, actor_pos, &snap, &ctx, &TacticalIntent::Reposition,
+            actor_view, actor_pos, &snap, &ctx, &TacticalIntent::Reposition,
         );
-        let pos_default = position_component(&actor, actor_pos, ctx.world.tuning, &maps);
+        let pos_default = position_component(actor_view, actor_pos, ctx.world.tuning, &maps);
         let mob = mobility_component(actor_pos, actor.speed, &snap);
 
         // attack under ProtectSelf must be zero (enemy reachable but suppressed).
@@ -890,13 +893,14 @@ mod tests {
         let maps = crate::combat::ai::test_helpers::empty_maps();
         let reservations = Reservations::default();
         let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
+        let actor_view = snap.unit(actor.entity).unwrap();
 
         let attack_cc = attack_component_intent(
-            &actor, actor_pos, &snap, &ctx,
+            actor_view, actor_pos, &snap, &ctx,
             &TacticalIntent::ApplyCC { target: enemy.entity },
         );
         let attack_default = attack_component_intent(
-            &actor, actor_pos, &snap, &ctx, &TacticalIntent::Reposition,
+            actor_view, actor_pos, &snap, &ctx, &TacticalIntent::Reposition,
         );
 
         assert_eq!(attack_cc, 0.0, "no CC abilities → ApplyCC attack_component = 0");

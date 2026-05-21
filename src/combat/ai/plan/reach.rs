@@ -8,7 +8,7 @@
 //! builds the env and delegates. Kept here (rather than in pathfinding) so
 //! the shared layer stays ignorant of `BattleSnapshot` / `UnitSnapshot`.
 
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::game::hex::Hex;
 use crate::game::pathfinding::{reach_from as reach_from_env, MovementEnv, ReachableMap};
 use std::collections::HashSet;
@@ -25,7 +25,7 @@ use std::collections::HashSet;
 ///
 /// Single source of truth is `snap.units` now that corpses live there
 /// instead of in a parallel `blocked_tiles` channel.
-pub fn reach_from(snap: &BattleSnapshot, actor: &UnitSnapshot) -> ReachableMap {
+pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
     let enemy_positions: HashSet<Hex> = snap
         .all_enemies_of(actor.team)
         .map(|u| u.pos)
@@ -33,7 +33,7 @@ pub fn reach_from(snap: &BattleSnapshot, actor: &UnitSnapshot) -> ReachableMap {
     let stop_blockers: HashSet<Hex> = snap
         .units
         .iter()
-        .filter(|u| u.entity != actor.entity)
+        .filter(|u| u.entity != actor.entity())
         .map(|u| u.pos)
         .collect();
 
@@ -46,6 +46,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::test_helpers::{unit, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::world::snapshot::UnitSnapshot;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -59,7 +60,8 @@ mod tests {
         // (destinations excludes the start tile by design.)
         let actor = unit(1, Team::Enemy, hex_from_offset(3, 3));
         let s = snap(vec![actor.clone()]);
-        let reach = reach_from(&s, &actor);
+        let actor_view = s.unit(actor.entity).unwrap();
+        let reach = reach_from(&s, actor_view);
         let neighbour = hex_from_offset(4, 3);
         assert!(
             reach.destinations.contains(&neighbour),
@@ -74,7 +76,8 @@ mod tests {
         let enemy_pos = hex_from_offset(4, 3);
         let enemy = unit(2, Team::Player, enemy_pos);
         let s = snap(vec![actor.clone(), enemy]);
-        let reach = reach_from(&s, &actor);
+        let actor_view = s.unit(actor.entity).unwrap();
+        let reach = reach_from(&s, actor_view);
         assert!(
             !reach.destinations.contains(&enemy_pos),
             "occupied enemy tile must not be a stop destination",
@@ -89,7 +92,8 @@ mod tests {
         let ally_pos = hex_from_offset(4, 3);
         let ally = unit(2, Team::Enemy, ally_pos);
         let s = snap(vec![actor.clone(), ally]);
-        let reach = reach_from(&s, &actor);
+        let actor_view = s.unit(actor.entity).unwrap();
+        let reach = reach_from(&s, actor_view);
         assert!(
             !reach.destinations.contains(&ally_pos),
             "can't stop on ally",
@@ -111,7 +115,8 @@ mod tests {
         let corpse_pos = hex_from_offset(4, 3);
         let corpse = UnitBuilder::new(2, Team::Player, corpse_pos).hp(0).build();
         let s = snap(vec![actor.clone(), corpse]);
-        let reach = reach_from(&s, &actor);
+        let actor_view = s.unit(actor.entity).unwrap();
+        let reach = reach_from(&s, actor_view);
         // Can't stop on the corpse tile.
         assert!(
             !reach.destinations.contains(&corpse_pos),

@@ -74,7 +74,7 @@ pub const TRADE_WEIGHT: f32 = 0.5;
 /// Consumers (Phase 2): plan-level `trade_delta` sums `unit_value` over
 /// killed enemies / lost allies and subtracts `unit_value(self)` when
 /// the plan is self-lethal.
-pub fn unit_value(u: &UnitSnapshot, content: &ContentView) -> f32 {
+pub fn unit_value(u: UnitView<'_>, content: &ContentView) -> f32 {
     if !u.is_alive() {
         return 0.0;
     }
@@ -85,18 +85,18 @@ pub fn unit_value(u: &UnitSnapshot, content: &ContentView) -> f32 {
 }
 
 /// Expected acting rounds remaining. See [`FIXED_LIFETIME_ROUNDS`].
-fn lifetime_rounds(_u: &UnitSnapshot) -> f32 {
+fn lifetime_rounds(_u: UnitView<'_>) -> f32 {
     FIXED_LIFETIME_ROUNDS
 }
 
 /// HP/round damage output. DPR-correct via `damage_horizon`, falls back
 /// to `threat` when the horizon is empty (legacy logs / partial fixtures).
-fn offense_projection(u: &UnitSnapshot) -> f32 {
-    if u.damage_horizon.is_empty() {
-        u.threat.max(0.0)
+fn offense_projection(u: UnitView<'_>) -> f32 {
+    if u.cache.damage_horizon.is_empty() {
+        u.cache.threat.max(0.0)
     } else {
-        let n = u.damage_horizon.len() as f32;
-        (u.damage_horizon.iter().sum::<f32>() / n.max(1.0)).max(0.0)
+        let n = u.cache.damage_horizon.len() as f32;
+        (u.cache.damage_horizon.iter().sum::<f32>() / n.max(1.0)).max(0.0)
     }
 }
 
@@ -110,13 +110,13 @@ fn offense_projection(u: &UnitSnapshot) -> f32 {
 /// than to model honestly; over-counting made heavy casters dominate
 /// trades beyond their actual in-game leverage. Returns `0.0` when the
 /// unit has no heal kit.
-fn heal_projection(u: &UnitSnapshot, content: &ContentView) -> f32 {
-    u.abilities
+fn heal_projection(u: UnitView<'_>, content: &ContentView) -> f32 {
+    u.cache.abilities
         .iter()
         .filter_map(|id| content.abilities.get(id))
         .filter(|def| matches!(def.target_type, TargetType::SingleAlly))
         .filter_map(|def| {
-            let calc = def.effect.calc(&u.caster_ctx)?;
+            let calc = def.effect.calc(&u.cache.caster_ctx)?;
             if !calc.is_heal {
                 return None;
             }
@@ -139,12 +139,12 @@ fn heal_projection(u: &UnitSnapshot, content: &ContentView) -> f32 {
 /// skips-turn status on the same target doesn't stack, and modelling
 /// "how many unstunned targets are there this round" would require a
 /// snapshot (breaking actor-agnostic).
-fn cc_projection(u: &UnitSnapshot, content: &ContentView) -> f32 {
-    let peer_dpr = u.threat.max(0.0);
+fn cc_projection(u: UnitView<'_>, content: &ContentView) -> f32 {
+    let peer_dpr = u.cache.threat.max(0.0);
     if peer_dpr <= 0.0 {
         return 0.0;
     }
-    u.abilities
+    u.cache.abilities
         .iter()
         .filter_map(|id| content.abilities.get(id))
         .map(|def| {
@@ -241,9 +241,9 @@ pub fn trade_delta(
         }
         let pre = plan.pre_step_snapshot(k, initial_snap);
         for &e in &outcome.killed {
-            let Some(victim) = pre.unit_snapshot(e) else { continue };
+            let Some(victim) = pre.unit(e) else { continue };
             let v = unit_value(victim, content);
-            if victim.entity == active.entity {
+            if victim.entity() == active.entity {
                 self_in_killed = true;
                 lost_value += v;
             } else if victim.team == active.team {
@@ -261,7 +261,9 @@ pub fn trade_delta(
     // returns 0 because there's no path-transition to scan. Safe.
     let enemies: Vec<UnitView<'_>> = initial_snap.enemies_of(active.team).collect();
     let aoo_dmg = if prefix_is_move_shaped(plan, prefix_len) {
-        expected_aoo_damage(active, plan, &enemies)
+        let active_view = initial_snap.unit(active.entity)
+            .expect("active unit must be present in initial snapshot");
+        expected_aoo_damage(active_view, plan, &enemies)
     } else {
         0.0
     };
@@ -270,7 +272,9 @@ pub fn trade_delta(
     let self_lost = if self_in_killed {
         0.0
     } else if self_lethal_aoo {
-        unit_value(active, content)
+        let active_view = initial_snap.unit(active.entity)
+            .expect("active unit must be present in initial snapshot");
+        unit_value(active_view, content)
     } else {
         0.0
     };
@@ -428,7 +432,9 @@ mod tests {
             .hp(0)
             .build();
         let c = content();
-        assert_eq!(unit_value(&u, &c), 0.0);
+        let s = snapshot_from(vec![u.clone()], 1);
+        let v = s.unit(u.entity).unwrap();
+        assert_eq!(unit_value(v, &c), 0.0);
     }
 
     /// Alive unit with no kit and zero threat → zero value. Rationale same
@@ -439,7 +445,9 @@ mod tests {
             .threat(0.0)
             .build();
         let c = content();
-        assert_eq!(unit_value(&u, &c), 0.0);
+        let s = snapshot_from(vec![u.clone()], 1);
+        let v = s.unit(u.entity).unwrap();
+        assert_eq!(unit_value(v, &c), 0.0);
     }
 
     /// A healer with meaningful heal output should out-price a comparable
@@ -464,8 +472,9 @@ mod tests {
             .abilities(vec![heal.id.clone()])
             .build();
 
-        let vb = unit_value(&bruiser, &c);
-        let vh = unit_value(&healer, &c);
+        let s = snapshot_from(vec![bruiser.clone(), healer.clone()], 1);
+        let vb = unit_value(s.unit(bruiser.entity).unwrap(), &c);
+        let vh = unit_value(s.unit(healer.entity).unwrap(), &c);
         assert!(
             vh > vb,
             "healer {vh} should outrank bruiser {vb} of matching threat",
@@ -480,20 +489,17 @@ mod tests {
         let c = content();
         let sustained = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .threat(6.0)
+            .damage_horizon(vec![6.0, 6.0, 6.0, 6.0, 6.0])
             .build();
-        // Same horizon as threat → horizon_avg = 6.0.
-        let mut sustained = sustained;
-        sustained.damage_horizon = vec![6.0, 6.0, 6.0, 6.0, 6.0];
 
         let burst = UnitBuilder::new(2, Team::Enemy, hex_from_offset(0, 0))
             .threat(6.0)
+            .damage_horizon(vec![6.0, 6.0, 0.0, 0.0, 0.0])
             .build();
-        // Burned pool → horizon_avg = 12/5 = 2.4.
-        let mut burst = burst;
-        burst.damage_horizon = vec![6.0, 6.0, 0.0, 0.0, 0.0];
 
+        let s = snapshot_from(vec![sustained.clone(), burst.clone()], 1);
         assert!(
-            unit_value(&sustained, &c) > unit_value(&burst, &c),
+            unit_value(s.unit(sustained.entity).unwrap(), &c) > unit_value(s.unit(burst.entity).unwrap(), &c),
             "sustained fighter must out-price burst caster with same peak",
         );
     }
@@ -519,8 +525,9 @@ mod tests {
             .ap(1)
             .build();
 
+        let s = snapshot_from(vec![with_cc.clone(), no_cc.clone()], 1);
         assert!(
-            unit_value(&with_cc, &c) > unit_value(&no_cc, &c),
+            unit_value(s.unit(with_cc.entity).unwrap(), &c) > unit_value(s.unit(no_cc.entity).unwrap(), &c),
             "CC-capable unit should out-price a peer without CC",
         );
     }
@@ -547,9 +554,10 @@ mod tests {
             .threat(5.0)
             .build();
 
+        let s = snapshot_from(vec![u.clone(), peer.clone()], 1);
         assert_eq!(
-            unit_value(&u, &c),
-            unit_value(&peer, &c),
+            unit_value(s.unit(u.entity).unwrap(), &c),
+            unit_value(s.unit(peer.entity).unwrap(), &c),
             "self-buff must not add CC value",
         );
     }
@@ -571,7 +579,8 @@ mod tests {
             .build();
 
         // threat=0 ⇒ offense also 0 ⇒ pure-CC unit values at zero.
-        assert_eq!(unit_value(&u, &c), 0.0);
+        let s = snapshot_from(vec![u.clone()], 1);
+        assert_eq!(unit_value(s.unit(u.entity).unwrap(), &c), 0.0);
     }
 
     // ── trade_delta ─────────────────────────────────────────────────────────
@@ -649,7 +658,7 @@ mod tests {
         let c = content();
 
         let br = trade_delta(&plan, &actor, &snap, &c);
-        let expected = unit_value(&victim, &c);
+        let expected = unit_value(snap.unit(victim.entity).unwrap(), &c);
 
         assert_eq!(br.killed_value, expected);
         assert_eq!(br.lost_value, 0.0);
@@ -703,11 +712,12 @@ mod tests {
         let c = content();
 
         let br = trade_delta(&plan, &actor, &snap, &c);
+        let actor_view = snap.unit(actor.entity).unwrap();
         assert!(br.self_lethal);
         assert_eq!(br.killed_value, 0.0);
         assert_eq!(br.lost_value, 0.0);
-        assert_eq!(br.self_lost, unit_value(&actor, &c));
-        assert_eq!(br.delta, -unit_value(&actor, &c));
+        assert_eq!(br.self_lost, unit_value(actor_view, &c));
+        assert_eq!(br.delta, -unit_value(actor_view, &c));
     }
 
     /// Self-AoE putting the actor in the killed list must charge the
@@ -736,10 +746,11 @@ mod tests {
         let c = content();
 
         let br = trade_delta(&plan, &actor, &snap, &c);
+        let actor_view = snap.unit(actor.entity).unwrap();
         assert!(br.self_lethal);
         assert_eq!(br.self_lost, 0.0, "must not double-charge");
-        assert_eq!(br.lost_value, unit_value(&actor, &c));
-        assert_eq!(br.delta, -unit_value(&actor, &c));
+        assert_eq!(br.lost_value, unit_value(actor_view, &c));
+        assert_eq!(br.delta, -unit_value(actor_view, &c));
     }
 
     /// Empty plan (no steps, no outcomes) is neutral: zero deltas, not
@@ -874,7 +885,7 @@ mod tests {
         let c = content();
 
         let br = trade_delta(&plan, &actor, &snap, &c);
-        assert_eq!(br.killed_value, unit_value(&victim, &c));
+        assert_eq!(br.killed_value, unit_value(snap.unit(victim.entity).unwrap(), &c));
         assert!(!br.self_lethal);
     }
 

@@ -122,7 +122,8 @@ mod tests {
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
 
         // ── 3. ModifierCtx ──
-        let actor_value = unit_value(&actor, world.content);
+        let actor_view = snap.unit(actor.entity).unwrap();
+        let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
         let summon_dpr = HashMap::new();
         let ctx = ModifierCtx { stage: &stage, summon_dpr: &summon_dpr, actor_value, repair_weights };
@@ -147,10 +148,12 @@ mod tests {
     fn make_modifier_ctx<'w, 's, 'a>(
         stage: &'a StageCtx<'w, 's>,
         actor: &crate::combat::ai::world::snapshot::UnitSnapshot,
+        snap: &'s crate::combat::ai::world::snapshot::BattleSnapshot,
         world: &'w AiWorld<'w>,
         summon_dpr: &'a HashMap<String, f32>,
     ) -> ModifierCtx<'w, 's, 'a> {
-        let actor_value = unit_value(actor, world.content);
+        let actor_view = snap.unit(actor.entity).unwrap();
+        let actor_value = unit_value(actor_view, world.content);
         let repair_weights = actor.role.repair_weights(world.tuning);
         ModifierCtx { stage, summon_dpr, actor_value, repair_weights }
     }
@@ -185,7 +188,7 @@ mod tests {
             scoring.need_signals = NeedSignals { continue_commitment: 0.0, ..Default::default() };
             let mut rng = crate::core::DiceRng::default();
             let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
-            let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
+            let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
             plan.annotation.repair_affinity = affinity;
             let ann = plan.annotation.clone();
@@ -199,7 +202,7 @@ mod tests {
             scoring.need_signals = NeedSignals { continue_commitment: 1.0, ..Default::default() };
             let mut rng = crate::core::DiceRng::default();
             let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
-            let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
+            let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
             plan.annotation.repair_affinity = affinity;
             let ann = plan.annotation.clone();
@@ -264,7 +267,7 @@ mod tests {
             scoring.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
             let mut rng = crate::core::DiceRng::default();
             let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
-            let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
+            let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
             plan.annotation.repair_affinity = affinity;
             let ann = plan.annotation.clone();
@@ -289,7 +292,7 @@ mod tests {
             scoring.need_signals = NeedSignals { continue_commitment: 0.4, ..Default::default() };
             let mut rng = crate::core::DiceRng::default();
             let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
-            let ctx = make_modifier_ctx(&stage, &actor, &world, &summon_dpr);
+            let ctx = make_modifier_ctx(&stage, &actor, &snap, &world, &summon_dpr);
             let mut plan = inert_plan(pos);
             plan.annotation.repair_affinity = affinity;
             let ann = plan.annotation.clone();
@@ -345,7 +348,8 @@ mod tests {
         // ── 3. ModifierCtx ──
         let repair_weights = actor.role.repair_weights(world.tuning);
         let summon_dpr = HashMap::new();
-        let actor_value = unit_value(&actor, world.content);
+        let actor_view = snap.unit(actor.entity).unwrap();
+        let actor_value = unit_value(actor_view, world.content);
         let ctx = ModifierCtx { stage: &stage, summon_dpr: &summon_dpr, actor_value, repair_weights };
 
         // ── 4. Act ──

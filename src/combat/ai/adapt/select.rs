@@ -15,7 +15,7 @@ use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::scoring::factors::aggregate::rescore_with_per_plan_modes;
 use crate::combat::ai::pipeline::stages::sanity::plan_is_defensive;
 use crate::combat::ai::plan::TurnPlan;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::content_view::ContentView;
 
@@ -37,9 +37,9 @@ use crate::content::content_view::ContentView;
 /// Used by `select_evaluation_modes` to detect the `ProtectSelfFutile` case —
 /// "contract can be satisfied spatially, but DoT will kill the actor
 /// anyway before he acts again".
-pub fn pending_dot_before_next_action(active: &UnitSnapshot, content: &ContentView) -> i32 {
+pub fn pending_dot_before_next_action(active: UnitView<'_>, content: &ContentView) -> i32 {
     let mut total = 0i32;
-    for s in &active.statuses {
+    for s in active.statuses() {
         if s.rounds_remaining == 0 {
             continue;
         }
@@ -73,12 +73,12 @@ pub fn pending_dot_before_next_action(active: &UnitSnapshot, content: &ContentVi
 /// conservative side of the fallback.
 fn plan_has_self_rescue(
     plan: &TurnPlan,
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     initial: &BattleSnapshot,
     content: &ContentView,
 ) -> bool {
     let post = plan.sim_snapshots.last().unwrap_or(initial);
-    let Some(actor_post) = post.unit_snapshot(active.entity) else {
+    let Some(actor_post) = post.unit(active.entity()) else {
         return false;
     };
     if actor_post.hp <= 0 {
@@ -118,7 +118,7 @@ pub fn select_evaluation_modes(
         return adaptation;
     }
 
-    let active = ctx.active;
+    let active = ctx.active_view;
     let content = ctx.world.content;
 
     // ── Global rules under ProtectSelf ────────────────────────────────────
@@ -214,7 +214,7 @@ pub fn apply_adaptation(
         return adaptation;
     }
 
-    let active = ctx.active;
+    let active = ctx.active_view;
     let content = ctx.world.content;
 
     // ── Global rules under ProtectSelf ────────────────────────────────────
@@ -312,6 +312,7 @@ pub fn apply_adaptation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::world::snapshot::UnitSnapshot;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::pipeline::stages::sanity::sanity_adjust_plans;
     use crate::combat::ai::plan::PlanStep;
@@ -718,7 +719,9 @@ mod tests {
             StatusId::from("exhaustion"),
             dot_status("exhaustion", 20), // 20% of max_hp=40 → 8 per tick
         );
-        let pending = pending_dot_before_next_action(&actor_sick, &content);
+        let snap = snapshot_from(vec![actor_sick.clone()], 1);
+        let actor_view = snap.unit(actor_sick.entity).unwrap();
+        let pending = pending_dot_before_next_action(actor_view, &content);
         assert_eq!(pending, 8, "hp_percent_dot must contribute to pending");
         assert!(pending >= actor_sick.hp, "doom holds via %hp DoT alone");
     }

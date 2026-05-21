@@ -5,12 +5,12 @@
 use super::{AiDecision, MoveOrigin};
 use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::plan::reach_from;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::AiTags;
 use crate::game::hex::Hex;
 
 pub(super) fn fallback_move(
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
 ) -> AiDecision {
@@ -26,7 +26,7 @@ pub(super) fn fallback_move(
     let reach = reach_from(snap, active);
 
     // LOW_HP: retreat to the tile with lowest danger.
-    if active.tags.contains(AiTags::LOW_HP) {
+    if active.cache.tags.contains(AiTags::LOW_HP) {
         // Hex tiebreak: HashSet iteration is randomized per-process; without
         // a deterministic secondary sort, ties in danger flip across processes.
         let safest = reach

@@ -56,7 +56,7 @@ use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::scoring::applies_cc;
 use crate::combat::ai::orchestration::{AiDecision, AiWorld, MoveOrigin};
 use crate::combat::ai::world::reservations::Reservations;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::core::DiceRng;
 use crate::game::hex::Hex;
@@ -243,7 +243,7 @@ pub fn pick_best_plan(
 pub fn record_committed_reservations(
     plan: &TurnPlan,
     consumed: usize,
-    active: &UnitSnapshot,
+    active: UnitView<'_>,
     ctx: &AiWorld,
     snap: &BattleSnapshot,
     reservations: &mut Reservations,

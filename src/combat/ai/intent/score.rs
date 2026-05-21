@@ -361,8 +361,7 @@ pub fn intent_score(
             }
             let area = aoe_area(def, target_pos, step.caster_tile());
             let total = snap.enemies_of(active.team).count() as f32;
-            // aoe_hits still takes &UnitSnapshot (migrated in C3); use legacy ctx.active.
-            let hit = aoe_hits(&area, step_ctx.active, snap).enemies.len() as f32;
+            let hit = aoe_hits(&area, step_ctx.active_view, snap).enemies.len() as f32;
             if total > 0.0 { hit / total } else { 0.0 }
         }
     }
