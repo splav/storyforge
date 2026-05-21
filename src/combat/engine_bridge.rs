@@ -622,9 +622,17 @@ pub(crate) fn translate_tick_events(
                     });
                 }
             }
-            Event::ManaRegenerated { .. }
-            | Event::EnergyRegenerated { .. }
-            | Event::UnitHealed { .. }
+            Event::ManaRegenerated { unit, current, max } => {
+                if let Some(ent) = id_map.get_entity(*unit) {
+                    log.push(CombatEvent::ManaChanged { actor: ent, current: *current, max: *max });
+                }
+            }
+            Event::EnergyRegenerated { unit, current, max } => {
+                if let Some(ent) = id_map.get_entity(*unit) {
+                    log.push(CombatEvent::EnergyChanged { actor: ent, current: *current, max: *max });
+                }
+            }
+            Event::UnitHealed { .. }
             | Event::StatusApplied { .. }
             | Event::ReactionFired { .. }
             | Event::UnitMoved { .. }
@@ -640,60 +648,6 @@ pub(crate) fn translate_tick_events(
             | Event::AuraStatusGained { .. }
             | Event::AuraStatusLost { .. }
             | Event::PhaseEntered { .. } => {}
-        }
-    }
-}
-
-// ── engine_turn_start_system ──────────────────────────────────────────────────
-
-/// Fires once per actor handoff: refills AP and regens resources in engine state,
-/// then logs any resource events via `CombatLog`.
-///
-/// Replaces ECS-side `turn_start_system`. Engine is now the sole writer for AP,
-/// mana, and energy at turn boundaries; `project_state_to_ecs` propagates them
-/// back to ECS components in the same frame (Execute step).
-///
-/// Runs first in `CombatStep::TurnStart`.
-pub fn engine_turn_start_system(
-    active_q: Query<Entity, With<ActiveCombatant>>,
-    id_map: Res<UnitIdMap>,
-    mut combat_state: ResMut<CombatStateRes>,
-    active_content: Res<ActiveContent>,
-    mut commands: Commands,
-    mut log: ResMut<CombatLog>,
-    mut pending_phases: ResMut<PendingPhaseTransitions>,
-    mut last_active: Local<Option<Entity>>,
-) {
-    let current = active_q.single().ok();
-    if current == *last_active { return; }
-    *last_active = current;
-    let Some(actor_ent) = current else { return };
-    let Some(actor_uid) = id_map.get_id(actor_ent) else { return };
-
-    let content = build_ecs_content_view(&active_content);
-    let events = combat_state.0.start_actor_turn(actor_uid, &content);
-
-    // Resource regen events are actor-local; handle them before the shared
-    // tick translator (which only processes the tick sub-stream).
-    for ev in &events {
-        match ev {
-            Event::ManaRegenerated { current, max, .. } => {
-                log.push(CombatEvent::ManaChanged { actor: actor_ent, current: *current, max: *max });
-            }
-            Event::EnergyRegenerated { current, max, .. } => {
-                log.push(CombatEvent::EnergyChanged { actor: actor_ent, current: *current, max: *max });
-            }
-            _ => {}
-        }
-    }
-
-    translate_tick_events(&events, &id_map, &mut commands, &mut log);
-
-    // Queue ECS-only phase deltas for apply_phase_transitions_system (runs after
-    // project_state_to_ecs to avoid &mut Vital conflict).
-    for ev in &events {
-        if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
-            pending_phases.0.push((*unit, *phase_idx));
         }
     }
 }
@@ -1546,5 +1500,40 @@ pub fn init_state_from_ecs(
     state.set_turn_queue(uid_order, ecs_queue.index);
 
     combat_state.0 = state;
+}
+
+/// Fires once at the start of round 1 to give the first actor their full turn-start
+/// treatment (AP/MP refill, mana/energy regen, status tick).
+///
+/// On round 2+, this is handled by the engine cascade: `step(EndTurn)` calls
+/// `start_actor_turn` for the incoming actor as part of the event stream, and
+/// `process_action_system` + `project_state_to_ecs` propagate it back to ECS.
+///
+/// Runs in `OnEnter(CombatPhase::AwaitCommand)` chained after `init_state_from_ecs`.
+pub fn engine_start_first_turn_system(
+    combat_context: Res<CombatContext>,
+    id_map: Res<UnitIdMap>,
+    mut combat_state: ResMut<CombatStateRes>,
+    active_content: Res<ActiveContent>,
+    mut commands: Commands,
+    mut log: ResMut<CombatLog>,
+    mut pending_phases: ResMut<PendingPhaseTransitions>,
+) {
+    if combat_context.round != 1 {
+        return;
+    }
+    let Some(first_actor) = combat_state.0.turn_queue.current() else { return };
+
+    let content = build_ecs_content_view(&active_content);
+    let events = combat_state.0.start_actor_turn(first_actor, &content);
+
+    translate_tick_events(&events, &id_map, &mut commands, &mut log);
+
+    // Queue ECS-only phase deltas (same pattern as process_action_system).
+    for ev in &events {
+        if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
+            pending_phases.0.push((*unit, *phase_idx));
+        }
+    }
 }
 

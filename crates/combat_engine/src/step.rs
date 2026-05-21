@@ -701,6 +701,10 @@ fn step_inner(
     if matches!(&action, Action::EndTurn { .. }) {
         if let Some(next_actor) = state.turn_queue.current() {
             events.push(Event::TurnStarted { actor: next_actor });
+            // Refill AP/MP, regen mana/energy, tick statuses for the incoming actor.
+            // Was previously done by bridge's engine_turn_start_system; absorbed here
+            // so the full turn-lifecycle flows through one event stream.
+            events.extend(state.start_actor_turn(next_actor, content));
         }
     }
 

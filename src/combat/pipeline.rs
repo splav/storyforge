@@ -8,7 +8,7 @@ use bevy::prelude::*;
 
 use crate::app_state::{AppState, CombatPhase};
 use crate::combat::engine_bridge::{
-    CombatStateRes, UnitIdMap, apply_phase_transitions_system, engine_turn_start_system,
+    CombatStateRes, UnitIdMap, apply_phase_transitions_system, engine_start_first_turn_system,
     init_state_from_ecs, PendingPhaseTransitions, process_action_system, project_state_to_ecs,
 };
 use crate::ui;
@@ -32,7 +32,7 @@ impl Plugin for CombatPipelinePlugin {
         // Engine trace init runs immediately after, so it sees the fresh state.
         app.add_systems(
             OnEnter(CombatPhase::AwaitCommand),
-            (init_state_from_ecs, crate::combat::ai::log::write_engine_trace_init_system).chain(),
+            (init_state_from_ecs, engine_start_first_turn_system, crate::combat::ai::log::write_engine_trace_init_system).chain(),
         );
 
         app.add_systems(
@@ -60,11 +60,6 @@ impl Plugin for CombatPipelinePlugin {
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand))
                 .run_if(ui::animation::combat_ready),
-        )
-        .add_systems(
-            Update,
-            engine_turn_start_system
-                .in_set(CombatStep::TurnStart),
         )
         .add_systems(
             Update,
