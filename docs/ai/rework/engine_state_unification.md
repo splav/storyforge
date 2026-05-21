@@ -1,10 +1,12 @@
 # Engine state как единственный source of truth — план унификации (v2)
 
 **Статус**: rewrite после критики и аудита кода (v2). Patched 2026-05-21
-после `bridge_turn_lifecycle` work — см. §«Post-bridge update» ниже,
-основные U-phase секции точечно подкорректированы.
+после `bridge_turn_lifecycle` work — см. §«Post-bridge update» ниже.
+Patched 2026-05-22 после U1+U2/C1-C4 — см. §«Post-U2 update».
 
-**Текущий HEAD**: `01676a8 fix(ai): BattleSnapshot::unit uses entity_to_uid map, not from_bits`.
+**Текущий HEAD**: `fc2a4b4 refactor(ai): U2/C4 — finalize cascade; drop ScoringCtx.active legacy`.
+
+**Прогресс**: U1 ✅ · U2 ✅ (C1–C4) · U3 → U4 → U5 → U6 → U7 — pending.
 
 ## Цель
 
@@ -152,6 +154,65 @@ U-фаз. См. [bridge_turn_lifecycle.md](bridge_turn_lifecycle.md) для де
 - Зависимости U1 → U2 → U3 → U4 → U5 → U6.
 - Список «Чего не делаем».
 - Risks & mitigations table (R1 особенно — corpus skipped).
+
+---
+
+## Post-U2 update (2026-05-22)
+
+U1 и U2 завершены пятью коммитами. Cascade пошёл цепочкой
+`C1 → C2 → C3 (+ fix-and-finish) → C4`, каждый коммит компилируется
+независимо и проходит полный suite (820 lib + 44 combat incl. parity +
+1 golden_smoke).
+
+### Коммиты
+
+| Phase | Hash | Содержание |
+|-------|------|------------|
+| U1 | `37662c2` | Parity guard: `engine.units ≡ snapshot.units` field-by-field after `apply_step`. 7 параметризованных кейсов (Cast/Move × состояния). Zero divergence — `project_engine_to_snapshot` корректен. |
+| U2/C1 | `0dcd991` | `ScoringCtx.active_view: UnitView<'p>` добавлен (non-Option); `AppraisalCtx.active` полностью флипнут на `UnitView<'a>`. Appraisal submodules мигрированы. Legacy `ScoringCtx.active: &UnitSnapshot` сохранён для C2/C3 compat. |
+| U2/C2 | `5ad8026` | Intent layer (bands/agenda/select/score) + pipeline stages + `scoring/target_selection`. Forced ripples в `aggregate.rs`, `future_value.rs`, `log/debug.rs`. `pick_action` re-derive убран для `assign_band`/`build_agenda`. |
+| U2/C3 | `931272e` | Adapt + `scoring/trade::unit_value` + `plan/{sim::actor_unit,reach,generator,future_value}` + orchestration/fallback. `actor_unit() -> Option<UnitView<'_>>` per O3. Skipped: `world/influence.rs` (Plan agent overcount). |
+| U2/C4 | `fc2a4b4` | Финал: 6 debug builders на `UnitView`; legacy `ScoringCtx.active` удалён, `active_view → active` rename; `unit_snapshot()` → `pub(crate)`; `replay_ai_log`/U1 parity test перешли на `snapshot.units.iter().find()` shim. `pick_action.active_snap` re-derive удалён. |
+
+### Что появилось / изменилось в архитектуре
+
+- **`ScoringCtx.active: UnitView<'p>`** — чистый, single-field API. `make_scoring_ctx`
+  test-helper сохраняет `&UnitSnapshot` параметр для ergonomics, внутри резолвит
+  UnitView. Без транзитивной Option-обёртки.
+- **`actor_unit() -> Option<UnitView<'_>>`** в `plan/sim.rs` — чистый flip
+  (no additive parallel API) per user decision O3.
+- **`BattleSnapshot::unit_snapshot()` → `pub(crate)`** per O1. Out-of-tree callers
+  (`src/bin/replay_ai_log.rs`, U1 test) перешли на `snapshot.units.iter().find()` —
+  оба этих shim'а умрут в U5 вместе с полем `units`.
+- **`UnitSnapshot::is_stunned(tags)` / `forces_targeting(tags)`** сохранены как
+  shims в `snapshot.rs:439,449` — нужны для sim-cloning путей в
+  `outcome::builder` / `aggregate::compute_plan_intent_sum` (умрут в U3/U5).
+
+### Влияние на оставшиеся U-фазы
+
+- **U3** — scope теперь немного шире чем планировался: помимо tests/ есть
+  компиляционно-форсированные `snapshot.units.iter().find()` callsites в U1
+  parity guard test и `replay_ai_log` бинарнике. Эти ровно две точки уйдут
+  естественно при U5 (когда исчезает поле `units`); до того момента их можно
+  игнорировать как ожидаемый shim.
+- **U4** — без изменений. `project_engine_to_snapshot` и `snapshot_to_combat_state`
+  всё ещё на месте, U1 parity guard готов как safety net.
+- **U5** — без изменений в scope. Bin migration (`replay_ai_log`, `mine_ai_logs`)
+  теперь конкретнее: один знает свой shim site.
+- **U6** — без изменений.
+- **U7** — без изменений (по-прежнему тривиально после B-prime).
+
+### Lessons learned
+
+1. **Декомпозиция работает**: 4 коммита по 8–22 файла каждый — приемлемая
+   единица для одного агента. Больше — упирается в context limit.
+2. **`Option<T>` для одного теста** — антипаттерн: лучше потратить 1 строку
+   на правку фикстуры, чем тащить Option через всю миграцию.
+3. **Fix-and-finish паттерн** для частично выполненной работы — рабочий:
+   compile errors дают агенту фокус, отдельный focused агент не нагружен
+   контекстом первоначальной миграции.
+4. **Doc-edits — отдельный коммит после фазы**, не внутри. Агенты дважды
+   пытались править spec во время выполнения; оба раза откатывалось.
 
 ---
 
