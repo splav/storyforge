@@ -278,7 +278,7 @@ pub fn build_summon_dpr_cache(
                 str_mod: modifier(tpl.stats.strength),
                 int_mod: modifier(tpl.stats.intelligence),
                 spell_power: weapon.map_or(0, |wd| wd.spell_power),
-                weapon_dice: weapon.map(|wd| wd.dice.clone()),
+                weapon_dice: weapon.map(|wd| wd.dice),
             };
             let abilities = Abilities(tpl.ability_ids.clone());
             let dpr = estimate_st_damage(&caster_ctx, &abilities, ctx.content);

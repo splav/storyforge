@@ -261,7 +261,7 @@ mod tests {
         // ── 2. Context ──
         let mut content = empty_content();
         let dice = DiceExpr::new(2, 6, 0); // expected ~7
-        content.abilities.insert(AbilityId::from("cheap"), expensive_spell("cheap", 10, dice.clone()));
+        content.abilities.insert(AbilityId::from("cheap"), expensive_spell("cheap", 10, dice));
         content.abilities.insert(AbilityId::from("effective"), expensive_spell("effective", 40, dice));
         let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
         let world = make_test_ctx(&content, &difficulty);

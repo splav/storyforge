@@ -150,7 +150,7 @@ mod tests {
         // ── 4. Act — capture ctx post-state ──
         let (post_intent, post_reason) = h.run(|ctx| {
             ViabilityStage.apply(&mut pool, ctx);
-            (ctx.intent.clone(), ctx.intent_reason.clone())
+            (ctx.intent, ctx.intent_reason.clone())
         });
 
         // ── 5. Assert ──
@@ -177,7 +177,7 @@ mod tests {
         // ── 4. Act ──
         let (post_intent, post_reason) = h.run(|ctx| {
             ViabilityStage.apply(&mut pool, ctx);
-            (ctx.intent.clone(), ctx.intent_reason.clone())
+            (ctx.intent, ctx.intent_reason.clone())
         });
 
         // ── 5. Assert ──
@@ -227,7 +227,7 @@ mod tests {
         // ── 4. Act ──
         let post_intent = h.run(|ctx| {
             ViabilityStage.apply(&mut pool, ctx);
-            ctx.intent.clone()
+            ctx.intent
         });
 
         // ── 5. Assert ──

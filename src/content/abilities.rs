@@ -31,7 +31,7 @@ impl EffectCalcExt for EffectDef {
     fn calc(&self, ctx: &CasterContext) -> Option<EffectCalc> {
         match self {
             EffectDef::WeaponAttack => Some(EffectCalc {
-                dice: ctx.weapon_dice.clone(),
+                dice: ctx.weapon_dice,
                 bonus: ctx.str_mod,
                 pierces_armor: false,
                 is_heal: false,
@@ -134,7 +134,7 @@ impl CasterContext {
             str_mod: modifier(stats.strength),
             int_mod: modifier(stats.intelligence),
             spell_power: weapon_def.map_or(0, |wd| wd.spell_power),
-            weapon_dice: weapon_def.map(|wd| wd.dice.clone()),
+            weapon_dice: weapon_def.map(|wd| wd.dice),
         }
     }
 }
@@ -356,7 +356,7 @@ mod tests {
     #[test]
     fn weapon_attack_uses_str_and_weapon_dice() {
         let weapon = DiceExpr::new(2, 6, 0);
-        let c = ctx(4, 0, 0, Some(weapon.clone()));
+        let c = ctx(4, 0, 0, Some(weapon));
         let calc = EffectDef::WeaponAttack.calc(&c).unwrap();
         assert_eq!(calc.bonus, 4);
         assert_eq!(calc.dice.unwrap().count, 2);
