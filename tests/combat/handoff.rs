@@ -498,3 +498,123 @@ fn entity_for_uid_lookup_works_for_summoned_units() {
         "entity_for_uid must return None for a uid absent from the snapshot"
     );
 }
+
+// ── Test 6: snap.unit(entity) works for summoned units (B-prime audit) ─────────
+
+/// `BattleSnapshot::unit(entity)` must return `Some(UnitView)` for a summoned
+/// unit whose engine `UnitId` is synthetic (high bit set — not `entity.to_bits()`).
+///
+/// Pre-fix: `unit()` computed `UnitId(entity.to_bits())` and looked up that in
+/// the engine state, which stored the summon under its synthetic UnitId → `None`.
+/// The AI system then wrote `ActionInput::EndTurn` and the summon silently skipped.
+///
+/// Post-fix: `unit()` uses `entity_to_uid` (populated by `build_snapshot` via
+/// `id_map`, or by `new_with_id_map` in tests) — the synthetic-uid summon
+/// resolves correctly to `Some(UnitView)`.
+#[test]
+fn summoned_unit_can_act_in_ai_turn() {
+    use bevy::prelude::App;
+    use combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
+    use hexx::Hex;
+    use storyforge::combat::ai::world::cache::{AiCache, UnitAiCache};
+    use storyforge::combat::ai::world::snapshot::BattleSnapshot;
+    use storyforge::combat::ai::world::tags::AiTags;
+
+    // Allocate two real Bevy entities via a throwaway App.
+    let (regular_entity, summon_entity) = {
+        let mut tmp = App::new();
+        let w = tmp.world_mut();
+        (w.spawn(()).id(), w.spawn(()).id())
+    };
+
+    // Regular unit: UnitId == entity.to_bits() (the normal shortcut).
+    let regular_uid = UnitId(regular_entity.to_bits());
+
+    // Summon: synthetic UnitId with high bit set — NOT a valid Entity bit pattern.
+    // This is the kind of UnitId the engine allocates for summoned units.
+    let synthetic_uid = UnitId(1u64 << 63 | 99);
+
+    // Sanity: synthetic uid must NOT equal entity.to_bits() — otherwise the test
+    // would pass even with the broken shortcut.
+    assert_ne!(
+        synthetic_uid.0,
+        summon_entity.to_bits(),
+        "synthetic_uid must differ from summon_entity.to_bits() for this test to be meaningful"
+    );
+
+    // Build minimal engine Unit structs (all fields optional/defaulted).
+    let make_engine_unit = |id: UnitId, team: Team| Unit {
+        id,
+        team,
+        pos: Hex::new(0, 0),
+        hp: 20, max_hp: 20,
+        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
+        base_speed: 4, speed: 4,
+        action_points: 2, max_ap: 2, movement_points: 4,
+        reactions_left: 1, reactions_max: 1,
+        statuses: vec![],
+        rage: None, mana: None, energy: None,
+        summoner: None,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: vec![],
+        enemy_phases: vec![],
+    };
+
+    let state = CombatState::new(
+        vec![
+            make_engine_unit(regular_uid, Team::Player),
+            make_engine_unit(synthetic_uid, Team::Enemy),
+        ],
+        1,
+        RoundPhase::ActorTurn,
+        0,
+    );
+
+    // Build an AiCache with one entry per entity — required for snap.unit() to
+    // resolve (it calls self.cache.unit(entity) which needs a cache row).
+    let make_cache_entry = |entity: bevy::prelude::Entity| UnitAiCache {
+        entity,
+        role: Default::default(),
+        threat: 0.0,
+        tags: AiTags::empty(),
+        max_attack_range: 0,
+        aoo_expected_damage: None,
+        damage_horizon: vec![],
+        crit_fail_effect: Default::default(),
+        ai_tuning_override: None,
+        abilities: vec![],
+        caster_ctx: Default::default(),
+    };
+    let cache = AiCache::from_units(vec![
+        make_cache_entry(regular_entity),
+        make_cache_entry(summon_entity),
+    ]);
+
+    // Use the test constructor that accepts an explicit entity↔uid map,
+    // mirroring what `build_snapshot` does via `UnitIdMap` in production.
+    let snap = BattleSnapshot::new_with_id_map(
+        state,
+        cache,
+        &[
+            (regular_entity, regular_uid),
+            (summon_entity, synthetic_uid),
+        ],
+    );
+
+    // Regular unit: must resolve (baseline sanity).
+    assert!(
+        snap.unit(regular_entity).is_some(),
+        "snap.unit must return Some for a regular entity"
+    );
+
+    // Summoned unit: must resolve — this was None before the fix.
+    assert!(
+        snap.unit(summon_entity).is_some(),
+        "snap.unit must return Some for a summoned entity with a synthetic UnitId (was None pre-fix)"
+    );
+
+    // Symmetry: uid_for_entity / entity_for_uid round-trip.
+    assert_eq!(snap.uid_for_entity(summon_entity), Some(synthetic_uid));
+    assert_eq!(snap.entity_for_uid(synthetic_uid), Some(summon_entity));
+}

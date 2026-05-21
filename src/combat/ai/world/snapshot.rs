@@ -54,6 +54,11 @@ pub struct BattleSnapshot {
     /// Serde-skipped: rebuilt by `rebuild_index` after deserialization.
     #[serde(skip)]
     uid_to_entity: HashMap<combat_engine::state::UnitId, Entity>,
+    /// Entity → UnitId inverse of `uid_to_entity`. Needed by `unit(entity)` to
+    /// resolve summons whose synthetic UnitIds are not `entity.to_bits()`.
+    /// Serde-skipped: rebuilt alongside `uid_to_entity`.
+    #[serde(skip)]
+    entity_to_uid: HashMap<Entity, combat_engine::state::UnitId>,
 }
 
 /// Wire format for `BattleSnapshot`. Mirrors the on-disk representation
@@ -76,6 +81,7 @@ impl<'de> serde::Deserialize<'de> for BattleSnapshot {
         let mut snap = BattleSnapshot {
             by_entity: HashMap::new(),
             uid_to_entity: HashMap::new(),
+            entity_to_uid: HashMap::new(),
             units: repr.units,
             round: repr.round,
             cache: repr.cache,
@@ -462,6 +468,8 @@ impl UnitSnapshot {
             crate::game::components::Team::Player => EngineTeam::Player,
             crate::game::components::Team::Enemy  => EngineTeam::Enemy,
         };
+        // LEGACY: shortcut valid for non-summon callers (test/legacy); breaks on
+        // summons — see B-prime audit. Deleted in engine_state_unification U5–U6.
         let uid = UnitId(self.entity.to_bits());
         let statuses: Vec<ActiveStatus> = self.statuses.iter().map(|s| ActiveStatus {
             id: s.id.clone(),
@@ -506,6 +514,8 @@ impl UnitSnapshot {
             rage: self.rage,
             mana: self.mana,
             energy: self.energy,
+            // LEGACY: shortcut valid for non-summon callers (test/legacy); breaks on
+            // summon-of-summon chains — see B-prime audit. Deleted in U5–U6.
             summoner: self.summoner.map(|e| combat_engine::state::UnitId(e.to_bits())),
             caster_context,
             aoo_dice,
@@ -710,7 +720,11 @@ pub fn build_snapshot(
             Some((uid, u.entity))
         })
         .collect();
-    BattleSnapshot { units, round, by_entity, cache, state: combat_state, uid_to_entity }
+    // Build entity_to_uid as the inverse — needed by snap.unit(entity) to
+    // resolve summons whose synthetic UnitIds are not entity.to_bits().
+    let entity_to_uid: HashMap<Entity, combat_engine::state::UnitId> =
+        uid_to_entity.iter().map(|(&uid, &entity)| (entity, uid)).collect();
+    BattleSnapshot { units, round, by_entity, cache, state: combat_state, uid_to_entity, entity_to_uid }
 }
 
 // ── Helpers on BattleSnapshot ─────────────────────────────────────────────────
@@ -738,6 +752,12 @@ impl BattleSnapshot {
                 state.unit(uid).map(|_| (uid, c.entity))
             })
             .collect();
+        // Inverse map: entity → UnitId (shortcut valid for non-summon callers).
+        // SHORTCUT: valid for test/replay/legacy paths where summons are absent.
+        // For production paths with summons, `build_snapshot` derives this from
+        // `id_map` (the authoritative source).
+        let entity_to_uid: HashMap<Entity, UnitId> =
+            uid_to_entity.iter().map(|(&uid, &entity)| (entity, uid)).collect();
         let units: Vec<UnitSnapshot> = state.units().iter().filter_map(|u| {
             let entity = *uid_to_entity.get(&u.id)?;
             let c = cache.unit(entity)?;
@@ -766,6 +786,8 @@ impl BattleSnapshot {
                 threat: c.threat,
                 tags: c.tags,
                 max_attack_range: c.max_attack_range,
+                // LEGACY: shortcut valid for non-summon callers (test/legacy); breaks on
+                // summon-of-summon chains — see B-prime audit. Deleted in U5–U6.
                 summoner: u.summoner.map(|s| Entity::from_bits(s.0)),
                 reactions_left: u.reactions_left,
                 aoo_expected_damage: c.aoo_expected_damage,
@@ -781,7 +803,7 @@ impl BattleSnapshot {
             })
         }).collect();
         let by_entity = units.iter().enumerate().map(|(i, u)| (u.entity, i)).collect();
-        Self { units, round, by_entity, cache, state, uid_to_entity }
+        Self { units, round, by_entity, cache, state, uid_to_entity, entity_to_uid }
     }
 
     /// Rebuild all derived caches from the current `units` vector.
@@ -842,13 +864,24 @@ impl BattleSnapshot {
                 self.state.unit(uid).map(|_| (uid, c.entity))
             }).collect();
         }
+        // Rebuild entity_to_uid as the inverse of uid_to_entity.
+        // Always re-derive to stay in sync even if uid_to_entity was just built.
+        if self.entity_to_uid.is_empty() && !self.uid_to_entity.is_empty() {
+            self.entity_to_uid = self.uid_to_entity
+                .iter()
+                .map(|(&uid, &entity)| (entity, uid))
+                .collect();
+        }
     }
 
     /// Lookup by entity — returns a `UnitView` combining engine state + AI cache.
-    /// O(1) when the engine-state index is populated; returns `None` if entity
+    /// O(1) when the entity_to_uid map is populated; returns `None` if entity
     /// is unknown to either the engine state or the AI cache.
+    ///
+    /// Correctly handles summoned units whose synthetic UnitId is not equal to
+    /// `entity.to_bits()` — uses `entity_to_uid` for the namespace crossing.
     pub fn unit(&self, entity: Entity) -> Option<UnitView<'_>> {
-        let uid = combat_engine::state::UnitId(entity.to_bits());
+        let uid = *self.entity_to_uid.get(&entity)?;
         let state = self.state.unit(uid)?;
         let cache = self.cache.unit(entity)?;
         Some(UnitView { state, cache })
@@ -859,6 +892,82 @@ impl BattleSnapshot {
     /// for summons whose synthetic UnitIds are not valid Entity bits (B-prime).
     pub fn entity_for_uid(&self, uid: combat_engine::state::UnitId) -> Option<Entity> {
         self.uid_to_entity.get(&uid).copied()
+    }
+
+    /// Translate Bevy `Entity` to engine `UnitId` via the explicit map.
+    /// Symmetric inverse of `entity_for_uid`. Correctly handles summons whose
+    /// synthetic UnitId is not equal to `entity.to_bits()` (B-prime).
+    pub fn uid_for_entity(&self, entity: Entity) -> Option<combat_engine::state::UnitId> {
+        self.entity_to_uid.get(&entity).copied()
+    }
+
+    /// Build a `BattleSnapshot` with an explicit `entity ↔ uid` mapping for use
+    /// in tests that need to verify summon handling without a full ECS world.
+    ///
+    /// Accepts a `(entity, uid)` slice that is used to seed both `uid_to_entity`
+    /// and `entity_to_uid`, bypassing the `entity.to_bits()` shortcut used by
+    /// `BattleSnapshot::new`. All other maps are derived as usual.
+    ///
+    /// Not intended for production use — exists so integration tests (in `tests/`)
+    /// can exercise the summon lookup path without a full ECS world + `build_snapshot`.
+    #[doc(hidden)]
+    pub fn new_with_id_map(
+        state: combat_engine::state::CombatState,
+        cache: crate::combat::ai::world::cache::AiCache,
+        id_pairs: &[(Entity, combat_engine::state::UnitId)],
+    ) -> Self {
+        use combat_engine::state::UnitId;
+        let round = state.round;
+        let uid_to_entity: HashMap<UnitId, Entity> =
+            id_pairs.iter().map(|&(e, uid)| (uid, e)).collect();
+        let entity_to_uid: HashMap<Entity, UnitId> =
+            id_pairs.iter().map(|&(e, uid)| (e, uid)).collect();
+        let units: Vec<UnitSnapshot> = state.units().iter().filter_map(|u| {
+            let entity = *uid_to_entity.get(&u.id)?;
+            let c = cache.unit(entity)?;
+            Some(UnitSnapshot {
+                entity,
+                team: match u.team {
+                    combat_engine::state::Team::Player => crate::game::components::Team::Player,
+                    combat_engine::state::Team::Enemy  => crate::game::components::Team::Enemy,
+                },
+                role: c.role,
+                pos: u.pos,
+                hp: u.hp,
+                max_hp: u.max_hp,
+                armor: u.armor,
+                armor_bonus: u.armor_bonus,
+                damage_taken_bonus: u.damage_taken_bonus,
+                action_points: u.action_points,
+                max_ap: u.max_ap,
+                movement_points: u.movement_points,
+                base_speed: u.base_speed,
+                speed: u.speed,
+                mana: u.mana,
+                rage: u.rage,
+                energy: u.energy,
+                abilities: c.abilities.clone(),
+                threat: c.threat,
+                tags: c.tags,
+                max_attack_range: c.max_attack_range,
+                // LEGACY: shortcut valid for non-summon callers (test/legacy); breaks on
+                // summon-of-summon chains — see B-prime audit. Deleted in U5–U6.
+                summoner: u.summoner.map(|s| Entity::from_bits(s.0)),
+                reactions_left: u.reactions_left,
+                aoo_expected_damage: c.aoo_expected_damage,
+                statuses: u.statuses.iter().map(|s| ActiveStatusView {
+                    id: s.id.clone(),
+                    rounds_remaining: s.rounds_remaining,
+                    dot_per_tick: s.dot_per_tick,
+                }).collect(),
+                caster_ctx: c.caster_ctx.clone(),
+                crit_fail_effect: c.crit_fail_effect.clone(),
+                damage_horizon: c.damage_horizon.clone(),
+                ai_tuning_override: c.ai_tuning_override.clone(),
+            })
+        }).collect();
+        let by_entity = units.iter().enumerate().map(|(i, u)| (u.entity, i)).collect();
+        Self { units, round, by_entity, cache, state, uid_to_entity, entity_to_uid }
     }
 
     /// Raw `UnitSnapshot` lookup via the legacy `units` vec — for use only by
