@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 use storyforge::combat::ai::world::influence::InfluenceConfig;
 use storyforge::combat::ai::replay::{assert_v28_log_file, AssertResult};
+use storyforge::combat::ai::world::snapshot::BattleSnapshot;
 use storyforge::content::content_view::ContentView;
 
 fn snapshots_dir() -> PathBuf {
@@ -174,4 +175,85 @@ fn all_ai_scenarios_pass() {
             failures.join("\n")
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Fixture enrichment (run once, before U5/D-final drops legacy fields)
+// ---------------------------------------------------------------------------
+
+/// Round-trip each JSONL line's `snapshot` field through `BattleSnapshot`
+/// serde, writing back the enriched JSON (adds `state` + `cache` that
+/// `rebuild_index` back-fills from `units`).
+///
+/// Run once with:
+/// ```
+/// cargo test --test combat enrich_ai_scenarios -- --ignored --exact
+/// ```
+/// After this, every fixture line's `snapshot` object will carry all four
+/// fields (`units`, `round`, `state`, `cache`).  U5/D-final can then safely
+/// drop `units`/`round` from `BattleSnapshot`; serde's default behaviour
+/// ignores the now-unknown keys in old raw captures.
+#[test]
+#[ignore]
+fn enrich_ai_scenarios() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let files: &[&str] = &[
+        "tests/ai_scenarios/snapshots/bell_crypt/log.jsonl",
+        "tests/ai_scenarios/snapshots/continuation_actor_hp_drop_relevant/log.jsonl",
+        "tests/ai_scenarios/snapshots/continuation_cosmetic_rage_tick_no_replan/log.jsonl",
+        "tests/ai_scenarios/snapshots/continuation_setup_aoe_two_ticks/log.jsonl",
+        "tests/ai_scenarios/snapshots/continuation_target_dies_replan/log.jsonl",
+        "tests/ai_scenarios/snapshots/continuation_ttl_expires/log.jsonl",
+        "tests/ai_scenarios/snapshots/focus_target_melee_basic/log.jsonl",
+        "tests/ai_scenarios/snapshots/road_bridge/log.jsonl",
+        "tests/baselines/baseline_v36.jsonl",
+    ];
+    for rel in files {
+        let path = root.join(rel);
+        enrich_jsonl_file(&path);
+        eprintln!("enriched {rel}");
+    }
+}
+
+fn enrich_jsonl_file(path: &Path) {
+    let content = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+
+    let enriched: Vec<String> = content
+        .lines()
+        .map(|line| {
+            if line.trim().is_empty() {
+                return line.to_string();
+            }
+            let mut obj: serde_json::Value = serde_json::from_str(line)
+                .unwrap_or_else(|e| panic!("bad JSON in {}: {e}\nline: {line}", path.display()));
+
+            if let Some(snap_val) = obj.get("snapshot").cloned() {
+                // Deserialize triggers rebuild_index, back-filling `state` and
+                // `cache` from `units` when those fields are absent (old schema).
+                let snap: BattleSnapshot = serde_json::from_value(snap_val)
+                    .unwrap_or_else(|e| {
+                        panic!("snapshot deserialize failed in {}: {e}", path.display())
+                    });
+                let enriched_snap = serde_json::to_value(&snap)
+                    .unwrap_or_else(|e| {
+                        panic!("snapshot serialize failed in {}: {e}", path.display())
+                    });
+                obj.as_object_mut()
+                    .expect("log line must be a JSON object")
+                    .insert("snapshot".to_string(), enriched_snap);
+            }
+
+            serde_json::to_string(&obj)
+                .unwrap_or_else(|e| panic!("re-serialize failed in {}: {e}", path.display()))
+        })
+        .collect();
+
+    // Preserve trailing newline if original had one.
+    let mut out = enriched.join("\n");
+    if content.ends_with('\n') {
+        out.push('\n');
+    }
+    std::fs::write(path, &out)
+        .unwrap_or_else(|e| panic!("cannot write {}: {e}", path.display()));
 }
