@@ -250,6 +250,21 @@ impl UnitBuilder {
         self.inner.damage_taken_bonus = bonus;
         self
     }
+    pub fn statuses(mut self, statuses: Vec<crate::combat::ai::world::snapshot::ActiveStatusView>) -> Self {
+        self.inner.statuses = statuses;
+        self
+    }
+    /// Override only `movement_points`, leaving `base_speed` and `speed` unchanged.
+    pub fn movement_points(mut self, mp: i32) -> Self {
+        self.inner.movement_points = mp;
+        self
+    }
+    /// Override only `speed` (effective speed after bonuses), leaving `base_speed` and
+    /// `movement_points` unchanged.
+    pub fn speed_override(mut self, speed: i32) -> Self {
+        self.inner.speed = speed;
+        self
+    }
     pub fn build(self) -> UnitSnapshot {
         self.inner
     }

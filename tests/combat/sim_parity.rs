@@ -66,8 +66,7 @@ fn parity_no_op_scenario_zero_drift() {
 fn parity_haste_speed_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
-    use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
+    use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
     use storyforge::combat::ai::world::tags::{StatusTagCache, StatusTagSet};
     use storyforge::combat::ai::world::tags::cache::StatusBonuses;
     use storyforge::core::StatusId;
@@ -149,35 +148,15 @@ fn parity_haste_speed_real_vs_sim() {
     use storyforge::combat::ai::world::tags::cache::build_caches;
     let (status_tag_cache, _) = build_caches(&content);
 
-    // Actor: base_speed=3, speed=3.
-    use bevy::prelude::Entity;
-    let actor = UnitSnapshot {
-        entity: Entity::from_raw_u32(1).expect("valid"),
-        team: Team::Player,
-        role: Default::default(),
-        pos: hex_from_offset(0, 0),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 2, max_ap: 2,
-        movement_points: 3,
-        base_speed: 3,
-        speed: 3,
-        mana: None, rage: None, energy: None,
-        abilities: vec![haste_def.id.clone()],
-        threat: 0.0,
-        tags: storyforge::combat::ai::world::tags::AiTags::empty(),
-        max_attack_range: 0,
-        summoner: None,
-        reactions_left: 0,
-        aoo_expected_damage: None,
-        statuses: Vec::new(),
-        caster_ctx: CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
-    let actor_id = actor.entity;
-    let snap = snapshot_from(vec![actor], 1);
+    // Actor: base_speed=3, speed=3, ap=2.
+    let actor_pair = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+        .ap(2)
+        .threat(0.0)
+        .max_attack_range(0)
+        .abilities(vec![haste_def.id.clone()])
+        .build_pair();
+    let actor_id = bevy::prelude::Entity::from_raw_u32(1).expect("valid");
+    let snap = snapshot_from_pairs(vec![actor_pair], 1);
 
     // --- Sim side ---
     let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tag_cache);
@@ -214,9 +193,7 @@ fn parity_haste_speed_real_vs_sim() {
 fn parity_armor_buff_mitigation_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
-    use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
-    use storyforge::combat::ai::world::tags::AiTags;
+    use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
     use combat_engine::final_damage_f32;
     use storyforge::core::StatusId;
     use storyforge::game::components::Team;
@@ -314,83 +291,32 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
     use storyforge::combat::ai::world::tags::cache::build_caches;
     let (status_tag_cache, _) = build_caches(&content);
 
-    use bevy::prelude::Entity;
+    // buffer: Enemy, ap=2, max_attack_range=3, abilities=[buff]
+    let buffer_pair = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+        .ap(2)
+        .max_attack_range(3)
+        .abilities(vec![buff_def.id.clone()])
+        .build_pair();
+    // target: Player, ap=0, mp=0, threat=0.0, max_attack_range=0, abilities=[]
+    let target_pair = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+        .ap(0)
+        .speed(0)
+        .threat(0.0)
+        .max_attack_range(0)
+        .build_pair();
+    // attacker: Enemy, ap=2, max_attack_range=3, abilities=[atk], threat=5.0, caster_ctx(str_mod=4)
+    let attacker_pair = UnitBuilder::new(3, Team::Enemy, hex_from_offset(2, 0))
+        .ap(2)
+        .max_attack_range(3)
+        .abilities(vec![atk_def.id.clone()])
+        .caster_ctx(CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None })
+        .build_pair();
 
-    let buffer = UnitSnapshot {
-        entity: Entity::from_raw_u32(1).expect("valid"),
-        team: Team::Enemy,
-        role: Default::default(),
-        pos: hex_from_offset(0, 0),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 2, max_ap: 2,
-        movement_points: 3, base_speed: 3, speed: 3,
-        mana: None, rage: None, energy: None,
-        abilities: vec![buff_def.id.clone()],
-        threat: 0.0,
-        tags: AiTags::empty(),
-        max_attack_range: 3,
-        summoner: None,
-        reactions_left: 0,
-        aoo_expected_damage: None,
-        statuses: Vec::new(),
-        caster_ctx: CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
-    let target = UnitSnapshot {
-        entity: Entity::from_raw_u32(2).expect("valid"),
-        team: Team::Player,
-        role: Default::default(),
-        pos: hex_from_offset(1, 0),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 0, max_ap: 0,
-        movement_points: 0, base_speed: 3, speed: 3,
-        mana: None, rage: None, energy: None,
-        abilities: Vec::new(),
-        threat: 0.0,
-        tags: AiTags::empty(),
-        max_attack_range: 0,
-        summoner: None,
-        reactions_left: 0,
-        aoo_expected_damage: None,
-        statuses: Vec::new(),
-        caster_ctx: Default::default(),
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
-    let attacker = UnitSnapshot {
-        entity: Entity::from_raw_u32(3).expect("valid"),
-        team: Team::Enemy,
-        role: Default::default(),
-        pos: hex_from_offset(2, 0),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 2, max_ap: 2,
-        movement_points: 3, base_speed: 3, speed: 3,
-        mana: None, rage: None, energy: None,
-        abilities: vec![atk_def.id.clone()],
-        threat: 5.0,
-        tags: AiTags::empty(),
-        max_attack_range: 3,
-        summoner: None,
-        reactions_left: 0,
-        aoo_expected_damage: None,
-        statuses: Vec::new(),
-        caster_ctx: CasterContext { str_mod: 4, int_mod: 0, spell_power: 0, weapon_dice: None },
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
+    let buffer_id = bevy::prelude::Entity::from_raw_u32(1).expect("valid");
+    let target_id = bevy::prelude::Entity::from_raw_u32(2).expect("valid");
+    let attacker_id = bevy::prelude::Entity::from_raw_u32(3).expect("valid");
 
-    let buffer_id = buffer.entity;
-    let target_id = target.entity;
-    let attacker_id = attacker.entity;
-
-    let snap = snapshot_from(vec![buffer, target, attacker], 1);
+    let snap = snapshot_from_pairs(vec![buffer_pair, target_pair, attacker_pair], 1);
 
     // Step 1: apply stone_skin to target.
     let mut sim = SimState::from_snapshot(&snap, buffer_id, &status_tag_cache);
@@ -454,9 +380,8 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
 fn parity_aoo_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
-    use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
-    use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+    use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
+    use storyforge::combat::ai::world::tags::StatusTagCache;
     use combat_engine::final_damage_f32;
     use storyforge::game::components::Team;
     use storyforge::game::hex::hex_from_offset;
@@ -468,54 +393,20 @@ fn parity_aoo_real_vs_sim() {
     let mitigation = actor_armor as f32;
     let vuln = 0.0f32;
 
-    let actor = UnitSnapshot {
-        entity: bevy::prelude::Entity::from_raw_u32(1).expect("valid"),
-        team: Team::Enemy,
-        role: Default::default(),
-        pos: hex_from_offset(3, 3),
-        hp: 20, max_hp: 20,
-        armor: actor_armor, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 1, max_ap: 1,
-        movement_points: 3, base_speed: 3, speed: 3,
-        mana: None, rage: None, energy: None,
-        abilities: Vec::new(),
-        threat: 0.0,
-        tags: AiTags::empty(),
-        max_attack_range: 1,
-        summoner: None,
-        reactions_left: 0,
-        aoo_expected_damage: None,
-        statuses: Vec::new(),
-        caster_ctx: Default::default(),
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
-    let enemy = UnitSnapshot {
-        entity: bevy::prelude::Entity::from_raw_u32(2).expect("valid"),
-        team: Team::Player,
-        role: Default::default(),
-        pos: hex_from_offset(4, 3),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 0, max_ap: 0,
-        movement_points: 0, base_speed: 3, speed: 3,
-        mana: None, rage: None, energy: None,
-        abilities: Vec::new(),
-        threat: 5.0,
-        tags: AiTags::empty(),
-        max_attack_range: 1,
-        summoner: None,
-        reactions_left: 1,
-        aoo_expected_damage: Some(raw_aoo),
-        statuses: Vec::new(),
-        caster_ctx: Default::default(),
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
-    let actor_id = actor.entity;
-    let snap = snapshot_from(vec![actor, enemy], 1);
+    // actor: Enemy at (3,3), armor=2, ap=1, mp=3, threat=0.0, max_attack_range=1
+    let actor_pair = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+        .armor(actor_armor)
+        .threat(0.0)
+        .build_pair();
+    // enemy: Player at (4,3), ap=0, mp=0, threat=5.0, aoo(raw=6, reactions=1)
+    let enemy_pair = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+        .ap(0)
+        .speed(0)
+        .aoo(raw_aoo, 1)
+        .build_pair();
+
+    let actor_id = bevy::prelude::Entity::from_raw_u32(1).expect("valid");
+    let snap = snapshot_from_pairs(vec![actor_pair, enemy_pair], 1);
 
     let status_tags = StatusTagCache::default();
     let content = ContentView::default();
@@ -549,63 +440,27 @@ fn parity_aoo_real_vs_sim() {
 fn parity_aoo_decrements_reactions_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
-    use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
-    use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+    use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
+    use storyforge::combat::ai::world::tags::StatusTagCache;
     use storyforge::content::content_view::ContentView;
     use storyforge::game::components::Team;
     use storyforge::game::hex::hex_from_offset;
     use storyforge::content::abilities::CasterContext;
 
-    let actor = UnitSnapshot {
-        entity: bevy::prelude::Entity::from_raw_u32(1).expect("valid"),
-        team: Team::Enemy,
-        role: Default::default(),
-        pos: hex_from_offset(3, 3),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 1, max_ap: 1,
-        movement_points: 3, base_speed: 3, speed: 3,
-        mana: None, rage: None, energy: None,
-        abilities: Vec::new(),
-        threat: 0.0,
-        tags: AiTags::empty(),
-        max_attack_range: 1,
-        summoner: None,
-        reactions_left: 0,
-        aoo_expected_damage: None,
-        statuses: Vec::new(),
-        caster_ctx: Default::default(),
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
-    let enemy = UnitSnapshot {
-        entity: bevy::prelude::Entity::from_raw_u32(2).expect("valid"),
-        team: Team::Player,
-        role: Default::default(),
-        pos: hex_from_offset(4, 3),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 0, max_ap: 0,
-        movement_points: 0, base_speed: 3, speed: 3,
-        mana: None, rage: None, energy: None,
-        abilities: Vec::new(),
-        threat: 5.0,
-        tags: AiTags::empty(),
-        max_attack_range: 1,
-        summoner: None,
-        reactions_left: 1,
-        aoo_expected_damage: Some(5.0),
-        statuses: Vec::new(),
-        caster_ctx: Default::default(),
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
-    let actor_id = actor.entity;
-    let enemy_id = enemy.entity;
-    let snap = snapshot_from(vec![actor, enemy], 1);
+    // actor: Enemy at (3,3), ap=1, mp=3, threat=0.0, max_attack_range=1
+    let actor_pair = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+        .threat(0.0)
+        .build_pair();
+    // enemy: Player at (4,3), ap=0, mp=0, threat=5.0, aoo(raw=5.0, reactions=1)
+    let enemy_pair = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+        .ap(0)
+        .speed(0)
+        .aoo(5.0, 1)
+        .build_pair();
+
+    let actor_id = bevy::prelude::Entity::from_raw_u32(1).expect("valid");
+    let enemy_id = bevy::prelude::Entity::from_raw_u32(2).expect("valid");
+    let snap = snapshot_from_pairs(vec![actor_pair, enemy_pair], 1);
 
     let status_tags = StatusTagCache::default();
     let content = ContentView::default();
@@ -638,9 +493,8 @@ fn parity_aoo_decrements_reactions_real_vs_sim() {
 fn parity_rage_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
-    use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
-    use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+    use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
+    use storyforge::combat::ai::world::tags::StatusTagCache;
     use storyforge::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
     };
@@ -650,55 +504,22 @@ fn parity_rage_real_vs_sim() {
     use storyforge::game::hex::hex_from_offset;
     use std::collections::HashMap;
 
-    let attacker = UnitSnapshot {
-        entity: bevy::prelude::Entity::from_raw_u32(1).expect("valid"),
-        team: Team::Enemy,
-        role: Default::default(),
-        pos: hex_from_offset(0, 0),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 1, max_ap: 1,
-        movement_points: 3, base_speed: 3, speed: 3,
-        mana: None, rage: Some((5, 10)), energy: None,
-        abilities: Vec::new(),
-        threat: 5.0,
-        tags: AiTags::empty(),
-        max_attack_range: 1,
-        summoner: None,
-        reactions_left: 0,
-        aoo_expected_damage: None,
-        statuses: Vec::new(),
-        caster_ctx: CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
-    let defender = UnitSnapshot {
-        entity: bevy::prelude::Entity::from_raw_u32(2).expect("valid"),
-        team: Team::Player,
-        role: Default::default(),
-        pos: hex_from_offset(1, 0),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 0, max_ap: 0,
-        movement_points: 0, base_speed: 3, speed: 3,
-        mana: None, rage: Some((3, 10)), energy: None,
-        abilities: Vec::new(),
-        threat: 0.0,
-        tags: AiTags::empty(),
-        max_attack_range: 0,
-        summoner: None,
-        reactions_left: 0,
-        aoo_expected_damage: None,
-        statuses: Vec::new(),
-        caster_ctx: Default::default(),
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
+    // attacker: Enemy at (0,0), rage=(5,10), ap=1, threat=5.0
+    let attacker_pair = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+        .rage(5, 10)
+        .caster_ctx(CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None })
+        .build_pair();
+    // defender: Player at (1,0), rage=(3,10), ap=0, mp=0, threat=0.0, max_attack_range=0
+    let defender_pair = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+        .ap(0)
+        .speed(0)
+        .threat(0.0)
+        .max_attack_range(0)
+        .rage(3, 10)
+        .build_pair();
 
-    let attacker_id = attacker.entity;
-    let defender_id = defender.entity;
+    let attacker_id = bevy::prelude::Entity::from_raw_u32(1).expect("valid");
+    let defender_id = bevy::prelude::Entity::from_raw_u32(2).expect("valid");
 
     let strike_def = AbilityDef {
         id: AbilityId::from("strike"),
@@ -735,7 +556,7 @@ fn parity_rage_real_vs_sim() {
     };
     content.abilities.insert(strike_def.id.clone(), strike_def.clone());
 
-    let snap = snapshot_from(vec![attacker, defender], 1);
+    let snap = snapshot_from_pairs(vec![attacker_pair, defender_pair], 1);
     let status_tags = StatusTagCache::default();
     let mut sim = SimState::from_snapshot(&snap, attacker_id, &status_tags);
 
@@ -776,9 +597,8 @@ fn parity_rage_real_vs_sim() {
 fn parity_rage_aoe_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
-    use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
-    use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+    use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
+    use storyforge::combat::ai::world::tags::StatusTagCache;
     use storyforge::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
     };
@@ -788,40 +608,28 @@ fn parity_rage_aoe_real_vs_sim() {
     use storyforge::game::hex::hex_from_offset;
     use std::collections::HashMap;
 
-    let make_unit = |id: u32, team: Team, col: i32, rage: Option<(i32, i32)>| UnitSnapshot {
-        entity: bevy::prelude::Entity::from_raw_u32(id).expect("valid"),
-        team,
-        role: Default::default(),
-        pos: hex_from_offset(col, 0),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 1, max_ap: 1,
-        movement_points: 3, base_speed: 3, speed: 3,
-        mana: None, rage, energy: None,
-        abilities: Vec::new(),
-        threat: if team == Team::Enemy { 5.0 } else { 0.0 },
-        tags: AiTags::empty(),
-        max_attack_range: 5,
-        summoner: None,
-        reactions_left: 0,
-        aoo_expected_damage: None,
-        statuses: Vec::new(),
-        caster_ctx: Default::default(),
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
+    let make_unit = |id: u32, team: Team, col: i32, rage: Option<(i32, i32)>| {
+        let mut b = UnitBuilder::new(id, team, hex_from_offset(col, 0))
+            .max_attack_range(5);
+        if let Some((cur, max)) = rage {
+            b = b.rage(cur, max);
+        }
+        if team == Team::Player {
+            b = b.ap(0).speed(0).threat(0.0);
+        }
+        b.build_pair()
     };
 
-    let attacker = make_unit(1, Team::Enemy, 0, Some((5, 10)));
+    let attacker_pair = make_unit(1, Team::Enemy, 0, Some((5, 10)));
     // Three defenders clustered within AoE radius 1 of (3,0).
-    let d1 = make_unit(2, Team::Player, 3, Some((0, 10)));
-    let d2 = make_unit(3, Team::Player, 4, Some((0, 10)));
-    let d3 = make_unit(4, Team::Player, 2, Some((0, 10)));
+    let d1_pair = make_unit(2, Team::Player, 3, Some((0, 10)));
+    let d2_pair = make_unit(3, Team::Player, 4, Some((0, 10)));
+    let d3_pair = make_unit(4, Team::Player, 2, Some((0, 10)));
 
-    let attacker_id = attacker.entity;
-    let d1_id = d1.entity;
-    let d2_id = d2.entity;
-    let d3_id = d3.entity;
+    let attacker_id = bevy::prelude::Entity::from_raw_u32(1).expect("valid");
+    let d1_id = bevy::prelude::Entity::from_raw_u32(2).expect("valid");
+    let d2_id = bevy::prelude::Entity::from_raw_u32(3).expect("valid");
+    let d3_id = bevy::prelude::Entity::from_raw_u32(4).expect("valid");
 
     let blast_def = AbilityDef {
         id: AbilityId::from("blast"),
@@ -858,7 +666,7 @@ fn parity_rage_aoe_real_vs_sim() {
     };
     content.abilities.insert(blast_def.id.clone(), blast_def.clone());
 
-    let snap = snapshot_from(vec![attacker, d1, d2, d3], 1);
+    let snap = snapshot_from_pairs(vec![attacker_pair, d1_pair, d2_pair, d3_pair], 1);
     let status_tags = StatusTagCache::default();
     let mut sim = SimState::from_snapshot(&snap, attacker_id, &status_tags);
 
@@ -898,64 +706,30 @@ fn parity_rage_aoe_real_vs_sim() {
 fn parity_aoo_grants_rage_real_vs_sim() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
-    use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::UnitSnapshot;
-    use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+    use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
+    use storyforge::combat::ai::world::tags::StatusTagCache;
     use storyforge::content::abilities::CasterContext;
     use storyforge::content::content_view::ContentView;
     use storyforge::game::components::Team;
     use storyforge::game::hex::hex_from_offset;
 
     // Actor at (3,3), adjacent enemy at (4,3). Move to (2,3) — leaves adjacency.
-    let actor = UnitSnapshot {
-        entity: bevy::prelude::Entity::from_raw_u32(1).expect("valid"),
-        team: Team::Enemy,
-        role: Default::default(),
-        pos: hex_from_offset(3, 3),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 1, max_ap: 1,
-        movement_points: 3, base_speed: 3, speed: 3,
-        mana: None, rage: Some((4, 10)), energy: None,
-        abilities: Vec::new(),
-        threat: 0.0,
-        tags: AiTags::empty(),
-        max_attack_range: 1,
-        summoner: None,
-        reactions_left: 0,
-        aoo_expected_damage: None,
-        statuses: Vec::new(),
-        caster_ctx: Default::default(),
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
-    let enemy = UnitSnapshot {
-        entity: bevy::prelude::Entity::from_raw_u32(2).expect("valid"),
-        team: Team::Player,
-        role: Default::default(),
-        pos: hex_from_offset(4, 3),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 0, max_ap: 0,
-        movement_points: 0, base_speed: 3, speed: 3,
-        mana: None, rage: Some((7, 10)), energy: None,
-        abilities: Vec::new(),
-        threat: 5.0,
-        tags: AiTags::empty(),
-        max_attack_range: 1,
-        summoner: None,
-        reactions_left: 1,
-        aoo_expected_damage: Some(5.0),
-        statuses: Vec::new(),
-        caster_ctx: Default::default(),
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    };
-    let actor_id = actor.entity;
-    let enemy_id = enemy.entity;
-    let snap = snapshot_from(vec![actor, enemy], 1);
+    // actor: Enemy, ap=1, mp=3, rage=(4,10), threat=0.0
+    let actor_pair = UnitBuilder::new(1, Team::Enemy, hex_from_offset(3, 3))
+        .rage(4, 10)
+        .threat(0.0)
+        .build_pair();
+    // enemy: Player, ap=0, mp=0, rage=(7,10), threat=5.0, aoo(5.0, reactions=1)
+    let enemy_pair = UnitBuilder::new(2, Team::Player, hex_from_offset(4, 3))
+        .ap(0)
+        .speed(0)
+        .rage(7, 10)
+        .aoo(5.0, 1)
+        .build_pair();
+
+    let actor_id = bevy::prelude::Entity::from_raw_u32(1).expect("valid");
+    let enemy_id = bevy::prelude::Entity::from_raw_u32(2).expect("valid");
+    let snap = snapshot_from_pairs(vec![actor_pair, enemy_pair], 1);
 
     let status_tags = StatusTagCache::default();
     let content = ContentView::default();
@@ -1087,9 +861,8 @@ fn assert_unit_parity(
 fn parity_engine_vs_units_after_apply_step() {
     use storyforge::combat::ai::plan::sim::SimState;
     use storyforge::combat::ai::plan::types::PlanStep;
-    use storyforge::combat::ai::test_helpers::snapshot_from;
-    use storyforge::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
-        use storyforge::combat::ai::world::tags::AiTags;
+    use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
+    use storyforge::combat::ai::world::snapshot::ActiveStatusView;
     use storyforge::combat::ai::world::tags::cache::build_caches;
     use storyforge::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef,
@@ -1236,32 +1009,23 @@ fn parity_engine_vs_units_after_apply_step() {
             damage_taken_bonus += b.damage_taken_bonus;
             speed_bonus += b.speed_bonus;
         }
-        UnitSnapshot {
-            entity: bevy::prelude::Entity::from_raw_u32(raw).expect("valid entity"),
-            team,
-            role: Default::default(),
-            pos: hex_from_offset(pos_col, pos_row),
-            hp, max_hp: 30,
-            armor: 0,
-            armor_bonus,
-            damage_taken_bonus,
-            action_points: ap, max_ap: 2,
-            movement_points: mp,
-            base_speed: 3, speed: 3 + speed_bonus,
-            mana, rage, energy: None,
-            abilities: Vec::new(),
-            threat: 0.0,
-            tags: AiTags::empty(),
-            max_attack_range: 1,
-            summoner: None,
-            reactions_left: 0,
-            aoo_expected_damage: None,
-            statuses,
-            caster_ctx: CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None },
-            crit_fail_effect: Default::default(),
-            damage_horizon: Vec::new(),
-            ai_tuning_override: None,
-        }
+        // UnitBuilder::new sets base_speed=speed=movement_points=3; then we override
+        // speed (base+bonus) and movement_points (actual remaining) independently.
+        let mut builder = UnitBuilder::new(raw, team, hex_from_offset(pos_col, pos_row))
+            .hp(hp)
+            .max_hp(30)
+            .ap(ap)
+            .armor_bonus(armor_bonus)
+            .damage_taken_bonus(damage_taken_bonus)
+            .speed_override(3 + speed_bonus)
+            .movement_points(mp)
+            .threat(0.0)
+            .max_attack_range(1)
+            .statuses(statuses)
+            .caster_ctx(CasterContext { str_mod: 0, int_mod: 0, spell_power: 0, weapon_dice: None });
+        if let Some((cur, max)) = rage { builder = builder.rage(cur, max); }
+        if let Some((cur, max)) = mana { builder = builder.mana(cur, max); }
+        builder.build_pair()
     };
 
     // Shorthand status views
@@ -1364,19 +1128,19 @@ fn parity_engine_vs_units_after_apply_step() {
         let target_team = if case.same_team_target { Team::Player } else { Team::Enemy };
 
         // Actor at (0,0), target at (1,0)
-        let actor = make_unit(
+        let actor_pair = make_unit(
             1, actor_team, 0, 0, 25, 2, 3,
             case.actor_statuses.clone(), None, None,
         );
-        let target = make_unit(
+        let target_pair = make_unit(
             2, target_team, 1, 0, 20, 0, 0,
             case.target_statuses.clone(), None, None,
         );
 
-        let actor_id  = actor.entity;
-        let target_id = target.entity;
+        let actor_id  = bevy::prelude::Entity::from_raw_u32(1).expect("valid");
+        let target_id = bevy::prelude::Entity::from_raw_u32(2).expect("valid");
 
-        let snap = snapshot_from(vec![actor, target], 1);
+        let snap = snapshot_from_pairs(vec![actor_pair, target_pair], 1);
         let mut sim = SimState::from_snapshot(&snap, actor_id, &status_tag_cache);
 
         sim.apply_step(
