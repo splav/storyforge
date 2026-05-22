@@ -374,10 +374,6 @@ fn step_inner(
             }
         }
         Action::EndTurn { actor } => {
-            // Tick the outgoing actor's statuses (sirota DoT path).
-            let tick_events = state.tick_actor_statuses(*actor, content);
-            events.extend(tick_events);
-
             // TurnEnded fires before the AdvanceTurn cascade so the stream
             // reads: outgoing ends → queue advances → skips/round → next starts.
             events.push(Event::TurnEnded { actor: *actor });

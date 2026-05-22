@@ -211,16 +211,16 @@ fn actor_with_exhausted_resources_can_act_on_round_2() {
 
 // ── Test 2: double-tick from re-importing engine state (B2, ebde94e) ─────────
 
-/// A status applied in engine state must tick exactly once per actor-turn-start,
-/// not twice due to `init_state_from_ecs` reimporting stale ECS values and
-/// `start_actor_turn` then ticking the reimported data.
+/// A self-applied status must tick exactly once per round at `start_actor_turn`,
+/// not extra times from the EndTurn handler or from `init_state_from_ecs` reimporting
+/// stale ECS values on round wrap.
 ///
-/// Pre-B2: `init_state_from_ecs` ran on every `OnEnter(AwaitCommand)` — i.e.
-/// every round wrap.  If ECS hadn't caught up with the engine's tick yet, the
-/// reimport would reset the status and the subsequent `start_actor_turn` tick
-/// would count as the first (consuming an extra round).
+/// Mechanism: the engine cascade calls `start_actor_turn(hero)` when enemy's
+/// EndTurn wraps the round.  Hero's self-applied status (applier==hero) ticks
+/// there.  The EndTurn handler no longer calls `tick_actor_statuses` directly
+/// (fix for the double-tick bug), so no extra tick fires at hero's own EndTurn.
 ///
-/// Fix: `init_state_from_ecs` skips on `ctx.round >= 2`; the engine cascade
+/// B2 guard: `init_state_from_ecs` skips on `ctx.round >= 2`; the engine
 /// carries authoritative status state across round boundaries.
 #[test]
 fn status_does_not_tick_twice_per_turn() {
@@ -250,9 +250,10 @@ fn status_does_not_tick_twice_per_turn() {
         queue.index = 0;
     }
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
-    // Attach a StatusEffects component with a 3-round status so that after two
-    // legitimate ticks (round-1 first_turn + round-2 first_turn) we land at 1,
-    // not 0 (which would mean a spurious extra tick).
+    // Attach a StatusEffects component with a 3-round status.  One full turn
+    // cycle (hero EndTurn + enemy EndTurn) fires start_actor_turn(hero) once
+    // (via the round-wrap cascade), landing at 2.  A spurious extra tick would
+    // land at 1 or less.
     app.world_mut().entity_mut(hero).insert(StatusEffects(vec![ActiveStatus {
         id: "test_buff".into(),
         rounds_remaining: 3,
@@ -262,17 +263,17 @@ fn status_does_not_tick_twice_per_turn() {
 
     init_engine_state(&mut app); // round == 0 → engine picks up the status
 
-    // Round-1 first-turn: engine_start_first_turn_system fires → start_actor_turn(hero)
-    // → status ticks 3 → 2.
-    app.update(); // let OnEnter(AwaitCommand) systems run
+    // First update: init_state_from_ecs already ran via init_engine_state;
+    // no extra tick here (movement_app has no engine_start_first_turn_system).
+    app.update();
 
     // Hero ends turn → enemy becomes active.
+    // enemy's start_actor_turn does NOT tick hero's status (applier check).
     write_message(&mut app, ActionInput::EndTurn { actor: hero });
     app.update(); // engine: TurnEnded(hero) → TurnStarted(enemy) + start_actor_turn(enemy)
-                  // enemy's start_actor_turn does NOT tick hero's status (applier check)
 
-    // Enemy ends turn → round wraps → hero active in round 2 → start_actor_turn(hero)
-    // → status ticks 2 → 1.
+    // Enemy ends turn → round wraps → hero active in round 2.
+    // Cascade: start_actor_turn(hero) → status ticks 3 → 2.
     write_message(&mut app, ActionInput::EndTurn { actor: enemy });
     app.update(); // engine: TurnEnded(enemy) → RoundStarted + TurnStarted(hero) inside cascade
 
@@ -289,9 +290,9 @@ fn status_does_not_tick_twice_per_turn() {
         .expect("test_buff status must still be present");
 
     assert_eq!(
-        status.rounds_remaining, 1,
-        "status must have ticked exactly twice (round-1 entry + round-2 entry), \
-         got rounds_remaining={} — extra ticks indicate B2 regression (double-tick on round wrap)",
+        status.rounds_remaining, 2,
+        "status must have ticked exactly once (at round-2 start via enemy-EndTurn cascade), \
+         got rounds_remaining={} — extra ticks indicate double-tick regression",
         status.rounds_remaining
     );
 }
