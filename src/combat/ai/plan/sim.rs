@@ -2,26 +2,31 @@
 //!
 //! Steps go through the `combat_engine::step()` function directly — no
 //! separate hand-rolled damage math.  `SimState` holds a persistent
-//! `CombatState` (built once in `from_snapshot`, mutated in-place by each
-//! `step()` call) and a `BattleSnapshot` that is kept in sync via
-//! `project_engine_to_snapshot` after every step.
+//! `CombatState` (built once in `from_snapshot` directly from `snap.state`,
+//! mutated in-place by each `step()` call).
+//!
+//! `snapshot.units` is **frozen at construction** and is never updated after
+//! steps.  `snapshot.state` IS updated after each step (via
+//! `self.snapshot.state = self.combat_state.clone()`) so that
+//! `snapshot.unit(entity)` / `actor_unit()` return post-step values.
+//! Engine `CombatState` (`combat_state`) is the sole mutable working copy;
+//! `snapshot.state` is kept in sync but `snapshot.units` is not.
 
 use crate::combat::ai::world::snapshot::{
-    ActiveStatusView, BattleSnapshot, UnitView,
+    BattleSnapshot, UnitView,
 };
 use crate::combat::ai::world::tags::StatusTagCache;
 use crate::content::races::CritFailEffect;
 use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, TargetType};
 use crate::content::content_view::ContentView;
-use crate::game::components::Team;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 
 use combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
-    dice::{DiceExpr as EngineDiceExpr, ExpectedValue as EngineExpectedValue},
-    state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit, UnitId},
+    dice::ExpectedValue as EngineExpectedValue,
+    state::{CombatState, UnitId},
     step::step,
 };
 use combat_engine::{
@@ -32,23 +37,26 @@ use crate::combat::engine_bridge::entity_to_uid;
 
 use super::types::{PlanStep, StepOutcome};
 
-/// Mutable working copy of a snapshot.  Each `apply_step` call goes through
-/// `combat_engine::step()`, mutating `combat_state` in place, then projects
-/// the result back to `snapshot` via `project_engine_to_snapshot`.
+/// Mutable working copy of a snapshot for plan search.
 ///
-/// Derived snapshot fields (`threat`, `max_attack_range`, `tags`,
-/// `aoo_expected_damage`) are intentionally **not** recomputed — treat them
-/// as stale relative to the simulated state.  They are read-only caches that
-/// the planner never writes during a search branch.
+/// Each `apply_step` call goes through `combat_engine::step()`, mutating
+/// `combat_state` in place.  After each step, `snapshot.state` is synced
+/// (`self.snapshot.state = self.combat_state.clone()`) so that
+/// `snapshot.unit(entity)` / `actor_unit()` return post-step values.
 ///
-/// `status_tags` is used by snapshot-layer aggregates (e.g. `armor_bonus`
-/// refresh in the heal-clears-DoT path).  Tests that don't exercise status
-/// reflow can pass `empty_status_tag_cache()`.
+/// **U4 invariant:** `snapshot.units` is frozen at construction and is never
+/// updated after steps.  Only `snapshot.state` is synced.  Derived AI fields
+/// (`threat`, `max_attack_range`, `tags`, `aoo_expected_damage`, etc.) are
+/// read-only caches from decision-entry time and are intentionally stale for
+/// the duration of a search branch.
+///
+/// `status_tags` is retained for `SnapshotContentView` construction.  Tests
+/// that don't exercise status resolution can pass `empty_status_tag_cache()`.
 pub struct SimState<'a> {
     pub snapshot: BattleSnapshot,
-    /// Engine authoritative state.  Built once in `from_snapshot`, mutated
-    /// in-place by every `step()` call.  Always in sync with `snapshot` for
-    /// the fields that `project_engine_to_snapshot` covers.
+    /// Engine authoritative state.  Built once in `from_snapshot` directly
+    /// from `snap.state`, mutated in-place by every `step()` call.
+    /// This is the sole source of post-step mutable truth.
     pub combat_state: CombatState,
     pub actor: Entity,
     pub status_tags: &'a StatusTagCache,
@@ -56,7 +64,7 @@ pub struct SimState<'a> {
 
 impl<'a> SimState<'a> {
     pub fn from_snapshot(snap: &BattleSnapshot, actor: Entity, status_tags: &'a StatusTagCache) -> Self {
-        let combat_state = snapshot_to_combat_state(snap, snap.round);
+        let combat_state = snap.state.clone();
         Self {
             snapshot: snap.clone(),
             combat_state,
@@ -108,13 +116,12 @@ impl<'a> SimState<'a> {
     }
 
     /// Advance time past the actor's turn end: tick active statuses (DoT damage,
-    /// duration decrements, expiry) for the actor, then project the results back
-    /// into `self.snapshot` so subsequent scoring and depth extensions see the
-    /// post-endturn state.
+    /// duration decrements, expiry) for the actor.
     ///
-    /// Wired in Phase 4 (4f): called once per plan branch in `generate_plans`
-    /// after each `apply_step`, so the AI sees post-handoff state (status ticks
-    /// fired, HP deltas from DoTs, statuses expired).
+    /// After U4: engine `CombatState` is the sole mutable source of truth.
+    /// `snapshot.state` is synced to `combat_state` after the tick so that
+    /// `snapshot.unit(entity)` / `actor_unit()` return post-tick values.
+    /// `snapshot.units` is frozen at construction; only `state` is updated.
     ///
     /// **Single-tick invariant:** call exactly once per branch expansion — never
     /// inside the step loop for multi-step plans.  `generate_plans` enforces this
@@ -124,9 +131,9 @@ impl<'a> SimState<'a> {
     pub fn apply_endturn(&mut self, actor: UnitId) {
         let content_view = SnapshotContentView::from_snapshot(&self.snapshot);
         let _ = self.combat_state.tick_actor_statuses(actor, &content_view);
-        // Project engine mutations (status expirations, DoT hp loss) back into
-        // the snapshot so scoring and next-depth extensions see up-to-date state.
-        project_engine_to_snapshot(&self.combat_state, &mut self.snapshot, self.status_tags);
+        // Sync snapshot.state so snapshot.unit()/actor_unit() see post-tick values.
+        // snap.units remains frozen (U4 invariant: no more field-by-field mirror).
+        self.snapshot.state = self.combat_state.clone();
     }
 
     fn apply_move(&mut self, path: &[Hex]) -> StepOutcome {
@@ -146,7 +153,9 @@ impl<'a> SimState<'a> {
 
         match step_result {
             Ok((_events, _ctx)) => {
-                project_engine_to_snapshot(&self.combat_state, &mut self.snapshot, self.status_tags);
+                // Sync snapshot.state so snapshot.unit()/actor_unit() see post-step values.
+                // snap.units remains frozen (U4 invariant: no more field-by-field mirror).
+                self.snapshot.state = self.combat_state.clone();
             }
             Err(_) => {
                 // Engine rolled back; no changes to project.  Plan branch
@@ -196,7 +205,9 @@ impl<'a> SimState<'a> {
 
         match step_result {
             Ok((events, _ctx)) => {
-                project_engine_to_snapshot(&self.combat_state, &mut self.snapshot, self.status_tags);
+                // Sync snapshot.state so snapshot.unit()/actor_unit() see post-step values.
+                // snap.units remains frozen (U4 invariant: no more field-by-field mirror).
+                self.snapshot.state = self.combat_state.clone();
 
                 // ── Populate StepOutcome from engine events ────────────────────
                 use combat_engine::event::Event;
@@ -208,11 +219,8 @@ impl<'a> SimState<'a> {
                             // killed: unit is dead in engine state post-step.
                             if let Some(eu) = self.combat_state.unit(*t_uid) {
                                 if !eu.is_alive() {
-                                    // Map UnitId → Entity via snapshot.
-                                    if let Some(ent) = self.snapshot.units.iter()
-                                        .find(|u| entity_to_uid(u.entity) == *t_uid)
-                                        .map(|u| u.entity)
-                                    {
+                                    // Map UnitId → Entity via explicit uid_to_entity map.
+                                    if let Some(ent) = self.snapshot.entity_for_uid(*t_uid) {
                                         if !outcome.killed.contains(&ent) {
                                             outcome.killed.push(ent);
                                         }
@@ -229,10 +237,8 @@ impl<'a> SimState<'a> {
                             let skips = content.statuses.get(status.0.as_str())
                                 .is_some_and(|sd| sd.skips_turn);
                             if skips {
-                                if let Some(ent) = self.snapshot.units.iter()
-                                    .find(|u| entity_to_uid(u.entity) == *t_uid)
-                                    .map(|u| u.entity)
-                                {
+                                // Map UnitId → Entity via explicit uid_to_entity map.
+                                if let Some(ent) = self.snapshot.entity_for_uid(*t_uid) {
                                     if !outcome.stunned.contains(&ent) {
                                         outcome.stunned.push(ent);
                                     }
@@ -261,9 +267,10 @@ impl<'a> SimState<'a> {
 
 /// `ContentView` adapter for the AI sim (5c.1: static content only).
 ///
-/// After 5c.1, per-combat state (caster contexts, AoO dice) lives on engine
-/// `Unit` fields populated by `snapshot_to_combat_state`. This struct only
-/// carries static content: ability and status definitions for engine legality.
+/// Per-combat state (caster contexts, AoO dice) lives on engine `Unit`
+/// fields in `SimState.combat_state` (set at construction from `snap.state`).
+/// This struct only carries static content: ability and status definitions
+/// for engine legality.
 struct SnapshotContentView {
     /// Engine-format ability definitions (populated for Cast steps).
     abilities: std::collections::HashMap<combat_engine::AbilityId, combat_engine::AbilityDef>,
@@ -384,150 +391,22 @@ impl EngineContentView for SnapshotContentView {
     }
 }
 
-/// Build a `CombatState` from a `BattleSnapshot`.
-///
-/// Uses `entity_to_uid(entity)` for id mapping (same encoding as `engine_bridge::from_ecs`).
-/// Copies hp, pos, movement_points, reactions_left, rage, mana, energy directly.
-///
-/// After 5c.1: `caster_context` is populated from the snapshot's `caster_ctx`;
-/// `auras` and `enemy_phases` are empty (sim doesn't model auras or boss phases).
-fn snapshot_to_combat_state(snap: &BattleSnapshot, round: u32) -> CombatState {
-    use combat_engine::state::ActiveStatus;
 
-    let units: Vec<EngineUnit> = snap
-        .units
-        .iter()
-        .map(|u| {
-            let team = match u.team {
-                Team::Player => EngineTeam::Player,
-                Team::Enemy  => EngineTeam::Enemy,
-            };
-            let statuses: Vec<ActiveStatus> = u
-                .statuses
-                .iter()
-                .map(|s| ActiveStatus {
-                    id: s.id.clone(),
-                    rounds_remaining: s.rounds_remaining,
-                    dot_per_tick: s.dot_per_tick,
-                    // Snapshot's ActiveStatusView drops the applier (AI layer
-                    // doesn't track it).  Use the unit's own id as a sentinel
-                    // — engine doesn't read applier in Phase 2 mechanics.
-                    applier: entity_to_uid(u.entity),
-                })
-                .collect();
-            let caster_context = combat_engine::CasterContext {
-                str_mod: u.caster_ctx.str_mod,
-                int_mod: u.caster_ctx.int_mod,
-                spell_power: u.caster_ctx.spell_power,
-                weapon_dice: u.caster_ctx.weapon_dice,
-                crit_fail_outcome: map_crit_fail_effect(&u.crit_fail_effect),
-            };
-            // AoO dice = pre-computed expected damage from the snapshot
-            // (already includes melee-ability filter + str_mod). Encoded as
-            // a constant-bonus 0d1+raw so ExpectedValue rolls return raw.
-            let aoo_dice = u.aoo_expected_damage
-                .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
-            EngineUnit {
-                id: entity_to_uid(u.entity),
-                team,
-                pos: u.pos,
-                hp: u.hp,
-                max_hp: u.max_hp,
-                armor: u.armor,
-                armor_bonus: u.armor_bonus,
-                damage_taken_bonus: u.damage_taken_bonus,
-                base_speed: u.base_speed,
-                speed: u.speed,
-                action_points: u.action_points,
-                max_ap: u.max_ap,
-                movement_points: u.movement_points,
-                reactions_left: u.reactions_left,
-                reactions_max: 1,
-                statuses,
-                rage: u.rage,
-                mana: u.mana,
-                energy: u.energy,
-                summoner: None,
-                caster_context,
-                aoo_dice,
-                auras: Vec::new(),
-                enemy_phases: Vec::new(),
-            }
-        })
-        .collect();
 
-    CombatState::new(units, round, RoundPhase::ActorTurn, 0)
-}
 
-/// Project mutable fields from a `CombatState` back onto the corresponding
-/// `UnitSnapshot` entries in `snap`.
-///
-/// Covers all fields that `step()` can mutate — Move and Cast both:
-/// `hp`, `pos`, `action_points`, `movement_points`, `reactions_left`,
-/// `rage`, `mana`, `energy`, `statuses`.
-///
-/// After status changes, `refresh_aggregates` is called so that
-/// `armor_bonus`, `damage_taken_bonus`, `speed`, and AI-side bitflags
-/// (`IS_STUNNED`, `FORCES_TARGETING`) stay consistent with the new
-/// status list.  `status_tags` must be the same cache used everywhere else
-/// in this sim session.
-///
-/// Fields owned entirely by the snapshot layer (`threat`, `abilities`, `tags`,
-/// `aoo_expected_damage`, etc.) are left untouched.
-fn project_engine_to_snapshot(
-    engine: &CombatState,
-    snap: &mut BattleSnapshot,
-    status_tags: &StatusTagCache,
-) {
-    for unit_snap in snap.units.iter_mut() {
-        let uid = entity_to_uid(unit_snap.entity);
-        let Some(eu) = engine.unit(uid) else { continue };
-
-        let statuses_changed = unit_snap.statuses.len() != eu.statuses.len()
-            || unit_snap.statuses.iter().zip(eu.statuses.iter()).any(|(s, e)| {
-                s.id != e.id
-                    || s.rounds_remaining != e.rounds_remaining
-                    || s.dot_per_tick != e.dot_per_tick
-            });
-
-        unit_snap.hp              = eu.hp;
-        unit_snap.pos             = eu.pos;
-        unit_snap.action_points   = eu.action_points;
-        unit_snap.movement_points = eu.movement_points;
-        unit_snap.reactions_left  = eu.reactions_left;
-        unit_snap.rage            = eu.rage;
-        unit_snap.mana            = eu.mana;
-        unit_snap.energy          = eu.energy;
-
-        unit_snap.statuses = eu.statuses.iter().map(|s| ActiveStatusView {
-            id: s.id.clone(),
-            rounds_remaining: s.rounds_remaining,
-            dot_per_tick: s.dot_per_tick,
-        }).collect();
-
-        if statuses_changed {
-            unit_snap.refresh_aggregates(status_tags);
-        }
-    }
-    // Sync snap.state so that UnitView-based lookups (snap.unit()) stay
-    // consistent with the updated snap.units. The engine is the source of
-    // truth after apply_step; project_engine_to_snapshot writes both layers.
-    snap.state = engine.clone();
-    // No need to invalidate_index: we changed unit fields but not order/length,
-    // so the entity→index mapping is still valid.
-}
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::world::snapshot::UnitSnapshot;
+    use crate::combat::ai::world::snapshot::{ActiveStatusView, UnitSnapshot};
     use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,
     };
     use crate::core::{AbilityId, DiceExpr, ResourceKind, StatusId};
+    use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
     /// Sim-suite defaults: mana 5/10 (enough for simple casts), armor as
@@ -849,7 +728,9 @@ mod tests {
         );
 
         assert_eq!(outcome.stunned, vec![target_id]);
-        let t = sim.snapshot.unit_snapshot(target_id).unwrap();
+        // After U4, snapshot.units is frozen; read via snapshot.unit() which
+        // resolves through the live snapshot.state.
+        let t = sim.snapshot.unit(target_id).unwrap();
         assert!(t.is_stunned(&status_tag_cache));
     }
 
@@ -1246,7 +1127,8 @@ mod tests {
             "actor hp=0 → is_alive()=false → actor_unit() returns None",
         );
         // hp clamped to 0, not negative.
-        let dead = sim.snapshot.units.iter().find(|u| u.entity == actor_id).unwrap();
+        // After U4, snapshot.units is frozen at pre-step state; read via engine state.
+        let dead = sim.snapshot.unit(actor_id).expect("corpse retained in engine state");
         assert_eq!(dead.hp, 0, "hp clamped to 0");
     }
 

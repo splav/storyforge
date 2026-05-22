@@ -630,7 +630,9 @@ mod tests {
             }
 
             // Costs: AP and each resource deducted on the actor.
-            if let Some(actor_after) = sim.snapshot.unit_snapshot(actor_id) {
+            // After U4, snapshot.units is frozen; read via snapshot.unit() which
+            // resolves through the live snapshot.state (engine Unit via Deref).
+            if let Some(actor_after) = sim.snapshot.unit(actor_id) {
                 // AP.
                 let expected_ap = (actor.action_points - def.cost_ap).max(0);
                 assert_eq!(
@@ -641,7 +643,7 @@ mod tests {
                 // Per-resource costs.
                 for cost in &def.costs {
                     let before = resource_of(&actor, cost.resource);
-                    let after_r = resource_of(actor_after, cost.resource);
+                    let after_r = resource_of_view(&actor_after, cost.resource);
                     let expected_r = (before - cost.amount).max(0);
                     assert_eq!(
                         after_r, expected_r,
@@ -727,6 +729,18 @@ mod tests {
 
     /// Helper: get current resource amount from a unit snapshot.
     fn resource_of(u: &UnitSnapshot, kind: ResourceKind) -> i32 {
+        match kind {
+            ResourceKind::Hp => u.hp,
+            ResourceKind::Mana => u.mana.map(|(c, _)| c).unwrap_or(0),
+            ResourceKind::Rage => u.rage.map(|(c, _)| c).unwrap_or(0),
+            ResourceKind::Energy => u.energy.map(|(c, _)| c).unwrap_or(0),
+        }
+    }
+
+    /// Helper: get current resource amount from a `UnitView` (engine `Unit` via Deref).
+    /// Used post-U4 where post-step reads go through `snapshot.unit()` instead of
+    /// `snapshot.unit_snapshot()` (which reads frozen `snap.units`).
+    fn resource_of_view(u: &crate::combat::ai::world::snapshot::UnitView<'_>, kind: ResourceKind) -> i32 {
         match kind {
             ResourceKind::Hp => u.hp,
             ResourceKind::Mana => u.mana.map(|(c, _)| c).unwrap_or(0),
