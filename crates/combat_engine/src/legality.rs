@@ -128,9 +128,11 @@ pub trait ActionState {
     /// `SingleAlly` target-type rules.
     fn target_team(&self, target: Self::Id) -> Option<Team>;
 
-    /// The enemy unit whose `forces_targeting` status binds `actor_team`'s
-    /// SingleEnemy casts.  `None` when no taunter is active.
-    fn taunter_for(&self, actor_team: Team) -> Option<Self::Id>;
+    /// All live enemy units whose `forces_targeting` status binds `actor_team`'s
+    /// SingleEnemy casts.  Empty when no taunter is active.  When multiple
+    /// taunters are present (e.g. two enemies both taunted), the actor may
+    /// target any one of them.
+    fn taunters_for(&self, actor_team: Team) -> Vec<Self::Id>;
 
     /// Grid-bounds predicate.  Engine is grid-topology-agnostic; backends
     /// supply the appropriate check (e.g. even-r hex bounds for `storyforge`).
@@ -209,12 +211,12 @@ pub fn check_legality<S: ActionState>(
                 None => return Err(IllegalReason::TargetUnknown),
                 _ => return Err(IllegalReason::WrongTargetTeam),
             }
-            // Taunt: any live enemy with `forces_targeting` binds every
-            // SingleEnemy cast to itself.
-            if let Some(taunter) = state.taunter_for(actor.team) {
-                if action.target != taunter {
-                    return Err(IllegalReason::TauntForcesTarget);
-                }
+                        // Taunt: any live enemy with `forces_targeting` binds every
+            // SingleEnemy cast to one of the active taunters.  Multiple
+            // taunters are allowed; the actor may choose any of them.
+            let taunters = state.taunters_for(actor.team);
+            if !taunters.is_empty() && !taunters.iter().any(|t| *t == action.target) {
+                return Err(IllegalReason::TauntForcesTarget);
             }
         }
         TargetType::SingleAlly => {

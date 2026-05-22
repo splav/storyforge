@@ -77,13 +77,13 @@ impl ActionState for SnapshotActionState<'_> {
         self.snap.unit(target).map(|u| u.team)
     }
 
-    fn taunter_for(&self, actor_team: Team) -> Option<Entity> {
-        // Any live enemy whose active statuses include forces_targeting binds
+    fn taunters_for(&self, actor_team: Team) -> Vec<Entity> {
+        // All live enemies whose active statuses include forces_targeting bind
         // opposing-team casts. Walk statuses via content defs — same data path
         // as the engine-side legality check.
         self.snap
             .enemies_of(actor_team)
-            .find_map(|view| {
+            .filter_map(|view| {
                 let has_taunt = view.statuses().iter().any(|s| {
                     self.content
                         .statuses
@@ -92,6 +92,7 @@ impl ActionState for SnapshotActionState<'_> {
                 });
                 if has_taunt { Some(view.entity()) } else { None }
             })
+            .collect()
     }
 
     fn is_in_bounds(&self, pos: Hex) -> bool {

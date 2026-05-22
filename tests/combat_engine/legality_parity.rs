@@ -638,3 +638,179 @@ fn legality_parity_bevy_vs_engine() {
         divergences.join("\n")
     );
 }
+
+/// Multi-taunter: two live enemies both carrying `forces_targeting`.
+///
+/// With the old `taunter_for` (returns first match), clicking the second
+/// taunter returned `TauntForcesTarget` — a player deadlock.  This test
+/// enforces the fix: both taunters are legal targets; a non-taunter is not.
+#[test]
+fn multi_taunter_both_are_legal_targets() {
+    let mut app = bridge_app();
+
+    insert_attack(&mut app);
+    insert_taunt_status(&mut app);
+
+    let actor_pos   = hex_from_offset(0, 0);
+    let taunter1_pos = hex_from_offset(1, 0);
+    let taunter2_pos = hex_from_offset(2, 0);
+    let bystander_pos = hex_from_offset(3, 0);
+
+    // actor: Player, full AP.
+    let actor = app
+        .world_mut()
+        .spawn(CombatantBundle::new(
+            Team::Player,
+            base_stats(),
+            0,
+            6,
+            vec![ATTACK_ID.into()],
+            no_equip(),
+        ))
+        .id();
+
+    // taunter1: Enemy with taunt status.
+    let taunter1 = app
+        .world_mut()
+        .spawn(CombatantBundle::new(Team::Enemy, base_stats(), 0, 6, vec![], no_equip()))
+        .id();
+    app.world_mut()
+        .entity_mut(taunter1)
+        .get_mut::<StatusEffects>()
+        .unwrap()
+        .0
+        .push(EcsActiveStatus {
+            id: TAUNT_STATUS.into(),
+            rounds_remaining: 2,
+            dot_per_tick: 0,
+            applier: taunter1,
+        });
+
+    // taunter2: Enemy with taunt status.
+    let taunter2 = app
+        .world_mut()
+        .spawn(CombatantBundle::new(Team::Enemy, base_stats(), 0, 6, vec![], no_equip()))
+        .id();
+    app.world_mut()
+        .entity_mut(taunter2)
+        .get_mut::<StatusEffects>()
+        .unwrap()
+        .0
+        .push(EcsActiveStatus {
+            id: TAUNT_STATUS.into(),
+            rounds_remaining: 2,
+            dot_per_tick: 0,
+            applier: taunter2,
+        });
+
+    // bystander: Enemy, no taunt status.
+    let bystander = app
+        .world_mut()
+        .spawn(CombatantBundle::new(Team::Enemy, base_stats(), 0, 6, vec![], no_equip()))
+        .id();
+
+    {
+        let mut pos = app.world_mut().resource_mut::<HexPositions>();
+        pos.insert(actor,    actor_pos);
+        pos.insert(taunter1, taunter1_pos);
+        pos.insert(taunter2, taunter2_pos);
+        pos.insert(bystander, bystander_pos);
+    }
+
+    init_bridge_engine_state(&mut app);
+
+    let actor_uid    = entity_to_uid(actor);
+    let taunter1_uid = entity_to_uid(taunter1);
+    let taunter2_uid = entity_to_uid(taunter2);
+    let bystander_uid = entity_to_uid(bystander);
+
+    let results: Vec<CaseResult> = app
+        .world_mut()
+        .run_system_once(
+            move |
+                content: Res<ActiveContent>,
+                positions: Res<HexPositions>,
+                actor_q: Query<ValidationActorQ>,
+                target_q: Query<ValidationTargetQ>,
+                combat_state: Res<CombatStateRes>,
+            | -> Vec<CaseResult> {
+                let bevy_adapter = BevyActions {
+                    content: &content,
+                    positions: &positions,
+                    actors: &actor_q,
+                    targets: &target_q,
+                };
+                let engine_content = TestEngineContent(&content.0);
+                let engine_adapter = EngineCheckState {
+                    state: &combat_state.0,
+                    content: &engine_content,
+                };
+
+                let attack_id: AbilityId = ATTACK_ID.into();
+
+                let run = |b: ProposedAction<Entity>, e: ProposedAction<UnitId>| {
+                    (check_legality(b, &bevy_adapter), check_legality(e, &engine_adapter))
+                };
+
+                vec![
+                    // Attacking the first taunter must be legal.
+                    {
+                        let (br, er) = run(
+                            ProposedAction { actor, ability: &attack_id, target: taunter1, target_pos: taunter1_pos },
+                            ProposedAction { actor: actor_uid, ability: &attack_id, target: taunter1_uid, target_pos: taunter1_pos },
+                        );
+                        ("multi_taunt_attack_taunter1", br, er)
+                    },
+                    // Attacking the second taunter must also be legal.
+                    {
+                        let (br, er) = run(
+                            ProposedAction { actor, ability: &attack_id, target: taunter2, target_pos: taunter2_pos },
+                            ProposedAction { actor: actor_uid, ability: &attack_id, target: taunter2_uid, target_pos: taunter2_pos },
+                        );
+                        ("multi_taunt_attack_taunter2", br, er)
+                    },
+                    // Attacking the non-taunter bystander must be illegal.
+                    {
+                        let (br, er) = run(
+                            ProposedAction { actor, ability: &attack_id, target: bystander, target_pos: bystander_pos },
+                            ProposedAction { actor: actor_uid, ability: &attack_id, target: bystander_uid, target_pos: bystander_pos },
+                        );
+                        ("multi_taunt_attack_bystander_blocked", br, er)
+                    },
+                ]
+            },
+        )
+        .expect("run_system_once failed");
+
+    // Parity: Bevy and engine must agree on every case.
+    let mut divergences: Vec<String> = Vec::new();
+    for (name, bevy_result, engine_result) in &results {
+        if bevy_result != engine_result {
+            divergences.push(format!(
+                "  '{name}': bevy={bevy_result:?}  engine={engine_result:?}"
+            ));
+        }
+    }
+    assert!(
+        divergences.is_empty(),
+        "legality divergence between BevyActions and EngineCheckState:\n{}",
+        divergences.join("\n")
+    );
+
+    // Correctness: assert expected outcomes for each case.
+    let by_name = |name: &str| {
+        results.iter().find(|(n, _, _)| *n == name).unwrap()
+    };
+
+    let (_, bt1, et1) = by_name("multi_taunt_attack_taunter1");
+    assert!(bt1.is_ok(), "taunter1 should be a legal target: {bt1:?}");
+    assert!(et1.is_ok(), "taunter1 should be a legal target (engine): {et1:?}");
+
+    let (_, bt2, et2) = by_name("multi_taunt_attack_taunter2");
+    assert!(bt2.is_ok(), "taunter2 should be a legal target: {bt2:?}");
+    assert!(et2.is_ok(), "taunter2 should be a legal target (engine): {et2:?}");
+
+    let (_, bb, eb) = by_name("multi_taunt_attack_bystander_blocked");
+    assert_eq!(*bb, Err(IllegalReason::TauntForcesTarget), "bystander should be blocked by taunt: {bb:?}");
+    assert_eq!(*eb, Err(IllegalReason::TauntForcesTarget), "bystander should be blocked by taunt (engine): {eb:?}");
+}

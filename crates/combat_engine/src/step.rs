@@ -124,20 +124,22 @@ impl<'a> ActionState for EngineCheckState<'a> {
         self.state.unit(target).map(|u| u.team)
     }
 
-    fn taunter_for(&self, actor_team: Team) -> Option<crate::state::UnitId> {
+    fn taunters_for(&self, actor_team: Team) -> Vec<crate::state::UnitId> {
         self.state
             .units()
             .iter()
-            .filter(|u| u.is_alive() && u.team != actor_team)
-            .find(|u| {
-                u.statuses.iter().any(|s| {
-                    self.content
-                        .status_def(&s.id)
-                        .map(|d| d.forces_targeting)
-                        .unwrap_or(false)
-                })
+            .filter(|u| {
+                u.is_alive()
+                    && u.team != actor_team
+                    && u.statuses.iter().any(|s| {
+                        self.content
+                            .status_def(&s.id)
+                            .map(|d| d.forces_targeting)
+                            .unwrap_or(false)
+                    })
             })
             .map(|u| u.id)
+            .collect()
     }
 
     fn is_in_bounds(&self, _pos: hexx::Hex) -> bool {

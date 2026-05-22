@@ -87,10 +87,10 @@ impl ActionState for BevyActions<'_, '_, '_> {
         self.targets.get(target).ok().map(|t| t.faction.0)
     }
 
-    fn taunter_for(&self, actor_team: Team) -> Option<Entity> {
+    fn taunters_for(&self, actor_team: Team) -> Vec<Entity> {
         self.targets
             .iter()
-            .find(|t| {
+            .filter(|t| {
                 t.vital.is_alive()
                     && t.faction.0 != actor_team
                     && t.statuses.is_some_and(|se| {
@@ -103,6 +103,7 @@ impl ActionState for BevyActions<'_, '_, '_> {
                     })
             })
             .map(|t| t.entity)
+            .collect()
     }
 
     fn is_in_bounds(&self, pos: Hex) -> bool {
