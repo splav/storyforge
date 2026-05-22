@@ -613,13 +613,13 @@ fn main() {
                 Some(e) => e,
                 None => { eprintln!("invalid actor_id {}, skipping", event.actor_id); continue; }
             };
-            let Some(active) = event.snapshot.units.iter().find(|u| u.entity == actor).cloned() else {
+            let Some(active) = event.snapshot.unit(actor) else {
                 eprintln!("actor not found in snapshot, skipping");
                 continue;
             };
 
             // Compute regression metrics from logged data (before re-picking).
-            collect_metrics_from_event(&event, &active, &mut metrics);
+            collect_metrics_from_event(&event, active, &mut metrics);
 
             let maps = build_influence_maps(&event.snapshot, actor, active.team, &inf_cfg);
             let world = AiWorld {
@@ -716,7 +716,7 @@ pub fn read_v29_events(path: &std::path::Path) -> Result<Vec<ActorTickEvent>, St
 
 fn collect_metrics_from_event(
     event: &ActorTickEvent,
-    active: &storyforge::combat::ai::world::snapshot::UnitSnapshot,
+    active: storyforge::combat::ai::world::snapshot::UnitView<'_>,
     metrics: &mut Metrics,
 ) {
     use storyforge::combat::ai::plan::CommittedPrefix;

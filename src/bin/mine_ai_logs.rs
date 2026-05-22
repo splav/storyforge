@@ -778,8 +778,8 @@ impl Aggregate {
                     let band_kind_key = format!("{band_key}/{primary_kind}");
 
                     // Find actor in snapshot.
-                    let actor_snap = event.snapshot.units.iter()
-                        .find(|u| u.entity.to_bits() == event.actor_id);
+                    let actor_entity = bevy::prelude::Entity::try_from_bits(event.actor_id);
+                    let actor_snap = actor_entity.and_then(|e| event.snapshot.unit(e));
 
                     // Bucket 1: ap_mp_blocked — actor has no AP and no MP.
                     let bucket = if let Some(actor) = actor_snap {
@@ -792,11 +792,11 @@ impl Aggregate {
                                 H3cBucket::NoTargetInAgenda
                             } else if let Some(target_bits) = primary_target {
                                 // Bucket 3: target_unreachable — target too far.
-                                let target_snap = event.snapshot.units.iter()
-                                    .find(|u| u.entity.to_bits() == target_bits);
+                                let target_snap = bevy::prelude::Entity::try_from_bits(target_bits)
+                                    .and_then(|e| event.snapshot.unit(e));
                                 let unreachable = target_snap.map(|t| {
                                     let dist = actor.pos.unsigned_distance_to(t.pos);
-                                    dist > (actor.movement_points as u32) + actor.max_attack_range
+                                    dist > (actor.movement_points as u32) + actor.cache.max_attack_range
                                 }).unwrap_or(false);
 
                                 if unreachable {
@@ -3053,41 +3053,20 @@ mod tests {
 
     // ── H3c: Post-hoc fallback cause classifier ───────────────────────────────
 
-    /// Build a UnitSnapshot at the given hex-axial position with given AP/MP.
-    fn unit_at(entity_bits: u64, x: i32, y: i32, ap: i32, mp: i32, max_range: u32)
-        -> storyforge::combat::ai::world::snapshot::UnitSnapshot
+    /// Build a `(engine::Unit, UnitAiCache)` pair at the given hex-axial position with given AP/MP.
+    /// The `raw_id` is passed to `UnitBuilder::new(raw_id, ...)` — use the same u32 raw id
+    /// that was passed to `Entity::from_raw_u32` when building the entity in the test.
+    fn unit_at_pair(raw_id: u32, x: i32, y: i32, ap: i32, mp: i32, max_range: u32)
+        -> (combat_engine::state::Unit, storyforge::combat::ai::world::cache::UnitAiCache)
     {
-        use storyforge::combat::ai::world::snapshot::UnitSnapshot;
-        use storyforge::content::abilities::CasterContext;
-        use storyforge::combat::ai::config::role::AxisProfile;
-        use storyforge::combat::ai::world::tags::AiTags;
+        use storyforge::combat::ai::test_helpers::UnitBuilder;
         use storyforge::game::components::Team;
-        use storyforge::content::races::CritFailEffect;
-        use bevy::prelude::Entity;
         use hexx::Hex;
-        UnitSnapshot {
-            entity: Entity::try_from_bits(entity_bits).expect("valid entity bits"),
-            team: Team::Player,
-            role: AxisProfile::default(),
-            pos: Hex::new(x, y),
-            hp: 20, max_hp: 20,
-            armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-            action_points: ap, max_ap: 2,
-            movement_points: mp, base_speed: mp, speed: mp,
-            mana: None, rage: None, energy: None,
-            abilities: vec![],
-            threat: 1.0,
-            tags: AiTags::empty(),
-            max_attack_range: max_range,
-            summoner: None,
-            reactions_left: 1,
-            aoo_expected_damage: None,
-            statuses: vec![],
-            caster_ctx: CasterContext::default(),
-            crit_fail_effect: CritFailEffect::default(),
-            damage_horizon: vec![],
-            ai_tuning_override: None,
-        }
+        UnitBuilder::new(raw_id, Team::Player, Hex::new(x, y))
+            .ap(ap)
+            .movement_points(mp)
+            .max_attack_range(max_range)
+            .build_pair()
     }
 
     /// Build an unattributed tick event (chosen plan has no agenda_item, agenda is non-empty).
@@ -3110,14 +3089,14 @@ mod tests {
     #[test]
     fn h3c_ap_mp_blocked_when_actor_has_zero_resources() {
         use storyforge::combat::ai::intent::IntentKind;
-        use storyforge::combat::ai::world::snapshot::BattleSnapshot;
         use bevy::prelude::Entity;
 
         let actor_bits = Entity::from_raw_u32(1).expect("valid").to_bits();
         // Actor with 0 AP and 0 MP.
-        let actor = unit_at(actor_bits, 0, 0, 0, 0, 1);
-        let mut snap = BattleSnapshot::default();
-        snap.units.push(actor);
+        let snap = storyforge::combat::ai::test_helpers::snapshot_from_pairs(
+            vec![unit_at_pair(1, 0, 0, 0, 0, 1)],
+            1,
+        );
 
         // Chosen plan has no agenda_item; agenda non-empty with a target.
         let mut ann = PlanAnnotation::default();
@@ -3141,14 +3120,14 @@ mod tests {
     #[test]
     fn h3c_no_target_when_all_agenda_items_have_no_target() {
         use storyforge::combat::ai::intent::IntentKind;
-        use storyforge::combat::ai::world::snapshot::BattleSnapshot;
         use bevy::prelude::Entity;
 
         let actor_bits = Entity::from_raw_u32(2).expect("valid").to_bits();
         // Actor has AP+MP.
-        let actor = unit_at(actor_bits, 0, 0, 2, 3, 1);
-        let mut snap = BattleSnapshot::default();
-        snap.units.push(actor);
+        let snap = storyforge::combat::ai::test_helpers::snapshot_from_pairs(
+            vec![unit_at_pair(2, 0, 0, 2, 3, 1)],
+            1,
+        );
 
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
@@ -3170,7 +3149,6 @@ mod tests {
     #[test]
     fn h3c_no_plan_attempts_target_when_pool_skips_agenda_target() {
         use storyforge::combat::ai::intent::IntentKind;
-        use storyforge::combat::ai::world::snapshot::BattleSnapshot;
         use bevy::prelude::Entity;
         use storyforge::core::AbilityId;
         use hexx::Hex;
@@ -3180,11 +3158,10 @@ mod tests {
         let target_entity = Entity::try_from_bits(target_bits).expect("valid");
 
         // Actor at (0,0) with AP+MP; target at (1,0) — within range.
-        let actor  = unit_at(actor_bits, 0, 0, 2, 3, 2);
-        let target = unit_at(target_bits, 1, 0, 2, 3, 1);
-        let mut snap = BattleSnapshot::default();
-        snap.units.push(actor);
-        snap.units.push(target);
+        let snap = storyforge::combat::ai::test_helpers::snapshot_from_pairs(
+            vec![unit_at_pair(3, 0, 0, 2, 3, 2), unit_at_pair(4, 1, 0, 2, 3, 1)],
+            1,
+        );
 
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
@@ -3216,7 +3193,6 @@ mod tests {
     #[test]
     fn h3c_only_move_plans_when_no_cast_steps_at_all() {
         use storyforge::combat::ai::intent::IntentKind;
-        use storyforge::combat::ai::world::snapshot::BattleSnapshot;
         use bevy::prelude::Entity;
         use hexx::Hex;
 
@@ -3224,11 +3200,10 @@ mod tests {
         let target_bits = Entity::from_raw_u32(7).expect("valid").to_bits();
 
         // Actor at (0,0); target at (1,0) in range.
-        let actor  = unit_at(actor_bits, 0, 0, 2, 3, 2);
-        let target = unit_at(target_bits, 1, 0, 2, 3, 1);
-        let mut snap = BattleSnapshot::default();
-        snap.units.push(actor);
-        snap.units.push(target);
+        let snap = storyforge::combat::ai::test_helpers::snapshot_from_pairs(
+            vec![unit_at_pair(6, 0, 0, 2, 3, 2), unit_at_pair(7, 1, 0, 2, 3, 1)],
+            1,
+        );
 
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
@@ -3255,13 +3230,13 @@ mod tests {
     fn h3c_attributed_tick_not_counted() {
         // If chosen plan has an agenda_item, H3c should not fire.
         use storyforge::combat::ai::intent::IntentKind;
-        use storyforge::combat::ai::world::snapshot::BattleSnapshot;
         use bevy::prelude::Entity;
 
         let actor_bits = Entity::from_raw_u32(8).expect("valid").to_bits();
-        let actor = unit_at(actor_bits, 0, 0, 2, 3, 1);
-        let mut snap = BattleSnapshot::default();
-        snap.units.push(actor);
+        let snap = storyforge::combat::ai::test_helpers::snapshot_from_pairs(
+            vec![unit_at_pair(8, 0, 0, 2, 3, 1)],
+            1,
+        );
 
         let mut ann = PlanAnnotation::default();
         ann.chosen = true;
