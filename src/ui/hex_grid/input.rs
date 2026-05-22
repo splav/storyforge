@@ -125,8 +125,15 @@ pub fn hex_click_target(
     mut sel: ResMut<SelectionState>,
     mut last_click: ResMut<HexLastClick>,
     mut action_input: MessageWriter<ActionInput>,
+    ui_interactions: Query<&Interaction>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+    // UI element absorbed the click — don't propagate to hex grid.
+    // Prevents popup overlay / ability buttons / end-turn button clicks
+    // from being mis-interpreted as hex commands (bug #29).
+    if ui_interactions.iter().any(|i| !matches!(i, Interaction::None)) {
         return;
     }
     let Some(hovered) = hover.0 else { return };

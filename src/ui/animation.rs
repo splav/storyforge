@@ -1,5 +1,6 @@
 use super::button::{spawn_standard_button, ButtonStyle};
 use bevy::prelude::*;
+use bevy::ui::FocusPolicy;
 use std::collections::VecDeque;
 
 /// Duration in seconds to slide between two adjacent hexes.
@@ -146,6 +147,8 @@ fn spawn_enemy_popup(commands: &mut Commands, asset_server: &AssetServer, lines:
             },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)),
             ZIndex(200),
+            Interaction::default(),     // tracked as UI interactive so ui_focus_system sets state on cursor hover
+            FocusPolicy::Block,         // explicit (plain Node default is FocusPolicy::Pass)
         ))
         .with_children(|root| {
             root.spawn((
