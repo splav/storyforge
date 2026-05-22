@@ -10,9 +10,10 @@
 use bevy::prelude::Entity;
 use storyforge::combat::ai::plan::sim::SimState;
 use storyforge::combat::ai::plan::types::PlanStep;
-use storyforge::combat::ai::test_helpers::snapshot_from;
-use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
+use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
+use storyforge::combat::ai::world::snapshot::BattleSnapshot;
+use storyforge::combat::ai::world::tags::StatusTagCache;
+
 use storyforge::combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
@@ -32,7 +33,9 @@ fn ent(id: u32) -> Entity {
     Entity::from_raw_u32(id).expect("valid")
 }
 
-fn make_snap_unit(
+/// Build a unit pair with parity-test defaults: hp/max_hp=30, ap=2, speed=6, threat=0.
+/// Pass `aoo=Some(d)` to arm the unit with expected AoO damage `d` and `reactions` reactions.
+fn make_unit(
     id: u32,
     team: Team,
     col: i32,
@@ -40,38 +43,15 @@ fn make_snap_unit(
     hp: i32,
     aoo: Option<f32>,
     reactions: i32,
-) -> UnitSnapshot {
-    UnitSnapshot {
-        entity: ent(id),
-        team,
-        role: Default::default(),
-        pos: hex_from_offset(col, row),
-        hp,
-        max_hp: 30,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        action_points: 2,
-        max_ap: 2,
-        movement_points: 6,
-        base_speed: 6,
-        speed: 6,
-        mana: None,
-        rage: None,
-        energy: None,
-        abilities: Vec::new(),
-        threat: 0.0,
-        tags: AiTags::empty(),
-        max_attack_range: 1,
-        summoner: None,
-        reactions_left: reactions,
-        aoo_expected_damage: aoo,
-        statuses: Vec::new(),
-        caster_ctx: CasterContext::default(),
-        crit_fail_effect: Default::default(),
-        damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-    }
+) -> (storyforge::combat_engine::state::Unit, storyforge::combat::ai::world::cache::UnitAiCache) {
+    let b = UnitBuilder::new(id, team, hex_from_offset(col, row))
+        .hp(hp)
+        .max_hp(30)
+        .ap(2)
+        .speed(6)
+        .threat(0.0);
+    let b = if let Some(d) = aoo { b.aoo(d, reactions) } else { b };
+    b.build_pair()
 }
 
 /// Run the engine path on `snap` and return the final `CombatState`.
@@ -170,9 +150,10 @@ impl EngineContentView for SnapContent {
 /// Pure move with no enemies: position and MP decremented identically.
 #[test]
 fn parity_pure_move_no_enemies() {
-    let actor = make_snap_unit(1, Team::Player, 0, 0, 20, None, 0);
-    let actor_id = actor.entity;
-    let snap = snapshot_from(vec![actor], 1);
+    let actor_id = ent(1);
+    let snap = snapshot_from_pairs(vec![
+        make_unit(1, Team::Player, 0, 0, 20, None, 0),
+    ], 1);
     let path = vec![
         hex_from_offset(1, 0),
         hex_from_offset(2, 0),
@@ -223,17 +204,18 @@ fn parity_move_no_aoo_stays_adjacent() {
     let [a_col, a_row] = storyforge::game::hex::hex_to_offset(actor_start);
     let [e_col, e_row] = storyforge::game::hex::hex_to_offset(enemy_pos);
 
-    let actor = make_snap_unit(1, Team::Player, a_col, a_row, 20, None, 0);
-    let enemy = make_snap_unit(2, Team::Enemy,  e_col, e_row, 20, Some(8.0), 1);
-    let actor_id = actor.entity;
-    let enemy_id = enemy.entity;
+    let actor_id = ent(1);
+    let enemy_id = ent(2);
+    let snap = snapshot_from_pairs(vec![
+        make_unit(1, Team::Player, a_col, a_row, 20, None, 0),
+        make_unit(2, Team::Enemy,  e_col, e_row, 20, Some(8.0), 1),
+    ], 1);
 
     assert_eq!(actor_start.unsigned_distance_to(enemy_pos), 1,
         "enemy must be adjacent to start");
     assert_eq!(dest.unsigned_distance_to(enemy_pos), 1,
         "enemy must also be adjacent to destination — otherwise AoO fires");
 
-    let snap = snapshot_from(vec![actor, enemy], 1);
     let path = vec![dest];
 
     let engine_state = run_engine(&snap, actor_id, path.clone());
@@ -266,13 +248,18 @@ fn parity_aoo_chain_two_enemies() {
     // Enemy B at (3,1): adjacent to (3,0), not (4,0) → AoO on third step.
     // raw AoO = 4 for both; actor armor = 0 → final = 4 each.
     // Actor starts at hp=20, takes 4+4=8 damage → hp=12.
-    let mut actor  = make_snap_unit(1, Team::Player, 1, 0, 20, None, 0);
-    actor.movement_points = 5;
-    let enemy_a = make_snap_unit(2, Team::Enemy, 0, 0, 20, Some(4.0), 1);
-    let enemy_b = make_snap_unit(3, Team::Enemy, 3, 1, 20, Some(4.0), 1);
-    let actor_id  = actor.entity;
-    let enemy_a_id = enemy_a.entity;
-    let enemy_b_id = enemy_b.entity;
+    let actor_id   = ent(1);
+    let enemy_a_id = ent(2);
+    let enemy_b_id = ent(3);
+
+    let snap = snapshot_from_pairs(vec![
+        UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0))
+            .hp(20).max_hp(30).ap(2).speed(6).threat(0.0)
+            .movement_points(5)
+            .build_pair(),
+        make_unit(2, Team::Enemy, 0, 0, 20, Some(4.0), 1),
+        make_unit(3, Team::Enemy, 3, 1, 20, Some(4.0), 1),
+    ], 1);
 
     // Verify adjacency for enemy A (should disengage on step to (2,0)).
     let start     = hex_from_offset(1, 0);
@@ -288,7 +275,6 @@ fn parity_aoo_chain_two_enemies() {
     assert_eq!(step2.unsigned_distance_to(eb_pos), 1, "enemy B adjacent to (3,0)");
     assert_ne!(step3.unsigned_distance_to(eb_pos), 1, "enemy B not adjacent after step to (4,0)");
 
-    let snap = snapshot_from(vec![actor, enemy_a, enemy_b], 1);
     let path = vec![
         hex_from_offset(2, 0),
         hex_from_offset(3, 0),
@@ -340,9 +326,6 @@ fn parity_aoo_kills_mover_mid_path_truncates() {
     let start = hex_from_offset(0, 0);
     let step1 = hex_from_offset(3, 0);  // big jump so all neighbors disengage
 
-    let mut actor = make_snap_unit(1, Team::Player, 0, 0, 1, None, 0);
-    actor.movement_points = 10;
-
     // Two enemies adjacent to start.
     let neighbors = start.all_neighbors();
     let ea_pos = neighbors[0];
@@ -355,43 +338,25 @@ fn parity_aoo_kills_mover_mid_path_truncates() {
     assert_ne!(step1.unsigned_distance_to(eb_pos), 1,
         "enemy B must not be adjacent to destination (would prevent AoO)");
 
-    let enemy_a = UnitSnapshot {
-        entity: ent(2),
-        team: Team::Enemy,
-        pos: ea_pos,
-        reactions_left: 1,
-        aoo_expected_damage: Some(5.0),
-        hp: 20, max_hp: 20, armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 0, max_ap: 0, movement_points: 0, base_speed: 3, speed: 3,
-        mana: None, rage: None, energy: None,
-        abilities: Vec::new(), threat: 0.0,
-        tags: AiTags::empty(), max_attack_range: 1, summoner: None,
-        statuses: Vec::new(), caster_ctx: CasterContext::default(),
-        crit_fail_effect: Default::default(), damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-        role: Default::default(),
-    };
-    let enemy_b = UnitSnapshot {
-        entity: ent(3),
-        team: Team::Enemy,
-        pos: eb_pos,
-        reactions_left: 1,
-        aoo_expected_damage: Some(5.0),
-        hp: 20, max_hp: 20, armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        action_points: 0, max_ap: 0, movement_points: 0, base_speed: 3, speed: 3,
-        mana: None, rage: None, energy: None,
-        abilities: Vec::new(), threat: 0.0,
-        tags: AiTags::empty(), max_attack_range: 1, summoner: None,
-        statuses: Vec::new(), caster_ctx: CasterContext::default(),
-        crit_fail_effect: Default::default(), damage_horizon: Vec::new(),
-        ai_tuning_override: None,
-        role: Default::default(),
-    };
+    let actor_id   = ent(1);
+    let enemy_a_id = ent(2);
+    let enemy_b_id = ent(3);
 
-    let actor_id  = actor.entity;
-    let enemy_a_id = enemy_a.entity;
-    let enemy_b_id = enemy_b.entity;
-    let snap = snapshot_from(vec![actor, enemy_a, enemy_b], 1);
+    let snap = snapshot_from_pairs(vec![
+        UnitBuilder::new(1, Team::Player, start)
+            .hp(1).max_hp(30).ap(2).speed(6).threat(0.0)
+            .movement_points(10)
+            .build_pair(),
+        UnitBuilder::new(2, Team::Enemy, ea_pos)
+            .full_hp(20).ap(0).speed(3).movement_points(0).threat(0.0)
+            .aoo(5.0, 1)
+            .build_pair(),
+        UnitBuilder::new(3, Team::Enemy, eb_pos)
+            .full_hp(20).ap(0).speed(3).movement_points(0).threat(0.0)
+            .aoo(5.0, 1)
+            .build_pair(),
+    ], 1);
+
     let path = vec![step1];
 
     // ── Engine path ───────────────────────────────────────────────────────────
