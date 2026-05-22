@@ -131,7 +131,7 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
     }
 
     // Early round penalty: conserve resources at fight start.
-    if snap.round <= 1 {
+    if snap.state.round <= 1 {
         swing -= 0.15;
     }
 

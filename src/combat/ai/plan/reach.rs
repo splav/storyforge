@@ -23,7 +23,7 @@ use std::collections::HashSet;
 ///   ally, and corpse (hp=0 unit still in the snapshot). The actor's own
 ///   tile stays legal so a zero-MP reach includes it.
 ///
-/// Single source of truth is `snap.units` now that corpses live there
+/// Single source of truth is `snap.state.units()` now that corpses live there
 /// instead of in a parallel `blocked_tiles` channel.
 pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
     let enemy_positions: HashSet<Hex> = snap
@@ -31,10 +31,13 @@ pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
         .map(|u| u.pos)
         .collect();
     let stop_blockers: HashSet<Hex> = snap
-        .units
+        .state
+        .units()
         .iter()
-        .filter(|u| u.entity != actor.entity())
-        .map(|u| u.pos)
+        .filter_map(|u| {
+            let e = snap.entity_for_uid(u.id)?;
+            if e != actor.entity() { Some(u.pos) } else { None }
+        })
         .collect();
 
     let env = MovementEnv { enemy_positions, stop_blockers };

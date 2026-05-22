@@ -22,20 +22,29 @@ impl PlanModifier for SummonBonus {
         let world = ctx.stage.scoring.world;
         let summon_dpr = ctx.summon_dpr;
 
+        // Resolve active unit's engine UnitId for summoner comparisons.
+        let active_uid = snap.uid_for_entity(active.entity());
+
         // Only LIVE summons occupy a cap slot. Dead units stay in the snapshot
         // with hp=0 — counting them would make the AI think the cap is reached
         // when the spawn side would happily summon more.
         let mut count = snap
-            .units
+            .state
+            .units()
             .iter()
-            .filter(|u| u.summoner == Some(active.entity()) && u.is_alive())
+            .filter(|u| active_uid.map_or(false, |uid| u.summoner == Some(uid)) && u.hp > 0)
             .count() as f32;
 
         // Global saturation: total live allies on the actor's team (excluding actor).
         let total_allies = snap
-            .units
+            .state
+            .units()
             .iter()
-            .filter(|u| u.team == active.team && u.entity != active.entity() && u.is_alive())
+            .filter(|u| {
+                u.team == active.team
+                    && active_uid.map_or(true, |uid| u.id != uid)
+                    && u.hp > 0
+            })
             .count() as f32;
         // Saturation_mult computed once before the loop (legacy line :392).
         let saturation_mult = 0.65_f32.powf(total_allies);

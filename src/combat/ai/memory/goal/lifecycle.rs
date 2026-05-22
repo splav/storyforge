@@ -22,7 +22,7 @@ pub fn pre_tick(
     status_tags: &StatusTagCache,
 ) {
     let Some(g) = &memory.last_goal else { return };
-    let age = snap.round.saturating_sub(g.created_round);
+    let age = snap.state.round.saturating_sub(g.created_round);
     if age >= g.ttl as u32 {
         memory.last_goal = None;
         return;

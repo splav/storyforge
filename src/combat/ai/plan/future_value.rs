@@ -278,7 +278,8 @@ fn mobility_component(committed_pos: Hex, speed: i32, snap: &BattleSnapshot) -> 
 
     // Subtract occupied tiles (enemies + corpses block stopping).
     let blocked: usize = snap
-        .units
+        .state
+        .units()
         .iter()
         .filter(|u| {
             let dist = committed_pos.unsigned_distance_to(u.pos);

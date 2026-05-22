@@ -740,7 +740,7 @@ pub fn build_entry<'a>(
         plan_id,
         timestamp_ms: now_ms(),
         decision_time_ms,
-        round: snapshot.round,
+        round: snapshot.state.round,
         actor_id: active.entity.to_bits(),
         actor_name,
         actor_pos: [active.pos.x, active.pos.y],

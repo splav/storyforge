@@ -175,14 +175,16 @@ fn run_ai_turn(
                 .map(|n| n.as_str().to_owned())
                 .unwrap_or_else(|_| format!("{:?}", actor));
             let debug_names_skip: HashMap<Entity, String> = snap
-                .units
+                .state
+                .units()
                 .iter()
-                .map(|u| {
+                .filter_map(|u| snap.entity_for_uid(u.id).map(|e| (e, u)))
+                .map(|(e, _u)| {
                     let name = names
-                        .get(u.entity)
+                        .get(e)
                         .map(|n| n.as_str().to_owned())
-                        .unwrap_or_else(|_| format!("{:?}", u.entity));
-                    (u.entity, name)
+                        .unwrap_or_else(|_| format!("{:?}", e));
+                    (e, name)
                 })
                 .collect();
             let start_step = trace_writer.step_counter();
@@ -230,14 +232,16 @@ fn run_ai_turn(
     let debug = settings.ai_debug;
     let need_names = debug || logger.is_enabled();
     let debug_names: HashMap<Entity, String> = if need_names {
-        snap.units
+        snap.state
+            .units()
             .iter()
-            .map(|u| {
+            .filter_map(|u| snap.entity_for_uid(u.id).map(|e| (e, u)))
+            .map(|(e, _u)| {
                 let name = names
-                    .get(u.entity)
+                    .get(e)
                     .map(|n| n.as_str().to_owned())
-                    .unwrap_or_else(|_| format!("{:?}", u.entity));
-                (u.entity, name)
+                    .unwrap_or_else(|_| format!("{:?}", e));
+                (e, name)
             })
             .collect()
     } else {
