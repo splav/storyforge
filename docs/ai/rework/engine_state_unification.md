@@ -6,7 +6,7 @@ Patched 2026-05-22 после U1+U2/C1-C4 — см. §«Post-U2 update».
 Patched 2026-05-22 после U3/A-C — см. §«Post-U3 update».
 Patched 2026-05-22 после U4 — см. §«Post-U4 update».
 
-**Текущий HEAD**: `5b15587 refactor(ai): U4 — engine CombatState becomes sole post-step truth; delete sim back-projection`.
+**Текущий HEAD**: `a413b33 refactor(ai): SimState owns post-step reads; close U4 deviation`.
 
 **Прогресс**: U1 ✅ · U2 ✅ (C1–C4) · U3 ✅ (A–C) · U4 ✅ · U5 → U6 → U7 — pending.
 
@@ -319,6 +319,12 @@ readers). Причина: внешние callers зовут `sim.snapshot.unit(e
 из `combat_state`, мигрировать callers с `sim.snapshot.unit(...)` на
 `sim.unit(...)`, убрать `self.snapshot.state` sync. Это снимет дуальность
 `CombatState` инстансов внутри `SimState`.
+
+**UPDATE (`a413b33`)**: cleanup закрыт сразу после U4 doc-update.
+`SimState` получил `unit(entity)`, `enemies_of(team)`, `into_snapshot(self)`
+методы — все читают из `combat_state` + immutable `snapshot.cache`. 3 sync
+сайта удалены, `snap.state` immutable post-from_snapshot. ~37 callsites
+мигрированы. Дуальность `CombatState` снята.
 
 ### Risk-analysis результаты
 
