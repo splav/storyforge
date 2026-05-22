@@ -14,7 +14,7 @@ use crate::combat::ai::world::influence::InfluenceMaps;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::plan::types::PlanStep;
 use crate::combat::ai::scoring::status_applications;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectCalcExt};
 use crate::content::content_view::ContentView;
@@ -60,7 +60,7 @@ pub fn from_sim_step(
                     ..Default::default()
                 };
             };
-            let target_unit = pre_snap.unit_snapshot(*target);
+            let target_unit = pre_snap.unit(*target).map(|v| v.state);
 
             // ── Kill facts ──
             let p_kill_now = if outcome.killed.is_empty() { 0.0 } else { 1.0 };
@@ -141,7 +141,7 @@ pub fn from_sim_step(
 /// - Resource fields — from `split_resource_costs`.
 pub fn hypothetical(
     def: &AbilityDef,
-    target: &UnitSnapshot,
+    target: &combat_engine::state::Unit,
     caster: &CasterContext,
     content: &ContentView,
 ) -> ActionOutcomeEstimate {
@@ -219,7 +219,7 @@ pub fn hypothetical(
 /// case is covered by `p_kill_now` via sim's `StepOutcome.killed`).
 pub fn estimate_kill_soon(
     def: &AbilityDef,
-    target: &UnitSnapshot,
+    target: &combat_engine::state::Unit,
     caster: &CasterContext,
     content: &ContentView,
 ) -> f32 {
@@ -254,7 +254,7 @@ pub fn step_path_danger(step: &PlanStep, maps: &InfluenceMaps) -> f32 {
 // Private helpers for estimate_kill_soon
 // ---------------------------------------------------------------------------
 
-fn already_pending_dot(target: &UnitSnapshot) -> f32 {
+fn already_pending_dot(target: &combat_engine::state::Unit) -> f32 {
     target
         .statuses
         .iter()
@@ -264,7 +264,7 @@ fn already_pending_dot(target: &UnitSnapshot) -> f32 {
 
 fn dot_tick_sum_for_ability(
     def: &AbilityDef,
-    target: &UnitSnapshot,
+    target: &combat_engine::state::Unit,
     content: &ContentView,
 ) -> f32 {
     status_applications(def, content)
@@ -346,7 +346,7 @@ pub(crate) fn build_damage_facts(
     };
 
     // For each unit in the area, compute expected net damage (post-armor).
-    let net_damage_for = |unit: &UnitSnapshot| -> f32 {
+    let net_damage_for = |unit: &combat_engine::state::Unit| -> f32 {
         let armor = if calc.pierces_armor {
             0.0
         } else {
@@ -361,16 +361,23 @@ pub(crate) fn build_damage_facts(
     let mut ally_damage_per_entity: Vec<(Entity, f32)> = vec![];
     let mut self_damage = 0.0f32;
 
-    for unit in pre_snap.units.iter().filter(|u| u.is_alive() && area.contains(&u.pos)) {
-        let dmg = net_damage_for(unit);
-        if unit.entity == actor_entity {
+    // Iterate all live units (enemies + allies + self) via UnitView.
+    let opponent_team = crate::combat::ai::world::snapshot::opponent_team(actor_team);
+    for view in pre_snap.enemies_of(actor_team)
+        .chain(pre_snap.allies_of(actor_team))
+        .chain(pre_snap.unit(actor_entity).into_iter())
+        .filter(|v| area.contains(&v.state.pos))
+    {
+        let entity = view.entity();
+        let dmg = net_damage_for(view.state);
+        if entity == actor_entity {
             self_damage += dmg;
-        } else if unit.team == actor_team {
+        } else if view.state.team != opponent_team {
             ally_damage += dmg;
-            ally_damage_per_entity.push((unit.entity, dmg));
+            ally_damage_per_entity.push((entity, dmg));
         } else {
             enemy_damage += dmg;
-            enemy_damage_per_entity.push((unit.entity, dmg));
+            enemy_damage_per_entity.push((entity, dmg));
         }
     }
 
@@ -403,9 +410,9 @@ pub(crate) fn aoe_p_kill_soon(
 ) -> f32 {
     use crate::combat::ai::scoring::factors::aoe_area;
     let area = aoe_area(def, target_pos, caster_tile);
-    let any = pre_snap.units.iter()
-        .filter(|u| u.is_alive() && area.contains(&u.pos) && u.team != actor_team)
-        .any(|e| estimate_kill_soon(def, e, caster, content) > 0.0);
+    let any = pre_snap.enemies_of(actor_team)
+        .filter(|v| v.is_alive() && area.contains(&v.state.pos))
+        .any(|v| estimate_kill_soon(def, v.state, caster, content) > 0.0);
     if any { 1.0 } else { 0.0 }
 }
 
@@ -435,12 +442,12 @@ pub(crate) fn build_status_facts(
     use crate::content::abilities::AoEShape;
 
     // Collect enemies that will receive status applications.
-    let enemy_targets: Vec<&UnitSnapshot> = if def.aoe == AoEShape::None {
-        pre_snap.unit_snapshot(target).into_iter().collect()
+    let enemy_targets: Vec<UnitView<'_>> = if def.aoe == AoEShape::None {
+        pre_snap.unit(target).into_iter().collect()
     } else {
         let area = aoe_area(def, target_pos, caster_tile);
-        pre_snap.units.iter()
-            .filter(|u| u.is_alive() && area.contains(&u.pos) && u.team != actor_team)
+        pre_snap.enemies_of(actor_team)
+            .filter(|v| v.is_alive() && area.contains(&v.state.pos))
             .collect()
     };
 
@@ -479,7 +486,7 @@ pub(crate) fn build_status_facts(
 /// urgency / horizon on top of this value.
 pub(crate) fn estimate_hp_restored(
     def: &AbilityDef,
-    target: &UnitSnapshot,
+    target: &combat_engine::state::Unit,
     caster: &CasterContext,
 ) -> f32 {
     let Some(calc) = def.effect.calc(caster) else { return 0.0 };
@@ -526,9 +533,7 @@ pub(crate) fn split_resource_costs(def: &AbilityDef) -> ResourceFacts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::world::snapshot::ActiveStatusView;
-    use crate::combat::ai::test_helpers::UnitBuilder;
-    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{UnitBuilder, snapshot_from, unit_snapshot_to_engine_unit};
     use crate::content::content_view::ContentView;
     use crate::core::{AbilityId, StatusId};
     use crate::game::components::Team;
@@ -558,7 +563,9 @@ mod tests {
     #[test]
     fn estimate_kill_soon_is_zero_when_direct_damage_kills() {
         let content = db();
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(1).build();
+        let target = unit_snapshot_to_engine_unit(
+            &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(1).build()
+        );
         let ks = estimate_kill_soon(
             get_def(&content, "melee_attack"), &target, &melee_caster(2), &content,
         );
@@ -568,12 +575,16 @@ mod tests {
     /// melee_attack with str_mod=0 → direct=0; pending DoT (3/tick × 2 rounds = 6) ≥ hp=5
     #[test]
     fn estimate_kill_soon_fires_on_pending_dot() {
+        use combat_engine::state::ActiveStatus;
+        use combat_engine::state::UnitId;
         let content = db();
-        let mut target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(5).build();
-        target.statuses = vec![ActiveStatusView {
-            id: StatusId::from("poisoned"),
+        let snap_unit = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(5).build();
+        let mut target = unit_snapshot_to_engine_unit(&snap_unit);
+        target.statuses = vec![ActiveStatus {
+            id: crate::core::StatusId::from("poisoned"),
             rounds_remaining: 2,
             dot_per_tick: 3,
+            applier: UnitId(snap_unit.entity.to_bits()),
         }];
         let ks = estimate_kill_soon(
             get_def(&content, "melee_attack"), &target, &melee_caster(0), &content,
@@ -585,7 +596,9 @@ mod tests {
     #[test]
     fn estimate_kill_soon_fires_on_new_dot_from_ability() {
         let content = db();
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(5).build();
+        let target = unit_snapshot_to_engine_unit(
+            &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(5).build()
+        );
         let c = CasterContext::default();
         let ks = estimate_kill_soon(get_def(&content, "poison_shot"), &target, &c, &content);
         assert_eq!(ks, 1.0, "direct 2.5 + new DoT 7.5 = 10 ≥ hp=5 → kill_soon");
@@ -595,7 +608,9 @@ mod tests {
     #[test]
     fn estimate_kill_soon_zero_when_combined_insufficient() {
         let content = db();
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(100).build();
+        let target = unit_snapshot_to_engine_unit(
+            &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(100).build()
+        );
         let ks = estimate_kill_soon(
             get_def(&content, "melee_attack"), &target, &melee_caster(0), &content,
         );
@@ -614,7 +629,9 @@ mod tests {
             weapon_dice: Some(DiceExpr::new(1, 6, 0)),
             ..Default::default()
         };
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(6).build();
+        let target = unit_snapshot_to_engine_unit(
+            &UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).hp(6).build()
+        );
         let ks = estimate_kill_soon(get_def(&content, "melee_attack"), &target, &caster, &content);
         assert_eq!(ks, 0.0, "expected=5.5 rounds to 6 ≥ hp=6 → direct kills, kill_soon=0");
     }
@@ -667,7 +684,9 @@ mod tests {
         let content = db();
         let def = get_def(&content, "melee_attack");
         let caster = melee_caster(2);
-        let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build();
+        let target = unit_snapshot_to_engine_unit(
+            &UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build()
+        );
 
         let est = hypothetical(def, &target, &caster, &content);
 
@@ -689,7 +708,9 @@ mod tests {
         let content = db();
         let def = get_def(&content, "melee_attack");
         let caster = melee_caster(5); // high str_mod for guaranteed kill
-        let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).hp(1).build();
+        let target = unit_snapshot_to_engine_unit(
+            &UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).hp(1).build()
+        );
 
         let est = hypothetical(def, &target, &caster, &content);
         assert_eq!(est.p_kill_now, 1.0, "should detect kill when net_dmg >= hp");
@@ -702,7 +723,9 @@ mod tests {
         let content = db();
         let def = get_def(&content, "melee_attack");
         let caster = melee_caster(0);
-        let target = UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build();
+        let target = unit_snapshot_to_engine_unit(
+            &UnitBuilder::new(1, Team::Enemy, hex_from_offset(1, 0)).full_hp(20).build()
+        );
         let est = hypothetical(def, &target, &caster, &content);
         assert_eq!(est.cc_turns_applied, 0.0, "melee_attack has no CC -> cc_turns_applied=0");
     }
@@ -944,7 +967,9 @@ mod tests {
     #[test]
     fn hp_restored_zero_for_full_hp_target() {
         let def = heal_def_inner();
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).full_hp(20).build();
+        let target = unit_snapshot_to_engine_unit(
+            &UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0)).full_hp(20).build()
+        );
         let caster = CasterContext::default();
 
         let restored = estimate_hp_restored(&def, &target, &caster);
@@ -956,10 +981,12 @@ mod tests {
     fn hp_restored_clamped_to_missing_hp() {
         let def = heal_def_inner(); // 2d6 expected = 7
         // Target with missing_hp = 3 (less than expected 7)
-        let target = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
-            .full_hp(20)
-            .hp(17) // missing = 3
-            .build();
+        let target = unit_snapshot_to_engine_unit(
+            &UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+                .full_hp(20)
+                .hp(17) // missing = 3
+                .build()
+        );
         let caster = CasterContext::default();
 
         let restored = estimate_hp_restored(&def, &target, &caster);

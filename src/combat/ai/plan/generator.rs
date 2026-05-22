@@ -115,11 +115,13 @@ pub fn generate_plans(
                     if let Some(def) = ctx.content.abilities.get(ability) {
                         if let EffectDef::Summon { max_active, .. } = &def.effect {
                             let cap = max_active.unwrap_or(u32::MAX);
+                            let actor_uid = base_sim.snapshot.uid_for_entity(actor);
                             let live = base_sim
                                 .snapshot
-                                .units
+                                .state
+                                .units()
                                 .iter()
-                                .filter(|u| u.summoner == Some(actor) && u.is_alive())
+                                .filter(|u| u.summoner == actor_uid && u.is_alive())
                                 .count() as u32;
                             let pending = plan
                                 .steps

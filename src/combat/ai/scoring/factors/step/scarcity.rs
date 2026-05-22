@@ -18,7 +18,7 @@ use crate::combat::ai::scoring::factors::offensive::aoe_area;
 use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::scoring::stun_denial_value;
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::combat::ai::world::snapshot::{UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::{UnitView};
 use crate::content::abilities::{AoEShape, TargetType};
 use crate::content::content_view::ContentView;
 
@@ -69,11 +69,11 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
     // swing_value: situational justification for spending.
     let mut swing = 0.0f32;
 
-    let target_unit = snap.unit_snapshot(*target);
+    let target_unit = snap.unit(*target);
 
     // Classify AoE hits once; both the victim pick and the multi-hit bonus
     // below read from the same list.
-    let aoe_enemies: Vec<&UnitSnapshot> = if def.aoe == AoEShape::None {
+    let aoe_enemies: Vec<UnitView> = if def.aoe == AoEShape::None {
         Vec::new()
     } else {
         let area = aoe_area(def, *target_pos, *caster_tile);
@@ -85,18 +85,19 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
         swing += 0.8;
         // Extra value for killing high-value targets. For AoE (target is
         // a sentinel), credit the highest-value enemy hit.
-        let victim = target_unit.or_else(|| {
-            aoe_enemies.iter().copied().max_by(|a, b| {
-                a.role
+        if let Some(t) = target_unit {
+            // Single-target kill: use target's role directly.
+            swing += 0.35 * t.cache.role.role_value();
+        } else {
+            // AoE kill: credit highest-role enemy hit.
+            if let Some(t) = aoe_enemies.iter().copied().max_by(|a, b| {
+                a.cache.role
                     .role_value()
-                    .partial_cmp(&b.role.role_value())
+                    .partial_cmp(&b.cache.role.role_value())
                     .unwrap_or(std::cmp::Ordering::Equal)
-            })
-        });
-        if let Some(t) = victim {
-            // Role-based kill bonus scales with target's priority value
-            // (Support=1.0, Control=0.8, Ranged=0.7, Melee=0.5, Tank=0.3).
-            swing += 0.35 * t.role.role_value();
+            }) {
+                swing += 0.35 * t.cache.role.role_value();
+            }
         }
     }
 
@@ -113,9 +114,9 @@ fn compute_scarcity(step: &ScoredStep, kill: f32, ctx: &ScoringCtx) -> f32 {
     // ranks plan utility, `scarcity` justifies the resource spend — two
     // orthogonal axes with different role weights, parallel to how `kill` is
     // mirrored below.
-    if let Some(t) = target_unit {
-        if !t.is_stunned(world.status_tags) {
-            let stun_value = stun_denial_value(def, t, world.content);
+    if let Some(tv) = target_unit {
+        if !tv.is_stunned(world.status_tags) {
+            let stun_value = stun_denial_value(def, tv, world.content);
             if stun_value > 0.0 {
                 // `30.0` ≈ three strong rounds of DPR → full bonus saturation.
                 swing += 0.5 * (stun_value / 30.0).min(1.0);

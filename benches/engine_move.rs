@@ -118,61 +118,13 @@ impl EngineContentView for BenchContent {
     fn status_bonuses(&self, _: &combat_engine::StatusId) -> EngineStatusBonuses {
         EngineStatusBonuses::default()
     }
-    fn ability_def(&self, _: &combat_engine::AbilityId) -> Option<combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &combat_engine::StatusId) -> Option<combat_engine::StatusDef> { None }
+    fn ability_def(&self, _: &combat_engine::AbilityId) -> Option<&combat_engine::AbilityDef> { None }
+    fn status_def(&self, _: &combat_engine::StatusId) -> Option<&combat_engine::StatusDef> { None }
     fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }
 }
 
 fn snap_to_combat_state(snap: &BattleSnapshot) -> CombatState {
-    use storyforge::combat_engine::state::ActiveStatus;
-    let units: Vec<EngineUnit> = snap
-        .units
-        .iter()
-        .map(|u| {
-            let team = match u.team {
-                Team::Player => EngineTeam::Player,
-                Team::Enemy  => EngineTeam::Enemy,
-            };
-            // AoO dice lives on Unit.aoo_dice (post-5c.1 follow-up).
-            let aoo_dice = u.aoo_expected_damage
-                .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
-            EngineUnit {
-                id: entity_to_uid(u.entity),
-                team,
-                pos: u.pos,
-                hp: u.hp,
-                max_hp: u.max_hp,
-                armor: u.armor,
-                armor_bonus: u.armor_bonus,
-                base_speed: u.base_speed,
-                speed: u.speed,
-                action_points: u.action_points,
-                max_ap: u.action_points,
-                movement_points: u.movement_points,
-                reactions_left: u.reactions_left,
-                reactions_max: 1,
-                statuses: u
-                    .statuses
-                    .iter()
-                    .map(|s| ActiveStatus {
-                        id: combat_engine::StatusId(s.id.0.clone()),
-                        rounds_remaining: s.rounds_remaining,
-                        dot_per_tick: s.dot_per_tick,
-                        applier: entity_to_uid(u.entity),
-                    })
-                    .collect(),
-                rage: u.rage,
-                mana: u.mana,
-                energy: u.energy,
-                summoner: None,
-                caster_context: combat_engine::CasterContext::default(),
-                aoo_dice,
-                auras: Vec::new(),
-                enemy_phases: Vec::new(),
-            }
-        })
-        .collect();
-    CombatState::new(units, 1, RoundPhase::ActorTurn, 0)
+    CombatState::new(snap.state.units().to_vec(), 1, RoundPhase::ActorTurn, 0)
 }
 
 // ── Benchmarks ────────────────────────────────────────────────────────────────

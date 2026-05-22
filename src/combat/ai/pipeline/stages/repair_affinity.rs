@@ -31,7 +31,7 @@ impl PlanStage for RepairAffinityStage {
                 .map(|c| c.severity)
         };
 
-        let current_round = ctx.scoring.snap.round;
+        let current_round = ctx.scoring.snap.state.round;
 
         for (plan, ann) in pool.plans.iter().zip(pool.annotations.iter_mut()) {
             ann.repair_affinity = compute_repair_affinity(

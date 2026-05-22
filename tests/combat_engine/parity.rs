@@ -56,55 +56,10 @@ fn make_unit(
 
 /// Run the engine path on `snap` and return the final `CombatState`.
 fn run_engine(snap: &BattleSnapshot, actor_id: Entity, path: Vec<storyforge::game::hex::Hex>) -> CombatState {
-    use storyforge::combat_engine::state::ActiveStatus;
-    use storyforge::combat_engine::CasterContext;
-
-    let units: Vec<EngineUnit> = snap.units.iter().map(|u| {
-        let team = match u.team {
-            Team::Player => EngineTeam::Player,
-            Team::Enemy  => EngineTeam::Enemy,
-        };
-        // AoO dice lives on Unit.aoo_dice (post-5c.1 follow-up).
-        // Reconstruct from aoo_expected_damage: a fixed-damage dice 0d1+raw.
-        let aoo_dice = u.aoo_expected_damage
-            .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
-        EngineUnit {
-            id: entity_to_uid(u.entity),
-            team,
-            pos: u.pos,
-            hp: u.hp,
-            max_hp: u.max_hp,
-            armor: u.armor,
-            armor_bonus: u.armor_bonus,
-            damage_taken_bonus: u.damage_taken_bonus,
-            base_speed: u.base_speed,
-            speed: u.speed,
-            action_points: u.action_points,
-            max_ap: u.max_ap,
-            movement_points: u.movement_points,
-            reactions_left: u.reactions_left,
-            reactions_max: 1,
-            statuses: u.statuses.iter().map(|s| ActiveStatus {
-                id: s.id.clone(),
-                rounds_remaining: s.rounds_remaining,
-                dot_per_tick: s.dot_per_tick,
-                applier: entity_to_uid(u.entity),
-            }).collect(),
-            rage: u.rage,
-            mana: u.mana,
-            energy: u.energy,
-            summoner: None,
-            caster_context: CasterContext::default(),
-            aoo_dice,
-            auras: Vec::new(),
-            enemy_phases: Vec::new(),
-        }
-    }).collect();
-
     let content = SnapContent::from_snap(snap);
     let actor_uid = entity_to_uid(actor_id);
     let action = Action::Move { actor: actor_uid, path };
-    let mut state = CombatState::new(units, 1, RoundPhase::ActorTurn, 0);
+    let mut state = CombatState::new(snap.state.units().to_vec(), 1, RoundPhase::ActorTurn, 0);
     // Ignore result: on TargetGone the state is rolled back, which is the
     // correct observable outcome to compare against.
     let _ = step(&mut state, action, &mut ExpectedValue, &content);
@@ -360,38 +315,12 @@ fn parity_aoo_kills_mover_mid_path_truncates() {
     let path = vec![step1];
 
     // ── Engine path ───────────────────────────────────────────────────────────
-    use storyforge::combat_engine::state::ActiveStatus;
-    use storyforge::combat_engine::CasterContext as EngineCasterContext;
-    let units: Vec<EngineUnit> = snap.units.iter().map(|u| {
-        let team = match u.team { Team::Player => EngineTeam::Player, Team::Enemy => EngineTeam::Enemy };
-        let aoo_dice = u.aoo_expected_damage
-            .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
-        EngineUnit {
-            id: entity_to_uid(u.entity), team, pos: u.pos,
-            hp: u.hp, max_hp: u.max_hp, armor: u.armor, armor_bonus: u.armor_bonus,
-            damage_taken_bonus: u.damage_taken_bonus,
-            base_speed: u.base_speed, speed: u.speed,
-            action_points: u.action_points, max_ap: u.max_ap, movement_points: u.movement_points,
-            reactions_left: u.reactions_left,
-            reactions_max: 1,
-            statuses: u.statuses.iter().map(|s| ActiveStatus {
-                id: s.id.clone(), rounds_remaining: s.rounds_remaining, dot_per_tick: s.dot_per_tick,
-                applier: entity_to_uid(u.entity),
-            }).collect(),
-            rage: u.rage, mana: u.mana, energy: u.energy,
-            summoner: None,
-            caster_context: EngineCasterContext::default(),
-            aoo_dice,
-            auras: Vec::new(),
-            enemy_phases: Vec::new(),
-        }
-    }).collect();
     let content = SnapContent::from_snap(&snap);
     let actor_uid = entity_to_uid(actor_id);
     let ea_uid    = entity_to_uid(enemy_a_id);
     let eb_uid    = entity_to_uid(enemy_b_id);
     let action = Action::Move { actor: actor_uid, path: path.clone() };
-    let mut engine_state = CombatState::new(units, 1, RoundPhase::ActorTurn, 0);
+    let mut engine_state = CombatState::new(snap.state.units().to_vec(), 1, RoundPhase::ActorTurn, 0);
     let engine_result = step(&mut engine_state, action, &mut ExpectedValue, &content);
 
     // ── Sim path ──────────────────────────────────────────────────────────────

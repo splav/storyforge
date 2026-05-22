@@ -56,7 +56,8 @@ impl PlanCritic for BlindspotRanged {
         // final position and the target enemy itself (mirrors sanity rule).
         let occupied: HashSet<_> = ctx
             .snap
-            .units
+            .state
+            .units()
             .iter()
             .filter(|u| u.is_alive())
             .map(|u| u.pos)

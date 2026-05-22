@@ -17,15 +17,19 @@ pub fn applies_cc(def: &AbilityDef, content: &ContentView) -> bool {
 }
 
 /// Sum of projected damage denied to `target` by `def`'s stun-class statuses.
-/// Reads `target.damage_horizon` via `horizon_window_sum`; the `cc` offensive
-/// factor and the `scarcity` swing-justification branch both read this so
-/// their stun formulas cannot drift apart. Non-stun effects (vulnerability,
-/// armor shred, DoT) are intentionally *not* included — each caller folds
-/// those in with its own weighting.
-pub fn stun_denial_value(def: &AbilityDef, target: &UnitSnapshot, content: &ContentView) -> f32 {
+/// Reads `target.cache.damage_horizon` via `horizon_window_sum_raw`; the `cc`
+/// offensive factor and the `scarcity` swing-justification branch both read
+/// this so their stun formulas cannot drift apart. Non-stun effects
+/// (vulnerability, armor shred, DoT) are intentionally *not* included — each
+/// caller folds those in with its own weighting.
+pub fn stun_denial_value(
+    def: &AbilityDef,
+    target: crate::combat::ai::world::snapshot::UnitView<'_>,
+    content: &ContentView,
+) -> f32 {
     status_applications(def, content)
         .filter(|(sd, _)| sd.skips_turn)
-        .map(|(_, d)| horizon_window_sum(target, d))
+        .map(|(_, d)| horizon_window_sum_raw(&target.cache.damage_horizon, target.cache.threat, d))
         .sum()
 }
 
@@ -64,11 +68,17 @@ pub fn status_applications<'a, 'c: 'a>(
 /// by `status_score` skips_turn / blocks_mana branches and the
 /// CC-factor valuation in `factors::offensive`.
 pub fn horizon_window_sum(target: &UnitSnapshot, duration: f32) -> f32 {
-    if target.damage_horizon.is_empty() {
-        return target.threat * duration.max(0.0);
+    horizon_window_sum_raw(&target.damage_horizon, target.threat, duration)
+}
+
+/// Raw implementation shared by `horizon_window_sum` (takes `&UnitSnapshot`)
+/// and `stun_denial_value` (takes `UnitView` whose AI metrics live in `cache`).
+fn horizon_window_sum_raw(damage_horizon: &[f32], threat: f32, duration: f32) -> f32 {
+    if damage_horizon.is_empty() {
+        return threat * duration.max(0.0);
     }
-    let n = (duration.ceil() as usize).min(target.damage_horizon.len());
-    target.damage_horizon.iter().take(n).sum()
+    let n = (duration.ceil() as usize).min(damage_horizon.len());
+    damage_horizon.iter().take(n).sum()
 }
 
 /// Average projected damage per round across the full horizon.

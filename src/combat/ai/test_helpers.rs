@@ -460,6 +460,69 @@ pub fn snapshot_from_pairs(
     BattleSnapshot::new(state, cache)
 }
 
+/// Test-only: convert a `UnitSnapshot` to the engine `Unit` type.
+///
+/// Useful for tests that call production functions whose signatures were
+/// migrated from `&UnitSnapshot` to `&combat_engine::state::Unit` (D-final).
+#[allow(dead_code)]
+pub(crate) fn unit_snapshot_to_engine_unit(u: &UnitSnapshot) -> combat_engine::state::Unit {
+    unit_snapshot_to_pair(u).0
+}
+
+/// Test-only: convert a `UnitView` back to `UnitSnapshot`.
+///
+/// Bridges the gap for test code that still works with `UnitSnapshot`-accepting
+/// functions (policy/horizon layers, U6-deferred) after `BattleSnapshot.unit_snapshot()`
+/// is removed in D-final.
+#[allow(dead_code)]
+pub(crate) fn unit_view_to_snapshot(
+    view: crate::combat::ai::world::snapshot::UnitView<'_>,
+) -> UnitSnapshot {
+    use crate::combat::ai::world::snapshot::ActiveStatusView;
+    use crate::game::components::Team;
+    let u = view.state;
+    let c = view.cache;
+    let team = match u.team {
+        combat_engine::state::Team::Player => Team::Player,
+        combat_engine::state::Team::Enemy  => Team::Enemy,
+    };
+    UnitSnapshot {
+        entity:               c.entity,
+        team,
+        role:                 c.role,
+        pos:                  u.pos,
+        hp:                   u.hp,
+        max_hp:               u.max_hp,
+        armor:                u.armor,
+        armor_bonus:          u.armor_bonus,
+        damage_taken_bonus:   u.damage_taken_bonus,
+        action_points:        u.action_points,
+        max_ap:               u.max_ap,
+        movement_points:      u.movement_points,
+        base_speed:           u.base_speed,
+        speed:                u.speed,
+        mana:                 u.mana,
+        rage:                 u.rage,
+        energy:               u.energy,
+        abilities:            c.abilities.clone(),
+        threat:               c.threat,
+        tags:                 c.tags,
+        max_attack_range:     c.max_attack_range,
+        summoner:             u.summoner.map(|s| bevy::prelude::Entity::from_bits(s.0)),
+        reactions_left:       u.reactions_left,
+        aoo_expected_damage:  c.aoo_expected_damage,
+        statuses:             u.statuses.iter().map(|s| ActiveStatusView {
+            id:               s.id.clone(),
+            rounds_remaining: s.rounds_remaining,
+            dot_per_tick:     s.dot_per_tick,
+        }).collect(),
+        caster_ctx:           c.caster_ctx.clone(),
+        crit_fail_effect:     c.crit_fail_effect.clone(),
+        damage_horizon:       c.damage_horizon.clone(),
+        ai_tuning_override:   c.ai_tuning_override.clone(),
+    }
+}
+
 /// Short-hand for `UnitBuilder::new(id, team, pos).build()` — the dominant
 /// single-line fixture shape across test modules.
 pub(crate) fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {

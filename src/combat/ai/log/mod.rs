@@ -190,7 +190,12 @@ use crate::game::hex::Hex;
 /// v37: Phase A of BattleSnapshot refactor. Clean break — v33–v36 migration
 /// reconstructor removed from `parse_actor_tick`. Logs below v37 now return
 /// `LogError::UnsupportedSchema` without migration (per Phase A3 direction).
-pub const SCHEMA_VERSION: u32 = 37;
+/// v38: Phase D-final of BattleSnapshot refactor (U5/D-final).
+/// `BattleSnapshot.units` and `BattleSnapshot.round` fields dropped — logs
+/// now serialize only `cache` + `state`. `state.round` is the source of truth
+/// for the round number. v37 logs are incompatible (clean break) — they will
+/// return `LogError::UnsupportedSchema`.
+pub const SCHEMA_VERSION: u32 = 38;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init
@@ -1850,8 +1855,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":27}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 37, .. })),
-            "v27 must produce UnsupportedSchema(found=27, required=37), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 27, required: 38, .. })),
+            "v27 must produce UnsupportedSchema(found=27, required=38), got: {result:?}",
         );
     }
 
@@ -1861,8 +1866,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":26}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 37, .. })),
-            "v26 must produce UnsupportedSchema(found=26, required=37), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 26, required: 38, .. })),
+            "v26 must produce UnsupportedSchema(found=26, required=38), got: {result:?}",
         );
     }
 
@@ -1872,8 +1877,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":28}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 37, .. })),
-            "v28 must produce UnsupportedSchema(found=28, required=37), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 28, required: 38, .. })),
+            "v28 must produce UnsupportedSchema(found=28, required=38), got: {result:?}",
         );
     }
 
@@ -1883,8 +1888,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":29}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 37, .. })),
-            "v29 must produce UnsupportedSchema(found=29, required=37), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 29, required: 38, .. })),
+            "v29 must produce UnsupportedSchema(found=29, required=38), got: {result:?}",
         );
     }
 
@@ -1894,8 +1899,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":30}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 37, .. })),
-            "v30 must produce UnsupportedSchema(found=30, required=37), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 30, required: 38, .. })),
+            "v30 must produce UnsupportedSchema(found=30, required=38), got: {result:?}",
         );
     }
 
@@ -1905,8 +1910,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":31}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 37, .. })),
-            "v31 must produce UnsupportedSchema(found=31, required=37), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 31, required: 38, .. })),
+            "v31 must produce UnsupportedSchema(found=31, required=38), got: {result:?}",
         );
     }
 
@@ -2056,8 +2061,8 @@ mod tests {
         }"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 32, required: 37, .. })),
-            "v32 must produce UnsupportedSchema(found=32, required=37), got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 32, required: 38, .. })),
+            "v32 must produce UnsupportedSchema(found=32, required=38), got: {result:?}",
         );
     }
 
@@ -2081,8 +2086,8 @@ mod tests {
         }"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 33, required: 37, .. })),
-            "v33 must produce UnsupportedSchema(found=33, required=37) after Phase A3, got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 33, required: 38, .. })),
+            "v33 must produce UnsupportedSchema(found=33, required=38) after Phase A3, got: {result:?}",
         );
     }
 
@@ -2095,7 +2100,7 @@ mod tests {
             panic!("expected UnsupportedSchema, got: {result:?}");
         };
         assert_eq!(found, 31);
-        assert_eq!(required, 37);
+        assert_eq!(required, 38);
     }
 
     /// v36 `UnitSnapshot` serializes `base_speed` explicitly and round-trips
@@ -2154,8 +2159,8 @@ mod tests {
         let json = r#"{"event_type":"actor_tick","schema_version":35}"#;
         let result = parse_actor_tick(json);
         assert!(
-            matches!(result, Err(LogError::UnsupportedSchema { found: 35, required: 37, .. })),
-            "v35 must produce UnsupportedSchema(found=35, required=37) after Phase A3, got: {result:?}",
+            matches!(result, Err(LogError::UnsupportedSchema { found: 35, required: 38, .. })),
+            "v35 must produce UnsupportedSchema(found=35, required=38) after Phase A3, got: {result:?}",
         );
     }
 }

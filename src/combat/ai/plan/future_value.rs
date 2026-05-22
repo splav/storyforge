@@ -19,7 +19,7 @@ use crate::combat::ai::plan::types::{CommittedPrefix, PlanStep, TurnPlan};
 use crate::combat::ai::scoring::position_eval::evaluate_position;
 use crate::combat::ai::outcome::builder::hypothetical as estimate_hypothetical;
 use crate::combat::ai::scoring::applies_cc;
-use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
+use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::scoring::target_selection::target_selection_score;
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::orchestration::ScoringCtx;
@@ -179,7 +179,8 @@ fn attack_component_intent(
     let reach_budget = active.speed.max(0) + active.cache.max_attack_range as i32;
 
     // Apply `policy::damage::value` to a hypothetical outcome for a single target.
-    let damage_value = |def: &crate::content::abilities::AbilityDef, target: &UnitSnapshot| -> f32 {
+    // Accepts `&Unit` (engine state) — `UnitView` derefs to `Unit`.
+    let damage_value = |def: &crate::content::abilities::AbilityDef, target: &combat_engine::state::Unit| -> f32 {
         let h = estimate_hypothetical(def, target, &active.cache.caster_ctx, content);
         let damage_progress = (h.enemy_damage / target.hp.max(1) as f32).min(1.0);
         policy::damage::value(h.enemy_damage, damage_progress)
@@ -187,24 +188,24 @@ fn attack_component_intent(
 
     match intent {
         TacticalIntent::FocusTarget { target: target_entity } => {
-            let Some(target) = snap.unit_snapshot(*target_entity) else { return 0.0 };
+            let Some(target) = snap.unit(*target_entity) else { return 0.0 };
             let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
             if dist > reach_budget { return 0.0; }
             let best = active.cache.abilities.iter()
                 .filter_map(|id| content.abilities.get(id))
-                .map(|def| damage_value(def, target))
+                .map(|def| damage_value(def, target.state))
                 .fold(0.0f32, f32::max);
             0.5 * best
         }
 
         TacticalIntent::ApplyCC { target: target_entity } => {
-            let Some(target) = snap.unit_snapshot(*target_entity) else { return 0.0 };
+            let Some(target) = snap.unit(*target_entity) else { return 0.0 };
             let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
             if dist > reach_budget { return 0.0; }
             let best = active.cache.abilities.iter()
                 .filter_map(|id| content.abilities.get(id))
                 .filter(|def| applies_cc(def, content))
-                .map(|def| damage_value(def, target))
+                .map(|def| damage_value(def, target.state))
                 .fold(0.0f32, f32::max);
             0.5 * best
         }
@@ -247,10 +248,9 @@ fn attack_component_intent(
             for target in top_enemies {
                 let dist = committed_pos.unsigned_distance_to(target.pos) as i32;
                 if dist > reach_budget { continue; }
-                let Some(target_snap) = snap.unit_snapshot(target.entity()) else { continue };
                 for ability_id in &active.cache.abilities {
                     let Some(def) = content.abilities.get(ability_id) else { continue };
-                    let s = damage_value(def, target_snap);
+                    let s = damage_value(def, target.state);
                     if s > best { best = s; }
                 }
             }

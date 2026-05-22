@@ -269,7 +269,7 @@ pub fn record_committed_reservations(
             aoe_hits(&area, active, snap)
                 .enemies
                 .iter()
-                .map(|e| e.entity)
+                .map(|e| e.entity())
                 .collect()
         };
         for ent in hits {
@@ -516,7 +516,7 @@ fn apply_pick_jitter(pool: &mut ScoredPool, ctx: &StageCtx) -> Vec<f32> {
     let effective_amp = noise_amp * spread;
 
     let actor = ctx.scoring.active.entity();
-    let round = ctx.scoring.snap.round;
+    let round = ctx.scoring.snap.state.round;
 
     for (i, (plan, ann)) in pool
         .plans

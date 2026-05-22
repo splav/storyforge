@@ -69,6 +69,7 @@ fn extract_cast_triples_from_line(
 ) -> Vec<(AbilityDef, UnitSnapshot, CasterContext)> {
     use crate::combat::ai::log::ActorTickEvent;
     use crate::combat::ai::plan::types::PlanStep;
+    use crate::combat::ai::test_helpers::unit_view_to_snapshot;
 
     let Ok(event) = serde_json::from_str::<ActorTickEvent>(line) else {
         return vec![];
@@ -77,18 +78,18 @@ fn extract_cast_triples_from_line(
     let Some(actor_entity) = bevy::prelude::Entity::try_from_bits(event.actor_id) else {
         return vec![];
     };
-    let Some(actor_snap) = event.snapshot.unit_snapshot(actor_entity).cloned() else {
+    let Some(actor_view) = event.snapshot.unit(actor_entity) else {
         return vec![];
     };
-    let caster_ctx = actor_snap.caster_ctx.clone();
+    let caster_ctx = actor_view.cache.caster_ctx.clone();
 
     let mut triples = Vec::new();
     for plan in &event.plans {
         for step in &plan.steps {
             let PlanStep::Cast { ability, target, .. } = step else { continue };
             let Some(def) = content.abilities.get(ability).cloned() else { continue };
-            let Some(target_snap) = event.snapshot.unit_snapshot(*target).cloned() else { continue };
-            triples.push((def, target_snap, caster_ctx.clone()));
+            let Some(target_view) = event.snapshot.unit(*target) else { continue };
+            triples.push((def, unit_view_to_snapshot(target_view), caster_ctx.clone()));
         }
     }
     triples

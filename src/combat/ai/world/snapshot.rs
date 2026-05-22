@@ -13,6 +13,7 @@ use crate::game::components::{
 use crate::game::hex::Hex;
 use crate::game::resources::HexPositions;
 use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
+#[cfg(test)]
 use crate::combat::ai::world::tags::cache::StatusBonuses;
 use crate::combat::ai::world::tags::StatusTagSet;
 use crate::combat::engine_bridge::UnitIdMap;
@@ -23,29 +24,14 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct BattleSnapshot {
-    pub units: Vec<UnitSnapshot>,
-    pub round: u32,
-    /// O(1) entity → units[index] cache. Populated eagerly by
-    /// [`BattleSnapshot::new`]. Serde-skipped: after deserialization the
-    /// cache is empty and `unit()` falls back to an O(n) linear scan.
-    /// Hot paths that want O(1) after deserialize can call
-    /// [`BattleSnapshot::rebuild_index`].
-    ///
-    /// Invariant: either empty, or every value is a valid index into
-    /// `units` for the entity-keyed pair. Read through `unit()`; never
-    /// poke this field directly.
-    #[serde(skip)]
-    by_entity: HashMap<Entity, usize>,
-    /// AI-derived per-unit metrics. Populated at `build_snapshot` time
-    /// alongside `units`; read by scoring/intent (Phase C).
-    /// Until Phase D, `UnitSnapshot` holds duplicate copies of these fields.
+    /// AI-derived per-unit metrics. Populated at `build_snapshot` time;
+    /// read by scoring/intent (Phase C+). Source of truth for AI cache data.
     /// Schema: absent in pre-Phase-B logs → `Default` (empty cache).
     #[serde(default)]
     pub cache: AiCache,
     /// Authoritative engine state for this snapshot round.
     /// Added in Phase D-step-2; populated from `CombatStateRes` at build time.
-    /// Co-exists with `units: Vec<UnitSnapshot>` until D-step-5 removes the
-    /// duplicate. Use `view(e)` to get a `UnitView` combining both halves.
+    /// Use `unit(e)` to get a `UnitView` combining both halves.
     #[serde(default)]
     pub state: combat_engine::state::CombatState,
     /// UnitId → Entity translation. Single source of truth for crossing the
@@ -61,14 +47,14 @@ pub struct BattleSnapshot {
     entity_to_uid: HashMap<Entity, combat_engine::state::UnitId>,
 }
 
-/// Wire format for `BattleSnapshot`. Mirrors the on-disk representation
-/// (no `by_entity` which is `#[serde(skip)]`). Used by the custom
-/// `Deserialize` impl to rebuild derived caches after loading — the same
-/// pattern `CombatState` uses for its index.
+/// Wire format for `BattleSnapshot`. Mirrors the on-disk representation.
+/// Used by the custom `Deserialize` impl to rebuild derived caches after
+/// loading — the same pattern `CombatState` uses for its index.
+///
+/// v38+: only `cache` and `state` are serialized. Older logs that carried
+/// `units`/`round` fields are silently ignored by serde (unknown keys).
 #[derive(serde::Deserialize)]
 struct BattleSnapshotRepr {
-    units: Vec<UnitSnapshot>,
-    round: u32,
     #[serde(default)]
     cache: AiCache,
     #[serde(default)]
@@ -79,17 +65,12 @@ impl<'de> serde::Deserialize<'de> for BattleSnapshot {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let repr = BattleSnapshotRepr::deserialize(d)?;
         let mut snap = BattleSnapshot {
-            by_entity: HashMap::new(),
             uid_to_entity: HashMap::new(),
             entity_to_uid: HashMap::new(),
-            units: repr.units,
-            round: repr.round,
             cache: repr.cache,
             state: repr.state,
         };
-        // Rebuild all derived caches. If `state` was absent in the log
-        // (old schema) it deserialises as empty; rebuild_index re-derives
-        // it from `units` so that `snap.unit(e)` works immediately.
+        // Rebuild uid_to_entity / entity_to_uid from state + cache.
         snap.rebuild_index();
         Ok(snap)
     }
@@ -476,7 +457,7 @@ pub(crate) fn pool_amount(
 // ── Builder ───────────────────────────────────────────────────────────────────
 
 pub fn build_snapshot(
-    round: u32,
+    _round: u32,
     combatants: &Query<AiCombatantQ, With<Combatant>>,
     statuses_q: &Query<&StatusEffects>,
     positions: &HexPositions,
@@ -487,34 +468,25 @@ pub fn build_snapshot(
     id_map: &UnitIdMap,
 ) -> BattleSnapshot {
     let horizon_rounds = difficulty.damage_horizon_rounds;
-    // Dead combatants stay in the snapshot (hp=0 marker). Downstream
-    // accessors like `enemies_of` / `allies_of` filter them out; death-
-    // aware code (resurrection, on-kill triggers, replay) reads them via
-    // `all_enemies_of` / `dead_units`.
-    let units: Vec<UnitSnapshot> = combatants
+    // Build AiCache directly from ECS components.
+    // Dead combatants are included (hp=0 marker); accessors like `enemies_of`
+    // / `allies_of` filter them out; death-aware code reads via `all_enemies_of`
+    // / `dead_units`.
+    let ai_units: Vec<UnitAiCache> = combatants
         .iter()
         .filter_map(|c| {
-            let pos = positions.get(&c.entity)?;
+            let _pos = positions.get(&c.entity)?;
             let role = roles.get(c.entity).copied().unwrap_or_default();
             let caster_ctx = CasterContext::new(c.stats, Some(c.equipment), &content.weapons);
             let threat = estimate_st_damage(&caster_ctx, c.abilities, content);
 
             let tags = compute_tags(&c, statuses_q, content);
 
-            // Single pass over status effects — aggregates every per-snapshot
-            // bonus at once (speed, armor, damage-taken). Keep this fold as
-            // the only place each bonus is read from statuses.
-            let StatusBonuses { speed_bonus, armor_bonus, damage_taken_bonus } =
-                status_bonuses(c.entity, statuses_q, content);
-
             let max_attack_range: u32 = c
                 .abilities
                 .0
                 .iter()
                 .filter_map(|id| content.abilities.get(id))
-                // Ground-targeted abilities also project "attack reach":
-                // a mage with fireball (Ground, range 5) should be treated
-                // as having a 5-tile threat bubble, just like SingleEnemy.
                 .filter(|def| matches!(
                     def.target_type,
                     TargetType::SingleEnemy | TargetType::Ground
@@ -523,8 +495,6 @@ pub fn build_snapshot(
                 .max()
                 .unwrap_or(0);
 
-            // AoO provoker data: has melee weapon_attack + equipped weapon.
-            // Mirrors `movement.rs` provoker selection.
             let has_melee_weapon_attack = c.abilities.0.iter().any(|id| {
                 content.abilities.get(id).is_some_and(|def| {
                     matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
@@ -539,107 +509,63 @@ pub fn build_snapshot(
                 } else {
                     None
                 };
-            let reactions_left = c.reactions.map(|r| r.remaining as i32).unwrap_or(0);
 
-            let statuses = statuses_q
-                .get(c.entity)
-                .map(|se| {
-                    se.0.iter()
-                        .map(|s| ActiveStatusView {
-                            id: s.id.clone(),
-                            rounds_remaining: s.rounds_remaining,
-                            dot_per_tick: s.dot_per_tick,
-                        })
-                        .collect()
-                })
+            let damage_horizon = estimate_damage_horizon(
+                &caster_ctx,
+                c.abilities,
+                content,
+                c.ap.max_ap,
+                c.mana.map(|m| (m.current, m.max)),
+                c.rage.map(|r| (r.current, r.max)),
+                c.energy.map(|e| (e.current, e.max)),
+                c.vital.hp,
+                horizon_rounds,
+            );
+
+            let crit_fail_effect = c
+                .combat_path
+                .and_then(|cp| content.paths.get(&cp.0))
+                .map(|p| p.crit_fail_effect.clone())
                 .unwrap_or_default();
 
-            Some(UnitSnapshot {
-                entity: c.entity,
-                team: c.faction.0,
+            Some(UnitAiCache {
+                entity:              c.entity,
                 role,
-                pos,
-                hp: c.vital.hp,
-                max_hp: c.vital.max_hp,
-                armor: c.vital.armor,
-                armor_bonus,
-                damage_taken_bonus,
-                action_points: c.ap.action_points,
-                max_ap: c.ap.max_ap,
-                movement_points: c.ap.movement_points,
-                base_speed: c.speed.0,
-                speed: c.speed.0 + speed_bonus,
-                mana: c.mana.map(|m| (m.current, m.max)),
-                rage: c.rage.map(|r| (r.current, r.max)),
-                energy: c.energy.map(|e| (e.current, e.max)),
-                abilities: c.abilities.0.clone(),
                 threat,
                 tags,
                 max_attack_range,
-                summoner: c.summoned_by.map(|s| s.0),
-                reactions_left,
                 aoo_expected_damage,
-                statuses,
-                // `caster_ctx` is already built above for threat/AoO; reuse it
-                // so readers get the same derivation without recomputing.
-                caster_ctx: caster_ctx.clone(),
-                crit_fail_effect: c
-                    .combat_path
-                    .and_then(|cp| content.paths.get(&cp.0))
-                    .map(|p| p.crit_fail_effect.clone())
-                    .unwrap_or_default(),
-                damage_horizon: estimate_damage_horizon(
-                    &caster_ctx,
-                    c.abilities,
-                    content,
-                    c.ap.max_ap,
-                    c.mana.map(|m| (m.current, m.max)),
-                    c.rage.map(|r| (r.current, r.max)),
-                    c.energy.map(|e| (e.current, e.max)),
-                    c.vital.hp,
-                    horizon_rounds,
-                ),
+                damage_horizon,
+                crit_fail_effect,
                 // TODO(step 2.7): read from a Bevy component once the first
                 // unit quirk is introduced. For now, always None — see
                 // UnitTemplateDef.ai_tuning_override and ai_rework_plan.md §2.7.
                 ai_tuning_override: None,
+                abilities:           c.abilities.0.clone(),
+                caster_ctx:          caster_ctx.clone(),
             })
         })
         .collect();
 
-    // Build snapshot directly: authoritative CombatState + AI cache from units.
-    // No lossy projection — `state` is the engine CombatState passed in by the caller.
-    let by_entity = units.iter().enumerate().map(|(i, u)| (u.entity, i)).collect();
-    let cache = AiCache::from_units(
-        units.iter().map(|u| UnitAiCache {
-            entity:              u.entity,
-            role:                u.role,
-            threat:              u.threat,
-            tags:                u.tags,
-            max_attack_range:    u.max_attack_range,
-            aoo_expected_damage: u.aoo_expected_damage,
-            damage_horizon:      u.damage_horizon.clone(),
-            crit_fail_effect:    u.crit_fail_effect.clone(),
-            ai_tuning_override:  u.ai_tuning_override.clone(),
-            abilities:           u.abilities.clone(),
-            caster_ctx:          u.caster_ctx.clone(),
-        }).collect()
-    );
+    let cache = AiCache::from_units(ai_units);
+
     // Build uid_to_entity from id_map — the single namespace-safe translation.
     // Works for both regular units (UnitId == entity.to_bits()) and summons
     // (synthetic UnitId allocated by engine; entity allocated separately by bridge).
-    let uid_to_entity: HashMap<combat_engine::state::UnitId, Entity> = units
+    let uid_to_entity: HashMap<combat_engine::state::UnitId, Entity> = cache
+        .units
         .iter()
-        .filter_map(|u| {
-            let uid = id_map.get_id(u.entity)?;
-            Some((uid, u.entity))
+        .filter_map(|c| {
+            let uid = id_map.get_id(c.entity)?;
+            Some((uid, c.entity))
         })
         .collect();
     // Build entity_to_uid as the inverse — needed by snap.unit(entity) to
     // resolve summons whose synthetic UnitIds are not entity.to_bits().
     let entity_to_uid: HashMap<Entity, combat_engine::state::UnitId> =
         uid_to_entity.iter().map(|(&uid, &entity)| (entity, uid)).collect();
-    BattleSnapshot { units, round, by_entity, cache, state: combat_state, uid_to_entity, entity_to_uid }
+
+    BattleSnapshot { cache, state: combat_state, uid_to_entity, entity_to_uid }
 }
 
 // ── Helpers on BattleSnapshot ─────────────────────────────────────────────────
@@ -647,17 +573,13 @@ pub fn build_snapshot(
 impl BattleSnapshot {
     /// Build a snapshot directly from engine `CombatState` + `AiCache`.
     /// Authoritative path — `state` is the engine source of truth, `cache`
-    /// holds AI-derived metrics. As a Pass-2 transitional measure, also
-    /// reverse-projects state+cache into the legacy `units` field so that
-    /// readers still iterating `snap.units` (or calling `snap.unit_snapshot`,
-    /// `snap.enemies_of`, etc.) keep working until Pass 3 migrates them.
+    /// holds AI-derived metrics.
     pub fn new(state: combat_engine::state::CombatState, cache: AiCache) -> Self {
         use combat_engine::state::UnitId;
-        let round = state.round;
-        // Derive uid_to_entity first — using the non-summon shortcut
+        // Derive uid_to_entity: using the non-summon shortcut
         // (UnitId == entity.to_bits()) that is valid for regular units and for
-        // test/replay paths where summons are absent.  Build it from cache so
-        // we can use it in the units loop below.
+        // test/replay paths where summons are absent. Build it from cache so
+        // we can cross-reference state.
         let uid_to_entity: HashMap<UnitId, Entity> = cache
             .units
             .iter()
@@ -673,102 +595,17 @@ impl BattleSnapshot {
         // `id_map` (the authoritative source).
         let entity_to_uid: HashMap<Entity, UnitId> =
             uid_to_entity.iter().map(|(&uid, &entity)| (entity, uid)).collect();
-        let units: Vec<UnitSnapshot> = state.units().iter().filter_map(|u| {
-            let entity = *uid_to_entity.get(&u.id)?;
-            let c = cache.unit(entity)?;
-            Some(UnitSnapshot {
-                entity,
-                team: match u.team {
-                    combat_engine::state::Team::Player => Team::Player,
-                    combat_engine::state::Team::Enemy  => Team::Enemy,
-                },
-                role: c.role,
-                pos: u.pos,
-                hp: u.hp,
-                max_hp: u.max_hp,
-                armor: u.armor,
-                armor_bonus: u.armor_bonus,
-                damage_taken_bonus: u.damage_taken_bonus,
-                action_points: u.action_points,
-                max_ap: u.max_ap,
-                movement_points: u.movement_points,
-                base_speed: u.base_speed,
-                speed: u.speed,
-                mana: u.mana,
-                rage: u.rage,
-                energy: u.energy,
-                abilities: c.abilities.clone(),
-                threat: c.threat,
-                tags: c.tags,
-                max_attack_range: c.max_attack_range,
-                // LEGACY: shortcut valid for non-summon callers (test/legacy); breaks on
-                // summon-of-summon chains — see B-prime audit. Deleted in U5–U6.
-                summoner: u.summoner.map(|s| Entity::from_bits(s.0)),
-                reactions_left: u.reactions_left,
-                aoo_expected_damage: c.aoo_expected_damage,
-                statuses: u.statuses.iter().map(|s| ActiveStatusView {
-                    id: s.id.clone(),
-                    rounds_remaining: s.rounds_remaining,
-                    dot_per_tick: s.dot_per_tick,
-                }).collect(),
-                caster_ctx: c.caster_ctx.clone(),
-                crit_fail_effect: c.crit_fail_effect.clone(),
-                damage_horizon: c.damage_horizon.clone(),
-                ai_tuning_override: c.ai_tuning_override.clone(),
-            })
-        }).collect();
-        let by_entity = units.iter().enumerate().map(|(i, u)| (u.entity, i)).collect();
-        Self { units, round, by_entity, cache, state, uid_to_entity, entity_to_uid }
+        Self { cache, state, uid_to_entity, entity_to_uid }
     }
 
-    /// Rebuild all derived caches from the current `units` vector.
+    /// Rebuild derived caches from `state` + `cache` after deserialization.
     ///
     /// Rebuilds:
-    /// - `by_entity`: the O(1) entity→index map (always rebuilt)
-    /// - `cache`: the AI-derived per-unit metrics (rebuilt when empty)
-    /// - `state`: the engine `CombatState` (rebuilt when empty — this
-    ///   covers old JSONL logs that pre-date the `state` field)
-    /// - `uid_to_entity`: UnitId→Entity map (rebuilt from state+cache)
+    /// - `uid_to_entity`: UnitId→Entity map from cache cross-referenced with state
+    /// - `entity_to_uid`: inverse of `uid_to_entity`
     ///
-    /// Call after deserialization or any mutation that changes `units`
-    /// length or order. No-op on the index if `units` is empty.
+    /// Call after deserialization. No-op when state is empty (nothing to index).
     pub fn rebuild_index(&mut self) {
-        self.by_entity = self
-            .units
-            .iter()
-            .enumerate()
-            .map(|(i, u)| (u.entity, i))
-            .collect();
-
-        // Rebuild `state` from `units` if state is empty (absent in log).
-        // This covers old JSONL snapshots that pre-date the `state` field:
-        // they deserialise with `state = CombatState::default()` (no units),
-        // and we reconstruct it here so `snap.unit(e)` works immediately.
-        if self.state.units().is_empty() && !self.units.is_empty() {
-            self.state = unit_snapshots_to_combat_state(&self.units, self.round);
-        }
-
-        // Rebuild `cache` from `units` if cache is empty (absent in log).
-        // Covers pre-Phase-B logs that lack `cache`; also covers test fixtures
-        // built via struct literal without going through `BattleSnapshot::new`.
-        if self.cache.units.is_empty() && !self.units.is_empty() {
-            self.cache = AiCache::from_units(
-                self.units.iter().map(|u| UnitAiCache {
-                    entity:              u.entity,
-                    role:                u.role,
-                    threat:              u.threat,
-                    tags:                u.tags,
-                    max_attack_range:    u.max_attack_range,
-                    aoo_expected_damage: u.aoo_expected_damage,
-                    damage_horizon:      u.damage_horizon.clone(),
-                    crit_fail_effect:    u.crit_fail_effect.clone(),
-                    ai_tuning_override:  u.ai_tuning_override.clone(),
-                    abilities:           u.abilities.clone(),
-                    caster_ctx:          u.caster_ctx.clone(),
-                }).collect()
-            );
-        }
-
         // Rebuild uid_to_entity from state cross-referenced with cache.
         // Uses the non-summon shortcut (UnitId == entity.to_bits()) which is
         // valid for deserialized logs (replay/tests) where summons are absent.
@@ -832,70 +669,14 @@ impl BattleSnapshot {
         id_pairs: &[(Entity, combat_engine::state::UnitId)],
     ) -> Self {
         use combat_engine::state::UnitId;
-        let round = state.round;
         let uid_to_entity: HashMap<UnitId, Entity> =
             id_pairs.iter().map(|&(e, uid)| (uid, e)).collect();
         let entity_to_uid: HashMap<Entity, UnitId> =
             id_pairs.iter().map(|&(e, uid)| (e, uid)).collect();
-        let units: Vec<UnitSnapshot> = state.units().iter().filter_map(|u| {
-            let entity = *uid_to_entity.get(&u.id)?;
-            let c = cache.unit(entity)?;
-            Some(UnitSnapshot {
-                entity,
-                team: match u.team {
-                    combat_engine::state::Team::Player => crate::game::components::Team::Player,
-                    combat_engine::state::Team::Enemy  => crate::game::components::Team::Enemy,
-                },
-                role: c.role,
-                pos: u.pos,
-                hp: u.hp,
-                max_hp: u.max_hp,
-                armor: u.armor,
-                armor_bonus: u.armor_bonus,
-                damage_taken_bonus: u.damage_taken_bonus,
-                action_points: u.action_points,
-                max_ap: u.max_ap,
-                movement_points: u.movement_points,
-                base_speed: u.base_speed,
-                speed: u.speed,
-                mana: u.mana,
-                rage: u.rage,
-                energy: u.energy,
-                abilities: c.abilities.clone(),
-                threat: c.threat,
-                tags: c.tags,
-                max_attack_range: c.max_attack_range,
-                // LEGACY: shortcut valid for non-summon callers (test/legacy); breaks on
-                // summon-of-summon chains — see B-prime audit. Deleted in U5–U6.
-                summoner: u.summoner.map(|s| Entity::from_bits(s.0)),
-                reactions_left: u.reactions_left,
-                aoo_expected_damage: c.aoo_expected_damage,
-                statuses: u.statuses.iter().map(|s| ActiveStatusView {
-                    id: s.id.clone(),
-                    rounds_remaining: s.rounds_remaining,
-                    dot_per_tick: s.dot_per_tick,
-                }).collect(),
-                caster_ctx: c.caster_ctx.clone(),
-                crit_fail_effect: c.crit_fail_effect.clone(),
-                damage_horizon: c.damage_horizon.clone(),
-                ai_tuning_override: c.ai_tuning_override.clone(),
-            })
-        }).collect();
-        let by_entity = units.iter().enumerate().map(|(i, u)| (u.entity, i)).collect();
-        Self { units, round, by_entity, cache, state, uid_to_entity, entity_to_uid }
+        Self { cache, state, uid_to_entity, entity_to_uid }
     }
 
-    /// Raw `UnitSnapshot` lookup via the legacy `units` vec — for use only by
-    /// the memory module functions (`mismatch`, `check_continuation`, `capture`)
-    /// that still accept `&UnitSnapshot`. Will be removed in step 3 when those
-    /// functions are migrated to `UnitView`.
-    pub(crate) fn unit_snapshot(&self, entity: Entity) -> Option<&UnitSnapshot> {
-        if !self.by_entity.is_empty() {
-            let idx = *self.by_entity.get(&entity)?;
-            return self.units.get(idx);
-        }
-        self.units.iter().find(|u| u.entity == entity)
-    }
+    
 
     /// Position lookup — returns the `UnitView` for the unit at `pos` (if any).
     pub fn unit_at(&self, pos: Hex) -> Option<UnitView<'_>> {
@@ -968,81 +749,7 @@ pub(crate) fn opponent_team(team: Team) -> Team {
     }
 }
 
-/// Build a `CombatState` from a slice of `UnitSnapshot` entries.
-///
-/// Used by `BattleSnapshot::new` to populate `self.state` so that all
-/// `UnitView`-based accessors work immediately — including in test fixtures
-/// that bypass `build_snapshot`, and during legacy-log deserialisation
-/// (`rebuild_index` when the `state` field is absent).
-///
-/// Logic inlined from the former `UnitSnapshot::as_pair` (deleted in U5/C);
-/// only the `Unit` half is needed here.
-pub(crate) fn unit_snapshots_to_combat_state(
-    units: &[UnitSnapshot],
-    round: u32,
-) -> combat_engine::state::CombatState {
-    use combat_engine::state::{ActiveStatus, RoundPhase, Team as EngineTeam, UnitId};
-    use combat_engine::CritFailOutcome as Out;
-    use crate::content::races::CritFailEffect as Cfe;
-    use combat_engine::dice::DiceExpr as EngineDiceExpr;
-    let engine_units: Vec<combat_engine::state::Unit> = units.iter().map(|u| {
-        let team = match u.team {
-            crate::game::components::Team::Player => EngineTeam::Player,
-            crate::game::components::Team::Enemy  => EngineTeam::Enemy,
-        };
-        let uid = UnitId(u.entity.to_bits());
-        let statuses: Vec<ActiveStatus> = u.statuses.iter().map(|s| ActiveStatus {
-            id: s.id.clone(),
-            rounds_remaining: s.rounds_remaining,
-            dot_per_tick: s.dot_per_tick,
-            applier: uid,
-        }).collect();
-        let crit_fail_outcome = match &u.crit_fail_effect {
-            Cfe::Miss          => Out::Miss,
-            Cfe::ManaOverload  => Out::DoubleCost,
-            Cfe::BrokenFaith   => Out::ApplyStatus(combat_engine::StatusId::from("broken_faith")),
-            Cfe::CircuitBreach => Out::SelfDamage(combat_engine::DiceExpr::new(0, 1, 2)),
-            Cfe::Exhaustion    => Out::ApplyStatus(combat_engine::StatusId::from("exhaustion")),
-            Cfe::PactControl   => Out::ApplyStatus(combat_engine::StatusId::from("pact_control")),
-        };
-        let caster_context = combat_engine::CasterContext {
-            str_mod:     u.caster_ctx.str_mod,
-            int_mod:     u.caster_ctx.int_mod,
-            spell_power: u.caster_ctx.spell_power,
-            weapon_dice: u.caster_ctx.weapon_dice,
-            crit_fail_outcome,
-        };
-        let aoo_dice = u.aoo_expected_damage
-            .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
-        combat_engine::state::Unit {
-            id: uid,
-            team,
-            pos: u.pos,
-            hp: u.hp,
-            max_hp: u.max_hp,
-            armor: u.armor,
-            armor_bonus: u.armor_bonus,
-            damage_taken_bonus: u.damage_taken_bonus,
-            base_speed: u.base_speed,
-            speed: u.speed,
-            action_points: u.action_points,
-            max_ap: u.max_ap,
-            movement_points: u.movement_points,
-            reactions_left: u.reactions_left,
-            reactions_max: 1,
-            statuses,
-            rage: u.rage,
-            mana: u.mana,
-            energy: u.energy,
-            summoner: u.summoner.map(|e| UnitId(e.to_bits())),
-            caster_context,
-            aoo_dice,
-            auras: Vec::new(),
-            enemy_phases: Vec::new(),
-        }
-    }).collect();
-    combat_engine::state::CombatState::new(engine_units, round, RoundPhase::ActorTurn, 0)
-}
+
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -1112,26 +819,7 @@ fn compute_tags(
     tags
 }
 
-/// Aggregate every status-derived bonus a snapshot needs in a single pass over
-/// the unit's `StatusEffects`. Before this helper we iterated the status list
-/// three times per unit (once per bonus field).
-fn status_bonuses(
-    entity: Entity,
-    statuses_q: &Query<&StatusEffects>,
-    content: &ContentView,
-) -> StatusBonuses {
-    let Ok(se) = statuses_q.get(entity) else {
-        return StatusBonuses::default();
-    };
-    se.0.iter()
-        .filter_map(|s| content.statuses.get(&s.id))
-        .fold(StatusBonuses::default(), |mut acc, sd| {
-            acc.speed_bonus += sd.speed_bonus;
-            acc.armor_bonus += sd.armor_bonus;
-            acc.damage_taken_bonus += sd.damage_taken_bonus;
-            acc
-        })
-}
+
 
 #[cfg(test)]
 mod affordability_tests {

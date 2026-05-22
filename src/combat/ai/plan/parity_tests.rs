@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(a.mana, Some((before_mana - 3, 10)), "mana paid");
         // No new unit spawned.
         assert_eq!(
-            sim.snapshot.units.len(),
+            sim.snapshot.state.units().len(),
             before_count,
             "sim does not spawn: unit count unchanged"
         );

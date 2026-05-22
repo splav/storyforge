@@ -1000,12 +1000,13 @@ impl Aggregate {
 /// Note: pact_control has ai_controlled=true only; no classify rule → Cosmetic.
 fn statuses_to_tag_labels(event: &ActorTickEvent) -> Vec<&'static str> {
     // Find the actor's own UnitSnapshot in the snapshot.
-    let actor_statuses = event
+    let actor_statuses: &[combat_engine::state::ActiveStatus] = event
         .snapshot
-        .units
+        .state
+        .units()
         .iter()
-        .find(|u| u.entity.to_bits() == event.actor_id)
-        .map(|u| u.statuses())
+        .find(|u| u.id.0 == event.actor_id)
+        .map(|u| u.statuses.as_slice())
         .unwrap_or(&[]);
 
     let mut seen: std::collections::BTreeSet<&'static str> = std::collections::BTreeSet::new();
