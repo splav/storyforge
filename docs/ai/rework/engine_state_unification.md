@@ -4,10 +4,11 @@
 после `bridge_turn_lifecycle` work — см. §«Post-bridge update» ниже.
 Patched 2026-05-22 после U1+U2/C1-C4 — см. §«Post-U2 update».
 Patched 2026-05-22 после U3/A-C — см. §«Post-U3 update».
+Patched 2026-05-22 после U4 — см. §«Post-U4 update».
 
-**Текущий HEAD**: `292bbbe refactor(ai): U3/C — migrate combat_engine/parity.rs literals; complete U3`.
+**Текущий HEAD**: `5b15587 refactor(ai): U4 — engine CombatState becomes sole post-step truth; delete sim back-projection`.
 
-**Прогресс**: U1 ✅ · U2 ✅ (C1–C4) · U3 ✅ (A–C) · U4 → U5 → U6 → U7 — pending.
+**Прогресс**: U1 ✅ · U2 ✅ (C1–C4) · U3 ✅ (A–C) · U4 ✅ · U5 → U6 → U7 — pending.
 
 ## Цель
 
@@ -277,6 +278,82 @@ Total: 5 новых setter'ов. Существующая семантика `.b
 3. **`benches/` накапливают долг**: `benches/engine_move.rs` сломан с момента C2.
    Pre-existing baseline failure не блокирует основной поток, но требует отдельной
    санации — кандидат на backlog после U6.
+
+---
+
+## Post-U4 update (2026-05-22)
+
+U4 завершён одним коммитом `5b15587`. Центральный архитектурный шаг плана:
+engine `CombatState` стал единственным источником post-step истины внутри
+`SimState`.
+
+### Что сделано
+
+- Удалены `project_engine_to_snapshot` (40-строчный mirror loop) и
+  `snapshot_to_combat_state` (forward projection из `snap.units`).
+- `SimState::from_snapshot` инициализирует `combat_state` через `snap.state.clone()`.
+- 3 callsite'а `project_engine_to_snapshot` (apply_endturn, apply_move Ok,
+  apply_cast Ok) убраны.
+- Q3 cleanup: `apply_cast` UnitId→Entity маппинг теперь через
+  `snapshot.entity_for_uid()`, не через `snap.units.iter().find()`.
+- U1 parity fence удалён (412 строк) — invariant который он защищал, U4
+  целенаправленно ломает. 4 in-file теста, читавших stale `snap.units` через
+  `unit_snapshot()`, переписаны на `snapshot.unit()`.
+
+Net: −516 строк (+74 / −590).
+
+### Pragmatic deviation от spec'а
+
+Spec говорил «engine — единственный источник», но `SimState` оказался
+держать ДВЕ `CombatState` в синхроне: `self.combat_state` (где engine
+мутирует) и `self.snapshot.state` (clone, обновляется per-step для внешних
+readers). Причина: внешние callers зовут `sim.snapshot.unit(entity)` — это
+читает из `snap.state`, а не из `combat_state`. Без sync вернул бы pre-step.
+
+Решение implementer'а: keep `self.snapshot.state = self.combat_state.clone()`
+после каждого apply. Стоимость: 1 clone per step (sim path, не hot). Win:
+174-строчное mirror loop удалено, API не меняется.
+
+**Architectural future cleanup** (не в spec U4, candidate для backlog):
+ввести `SimState::unit(entity) -> Option<UnitView>` accessor читающий
+из `combat_state`, мигрировать callers с `sim.snapshot.unit(...)` на
+`sim.unit(...)`, убрать `self.snapshot.state` sync. Это снимет дуальность
+`CombatState` инстансов внутри `SimState`.
+
+### Risk-analysis результаты
+
+- **R-B (golden churn)** — не материализовался. Plan-agent правильно
+  определил: serialization путь идёт через `AiLogEntry.snapshot` —
+  ОРИГИНАЛЬНЫЙ pre-decision snap из `build_snapshot`, не sim-mutated copy.
+  `cargo test --test golden_smoke` — byte-for-byte идентичен.
+- **R-F (sim.rs:1249 lethal test)** — fix straightforward: переписали через
+  `sim.snapshot.unit(actor_id)` (UnitView Deref → engine `Unit.hp`).
+- Никаких других ai_scenarios регрессий — 43/43 combat tests green
+  (44 − U1 deletion).
+
+### Влияние на оставшиеся U-фазы
+
+- **U5** — scope сужается. `snap.units` теперь полностью неиспользуемый
+  data store в sim path (frozen, никто не пишет, no-one in production code
+  читает кроме pre-decision callers в system.rs / influence.rs / aoe_hits.rs).
+  Удаление поля в U5 затронет: bin shims (replay_ai_log, mine_ai_logs —
+  уже на shim), pre-decision readers (3 файла), `snapshot_from`/`as_pair`
+  shim в tests (всё ещё есть, deletable). Plus schema flip v37→v38.
+- **U6** — без изменений (delete `UnitSnapshot` struct).
+- **U7** — без изменений.
+
+### Lessons learned
+
+1. **Plan agent's R-F call**: «verify by reading sim.rs:1240-1265 before
+   declaring R-F closed» сработала — там действительно `hp` assertion,
+   и переписать через `unit()` accessor оказалось trivially.
+2. **Pragmatic deviation OK когда invariant сохранён**: agent держал
+   `combat_state.clone() per-step` вместо архитектурно чистого решения
+   с `SimState::unit()` — приняли потому что `snap.units frozen`
+   invariant из spec сохранён, тесты зелёные, golden byte-identical.
+3. **«Critical: serialization safety» analysis в брифе** оправдал себя:
+   implementer не паниковал когда golden_smoke сразу зелёный, потому что
+   путь был обоснован заранее.
 
 ---
 
