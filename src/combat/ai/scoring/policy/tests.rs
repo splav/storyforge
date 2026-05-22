@@ -162,45 +162,28 @@ impl Lcg {
 
 fn random_target(rng: &mut Lcg) -> UnitSnapshot {
     use crate::combat::ai::config::role::AxisProfile;
-    use crate::combat::ai::world::tags::AiTags;
+    use crate::combat::ai::test_helpers::UnitBuilder;
     let hp = rng.next_range(1, 100);
     let max_hp = hp + rng.next_range(0, 50);
     let threat = rng.next_range(1, 20) as f32;
     let horizon_len = rng.next_range(0, 5) as usize;
     let damage_horizon = (0..horizon_len).map(|_| rng.next_range(1, 15) as f32).collect();
-    UnitSnapshot {
-        entity: bevy::prelude::Entity::from_raw_u32(rng.next_u32()).unwrap_or(
-            bevy::prelude::Entity::from_raw_u32(1).expect("always valid")
-        ),
-        team: if rng.next_u32().is_multiple_of(2) { Team::Player } else { Team::Enemy },
-        role: AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() },
-        pos: hex_from_offset(rng.next_range(0, 5), rng.next_range(0, 5)),
-        hp,
-        max_hp,
-        armor: rng.next_range(0, 5),
-        armor_bonus: rng.next_range(-2, 2),
-        damage_taken_bonus: rng.next_range(-2, 4),
-        action_points: 1,
-        max_ap: 1,
-        movement_points: 3,
-        base_speed: 3,
-        speed: 3,
-        mana: None,
-        rage: None,
-        energy: None,
-        abilities: Vec::new(),
-        threat,
-        tags: AiTags::empty(),
-        max_attack_range: 1,
-        summoner: None,
-        reactions_left: 0,
-        aoo_expected_damage: None,
-        statuses: Vec::new(),
-        caster_ctx: Default::default(),
-        crit_fail_effect: Default::default(),
-        damage_horizon,
-        ai_tuning_override: None,
-    }
+    // Entity::from_raw_u32(0) is invalid; fall back to 1 if rng yields 0.
+    let entity_id = rng.next_u32().max(1);
+    UnitBuilder::new(
+        entity_id,
+        if rng.next_u32().is_multiple_of(2) { Team::Player } else { Team::Enemy },
+        hex_from_offset(rng.next_range(0, 5), rng.next_range(0, 5)),
+    )
+    .hp(hp)
+    .max_hp(max_hp)
+    .armor(rng.next_range(0, 5))
+    .armor_bonus(rng.next_range(-2, 2))
+    .damage_taken_bonus(rng.next_range(-2, 4))
+    .role(AxisProfile { tank: 0.5, melee: 0.5, ..Default::default() })
+    .threat(threat)
+    .damage_horizon(damage_horizon)
+    .build()
 }
 
 fn random_caster_ctx(rng: &mut Lcg) -> CasterContext {

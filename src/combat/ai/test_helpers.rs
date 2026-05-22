@@ -172,6 +172,10 @@ impl UnitBuilder {
         self.inner.armor = armor;
         self
     }
+    pub fn armor_bonus(mut self, bonus: i32) -> Self {
+        self.inner.armor_bonus = bonus;
+        self
+    }
     pub fn ap(mut self, ap: i32) -> Self {
         self.inner.action_points = ap;
         self.inner.max_ap = ap;
@@ -240,6 +244,10 @@ impl UnitBuilder {
     }
     pub fn damage_horizon(mut self, horizon: Vec<f32>) -> Self {
         self.inner.damage_horizon = horizon;
+        self
+    }
+    pub fn damage_taken_bonus(mut self, bonus: i32) -> Self {
+        self.inner.damage_taken_bonus = bonus;
         self
     }
     pub fn build(self) -> UnitSnapshot {

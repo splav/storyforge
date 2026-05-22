@@ -429,11 +429,9 @@ mod tests {
         ]);
 
         let active = dummy_unit(current);
-        let enemy = UnitSnapshot {
-            entity: Entity::from_raw_u32(1).expect("valid"),
-            team: Team::Player,
-            ..dummy_unit(hex_from_offset(0, 0))
-        };
+        let enemy = UnitBuilder::new(1, Team::Player, hex_from_offset(0, 0))
+            .tags(AiTags::MELEE_ONLY)
+            .build();
         let snap = snapshot_from(vec![active.clone(), enemy], 1);
         let content = ContentView::load_global_for_tests();
         let intent = TacticalIntent::Reposition;
