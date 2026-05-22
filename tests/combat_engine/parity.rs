@@ -122,7 +122,7 @@ fn run_sim(snap: &BattleSnapshot, actor_id: Entity, path: Vec<storyforge::game::
         &content,
         false,
     );
-    sim.snapshot
+    sim.into_snapshot()
 }
 
 /// ContentView adapter for parity tests. After Phase 5c.1 the engine reads

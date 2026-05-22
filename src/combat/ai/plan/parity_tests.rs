@@ -135,7 +135,7 @@ mod tests {
         let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &ctx, &content, false);
 
-        let t = sim.snapshot.unit(target_id).unwrap();
+        let t = sim.unit(target_id).unwrap();
         // EV of 1d6 = 3.5 → ExpectedValue rounds to 4; raw = 4 + 2 = 6.
         let raw = DiceExpr::new(1, 6, 0).expected().round() as i32 + ctx.str_mod;
         let expected_armor = 2i32;
@@ -181,7 +181,7 @@ mod tests {
         // EV of 1d4 = 2.5 → 3; bonus = int_mod 3; raw = 6; pierces → dealt = 6.
         let raw = DiceExpr::new(1, 4, 0).expected().round() as i32 + ctx.int_mod;
         let dealt = final_damage_f32(raw as f32, 10.0, 0.0, /* pierces */ true);
-        let t = sim.snapshot.unit(target_id).unwrap();
+        let t = sim.unit(target_id).unwrap();
         assert!(
             (t.hp as f32 - (20.0 - dealt)).abs() < 0.01,
             "hp={} expected {}",
@@ -218,7 +218,7 @@ mod tests {
         let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &zero_ctx(), &content, false);
 
-        let t = sim.snapshot.unit(target_id).unwrap();
+        let t = sim.unit(target_id).unwrap();
         // Missing = 6; heal EV = 11; capped → +6.
         assert_eq!(t.hp, 20, "heal capped at max_hp");
     }
@@ -264,7 +264,7 @@ mod tests {
         sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &ctx, &content, false);
 
         // amount = 4 + 2 = 6; dot_consumed = 4; remaining = 2; hp 10+2=12.
-        let t = sim.snapshot.unit(target_id).unwrap();
+        let t = sim.unit(target_id).unwrap();
         assert_eq!(t.hp, 12, "hp={}", t.hp);
         assert!(t.statuses.iter().all(|s| s.id.0 != "poison"), "poison cleansed");
     }
@@ -291,7 +291,7 @@ mod tests {
         let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, actor_id, hex_from_offset(0, 0)), &zero_ctx(), &content, false);
 
-        let a = sim.snapshot.unit(actor_id).unwrap();
+        let a = sim.unit(actor_id).unwrap();
         // Phase 3 TODO: once engine emits GrantMovement effect, assert a.movement_points == 3 + 5.
         assert_eq!(a.movement_points, 3, "engine defers GrantMovement to Phase 3; MP unchanged");
         assert_eq!(a.action_points, 0, "AP cost still paid");
@@ -323,7 +323,7 @@ mod tests {
         let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, actor_id, hex_from_offset(0, 0)), &zero_ctx(), &content, false);
 
-        let a = sim.snapshot.unit(actor_id).unwrap();
+        let a = sim.unit(actor_id).unwrap();
         // Phase 3 TODO: once engine emits RestoreResources effect, assert +1 on each.
         assert_eq!(a.action_points, 0, "AP cost paid");
         assert_eq!(a.hp, 15, "engine defers RestoreResources to Phase 3; HP unchanged");
@@ -371,7 +371,7 @@ mod tests {
         let mut sim = SimState::from_snapshot(&snap(vec![actor]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, actor_id, hex_from_offset(0, 0)), &zero_ctx(), &content, false);
 
-        let a = sim.snapshot.unit(actor_id).unwrap();
+        let a = sim.unit(actor_id).unwrap();
         // Costs deducted (AP + mana).
         assert_eq!(a.action_points, 0, "AP paid");
         assert_eq!(a.mana, Some((before_mana - 3, 10)), "mana paid");
@@ -416,8 +416,8 @@ mod tests {
         let mut sim = SimState::from_snapshot(&snap(vec![actor, target]), actor_id, empty_status_tag_cache());
         sim.apply_step(&cast_step(&def.id, target_id, hex_from_offset(1, 0)), &zero_ctx(), &content, false);
 
-        let a = sim.snapshot.unit(actor_id).unwrap();
-        let t = sim.snapshot.unit(target_id).unwrap();
+        let a = sim.unit(actor_id).unwrap();
+        let t = sim.unit(target_id).unwrap();
 
         // Costs deducted.
         assert_eq!(a.action_points, 0, "AP paid");
@@ -551,7 +551,7 @@ mod tests {
                 let before_armor = units.iter().find(|u| u.entity == ent).map(|u| u.armor + u.armor_bonus).unwrap_or(0);
                 let before_dtb = units.iter().find(|u| u.entity == ent).map(|u| u.damage_taken_bonus).unwrap_or(0);
 
-                let after = sim.snapshot.unit(ent);
+                let after = sim.unit(ent);
 
                 match &expected_outcome.primary {
                     OutcomePrimary::Damage { raw, pierces_armor } => {
@@ -587,7 +587,7 @@ mod tests {
 
             // Status applications: each `outcome.statuses[i]` present on target with correct fields.
             for sa in &expected_outcome.statuses {
-                let unit_after = sim.snapshot.unit(sa.target);
+                let unit_after = sim.unit(sa.target);
                 let Some(u) = unit_after else {
                     // Unit may be dead (killed); statuses don't apply to corpses.
                     continue;
@@ -617,7 +617,7 @@ mod tests {
             for sa in &expected_outcome.statuses {
                 if let Some(sd) = content.statuses.get(&sa.status) {
                     if sd.skips_turn {
-                        if let Some(u) = sim.snapshot.unit(sa.target) {
+                        if let Some(u) = sim.unit(sa.target) {
                             assert!(
                                 u.is_stunned(&status_tag_cache),
                                 "[{label}] status '{}' skips_turn but HARD_CC not set on {:?}",
@@ -632,7 +632,7 @@ mod tests {
             // Costs: AP and each resource deducted on the actor.
             // After U4, snapshot.units is frozen; read via snapshot.unit() which
             // resolves through the live snapshot.state (engine Unit via Deref).
-            if let Some(actor_after) = sim.snapshot.unit(actor_id) {
+            if let Some(actor_after) = sim.unit(actor_id) {
                 // AP.
                 let expected_ap = (actor.action_points - def.cost_ap).max(0);
                 assert_eq!(

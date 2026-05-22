@@ -198,7 +198,9 @@ pub fn generate_plans(
                 extended.outcomes.push(outcome);
                 // Cache post-step snapshot so the scorer (and the next depth
                 // level here) can read it without re-simulating.
-                extended.sim_snapshots.push(ext_sim.snapshot);
+                // into_snapshot() moves combat_state into snapshot.state so
+                // callers reading sim_snapshots.last().unit(...) see post-step values.
+                extended.sim_snapshots.push(ext_sim.into_snapshot());
                 // Maintain annotation.outcomes in lock-step with steps/outcomes.
                 extended.annotation.outcomes.push(ann_outcome);
                 extended.final_pos = final_pos;
@@ -396,7 +398,7 @@ fn ai_policy_ok(
 ) -> bool {
     // Overheal: SingleAlly on target above 90% HP.
     if matches!(def.target_type, TargetType::SingleAlly) {
-        if let Some(t) = sim.snapshot.unit(target) {
+        if let Some(t) = sim.unit(target) {
             if t.hp_pct() > 0.9 {
                 return false;
             }
@@ -405,7 +407,7 @@ fn ai_policy_ok(
 
     // Wasted single-target CC on already-stunned target.
     if applies_cc(def, ctx.content) && def.aoe == AoEShape::None {
-        if let Some(t) = sim.snapshot.unit(target) {
+        if let Some(t) = sim.unit(target) {
             if t.is_stunned(ctx.status_tags) {
                 return false;
             }

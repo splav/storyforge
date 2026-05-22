@@ -5,12 +5,11 @@
 //! `CombatState` (built once in `from_snapshot` directly from `snap.state`,
 //! mutated in-place by each `step()` call).
 //!
-//! `snapshot.units` is **frozen at construction** and is never updated after
-//! steps.  `snapshot.state` IS updated after each step (via
-//! `self.snapshot.state = self.combat_state.clone()`) so that
-//! `snapshot.unit(entity)` / `actor_unit()` return post-step values.
-//! Engine `CombatState` (`combat_state`) is the sole mutable working copy;
-//! `snapshot.state` is kept in sync but `snapshot.units` is not.
+//! `snapshot.units` and `snapshot.state` are **frozen at construction** and
+//! are never updated after steps (U4-cleanup invariant).  Read post-step
+//! unit state via `sim.unit(entity)` / `sim.actor_unit()` / `sim.enemies_of()`,
+//! which pull from `combat_state` directly.  Engine `CombatState`
+//! (`combat_state`) is the sole mutable working copy.
 
 use crate::combat::ai::world::snapshot::{
     BattleSnapshot, UnitView,
@@ -26,7 +25,7 @@ use combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
     dice::ExpectedValue as EngineExpectedValue,
-    state::{CombatState, UnitId},
+    state::{CombatState, Team, UnitId},
     step::step,
 };
 use combat_engine::{
@@ -40,15 +39,15 @@ use super::types::{PlanStep, StepOutcome};
 /// Mutable working copy of a snapshot for plan search.
 ///
 /// Each `apply_step` call goes through `combat_engine::step()`, mutating
-/// `combat_state` in place.  After each step, `snapshot.state` is synced
-/// (`self.snapshot.state = self.combat_state.clone()`) so that
-/// `snapshot.unit(entity)` / `actor_unit()` return post-step values.
+/// `combat_state` in place.  Read post-step unit state via `sim.unit(entity)`
+/// or `sim.actor_unit()` — these read from `combat_state` directly, not from
+/// `snapshot.state`.
 ///
-/// **U4 invariant:** `snapshot.units` is frozen at construction and is never
-/// updated after steps.  Only `snapshot.state` is synced.  Derived AI fields
-/// (`threat`, `max_attack_range`, `tags`, `aoo_expected_damage`, etc.) are
-/// read-only caches from decision-entry time and are intentionally stale for
-/// the duration of a search branch.
+/// **U4-cleanup invariant:** `snapshot.state` is frozen at construction and is
+/// never updated after steps.  `snapshot.units` is also frozen (U4 invariant).
+/// Derived AI fields (`threat`, `max_attack_range`, `tags`, `aoo_expected_damage`,
+/// etc.) are read-only caches from decision-entry time and are intentionally
+/// stale for the duration of a search branch.
 ///
 /// `status_tags` is retained for `SnapshotContentView` construction.  Tests
 /// that don't exercise status resolution can pass `empty_status_tag_cache()`.
@@ -79,7 +78,46 @@ impl<'a> SimState<'a> {
     /// retain'd vec. Planning callers that terminate on actor death see
     /// `None` as before.
     pub fn actor_unit(&self) -> Option<UnitView<'_>> {
-        self.snapshot.unit(self.actor).filter(|u| u.is_alive())
+        self.unit(self.actor).filter(|u| u.is_alive())
+    }
+
+    /// Read the post-step state for any unit by Bevy `Entity`.
+    ///
+    /// Reads from `combat_state` (authoritative post-step) + `snapshot.cache`
+    /// (frozen at construction).  Mirrors `BattleSnapshot::unit()` but always
+    /// returns the current engine state, not the (frozen) `snapshot.state`.
+    ///
+    /// Returns `Some` even for dead units (corpses retained by the engine) —
+    /// callers that want only alive units should use `actor_unit()` or
+    /// filter with `.filter(|u| u.is_alive())`.
+    pub fn unit(&self, entity: Entity) -> Option<UnitView<'_>> {
+        let uid = self.snapshot.uid_for_entity(entity)?;
+        let state = self.combat_state.unit(uid)?;
+        let cache = self.snapshot.cache.unit(entity)?;
+        Some(UnitView { state, cache })
+    }
+
+    /// Live enemies of `team` from the current (post-step) engine state.
+    ///
+    /// Mirrors `BattleSnapshot::enemies_of()` but reads from `combat_state`.
+    pub fn enemies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
+        self.combat_state.units().iter().filter_map(move |u| {
+            if u.team == team || u.hp <= 0 { return None; }
+            let entity = self.snapshot.entity_for_uid(u.id)?;
+            let cache = self.snapshot.cache.unit(entity)?;
+            Some(UnitView { state: u, cache })
+        })
+    }
+
+    /// Consume `self` and return a `BattleSnapshot` whose `state` reflects the
+    /// current (post-step) engine state.
+    ///
+    /// Used by callers that need to hand off a `BattleSnapshot` object — for
+    /// example, parity tests that compare engine vs sim over a returned snapshot.
+    /// For read access within sim code, prefer `sim.unit(entity)` directly.
+    pub fn into_snapshot(mut self) -> BattleSnapshot {
+        self.snapshot.state = self.combat_state;
+        self.snapshot
     }
 
     /// Apply one plan step to the simulated state, returning per-step
@@ -118,10 +156,10 @@ impl<'a> SimState<'a> {
     /// Advance time past the actor's turn end: tick active statuses (DoT damage,
     /// duration decrements, expiry) for the actor.
     ///
-    /// After U4: engine `CombatState` is the sole mutable source of truth.
-    /// `snapshot.state` is synced to `combat_state` after the tick so that
-    /// `snapshot.unit(entity)` / `actor_unit()` return post-tick values.
-    /// `snapshot.units` is frozen at construction; only `state` is updated.
+    /// After U4-cleanup: `combat_state` is the sole mutable source of truth.
+    /// `snapshot.state` is frozen at construction; read post-tick values via
+    /// `sim.unit(entity)` or `sim.actor_unit()`.
+    /// `snapshot.units` is frozen at construction (U4 invariant).
     ///
     /// **Single-tick invariant:** call exactly once per branch expansion — never
     /// inside the step loop for multi-step plans.  `generate_plans` enforces this
@@ -131,9 +169,6 @@ impl<'a> SimState<'a> {
     pub fn apply_endturn(&mut self, actor: UnitId) {
         let content_view = SnapshotContentView::from_snapshot(&self.snapshot);
         let _ = self.combat_state.tick_actor_statuses(actor, &content_view);
-        // Sync snapshot.state so snapshot.unit()/actor_unit() see post-tick values.
-        // snap.units remains frozen (U4 invariant: no more field-by-field mirror).
-        self.snapshot.state = self.combat_state.clone();
     }
 
     fn apply_move(&mut self, path: &[Hex]) -> StepOutcome {
@@ -153,9 +188,8 @@ impl<'a> SimState<'a> {
 
         match step_result {
             Ok((_events, _ctx)) => {
-                // Sync snapshot.state so snapshot.unit()/actor_unit() see post-step values.
-                // snap.units remains frozen (U4 invariant: no more field-by-field mirror).
-                self.snapshot.state = self.combat_state.clone();
+                // combat_state is already updated in-place by step().
+                // No sync needed — read post-step values via sim.unit(entity).
             }
             Err(_) => {
                 // Engine rolled back; no changes to project.  Plan branch
@@ -205,9 +239,8 @@ impl<'a> SimState<'a> {
 
         match step_result {
             Ok((events, _ctx)) => {
-                // Sync snapshot.state so snapshot.unit()/actor_unit() see post-step values.
-                // snap.units remains frozen (U4 invariant: no more field-by-field mirror).
-                self.snapshot.state = self.combat_state.clone();
+                // combat_state is already updated in-place by step().
+                // No sync needed — read post-step values via sim.unit(entity).
 
                 // ── Populate StepOutcome from engine events ────────────────────
                 use combat_engine::event::Event;
@@ -487,7 +520,7 @@ mod tests {
         };
         let outcome = sim.apply_step(&step, &ctx(4, 0), &content, false);
 
-        let t = sim.snapshot.unit(target_id).unwrap();
+        let t = sim.unit(target_id).unwrap();
         assert_eq!(t.hp, 14, "20 - 6 dealt = 14, got hp={}", t.hp);
         assert!((outcome.damage - 6.0).abs() < 0.01, "raw damage {}", outcome.damage);
         assert_eq!(outcome.hits, 1);
@@ -523,7 +556,7 @@ mod tests {
         };
         let outcome = sim.apply_step(&step, &ctx(0, 0), &content, false);
 
-        let t = sim.snapshot.unit(target_id).unwrap();
+        let t = sim.unit(target_id).unwrap();
         assert_eq!(t.hp, 19, "expected 1-damage floor to land, got hp={}", t.hp);
         assert!(
             (outcome.damage - 1.0).abs() < 0.01,
@@ -565,11 +598,11 @@ mod tests {
         // single source of truth, including dead units). Downstream
         // `enemies_of` / `actor_unit` filter by `is_alive`, so plan-walking
         // code still sees the target as "gone" without a retain'd vec.
-        let corpse = sim.snapshot.unit(target_id).expect("corpse retained in snapshot");
+        let corpse = sim.unit(target_id).expect("corpse retained in snapshot");
         assert_eq!(corpse.hp, 0);
         assert!(!corpse.is_alive());
         assert_eq!(
-            sim.snapshot.enemies_of(Team::Enemy).count(), 0,
+            sim.enemies_of(Team::Enemy).count(), 0,
             "default enemies_of hides the corpse",
         );
     }
@@ -601,7 +634,7 @@ mod tests {
         };
         let outcome = sim.apply_step(&step, &ctx(0, 2), &content, false);
 
-        let a = sim.snapshot.unit(ally_id).unwrap();
+        let a = sim.unit(ally_id).unwrap();
         assert_eq!(a.hp, 20, "heal must clamp to max_hp");
         assert!((outcome.heal - 5.0).abs() < 0.01, "effective heal {}", outcome.heal);
     }
@@ -643,7 +676,7 @@ mod tests {
             false,
         );
 
-        let a = sim.snapshot.unit(actor_id).unwrap();
+        let a = sim.unit(actor_id).unwrap();
         assert_eq!(a.action_points, 1, "AP drops from 2 to 1");
         assert_eq!(a.mana, Some((2, 10)), "mana 5 - 3 = 2");
     }
@@ -664,7 +697,7 @@ mod tests {
         );
 
         assert!(outcome.moved);
-        let a = sim.snapshot.unit(actor_id).unwrap();
+        let a = sim.unit(actor_id).unwrap();
         assert_eq!(a.pos, target);
         assert_eq!(a.movement_points, 1, "speed 3 - path 2 = 1");
     }
@@ -730,7 +763,7 @@ mod tests {
         assert_eq!(outcome.stunned, vec![target_id]);
         // After U4, snapshot.units is frozen; read via snapshot.unit() which
         // resolves through the live snapshot.state.
-        let t = sim.snapshot.unit(target_id).unwrap();
+        let t = sim.unit(target_id).unwrap();
         assert!(t.is_stunned(&status_tag_cache));
     }
 
@@ -798,7 +831,7 @@ mod tests {
             false,
         );
 
-        let t = sim.snapshot.unit(ally_id).unwrap();
+        let t = sim.unit(ally_id).unwrap();
         // Heal 5: cleanse spends 3 on poison (status removed), 2 remain → HP 10+2=12.
         assert_eq!(t.hp, 12, "cleanse consumes 3, then +2 HP → 12, got {}", t.hp);
         assert!(
@@ -900,7 +933,7 @@ mod tests {
             false,
         );
 
-        let t_mid = sim.snapshot.unit(target_id).unwrap();
+        let t_mid = sim.unit(target_id).unwrap();
         assert_eq!(
             t_mid.armor_bonus, 5,
             "aggregate should refresh after status apply, got {}",
@@ -920,7 +953,7 @@ mod tests {
             false,
         );
 
-        let t_after = sim.snapshot.unit(target_id).unwrap();
+        let t_after = sim.unit(target_id).unwrap();
         // raw 8 − armor_bonus 5 = 3 dealt. HP: 20 − 3 = 17.
         assert_eq!(t_after.hp, 17, "armor should reduce damage from 8 to 3, got hp={}", t_after.hp);
         assert!(
@@ -968,8 +1001,8 @@ mod tests {
         );
 
         assert_eq!(outcome.hits, 2, "radius-1 centered at (3,0) covers both (3,0) and (4,0)");
-        assert!(sim.snapshot.unit(t1_id).unwrap().hp < 20);
-        assert!(sim.snapshot.unit(t2_id).unwrap().hp < 20);
+        assert!(sim.unit(t1_id).unwrap().hp < 20);
+        assert!(sim.unit(t2_id).unwrap().hp < 20);
     }
 
     // ── GrantMovement ───────────────────────────────────────────────────────
@@ -1002,7 +1035,7 @@ mod tests {
             false,
         );
 
-        let a = sim.snapshot.unit(actor_id).unwrap();
+        let a = sim.unit(actor_id).unwrap();
         // Engine pays AP (cost_ap=1), but GrantMovement effect fanout is Phase 3 —
         // MP stays at the initial value (3) since no GrantMovement Effect is emitted.
         assert_eq!(a.movement_points, 3, "engine defers GrantMovement to Phase 3; MP unchanged");
@@ -1067,7 +1100,7 @@ mod tests {
         sim.apply_move(&[hex_from_offset(2, 3)]);
 
         assert_eq!(
-            sim.snapshot.unit(enemy_id).unwrap().reactions_left,
+            sim.unit(enemy_id).unwrap().reactions_left,
             0,
             "enemy reaction consumed",
         );
@@ -1128,7 +1161,7 @@ mod tests {
         );
         // hp clamped to 0, not negative.
         // After U4, snapshot.units is frozen at pre-step state; read via engine state.
-        let dead = sim.snapshot.unit(actor_id).expect("corpse retained in engine state");
+        let dead = sim.unit(actor_id).expect("corpse retained in engine state");
         assert_eq!(dead.hp, 0, "hp clamped to 0");
     }
 
@@ -1196,7 +1229,7 @@ mod tests {
 
         assert_eq!(outcome.self_damage, 5.0, "exactly one AoO per step per enemy");
         assert_eq!(
-            sim.snapshot.unit(enemy_id).unwrap().reactions_left,
+            sim.unit(enemy_id).unwrap().reactions_left,
             1,
             "only one reaction consumed out of 2",
         );
@@ -1264,7 +1297,7 @@ mod tests {
         );
 
         assert_eq!(sim.actor_unit().unwrap().rage, Some((6, 10)), "attacker rage (5/10) → (6/10)");
-        assert_eq!(sim.snapshot.unit(target_id).unwrap().rage, None, "defender has no rage component");
+        assert_eq!(sim.unit(target_id).unwrap().rage, None, "defender has no rage component");
     }
 
     /// Single-target hit: defender has rage, attacker does not.
@@ -1300,7 +1333,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(sim.snapshot.unit(target_id).unwrap().rage, Some((4, 10)), "defender rage (3/10) → (4/10)");
+        assert_eq!(sim.unit(target_id).unwrap().rage, Some((4, 10)), "defender rage (3/10) → (4/10)");
         assert_eq!(sim.actor_unit().unwrap().rage, None, "attacker has no rage component");
     }
 
@@ -1338,7 +1371,7 @@ mod tests {
         );
 
         assert_eq!(sim.actor_unit().unwrap().rage, Some((3, 10)), "attacker (2/10) → (3/10)");
-        assert_eq!(sim.snapshot.unit(target_id).unwrap().rage, Some((8, 10)), "defender (7/10) → (8/10)");
+        assert_eq!(sim.unit(target_id).unwrap().rage, Some((8, 10)), "defender (7/10) → (8/10)");
     }
 
     /// AoE hitting 3 enemies: attacker rage gets +1 per target hit (total +3).
@@ -1381,9 +1414,9 @@ mod tests {
 
         assert_eq!(outcome.hits, 3, "AoE should hit all 3 enemies");
         assert_eq!(sim.actor_unit().unwrap().rage, Some((8, 10)), "attacker (5/10) + 3 hits = (8/10)");
-        assert_eq!(sim.snapshot.unit(t1_id).unwrap().rage, Some((1, 10)), "t1 (0/10) → (1/10)");
-        assert_eq!(sim.snapshot.unit(t2_id).unwrap().rage, Some((1, 10)), "t2 (0/10) → (1/10)");
-        assert_eq!(sim.snapshot.unit(t3_id).unwrap().rage, Some((1, 10)), "t3 (0/10) → (1/10)");
+        assert_eq!(sim.unit(t1_id).unwrap().rage, Some((1, 10)), "t1 (0/10) → (1/10)");
+        assert_eq!(sim.unit(t2_id).unwrap().rage, Some((1, 10)), "t2 (0/10) → (1/10)");
+        assert_eq!(sim.unit(t3_id).unwrap().rage, Some((1, 10)), "t3 (0/10) → (1/10)");
     }
 
     /// Rage clamps at max: attacker at max rage stays there after a hit.
@@ -1451,7 +1484,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(sim.snapshot.unit(target_id).unwrap().rage, Some((10, 10)), "defender rage capped at max 10");
+        assert_eq!(sim.unit(target_id).unwrap().rage, Some((10, 10)), "defender rage capped at max 10");
     }
 
     /// Units with no rage component (rage: None) are silently unaffected.
@@ -1485,7 +1518,7 @@ mod tests {
         );
 
         assert_eq!(sim.actor_unit().unwrap().rage, None, "attacker has no rage component, stays None");
-        assert_eq!(sim.snapshot.unit(target_id).unwrap().rage, None, "defender has no rage component, stays None");
+        assert_eq!(sim.unit(target_id).unwrap().rage, None, "defender has no rage component, stays None");
     }
 
     // ── AoO rage (drift #3, AoO branch) ─────────────────────────────────────
@@ -1514,7 +1547,7 @@ mod tests {
 
         assert_eq!(sim.actor_unit().unwrap().rage, Some((1, 10)), "victim +1 rage");
         assert_eq!(
-            sim.snapshot.unit(enemy_id).unwrap().rage,
+            sim.unit(enemy_id).unwrap().rage,
             Some((1, 10)),
             "AoO attacker +1 rage",
         );
@@ -1542,7 +1575,7 @@ mod tests {
         sim.apply_move(&[hex_from_offset(2, 3)]);
 
         assert_eq!(sim.actor_unit().unwrap().rage, Some((10, 10)));
-        assert_eq!(sim.snapshot.unit(enemy_id).unwrap().rage, Some((10, 10)));
+        assert_eq!(sim.unit(enemy_id).unwrap().rage, Some((10, 10)));
     }
 
     // TODO(12.3): `self_damage_grants_two_rage_for_self_aoe` — actor is both
