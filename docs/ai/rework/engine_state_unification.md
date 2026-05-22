@@ -3,10 +3,11 @@
 **Статус**: rewrite после критики и аудита кода (v2). Patched 2026-05-21
 после `bridge_turn_lifecycle` work — см. §«Post-bridge update» ниже.
 Patched 2026-05-22 после U1+U2/C1-C4 — см. §«Post-U2 update».
+Patched 2026-05-22 после U3/A-C — см. §«Post-U3 update».
 
-**Текущий HEAD**: `fc2a4b4 refactor(ai): U2/C4 — finalize cascade; drop ScoringCtx.active legacy`.
+**Текущий HEAD**: `292bbbe refactor(ai): U3/C — migrate combat_engine/parity.rs literals; complete U3`.
 
-**Прогресс**: U1 ✅ · U2 ✅ (C1–C4) · U3 → U4 → U5 → U6 → U7 — pending.
+**Прогресс**: U1 ✅ · U2 ✅ (C1–C4) · U3 ✅ (A–C) · U4 → U5 → U6 → U7 — pending.
 
 ## Цель
 
@@ -213,6 +214,69 @@ U1 и U2 завершены пятью коммитами. Cascade пошёл ц
    контекстом первоначальной миграции.
 4. **Doc-edits — отдельный коммит после фазы**, не внутри. Агенты дважды
    пытались править spec во время выполнения; оба раза откатывалось.
+
+---
+
+## Post-U3 update (2026-05-22)
+
+U3 завершён тремя коммитами. Тестовые фикстуры больше не конструируют
+`UnitSnapshot { … }` literal'ами — все используют существующий `UnitBuilder`.
+
+### Коммиты
+
+| Phase | Hash | Содержание |
+|-------|------|------------|
+| U3/A | `a675583` | Добавлено 2 setter'а в `UnitBuilder` (`armor_bonus`, `damage_taken_bonus`); мигрировано 2 literal'а в `src/combat/ai/{intent/score.rs:432, scoring/policy/tests.rs::random_target}`. Остальные сайты в `src/` уже были на builder'е до начала. |
+| U3/B | `414f505` | 13 literal сайтов + 2 `make_unit` closure'а в `tests/combat/sim_parity.rs` → `UnitBuilder.build_pair()` + `snapshot_from_pairs` (Q2 engine-native). Добавлено 3 setter'а: `statuses`, `movement_points`, `speed_override` — для U1 parity closure нужен независимый контроль `base_speed`/`speed`/`mp` (haste). U1 parity guard продолжает работать (construction migrated, read side `snap.units.iter().find()` сохранён до U5). −221 строк net. |
+| U3/C | `292bbbe` | `tests/combat_engine/parity.rs`: `make_snap_unit` helper + 2 inline literal'а → builder pairs; 4 `snapshot_from` → `snapshot_from_pairs`. `benches/engine_move.rs` пропущен — pre-existing baseline broken (engine API drift). |
+
+### Final exit grep
+
+`ya tool ast-index search 'UnitSnapshot {'` возвращает только allowlist:
+
+- `src/combat/ai/world/snapshot.rs` — struct definition + 3 projection сайта
+  (`project_engine_to_snapshot` — U4 scope)
+- `src/combat/ai/test_helpers.rs` — UnitBuilder definition (124, 268, 385)
+- `src/combat/ai/log/mod.rs:2113` — `schema_round_trip_v36_identity` test
+  (R3 exemption — byte-exact schema parity literal, intentional)
+- `src/bin/mine_ai_logs.rs:3068` — binary, U5 scope
+- `benches/engine_move.rs:39-40` — separate broken baseline, не в exit gate
+
+`tests/` дерево полностью чисто — ни одного direct UnitSnapshot literal.
+
+### UnitBuilder API после U3
+
+Все добавления в `UnitBuilder` (`src/combat/ai/test_helpers.rs`):
+
+- A: `armor_bonus(i32)`, `damage_taken_bonus(i32)`
+- B: `statuses(Vec<ActiveStatusView>)`, `movement_points(i32)`, `speed_override(i32)`
+
+Total: 5 новых setter'ов. Существующая семантика `.build()` / `.build_pair()`
+не менялась — оба терминатора работают.
+
+### Влияние на оставшиеся U-фазы
+
+- **U4** — без изменений. `project_engine_to_snapshot` и `snapshot_to_combat_state`
+  всё ещё на месте; U1 parity guard готов как safety net.
+- **U5** — scope сужается: schema flip + удаление `BattleSnapshot.units`/`by_entity`/
+  `round` теперь чище, потому что тесты не зависят от literal layout'а. Bin
+  migration (`mine_ai_logs.rs:3068`, `replay_ai_log.rs` shim из C4) — точечная.
+- **U6** — без изменений (всё ещё удалить `UnitSnapshot` struct).
+- **U7** — без изменений (тривиально после B-prime).
+
+### Lessons learned
+
+1. **Plan-agent's stale survey**: первоначальная enumerate'а Plan-агента указывала на
+   4 сайта в `src/combat/ai/`, но 2 из них (`dummy_unit`, `base_target`) уже были
+   мигрированы. Implementer'у пришлось верифицировать. Урок: при выполнении плана
+   первым шагом implementer должен grep'ом подтвердить актуальность списка.
+2. **`snapshot_from_pairs` work'нул чище ожидаемого**: Q2 (engine-native сразу)
+   дал чище diff, чем minimal-diff snapshot_from. После U3 `snapshot_from` и
+   `as_pair` остались тоько в одном callsite — U5/U6 сможет их выкинуть без
+   церемоний.
+3. **`benches/` накапливают долг**: `benches/engine_move.rs` сломан с момента C2.
+   Pre-existing baseline failure не блокирует основной поток, но требует отдельной
+   санации — кандидат на backlog после U6.
 
 ---
 
