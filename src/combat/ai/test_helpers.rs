@@ -349,17 +349,97 @@ impl UnitBuilder {
     }
 }
 
+/// Test-only conversion: UnitSnapshot → engine pair. Inlined here from former
+/// production `UnitSnapshot::as_pair` (deleted in U5/C).
+fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitAiCache) {
+    use combat_engine::state::{ActiveStatus, Team as EngineTeam, UnitId};
+    use combat_engine::CritFailOutcome as Out;
+    use crate::content::races::CritFailEffect as Cfe;
+    use combat_engine::dice::DiceExpr as EngineDiceExpr;
+    let team = match u.team {
+        crate::game::components::Team::Player => EngineTeam::Player,
+        crate::game::components::Team::Enemy  => EngineTeam::Enemy,
+    };
+    // LEGACY: shortcut valid for non-summon callers (test/legacy); breaks on
+    // summons — see B-prime audit.
+    let uid = UnitId(u.entity.to_bits());
+    let statuses: Vec<ActiveStatus> = u.statuses.iter().map(|s| ActiveStatus {
+        id: s.id.clone(),
+        rounds_remaining: s.rounds_remaining,
+        dot_per_tick: s.dot_per_tick,
+        applier: uid,
+    }).collect();
+    let crit_fail_outcome = match &u.crit_fail_effect {
+        Cfe::Miss          => Out::Miss,
+        Cfe::ManaOverload  => Out::DoubleCost,
+        Cfe::BrokenFaith   => Out::ApplyStatus(combat_engine::StatusId::from("broken_faith")),
+        Cfe::CircuitBreach => Out::SelfDamage(combat_engine::DiceExpr::new(0, 1, 2)),
+        Cfe::Exhaustion    => Out::ApplyStatus(combat_engine::StatusId::from("exhaustion")),
+        Cfe::PactControl   => Out::ApplyStatus(combat_engine::StatusId::from("pact_control")),
+    };
+    let caster_context = combat_engine::CasterContext {
+        str_mod:     u.caster_ctx.str_mod,
+        int_mod:     u.caster_ctx.int_mod,
+        spell_power: u.caster_ctx.spell_power,
+        weapon_dice: u.caster_ctx.weapon_dice,
+        crit_fail_outcome,
+    };
+    let aoo_dice = u.aoo_expected_damage
+        .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
+    let engine_unit = combat_engine::state::Unit {
+        id: uid,
+        team,
+        pos: u.pos,
+        hp: u.hp,
+        max_hp: u.max_hp,
+        armor: u.armor,
+        armor_bonus: u.armor_bonus,
+        damage_taken_bonus: u.damage_taken_bonus,
+        base_speed: u.base_speed,
+        speed: u.speed,
+        action_points: u.action_points,
+        max_ap: u.max_ap,
+        movement_points: u.movement_points,
+        reactions_left: u.reactions_left,
+        reactions_max: 1,
+        statuses,
+        rage: u.rage,
+        mana: u.mana,
+        energy: u.energy,
+        summoner: u.summoner.map(|e| combat_engine::state::UnitId(e.to_bits())),
+        caster_context,
+        aoo_dice,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
+    };
+    let ai_cache = UnitAiCache {
+        entity:              u.entity,
+        role:                u.role,
+        threat:              u.threat,
+        tags:                u.tags,
+        max_attack_range:    u.max_attack_range,
+        aoo_expected_damage: u.aoo_expected_damage,
+        damage_horizon:      u.damage_horizon.clone(),
+        crit_fail_effect:    u.crit_fail_effect.clone(),
+        ai_tuning_override:  u.ai_tuning_override.clone(),
+        abilities:           u.abilities.clone(),
+        caster_ctx:          u.caster_ctx.clone(),
+    };
+    (engine_unit, ai_cache)
+}
+
 /// Build a `BattleSnapshot` via the authoritative `BattleSnapshot::new(state, cache)`
 /// constructor from a vec of `UnitSnapshot` values.
 ///
 /// Drop-in replacement for `snapshot_from(units, round)`.
-/// Each `UnitSnapshot` is projected to `(Unit, UnitAiCache)` via `as_pair()`.
+/// Each `UnitSnapshot` is projected to `(Unit, UnitAiCache)` via the private
+/// `unit_snapshot_to_pair` helper (moved here from production in U5/C).
 #[allow(dead_code)]
 pub fn snapshot_from(
     units: Vec<UnitSnapshot>,
     round: u32,
 ) -> BattleSnapshot {
-    snapshot_from_pairs(units.iter().map(|u| u.as_pair()).collect(), round)
+    snapshot_from_pairs(units.iter().map(unit_snapshot_to_pair).collect(), round)
 }
 
 /// Lower-level variant for callers that already have `build_pair()` output.

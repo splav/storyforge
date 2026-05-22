@@ -452,91 +452,6 @@ impl UnitSnapshot {
         })
     }
 
-    /// Convert this `UnitSnapshot` into the two authoritative halves:
-    /// an engine `Unit` (for `CombatState`) and a `UnitAiCache` (for
-    /// `AiCache`). Used by `snapshot_from` in test helpers to build
-    /// `BattleSnapshot::new(state, cache)` without the lossy
-    /// `unit_snapshots_to_combat_state` projection.
-    ///
-    /// Mirrors `unit_snapshots_to_combat_state` for a single unit.
-    pub fn as_pair(&self) -> (combat_engine::state::Unit, crate::combat::ai::world::cache::UnitAiCache) {
-        use combat_engine::state::{ActiveStatus, Team as EngineTeam, UnitId};
-        use combat_engine::CritFailOutcome as Out;
-        use crate::content::races::CritFailEffect as Cfe;
-        use combat_engine::dice::DiceExpr as EngineDiceExpr;
-        let team = match self.team {
-            crate::game::components::Team::Player => EngineTeam::Player,
-            crate::game::components::Team::Enemy  => EngineTeam::Enemy,
-        };
-        // LEGACY: shortcut valid for non-summon callers (test/legacy); breaks on
-        // summons — see B-prime audit. Deleted in engine_state_unification U5–U6.
-        let uid = UnitId(self.entity.to_bits());
-        let statuses: Vec<ActiveStatus> = self.statuses.iter().map(|s| ActiveStatus {
-            id: s.id.clone(),
-            rounds_remaining: s.rounds_remaining,
-            dot_per_tick: s.dot_per_tick,
-            applier: uid,
-        }).collect();
-        let crit_fail_outcome = match &self.crit_fail_effect {
-            Cfe::Miss          => Out::Miss,
-            Cfe::ManaOverload  => Out::DoubleCost,
-            Cfe::BrokenFaith   => Out::ApplyStatus(combat_engine::StatusId::from("broken_faith")),
-            Cfe::CircuitBreach => Out::SelfDamage(combat_engine::DiceExpr::new(0, 1, 2)),
-            Cfe::Exhaustion    => Out::ApplyStatus(combat_engine::StatusId::from("exhaustion")),
-            Cfe::PactControl   => Out::ApplyStatus(combat_engine::StatusId::from("pact_control")),
-        };
-        let caster_context = combat_engine::CasterContext {
-            str_mod:     self.caster_ctx.str_mod,
-            int_mod:     self.caster_ctx.int_mod,
-            spell_power: self.caster_ctx.spell_power,
-            weapon_dice: self.caster_ctx.weapon_dice,
-            crit_fail_outcome,
-        };
-        let aoo_dice = self.aoo_expected_damage
-            .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
-        let engine_unit = combat_engine::state::Unit {
-            id: uid,
-            team,
-            pos: self.pos,
-            hp: self.hp,
-            max_hp: self.max_hp,
-            armor: self.armor,
-            armor_bonus: self.armor_bonus,
-            damage_taken_bonus: self.damage_taken_bonus,
-            base_speed: self.base_speed,
-            speed: self.speed,
-            action_points: self.action_points,
-            max_ap: self.max_ap,
-            movement_points: self.movement_points,
-            reactions_left: self.reactions_left,
-            reactions_max: 1,
-            statuses,
-            rage: self.rage,
-            mana: self.mana,
-            energy: self.energy,
-            // LEGACY: shortcut valid for non-summon callers (test/legacy); breaks on
-            // summon-of-summon chains — see B-prime audit. Deleted in U5–U6.
-            summoner: self.summoner.map(|e| combat_engine::state::UnitId(e.to_bits())),
-            caster_context,
-            aoo_dice,
-            auras: Vec::new(),
-            enemy_phases: Vec::new(),
-        };
-        let ai_cache = crate::combat::ai::world::cache::UnitAiCache {
-            entity:              self.entity,
-            role:                self.role,
-            threat:              self.threat,
-            tags:                self.tags,
-            max_attack_range:    self.max_attack_range,
-            aoo_expected_damage: self.aoo_expected_damage,
-            damage_horizon:      self.damage_horizon.clone(),
-            crit_fail_effect:    self.crit_fail_effect.clone(),
-            ai_tuning_override:  self.ai_tuning_override.clone(),
-            abilities:           self.abilities.clone(),
-            caster_ctx:          self.caster_ctx.clone(),
-        };
-        (engine_unit, ai_cache)
-    }
 }
 
 /// Low-level resource-pool lookup. The one place that knows the
@@ -1060,15 +975,72 @@ pub(crate) fn opponent_team(team: Team) -> Team {
 /// that bypass `build_snapshot`, and during legacy-log deserialisation
 /// (`rebuild_index` when the `state` field is absent).
 ///
-/// Delegates to `UnitSnapshot::as_pair` so that the field projection lives
-/// in one place — previously this duplicated the logic and was *lossy*
-/// (hardcoded `summoner: None` even when the source had `Some(...)`).
+/// Logic inlined from the former `UnitSnapshot::as_pair` (deleted in U5/C);
+/// only the `Unit` half is needed here.
 pub(crate) fn unit_snapshots_to_combat_state(
     units: &[UnitSnapshot],
     round: u32,
 ) -> combat_engine::state::CombatState {
-    use combat_engine::state::RoundPhase;
-    let engine_units = units.iter().map(|u| u.as_pair().0).collect();
+    use combat_engine::state::{ActiveStatus, RoundPhase, Team as EngineTeam, UnitId};
+    use combat_engine::CritFailOutcome as Out;
+    use crate::content::races::CritFailEffect as Cfe;
+    use combat_engine::dice::DiceExpr as EngineDiceExpr;
+    let engine_units: Vec<combat_engine::state::Unit> = units.iter().map(|u| {
+        let team = match u.team {
+            crate::game::components::Team::Player => EngineTeam::Player,
+            crate::game::components::Team::Enemy  => EngineTeam::Enemy,
+        };
+        let uid = UnitId(u.entity.to_bits());
+        let statuses: Vec<ActiveStatus> = u.statuses.iter().map(|s| ActiveStatus {
+            id: s.id.clone(),
+            rounds_remaining: s.rounds_remaining,
+            dot_per_tick: s.dot_per_tick,
+            applier: uid,
+        }).collect();
+        let crit_fail_outcome = match &u.crit_fail_effect {
+            Cfe::Miss          => Out::Miss,
+            Cfe::ManaOverload  => Out::DoubleCost,
+            Cfe::BrokenFaith   => Out::ApplyStatus(combat_engine::StatusId::from("broken_faith")),
+            Cfe::CircuitBreach => Out::SelfDamage(combat_engine::DiceExpr::new(0, 1, 2)),
+            Cfe::Exhaustion    => Out::ApplyStatus(combat_engine::StatusId::from("exhaustion")),
+            Cfe::PactControl   => Out::ApplyStatus(combat_engine::StatusId::from("pact_control")),
+        };
+        let caster_context = combat_engine::CasterContext {
+            str_mod:     u.caster_ctx.str_mod,
+            int_mod:     u.caster_ctx.int_mod,
+            spell_power: u.caster_ctx.spell_power,
+            weapon_dice: u.caster_ctx.weapon_dice,
+            crit_fail_outcome,
+        };
+        let aoo_dice = u.aoo_expected_damage
+            .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
+        combat_engine::state::Unit {
+            id: uid,
+            team,
+            pos: u.pos,
+            hp: u.hp,
+            max_hp: u.max_hp,
+            armor: u.armor,
+            armor_bonus: u.armor_bonus,
+            damage_taken_bonus: u.damage_taken_bonus,
+            base_speed: u.base_speed,
+            speed: u.speed,
+            action_points: u.action_points,
+            max_ap: u.max_ap,
+            movement_points: u.movement_points,
+            reactions_left: u.reactions_left,
+            reactions_max: 1,
+            statuses,
+            rage: u.rage,
+            mana: u.mana,
+            energy: u.energy,
+            summoner: u.summoner.map(|e| UnitId(e.to_bits())),
+            caster_context,
+            aoo_dice,
+            auras: Vec::new(),
+            enemy_phases: Vec::new(),
+        }
+    }).collect();
     combat_engine::state::CombatState::new(engine_units, round, RoundPhase::ActorTurn, 0)
 }
 
