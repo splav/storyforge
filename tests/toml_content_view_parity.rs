@@ -63,6 +63,48 @@ fn map_unit_template(content: &BridgeContentView, id: &str) -> Option<UnitTempla
     };
     let effective = content.effective_stats(&tpl.stats, &equipment);
     let armor     = content.equipment_armor(&equipment);
+    // caster_context — mirror CasterContext::new (same as EcsContentView::unit_template).
+    use storyforge::content::abilities::CasterContext as BridgeCasterContext;
+    use storyforge::combat_engine::CasterContext as EngineCasterContext;
+    use storyforge::combat_engine::CritFailOutcome;
+    use storyforge::combat_engine::{DiceExpr as EngineDiceExpr, StatusId};
+    use storyforge::content::abilities::EffectDef;
+    use storyforge::content::races::CritFailEffect;
+    let bevy_ctx = BridgeCasterContext::new(&tpl.stats, Some(&equipment), &content.weapons);
+    let crit_fail_effect = tpl.path
+        .as_deref()
+        .and_then(|p| content.paths.get(p))
+        .map_or(CritFailEffect::Miss, |p| p.crit_fail_effect.clone());
+    // Inline translation of map_crit_fail_effect (pub(crate) in sim.rs).
+    let crit_fail_outcome = match &crit_fail_effect {
+        CritFailEffect::Miss         => CritFailOutcome::Miss,
+        CritFailEffect::ManaOverload => CritFailOutcome::DoubleCost,
+        CritFailEffect::BrokenFaith  => CritFailOutcome::ApplyStatus(StatusId::from("broken_faith")),
+        CritFailEffect::CircuitBreach => CritFailOutcome::SelfDamage(EngineDiceExpr::new(0, 1, 2)),
+        CritFailEffect::Exhaustion   => CritFailOutcome::ApplyStatus(StatusId::from("exhaustion")),
+        CritFailEffect::PactControl  => CritFailOutcome::ApplyStatus(StatusId::from("pact_control")),
+    };
+    let engine_ctx = EngineCasterContext {
+        str_mod:           bevy_ctx.str_mod,
+        int_mod:           bevy_ctx.int_mod,
+        spell_power:       bevy_ctx.spell_power,
+        weapon_dice:       bevy_ctx.weapon_dice,
+        crit_fail_outcome,
+    };
+    // aoo_dice — mirror bootstrap AoO eligibility.
+    let has_melee = tpl.ability_ids.iter().any(|aid| {
+        content.abilities.get(aid).is_some_and(|def| {
+            matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
+        })
+    });
+    let str_mod = bevy_ctx.str_mod;
+    let aoo_dice = if has_melee {
+        bevy_ctx.weapon_dice.map(|core_dice| {
+            EngineDiceExpr::new(core_dice.count, core_dice.sides, core_dice.bonus + str_mod)
+        })
+    } else {
+        None
+    };
     Some(UnitTemplate {
         max_hp:     effective.max_hp,
         armor,
@@ -71,6 +113,10 @@ fn map_unit_template(content: &BridgeContentView, id: &str) -> Option<UnitTempla
         mana_max:   tpl.resources.mana_max,
         energy_max: tpl.resources.energy_max,
         rage_max:   tpl.resources.rage_max,
+        caster_context: engine_ctx,
+        aoo_dice,
+        auras:        Vec::new(),
+        enemy_phases: Vec::new(),
     })
 }
 
@@ -214,13 +260,15 @@ fn toml_content_view_matches_ecs_content_view() {
 
         match (&expected, &got) {
             (Some(e), Some(g)) => {
-                if e.max_hp     != g.max_hp
-                    || e.armor      != g.armor
-                    || e.base_speed != g.base_speed
-                    || e.max_ap     != g.max_ap
-                    || e.mana_max   != g.mana_max
-                    || e.energy_max != g.energy_max
-                    || e.rage_max   != g.rage_max
+                if e.max_hp            != g.max_hp
+                    || e.armor         != g.armor
+                    || e.base_speed    != g.base_speed
+                    || e.max_ap        != g.max_ap
+                    || e.mana_max      != g.mana_max
+                    || e.energy_max    != g.energy_max
+                    || e.rage_max      != g.rage_max
+                    || e.caster_context != g.caster_context
+                    || e.aoo_dice      != g.aoo_dice
                 {
                     failures.push(format!(
                         "unit_template({id}): mismatch\n  expected: {e:?}\n  got:      {g:?}"

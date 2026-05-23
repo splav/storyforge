@@ -281,24 +281,7 @@ impl<'a> EngineContentView for EcsContentView<'a> {
 
     fn unit_template(&self, id: &str) -> Option<combat_engine::UnitTemplate> {
         let tpl = self.active_content.unit_templates.get(id)?;
-        let equipment = Equipment {
-            main_hand: Some(tpl.equipment.main_hand.clone()),
-            off_hand: tpl.equipment.off_hand.clone(),
-            chest: tpl.equipment.chest.clone(),
-            legs: tpl.equipment.legs.clone(),
-            feet: tpl.equipment.feet.clone(),
-        };
-        let effective = self.active_content.effective_stats(&tpl.stats, &equipment);
-        let armor = self.active_content.equipment_armor(&equipment);
-        Some(combat_engine::UnitTemplate {
-            max_hp: effective.max_hp,
-            armor,
-            base_speed: tpl.speed,
-            max_ap: 1, // templates carry no max_ap; matches CombatantBundle hardcoded default
-            mana_max: tpl.resources.mana_max,
-            energy_max: tpl.resources.energy_max,
-            rage_max: tpl.resources.rage_max,
-        })
+        Some(build_engine_template_from_def(tpl, self.active_content))
     }
 }
 
@@ -312,6 +295,77 @@ impl<'a> EngineContentView for EcsContentView<'a> {
 /// query conflict between the phase-write query and the projector's `&mut Vital`.
 #[derive(Resource, Default)]
 pub struct PendingPhaseTransitions(pub Vec<(UnitId, usize)>);
+
+/// Build a fully-populated engine `UnitTemplate` from a bridge `UnitTemplateDef`.
+///
+/// Mirrors the caster_context and aoo_dice logic in `bootstrap_combat_state` but
+/// works from content data alone (no live ECS queries).  Used by
+/// `EcsContentView::unit_template` so that summon `Effect::Spawn` receives a
+/// complete template with correct combat stats.
+///
+/// `auras` and `enemy_phases` are left empty: `UnitTemplateDef` has no aura/phase
+/// fields (MVP — those are encounter-level data, not template-level).
+fn build_engine_template_from_def(
+    tpl: &crate::content::unit_templates::UnitTemplateDef,
+    active_content: &ActiveContent,
+) -> combat_engine::UnitTemplate {
+    let equipment = Equipment {
+        main_hand: Some(tpl.equipment.main_hand.clone()),
+        off_hand: tpl.equipment.off_hand.clone(),
+        chest: tpl.equipment.chest.clone(),
+        legs: tpl.equipment.legs.clone(),
+        feet: tpl.equipment.feet.clone(),
+    };
+    let effective = active_content.effective_stats(&tpl.stats, &equipment);
+    let armor = active_content.equipment_armor(&equipment);
+
+    // Build CasterContext from stats + main-hand weapon, mirroring CasterContext::new.
+    let bevy_ctx = CasterContext::new(&tpl.stats, Some(&equipment), &active_content.weapons);
+    // crit_fail_outcome: look up the unit's combat path, default to Miss.
+    let crit_fail_effect = tpl.path
+        .as_deref()
+        .and_then(|p| active_content.paths.get(p))
+        .map_or(crate::content::races::CritFailEffect::Miss, |p| p.crit_fail_effect.clone());
+    let engine_ctx = combat_engine::CasterContext {
+        str_mod: bevy_ctx.str_mod,
+        int_mod: bevy_ctx.int_mod,
+        spell_power: bevy_ctx.spell_power,
+        weapon_dice: bevy_ctx.weapon_dice,
+        crit_fail_outcome: crate::combat::ai::plan::sim::map_crit_fail_effect(&crit_fail_effect),
+    };
+
+    // AoO dice: unit needs a melee WeaponAttack ability (range.max == 1) + weapon dice.
+    let has_melee = tpl.ability_ids.iter().any(|aid| {
+        active_content.abilities.get(aid).is_some_and(|def| {
+            matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
+        })
+    });
+    let aoo_dice = if has_melee {
+        bevy_ctx.weapon_dice.map(|core_dice| {
+            EngineDiceExpr::new(
+                core_dice.count,
+                core_dice.sides,
+                core_dice.bonus + crate::core::modifier(tpl.stats.strength),
+            )
+        })
+    } else {
+        None
+    };
+
+    combat_engine::UnitTemplate {
+        max_hp: effective.max_hp,
+        armor,
+        base_speed: tpl.speed,
+        max_ap: 1, // templates carry no max_ap; matches CombatantBundle hardcoded default
+        mana_max: tpl.resources.mana_max,
+        energy_max: tpl.resources.energy_max,
+        rage_max: tpl.resources.rage_max,
+        caster_context: engine_ctx,
+        aoo_dice,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
+    }
+}
 
 /// Build `EcsContentView` from the current ECS state.
 /// Build `EcsContentView` from the current ECS state.

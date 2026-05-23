@@ -69,7 +69,7 @@ impl ContentView for StubContent {
         Some(&self.cached_status_def)
     }
     fn unit_template(&self, id: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
-        self.templates.get(id).copied()
+        self.templates.get(id).cloned()
     }
 }
 
@@ -1017,6 +1017,10 @@ fn test_template() -> UnitTemplate {
         mana_max: 0,
         energy_max: 0,
         rage_max: 0,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     }
 }
 
@@ -1222,4 +1226,98 @@ fn effect_to_event_emits_spawn_blocked_on_failure() {
         }
         other => panic!("expected SpawnBlocked, got {:?}", other),
     }
+}
+
+// ── Spawn caster_context / aoo_dice propagation (step 3.7-I) ─────────────────
+
+use storyforge::combat_engine::{CasterContext, CritFailOutcome};
+use storyforge::combat_engine::dice::DiceExpr;
+
+/// Template with a non-trivial CasterContext (str_mod=3, weapon_dice=2d6).
+fn melee_template() -> UnitTemplate {
+    let weapon_dice = DiceExpr::new(2, 6, 0);
+    UnitTemplate {
+        max_hp: 10,
+        armor: 2,
+        base_speed: 3,
+        max_ap: 1,
+        mana_max: 0,
+        energy_max: 0,
+        rage_max: 0,
+        caster_context: CasterContext {
+            str_mod: 3,
+            int_mod: 0,
+            spell_power: 0,
+            weapon_dice: Some(weapon_dice),
+            crit_fail_outcome: CritFailOutcome::Miss,
+        },
+        aoo_dice: Some(DiceExpr::new(2, 6, 3)), // weapon + str_mod baked in
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
+    }
+}
+
+#[test]
+fn spawn_unit_carries_caster_context_from_template() {
+    let summoner = make_unit(1, 20, 20);
+    let mut state = state_with(vec![summoner]);
+    let content = StubContent::neutral().with_template("warrior", melee_template());
+
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "warrior".into(), max_active: None },
+        &content,
+    );
+
+    let uid = ctx.spawn_uid.expect("spawn succeeded");
+    let spawned = state.unit(uid).expect("spawned unit present");
+    assert_eq!(spawned.caster_context.str_mod, 3, "str_mod carried from template");
+    assert_eq!(
+        spawned.caster_context.weapon_dice,
+        Some(DiceExpr::new(2, 6, 0)),
+        "weapon_dice carried from template"
+    );
+}
+
+#[test]
+fn spawn_unit_carries_aoo_dice_from_template() {
+    let summoner = make_unit(1, 20, 20);
+    let mut state = state_with(vec![summoner]);
+    let content = StubContent::neutral().with_template("warrior", melee_template());
+
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "warrior".into(), max_active: None },
+        &content,
+    );
+
+    let uid = ctx.spawn_uid.expect("spawn succeeded");
+    let spawned = state.unit(uid).expect("spawned unit present");
+    assert!(spawned.aoo_dice.is_some(), "melee template should have aoo_dice");
+    assert_eq!(
+        spawned.aoo_dice,
+        Some(DiceExpr::new(2, 6, 3)),
+        "aoo_dice carried from template"
+    );
+}
+
+#[test]
+fn spawn_unit_has_default_caster_when_template_default() {
+    let summoner = make_unit(1, 20, 20);
+    let mut state = state_with(vec![summoner]);
+    // test_template() has default (zero) CasterContext and None aoo_dice.
+    let content = StubContent::neutral().with_template("imp", test_template());
+
+    let (_, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "imp".into(), max_active: None },
+        &content,
+    );
+
+    let uid = ctx.spawn_uid.expect("spawn succeeded");
+    let spawned = state.unit(uid).expect("spawned unit present");
+    assert_eq!(spawned.caster_context, CasterContext::default(), "default context carried");
+    assert!(spawned.aoo_dice.is_none(), "no aoo_dice for default template");
+    assert!(spawned.auras.is_empty(), "no auras for default template");
+    assert!(spawned.enemy_phases.is_empty(), "no phases for default template");
 }

@@ -180,7 +180,7 @@ pub struct StatusDef {
 /// construct a `Unit` via `Effect::Spawn`. Bridge pre-computes from ECS-side
 /// raw template + equipment via `effective_stats` + `equipment_armor`.
 /// Team is NOT here — it is derived from the summoner at spawn time.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct UnitTemplate {
     pub max_hp: i32,
     pub armor: i32,
@@ -189,6 +189,18 @@ pub struct UnitTemplate {
     pub mana_max: i32,
     pub energy_max: i32,
     pub rage_max: i32,
+    /// Caster stats for damage/healing formulas (weapon dice, str/int modifiers,
+    /// spell power, crit-fail behaviour).  Populated from the unit template's
+    /// stats and equipment.
+    pub caster_context: crate::content::CasterContext,
+    /// AoO dice for units with a melee WeaponAttack ability.  `None` for ranged
+    /// or caster-only units.
+    pub aoo_dice: Option<crate::dice::DiceExpr>,
+    /// Passive auras emitted by this unit (empty for most templates; populated
+    /// from `AuraSource` ECS components or explicit template data).
+    pub auras: Vec<crate::content::AuraDef>,
+    /// Phase transitions for boss-like units (empty for most templates).
+    pub enemy_phases: Vec<crate::content::PhaseEntry>,
 }
 
 // ── Aura types (Phase 4 step 4c) ─────────────────────────────────────────────

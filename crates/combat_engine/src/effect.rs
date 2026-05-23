@@ -761,10 +761,10 @@ pub fn apply_effect(
                 mana: if template.mana_max > 0 { Some((template.mana_max, template.mana_max)) } else { None },
                 energy: if template.energy_max > 0 { Some((template.energy_max, template.energy_max)) } else { None },
                 summoner: Some(*summoner),
-                caster_context: crate::content::CasterContext::default(),
-                aoo_dice: None,
-                auras: Vec::new(),
-                enemy_phases: Vec::new(),
+                caster_context: template.caster_context.clone(),
+                aoo_dice: template.aoo_dice,
+                auras: template.auras.clone(),
+                enemy_phases: template.enemy_phases.clone(),
             };
 
             state.insert_unit(new_unit);

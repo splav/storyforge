@@ -82,7 +82,8 @@ impl TomlContentView {
         // Weapons and armor are needed only to compute unit_template stats.
         let weapons = load_weapons(data_dir)?;
         let armor = load_all_armor(data_dir)?;
-        let unit_templates = load_unit_templates(data_dir, &weapons, &armor)?;
+        // Abilities are needed to detect AoO-eligible templates (melee WeaponAttack).
+        let unit_templates = load_unit_templates(data_dir, &weapons, &armor, &abilities)?;
 
         Ok(Self { abilities, statuses, unit_templates })
     }
@@ -115,7 +116,7 @@ impl ContentView for TomlContentView {
     }
 
     fn unit_template(&self, id: &str) -> Option<UnitTemplate> {
-        self.unit_templates.get(id).copied()
+        self.unit_templates.get(id).cloned()
     }
 }
 
@@ -225,12 +226,24 @@ struct WeaponRecord {
     armor: i32,
     #[serde(default)]
     max_hp: i32,
+    /// Weapon attack dice — needed to populate `CasterContext.weapon_dice`.
+    #[serde(default)]
+    dice_count: u32,
+    /// Weapon attack dice sides.
+    #[serde(default)]
+    dice_sides: u32,
+    /// Spell power bonus carried by this weapon (mirrors bridge `WeaponDef.spell_power`).
+    #[serde(default)]
+    spell_power: i32,
 }
 
-/// Weapon stats relevant to engine stat computation (max_hp and armor bonuses).
+/// Weapon stats relevant to engine stat computation.
 struct WeaponStats {
     armor: i32,
     max_hp: i32,
+    /// `None` if dice_count or dice_sides is 0 (weapon has no attack dice).
+    dice: Option<DiceExpr>,
+    spell_power: i32,
 }
 
 // ---- armor (chest / legs / feet) --------------------------------------------
@@ -271,11 +284,23 @@ struct TemplateRecord {
     equipment: EquipmentRecord,
     #[serde(default)]
     resources: Option<ResourcesRecord>,
+    /// Ability IDs — needed to detect melee WeaponAttack for AoO eligibility.
+    #[serde(default)]
+    ability_ids: Vec<String>,
+    /// Combat path — used for `crit_fail_outcome`.  Not parsed here; engine
+    /// TOML loader defaults to `CritFailOutcome::Miss` (replay tooling only).
+    #[serde(default)]
+    #[allow(dead_code)]
+    path: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct StatsRecord {
     max_hp: i32,
+    #[serde(default)]
+    strength: i32,
+    #[serde(default)]
+    intelligence: i32,
 }
 
 #[derive(Deserialize)]
@@ -459,9 +484,16 @@ fn load_weapons(data_dir: &Path) -> Result<HashMap<String, WeaponStats>, LoadErr
 
     let mut map = HashMap::new();
     for r in file.weapons {
+        let dice = if r.dice_count > 0 && r.dice_sides > 0 {
+            Some(DiceExpr::new(r.dice_count, r.dice_sides, 0))
+        } else {
+            None
+        };
         map.insert(r.id.clone(), WeaponStats {
             armor: r.armor,
             max_hp: r.max_hp,
+            dice,
+            spell_power: r.spell_power,
         });
     }
     Ok(map)
@@ -505,6 +537,7 @@ fn load_unit_templates(
     data_dir: &Path,
     weapons: &HashMap<String, WeaponStats>,
     armor: &HashMap<String, ArmorStats>,
+    abilities: &HashMap<AbilityId, AbilityDef>,
 ) -> Result<HashMap<String, UnitTemplate>, LoadError> {
     // The bridge uses "unit_templates.toml" under campaigns/<name>/unit_templates.toml
     // but the global file lives directly under data_dir.  We only load the global layer
@@ -522,24 +555,39 @@ fn load_unit_templates(
 
     let mut map = HashMap::new();
     for r in file.unit_templates {
-        let tpl = convert_template(r, weapons, armor);
+        let tpl = convert_template(r, weapons, armor, abilities);
         map.insert(tpl.0, tpl.1);
     }
     Ok(map)
 }
 
-/// Compute `effective_stats` (base + weapon + armor stat bonuses) and
-/// `equipment_armor` inline — mirrors `ContentView::effective_stats` /
-/// `ContentView::equipment_armor` in the bridge.
+/// D&D-style ability score modifier: `floor(stat / 2)`.
+/// Matches `src/core/mod.rs::modifier` in the bridge crate.
+#[inline]
+fn stat_modifier(stat: i32) -> i32 {
+    stat >> 1
+}
+
+/// Compute `effective_stats` (base + weapon + armor stat bonuses),
+/// `equipment_armor`, and per-combat fields (`caster_context`, `aoo_dice`)
+/// — mirrors `ContentView::effective_stats` / `ContentView::equipment_armor`
+/// and the bootstrap_combat_state logic in the bridge.
+///
+/// `crit_fail_outcome` defaults to `Miss` for the engine-side TOML loader
+/// (replay tooling only; bridge bootstrap reads it from `CombatPath`).
 fn convert_template(
     r: TemplateRecord,
     weapons: &HashMap<String, WeaponStats>,
     armor_map: &HashMap<String, ArmorStats>,
+    abilities: &HashMap<AbilityId, AbilityDef>,
 ) -> (String, UnitTemplate) {
     // Accumulate stat bonuses from equipment, mirroring ContentView::effective_stats
     // and ContentView::equipment_armor in the bridge.
     let mut max_hp = r.stats.max_hp;
     let mut equipment_armor = 0i32;
+
+    // Main-hand weapon lookup (used also for caster_context).
+    let main_hand_stats = weapons.get(r.equipment.main_hand.as_str());
 
     // Weapons: main_hand + optional off_hand.
     for weapon_id in [Some(&r.equipment.main_hand), r.equipment.off_hand.as_ref()].into_iter().flatten() {
@@ -558,6 +606,43 @@ fn convert_template(
 
     let resources = r.resources.unwrap_or_default();
 
+    // ── CasterContext ─────────────────────────────────────────────────────────
+    // Mirrors CasterContext::new(stats, equip, weapons) in src/content/abilities.rs.
+    let str_mod = stat_modifier(r.stats.strength);
+    let int_mod = stat_modifier(r.stats.intelligence);
+    let spell_power = main_hand_stats.map_or(0, |w| w.spell_power);
+    let weapon_dice = main_hand_stats.and_then(|w| w.dice);
+    let caster_context = crate::content::CasterContext {
+        str_mod,
+        int_mod,
+        spell_power,
+        weapon_dice,
+        // Engine-side TOML loader defaults to Miss; bridge bootstrap reads this
+        // from the unit's CombatPath component.
+        crit_fail_outcome: crate::content::CritFailOutcome::Miss,
+    };
+
+    // ── AoO dice ──────────────────────────────────────────────────────────────
+    // A unit gets AoO dice if it has a melee WeaponAttack ability (range.max==1)
+    // AND its main-hand weapon has attack dice.
+    // Mirrors bootstrap_combat_state AoO loop in engine_bridge.rs.
+    let has_melee = r.ability_ids.iter().any(|aid| {
+        abilities.get(aid.as_str()).is_some_and(|def| {
+            matches!(def.effect, crate::content::EffectDef::WeaponAttack) && def.range.max == 1
+        })
+    });
+    let aoo_dice = if has_melee {
+        weapon_dice.map(|core_dice| {
+            DiceExpr::new(
+                core_dice.count,
+                core_dice.sides,
+                core_dice.bonus + str_mod,
+            )
+        })
+    } else {
+        None
+    };
+
     let tpl = UnitTemplate {
         max_hp,
         armor: equipment_armor,
@@ -566,6 +651,10 @@ fn convert_template(
         mana_max: resources.mana,
         energy_max: resources.energy,
         rage_max: resources.rage,
+        caster_context,
+        aoo_dice,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
     };
 
     (r.id, tpl)

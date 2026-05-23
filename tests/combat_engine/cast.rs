@@ -76,7 +76,7 @@ impl ContentView for StubContent {
     fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> { self.abilities.get(id) }
     fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
     fn unit_template(&self, id: &str) -> Option<storyforge::combat_engine::UnitTemplate> {
-        self.templates.get(id).copied()
+        self.templates.get(id).cloned()
     }
 }
 
@@ -1078,7 +1078,19 @@ fn cast_applies_status_to_each_aoe_target() {
 // ── Step 3.5b tests: Summon ───────────────────────────────────────────────────
 
 fn imp_template() -> UnitTemplate {
-    UnitTemplate { max_hp: 8, armor: 1, base_speed: 4, max_ap: 1, mana_max: 0, energy_max: 0, rage_max: 0 }
+    UnitTemplate {
+        max_hp: 8,
+        armor: 1,
+        base_speed: 4,
+        max_ap: 1,
+        mana_max: 0,
+        energy_max: 0,
+        rage_max: 0,
+        caster_context: Default::default(),
+        aoo_dice: None,
+        auras: Vec::new(),
+        enemy_phases: Vec::new(),
+    }
 }
 
 fn summon_ability(max_active: Option<u32>) -> AbilityDef {
