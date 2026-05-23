@@ -194,6 +194,14 @@ mod tests {
         (plan, PlanAnnotation::default())
     }
 
+    // ── name is stable ────────────────────────────────────────────────────────
+
+    #[test]
+    fn rare_resource_name_is_stable() {
+        let critic = RareResourceForLowImpact;
+        assert_eq!(critic.name(), "rare_resource_for_low_impact");
+    }
+
     // ── fires on canonical case (high mana, negligible damage) ───────────────
 
     #[test]
@@ -317,5 +325,121 @@ mod tests {
         let (plan, ann) = cast_plan_with_outcome("hard_stun", target_entity, target_pos, 0.0);
 
         assert_critic_passes(&RareResourceForLowImpact, &plan, &ann, &scn);
+    }
+
+    // ── mana cost boundary: exactly at threshold ──────────────────────────────
+
+    /// MANA_COST_THRESHOLD = 30. The check is `mana_cost < 30`, so:
+    ///   cost=29  → skipped (passes)
+    ///   cost=30  → checked; with low impact, fires
+    ///
+    /// The mutant `< → <=` would skip cost=30, so the fire case kills it.
+    /// The pass case (cost=29) ensures the lower boundary is respected.
+    #[test]
+    fn rare_resource_mana_cost_boundary() {
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(3, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
+
+        let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos).build();
+        // Small expected damage so the impact ratio is low when damage_out = 0.
+        let dice = DiceExpr::new(2, 6, 0); // expected ~7
+
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("below_threshold", expensive_spell("below_threshold", 29, dice))
+            .with_ability("at_threshold",    expensive_spell("at_threshold",    30, dice))
+            .build();
+
+        // cost=29: below threshold, must not fire even with zero damage.
+        let (plan_below, ann_below) = cast_plan_with_outcome(
+            "below_threshold", target_entity, target_pos, 0.0,
+        );
+        assert_critic_passes(&RareResourceForLowImpact, &plan_below, &ann_below, &scn);
+
+        // cost=30: at threshold, with impact_ratio≈0 (zero actual damage), must fire.
+        let (plan_at, ann_at) = cast_plan_with_outcome(
+            "at_threshold", target_entity, target_pos, 0.0,
+        );
+        run_critic(&RareResourceForLowImpact, &plan_at, &ann_at, &scn)
+            .expect("critic must fire when mana_cost == MANA_COST_THRESHOLD and impact is low");
+    }
+
+    // ── impact ratio boundary: exactly at 0.5 ────────────────────────────────
+
+    /// IMPACT_RATIO_THRESHOLD = 0.5. The check is `impact_ratio >= 0.5`,
+    /// meaning at exactly 0.5 the plan passes (skipped). Just below fires.
+    ///
+    /// The mutant `>= → >` would fire at ratio=0.5, killing this pass case.
+    /// The fire case at ratio<0.5 confirms the normal branch is still reached.
+    ///
+    /// We use a spell with a known fixed expected damage. DiceExpr::new(0,0,20)
+    /// has expected value = 20.0 (constant). Actual damage 10 → ratio = 0.5 exactly.
+    #[test]
+    fn rare_resource_impact_ratio_boundary() {
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(3, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
+
+        let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos).build();
+        // Constant-damage spell: expected = 20 (0d0+20). Mana cost = 40 to exceed threshold.
+        let const_spell = expensive_spell("const_dmg", 40, DiceExpr::new(0, 0, 20));
+
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("const_dmg", const_spell)
+            .build();
+
+        // actual = 10, expected = 20 → ratio = 10/20 = 0.5 exactly → must NOT fire.
+        let (plan_at, ann_at) = cast_plan_with_outcome("const_dmg", target_entity, target_pos, 10.0);
+        assert_critic_passes(&RareResourceForLowImpact, &plan_at, &ann_at, &scn);
+
+        // actual = 9.9, expected = 20 → ratio = 0.495 < 0.5 → must fire.
+        let (plan_below, ann_below) = cast_plan_with_outcome("const_dmg", target_entity, target_pos, 9.9);
+        run_critic(&RareResourceForLowImpact, &plan_below, &ann_below, &scn)
+            .expect("critic must fire when impact_ratio < IMPACT_RATIO_THRESHOLD");
+    }
+
+    // ── multiplier formula: tight range (catches arithmetic mutations) ────────
+
+    /// With impact_ratio = 0.1 (actual=2 / expected=20) and default constants:
+    ///   shortfall  = 0.5 - 0.1 = 0.4
+    ///   multiplier = (1.0 - 0.4 * 0.4 / 0.5).max(0.5)
+    ///              = (1.0 - 0.32).max(0.5)
+    ///              = 0.68
+    ///
+    /// Mutations and their outputs (all outside [0.60, 0.76]):
+    ///   shortfall `-→/` (line 105): shortfall = 0.5 / 0.1 = 5.0 → mult = max(1-3.2, 0.5) = 0.5
+    ///   divisor `/→%` (line 107):   0.4 * 0.4 % 0.5 = 0.16 % 0.5 = 0.16 → mult = 0.84 (outside range)
+    ///   divisor `/→*` (line 107):   0.4 * 0.4 * 0.5 = 0.08 → mult = 0.92 (outside range)
+    ///   factor  `*→/` (line 107):   0.4 / 0.4 / 0.5 = 5.0 → mult = max(1-5, 0.5) = 0.5
+    #[test]
+    fn rare_resource_multiplier_tight_range() {
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(3, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
+
+        let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
+        let target = UnitBuilder::new(2, Team::Player, target_pos).build();
+        // Constant-damage spell: expected = 20, mana_cost = 40.
+        let const_spell = expensive_spell("const_dmg", 40, DiceExpr::new(0, 0, 20));
+
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("const_dmg", const_spell)
+            .build();
+
+        // actual = 2, expected = 20 → ratio = 0.1; expected multiplier ≈ 0.68.
+        let (plan, ann) = cast_plan_with_outcome("const_dmg", target_entity, target_pos, 2.0);
+        let hit = run_critic(&RareResourceForLowImpact, &plan, &ann, &scn)
+            .expect("critic must fire");
+
+        assert!(
+            hit.multiplier > 0.60 && hit.multiplier < 0.76,
+            "multiplier expected ≈ 0.68 (ratio=0.1), got {}",
+            hit.multiplier,
+        );
     }
 }

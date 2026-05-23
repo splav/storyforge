@@ -1,0 +1,1483 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "summary": "Success",
+      "log_path": "log/baseline.log",
+      "diff_path": null,
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.625621625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.129146667,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:48:9: replace <impl PlanCritic for RareResourceForLowImpact>::name -> &'static str with \"\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 49,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 48,
+              "column": 9
+            },
+            "end": {
+              "line": 48,
+              "column": 39
+            }
+          },
+          "replacement": "\"\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_48_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_48_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.642517416,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.8208602919999999,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:48:9: replace <impl PlanCritic for RareResourceForLowImpact>::name -> &'static str with \"xyzzy\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 49,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 48,
+              "column": 9
+            },
+            "end": {
+              "line": 48,
+              "column": 39
+            }
+          },
+          "replacement": "\"xyzzy\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_48_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_48_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.796453,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.613293125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:57:9: replace <impl PlanCritic for RareResourceForLowImpact>::evaluate -> Option<CriticHit> with None",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 57,
+              "column": 9
+            },
+            "end": {
+              "line": 124,
+              "column": 13
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_57_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_57_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.34591575,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.3108912090000002,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:57:9: replace <impl PlanCritic for RareResourceForLowImpact>::evaluate -> Option<CriticHit> with Some(Default::default())",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 57,
+              "column": 9
+            },
+            "end": {
+              "line": 124,
+              "column": 13
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_57_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_57_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.762574792,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:70:38: replace == with != in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 70,
+              "column": 38
+            },
+            "end": {
+              "line": 70,
+              "column": 40
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_70_col_38.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_70_col_38.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.135166208,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.446010875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:73:26: replace < with == in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 73,
+              "column": 26
+            },
+            "end": {
+              "line": 73,
+              "column": 27
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_73_col_26.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_73_col_26.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.7578925,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.089820292,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:73:26: replace < with > in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 73,
+              "column": 26
+            },
+            "end": {
+              "line": 73,
+              "column": 27
+            }
+          },
+          "replacement": ">",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_73_col_26_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_73_col_26_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.679812333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.6670105,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:73:26: replace < with <= in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 73,
+              "column": 26
+            },
+            "end": {
+              "line": 73,
+              "column": 27
+            }
+          },
+          "replacement": "<=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_73_col_26_002.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_73_col_26_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.859422959,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.665891083,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:84:32: replace > with == in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 32
+            },
+            "end": {
+              "line": 84,
+              "column": 33
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_84_col_32.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_84_col_32.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.755098875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.741592375,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:84:32: replace > with < in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 32
+            },
+            "end": {
+              "line": 84,
+              "column": 33
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_84_col_32_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_84_col_32_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.740371334,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.932023375,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:84:32: replace > with >= in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 32
+            },
+            "end": {
+              "line": 84,
+              "column": 33
+            }
+          },
+          "replacement": ">=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_84_col_32_002.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_84_col_32_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.725772542,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.7054262919999998,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:98:47: replace / with % in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 98,
+              "column": 47
+            },
+            "end": {
+              "line": 98,
+              "column": 48
+            }
+          },
+          "replacement": "%",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_98_col_47.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_98_col_47.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.745688083,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.719089917,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:98:47: replace / with * in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 98,
+              "column": 47
+            },
+            "end": {
+              "line": 98,
+              "column": 48
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_98_col_47_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_98_col_47_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.87692325,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.8812870419999999,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:100:29: replace >= with < in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 100,
+              "column": 29
+            },
+            "end": {
+              "line": 100,
+              "column": 31
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_100_col_29.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_100_col_29.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.924566125,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.716536084,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:105:52: replace - with + in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 105,
+              "column": 52
+            },
+            "end": {
+              "line": 105,
+              "column": 53
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_105_col_52.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_105_col_52.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.888946167,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.704475875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:105:52: replace - with / in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 105,
+              "column": 52
+            },
+            "end": {
+              "line": 105,
+              "column": 53
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_105_col_52_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_105_col_52_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.844217042,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.721262792,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:107:22: replace - with + in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 22
+            },
+            "end": {
+              "line": 107,
+              "column": 23
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_22.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_22.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.921824458,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.7086987919999999,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:107:22: replace - with / in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 22
+            },
+            "end": {
+              "line": 107,
+              "column": 23
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_22_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_22_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.985196917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.8794285,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:107:40: replace / with % in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 40
+            },
+            "end": {
+              "line": 107,
+              "column": 41
+            }
+          },
+          "replacement": "%",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_40.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_40.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.751545542,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.396449958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:107:40: replace / with * in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 40
+            },
+            "end": {
+              "line": 107,
+              "column": 41
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_40_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_40_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.743113875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.032747792,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:107:28: replace * with + in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 28
+            },
+            "end": {
+              "line": 107,
+              "column": 29
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_28.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_28.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.571104625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.8753295840000002,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:107:28: replace * with / in <impl PlanCritic for RareResourceForLowImpact>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for RareResourceForLowImpact>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 28
+            },
+            "end": {
+              "line": 107,
+              "column": 29
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_28_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__rare_resource_for_low_impact.rs_line_107_col_28_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.466153417,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.905437666,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 22,
+  "missed": 1,
+  "caught": 20,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-05-23T18:53:35.933203Z",
+  "end_time": "2026-05-23T18:58:54.174768Z",
+  "cargo_mutants_version": "27.0.0"
+}

@@ -1,0 +1,2341 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "summary": "Success",
+      "log_path": "log/baseline.log",
+      "diff_path": null,
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.534830458,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.325508291,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:38:9: replace <impl PlanCritic for OvercommitIntoDanger>::name -> &'static str with \"\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 37,
+                "column": 5
+              },
+              "end": {
+                "line": 39,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 38,
+              "column": 9
+            },
+            "end": {
+              "line": 38,
+              "column": 33
+            }
+          },
+          "replacement": "\"\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_38_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_38_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.409497208,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.408609084,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:38:9: replace <impl PlanCritic for OvercommitIntoDanger>::name -> &'static str with \"xyzzy\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 37,
+                "column": 5
+              },
+              "end": {
+                "line": 39,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 38,
+              "column": 9
+            },
+            "end": {
+              "line": 38,
+              "column": 33
+            }
+          },
+          "replacement": "\"xyzzy\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_38_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_38_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.76735525,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.544410417,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:47:9: replace <impl PlanCritic for OvercommitIntoDanger>::evaluate -> Option<CriticHit> with None",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 47,
+              "column": 9
+            },
+            "end": {
+              "line": 101,
+              "column": 11
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_47_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_47_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 24.240129708,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.160319042,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:47:9: replace <impl PlanCritic for OvercommitIntoDanger>::evaluate -> Option<CriticHit> with Some(Default::default())",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 47,
+              "column": 9
+            },
+            "end": {
+              "line": 101,
+              "column": 11
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_47_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_47_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.714890167,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:54:48: replace / with % in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 54,
+              "column": 48
+            },
+            "end": {
+              "line": 54,
+              "column": 49
+            }
+          },
+          "replacement": "%",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_54_col_48.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_54_col_48.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.354673209,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.821931959,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:54:48: replace / with * in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 54,
+              "column": 48
+            },
+            "end": {
+              "line": 54,
+              "column": 49
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_54_col_48_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_54_col_48_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.788563958,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.5552987919999999,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:54:29: replace - with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 54,
+              "column": 29
+            },
+            "end": {
+              "line": 54,
+              "column": 30
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_54_col_29.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_54_col_29.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.846116375,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.550222084,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:54:29: replace - with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 54,
+              "column": 29
+            },
+            "end": {
+              "line": 54,
+              "column": 30
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_54_col_29_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_54_col_29_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.873564417,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.5516088749999999,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:55:39: replace - with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 55,
+              "column": 39
+            },
+            "end": {
+              "line": 55,
+              "column": 40
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_55_col_39.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_55_col_39.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.978935167,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.5988643329999999,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:55:39: replace - with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 55,
+              "column": 39
+            },
+            "end": {
+              "line": 55,
+              "column": 40
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_55_col_39_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_55_col_39_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.2931785,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.551040125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:56:55: replace * with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 56,
+              "column": 55
+            },
+            "end": {
+              "line": 56,
+              "column": 56
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_55.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_55.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.860725875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.5480869579999998,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:56:55: replace * with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 56,
+              "column": 55
+            },
+            "end": {
+              "line": 56,
+              "column": 56
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_55_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_55_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.939215917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.55442875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:56:46: replace * with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 56,
+              "column": 46
+            },
+            "end": {
+              "line": 56,
+              "column": 47
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_46.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_46.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.06643975,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.5662471249999999,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:56:46: replace * with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 56,
+              "column": 46
+            },
+            "end": {
+              "line": 56,
+              "column": 47
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_46_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_46_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.802726166,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.673559042,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:56:36: replace * with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 56,
+              "column": 36
+            },
+            "end": {
+              "line": 56,
+              "column": 37
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_36.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_36.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.481120375,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.9982781250000001,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:56:36: replace * with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 56,
+              "column": 36
+            },
+            "end": {
+              "line": 56,
+              "column": 37
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_36_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_56_col_36_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.969206709,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.549253875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:57:39: replace > with == in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 57,
+              "column": 39
+            },
+            "end": {
+              "line": 57,
+              "column": 40
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_57_col_39.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_57_col_39.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.917229167,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.54519225,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:57:39: replace > with < in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 57,
+              "column": 39
+            },
+            "end": {
+              "line": 57,
+              "column": 40
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_57_col_39_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_57_col_39_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.004704334,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.5486922079999998,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:57:39: replace > with >= in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 57,
+              "column": 39
+            },
+            "end": {
+              "line": 57,
+              "column": 40
+            }
+          },
+          "replacement": ">=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_57_col_39_002.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_57_col_39_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.006088333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.551715625,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:58:23: replace - with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 58,
+              "column": 23
+            },
+            "end": {
+              "line": 58,
+              "column": 24
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_58_col_23.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_58_col_23.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.09858175,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.5497815,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:58:23: replace - with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 58,
+              "column": 23
+            },
+            "end": {
+              "line": 58,
+              "column": 24
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_58_col_23_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_58_col_23_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.192188458,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.7050555410000001,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:69:41: replace > with == in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 69,
+              "column": 41
+            },
+            "end": {
+              "line": 69,
+              "column": 42
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_69_col_41.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_69_col_41.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.374147624999999,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.03746375,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:69:41: replace > with < in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 69,
+              "column": 41
+            },
+            "end": {
+              "line": 69,
+              "column": 42
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_69_col_41_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_69_col_41_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.839133458,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.98221375,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:69:41: replace > with >= in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 69,
+              "column": 41
+            },
+            "end": {
+              "line": 69,
+              "column": 42
+            }
+          },
+          "replacement": ">=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_69_col_41_002.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_69_col_41_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.940433875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.723754917,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:70:34: replace / with % in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 70,
+              "column": 34
+            },
+            "end": {
+              "line": 70,
+              "column": 35
+            }
+          },
+          "replacement": "%",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_70_col_34.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_70_col_34.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.1732385,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.030979208,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:70:34: replace / with * in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 70,
+              "column": 34
+            },
+            "end": {
+              "line": 70,
+              "column": 35
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_70_col_34_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_70_col_34_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.324779625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.654737042,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:71:23: replace - with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 71,
+              "column": 23
+            },
+            "end": {
+              "line": 71,
+              "column": 24
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_23.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_23.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.270992958,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.607156959,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:71:23: replace - with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 71,
+              "column": 23
+            },
+            "end": {
+              "line": 71,
+              "column": 24
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_23_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_23_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.324440166,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.776926958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:71:49: replace * with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 71,
+              "column": 49
+            },
+            "end": {
+              "line": 71,
+              "column": 50
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_49.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_49.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.003542583,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.822787959,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:71:49: replace * with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 71,
+              "column": 49
+            },
+            "end": {
+              "line": 71,
+              "column": 50
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_49_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_49_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.943367708,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.098301791,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:71:41: replace * with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 71,
+              "column": 41
+            },
+            "end": {
+              "line": 71,
+              "column": 42
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_41.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_41.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.44893275,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.602025542,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:71:41: replace * with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 71,
+              "column": 41
+            },
+            "end": {
+              "line": 71,
+              "column": 42
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_41_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_71_col_41_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.426972917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.941887209,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:84:23: replace <= with > in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 23
+            },
+            "end": {
+              "line": 84,
+              "column": 25
+            }
+          },
+          "replacement": ">",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_84_col_23.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_84_col_23.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.384031125,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.7294683339999999,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:94:52: replace / with % in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 94,
+              "column": 52
+            },
+            "end": {
+              "line": 94,
+              "column": 53
+            }
+          },
+          "replacement": "%",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_94_col_52.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_94_col_52.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.941904666,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.930430708,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:94:52: replace / with * in <impl PlanCritic for OvercommitIntoDanger>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for OvercommitIntoDanger>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 5
+              },
+              "end": {
+                "line": 102,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 94,
+              "column": 52
+            },
+            "end": {
+              "line": 94,
+              "column": 53
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_94_col_52_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__overcommit_into_danger.rs_line_94_col_52_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.679888208,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.6770627089999999,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 35,
+  "missed": 1,
+  "caught": 33,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-05-23T18:42:03.933874Z",
+  "end_time": "2026-05-23T18:49:56.681039Z",
+  "cargo_mutants_version": "27.0.0"
+}

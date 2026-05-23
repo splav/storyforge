@@ -110,8 +110,11 @@ mod tests {
     use crate::combat::ai::config::difficulty::DifficultyProfile;
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
-    use crate::combat::ai::test_helpers::{StageTestHarness, UnitBuilder,
-        assert_stage_critic_passes};
+    use crate::combat::ai::test_helpers::{
+        StageTestHarness, UnitBuilder,
+        assert_stage_critic_passes, assert_stage_critic_fires, run_critic, CriticScenarioBuilder,
+    };
+    use crate::combat::ai::outcome::PlanAnnotation;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -122,6 +125,16 @@ mod tests {
             residual_ap: 1,
             ..TurnPlan::default()
         }
+    }
+
+    // ── name is stable ────────────────────────────────────────────────────────
+
+    // NOTE: overcommit name() mutations are NOT in the missed-mutant list;
+    // this test is kept as a cheap safety net only.
+    #[test]
+    fn overcommit_name_is_stable() {
+        let critic = OvercommitIntoDanger;
+        assert_eq!(critic.name(), "overcommit_into_danger");
     }
 
     // ── fires on canonical case (low HP + high danger path) ───────────────────
@@ -214,6 +227,219 @@ mod tests {
         assert!(
             mult_sev < mult_mod,
             "severe penalty ({mult_sev}) must be stricter than moderate ({mult_mod})",
+        );
+    }
+
+    // ── survival-path multiplier is in a tight range (catches * → +/÷ mutations)
+
+    /// With hp=6/max_hp=30, danger=0.9 and default thresholds (low_hp_factor=1.2,
+    /// survival_floor=0.25):
+    ///   hp_pct = 6/30 = 0.2
+    ///   hp_need = (0.6 - 0.2) / 0.6 ≈ 0.667
+    ///   excess  = 0.9 - 0.5 = 0.4
+    ///   surv    = 1.2 * 0.667 * 0.4 * 0.4 ≈ 0.128
+    ///   mult    = (1.0 - 0.128).max(0.25) ≈ 0.872
+    ///
+    /// Any * → + or * → / mutation on the `surv` line yields a substantially
+    /// different result (e.g., 0.25 or 0.712), so [0.82, 0.92] is tight enough
+    /// to kill all three operators while being robust to minor float differences.
+    #[test]
+    fn overcommit_survival_multiplier_tight_range() {
+        use crate::combat::ai::pipeline::stages::critics::CriticsStage;
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
+        use crate::combat::ai::pipeline::PlanStage;
+        use crate::combat::ai::test_helpers::PoolBuilder;
+
+        let actor_pos = hex_from_offset(3, 3);
+        let dest_pos  = hex_from_offset(2, 3);
+
+        // hp=6/30 → hp_pct=0.2; danger tile at dest=0.9.
+        // Full HP (20/20) keeps hp_need≈0 so SurvivalPath stays negligible and
+        // we isolate the survival signal with hp=6.
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).hp(6).max_hp(30).build();
+        let mut h = StageTestHarness::new(actor);
+        // Use default difficulty (default thresholds: low_hp_factor=1.2,
+        // survival_floor=0.25) so the formula is deterministic.
+        h.maps.danger.add(dest_pos, 0.9);
+
+        let stage = CriticsStage::single(OvercommitIntoDanger);
+        let mut pool = PoolBuilder::new(vec![move_plan(vec![dest_pos])])
+            .scores(&[1.0]).trace_base_eq_score().build();
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        let mult = pool.annotations[0].score_trace.multipliers.iter()
+            .find(|m| matches!(m.kind, MultiplierKind::Critic))
+            .expect("survival critic must fire")
+            .value;
+
+        // Expected ≈ 0.872 (see doc comment). [0.82, 0.92] kills * → + and * → / mutations.
+        assert!(
+            mult > 0.82 && mult < 0.92,
+            "survival multiplier expected ≈ 0.872, got {mult}",
+        );
+    }
+
+    // ── AoO-bleed path fires when actor leaves melee adjacency ────────────────
+
+    #[test]
+    fn overcommit_aoo_fires_when_leaving_adjacency() {
+        // Actor at (3,3), enemy at (4,3) (adjacent). Plan moves actor away.
+        // Enemy has reactions_left > 0 and aoo_expected_damage set.
+        // With default thresholds and appropriate hp/aoo values the critic fires.
+        use crate::combat::ai::pipeline::stages::critics::CriticsStage;
+        use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
+        use crate::combat::ai::pipeline::PlanStage;
+        use crate::combat::ai::test_helpers::PoolBuilder;
+
+        let actor_pos  = hex_from_offset(3, 3);
+        let enemy_pos  = hex_from_offset(4, 3);
+        let dest_pos   = hex_from_offset(2, 3); // move away from enemy
+
+        // Actor: hp=10 so ratio = aoo_dmg/10 is non-trivial.
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).hp(10).max_hp(20).build();
+        // Enemy: adjacent, reactions remaining, expected AoO damage = 6.
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos)
+            .aoo(6.0, 1)
+            .build();
+
+        let mut h = StageTestHarness::new(actor);
+        h.extra_units = vec![enemy];
+
+        let stage = CriticsStage::single(OvercommitIntoDanger);
+        let mut pool = PoolBuilder::new(vec![move_plan(vec![dest_pos])])
+            .scores(&[1.0]).trace_base_eq_score().build();
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        let hit = pool.annotations[0].score_trace.multipliers.iter()
+            .find(|m| matches!(m.kind, MultiplierKind::Critic))
+            .expect("critic must fire when actor leaves adjacency with an AoO-capable enemy");
+        assert!(hit.value < 1.0, "AoO multiplier must penalise, got {}", hit.value);
+        let Some(MultiplierDetail::Critic { reason, .. }) = &hit.detail else {
+            panic!("expected Critic detail");
+        };
+        let CriticReason::OvercommitIntoDanger { source, ratio } = reason else {
+            panic!("expected OvercommitIntoDanger reason, got {reason:?}");
+        };
+        assert_eq!(*source, OvercommitSource::AooBleed, "source must be AooBleed");
+        assert!(*ratio > 0.0, "ratio must be positive, got {ratio}");
+    }
+
+    // ── AoO-bleed: zero damage → does not fire ────────────────────────────────
+
+    #[test]
+    fn overcommit_aoo_does_not_fire_when_no_aoo_damage() {
+        // Actor adjacent to an enemy WITHOUT reactions or aoo_expected_damage.
+        // Critic must pass (AoO path: aoo_dmg=0 → no penalty).
+        let actor_pos = hex_from_offset(3, 3);
+        let enemy_pos = hex_from_offset(4, 3);
+        let dest_pos  = hex_from_offset(2, 3);
+
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).hp(10).max_hp(20).build();
+        // Enemy has NO reactions and no aoo_expected_damage (defaults = 0).
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
+
+        let mut h = StageTestHarness::new(actor);
+        h.extra_units = vec![enemy];
+
+        assert_stage_critic_passes(&h, vec![move_plan(vec![dest_pos])], OvercommitIntoDanger);
+    }
+
+    // ── AoO multiplier is in a tight range (catches / → * / % and - → + / ÷)
+
+    /// With actor hp=10, aoo_dmg=4 and default thresholds (aoo_penalty_k=2.0,
+    /// aoo_risk_floor=0.25):
+    ///   ratio = 4.0 / 10.0 = 0.4
+    ///   mult  = (1.0 - 2.0 * 0.4 * 0.4).max(0.25) = (1.0 - 0.32).max(0.25) = 0.68
+    ///
+    /// Mutations on lines 70-71 (ratio division replaced by multiply/rem, or
+    /// the arithmetic inside the multiplier formula altered) all yield values
+    /// far outside [0.60, 0.76]:
+    ///   / → * at ratio: ratio becomes 40 → clamped to 1.0 → mult = 0.25
+    ///   - → + in mult:  mult = 1.0 + 0.32 = 1.32
+    ///   * → + (penalty_k * ratio): 2+0.4=2.4; mult = 1.0 - 2.4*0.4 = 0.04 → floor 0.25
+    #[test]
+    fn overcommit_aoo_multiplier_tight_range() {
+        use crate::combat::ai::pipeline::stages::critics::CriticsStage;
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
+        use crate::combat::ai::pipeline::PlanStage;
+        use crate::combat::ai::test_helpers::PoolBuilder;
+
+        let actor_pos = hex_from_offset(3, 3);
+        let enemy_pos = hex_from_offset(4, 3);
+        let dest_pos  = hex_from_offset(2, 3);
+
+        // hp=10, aoo_dmg=4 → ratio=0.4, expected multiplier ≈ 0.68
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).hp(10).max_hp(20).build();
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos)
+            .aoo(4.0, 1)
+            .build();
+
+        let mut h = StageTestHarness::new(actor);
+        h.extra_units = vec![enemy];
+        // No danger on dest tile so only AoO fires, not SurvivalPath.
+        // (Full HP → hp_need=0 → surv=0 → no survival signal.)
+
+        let stage = CriticsStage::single(OvercommitIntoDanger);
+        let mut pool = PoolBuilder::new(vec![move_plan(vec![dest_pos])])
+            .scores(&[1.0]).trace_base_eq_score().build();
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        let mult = pool.annotations[0].score_trace.multipliers.iter()
+            .find(|m| matches!(m.kind, MultiplierKind::Critic))
+            .expect("AoO critic must fire")
+            .value;
+
+        // Expected ≈ 0.68 (see doc comment). Range is tight to kill mutations.
+        assert!(
+            mult > 0.60 && mult < 0.76,
+            "AoO multiplier expected ≈ 0.68, got {mult}",
+        );
+    }
+
+    // ── AoO ratio stored in reason is in expected range (covers line 94 / → *)
+
+    #[test]
+    fn overcommit_aoo_reason_ratio_correct() {
+        // ratio = aoo_dmg / actor.hp, stored in CriticReason. When / is
+        // replaced by * the ratio explodes, so checking it's in (0, 1] kills
+        // that mutant.
+        use crate::combat::ai::pipeline::stages::critics::CriticsStage;
+        use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
+        use crate::combat::ai::pipeline::PlanStage;
+        use crate::combat::ai::test_helpers::PoolBuilder;
+
+        let actor_pos = hex_from_offset(3, 3);
+        let enemy_pos = hex_from_offset(4, 3);
+        let dest_pos  = hex_from_offset(2, 3);
+
+        // aoo_dmg=8, hp=20: ratio = 8/20 = 0.4, should be in (0.3, 0.5).
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).hp(20).max_hp(20).build();
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos)
+            .aoo(8.0, 1)
+            .build();
+
+        let mut h = StageTestHarness::new(actor);
+        h.extra_units = vec![enemy];
+
+        let stage = CriticsStage::single(OvercommitIntoDanger);
+        let mut pool = PoolBuilder::new(vec![move_plan(vec![dest_pos])])
+            .scores(&[1.0]).trace_base_eq_score().build();
+        h.run(|ctx| stage.apply(&mut pool, ctx));
+
+        let hit = pool.annotations[0].score_trace.multipliers.iter()
+            .find(|m| matches!(m.kind, MultiplierKind::Critic))
+            .expect("AoO critic must fire");
+        let Some(MultiplierDetail::Critic { reason, .. }) = &hit.detail else {
+            panic!("expected Critic detail");
+        };
+        let CriticReason::OvercommitIntoDanger { source, ratio } = reason else {
+            panic!("expected OvercommitIntoDanger reason");
+        };
+        assert_eq!(*source, OvercommitSource::AooBleed);
+        // ratio = 8/20 = 0.4; mutations (/ → *) would give 8*20=160 → clamped 1.0.
+        assert!(
+            *ratio > 0.3 && *ratio < 0.5,
+            "AoO ratio expected ≈ 0.4, got {ratio}",
         );
     }
 }

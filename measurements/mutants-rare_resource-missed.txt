@@ -1,0 +1,1 @@
+src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:84:32: replace > with >= in <impl PlanCritic for RareResourceForLowImpact>::evaluate
