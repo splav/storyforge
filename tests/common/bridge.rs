@@ -154,6 +154,16 @@ pub fn script_no_crit_fail(app: &mut App) {
         .script(&[11]);
 }
 
+/// Script the next d20 draw to an arbitrary value.
+///
+/// Use before a Cast input when you need to control the crit-fail check.
+/// `d20 == 1` triggers crit-fail; any other value does not.
+pub fn script_d20(app: &mut App, value: i32) {
+    app.world_mut()
+        .resource_mut::<DiceRngRes>()
+        .script(&[value]);
+}
+
 // ─── Stats / equipment presets ────────────────────────────────────────────────
 
 /// Bridge-tier stats preset: max_hp=20, strength=5 (str_mod=2).
