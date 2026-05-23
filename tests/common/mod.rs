@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod bridge;
+
 use bevy::ecs::message::Messages;
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
