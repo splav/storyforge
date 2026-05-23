@@ -1,0 +1,1743 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "summary": "Success",
+      "log_path": "log/baseline.log",
+      "diff_path": null,
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.78466075,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.082432417,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:55:9: replace <impl PlanCritic for HealWithoutRescueValue>::name -> &'static str with \"\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 54,
+                "column": 5
+              },
+              "end": {
+                "line": 56,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 55,
+              "column": 9
+            },
+            "end": {
+              "line": 55,
+              "column": 36
+            }
+          },
+          "replacement": "\"\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_55_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_55_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.248935084,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.152325958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:55:9: replace <impl PlanCritic for HealWithoutRescueValue>::name -> &'static str with \"xyzzy\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 54,
+                "column": 5
+              },
+              "end": {
+                "line": 56,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 55,
+              "column": 9
+            },
+            "end": {
+              "line": 55,
+              "column": 36
+            }
+          },
+          "replacement": "\"xyzzy\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_55_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_55_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.022118583,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.210221625,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:64:9: replace <impl PlanCritic for HealWithoutRescueValue>::evaluate -> Option<CriticHit> with None",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 64,
+              "column": 9
+            },
+            "end": {
+              "line": 129,
+              "column": 13
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_64_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_64_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 24.377014416,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.097062625,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:64:9: replace <impl PlanCritic for HealWithoutRescueValue>::evaluate -> Option<CriticHit> with Some(Default::default())",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 64,
+              "column": 9
+            },
+            "end": {
+              "line": 129,
+              "column": 13
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_64_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_64_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.514487542,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:84:48: replace > with == in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 48
+            },
+            "end": {
+              "line": 84,
+              "column": 49
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_84_col_48.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_84_col_48.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 27.378739458,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.690341666,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:84:48: replace > with < in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 48
+            },
+            "end": {
+              "line": 84,
+              "column": 49
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_84_col_48_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_84_col_48_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.727822333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.2482983340000002,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:84:48: replace > with >= in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 48
+            },
+            "end": {
+              "line": 84,
+              "column": 49
+            }
+          },
+          "replacement": ">=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_84_col_48_002.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_84_col_48_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.307716958,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.147560625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:86:35: replace && with || in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 86,
+              "column": 35
+            },
+            "end": {
+              "line": 86,
+              "column": 37
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_86_col_35.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_86_col_35.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.27749025,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.764589083,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:86:16: delete ! in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 86,
+              "column": 16
+            },
+            "end": {
+              "line": 86,
+              "column": 17
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_86_col_16.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_86_col_16.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.312965667,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.212744167,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:86:38: delete ! in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 86,
+              "column": 38
+            },
+            "end": {
+              "line": 86,
+              "column": 39
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_86_col_38.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_86_col_38.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.695739416,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.200699792,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:99:30: replace < with == in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 99,
+              "column": 30
+            },
+            "end": {
+              "line": 99,
+              "column": 31
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_99_col_30.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_99_col_30.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.409805417,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.872542041,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:99:30: replace < with > in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 99,
+              "column": 30
+            },
+            "end": {
+              "line": 99,
+              "column": 31
+            }
+          },
+          "replacement": ">",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_99_col_30_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_99_col_30_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.21839325,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.304100291,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:99:30: replace < with <= in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 99,
+              "column": 30
+            },
+            "end": {
+              "line": 99,
+              "column": 31
+            }
+          },
+          "replacement": "<=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_99_col_30_002.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_99_col_30_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 19.093618292,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.30732475,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:107:17: replace * with + in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 17
+            },
+            "end": {
+              "line": 107,
+              "column": 18
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_107_col_17.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_107_col_17.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.386833333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.519700416,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:107:17: replace * with / in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 17
+            },
+            "end": {
+              "line": 107,
+              "column": 18
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_107_col_17_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_107_col_17_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.880427749999999,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.216895834,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:106:28: replace - with + in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 106,
+              "column": 28
+            },
+            "end": {
+              "line": 106,
+              "column": 29
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_106_col_28.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_106_col_28.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.476420709,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.779679,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:106:28: replace - with / in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 106,
+              "column": 28
+            },
+            "end": {
+              "line": 106,
+              "column": 29
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_106_col_28_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_106_col_28_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.908802708,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.083304916,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:110:28: replace >= with < in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 110,
+              "column": 28
+            },
+            "end": {
+              "line": 110,
+              "column": 30
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_110_col_28.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_110_col_28.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.560938541,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.26245675,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:116:56: replace / with % in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 116,
+              "column": 56
+            },
+            "end": {
+              "line": 116,
+              "column": 57
+            }
+          },
+          "replacement": "%",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_116_col_56.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_116_col_56.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.896434875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.370541541,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:116:56: replace / with * in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 116,
+              "column": 56
+            },
+            "end": {
+              "line": 116,
+              "column": 57
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_116_col_56_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_116_col_56_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.226476709,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.279052625,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:116:41: replace - with + in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 116,
+              "column": 41
+            },
+            "end": {
+              "line": 116,
+              "column": 42
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_116_col_41.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_116_col_41.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.711296834,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.28316375,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:116:41: replace - with / in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 116,
+              "column": 41
+            },
+            "end": {
+              "line": 116,
+              "column": 42
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_116_col_41_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_116_col_41_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.329228083,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.276692125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:117:34: replace - with + in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 117,
+              "column": 34
+            },
+            "end": {
+              "line": 117,
+              "column": 35
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_117_col_34.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_117_col_34.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.547740667,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.303902125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:117:34: replace - with / in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 117,
+              "column": 34
+            },
+            "end": {
+              "line": 117,
+              "column": 35
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_117_col_34_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_117_col_34_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.970024333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.849618083,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:117:48: replace * with + in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 117,
+              "column": 48
+            },
+            "end": {
+              "line": 117,
+              "column": 49
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_117_col_48.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_117_col_48.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.60340625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.279806083,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:117:48: replace * with / in <impl PlanCritic for HealWithoutRescueValue>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for HealWithoutRescueValue>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 117,
+              "column": 48
+            },
+            "end": {
+              "line": 117,
+              "column": 49
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_117_col_48_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__heal_without_rescue_value.rs_line_117_col_48_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.548672709,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.8392802910000001,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 26,
+  "missed": 3,
+  "caught": 22,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-05-23T18:07:27.418849Z",
+  "end_time": "2026-05-23T18:16:08.565617Z",
+  "cargo_mutants_version": "27.0.0"
+}

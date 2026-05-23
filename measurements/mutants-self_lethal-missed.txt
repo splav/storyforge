@@ -1,0 +1,6 @@
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:70:37: replace && with || in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:70:30: replace == with != in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:73:37: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:61: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:91:88: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:107:41: replace > with >= in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate

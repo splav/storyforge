@@ -1,0 +1,2727 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "summary": "Success",
+      "log_path": "log/baseline.log",
+      "diff_path": null,
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.269933625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.326932125,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:44:9: replace <impl PlanCritic for SelfLethalWithoutPayoff>::name -> &'static str with \"\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 43,
+                "column": 5
+              },
+              "end": {
+                "line": 45,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 44,
+              "column": 9
+            },
+            "end": {
+              "line": 44,
+              "column": 37
+            }
+          },
+          "replacement": "\"\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_44_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_44_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.896224916,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.517790167,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:44:9: replace <impl PlanCritic for SelfLethalWithoutPayoff>::name -> &'static str with \"xyzzy\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 43,
+                "column": 5
+              },
+              "end": {
+                "line": 45,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 44,
+              "column": 9
+            },
+            "end": {
+              "line": 44,
+              "column": 37
+            }
+          },
+          "replacement": "\"xyzzy\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_44_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_44_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.914565167,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.498177542,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:53:9: replace <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate -> Option<CriticHit> with None",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 53,
+              "column": 9
+            },
+            "end": {
+              "line": 113,
+              "column": 11
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_53_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_53_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.94557625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.8192414160000001,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:53:9: replace <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate -> Option<CriticHit> with Some(Default::default())",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 53,
+              "column": 9
+            },
+            "end": {
+              "line": 113,
+              "column": 11
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_53_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_53_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.477889958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:70:37: replace && with || in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 70,
+              "column": 37
+            },
+            "end": {
+              "line": 70,
+              "column": 39
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_70_col_37.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_70_col_37.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 28.20472925,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.457385958,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:70:30: replace == with != in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 70,
+              "column": 30
+            },
+            "end": {
+              "line": 70,
+              "column": 32
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_70_col_30.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_70_col_30.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.240108792,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.8277802909999998,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:73:37: replace * with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 73,
+              "column": 37
+            },
+            "end": {
+              "line": 73,
+              "column": 38
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_73_col_37.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_73_col_37.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.716722917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.716335875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:73:37: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 73,
+              "column": 37
+            },
+            "end": {
+              "line": 73,
+              "column": 38
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_73_col_37_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_73_col_37_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.248473834,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.723816708,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:77:48: replace / with % in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 77,
+              "column": 48
+            },
+            "end": {
+              "line": 77,
+              "column": 49
+            }
+          },
+          "replacement": "%",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_77_col_48.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_77_col_48.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.764013792,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.7278584160000001,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:77:48: replace / with * in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 77,
+              "column": 48
+            },
+            "end": {
+              "line": 77,
+              "column": 49
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_77_col_48_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_77_col_48_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.789662625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.7763555,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:78:27: replace <= with > in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 78,
+              "column": 27
+            },
+            "end": {
+              "line": 78,
+              "column": 29
+            }
+          },
+          "replacement": ">",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_78_col_27.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_78_col_27.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.902042042,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.199421958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:37: replace + with - in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 87,
+              "column": 37
+            },
+            "end": {
+              "line": 87,
+              "column": 38
+            }
+          },
+          "replacement": "-",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_37.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_37.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.286985709,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.132666667,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:37: replace + with * in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 87,
+              "column": 37
+            },
+            "end": {
+              "line": 87,
+              "column": 38
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_37_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_37_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.326634917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.243921459,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:61: replace * with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 87,
+              "column": 61
+            },
+            "end": {
+              "line": 87,
+              "column": 62
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_61.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_61.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.562929542,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.931963042,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:61: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 87,
+              "column": 61
+            },
+            "end": {
+              "line": 87,
+              "column": 62
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_61_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_61_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.540501625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.251334292,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:52: replace * with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 87,
+              "column": 52
+            },
+            "end": {
+              "line": 87,
+              "column": 53
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_52.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_52.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.135862625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.712465833,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:52: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 87,
+              "column": 52
+            },
+            "end": {
+              "line": 87,
+              "column": 53
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_52_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_87_col_52_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.323358167,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.6589059160000001,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:91:88: replace * with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 91,
+              "column": 88
+            },
+            "end": {
+              "line": 91,
+              "column": 89
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_91_col_88.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_91_col_88.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.681344708,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.101355875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:91:88: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 91,
+              "column": 88
+            },
+            "end": {
+              "line": 91,
+              "column": 89
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_91_col_88_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_91_col_88_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.379283625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.776038625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:91:79: replace * with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 91,
+              "column": 79
+            },
+            "end": {
+              "line": 91,
+              "column": 80
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_91_col_79.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_91_col_79.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.912082292000001,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.758538667,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:91:79: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 91,
+              "column": 79
+            },
+            "end": {
+              "line": 91,
+              "column": 80
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_91_col_79_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_91_col_79_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.441410458,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.827139917,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:93:42: replace + with - in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 93,
+              "column": 42
+            },
+            "end": {
+              "line": 93,
+              "column": 43
+            }
+          },
+          "replacement": "-",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_93_col_42.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_93_col_42.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.90544325,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.558151542,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:93:42: replace + with * in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 93,
+              "column": 42
+            },
+            "end": {
+              "line": 93,
+              "column": 43
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_93_col_42_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_93_col_42_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.276636,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.836743625,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:96:19: replace >= with < in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 96,
+              "column": 19
+            },
+            "end": {
+              "line": 96,
+              "column": 21
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_96_col_19.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_96_col_19.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.392141208,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.093418333,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:96:45: replace * with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 96,
+              "column": 45
+            },
+            "end": {
+              "line": 96,
+              "column": 46
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_96_col_45.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_96_col_45.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.347102291,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.714899,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:96:45: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 96,
+              "column": 45
+            },
+            "end": {
+              "line": 96,
+              "column": 46
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_96_col_45_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_96_col_45_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.55934075,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.5635901250000002,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:31: replace - with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 31
+            },
+            "end": {
+              "line": 104,
+              "column": 32
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_31.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_31.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.496583875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.506396292,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:31: replace - with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 31
+            },
+            "end": {
+              "line": 104,
+              "column": 32
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_31_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_31_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.158160208,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.7107247079999999,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:77: replace / with % in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 77
+            },
+            "end": {
+              "line": 104,
+              "column": 78
+            }
+          },
+          "replacement": "%",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_77.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_77.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.820810458,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.556633459,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:77: replace / with * in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 77
+            },
+            "end": {
+              "line": 104,
+              "column": 78
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_77_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_77_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.420070125,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.505822292,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:37: replace * with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 37
+            },
+            "end": {
+              "line": 104,
+              "column": 38
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_37.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_37.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.700734375,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.6637815,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:37: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 37
+            },
+            "end": {
+              "line": 104,
+              "column": 38
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_37_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_37_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.616421792,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.6667014999999998,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:55: replace - with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 55
+            },
+            "end": {
+              "line": 104,
+              "column": 56
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_55.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_55.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 11.907728875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.659573667,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:55: replace - with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 55
+            },
+            "end": {
+              "line": 104,
+              "column": 56
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_55_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_55_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.52365125,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.7808875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:84: replace - with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 84
+            },
+            "end": {
+              "line": 104,
+              "column": 85
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_84.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_84.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.646194083,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.770284084,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:84: replace - with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 84
+            },
+            "end": {
+              "line": 104,
+              "column": 85
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_84_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_104_col_84_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.7285565,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.8213840000000001,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:107:41: replace > with == in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 41
+            },
+            "end": {
+              "line": 107,
+              "column": 42
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_107_col_41.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_107_col_41.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 19.157049333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.6116059590000003,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:107:41: replace > with < in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 41
+            },
+            "end": {
+              "line": 107,
+              "column": 42
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_107_col_41_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_107_col_41_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 19.007209708,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.59268125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:107:41: replace > with >= in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 41
+            },
+            "end": {
+              "line": 107,
+              "column": 42
+            }
+          },
+          "replacement": ">=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_107_col_41_002.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_107_col_41_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.688332834,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.3977588340000002,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:107:56: replace / with % in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 56
+            },
+            "end": {
+              "line": 107,
+              "column": 57
+            }
+          },
+          "replacement": "%",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_107_col_56.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_107_col_56.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.200005083,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.468082166,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:107:56: replace / with * in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for SelfLethalWithoutPayoff>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 47,
+                "column": 5
+              },
+              "end": {
+                "line": 114,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 56
+            },
+            "end": {
+              "line": 107,
+              "column": 57
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_107_col_56_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__self_lethal_without_payoff.rs_line_107_col_56_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.7650175,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.820765958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 41,
+  "missed": 6,
+  "caught": 34,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-05-23T17:55:03.912095Z",
+  "end_time": "2026-05-23T18:06:16.552644Z",
+  "cargo_mutants_version": "27.0.0"
+}

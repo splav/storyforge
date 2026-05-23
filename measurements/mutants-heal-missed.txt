@@ -1,0 +1,3 @@
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:84:48: replace > with >= in <impl PlanCritic for HealWithoutRescueValue>::evaluate
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:106:28: replace - with + in <impl PlanCritic for HealWithoutRescueValue>::evaluate
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:106:28: replace - with / in <impl PlanCritic for HealWithoutRescueValue>::evaluate
