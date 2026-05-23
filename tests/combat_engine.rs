@@ -6,6 +6,9 @@
 //!
 //! Subset filter: `cargo test --test combat_engine dice::` for one module.
 
+#[path = "../tests/common/mod.rs"]
+mod common;
+
 #[path = "combat_engine/bridge_smoke.rs"]
 mod bridge_smoke;
 

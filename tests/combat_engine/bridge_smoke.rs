@@ -44,6 +44,8 @@ use storyforge::game::resources::{CombatContext, HexPositions, TurnQueue};
 use storyforge::ui::animation::{AnimationQueue, PendingAnim};
 use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
+use super::common;
+
 fn test_stats() -> CombatStats {
     CombatStats {
         max_hp: 20,
@@ -158,38 +160,14 @@ fn projector_only_app() -> App {
     app
 }
 
-/// Round-trip test: Move action flows through the full bridge and lands in ECS.
-///
-/// Renamed from `process_action_move_updates_engine_state_not_ecs` (step 2):
-/// the projector added in step 3 closes the engine→ECS write loop, so the
-/// "ECS unchanged" assertion is replaced by "ECS matches engine state".
 #[test]
 fn process_action_move_writes_engine_state_and_projects_to_ecs() {
-    let mut app = bridge_app();
-
-    // --- Spawn actor ---
     let start = hex_from_offset(0, 0);
     let target = hex_from_offset(1, 0); // direct neighbor — costs 1 MP
 
-    let actor = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Player,
-            test_stats(),
-            0,   // armor
-            6,   // speed (= starting movement_points)
-            vec![],
-            test_equipment(),
-        ))
-        .id();
-
-    // Register position in HexPositions resource.
-    app.world_mut()
-        .resource_mut::<HexPositions>()
-        .insert(actor, start);
-
-    // Seed engine state from ECS before first update.
-    init_bridge_engine_state(&mut app);
+    let mut app = common::bridge::bridge_app();
+    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
+    common::bridge::bootstrap(&mut app);
 
     // Verify engine state was initialized correctly.
     let actor_uid = entity_to_uid(actor);
@@ -579,7 +557,6 @@ fn make_melee_content(ability_id: &AbilityId, weapon_id: &WeaponId) -> ContentVi
     cv
 }
 
-/// The bridge emits `CombatEvent::OpportunityAttack` when the engine fires an AoO.
 #[test]
 fn engine_emits_combat_log_opportunity_attack() {
     let player_start = hex_from_offset(0, 0);
@@ -594,26 +571,15 @@ fn engine_emits_combat_log_opportunity_attack() {
     let weapon_id = WeaponId::from("b1_aoo_sword");
     let content = make_melee_content(&ability_id, &weapon_id);
 
-    let mut app = bridge_app();
+    let mut app = common::bridge::bridge_app();
     app.insert_resource(ActiveContent(content));
 
-    let player = app.world_mut().spawn(CombatantBundle::new(
-        Team::Player, test_stats(), 0, 6, vec![],
-        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
-    )).id();
-    let enemy = app.world_mut().spawn(CombatantBundle::new(
-        Team::Enemy, test_stats(), 0, 6, vec![ability_id],
-        Equipment { main_hand: Some(weapon_id), off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
-    )).id();
+    let player = common::bridge::spawn_caster(&mut app, player_start, vec![]);
+    let enemy = common::bridge::spawn_enemy_with_weapon(&mut app, enemy_pos, vec![ability_id], weapon_id);
     app.world_mut().entity_mut(enemy).get_mut::<Reactions>().unwrap().remaining = 1;
-    app.world_mut().resource_mut::<HexPositions>().insert(player, player_start);
-    app.world_mut().resource_mut::<HexPositions>().insert(enemy, enemy_pos);
 
-    init_bridge_engine_state(&mut app);
-
-    app.world_mut()
-        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Move { actor: player, path: vec![escape_hex] });
+    common::bridge::bootstrap(&mut app);
+    common::bridge::write_move(&mut app, player, vec![escape_hex]);
     app.update();
 
     let log = app.world().resource::<CombatLog>();
@@ -631,22 +597,15 @@ fn engine_emits_combat_log_opportunity_attack() {
     assert!(!killed, "player should not die from one AoO with default HP");
 }
 
-/// The bridge emits a single aggregated `CombatEvent::UnitMoved`.
 #[test]
 fn engine_emits_combat_log_unit_moved() {
     let start = hex_from_offset(0, 0);
     let target = hex_from_offset(1, 0);
 
-    let mut app = bridge_app();
-    let actor = app.world_mut().spawn(CombatantBundle::new(
-        Team::Player, test_stats(), 0, 6, vec![], test_equipment(),
-    )).id();
-    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
-    init_bridge_engine_state(&mut app);
-
-    app.world_mut()
-        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Move { actor, path: vec![target] });
+    let mut app = common::bridge::bridge_app();
+    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
+    common::bridge::bootstrap(&mut app);
+    common::bridge::write_move(&mut app, actor, vec![target]);
     app.update();
 
     let log = app.world().resource::<CombatLog>();
@@ -663,25 +622,19 @@ fn engine_emits_combat_log_unit_moved() {
     assert_eq!(to, target);
 }
 
-/// The bridge enqueues a `PendingAnim::Movement` with correct waypoints.
 #[test]
 fn engine_enqueues_movement_animation() {
     let start = hex_from_offset(0, 0);
     let step1 = hex_from_offset(1, 0);
 
-    let mut app = bridge_app();
-    let actor = app.world_mut().spawn(CombatantBundle::new(
-        Team::Player, test_stats(), 0, 6, vec![], test_equipment(),
-    )).id();
+    let mut app = common::bridge::bridge_app();
+    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
     // Spawn a token entity pointing at the actor.
     let token_entity = app.world_mut().spawn(UnitToken(actor)).id();
-    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
-    init_bridge_engine_state(&mut app);
+    common::bridge::bootstrap(&mut app);
 
     let path = vec![step1];
-    app.world_mut()
-        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Move { actor, path: path.clone() });
+    common::bridge::write_move(&mut app, actor, path.clone());
     app.update();
 
     let queue = app.world().resource::<AnimationQueue>();
@@ -700,25 +653,18 @@ fn engine_enqueues_movement_animation() {
     }
 }
 
-/// The projector removes `BonusMovement` when `movement_points` reaches zero.
 #[test]
 fn projector_removes_bonus_movement_when_mp_zero() {
     let start = hex_from_offset(0, 0);
     let target = hex_from_offset(1, 0);
 
-    let mut app = bridge_app();
+    let mut app = common::bridge::bridge_app();
 
     // Spawn actor with movement_points = 1 (just enough for a 1-step path).
-    let actor = app.world_mut().spawn((
-        CombatantBundle::new(Team::Player, test_stats(), 0, 1, vec![], test_equipment()),
-        BonusMovement,
-    )).id();
-    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
-    init_bridge_engine_state(&mut app);
-
-    app.world_mut()
-        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Move { actor, path: vec![target] });
+    let actor = common::bridge::spawn_caster_with_speed(&mut app, start, vec![], 1);
+    app.world_mut().entity_mut(actor).insert(BonusMovement);
+    common::bridge::bootstrap(&mut app);
+    common::bridge::write_move(&mut app, actor, vec![target]);
     app.update();
 
     assert!(

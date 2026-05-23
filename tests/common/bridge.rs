@@ -36,7 +36,7 @@ use storyforge::combat::ai::log::PendingAiLogEntries;
 use storyforge::combat::ai::world::tags::AbilityTagCache;
 use storyforge::content::abilities::AbilityDef;
 use storyforge::content::content_view::ActiveContent;
-use storyforge::core::AbilityId;
+use storyforge::core::{AbilityId, WeaponId};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{CombatStats, Equipment, Team};
@@ -213,10 +213,39 @@ pub fn spawn_caster(app: &mut App, pos: Hex, abilities: Vec<AbilityId>) -> Entit
     spawn_unit(app, Team::Player, bridge_stats(), 0, 6, abilities, no_equipment(), pos)
 }
 
+/// Like [`spawn_caster`] but with explicit `speed` — used by movement tests
+/// that need a non-default speed (e.g., speed=1 to test bonus-movement exhaustion).
+pub fn spawn_caster_with_speed(
+    app: &mut App,
+    pos: Hex,
+    abilities: Vec<AbilityId>,
+    speed: i32,
+) -> Entity {
+    spawn_unit(app, Team::Player, bridge_stats(), 0, speed, abilities, no_equipment(), pos)
+}
+
 /// Convenience: spawn an Enemy unit at `pos` with [`bridge_stats`],
 /// no abilities, and [`no_equipment`].
 pub fn spawn_target(app: &mut App, pos: Hex) -> Entity {
     spawn_unit(app, Team::Enemy, bridge_stats(), 0, 6, vec![], no_equipment(), pos)
+}
+
+/// Spawn an Enemy with a weapon in `main_hand` — used by AoO-flavored tests
+/// where the enemy must have a melee weapon to provoke or react.
+pub fn spawn_enemy_with_weapon(
+    app: &mut App,
+    pos: Hex,
+    abilities: Vec<AbilityId>,
+    weapon_id: WeaponId,
+) -> Entity {
+    let equipment = Equipment {
+        main_hand: Some(weapon_id),
+        off_hand: None,
+        chest: "".into(),
+        legs: "".into(),
+        feet: "".into(),
+    };
+    spawn_unit(app, Team::Enemy, bridge_stats(), 0, 6, abilities, equipment, pos)
 }
 
 // ─── Content injection ────────────────────────────────────────────────────────
@@ -231,6 +260,35 @@ pub fn insert_ability(app: &mut App, def: AbilityDef) {
         .0
         .abilities
         .insert(def.id.clone(), def);
+}
+
+// ─── Input messages ───────────────────────────────────────────────────────────
+
+/// Write an `ActionInput::Move` message for `actor` along `path`.
+/// Saves the 3-line `resource_mut::<Messages<ActionInput>>().write(...)` ceremony.
+pub fn write_move(app: &mut App, actor: Entity, path: Vec<Hex>) {
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Move { actor, path });
+}
+
+/// Write an `ActionInput::Cast` message. `target_pos` is the hex; `target_entity`
+/// is the targeted unit (or the caster for self-cast).
+pub fn write_cast(
+    app: &mut App,
+    actor: Entity,
+    ability: AbilityId,
+    target: Entity,
+    target_pos: Hex,
+) {
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
+        .write(ActionInput::Cast {
+            actor,
+            ability,
+            target,
+            target_pos,
+        });
 }
 
 // ─── Engine state mutation ────────────────────────────────────────────────────
