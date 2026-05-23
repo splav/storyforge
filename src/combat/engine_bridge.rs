@@ -228,7 +228,13 @@ pub fn from_ecs(
                 action_points: ap.action_points,
                 max_ap: ap.max_ap,
                 movement_points: ap.movement_points,
-                reactions_left: reactions.remaining as i32,
+                // Bootstrap-initial: a unit always enters combat with a full reaction
+                // budget. We intentionally ignore `Reactions.remaining` here — the ECS
+                // default starts at 0 (matching `Effect::Spawn`'s reactions_left=0 for
+                // mid-combat summons), so reading it would yield 0 and break round-1
+                // AoO. Engine's `start_round` (called on `Effect::BumpRound`) refills
+                // reactions_left = reactions_max on every subsequent round.
+                reactions_left: reactions.max as i32,
                 reactions_max: reactions.max as i32,
                 statuses: statuses_vec,
                 rage: rage_pool,
@@ -1408,6 +1414,7 @@ type ProjectionRow<'a> = (
 /// - `hp`               → `Vital.hp`
 /// - `movement_points`  → `ActionPoints.movement_points`
 /// - `reactions_left`   → `Reactions.remaining`
+/// - `reactions_max`    → `Reactions.max`
 ///
 /// Initialise engine `CombatState` from the current ECS snapshot.
 ///
@@ -1447,6 +1454,7 @@ pub fn project_state_to_ecs(
             ap.action_points = unit.action_points;
             ap.movement_points = unit.movement_points;
             reactions.remaining = unit.reactions_left as u8;
+            reactions.max       = unit.reactions_max as u8;
 
             if has_bonus && ap.movement_points == 0 {
                 commands.entity(entity).remove::<BonusMovement>();

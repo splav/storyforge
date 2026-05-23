@@ -116,7 +116,12 @@ pub struct Reactions {
 
 impl Default for Reactions {
     fn default() -> Self {
-        Self { remaining: 1, max: 1 }
+        // remaining starts at 0 to match engine `Unit { reactions_left: 0, reactions_max: 1 }`
+        // at spawn (crates/combat_engine/src/effect.rs Effect::Spawn). The engine refills
+        // reactions_left = reactions_max on round wrap via `start_round`, then
+        // `project_state_to_ecs` mirrors that back into ECS. A unit cannot AoO in the
+        // round it was spawned in.
+        Self { remaining: 0, max: 1 }
     }
 }
 
