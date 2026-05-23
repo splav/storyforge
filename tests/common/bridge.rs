@@ -34,9 +34,11 @@ use storyforge::combat::ai::log::AiLogger;
 use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
 use storyforge::combat::ai::log::PendingAiLogEntries;
 use storyforge::combat::ai::world::tags::AbilityTagCache;
-use storyforge::content::abilities::AbilityDef;
-use storyforge::content::content_view::ActiveContent;
-use storyforge::core::{AbilityId, WeaponId};
+use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
+use storyforge::content::content_view::{ActiveContent, ContentView};
+use storyforge::content::statuses::StatusDef;
+use storyforge::content::weapons::{HandType, WeaponDef};
+use storyforge::core::{AbilityId, DiceExpr, WeaponId};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{CombatStats, Equipment, Team};
@@ -270,6 +272,85 @@ pub fn insert_ability(app: &mut App, def: AbilityDef) {
         .0
         .abilities
         .insert(def.id.clone(), def);
+}
+
+// ─── Melee content builder ────────────────────────────────────────────────────
+
+/// Builder for a synthetic melee `ContentView` (weapon + WeaponAttack ability +
+/// optional status definitions) used by AoO-flavoured tests.
+///
+/// ```ignore
+/// let cv = melee_content(&ability_id, &weapon_id)
+///     .with_status(stun_def)
+///     .into_view();
+/// app.insert_resource(ActiveContent(cv));
+/// ```
+pub struct MeleeContent {
+    pub ability_id: AbilityId,
+    pub weapon_id: WeaponId,
+    pub statuses: Vec<StatusDef>,
+}
+
+/// Start building a `MeleeContent`. Creates a 1d6 `WeaponAttack` ability + sword.
+pub fn melee_content(ability_id: &AbilityId, weapon_id: &WeaponId) -> MeleeContent {
+    MeleeContent {
+        ability_id: ability_id.clone(),
+        weapon_id: weapon_id.clone(),
+        statuses: vec![],
+    }
+}
+
+impl MeleeContent {
+    /// Add a `StatusDef` to the content view (for stun-filter tests, etc.).
+    pub fn with_status(mut self, status: StatusDef) -> Self {
+        self.statuses.push(status);
+        self
+    }
+
+    /// Consume the builder and produce a `ContentView` ready for `ActiveContent`.
+    pub fn into_view(self) -> ContentView {
+        let sword = WeaponDef {
+            id: self.weapon_id.clone(),
+            name: "Test Sword".into(),
+            hand: HandType::MainHand,
+            dice: DiceExpr::new(1, 6, 0),
+            spell_power: 0,
+            armor: 0,
+            max_hp: 0,
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0,
+        };
+        let ability = AbilityDef {
+            id: self.ability_id.clone(),
+            name: "Test Attack".into(),
+            magic_domains: vec![],
+            magic_method: String::new(),
+            ai_tags_override: None,
+            is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                target_type: storyforge::content::abilities::TargetType::SingleEnemy,
+                range: AbilityRange::MELEE,
+                effect: EffectDef::WeaponAttack,
+                costs: vec![],
+                cost_ap: 1,
+                aoe: AoEShape::None,
+                friendly_fire: false,
+                statuses: vec![],
+                key: None,
+            },
+        };
+        let mut cv = ContentView::default();
+        cv.abilities.insert(self.ability_id.clone(), ability);
+        cv.weapons.insert(self.weapon_id.clone(), sword);
+        for status in self.statuses {
+            cv.statuses.insert(status.id.clone(), status);
+        }
+        cv
+    }
 }
 
 // ─── Input messages ───────────────────────────────────────────────────────────

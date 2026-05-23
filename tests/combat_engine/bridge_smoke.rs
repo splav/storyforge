@@ -227,129 +227,40 @@ fn process_action_move_writes_engine_state_and_projects_to_ecs() {
 /// AoO damage = round(1d6 + 2) = round(5.5) = 6; armor = 0 → hp drops from 20 to 14.
 #[test]
 fn aoo_dice_flows_from_equipment_through_process_action_system() {
-    // Hexes: player starts at (0,0), enemy at a neighbor, escape to a non-adjacent hex.
     let player_start = hex_from_offset(0, 0);
-    let enemy_pos = player_start.all_neighbors()[0]; // adjacent to player
-    // Escape hex: 2 steps from enemy — must not be adjacent to enemy.
-    // Take a neighbor of player_start that is NOT adjacent to enemy_pos.
+    let enemy_pos = player_start.all_neighbors()[0];
     let escape_hex = player_start
         .all_neighbors()
         .into_iter()
         .find(|&h| h.unsigned_distance_to(enemy_pos) > 1)
         .expect("at least one non-adjacent neighbor must exist");
 
-    // Ability id used as the enemy's melee ability.
-    let melee_ability_id = AbilityId::from("test_attack");
-    let sword_id = WeaponId::from("test_sword");
+    let ability_id = AbilityId::from("test_attack");
+    let weapon_id = WeaponId::from("test_sword");
 
-    // Synthetic content: one melee WeaponAttack ability + one weapon.
-    let sword = WeaponDef {
-        id: sword_id.clone(),
-        name: "Test Sword".into(),
-        hand: HandType::MainHand,
-        dice: DiceExpr::new(1, 6, 0), // 1d6
-        spell_power: 0,
-        armor: 0,
-        max_hp: 0,
-        strength: 0,
-        dexterity: 0,
-        constitution: 0,
-        intelligence: 0,
-        wisdom: 0,
-        charisma: 0,
-    };
-    let melee_ability = AbilityDef {
-        id: melee_ability_id.clone(),
-        name: "Test Attack".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
-            target_type: storyforge::content::abilities::TargetType::SingleEnemy,
-            range: AbilityRange::MELEE,
-            effect: EffectDef::WeaponAttack,
-            costs: vec![],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: vec![],
-            key: None,
-        },
-    };
-    let mut content_view = ContentView::default();
-    content_view.abilities.insert(melee_ability_id.clone(), melee_ability);
-    content_view.weapons.insert(sword_id.clone(), sword);
+    let cv = common::bridge::melee_content(&ability_id, &weapon_id).into_view();
 
-    let mut app = bridge_app();
-    // Replace the default (empty) ActiveContent with our synthetic one.
-    app.insert_resource(ActiveContent(content_view));
+    let mut app = common::bridge::bridge_app();
+    app.insert_resource(ActiveContent(cv));
 
-    // Spawn player — armor=0, speed=6.
-    let player = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Player,
-            test_stats(), // str=5 → str_mod=2
-            0,
-            6,
-            vec![],
-            Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
-        ))
-        .id();
-
-    // Spawn enemy — melee ability + equipped test_sword + 1 reaction.
-    let enemy_stats = CombatStats {
-        max_hp: 20,
-        strength: 5,
-        dexterity: 5,
-        constitution: 10,
-        intelligence: 0,
-        wisdom: 10,
-        charisma: 10,
-    };
-    let enemy = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Enemy,
-            enemy_stats,
-            0,
-            6,
-            vec![melee_ability_id],
-            Equipment {
-                main_hand: Some(sword_id),
-                off_hand: None,
-                chest: "".into(),
-                legs: "".into(),
-                feet: "".into(),
-            },
-        ))
-        .id();
-
-    // Ensure enemy starts with 1 reaction.
+    let player = common::bridge::spawn_caster(&mut app, player_start, vec![]);
+    let enemy = common::bridge::spawn_enemy_with_weapon(
+        &mut app,
+        enemy_pos,
+        vec![ability_id],
+        weapon_id,
+    );
     app.world_mut()
         .entity_mut(enemy)
         .get_mut::<Reactions>()
         .unwrap()
         .remaining = 1;
 
-    // Register positions.
-    app.world_mut().resource_mut::<HexPositions>().insert(player, player_start);
-    app.world_mut().resource_mut::<HexPositions>().insert(enemy, enemy_pos);
+    common::bridge::bootstrap(&mut app);
 
-    // Seed engine state from ECS.
-    init_bridge_engine_state(&mut app);
-
-    // Record player's starting HP.
     let max_hp = app.world().entity(player).get::<Vital>().unwrap().max_hp;
 
-    // Send Move: player disengages from enemy.
-    app.world_mut()
-        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Move { actor: player, path: vec![escape_hex] });
-
-    // Update: process_action_system calls step() with real EcsContentView.
-    // AoO fires; project_state_to_ecs writes hp back to ECS.
+    common::bridge::write_move(&mut app, player, vec![escape_hex]);
     app.update();
 
     let hp_after = app.world().entity(player).get::<Vital>().unwrap().hp;
@@ -374,45 +285,10 @@ fn aoo_does_not_fire_from_stunned_enemy() {
         .find(|&h| h.unsigned_distance_to(enemy_pos) > 1)
         .expect("at least one non-adjacent neighbor must exist");
 
-    let melee_ability_id = AbilityId::from("test_attack_stunned");
-    let sword_id = WeaponId::from("test_sword_stunned");
+    let ability_id = AbilityId::from("test_attack_stunned");
+    let weapon_id = WeaponId::from("test_sword_stunned");
     let stun_id = StatusId::from("test_stun");
 
-    let sword = WeaponDef {
-        id: sword_id.clone(),
-        name: "Test Sword".into(),
-        hand: HandType::MainHand,
-        dice: DiceExpr::new(1, 6, 0),
-        spell_power: 0,
-        armor: 0,
-        max_hp: 0,
-        strength: 0,
-        dexterity: 0,
-        constitution: 0,
-        intelligence: 0,
-        wisdom: 0,
-        charisma: 0,
-    };
-    let melee_ability = AbilityDef {
-        id: melee_ability_id.clone(),
-        name: "Test Attack".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
-            target_type: storyforge::content::abilities::TargetType::SingleEnemy,
-            range: AbilityRange::MELEE,
-            effect: EffectDef::WeaponAttack,
-            costs: vec![],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: vec![],
-            key: None,
-        },
-    };
-    // Stub StatusDef with skips_turn = true.
     let stun_def = StatusDef {
         id: stun_id.clone(),
         name: "Test Stun".into(),
@@ -431,46 +307,20 @@ fn aoo_does_not_fire_from_stunned_enemy() {
         },
     };
 
-    let mut content_view = ContentView::default();
-    content_view.abilities.insert(melee_ability_id.clone(), melee_ability);
-    content_view.weapons.insert(sword_id.clone(), sword);
-    content_view.statuses.insert(stun_id.clone(), stun_def);
+    let cv = common::bridge::melee_content(&ability_id, &weapon_id)
+        .with_status(stun_def)
+        .into_view();
 
-    let mut app = bridge_app();
-    app.insert_resource(ActiveContent(content_view));
+    let mut app = common::bridge::bridge_app();
+    app.insert_resource(ActiveContent(cv));
 
-    // Spawn player — armor=0, speed=6.
-    let player = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Player,
-            test_stats(),
-            0,
-            6,
-            vec![],
-            Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
-        ))
-        .id();
-
-    // Spawn enemy with melee ability + sword + 1 reaction.
-    let enemy = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Enemy,
-            test_stats(),
-            0,
-            6,
-            vec![melee_ability_id],
-            Equipment {
-                main_hand: Some(sword_id),
-                off_hand: None,
-                chest: "".into(),
-                legs: "".into(),
-                feet: "".into(),
-            },
-        ))
-        .id();
-
+    let player = common::bridge::spawn_caster(&mut app, player_start, vec![]);
+    let enemy = common::bridge::spawn_enemy_with_weapon(
+        &mut app,
+        enemy_pos,
+        vec![ability_id],
+        weapon_id,
+    );
     app.world_mut()
         .entity_mut(enemy)
         .get_mut::<Reactions>()
@@ -490,20 +340,12 @@ fn aoo_does_not_fire_from_stunned_enemy() {
             dot_per_tick: 0,
         });
 
-    app.world_mut().resource_mut::<HexPositions>().insert(player, player_start);
-    app.world_mut().resource_mut::<HexPositions>().insert(enemy, enemy_pos);
-
-    // Seed engine state from ECS.
-    init_bridge_engine_state(&mut app);
+    common::bridge::bootstrap(&mut app);
 
     let max_hp = app.world().entity(player).get::<Vital>().unwrap().max_hp;
     let enemy_reactions_before = app.world().entity(enemy).get::<Reactions>().unwrap().remaining;
 
-    // Player disengages from stunned enemy.
-    app.world_mut()
-        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Move { actor: player, path: vec![escape_hex] });
-
+    common::bridge::write_move(&mut app, player, vec![escape_hex]);
     app.update();
 
     let hp_after = app.world().entity(player).get::<Vital>().unwrap().hp;
@@ -687,37 +529,37 @@ fn engine_inserts_dead_marker_on_aoo_kill() {
 
     let ability_id = AbilityId::from("b1_kill_attack");
     let weapon_id = WeaponId::from("b1_kill_sword");
-    let content = make_melee_content(&ability_id, &weapon_id);
+    let cv = common::bridge::melee_content(&ability_id, &weapon_id).into_view();
 
-    let mut app = bridge_app();
-    app.insert_resource(ActiveContent(content));
+    let mut app = common::bridge::bridge_app();
+    app.insert_resource(ActiveContent(cv));
 
     // Player with hp=1 — any hit is lethal.
-    let weak_stats = CombatStats {
-        max_hp: 1,
-        strength: 5, dexterity: 5, constitution: 10,
-        intelligence: 0, wisdom: 10, charisma: 10,
-    };
-    let player = app.world_mut().spawn(CombatantBundle::new(
-        Team::Player, weak_stats, 0, 6, vec![],
-        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
-    )).id();
-    let enemy = app.world_mut().spawn(CombatantBundle::new(
-        Team::Enemy, test_stats(), 0, 6, vec![ability_id],
-        Equipment { main_hand: Some(weapon_id), off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
-    )).id();
+    let weak_stats = CombatStats { max_hp: 1, strength: 5, dexterity: 5, constitution: 10, intelligence: 0, wisdom: 10, charisma: 10 };
+    let player = common::bridge::spawn_unit(
+        &mut app,
+        Team::Player,
+        weak_stats,
+        0,
+        6,
+        vec![],
+        common::bridge::no_equipment(),
+        player_start,
+    );
+    let enemy = common::bridge::spawn_enemy_with_weapon(
+        &mut app,
+        enemy_pos,
+        vec![ability_id],
+        weapon_id,
+    );
     app.world_mut().entity_mut(enemy).get_mut::<Reactions>().unwrap().remaining = 1;
-    app.world_mut().resource_mut::<HexPositions>().insert(player, player_start);
-    app.world_mut().resource_mut::<HexPositions>().insert(enemy, enemy_pos);
 
     // Script the dice: roll maximum damage (6) to guarantee a kill on hp=1.
     app.world_mut().resource_mut::<DiceRngRes>().script(&[6]);
 
-    init_bridge_engine_state(&mut app);
+    common::bridge::bootstrap(&mut app);
 
-    app.world_mut()
-        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Move { actor: player, path: vec![escape_hex] });
+    common::bridge::write_move(&mut app, player, vec![escape_hex]);
     app.update();
 
     // Dead component must be inserted.
@@ -744,27 +586,12 @@ fn projector_writes_engine_mutation_to_ecs() {
     // --- Phase A: seed engine state via the full bridge_app ---
     let start = hex_from_offset(0, 0);
 
-    let mut seed_app = bridge_app();
+    let mut seed_app = common::bridge::bridge_app();
 
-    let actor = seed_app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Player,
-            test_stats(),
-            0,
-            6,
-            vec![],
-            test_equipment(),
-        ))
-        .id();
-
-    seed_app
-        .world_mut()
-        .resource_mut::<HexPositions>()
-        .insert(actor, start);
+    common::bridge::spawn_caster(&mut seed_app, start, vec![]);
 
     // Seed engine state from ECS (no mirror system in bridge_app).
-    init_bridge_engine_state(&mut seed_app);
+    common::bridge::bootstrap(&mut seed_app);
 
     // --- Phase B: set up projector-only app with the same entity / resources ---
     let mut app = projector_only_app();
@@ -1198,26 +1025,14 @@ fn projector_writes_mana_from_engine_state() {
     use storyforge::combat_engine::state::{CombatState, RoundPhase, Team as EngineTeam, Unit};
 
     let start = hex_from_offset(0, 0);
-    let mut app = projector_only_app();
+    let mut app = common::bridge::projector_only_app();
 
-    let actor = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Player,
-            test_stats(),
-            0,
-            6,
-            vec![],
-            test_equipment(),
-        ))
-        .id();
+    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
 
     // Add Mana component — not part of CombatantBundle by default.
     app.world_mut()
         .entity_mut(actor)
         .insert(Mana { current: 10, max: 10 });
-
-    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
 
     let actor_uid = entity_to_uid(actor);
     app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
@@ -1280,21 +1095,9 @@ fn projector_writes_statuses_from_engine_state() {
     };
 
     let start = hex_from_offset(0, 0);
-    let mut app = projector_only_app();
+    let mut app = common::bridge::projector_only_app();
 
-    let actor = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Player,
-            test_stats(),
-            0,
-            6,
-            vec![],
-            test_equipment(),
-        ))
-        .id();
-
-    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
+    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
 
     let actor_uid = entity_to_uid(actor);
     app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
@@ -1371,33 +1174,10 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
 
     let start = hex_from_offset(0, 0);
     let start2 = hex_from_offset(1, 0);
-    let mut app = projector_only_app();
+    let mut app = common::bridge::projector_only_app();
 
-    let actor = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Player,
-            test_stats(),
-            0,
-            6,
-            vec![],
-            test_equipment(),
-        ))
-        .id();
-    let aura_source = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Player,
-            test_stats(),
-            0,
-            6,
-            vec![],
-            test_equipment(),
-        ))
-        .id();
-
-    app.world_mut().resource_mut::<HexPositions>().insert(actor, start);
-    app.world_mut().resource_mut::<HexPositions>().insert(aura_source, start2);
+    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
+    let aura_source = common::bridge::spawn_caster(&mut app, start2, vec![]);
 
     let actor_uid = entity_to_uid(actor);
     let aura_source_uid = entity_to_uid(aura_source);
