@@ -55,14 +55,14 @@ amount = dice_roll + INT_mod + spell_power
 
 ### Mana
 - Start: `current = max` (full)
-- Restore: +1 at start of owner's turn (`turn_start_system`)
-- Spend: deducted on ability use (`resolve_action_system`)
+- Restore: +1 at start of owner's turn (engine `start_actor_turn`)
+- Spend: deducted on ability use (engine `Effect::PayCost`)
 - Используется магическими способностями (маг)
 
 ### Rage
 - Start: `current = 0`
-- Gain: +1 for dealing damage, +1 for receiving damage (`apply_effects_system`)
-- Spend: deducted on ability use
+- Gain: +1 for dealing damage, +1 for receiving damage (engine `Effect::GainRage`)
+- Spend: deducted on ability use (engine `Effect::PayCost`)
 - Используется боевыми приёмами (воин)
 
 ### Energy

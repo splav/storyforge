@@ -1,15 +1,5 @@
 # Architecture
 
-> **Post-unisim note (2026-05-18):** the canonical engine ↔ Bevy boundary is
-> documented in [`engine-architecture.md`](engine-architecture.md). The
-> "Module Map" section below predates the migration and may name files that
-> have moved or been deleted (e.g. `combat/apply_effects.rs`, `combat/movement.rs`,
-> `combat/resolution.rs`, `combat/validation.rs`, `combat/phases.rs`,
-> `combat/statuses.rs`, `combat/auras.rs`, `combat/skip_dead.rs` are all gone
-> — engine owns the behaviour). State machines and content-resolution
-> sections remain accurate. See unisim §5.6 retrospective for the full
-> deletion list.
-
 ## State Machines
 
 ### AppState (primary)
@@ -76,21 +66,7 @@ src/
     campaigns.rs    CampaignDef + directory-walking loader that builds per-scenario ContentView via load_layered
     races.rs        RaceDef, FactionDef, PathDef, CritFailEffect + parse_races
 
-  combat/
-    turn_order.rs   Initiative rolls, turn queue construction
-    turn_start.rs   Mana +1, Energy +1 at turn start
-    skip_dead.rs    Skip dead / stunned turns
-    auras.rs        apply_auras_system — re-applies passive-aura statuses at TurnStart
-    command_input.rs  Player keyboard input (1-5, M, Tab, Enter, E, Escape)
-    ai/enemy_turn.rs  AI: ability scoring, pathfinding, movement. CombatantQ (QueryData struct)
-    movement.rs     MoveUnit processing, HexPositions updates, movement animation queueing
-    enemy_popup.rs  PopupCursor + queue_enemy_popup: enemy ability use + phase transitions → popup
-    validation.rs   UseAbility → ValidatedAction (costs, range, target alive, disadvantage sources)
-    resolution.rs   Dice rolls, damage/heal/status emission, unified resource cost spending
-    apply_effects.rs  Damage (armor), healing (with poison neutralization), rage gain, death marking
-    phases.rs       phase_transition_system — in-place boss mutation when HP threshold fires
-    advance_turn.rs  Status ticks + DoT, victory check (objective-aware), queue advance, AP reset
-    pipeline.rs     CombatPipelinePlugin — декларативная регистрация StartRound + CombatStep (TurnStart/Command/Execute/Finalize) систем
+  combat/         См. [`docs/combat/`](combat/) — engine/bridge/pipeline/lifecycle документация.
 
   persistence/
     mod.rs          PersistencePlugin, PersistencePaths resource, detect_paths()
@@ -163,14 +139,6 @@ See `docs/content-guide.md` for TOML schemas (scenes, encounters, templates, pha
 | `MOVE_BTN` | update_move_button | actor/move_mode |
 | `TOOLTIP` | update_hex_tooltip | hover |
 | `TOKENS` | update_token_positions | positions/death |
-
-## Animation System
-
-`AnimationQueue` (VecDeque<PendingAnim>) decouples visual animations from game logic. Game state updates instantly; visuals catch up via:
-- `PendingAnim::Movement` — smooth token lerp along hex path (0.12s/step)
-- `PendingAnim::Popup` — enemy action popup (dismissed by Space/Esc)
-
-`combat_ready()` run condition blocks AwaitCommand chain while animations/popups are active.
 
 ## Persistence
 
