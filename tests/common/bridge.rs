@@ -184,6 +184,20 @@ pub fn bridge_stats() -> CombatStats {
     }
 }
 
+/// Default equipment with a short_sword + cloth armor. Mirrors the legacy
+/// test_equipment() used by some bridge tests (notably the engine_trace
+/// record/replay smoke test and the projector_writes_engine_mutation_to_ecs
+/// Phase B-D transplant flow).
+pub fn default_equipment() -> Equipment {
+    Equipment {
+        main_hand: Some("short_sword".into()),
+        off_hand: None,
+        chest: "mage_robe".into(),
+        legs: "cloth_pants".into(),
+        feet: "cloth_shoes".into(),
+    }
+}
+
 /// Empty equipment — for casters / targets that don't need a weapon.
 pub fn no_equipment() -> Equipment {
     Equipment {

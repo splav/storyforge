@@ -21,144 +21,25 @@
 
 use bevy::prelude::*;
 
-use storyforge::combat::engine_bridge::{
-    apply_phase_transitions_system, bootstrap_combat_state, entity_to_uid, process_action_system,
-    project_state_to_ecs, CombatStateRes, PendingPhaseTransitions, UnitIdMap,
-};
-use storyforge::combat::ai::world::tags::AbilityTagCache;
+use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes, UnitIdMap};
 use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef};
-use storyforge::content::content_view::{ActiveContent, ContentView};
+use storyforge::content::content_view::ActiveContent;
 use storyforge::content::statuses::StatusDef;
-use storyforge::content::weapons::{HandType, WeaponDef};
 use storyforge::combat::DiceRngRes;
 use storyforge::core::{AbilityId, DiceExpr, StatusId, WeaponId};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
 use storyforge::game::components::{
-    ActionPoints, ActiveStatus, BonusMovement, CombatStats, Equipment, Reactions, StatusEffects,
+    ActionPoints, ActiveStatus, BonusMovement, CombatStats, Reactions, StatusEffects,
     Team, UnitToken, Vital,
 };
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::messages::ActionInput;
-use storyforge::game::resources::{CombatContext, HexPositions, TurnQueue};
+use storyforge::game::resources::HexPositions;
 use storyforge::ui::animation::{AnimationQueue, PendingAnim};
-use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
 use super::common;
 
-fn test_stats() -> CombatStats {
-    CombatStats {
-        max_hp: 20,
-        strength: 5,
-        dexterity: 5,
-        constitution: 10,
-        intelligence: 0,
-        wisdom: 10,
-        charisma: 10,
-    }
-}
-
-fn test_equipment() -> Equipment {
-    Equipment {
-        main_hand: Some("short_sword".into()),
-        off_hand: None,
-        chest: "mage_robe".into(),
-        legs: "cloth_pants".into(),
-        feet: "cloth_shoes".into(),
-    }
-}
-
-/// Full bridge app: process_action + projector chained (Update).
-///
-/// Used for end-to-end tests where an `ActionInput` drives the full cycle.
-/// Engine state is seeded explicitly via `init_bridge_engine_state` after spawning
-/// units (bridge_app has no state machine, so OnEnter cannot be used).
-fn bridge_app() -> App {
-    let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
-        .init_resource::<CombatStateRes>()
-        .init_resource::<UnitIdMap>()
-        .init_resource::<HexPositions>()
-        .init_resource::<TurnQueue>()
-        .init_resource::<CombatContext>()
-        .init_resource::<ActiveContent>()
-        .init_resource::<DiceRngRes>()
-        .init_resource::<CombatLog>()
-        .init_resource::<AnimationQueue>()
-        // HexGridOffset has no Default — insert a zero offset (no screen offset needed in tests).
-        .insert_resource(HexGridOffset(Vec2::ZERO))
-        // Stub visual resources: process_action_system requires these for spawn.
-        // Default handles are zero-cost in tests (no renderer runs).
-        .insert_resource(AbilityTagCache::default())
-        .insert_resource(HexMaterials {
-            empty: Handle::default(),
-            player: Handle::default(),
-            enemy: Handle::default(),
-            dead: Handle::default(),
-            in_range: Handle::default(),
-            in_range_dim: Handle::default(),
-            move_range: Handle::default(),
-            border_active: Handle::default(),
-            border_target: Handle::default(),
-            border_in_range: Handle::default(),
-            border_in_range_dim: Handle::default(),
-            border_move: Handle::default(),
-            aoe_preview: Handle::default(),
-            border_aoe: Handle::default(),
-            token_player: Handle::default(),
-            token_enemy: Handle::default(),
-            token_dead: Handle::default(),
-        })
-        .insert_resource(TokenMesh {
-            token: Handle::default(),
-            ring: Handle::default(),
-        })
-        .init_resource::<PendingPhaseTransitions>()
-        .init_resource::<storyforge::combat::ai::log::engine_trace::EngineTraceWriter>()
-        .init_resource::<storyforge::combat::ai::log::AiLogger>()
-        .init_resource::<storyforge::combat::ai::log::PendingAiLogEntries>()
-        .add_message::<ActionInput>()
-        .add_systems(
-            Update,
-            (
-                process_action_system,
-                project_state_to_ecs,
-                apply_phase_transitions_system,
-                storyforge::combat::ai::log::flush_pending_ai_log_system,
-            ).chain(),
-        );
-    app
-}
-
-/// Seed `CombatStateRes` from ECS after spawning units in bridge tests.
-///
-/// bridge_app has no Bevy state machine, so `OnEnter(AwaitCommand)` cannot fire.
-/// Call this once after all units are spawned and positions registered, before
-/// the first `app.update()` that runs `process_action_system`.
-fn init_bridge_engine_state(app: &mut App) {
-    use bevy::ecs::system::RunSystemOnce;
-    app.world_mut()
-        .run_system_once(bootstrap_combat_state)
-        .expect("bootstrap_combat_state failed");
-}
-
-/// Projector-only app: only the projector in PostUpdate.
-///
-/// Used to test `project_state_to_ecs` in isolation: we seed `CombatStateRes`
-/// manually (or via one `bridge_app` update), then switch to this fixture so
-/// that a direct mutation of `CombatStateRes` is not overwritten by an init
-/// pass before the projector fires.
-fn projector_only_app() -> App {
-    let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
-        .init_resource::<CombatStateRes>()
-        .init_resource::<UnitIdMap>()
-        .init_resource::<HexPositions>()
-        .init_resource::<CombatContext>()
-        .add_message::<ActionInput>()
-        .add_systems(PostUpdate, project_state_to_ecs);
-    app
-}
 
 #[test]
 fn process_action_move_writes_engine_state_and_projects_to_ecs() {
@@ -363,42 +244,6 @@ fn aoo_does_not_fire_from_stunned_enemy() {
 
 // ── B1: new side-effect tests ────────────────────────────────────────────────
 
-/// Helper to build synthetic melee content for AoO tests.
-fn make_melee_content(ability_id: &AbilityId, weapon_id: &WeaponId) -> ContentView {
-    let sword = WeaponDef {
-        id: weapon_id.clone(),
-        name: "Test Sword".into(),
-        hand: HandType::MainHand,
-        dice: DiceExpr::new(1, 6, 0),
-        spell_power: 0, armor: 0, max_hp: 0,
-        strength: 0, dexterity: 0, constitution: 0,
-        intelligence: 0, wisdom: 0, charisma: 0,
-    };
-    let melee_ability = AbilityDef {
-        id: ability_id.clone(),
-        name: "Test Attack".into(),
-        magic_domains: vec![],
-        magic_method: String::new(),
-        ai_tags_override: None,
-        is_move_toggle: false,
-        engine: combat_engine::AbilityDef {
-            target_type: storyforge::content::abilities::TargetType::SingleEnemy,
-            range: AbilityRange::MELEE,
-            effect: EffectDef::WeaponAttack,
-            costs: vec![],
-            cost_ap: 1,
-            aoe: AoEShape::None,
-            friendly_fire: false,
-            statuses: vec![],
-            key: None,
-        },
-    };
-    let mut cv = ContentView::default();
-    cv.abilities.insert(ability_id.clone(), melee_ability);
-    cv.weapons.insert(weapon_id.clone(), sword);
-    cv
-}
-
 #[test]
 fn engine_emits_combat_log_opportunity_attack() {
     let player_start = hex_from_offset(0, 0);
@@ -411,7 +256,7 @@ fn engine_emits_combat_log_opportunity_attack() {
 
     let ability_id = AbilityId::from("b1_aoo_attack");
     let weapon_id = WeaponId::from("b1_aoo_sword");
-    let content = make_melee_content(&ability_id, &weapon_id);
+    let content = common::bridge::melee_content(&ability_id, &weapon_id).into_view();
 
     let mut app = common::bridge::bridge_app();
     app.insert_resource(ActiveContent(content));
@@ -594,7 +439,7 @@ fn projector_writes_engine_mutation_to_ecs() {
     common::bridge::bootstrap(&mut seed_app);
 
     // --- Phase B: set up projector-only app with the same entity / resources ---
-    let mut app = projector_only_app();
+    let mut app = common::bridge::projector_only_app();
 
     // Spawn the same actor entity in the new world (entity id is stable across
     // App instances; we need the same Entity bits so UnitIdMap lookups work).
@@ -602,11 +447,11 @@ fn projector_writes_engine_mutation_to_ecs() {
         .world_mut()
         .spawn(CombatantBundle::new(
             Team::Player,
-            test_stats(),
+            common::bridge::bridge_stats(),
             0,
             6,
             vec![],
-            test_equipment(),
+            common::bridge::default_equipment(),
         ))
         .id();
 
@@ -722,7 +567,7 @@ fn run_cast_log_test(
     let caster_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(1, 0);
 
-    let mut app = bridge_app();
+    let mut app = common::bridge::bridge_app();
     common::bridge::insert_ability(&mut app, ability);
 
     let caster = common::bridge::spawn_unit(
@@ -738,7 +583,7 @@ fn run_cast_log_test(
     let target = common::bridge::spawn_unit(
         &mut app,
         Team::Enemy,
-        test_stats(),
+        common::bridge::bridge_stats(),
         0,
         6,
         vec![],
@@ -746,7 +591,7 @@ fn run_cast_log_test(
         target_pos,
     );
 
-    init_bridge_engine_state(&mut app);
+    common::bridge::bootstrap(&mut app);
 
     let caster_uid = entity_to_uid(caster);
     app.world_mut()
@@ -859,7 +704,7 @@ fn cast_emits_status_applied_log_entry() {
         },
     };
 
-    run_cast_log_test(ability_def, test_stats(), |_| {}, |log| {
+    run_cast_log_test(ability_def, common::bridge::bridge_stats(), |_| {}, |log| {
         let status_events: Vec<_> = log.0.iter().filter_map(|e| {
             if let CombatEvent::StatusApplied { target: t, status } = e {
                 Some((*t, status.clone()))
@@ -900,7 +745,7 @@ fn cast_emits_mana_changed_log_entry() {
         },
     };
 
-    run_cast_log_test(ability_def, test_stats(), |unit| { unit.mana = Some((10, 10)); }, |log| {
+    run_cast_log_test(ability_def, common::bridge::bridge_stats(), |unit| { unit.mana = Some((10, 10)); }, |log| {
         let mana_events: Vec<_> = log.0.iter().filter_map(|e| {
             if let CombatEvent::ManaChanged { actor: a, current, max } = e {
                 Some((*a, *current, *max))
@@ -1318,7 +1163,7 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
         intelligence: 0, wisdom: 10, charisma: 10,
     };
 
-    let mut app = bridge_app();
+    let mut app = common::bridge::bridge_app();
     common::bridge::insert_ability(&mut app, ability_def);
 
     let caster = common::bridge::spawn_unit(
@@ -1334,7 +1179,7 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
     let target = common::bridge::spawn_unit(
         &mut app,
         Team::Enemy,
-        test_stats(),
+        common::bridge::bridge_stats(),
         0,
         6,
         vec![],
@@ -1342,7 +1187,7 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
         target_pos,
     );
 
-    init_bridge_engine_state(&mut app);
+    common::bridge::bootstrap(&mut app);
 
     let caster_uid = entity_to_uid(caster);
     {
@@ -1737,7 +1582,7 @@ fn engine_trace_full_combat_record_replay() {
     let path = std::env::temp_dir().join(format!("engine_trace_e2e_{ts}.jsonl"));
 
     // ── Build app ────────────────────────────────────────────────────────────
-    let mut app = bridge_app();
+    let mut app = common::bridge::bridge_app();
 
     let start_hex = hex_from_offset(0, 0);
     let step1_hex = hex_from_offset(1, 0);
@@ -1747,11 +1592,11 @@ fn engine_trace_full_combat_record_replay() {
         .world_mut()
         .spawn(CombatantBundle::new(
             Team::Player,
-            test_stats(),
+            common::bridge::bridge_stats(),
             0,  // armor
             6,  // speed
             vec![],
-            test_equipment(),
+            common::bridge::default_equipment(),
         ))
         .id();
 
@@ -1760,7 +1605,7 @@ fn engine_trace_full_combat_record_replay() {
         .insert(actor, start_hex);
 
     // Seed engine state.
-    init_bridge_engine_state(&mut app);
+    common::bridge::bootstrap(&mut app);
 
     // ── Open the trace writer + write InitLine manually ───────────────────────
     {
