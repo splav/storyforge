@@ -915,45 +915,27 @@ fn cast_emits_mana_changed_log_entry() {
 
 // ── Phase 2 step 7a: ActionInput::Cast routing smoke test ────────────────────
 
-/// Verify the bridge routes `ActionInput::Cast` into `step()` and the engine
-/// mutates `CombatStateRes` (cost paid).  Event translation lands in step 7b;
-/// here we just pin that the routing wiring works end-to-end.
 #[test]
 fn process_action_system_routes_cast_into_engine() {
     use storyforge::content::abilities::{ResourceCost, TargetType};
     use storyforge::core::ResourceKind;
 
-    let mut app = bridge_app();
+    let mut app = common::bridge::bridge_app();
 
-    // --- Spawn caster + target ---
     let caster_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(1, 0);
 
-    let caster = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Player,
-            test_stats(),
-            0,    // armor
-            6,
-            vec!["zap".into()],
-            test_equipment(),
-        ))
-        .id();
-    let target = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Enemy,
-            test_stats(),
-            0,
-            6,
-            vec![],
-            test_equipment(),
-        ))
-        .id();
-
-    app.world_mut().resource_mut::<HexPositions>().insert(caster, caster_pos);
-    app.world_mut().resource_mut::<HexPositions>().insert(target, target_pos);
+    let caster = common::bridge::spawn_unit(
+        &mut app,
+        Team::Player,
+        common::bridge::bridge_stats(),
+        0,
+        6,
+        vec!["zap".into()],
+        common::bridge::no_equipment(),
+        caster_pos,
+    );
+    let target = common::bridge::spawn_target(&mut app, target_pos);
 
     // Register a Cast-able ability with a mana cost in ActiveContent.
     let zap_id = AbilityId::from("zap");
@@ -977,31 +959,20 @@ fn process_action_system_routes_cast_into_engine() {
             key: None,
         },
     };
-    app.world_mut().resource_mut::<ActiveContent>().0.abilities.insert(zap_id.clone(), zap_def);
+    common::bridge::insert_ability(&mut app, zap_def);
 
-    // Seed engine state from ECS.
-    init_bridge_engine_state(&mut app);
+    common::bridge::bootstrap(&mut app);
 
     // CombatantBundle default AP=1; bump to 2 so post-cast AP=1 is observable.
     // Mana isn't a default Bevy component on CombatantBundle — set on engine
     // state directly so PayCost has a pool to deduct from.
     let caster_uid = entity_to_uid(caster);
-    {
-        let mut state = app.world_mut().resource_mut::<CombatStateRes>();
-        let unit = state.0.unit_mut(caster_uid).expect("caster in engine state");
+    common::bridge::with_engine_unit(&mut app, caster, |unit| {
         unit.action_points = 2;
         unit.mana = Some((10, 10));
-    }
+    });
 
-    // --- Send ActionInput::Cast for the caster ---
-    app.world_mut()
-        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Cast {
-            actor: caster,
-            ability: zap_id,
-            target,
-            target_pos,
-        });
+    common::bridge::write_cast(&mut app, caster, zap_id, target, target_pos);
 
     app.update();
 
@@ -1425,14 +1396,6 @@ fn cast_no_crit_fail_no_crit_fail_log_when_d20_non_one() {
 
 // ── Phase 3.5c: Cast(Summon) creates ECS entity via bridge ───────────────────
 
-/// Cast(Summon) → bridge creates a new ECS Combatant entity synchronously.
-///
-/// Verifies that:
-/// 1. A new `Combatant` entity exists after process_action_system runs.
-/// 2. The new entity is registered in `UnitIdMap`.
-/// 3. The new entity's `HexPositions` entry is populated adjacent to the summoner.
-/// 4. `SummonedBy(summoner)` component is set on the new entity.
-/// 5. `CombatLog` contains a `Summoned` entry.
 #[test]
 fn cast_summon_creates_ecs_entity_synchronously() {
     use storyforge::content::abilities::TargetType;
@@ -1455,9 +1418,9 @@ fn cast_summon_creates_ecs_entity_synchronously() {
             target_type: TargetType::Myself,
             range: AbilityRange { min: 0, max: 0 },
             effect: EffectDef::Summon {
-            template_id: template_id.into(),
-            max_active: None,
-        },
+                template_id: template_id.into(),
+                max_active: None,
+            },
             costs: vec![],
             cost_ap: 1,
             aoe: AoEShape::None,
@@ -1487,36 +1450,36 @@ fn cast_summon_creates_ecs_entity_synchronously() {
         ai_tuning_override: None,
     };
 
-    let mut app = bridge_app();
+    let mut app = common::bridge::bridge_app();
     {
         let mut content = app.world_mut().resource_mut::<ActiveContent>();
         content.0.abilities.insert(ability_id.clone(), ability_def);
         content.0.unit_templates.insert(template_id.into(), template);
     }
 
-    let summoner = app.world_mut().spawn(CombatantBundle::new(
+    let summoner = common::bridge::spawn_unit(
+        &mut app,
         Team::Enemy,
-        test_stats(),
+        common::bridge::bridge_stats(),
         0,
         4,
         vec![ability_id.clone()],
-        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
-    )).id();
+        common::bridge::no_equipment(),
+        summoner_pos,
+    );
 
-    app.world_mut().resource_mut::<HexPositions>().insert(summoner, summoner_pos);
-    init_bridge_engine_state(&mut app);
+    common::bridge::bootstrap(&mut app);
 
     // Ensure summoner has AP.
-    let summoner_uid = entity_to_uid(summoner);
-    app.world_mut().resource_mut::<CombatStateRes>().0.unit_mut(summoner_uid).unwrap().action_points = 1;
+    common::bridge::with_engine_unit(&mut app, summoner, |unit| {
+        unit.action_points = 1;
+    });
 
     // Script crit-fail d20 to non-1 (summon has no damage roll after that).
-    app.world_mut().resource_mut::<DiceRngRes>().script(&[11]);
+    common::bridge::script_no_crit_fail(&mut app);
 
     // Cast summon targeting self (summoner == target for Myself abilities).
-    app.world_mut()
-        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Cast { actor: summoner, ability: ability_id, target: summoner, target_pos: summoner_pos });
+    common::bridge::write_cast(&mut app, summoner, ability_id, summoner, summoner_pos);
 
     app.update();
 
@@ -1550,15 +1513,6 @@ fn cast_summon_creates_ecs_entity_synchronously() {
     assert!(has_summoned, "CombatLog must contain Summoned entry; got: {:?}", log.0);
 }
 
-/// Phase transition via `Action::Cast`: bridge writes ECS-only deltas and emits
-/// `CombatEvent::PhaseEntered`.
-///
-/// Setup:
-/// - Boss: max_hp=100, 1 pending phase at 50% threshold, heal_to_full=true, new_name="Phase Two".
-/// - Caster fires a 0d1+60 damage spell (constant 60 damage, no armor).
-/// - After step: boss hp crosses 50 → engine emits `Event::PhaseEntered`.
-/// - Bridge should: pop `EnemyPhases.pending`, rename boss to "Phase Two",
-///   heal to full (hp == max_hp), and push `CombatEvent::PhaseEntered`.
 #[test]
 fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
     use storyforge::content::abilities::TargetType;
@@ -1591,18 +1545,24 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
         },
     };
 
-    let mut app = bridge_app();
-    app.world_mut().resource_mut::<ActiveContent>().0.abilities.insert(ability_id.clone(), ability_def);
+    let mut app = common::bridge::bridge_app();
+    common::bridge::insert_ability(&mut app, ability_def);
 
-    // Caster: str=0, no armor.
-    let zero_stats = CombatStats {
+    // Caster: str=0 so str_mod=0, damage is purely from the +60 bonus.
+    let zero_str_stats = CombatStats {
         max_hp: 20, strength: 0, dexterity: 5, constitution: 10,
         intelligence: 0, wisdom: 10, charisma: 10,
     };
-    let caster = app.world_mut().spawn(CombatantBundle::new(
-        Team::Player, zero_stats, 0, 6, vec![ability_id.clone()],
-        Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
-    )).id();
+    let caster = common::bridge::spawn_unit(
+        &mut app,
+        Team::Player,
+        zero_str_stats,
+        0,
+        6,
+        vec![ability_id.clone()],
+        common::bridge::no_equipment(),
+        caster_pos,
+    );
 
     // Boss: max_hp=100, armor=0. Pending phase at 50% threshold.
     let boss_stats = CombatStats {
@@ -1620,29 +1580,19 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
     let boss = app.world_mut().spawn((
         CombatantBundle::new(
             Team::Enemy, boss_stats, 0, 6, vec![],
-            Equipment { main_hand: None, off_hand: None, chest: "".into(), legs: "".into(), feet: "".into() },
+            common::bridge::no_equipment(),
         ),
         EnemyPhases { pending: vec![phase] },
         BevyName::new("Boss"),
     )).id();
-
-    app.world_mut().resource_mut::<HexPositions>().insert(caster, caster_pos);
     app.world_mut().resource_mut::<HexPositions>().insert(boss, boss_hex);
 
-    init_bridge_engine_state(&mut app);
+    common::bridge::bootstrap(&mut app);
 
-    // Give caster 1 AP (default); boss has 100 hp initially.
     // Script d20 to 11 so crit-fail doesn't fire.
-    app.world_mut().resource_mut::<DiceRngRes>().script(&[11]);
+    common::bridge::script_no_crit_fail(&mut app);
 
-    app.world_mut()
-        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Cast {
-            actor: caster,
-            ability: ability_id,
-            target: boss,
-            target_pos: boss_hex,
-        });
+    common::bridge::write_cast(&mut app, caster, ability_id, boss, boss_hex);
 
     app.update();
 
@@ -1955,24 +1905,13 @@ fn ai_log_engine_step_range_populated() {
     let ai_path = std::env::temp_dir().join(format!("ai_step_range_smoke_{ts}.jsonl"));
     let trace_path = std::env::temp_dir().join(format!("engine_step_range_trace_{ts}.jsonl"));
 
-    let mut app = bridge_app();
+    let mut app = common::bridge::bridge_app();
 
     // Spawn a combatant and seed engine state.
     let start_hex = hex_from_offset(0, 0);
     let target_hex = hex_from_offset(1, 0);
-    let actor = app
-        .world_mut()
-        .spawn(CombatantBundle::new(
-            Team::Player,
-            test_stats(),
-            0,
-            6,
-            vec![],
-            test_equipment(),
-        ))
-        .id();
-    app.world_mut().resource_mut::<HexPositions>().insert(actor, start_hex);
-    init_bridge_engine_state(&mut app);
+    let actor = common::bridge::spawn_caster(&mut app, start_hex, vec![]);
+    common::bridge::bootstrap(&mut app);
 
     // Open both writers.
     app.world_mut()
@@ -2011,9 +1950,7 @@ fn ai_log_engine_step_range_populated() {
 
     // Dispatch Move — process_action_system advances step counter to 1,
     // then flush_pending_ai_log_system writes the entry with range [0, 1).
-    app.world_mut()
-        .resource_mut::<bevy::ecs::message::Messages<ActionInput>>()
-        .write(ActionInput::Move { actor, path: vec![target_hex] });
+    common::bridge::write_move(&mut app, actor, vec![target_hex]);
     app.update();
 
     // Step counter should now be 1 (one Move step was applied).
