@@ -293,7 +293,7 @@ impl<'a> EngineContentView for EcsContentView<'a> {
 
 /// Deferred queue of phase transitions to apply at the end of `Execute`.
 ///
-/// `process_action_system` / `engine_turn_start_system` push `(UnitId, phase_idx)`
+/// `process_action_system` and `bootstrap_combat_state` push `(UnitId, phase_idx)`
 /// for each `Event::PhaseEntered` they see.
 /// `apply_phase_transitions_system` drains the queue and writes ECS-only deltas
 /// (Name, Abilities, AxisProfile, EnemyPhases.pending pop, Dead removal, max_hp).
@@ -380,7 +380,7 @@ fn build_engine_template_from_def(
 /// state (caster contexts, auras, phase triggers) now lives on engine `Unit`
 /// fields and is populated once at init by `from_ecs`.
 ///
-/// Called from `engine_turn_start_system`, `process_action_system`, and
+/// Called from `bootstrap_combat_state`, `process_action_system`, and
 /// `advance_turn_system` (for dead-actor sirota-DoT ticks).
 pub(crate) fn build_ecs_content_view<'a>(
     content: &'a ActiveContent,
@@ -403,7 +403,7 @@ pub(crate) fn build_ecs_content_view<'a>(
 ///
 /// Called from `apply_phase_transitions_system` which runs AFTER `project_state_to_ecs`
 /// to avoid a query conflict over `&mut Vital` between the two systems.
-/// `process_action_system` / `engine_turn_start_system` record `(unit, phase_idx)`
+/// `process_action_system` and `bootstrap_combat_state` record `(unit, phase_idx)`
 /// pairs into `PendingPhaseTransitions`; this helper drains them.
 fn apply_phase_ecs_writes(
     unit: UnitId,
@@ -525,7 +525,7 @@ pub struct VisualAssets<'w, 's> {
 /// engine content adapter.  Decouples content-data reads from visual resources
 /// in system signatures.
 ///
-/// Used by `process_action_system` and `engine_turn_start_system`.
+/// Used by `process_action_system` and `bootstrap_combat_state`.
 #[derive(SystemParam)]
 pub struct ContentParams<'w, 's> {
     pub aura_q: Query<'w, 's, (Entity, &'static AuraSource), Without<Dead>>,
@@ -633,8 +633,9 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
 /// Translate an engine tick-event stream into `CombatLog` entries and ECS side-
 /// effects (inserting `Dead`).
 ///
-/// Shared by `engine_turn_start_system` (live-actor turn start) and
-/// `advance_turn_system` (dead-actor sirota-DoT skip loop).
+/// Shared by `bootstrap_combat_state` (round-1 first-actor priming; subsequent
+/// turn starts come from the engine `step()` cascade) and `advance_turn_system`
+/// (dead-actor sirota-DoT skip loop).
 pub(crate) fn translate_tick_events(
     events: &[Event],
     id_map: &UnitIdMap,

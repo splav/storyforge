@@ -122,7 +122,7 @@ pub fn estimate_st_damage(ctx: &CasterContext, abilities: &Abilities, content: &
 /// budget starting with the best-per-AP castable ability.
 /// **Regeneration**: at the start of each subsequent round we add +1 to
 /// mana / rage / energy pools, capped at their max. Matches the live
-/// model — `turn_start_system` restores +1 mana + +1 energy per own-turn,
+/// model — engine `start_actor_turn` restores +1 mana + +1 energy per own-turn,
 /// and rage gains ≥ +1/round from the steady damage flow in active
 /// combat. Conservative lower bound; real sustain may be higher (AoE
 /// damage, multi-hit rage triggers).
@@ -196,7 +196,7 @@ pub fn estimate_damage_horizon(
     for round in 0..rounds {
         // Start-of-round regen: +1 to each tracked pool, capped at max.
         // Round 0 uses the unit's current pools as-is (today's turn already
-        // regen'd by `turn_start_system`); subsequent rounds model the own-
+        // regen'd by engine `start_actor_turn`); subsequent rounds model the own-
         // turn restoration + in-combat rage trickle.
         if round > 0 {
             if max_mana > 0 { pool_mana = (pool_mana + 1).min(max_mana); }
