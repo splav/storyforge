@@ -8,7 +8,7 @@ use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
     ai::world::reservations::Reservations,
     engine_bridge::{
-        apply_phase_transitions_system, init_state_from_ecs, PendingPhaseTransitions,
+        apply_phase_transitions_system, bootstrap_combat_state, PendingPhaseTransitions,
         process_action_system, project_state_to_ecs, CombatStateRes, UnitIdMap,
     },
 };
@@ -136,10 +136,6 @@ pub fn movement_app() -> App {
         })
         .add_message::<ActionInput>()
         .add_systems(
-            OnEnter(CombatPhase::AwaitCommand),
-            init_state_from_ecs,
-        )
-        .add_systems(
             Update,
             (process_action_system, project_state_to_ecs, apply_phase_transitions_system)
                 .chain()
@@ -150,17 +146,17 @@ pub fn movement_app() -> App {
     app
 }
 
-/// Re-run the engine init system manually after spawning combatants.
+/// Re-run the engine bootstrap system manually after spawning combatants.
 ///
 /// `movement_app()` transitions to `AwaitCommand` at builder time (before any
-/// units are spawned), so `OnEnter` fires with an empty world.  Call this
+/// units are spawned), so bootstrap does not fire on entry.  Call this
 /// after your spawn block and any direct ECS mutations, but before the first
 /// `write_message`.
 pub fn init_engine_state(app: &mut App) {
     use bevy::ecs::system::RunSystemOnce;
     app.world_mut()
-        .run_system_once(init_state_from_ecs)
-        .expect("init_state_from_ecs failed");
+        .run_system_once(bootstrap_combat_state)
+        .expect("bootstrap_combat_state failed");
 }
 
 pub fn insert_stun_status(app: &mut App) {

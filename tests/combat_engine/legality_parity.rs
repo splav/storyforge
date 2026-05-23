@@ -19,7 +19,7 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
 use storyforge::combat::engine_bridge::{
-    apply_phase_transitions_system, entity_to_uid, init_state_from_ecs, process_action_system,
+    apply_phase_transitions_system, bootstrap_combat_state, entity_to_uid, process_action_system,
     project_state_to_ecs, CombatStateRes, PendingPhaseTransitions, UnitIdMap,
 };
 use storyforge::combat::legality_adapter::BevyActions;
@@ -142,8 +142,8 @@ fn bridge_app() -> App {
 
 fn init_bridge_engine_state(app: &mut App) {
     app.world_mut()
-        .run_system_once(init_state_from_ecs)
-        .expect("init_state_from_ecs failed");
+        .run_system_once(bootstrap_combat_state)
+        .expect("bootstrap_combat_state failed");
 }
 
 fn no_equip() -> Equipment {

@@ -6,6 +6,7 @@
 use bevy::prelude::*;
 
 use storyforge::combat::engine_bridge::{from_ecs, UnitIdMap};
+use storyforge::content::content_view::ActiveContent;
 use storyforge::combat_engine::state::{CombatState, Team};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::components::{
@@ -37,9 +38,10 @@ fn run_from_ecs(world: &mut World, round: u32, id_map: &mut UnitIdMap) -> Combat
             With<Combatant>,
         >,
         Res<HexPositions>,
+        Res<ActiveContent>,
     )> = bevy::ecs::system::SystemState::new(world);
-    let (combatants, positions) = ss.get(world);
-    from_ecs(&combatants, &positions, round, id_map)
+    let (combatants, positions, active_content) = ss.get(world);
+    from_ecs(&combatants, &positions, round, id_map, &active_content)
 }
 
 fn minimal_stats() -> CombatStats {
@@ -114,6 +116,9 @@ fn build_10_unit_world(world: &mut World) -> (Vec<Entity>, Vec<Hex>) {
     }
 
     world.insert_resource(positions);
+    world.insert_resource(ActiveContent(
+        storyforge::content::content_view::ContentView::load_global_for_tests(),
+    ));
     (entities, hexes)
 }
 
@@ -195,6 +200,9 @@ fn dead_unit_is_tombstone_with_hp_zero() {
     positions.insert(dead, hex_from_offset(1, 0));
 
     world.insert_resource(positions);
+    world.insert_resource(ActiveContent(
+        storyforge::content::content_view::ContentView::load_global_for_tests(),
+    ));
 
     let mut id_map = UnitIdMap::default();
     let combat_state = run_from_ecs(&mut world, 0, &mut id_map);

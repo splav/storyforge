@@ -2,7 +2,7 @@
 //!
 //! Test 1 (`process_action_move_writes_engine_state_and_projects_to_ecs`):
 //!   Verifies the full round-trip for a Move action:
-//!   1. `init_state_from_ecs` populates `CombatStateRes` from ECS (called via helper).
+//!   1. `bootstrap_combat_state` populates `CombatStateRes` from ECS (called via helper).
 //!   2. `process_action_system` (Update) consumes `ActionInput::Move` and calls
 //!      `step()`, mutating `CombatStateRes`.
 //!   3. `project_state_to_ecs` (PostUpdate) writes the engine state back to ECS.
@@ -22,7 +22,7 @@
 use bevy::prelude::*;
 
 use storyforge::combat::engine_bridge::{
-    apply_phase_transitions_system, entity_to_uid, init_state_from_ecs, process_action_system,
+    apply_phase_transitions_system, bootstrap_combat_state, entity_to_uid, process_action_system,
     project_state_to_ecs, CombatStateRes, PendingPhaseTransitions, UnitIdMap,
 };
 use storyforge::combat::ai::world::tags::AbilityTagCache;
@@ -136,8 +136,8 @@ fn bridge_app() -> App {
 fn init_bridge_engine_state(app: &mut App) {
     use bevy::ecs::system::RunSystemOnce;
     app.world_mut()
-        .run_system_once(init_state_from_ecs)
-        .expect("init_state_from_ecs failed");
+        .run_system_once(bootstrap_combat_state)
+        .expect("bootstrap_combat_state failed");
 }
 
 /// Projector-only app: only the projector in PostUpdate.

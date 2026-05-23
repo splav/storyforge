@@ -11,9 +11,9 @@
 //!   One-directional ECS → engine; transitional for Phase 0.
 //! - `CombatStateRes` — `Res<CombatStateRes>` wrapping the pure `CombatState`
 //!   so the engine state can live in Bevy without the engine importing Bevy.
-//! - `init_state_from_ecs` — `OnEnter(CombatPhase::AwaitCommand)` system that
-//!   initializes `CombatStateRes` from ECS once per round.  Engine is
-//!   authoritative; ECS is a read-only projection (Phase 1 target).
+//! - `bootstrap_combat_state` — system chained at the end of `CombatPhase::StartRound`
+//!   (after `build_turn_order`) that initializes `CombatStateRes` once per combat.
+//!   Engine state becomes authoritative from combat start; ECS mirrors via projection.
 //! - `process_action_system` — `Update` system (Phase 1) that consumes
 //!   `ActionInput` messages and calls `combat_engine::step()` as a parallel
 //!   witness.  Output is ignored — ECS is still authoritative via
@@ -157,17 +157,16 @@ type CombatantRow<'a> = (
 /// Dead units (`Has<Dead>`) are kept as tombstones (hp=0), matching the
 /// `BattleSnapshot` convention so downstream code can filter by `is_alive()`.
 ///
-/// **Note on `armor_bonus` / `speed` derivation from statuses:** Phase 0
-/// sets them to base values.  Wiring `ContentView` into the bridge to call
-/// `RefreshAggregates` is deferred to Phase 1+ since `step(Action::Move)` does
-/// not consult `speed` for validation (only `movement_points`).
-/// The sim shim (step 8) builds `CombatState` from `BattleSnapshot`, which
-/// already carries the correct aggregates from `build_snapshot`.
+/// `content` is used to recompute per-unit aggregates (`armor_bonus`,
+/// `speed`, `damage_taken_bonus`) from active statuses and auras, mirroring
+/// the `Effect::RefreshAggregates` logic so the engine starts with correct
+/// derived values.  Pass `&active_content` from `Res<ActiveContent>`.
 pub fn from_ecs(
     combatants: &Query<CombatantRow, With<Combatant>>,
     positions: &HexPositions,
     round: u32,
     id_map: &mut UnitIdMap,
+    content: &ActiveContent,
 ) -> CombatState {
     id_map.clear();
 
@@ -201,6 +200,20 @@ pub fn from_ecs(
             let mana_pool: Option<Pool> = mana.map(|m| (m.current, m.max));
             let energy_pool: Option<Pool> = energy_opt.map(|e| (e.current, e.max));
 
+            // Compute status-derived aggregate bonuses from active statuses.
+            // Mirrors Effect::RefreshAggregates (status half only); aura-based
+            // contributions are added after bootstrap populates unit.auras.
+            let mut armor_bonus: i32 = 0;
+            let mut speed_bonus: i32 = 0;
+            let mut damage_taken_bonus: i32 = 0;
+            for s in &statuses_vec {
+                if let Some(def) = content.statuses.get(&s.id) {
+                    armor_bonus       += def.engine.armor_bonus;
+                    speed_bonus       += def.engine.speed_bonus;
+                    damage_taken_bonus += def.engine.damage_taken_bonus;
+                }
+            }
+
             Some(Unit {
                 id: uid,
                 team,
@@ -208,10 +221,10 @@ pub fn from_ecs(
                 hp,
                 max_hp: vital.max_hp,
                 armor: vital.armor,
-                armor_bonus: 0,           // Phase 0: status bonuses deferred to step 8+
-                damage_taken_bonus: 0,    // Phase 0: recomputed by RefreshAggregates after init
+                armor_bonus,
+                damage_taken_bonus,
                 base_speed: speed.0,
-                speed: speed.0,           // Phase 0: status speed_bonus deferred to step 8+
+                speed: speed.0 + speed_bonus,
                 action_points: ap.action_points,
                 max_ap: ap.max_ap,
                 movement_points: ap.movement_points,
@@ -222,7 +235,7 @@ pub fn from_ecs(
                 mana: mana_pool,
                 energy: energy_pool,
                 summoner: None,
-                // Per-combat fields populated after from_ecs by init_state_from_ecs (5c.1).
+                // Per-combat fields populated by bootstrap_combat_state after from_ecs.
                 caster_context: combat_engine::CasterContext::default(),
                 aoo_dice: None,
                 auras: Vec::new(),
@@ -241,7 +254,7 @@ pub fn from_ecs(
 /// After 5c.1, this struct carries only static content (active_content).
 /// Per-combat state (caster contexts, auras, AoO dice, phase triggers) now
 /// lives on engine `Unit` fields and is populated once at combat init by
-/// `from_ecs` / `init_state_from_ecs`.
+/// `from_ecs` / `bootstrap_combat_state`.
 pub struct EcsContentView<'a> {
     active_content: &'a ActiveContent,
 }
@@ -1433,51 +1446,52 @@ pub fn project_state_to_ecs(
     }
 }
 
-// ── init_state_from_ecs system ────────────────────────────────────────────────
+// ── bootstrap_combat_state system ────────────────────────────────────────────
 
-/// Initialise engine `CombatState` from the current ECS snapshot.
+/// Bootstrap engine `CombatState` from the current ECS snapshot.
 ///
-/// Called on `OnEnter(CombatPhase::AwaitCommand)` once per round.
-/// After 5c.1: also populates `Unit.caster_context`, `Unit.auras`,
-/// `Unit.enemy_phases` from the corresponding ECS components.
-pub fn init_state_from_ecs(
+/// Runs at the tail of the `CombatPhase::StartRound` chain, after
+/// `build_turn_order` has populated `Res<TurnQueue>` and incremented
+/// `CombatContext.round`.
+///
+/// Responsibilities (formerly split across `init_state_from_ecs` and
+/// `engine_start_first_turn_system`):
+/// - Build `CombatState` from ECS via `from_ecs` (includes V2 status-aggregate recompute).
+/// - Populate per-unit `caster_context`, `aoo_dice`, `auras`, `enemy_phases`.
+/// - Set engine turn queue from `Res<TurnQueue>`.
+/// - Prime the first actor's turn (AP/MP refill, regen, status tick).
+///
+/// Idempotent: returns immediately if `combat_state.0` already has units
+/// (round 2+ re-entries, second-combat-in-session teardown races).
+pub fn bootstrap_combat_state(
     combatants: Query<CombatantRow, With<Combatant>>,
     positions: Res<HexPositions>,
     combat_context: Res<CombatContext>,
     ecs_queue: Res<TurnQueue>,
     mut id_map: ResMut<UnitIdMap>,
     mut combat_state: ResMut<CombatStateRes>,
-    // Extra queries for the new per-combat Unit fields (5c.1).
     caster_q: Query<(Entity, &Equipment, &CombatStats, Option<&CombatPath>), With<Combatant>>,
     aoo_q: Query<(Entity, &Equipment, &CombatStats, &Abilities, Has<Dead>), With<Combatant>>,
     aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
     phases_q: Query<(Entity, &EnemyPhases), With<Combatant>>,
     active_content: Res<ActiveContent>,
+    mut commands: Commands,
+    mut log: ResMut<CombatLog>,
+    mut pending_phases: ResMut<PendingPhaseTransitions>,
 ) {
-    // B2: run only on rounds 0 (test harness) and 1 (production round 1).
-    // Skip on round 2+ — engine state evolves authoritatively via step()
-    // cascade from there, and re-importing would discard those mutations.
-    //
-    // Production: `build_turn_order` increments ctx.round 0→1 before phase
-    // transitions to `AwaitCommand`, so init fires once with ctx.round == 1.
-    // Tests: `bridge_smoke` and friends invoke init_state_from_ecs via
-    // `run_system_once` with default `CombatContext { round: 0 }` — that
-    // path is legitimate and must still initialise.
-    //
-    // Earlier we gated on `ctx.round != 1` (broke tests) and before that on
-    // encounter-identity (broke second-combat-in-session). Round-bound guard
-    // is the smallest correct shape.
-    if combat_context.round >= 2 {
+    // Idempotency guard: engine state evolves authoritatively via step() on
+    // round 2+; re-importing would discard those mutations.
+    if !combat_state.0.units().is_empty() {
         return;
     }
 
     use crate::content::encounters::AuraAffects;
 
-    let mut state = from_ecs(&combatants, &positions, combat_context.round, &mut id_map);
+    let mut state = from_ecs(&combatants, &positions, combat_context.round, &mut id_map, &active_content);
 
-    // ── Populate new Unit fields ──────────────────────────────────────────────
+    // ── Populate per-unit combat fields ──────────────────────────────────────
 
-    // Build caster_context for every unit (alive or dead) from Equipment + CombatStats.
+    // caster_context: built from Equipment + CombatStats (alive and dead units).
     for (entity, equipment, stats, combat_path) in caster_q.iter() {
         let Some(uid) = id_map.get_id(entity) else { continue };
         let bevy_ctx = CasterContext::new(stats, Some(equipment), &active_content.weapons);
@@ -1496,11 +1510,10 @@ pub fn init_state_from_ecs(
         }
     }
 
-    // Build aoo_dice for alive units with a melee WeaponAttack ability + weapon.
-    // Mirrors the pre-5c.1 `build_ecs_content_view` AoO eligibility filter so
-    // that ranged units (no melee ability) don't AoO even though they have a
-    // weapon equipped. Strength modifier is baked into the dice bonus here so
-    // the engine's `unit_aoo_dice` returns the final damage formula directly.
+    // aoo_dice: alive units with a melee WeaponAttack ability + weapon equipped.
+    // Mirrors the pre-5c.1 build_ecs_content_view AoO eligibility filter so
+    // ranged units (no melee ability) don't AoO even though they have a weapon.
+    // Strength modifier is baked in so engine's unit_aoo_dice returns the final formula.
     for (entity, equipment, stats, abilities, is_dead) in aoo_q.iter() {
         if is_dead { continue; }
         let Some(uid) = id_map.get_id(entity) else { continue };
@@ -1522,7 +1535,7 @@ pub fn init_state_from_ecs(
         }
     }
 
-    // Build auras from AuraSource components (alive sources only).
+    // auras: from AuraSource components (alive sources only).
     for (entity, aura_src) in aura_q.iter() {
         let Some(uid) = id_map.get_id(entity) else { continue };
         let applies_to = match aura_src.affects {
@@ -1539,7 +1552,7 @@ pub fn init_state_from_ecs(
         }
     }
 
-    // Build enemy_phases from EnemyPhases.pending (first entry only per unit).
+    // enemy_phases: from EnemyPhases.pending.
     for (entity, phases) in phases_q.iter() {
         let Some(uid) = id_map.get_id(entity) else { continue };
         if let Some(unit) = state.unit_mut(uid) {
@@ -1551,50 +1564,38 @@ pub fn init_state_from_ecs(
         }
     }
 
-    // ── Populate the engine turn queue from the ECS Res<TurnQueue> ───────────
+    // ── Set engine turn queue from ECS ────────────────────────────────────────
     let uid_order: Vec<UnitId> = ecs_queue
         .order
         .iter()
         .filter_map(|e| id_map.get_id(*e))
         .collect();
-    state.set_turn_queue(uid_order, ecs_queue.index);
-
-    combat_state.0 = state;
-}
-
-/// Fires once at the start of round 1 to give the first actor their full turn-start
-/// treatment (AP/MP refill, mana/energy regen, status tick).
-///
-/// On round 2+, this is handled by the engine cascade: `step(EndTurn)` calls
-/// `start_actor_turn` for the incoming actor as part of the event stream, and
-/// `process_action_system` + `project_state_to_ecs` propagate it back to ECS.
-///
-/// Runs in `OnEnter(CombatPhase::AwaitCommand)` chained after `init_state_from_ecs`.
-pub fn engine_start_first_turn_system(
-    combat_context: Res<CombatContext>,
-    id_map: Res<UnitIdMap>,
-    mut combat_state: ResMut<CombatStateRes>,
-    active_content: Res<ActiveContent>,
-    mut commands: Commands,
-    mut log: ResMut<CombatLog>,
-    mut pending_phases: ResMut<PendingPhaseTransitions>,
-) {
-    if combat_context.round != 1 {
-        return;
+    // In production StartRound chain, build_turn_order always runs first so
+    // uid_order is non-empty.  Tests that call bootstrap directly without
+    // build_turn_order may have an empty queue — skip set_turn_queue in that
+    // case (tests set ActiveCombatant manually instead).
+    if !uid_order.is_empty() {
+        state.set_turn_queue(uid_order, ecs_queue.index);
     }
-    let Some(first_actor) = combat_state.0.turn_queue.current() else { return };
 
-    let content = build_ecs_content_view(&active_content);
-    let events = combat_state.0.start_actor_turn(first_actor, &content);
+    // ── Prime the first actor's turn ──────────────────────────────────────────
+    // On round 2+, start_actor_turn is called by the engine's EndTurn cascade.
+    // On round 1, the cascade hasn't fired yet, so bootstrap primes it here.
+    if let Some(first_actor) = state.turn_queue.current() {
+        let content = build_ecs_content_view(&active_content);
+        let events = state.start_actor_turn(first_actor, &content);
 
-    translate_tick_events(&events, &id_map, &mut commands, &mut log);
+        translate_tick_events(&events, &*id_map, &mut commands, &mut log);
 
-    // Queue ECS-only phase deltas (same pattern as process_action_system).
-    for ev in &events {
-        if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
-            pending_phases.0.push((*unit, *phase_idx));
+        // Queue ECS-only phase deltas (same pattern as process_action_system).
+        for ev in &events {
+            if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
+                pending_phases.0.push((*unit, *phase_idx));
+            }
         }
     }
+
+    combat_state.0 = state;
 }
 
 // ── reset_engine_mirrors ──────────────────────────────────────────────────────

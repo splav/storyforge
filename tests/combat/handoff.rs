@@ -211,17 +211,20 @@ fn actor_with_exhausted_resources_can_act_on_round_2() {
 
 // ── Test 2: double-tick from re-importing engine state (B2, ebde94e) ─────────
 
-/// A self-applied status must tick exactly once per round at `start_actor_turn`,
-/// not extra times from the EndTurn handler or from `init_state_from_ecs` reimporting
-/// stale ECS values on round wrap.
+/// A self-applied status must tick exactly once per actor-turn start, not extra
+/// times from the EndTurn handler or any other double-tick path.
 ///
-/// Mechanism: the engine cascade calls `start_actor_turn(hero)` when enemy's
-/// EndTurn wraps the round.  Hero's self-applied status (applier==hero) ticks
-/// there.  The EndTurn handler no longer calls `tick_actor_statuses` directly
-/// (fix for the double-tick bug), so no extra tick fires at hero's own EndTurn.
+/// Mechanism:
+/// - `bootstrap_combat_state` primes the first actor's turn by calling
+///   `start_actor_turn(hero)`, ticking hero's status 3 → 2.
+/// - Hero EndTurn → enemy's start_actor_turn fires (applier check: does NOT
+///   tick hero's status). Status stays at 2.
+/// - Enemy EndTurn → round wraps → `start_actor_turn(hero)` fires again in the
+///   engine cascade. Status ticks 2 → 1.
+/// - After project_state_to_ecs the ECS value should be 1 (two ticks total:
+///   bootstrap + round-wrap, each exactly once).
 ///
-/// B2 guard: `init_state_from_ecs` skips on `ctx.round >= 2`; the engine
-/// carries authoritative status state across round boundaries.
+/// The double-tick regression would produce 0 (an extra tick somewhere).
 #[test]
 fn status_does_not_tick_twice_per_turn() {
     use storyforge::game::components::{ActiveCombatant, ActiveStatus, StatusEffects};
@@ -242,7 +245,7 @@ fn status_does_not_tick_twice_per_turn() {
     let hero  = spawn_at(&mut app, hex_from_offset(3, 3), test_hero(base_stats()),  "Hero");
     let enemy = spawn_at(&mut app, hex_from_offset(5, 3), test_enemy(base_stats()), "Enemy");
 
-    // Populate ECS TurnQueue so init_state_from_ecs can set the engine's turn queue.
+    // Populate ECS TurnQueue so bootstrap_combat_state can set the engine's turn queue.
     {
         use storyforge::game::resources::TurnQueue;
         let mut queue = app.world_mut().resource_mut::<TurnQueue>();
@@ -250,10 +253,11 @@ fn status_does_not_tick_twice_per_turn() {
         queue.index = 0;
     }
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);
-    // Attach a StatusEffects component with a 3-round status.  One full turn
-    // cycle (hero EndTurn + enemy EndTurn) fires start_actor_turn(hero) once
-    // (via the round-wrap cascade), landing at 2.  A spurious extra tick would
-    // land at 1 or less.
+    // Attach a StatusEffects component with a 3-round status.
+    // bootstrap primes hero's turn → tick 3→2.
+    // One full turn cycle (hero EndTurn + enemy EndTurn) wraps the round →
+    // start_actor_turn(hero) fires again → tick 2→1.
+    // A spurious extra tick would land at 0.
     app.world_mut().entity_mut(hero).insert(StatusEffects(vec![ActiveStatus {
         id: "test_buff".into(),
         rounds_remaining: 3,
@@ -261,10 +265,9 @@ fn status_does_not_tick_twice_per_turn() {
         applier: hero,  // applier == hero → ticks on hero's start_actor_turn
     }]));
 
-    init_engine_state(&mut app); // round == 0 → engine picks up the status
+    init_engine_state(&mut app); // bootstrap: start_actor_turn(hero) → tick 3→2
 
-    // First update: init_state_from_ecs already ran via init_engine_state;
-    // no extra tick here (movement_app has no engine_start_first_turn_system).
+    // First update: bootstrap already ran via init_engine_state.
     app.update();
 
     // Hero ends turn → enemy becomes active.
@@ -273,7 +276,7 @@ fn status_does_not_tick_twice_per_turn() {
     app.update(); // engine: TurnEnded(hero) → TurnStarted(enemy) + start_actor_turn(enemy)
 
     // Enemy ends turn → round wraps → hero active in round 2.
-    // Cascade: start_actor_turn(hero) → status ticks 3 → 2.
+    // Cascade: start_actor_turn(hero) → status ticks 2 → 1.
     write_message(&mut app, ActionInput::EndTurn { actor: enemy });
     app.update(); // engine: TurnEnded(enemy) → RoundStarted + TurnStarted(hero) inside cascade
 
@@ -290,8 +293,8 @@ fn status_does_not_tick_twice_per_turn() {
         .expect("test_buff status must still be present");
 
     assert_eq!(
-        status.rounds_remaining, 2,
-        "status must have ticked exactly once (at round-2 start via enemy-EndTurn cascade), \
+        status.rounds_remaining, 1,
+        "status must have ticked exactly twice (bootstrap + round-wrap cascade), \
          got rounds_remaining={} — extra ticks indicate double-tick regression",
         status.rounds_remaining
     );
