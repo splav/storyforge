@@ -12,21 +12,29 @@
 > [`engine-architecture.md`](engine-architecture.md) §3 for the canonical
 > schedule.
 >
-> **Post-bridge-turn-lifecycle note (2026-05-21):** additional changes —
-> `engine_turn_start_system` deleted (turn-start refill flows through engine
-> `step()` cascade now), `engine_start_first_turn_system` added for the
-> round-1 first actor (one-shot), `init_state_from_ecs` now runs once per
-> combat (gated on `ctx.round < 2`), and `reset_engine_mirrors_on_exit_combat`
-> + `reset_engine_mirrors_on_restart` clear engine-side resources at combat
-> end. `CombatStep::TurnStart` set is empty. See
-> [`ai/rework/bridge_turn_lifecycle.md`](ai/rework/bridge_turn_lifecycle.md)
-> for the full design.
+> **Post-V3-bootstrap note (2026-05-23):** `engine_turn_start_system`,
+> `engine_start_first_turn_system`, and `init_state_from_ecs` have all been
+> deleted. Their responsibilities are now consolidated in
+> `bootstrap_combat_state`, which runs at the end of the
+> `CombatPhase::StartRound` chain (after `build_turn_order`) and is one-shot
+> per encounter via an `units().is_empty()` idempotency guard. It calls
+> `from_ecs` (content-aware: recomputes status-derived aggregates), populates
+> per-unit fields (`caster_context`, `aoo_dice`, `auras`, `enemy_phases`),
+> sets the turn queue, and primes the first actor. `write_engine_trace_init_system`
+> is chained immediately after bootstrap in the same StartRound chain.
+> `reset_engine_mirrors_on_exit_combat` + `reset_engine_mirrors_on_restart`
+> clear engine-side resources at combat end. `CombatStep::TurnStart` set is
+> empty. See [`engine-architecture.md`](engine-architecture.md) §3 for the
+> canonical schedule.
 
 ## System Chain
 
 Systems in `CombatPhase::AwaitCommand`, grouped by `CombatStep` sets, gated by `combat_ready()` (no active animations or popups). Ordered via `.chain()` within sets, sets themselves chained: `TurnStart → Command → Execute → Finalize`.
 
 Регистрация — в `combat::pipeline::CombatPipelinePlugin` (`src/combat/pipeline.rs`): plugin инкапсулирует `configure_sets` и `add_systems` для StartRound и всех четырёх `CombatStep`. `main.rs` подключает его одной строкой `.add_plugins(CombatPipelinePlugin)`.
+
+`CombatPhase::StartRound` chain (runs once per round before AwaitCommand):
+`project_state_to_ecs → assign_hex_positions → build_turn_order → bootstrap_combat_state → write_engine_trace_init_system`. Bootstrap is idempotent — only the first pass populates the engine state.
 
 ```
 TurnStart: turn_start → tick_status_effects → skip_dead → skip_stunned → apply_auras

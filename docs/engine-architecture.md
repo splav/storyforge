@@ -26,7 +26,7 @@ For the migration history and design decisions, see
                 │  process_action_system,              │
                 │  project_state_to_ecs,               │
                 │  translate_*_events,                 │
-                │  init_state_from_ecs                 │
+                │  bootstrap_combat_state              │
                 └──┬───────────────────┬──────────┬────┘
        step(state, │                   │ events   │ projection
        action, rng,│                   ▼          ▼
@@ -109,10 +109,15 @@ pub trait ContentView {
 
 Two implementations:
 - **`EcsContentView`** (bridge-side, in `engine_bridge.rs`) — reads from
-  `Res<ActiveContent>` for live combat.
+  `Res<ActiveContent>` for live combat. `status_bonuses` reads real
+  `armor_bonus` / `speed_bonus` values from `active_content.statuses` (V1 fix:
+  previously a stub returning all-zeros, which caused statuses like Defend not
+  to contribute their armor bonus on bootstrap).
 - **`TomlContentView`** (engine-side, in `crates/combat_engine/src/toml_content_view.rs`) —
   Bevy-free, parses `assets/data/*.toml` directly. Used by
-  `replay_engine_trace` and other offline tools.
+  `replay_engine_trace` and other offline tools. Extended with `WeaponRecord`
+  fields (`dice_count`, `dice_sides`, `spell_power`) so `convert_template`
+  builds correct `CasterContext` + `aoo_dice` for offline replays.
 
 Per-combat data (auras, enemy phase definitions, weapon dice for AoO,
 caster context) lives on `Unit` directly:
@@ -121,9 +126,12 @@ caster context) lives on `Unit` directly:
 pub struct Unit {
     pub id: UnitId, pub team: Team, pub pos: Hex,
     pub hp: i32, pub max_hp: i32, pub armor: i32, pub armor_bonus: i32,
-    pub action_points: i32, pub movement_points: i32, pub speed: i32,
-    pub reactions_left: u32, pub max_reactions: u32,
-    pub rage: Option<(i32, i32)>, pub mana: Option<(i32, i32)>, pub energy: Option<(i32, i32)>,
+    pub damage_taken_bonus: i32,              // V2 — vulnerability bonus from statuses
+    pub base_speed: i32, pub speed: i32,      // base + status-derived effective speed
+    pub action_points: i32, pub max_ap: i32, pub movement_points: i32,
+    pub reactions_left: i32, pub reactions_max: i32,
+    pub rage: Option<Pool>, pub mana: Option<Pool>, pub energy: Option<Pool>,
+    pub summoner: Option<UnitId>,             // Some(_) if spawned via Effect::Spawn
     pub statuses: Vec<ActiveStatus>,
     pub caster_context: CasterContext,        // 5c.1 — equipment/stats for damage
     pub auras: Vec<AuraDef>,                  // 5c.1 — auras this unit emits
@@ -132,11 +140,24 @@ pub struct Unit {
 }
 ```
 
-Init: `init_state_from_ecs` (bridge) reads ECS components and fills all these
-fields **once per combat session** (gated on `ctx.round < 2` — fires on round 1
-production entry and on round 0 test-harness entry; round 2+ is skipped because
-engine state evolves authoritatively via `step()` cascade from there). On
-combat end (`OnExit(AppState::Combat)`) `reset_engine_mirrors_on_exit_combat`
+Init: `bootstrap_combat_state` (bridge) reads ECS components and fills all
+these fields **once per encounter**. It runs at the end of the
+`CombatPhase::StartRound` chain (after `build_turn_order`) and is idempotent
+via `if !combat_state.0.units().is_empty() { return; }` — subsequent
+StartRound entries are no-ops.
+
+`bootstrap_combat_state` folds together what were previously two separate
+systems: it calls `from_ecs(combatants, positions, round, id_map, &content)`
+(content-aware since V2 — recomputes `armor_bonus`, `speed_bonus`, and
+`damage_taken_bonus` from active statuses so the engine starts with correct
+aggregate values), then populates per-unit fields (`caster_context`, `aoo_dice`,
+`auras`, `enemy_phases`), sets the turn queue, and primes the first actor
+(`start_actor_turn` + `translate_tick_events`).
+
+`write_engine_trace_init_system` (writes the engine `InitLine`) is chained
+immediately after bootstrap in the same StartRound chain.
+
+On combat end (`OnExit(AppState::Combat)`) `reset_engine_mirrors_on_exit_combat`
 clears `CombatStateRes` / `UnitIdMap` / `PendingPhaseTransitions`.
 
 ### 2.3 Determinism contract (Phase 5)
@@ -158,12 +179,11 @@ clears `CombatStateRes` / `UnitIdMap` / `PendingPhaseTransitions`.
 ## 3. Bridge
 
 `src/combat/engine_bridge.rs` is the only Bevy code that talks to the engine
-directly. ~1614 lines, ~12 system / function entries:
+directly. ~1815 lines, ~12 system / function entries:
 
 | Entry | Schedule | Role |
 |---|---|---|
-| `init_state_from_ecs` | `OnEnter(CombatPhase::AwaitCommand)` | Seed `CombatStateRes` from ECS **once per combat** (`ctx.round < 2` guard) |
-| `engine_start_first_turn_system` | `OnEnter(CombatPhase::AwaitCommand)` chained after init | Call `state.start_actor_turn()` for round-1 first actor only (`ctx.round == 1` guard) |
+| `bootstrap_combat_state` | `CombatPhase::StartRound` chain, after `build_turn_order` | Seed `CombatStateRes` from ECS **once per encounter** (idempotent via `units().is_empty()` guard) |
 | `process_action_system` | `Update`, gated by `AwaitCommand`, after AI tick | Consume `ActionInput` messages, call `step()`, translate events |
 | `apply_phase_transitions_system` | `Update`, after `project_state_to_ecs` | Apply Bevy-only deltas from `Event::PhaseEntered` (Name, Abilities, AxisProfile) |
 | `project_state_to_ecs` | `Update`, after `process_action_system` | Write engine state back to ECS components |
@@ -182,8 +202,13 @@ of the current turn-holder derives `Effect::AdvanceTurn` automatically —
 involuntary turn end is handled by the engine, no bridge-side workaround.
 
 `CombatStep::TurnStart` set is empty (kept as stable hook for future systems).
-The previous `engine_turn_start_system` was deleted because its job is now
-in the engine cascade. All turn-lifecycle events flow through
+Two bridge-side systems were deleted during V3 refactor:
+- `engine_turn_start_system` — turn-start refill now flows through the engine
+  cascade (deleted Phase 1+B5).
+- `engine_start_first_turn_system` — round-1 first-actor priming is now folded
+  into `bootstrap_combat_state` (deleted Phase 3.3).
+
+All turn-lifecycle events flow through
 `process_action_system → project_state_to_ecs` in a single frame — ECS is
 always in sync at frame boundary.
 
@@ -196,13 +221,13 @@ always in sync at frame boundary.
 - `HexPositions` (the position map)
 - `Vital.hp`
 - `ActionPoints.{action_points, movement_points}`
-- `Reactions.remaining`
+- `Reactions.remaining` and `Reactions.max`
 - `Rage.current`, `Mana.current`, `Energy.current`
 - `StatusEffects.0` (merging engine-known + ECS-only entries)
 - `BonusMovement` (removed when `movement_points == 0`)
 
 Allowed write exceptions documented in `tests/projection_isolation.rs::ALLOWED_FILES`:
-- `src/combat/turn_order.rs` — round-start reaction refill (legacy, pre-engine seed path)
+- `src/combat/turn_order.rs` — `Reactions` write at round start (retained as an exception; engine refills `reactions_left` via `state.start_round` on round wrap)
 - `src/game/components.rs` — `Vital::apply_damage`/`apply_heal` method impls (dead in production after Phase 5)
 
 ### 3.2 Event translators
@@ -342,7 +367,7 @@ The engine trace is the system-of-record for "what happened":
           ├── create logs/<fight_id>/
           ├── open engine.jsonl (always, ungated)
           └── open ai.jsonl (gated by settings.ai_log)
-  After init_state_from_ecs (first AwaitCommand)
+  After bootstrap_combat_state (end of first StartRound chain)
     └── write_engine_trace_init_system
           └── write InitLine { units, round, phase, turn_queue, rng_seed, content_hash, session_id }
   Each step() call
@@ -395,6 +420,11 @@ and ECS components introduced by accidental ECS writes outside the bridge.
   and engine trace SCHEMA_VERSION (currently 38) bump independently.
 - **Bench gate: engine ≤ 1.2× legacy.** Phase 6 baseline at 0.88× (engine is
   ~14% faster than the deleted legacy sim path). See `benches/README.md`.
+- **Bootstrap is one-shot per encounter.** `bootstrap_combat_state` is
+  idempotent via `units().is_empty()` guard — engine state is authoritative
+  from combat start; there is no per-round re-import from ECS. Reactions budget
+  is initialised from `Reactions.max` (not `.remaining`) so the first actor
+  starts with a full reaction budget regardless of ECS default.
 
 ---
 
