@@ -247,8 +247,15 @@ pub struct EcsContentView<'a> {
 }
 
 impl<'a> EngineContentView for EcsContentView<'a> {
-    fn status_bonuses(&self, _id: &combat_engine::StatusId) -> StatusBonuses {
-        StatusBonuses::default()
+    fn status_bonuses(&self, id: &combat_engine::StatusId) -> StatusBonuses {
+        self.active_content
+            .statuses
+            .get(id)
+            .map(|s| StatusBonuses {
+                armor_bonus: s.engine.armor_bonus,
+                speed_bonus: s.engine.speed_bonus,
+            })
+            .unwrap_or_default()
     }
 
     fn ability_def(&self, id: &combat_engine::AbilityId) -> Option<&combat_engine::AbilityDef> {
@@ -1637,4 +1644,109 @@ pub fn reset_engine_mirrors_on_restart(
         return;
     }
     reset_engine_mirrors(&mut combat_state, &mut id_map, &mut pending_phases);
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::content_view::ContentView;
+    use combat_engine::content::ContentView as EngineContentView;
+    use combat_engine::StatusId;
+
+    /// Regression test for the playtest bug "провокация не даёт прирост брони":
+    /// `EcsContentView::status_bonuses` used to be a stub returning
+    /// `StatusBonuses::default()` (always 0). Effect::RefreshAggregates
+    /// reads bonuses through this method, so any status with
+    /// `armor_bonus > 0` (`defending`, etc.) was silently dropped while
+    /// `forces_targeting` continued to work — the latter is read via
+    /// `status_def` which was never stubbed.
+    ///
+    /// Asserts that for the real `defending` status loaded from
+    /// `assets/data/statuses.toml` (armor_bonus = 4), the bridge content
+    /// view now reports the correct bonus.
+    #[test]
+    fn ecs_content_view_status_bonuses_reads_real_armor_bonus() {
+        let active = ActiveContent(ContentView::load_global_for_tests());
+        let view = build_ecs_content_view(&active);
+
+        let defending = view.status_bonuses(&StatusId::from("defending"));
+        assert_eq!(
+            defending.armor_bonus, 4,
+            "defending must report armor_bonus=4 from statuses.toml, not the stub default",
+        );
+
+        // Sanity: a status without armor_bonus stays at 0 (no false positives).
+        let taunted = view.status_bonuses(&StatusId::from("taunted"));
+        assert_eq!(taunted.armor_bonus, 0);
+        assert_eq!(taunted.speed_bonus, 0);
+
+        // Sanity: unknown status id falls back to default.
+        let unknown = view.status_bonuses(&StatusId::from("__nonexistent__"));
+        assert_eq!(unknown.armor_bonus, 0);
+        assert_eq!(unknown.speed_bonus, 0);
+    }
+
+    /// End-to-end sanity: after `Effect::ApplyStatus(defending)` runs through
+    /// the same `EcsContentView` path that production uses, the target unit's
+    /// `armor_bonus` aggregate reflects the status (was 0 under the stub).
+    #[test]
+    fn refresh_aggregates_via_ecs_content_view_picks_up_defending_armor() {
+        use combat_engine::effect::{apply_effect, Effect};
+        use combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
+        use hexx::Hex;
+
+        let active = ActiveContent(ContentView::load_global_for_tests());
+        let view = build_ecs_content_view(&active);
+
+        let unit = Unit {
+            id: UnitId(1),
+            team: Team::Player,
+            pos: Hex::ZERO,
+            hp: 20,
+            max_hp: 20,
+            armor: 3,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            base_speed: 3,
+            speed: 3,
+            action_points: 1,
+            max_ap: 1,
+            movement_points: 3,
+            reactions_left: 1,
+            reactions_max: 1,
+            statuses: Vec::new(),
+            rage: None,
+            mana: None,
+            energy: None,
+            summoner: None,
+            caster_context: combat_engine::CasterContext::default(),
+            aoo_dice: None,
+            auras: Vec::new(),
+            enemy_phases: Vec::new(),
+        };
+        let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
+
+        // Mirror the production path: ApplyStatus derives RefreshAggregates.
+        let (derived, _) = apply_effect(
+            &mut state,
+            &Effect::ApplyStatus {
+                target: UnitId(1),
+                status: StatusId::from("defending"),
+                rounds: 1,
+                dot_per_tick: 0,
+                applier: UnitId(1),
+            },
+            &view,
+        );
+        // Process derived RefreshAggregates.
+        for d in derived {
+            apply_effect(&mut state, &d, &view);
+        }
+
+        let u = state.unit(UnitId(1)).unwrap();
+        assert_eq!(u.armor_bonus, 4, "defending must contribute +4 armor_bonus");
+        // Damage mitigation = armor + armor_bonus = 3 + 4 = 7.
+        assert_eq!(u.armor + u.armor_bonus, 7);
+    }
 }
