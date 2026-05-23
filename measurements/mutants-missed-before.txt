@@ -1,0 +1,66 @@
+src/combat/ai/pipeline/stages/critics/mod.rs:214:9: replace <impl PlanStage for CriticsStage>::name -> &'static str with ""
+src/combat/ai/pipeline/stages/critics/mod.rs:214:9: replace <impl PlanStage for CriticsStage>::name -> &'static str with "xyzzy"
+src/combat/ai/pipeline/stages/critics/blindspot_ranged.rs:34:9: replace <impl PlanCritic for BlindspotRanged>::name -> &'static str with ""
+src/combat/ai/pipeline/stages/critics/blindspot_ranged.rs:34:9: replace <impl PlanCritic for BlindspotRanged>::name -> &'static str with "xyzzy"
+src/combat/ai/pipeline/stages/critics/buff_into_void.rs:39:9: replace <impl PlanCritic for BuffIntoVoid>::name -> &'static str with ""
+src/combat/ai/pipeline/stages/critics/buff_into_void.rs:39:9: replace <impl PlanCritic for BuffIntoVoid>::name -> &'static str with "xyzzy"
+src/combat/ai/pipeline/stages/critics/buff_into_void.rs:84:55: replace && with || in <impl PlanCritic for BuffIntoVoid>::evaluate
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:55:9: replace <impl PlanCritic for HealWithoutRescueValue>::name -> &'static str with ""
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:55:9: replace <impl PlanCritic for HealWithoutRescueValue>::name -> &'static str with "xyzzy"
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:84:48: replace > with == in <impl PlanCritic for HealWithoutRescueValue>::evaluate
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:84:48: replace > with < in <impl PlanCritic for HealWithoutRescueValue>::evaluate
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:84:48: replace > with >= in <impl PlanCritic for HealWithoutRescueValue>::evaluate
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:86:35: replace && with || in <impl PlanCritic for HealWithoutRescueValue>::evaluate
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:86:16: delete ! in <impl PlanCritic for HealWithoutRescueValue>::evaluate
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:86:38: delete ! in <impl PlanCritic for HealWithoutRescueValue>::evaluate
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:99:30: replace < with <= in <impl PlanCritic for HealWithoutRescueValue>::evaluate
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:107:17: replace * with + in <impl PlanCritic for HealWithoutRescueValue>::evaluate
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs:106:28: replace - with + in <impl PlanCritic for HealWithoutRescueValue>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:56:46: replace * with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:56:46: replace * with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:56:36: replace * with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:69:41: replace > with < in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:70:34: replace / with % in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:70:34: replace / with * in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:71:23: replace - with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:71:23: replace - with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:71:49: replace * with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:71:49: replace * with / in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:71:41: replace * with + in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs:94:52: replace / with * in <impl PlanCritic for OvercommitIntoDanger>::evaluate
+src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:48:9: replace <impl PlanCritic for RareResourceForLowImpact>::name -> &'static str with ""
+src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:48:9: replace <impl PlanCritic for RareResourceForLowImpact>::name -> &'static str with "xyzzy"
+src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:73:26: replace < with <= in <impl PlanCritic for RareResourceForLowImpact>::evaluate
+src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:84:32: replace > with >= in <impl PlanCritic for RareResourceForLowImpact>::evaluate
+src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:105:52: replace - with / in <impl PlanCritic for RareResourceForLowImpact>::evaluate
+src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:107:40: replace / with % in <impl PlanCritic for RareResourceForLowImpact>::evaluate
+src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:107:40: replace / with * in <impl PlanCritic for RareResourceForLowImpact>::evaluate
+src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs:107:28: replace * with / in <impl PlanCritic for RareResourceForLowImpact>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:44:9: replace <impl PlanCritic for SelfLethalWithoutPayoff>::name -> &'static str with ""
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:44:9: replace <impl PlanCritic for SelfLethalWithoutPayoff>::name -> &'static str with "xyzzy"
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:70:37: replace && with || in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:70:30: replace == with != in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:73:37: replace * with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:73:37: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:37: replace + with - in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:37: replace + with * in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:61: replace * with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:61: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:87:52: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:91:88: replace * with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:91:88: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:91:79: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:93:42: replace + with - in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:93:42: replace + with * in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:96:45: replace * with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:96:45: replace * with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:77: replace / with % in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:77: replace / with * in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:55: replace - with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:84: replace - with + in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:104:84: replace - with / in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:107:41: replace > with == in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:107:41: replace > with < in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:107:41: replace > with >= in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:107:56: replace / with % in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs:107:56: replace / with * in <impl PlanCritic for SelfLethalWithoutPayoff>::evaluate

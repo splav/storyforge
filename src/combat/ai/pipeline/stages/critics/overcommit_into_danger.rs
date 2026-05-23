@@ -108,10 +108,10 @@ impl PlanCritic for OvercommitIntoDanger {
 mod tests {
     use super::*;
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::combat::ai::pipeline::stages::critics::CriticsStage;
-    use crate::combat::ai::pipeline::PlanStage;
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
+    use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
+    use crate::combat::ai::test_helpers::{StageTestHarness, UnitBuilder,
+        assert_stage_critic_passes};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -128,151 +128,92 @@ mod tests {
 
     #[test]
     fn overcommit_fires_on_canonical_case() {
-        // ── 1. Test data ──
         // Actor: low HP (5/30, hp_pct ≈ 0.17) moves through a tile with
         // danger=0.9. Expected: critic fires with SurvivalPath source.
+        use crate::combat::ai::pipeline::stages::critics::CriticsStage;
+        use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
+        use crate::combat::ai::pipeline::PlanStage;
+        use crate::combat::ai::test_helpers::PoolBuilder;
+
         let actor_pos = hex_from_offset(3, 3);
-        let dest_pos = hex_from_offset(2, 3);
+        let dest_pos  = hex_from_offset(2, 3);
 
-        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
-            .hp(5)
-            .max_hp(30)
-            .build();
-        let plans = vec![move_plan(vec![dest_pos])];
-
-        // ── 2. Harness ──
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).hp(5).max_hp(30).build();
         let mut h = StageTestHarness::new(actor);
         h.difficulty = DifficultyProfile::hard();
         h.maps.danger.add(dest_pos, 0.9);
 
-        // ── 3. Pool ──
-        let stage = CriticsStage { critics: vec![Box::new(OvercommitIntoDanger)] };
-        let mut pool = PoolBuilder::new(plans)
-            .scores(&[1.0])
-            .trace_base_eq_score()
-            .build();
-
-        // ── 4. Act ──
+        let stage = CriticsStage::single(OvercommitIntoDanger);
+        let mut pool = PoolBuilder::new(vec![move_plan(vec![dest_pos])])
+            .scores(&[1.0]).trace_base_eq_score().build();
         h.run(|ctx| stage.apply(&mut pool, ctx));
 
-        // ── 5. Assert ──
-        use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
-        let ann = &pool.annotations[0];
-        let critic_hits: Vec<_> = ann.score_trace.multipliers.iter()
-            .filter(|m| matches!(m.kind, MultiplierKind::Critic))
-            .collect();
-        assert_eq!(critic_hits.len(), 1, "critic must fire for low-HP actor on high-danger path");
-        let hit = critic_hits[0];
+        let hit = pool.annotations[0].score_trace.multipliers.iter()
+            .find(|m| matches!(m.kind, MultiplierKind::Critic))
+            .expect("critic must fire for low-HP actor on high-danger path");
         assert!(hit.value < 1.0, "multiplier must be a penalty (< 1.0), got {}", hit.value);
-        if let Some(MultiplierDetail::Critic { critic, reason }) = &hit.detail {
-            assert_eq!(*critic, CriticKind::OvercommitIntoDanger);
-            if let CriticReason::OvercommitIntoDanger { source, .. } = reason {
-                assert_eq!(*source, OvercommitSource::SurvivalPath);
-            } else {
-                panic!("expected OvercommitIntoDanger reason, got {:?}", reason);
-            }
-        } else {
+        let Some(MultiplierDetail::Critic { critic, reason }) = &hit.detail else {
             panic!("critic hit must carry Critic detail, got {:?}", hit.detail);
-        }
+        };
+        assert_eq!(*critic, CriticKind::OvercommitIntoDanger);
+        let CriticReason::OvercommitIntoDanger { source, .. } = reason else {
+            panic!("expected OvercommitIntoDanger reason, got {reason:?}");
+        };
+        assert_eq!(*source, OvercommitSource::SurvivalPath);
     }
 
     // ── passes on clean plan (full HP, no danger) ─────────────────────────────
 
     #[test]
     fn overcommit_passes_on_clean_plan() {
-        // ── 1. Test data ──
-        // Actor: full HP, moves to a safe tile, no nearby melee enemies.
+        // Actor: full HP, moves to a safe tile.
         let actor_pos = hex_from_offset(0, 0);
-        let dest_pos = hex_from_offset(1, 0);
+        let dest_pos  = hex_from_offset(1, 0);
 
-        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
-            .hp(20)
-            .max_hp(20)
-            .build();
-        let plans = vec![move_plan(vec![dest_pos])];
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos).hp(20).max_hp(20).build();
+        let h = StageTestHarness::new(actor);
 
-        // ── 2. Harness ──
-        let h = StageTestHarness::new(actor); // all danger = 0.0, default difficulty
-
-        // ── 3. Pool ──
-        let stage = CriticsStage { critics: vec![Box::new(OvercommitIntoDanger)] };
-        let mut pool = PoolBuilder::new(plans)
-            .scores(&[1.0])
-            .trace_base_eq_score()
-            .build();
-
-        // ── 4. Act ──
-        h.run(|ctx| stage.apply(&mut pool, ctx));
-
-        // ── 5. Assert ──
-        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
-        assert!(
-            pool.annotations[0].score_trace.multipliers.iter().all(|m| !matches!(m.kind, MultiplierKind::Critic)),
-            "critic must not fire for full-HP actor on safe path"
-        );
+        assert_stage_critic_passes(&h, vec![move_plan(vec![dest_pos])], OvercommitIntoDanger);
     }
 
     // ── severity scales with input ────────────────────────────────────────────
 
     #[test]
     fn overcommit_severity_scales_with_input() {
-        // ── 1. Test data ──
-        // Compares two setups: moderate (hp=12, danger=0.6) vs severe (hp=4, danger=0.9).
+        // Moderate (hp=12, danger=0.6) vs severe (hp=4, danger=0.9).
         // Severe must produce a strictly lower (more punishing) multiplier.
-        let actor_pos = hex_from_offset(3, 3);
-        let dest_pos = hex_from_offset(2, 3);
-        let plan = vec![move_plan(vec![dest_pos])];
+        use crate::combat::ai::pipeline::stages::critics::CriticsStage;
+        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
+        use crate::combat::ai::pipeline::PlanStage;
+        use crate::combat::ai::test_helpers::PoolBuilder;
 
-        // ── Moderate: hp=12/30 (hp_need≈0.33), danger=0.6 (excess=0.1) ──────
-        // ── 2. Harness (moderate) ──
-        let actor_mod = UnitBuilder::new(1, Team::Enemy, actor_pos)
-            .hp(12).max_hp(30).build();
-        let mut h_mod = StageTestHarness::new(actor_mod);
+        let actor_pos = hex_from_offset(3, 3);
+        let dest_pos  = hex_from_offset(2, 3);
+        let plan      = vec![move_plan(vec![dest_pos])];
+
+        let mut h_mod = StageTestHarness::new(UnitBuilder::new(1, Team::Enemy, actor_pos).hp(12).max_hp(30).build());
         h_mod.difficulty = DifficultyProfile::hard();
         h_mod.maps.danger.add(dest_pos, 0.6);
-
-        // ── 3. Pool (moderate) ──
-        let stage_mod = CriticsStage { critics: vec![Box::new(OvercommitIntoDanger)] };
-        let mut pool_mod = PoolBuilder::new(plan.clone())
-            .scores(&[1.0])
-            .trace_base_eq_score()
-            .build();
-
-        // ── 4. Act (moderate) ──
+        let stage_mod = CriticsStage::single(OvercommitIntoDanger);
+        let mut pool_mod = PoolBuilder::new(plan.clone()).scores(&[1.0]).trace_base_eq_score().build();
         h_mod.run(|ctx| stage_mod.apply(&mut pool_mod, ctx));
 
-        // ── Severe: hp=4/30 (hp_need≈0.78), danger=0.9 (excess=0.4) ─────────
-        // ── 2. Harness (severe) ──
-        let actor_sev = UnitBuilder::new(1, Team::Enemy, actor_pos)
-            .hp(4).max_hp(30).build();
-        let mut h_sev = StageTestHarness::new(actor_sev);
+        let mut h_sev = StageTestHarness::new(UnitBuilder::new(1, Team::Enemy, actor_pos).hp(4).max_hp(30).build());
         h_sev.difficulty = DifficultyProfile::hard();
         h_sev.maps.danger.add(dest_pos, 0.9);
-
-        // ── 3. Pool (severe) ──
-        let stage_sev = CriticsStage { critics: vec![Box::new(OvercommitIntoDanger)] };
-        let mut pool_sev = PoolBuilder::new(plan)
-            .scores(&[1.0])
-            .trace_base_eq_score()
-            .build();
-
-        // ── 4. Act (severe) ──
+        let stage_sev = CriticsStage::single(OvercommitIntoDanger);
+        let mut pool_sev = PoolBuilder::new(plan).scores(&[1.0]).trace_base_eq_score().build();
         h_sev.run(|ctx| stage_sev.apply(&mut pool_sev, ctx));
 
-        // ── 5. Assert ──
-        use crate::combat::ai::pipeline::score_trace::MultiplierKind;
-        let critic_mult_mod = pool_mod.annotations[0].score_trace.multipliers.iter()
-            .find(|m| matches!(m.kind, MultiplierKind::Critic));
-        let critic_mult_sev = pool_sev.annotations[0].score_trace.multipliers.iter()
-            .find(|m| matches!(m.kind, MultiplierKind::Critic));
-        assert!(critic_mult_mod.is_some(), "moderate case must fire");
-        assert!(critic_mult_sev.is_some(), "severe case must fire");
-
-        let mult_mod = critic_mult_mod.unwrap().value;
-        let mult_sev = critic_mult_sev.unwrap().value;
+        let mult_mod = pool_mod.annotations[0].score_trace.multipliers.iter()
+            .find(|m| matches!(m.kind, MultiplierKind::Critic))
+            .expect("moderate case must fire").value;
+        let mult_sev = pool_sev.annotations[0].score_trace.multipliers.iter()
+            .find(|m| matches!(m.kind, MultiplierKind::Critic))
+            .expect("severe case must fire").value;
         assert!(
             mult_sev < mult_mod,
-            "severe penalty ({mult_sev}) must be stricter than moderate ({mult_mod})"
+            "severe penalty ({mult_sev}) must be stricter than moderate ({mult_mod})",
         );
     }
 }

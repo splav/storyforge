@@ -130,14 +130,12 @@ impl PlanCritic for RareResourceForLowImpact {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::pipeline::stages::critics::{CriticKind, PlanCritic};
+    use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::plan::types::TurnPlan;
-    use crate::combat::ai::world::reservations::Reservations;
-    
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-        snapshot_from,
+        UnitBuilder, CriticScenarioBuilder,
+        assert_critic_passes, run_critic,
     };
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
@@ -193,19 +191,17 @@ mod tests {
             enemy_damage,
             ..Default::default()
         });
-        let ann = PlanAnnotation::default();
-        (plan, ann)
+        (plan, PlanAnnotation::default())
     }
 
     // ── fires on canonical case (high mana, negligible damage) ───────────────
 
     #[test]
     fn rare_resource_fires_on_canonical_case() {
-        // ── 1. Test data ──
         // Spell: mana_cost=40, dice=4d6 (expected ~14). Actual enemy_damage=2.
         // impact_ratio = 2/14 ≈ 0.14 < 0.5 → critic must fire.
-        let caster_pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(3, 0);
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(3, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos)
@@ -213,120 +209,77 @@ mod tests {
             .build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
 
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("bolt", expensive_spell("bolt", 40, DiceExpr::new(4, 6, 0)))
+            .build();
         let (plan, ann) = cast_plan_with_outcome("bolt", target_entity, target_pos, 2.0);
 
-        // ── 2. Context ──
-        let mut content = empty_content();
-        let dice = DiceExpr::new(4, 6, 0); // Expected damage: 4d6 + 0 = ~14 expected.
-        content.abilities.insert(AbilityId::from("bolt"), expensive_spell("bolt", 40, dice));
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = snapshot_from(vec![caster.clone(), target], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
-
-        // ── 3. Pool (N/A — critic tested via evaluate()) ──
-        // ── 4. Act ──
-        let result = RareResourceForLowImpact.evaluate(&plan, &ann, &ctx);
-
-        // ── 5. Assert ──
-        assert!(result.is_some(), "critic must fire: high mana cost with negligible damage");
-        let hit = result.unwrap();
+        let hit = run_critic(&RareResourceForLowImpact, &plan, &ann, &scn)
+            .expect("critic must fire: high mana cost with negligible damage");
         assert_eq!(hit.critic, CriticKind::RareResourceForLowImpact);
         assert!(hit.multiplier < 1.0, "multiplier must penalise, got {}", hit.multiplier);
         assert!(hit.multiplier >= MULTIPLIER_FLOOR, "multiplier must not go below floor {MULTIPLIER_FLOOR}");
-        if let CriticReason::RareResourceForLowImpact { cost, impact_ratio, .. } = hit.reason {
-            assert_eq!(cost, 40);
-            assert!(impact_ratio < IMPACT_RATIO_THRESHOLD, "impact_ratio must be below threshold");
-        } else {
+        let CriticReason::RareResourceForLowImpact { cost, impact_ratio, .. } = hit.reason else {
             panic!("expected RareResourceForLowImpact reason, got {:?}", hit.reason);
-        }
+        };
+        assert_eq!(cost, 40);
+        assert!(impact_ratio < IMPACT_RATIO_THRESHOLD, "impact_ratio must be below threshold");
     }
 
     // ── passes on clean plan (cheap spell or good impact) ────────────────────
 
     #[test]
     fn rare_resource_passes_on_clean_plan() {
-        // ── 1. Test data ──
         // Case 1: spell with mana_cost=10 (below threshold) — must not fire.
-        // Case 2: expensive spell that actually deals close-to-expected damage — must not fire.
-        let caster_pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(3, 0);
+        // Case 2: expensive spell that deals close-to-expected damage — must not fire.
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(3, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
+        let dice   = DiceExpr::new(2, 6, 0); // expected ~7
 
-        // ── 2. Context ──
-        let mut content = empty_content();
-        let dice = DiceExpr::new(2, 6, 0); // expected ~7
-        content.abilities.insert(AbilityId::from("cheap"), expensive_spell("cheap", 10, dice));
-        content.abilities.insert(AbilityId::from("effective"), expensive_spell("effective", 40, dice));
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = snapshot_from(vec![caster.clone(), target], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("cheap",     expensive_spell("cheap",     10, dice))
+            .with_ability("effective", expensive_spell("effective", 40, dice))
+            .build();
 
-        // ── 3. Plans ──
-        let (plan_cheap, ann_cheap) = cast_plan_with_outcome("cheap", target_entity, target_pos, 0.0);
-        // Expensive but effective spell (actual damage well above threshold).
-        let (plan_eff, ann_eff) = cast_plan_with_outcome("effective", target_entity, target_pos, 12.0);
+        let (plan_cheap, ann_cheap) = cast_plan_with_outcome("cheap",     target_entity, target_pos, 0.0);
+        let (plan_eff,   ann_eff)   = cast_plan_with_outcome("effective", target_entity, target_pos, 12.0);
 
-        // ── 4+5. Act + Assert ──
-        assert!(
-            RareResourceForLowImpact.evaluate(&plan_cheap, &ann_cheap, &ctx).is_none(),
-            "cheap spell must not fire",
-        );
-        assert!(
-            RareResourceForLowImpact.evaluate(&plan_eff, &ann_eff, &ctx).is_none(),
-            "expensive but effective spell must not fire",
-        );
+        assert_critic_passes(&RareResourceForLowImpact, &plan_cheap, &ann_cheap, &scn);
+        assert_critic_passes(&RareResourceForLowImpact, &plan_eff,   &ann_eff,   &scn);
     }
 
     // ── multiplier scales monotonically with impact ratio ─────────────────────
 
     #[test]
     fn rare_resource_severity_scales_with_input() {
-        // ── 1. Test data ──
-        // Two plans: very low impact (ratio≈0.07) vs moderate low impact (ratio≈0.35).
-        // Very-low must produce strictly lower multiplier than moderate-low.
-        let caster_pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(3, 0);
+        // Very low impact (ratio≈0.07) vs moderate low impact (ratio≈0.35).
+        // Very-low must produce a strictly lower (or equal) multiplier.
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(3, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
 
-        // ── 2. Context ──
-        let mut content = empty_content();
-        let dice = DiceExpr::new(4, 6, 0); // expected ~14
-        content.abilities.insert(AbilityId::from("bolt"), expensive_spell("bolt", 40, dice));
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = snapshot_from(vec![caster.clone(), target], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("bolt", expensive_spell("bolt", 40, DiceExpr::new(4, 6, 0))) // expected ~14
+            .build();
 
-        // ── 3. Plans ──
-        // Very low impact: actual_damage=1 (ratio ≈ 1/14 ≈ 0.07).
-        let (plan_vl, ann_vl) = cast_plan_with_outcome("bolt", target_entity, target_pos, 1.0);
-        // Moderate low impact: actual_damage=5 (ratio ≈ 5/14 ≈ 0.36).
-        let (plan_ml, ann_ml) = cast_plan_with_outcome("bolt", target_entity, target_pos, 5.0);
+        let (plan_vl, ann_vl) = cast_plan_with_outcome("bolt", target_entity, target_pos, 1.0); // ratio ≈ 0.07
+        let (plan_ml, ann_ml) = cast_plan_with_outcome("bolt", target_entity, target_pos, 5.0); // ratio ≈ 0.36
 
-        // ── 4. Act ──
-        let hit_vl = RareResourceForLowImpact.evaluate(&plan_vl, &ann_vl, &ctx);
-        let hit_ml = RareResourceForLowImpact.evaluate(&plan_ml, &ann_ml, &ctx);
+        let mult_vl = run_critic(&RareResourceForLowImpact, &plan_vl, &ann_vl, &scn)
+            .expect("very-low-impact case must fire").multiplier;
+        let mult_ml = run_critic(&RareResourceForLowImpact, &plan_ml, &ann_ml, &scn)
+            .expect("moderate-low-impact case must fire").multiplier;
 
-        // ── 5. Assert ──
-        assert!(hit_vl.is_some(), "very-low-impact case must fire");
-        assert!(hit_ml.is_some(), "moderate-low-impact case must fire");
-
-        let mult_vl = hit_vl.unwrap().multiplier;
-        let mult_ml = hit_ml.unwrap().multiplier;
         assert!(
             mult_vl <= mult_ml,
             "very-low impact ({mult_vl}) must be at least as punishing as moderate-low ({mult_ml})",
@@ -337,43 +290,32 @@ mod tests {
 
     #[test]
     fn rare_resource_skips_status_only_abilities() {
-        // ── 1. Test data ──
         // Expensive status-only ability (cost=40, no damage). The critic must
         // not fire — value is in the status, not in damage.
         use crate::content::abilities::{StatusApplication, StatusOn};
         use crate::core::StatusId;
 
-        let caster_pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(3, 0);
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(3, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let target = UnitBuilder::new(2, Team::Player, target_pos).build();
 
-        let (plan, ann) = cast_plan_with_outcome("hard_stun", target_entity, target_pos, 0.0);
-
-        // ── 2. Context ──
-        let mut content = empty_content();
         let mut stun = expensive_spell("hard_stun", 40, DiceExpr::new(0, 0, 0));
-        stun.effect = EffectDef::None;
+        stun.effect   = EffectDef::None;
         stun.statuses = vec![StatusApplication {
             status: StatusId::from("stunned"),
             on: StatusOn::Target,
             duration_rounds: 2,
         }];
-        content.abilities.insert(AbilityId::from("hard_stun"), stun);
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = snapshot_from(vec![caster.clone(), target], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
 
-        // ── 3. Pool (N/A) ──
-        // ── 4+5. Act + Assert ──
-        assert!(
-            RareResourceForLowImpact.evaluate(&plan, &ann, &ctx).is_none(),
-            "expensive status-only ability must not fire — damage is not its value axis",
-        );
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("hard_stun", stun)
+            .build();
+        let (plan, ann) = cast_plan_with_outcome("hard_stun", target_entity, target_pos, 0.0);
+
+        assert_critic_passes(&RareResourceForLowImpact, &plan, &ann, &scn);
     }
 }

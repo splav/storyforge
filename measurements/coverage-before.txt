@@ -1,0 +1,1501 @@
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling combat_engine v0.1.0 (/Users/splav/personal/storyforge/crates/combat_engine)
+   Compiling storyforge v0.1.0 (/Users/splav/personal/storyforge)
+warning: unused imports: `DiceExpr as EngineDiceExpr`, `Team as EngineTeam`, and `Unit as EngineUnit`
+  --> tests/combat_engine/parity.rs:20:12
+   |
+20 |     dice::{DiceExpr as EngineDiceExpr, ExpectedValue},
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+21 |     state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit},
+   |                                      ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `storyforge` (test "combat_engine") generated 1 warning (run `cargo fix --test "combat_engine" -p storyforge` to apply 1 suggestion)
+    Finished `test` profile [optimized + debuginfo] target(s) in 45.37s
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/combat_engine-48475c061943275a)
+
+running 23 tests
+test content_hash::tests::filename_differs_same_content_gives_different_hash ... ok
+test content_hash::tests::multi_file_differs_from_single ... ok
+test content_hash::tests::empty_input_is_deterministic ... ok
+test content_hash::tests::multi_file_order_independent ... ok
+test content_hash::tests::known_vector_smoke ... ok
+test content_hash::tests::single_file_is_deterministic ... ok
+test state::tests::start_actor_turn_for_dead_applier_still_ticks_sirota ... ok
+test state::tests::start_actor_turn_expires_status_on_last_tick ... ok
+test state::tests::refresh_aggregates_recomputes_damage_taken_bonus ... ok
+test state::tests::start_actor_turn_no_statuses_returns_only_refill_events ... ok
+test state::tests::start_actor_turn_mana_clamps_at_max ... ok
+test state::tests::start_actor_turn_refills_ap_and_regens_mana ... ok
+test state::tests::start_actor_turn_dot_lethal_emits_death_and_cleans_local_statuses ... ok
+test state::tests::start_actor_turn_refills_movement_points_to_speed ... ok
+test state::tests::start_actor_turn_refills_mp_to_effective_speed_including_bonus ... ok
+test state::tests::start_actor_turn_skips_dead_unit_refills ... ok
+test state::tests::start_actor_turn_ticks_dot_on_victims ... ok
+test turn_queue::tests::advance_all_dead_wraps_back_to_start ... ok
+test turn_queue::tests::advance_dead_at_zero_after_wrap_still_detects_wrap ... ok
+test turn_queue::tests::advance_end_of_round_wraps ... ok
+test turn_queue::tests::advance_mid_round_no_wrap ... ok
+test turn_queue::tests::single_actor_queue_always_wraps ... ok
+test turn_queue::tests::wrapped_after_false_for_mid_round ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/aura_determinism.rs (target/llvm-cov-target/debug/deps/aura_determinism-9e52e22d7667fd27)
+
+running 2 tests
+test aura_membership_set_sorted_by_unit_id ... ok
+test aura_membership_set_iteration_order_is_stable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/effect.rs (target/llvm-cov-target/debug/deps/effect-64f2ec8bc49f0393)
+
+running 2 tests
+test death_of_non_current_actor_does_not_derive_advance_turn ... ok
+test death_of_current_actor_derives_advance_turn_and_emits_turn_ended ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/engine_purity.rs (target/llvm-cov-target/debug/deps/engine_purity-f58a035b36e4dbd4)
+
+running 1 test
+test engine_src_has_no_forbidden_imports ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/replay.rs (target/llvm-cov-target/debug/deps/replay-db0038444efbead4)
+
+running 8 tests
+test replay_pure_move_no_enemies ... ok
+test replay_endturn_advances_queue ... ok
+test replay_phase_trigger ... ok
+test replay_move_with_aoo_chain ... ok
+test replay_cast_damage_basic ... ok
+test replay_event_divergence_detected - should panic ... ok
+test replay_rng_count_divergence_detected - should panic ... ok
+test measure_trace_size_per_round ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rng_count.rs (target/llvm-cov-target/debug/deps/rng_count-55f2730afef3721e)
+
+running 4 tests
+test expected_value_call_count_always_zero ... ok
+test move_no_aoo_consumes_zero_rolls ... ok
+test move_with_one_aoo_consumes_one_roll ... ok
+test cast_3_targets_consumes_d20_plus_3_damage_rolls ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/serde_roundtrip.rs (target/llvm-cov-target/debug/deps/serde_roundtrip-0ebe325a04b3cb76)
+
+running 44 tests
+test damage_ctx_roundtrip ... ok
+test effect_advance_turn ... ok
+test aura_def_roundtrip ... ok
+test action_cast ... ok
+test crit_fail_outcome_double_cost ... ok
+test aura_effects_roundtrip ... ok
+test aura_def_allies ... ok
+test action_end_turn ... ok
+test action_move ... ok
+test apply_ctx_default_roundtrip ... ok
+test effect_apply_status ... ok
+test combat_state_roundtrip ... ok
+test effect_bump_round ... ok
+test effect_damage ... ok
+test effect_enter_phase ... ok
+test effect_heal ... ok
+test effect_move_position ... ok
+test effect_spawn ... ok
+test event_action_started ... ok
+test event_aura_status_gained ... ok
+test event_aura_status_lost ... ok
+test event_crit_failed_apply_status ... ok
+test event_crit_failed_miss ... ok
+test event_crit_failed_self_damage ... ok
+test event_phase_entered ... ok
+test event_round_started ... ok
+test event_spawn_blocked ... ok
+test event_status_applied ... ok
+test event_status_removed ... ok
+test event_turn_skipped_dead ... ok
+test event_turn_skipped_stunned ... ok
+test event_unit_damaged ... ok
+test event_unit_healed ... ok
+test event_unit_moved ... ok
+test event_unit_spawned ... ok
+test phase_transition_roundtrip ... ok
+test init_line_roundtrip ... ok
+test round_phase_variants ... ok
+test spawn_blocked_reasons ... ok
+test status_bonuses_roundtrip ... ok
+test step_line_roundtrip ... ok
+test turn_queue_roundtrip ... ok
+test unit_all_none_fields ... ok
+test unit_all_some_fields ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/trace_helpers.rs (target/llvm-cov-target/debug/deps/trace_helpers-62eb3ab43c69fc71)
+
+running 6 tests
+test post_state_hash_differs_on_hp_change ... ok
+test post_state_hash_differs_on_round_change ... ok
+test serialize_init_produces_parseable_jsonl ... ok
+test serialize_init_byte_equal_on_second_pass ... ok
+test post_state_hash_excludes_dead_units ... ok
+test post_state_hash_is_deterministic ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/storyforge-ef5f7f806121d7c2)
+
+running 822 tests
+test combat::advance_turn::tests::outcome_defeat_when_no_players_alive ... ok
+test combat::advance_turn::tests::outcome_all_enemies_dead_victory ... ok
+test combat::advance_turn::tests::outcome_all_enemies_dead_continues_while_enemies_alive ... ok
+test combat::advance_turn::tests::outcome_party_wipe_beats_objective_completion ... ok
+test combat::advance_turn::tests::outcome_kill_target_continues_while_target_alive ... ok
+test combat::advance_turn::tests::outcome_kill_target_victory_on_target_dead ... ok
+test combat::ai::action_state::tests::missing_target_rejects_as_unknown ... ok
+test combat::ai::action_state::tests::dead_target_rejects_as_dead ... ok
+test combat::ai::action_state::tests::out_of_range_rejects ... ok
+test combat::ai::action_state::tests::insufficient_mana_rejects ... ok
+test combat::ai::action_state::tests::blocks_mana_status_rejects_even_with_enough_mana ... ok
+test combat::ai::action_state::tests::legal_cast_in_range_succeeds ... ok
+test combat::ai::action_state::tests::disorientation_sets_disadvantage_but_stays_legal ... ok
+test combat::ai::adapt::select::tests::doom_with_self_heal_rescue_leaves_default_mode ... ok
+test combat::ai::adapt::select::tests::expected_self_lethal_gated_off_under_protect_self ... ok
+test combat::ai::adapt::select::tests::pending_dot_includes_hp_percent_dot_from_content ... ok
+test combat::ai::adapt::select::tests::default_plans_untouched_when_no_trigger_fires ... ok
+test combat::ai::adapt::select::tests::doom_with_cleanse_rescue_leaves_default_mode ... ok
+test combat::ai::adapt::select::tests::doom_no_rescue_flips_all_plans_to_protect_self_futile ... ok
+test combat::ai::adapt::select::tests::protect_self_no_defensive_switches_all_plans_globally ... ok
+test combat::ai::adapt::select::tests::detect_expected_self_lethal_sets_last_stand_mode ... ok
+test combat::ai::adapt::tests::adaptation_empty_is_all_default ... ok
+test combat::ai::adapt::select::tests::adaptation_is_idempotent_on_second_call ... ok
+test combat::ai::adapt::tests::any_adapted_true_when_last_stand_present ... ok
+test combat::ai::adapt::select::tests::sanity_no_longer_masks_expected_lethal_aoo ... ok
+test combat::ai::appraisal::apply_cc::tests::apply_cc_zero_when_no_cc_kit ... ok
+test combat::ai::appraisal::apply_cc::tests::apply_cc_high_when_unstunned_threat_in_reach ... ok
+test combat::ai::appraisal::apply_cc::tests::apply_cc_zero_when_no_enemies_in_reach ... ok
+test combat::ai::appraisal::apply_cc::tests::apply_cc_zero_when_target_already_hardcc ... ok
+test combat::ai::appraisal::apply_cc::tests::apply_cc_zero_when_only_dead_enemies_in_reach ... ok
+test combat::ai::appraisal::conserve_resource::tests::conserve_resource_low_at_full_mana ... ok
+test combat::ai::appraisal::conserve_resource::tests::conserve_resource_high_at_low_mana ... ok
+test combat::ai::appraisal::conserve_resource::tests::conserve_resource_no_pressure_when_no_mana_bar ... ok
+test combat::ai::appraisal::continue_commitment::tests::continue_commitment_zero_when_no_last_intent ... ok
+test combat::ai::appraisal::continue_commitment::tests::continue_commitment_high_when_alive_50pct_reachable ... ok
+test combat::ai::appraisal::continue_commitment::tests::continue_commitment_zero_when_target_low_hp ... ok
+test combat::ai::appraisal::continue_commitment::tests::continue_commitment_zero_when_target_not_in_snap ... ok
+test combat::ai::appraisal::continue_commitment::tests::continue_commitment_zero_when_unreachable ... ok
+test combat::ai::appraisal::finish_target::tests::finish_target_high_when_killable_low_hp ... ok
+test combat::ai::appraisal::finish_target::tests::finish_target_zero_when_actor_no_ap ... ok
+test combat::ai::appraisal::finish_target::tests::finish_target_zero_when_no_killable ... ok
+test combat::ai::appraisal::reposition::tests::reposition_high_when_engagement_gap_with_real_improvement ... ok
+test combat::ai::appraisal::reposition::tests::reposition_zero_when_engaged_no_position_gain ... ok
+test combat::ai::appraisal::reposition::tests::reposition_no_boost_when_engagement_gap_but_no_improvement ... ok
+test combat::ai::appraisal::rescue_ally::tests::ally_threat_proxy_ignores_dead_enemies ... ok
+test combat::ai::appraisal::rescue_ally::tests::rescue_ally_high_when_ally_low_hp_threatened ... ok
+test combat::ai::appraisal::rescue_ally::tests::rescue_ally_ignores_dead_allies_in_reach ... ok
+test combat::ai::appraisal::rescue_ally::tests::rescue_ally_zero_when_no_rescue_kit ... ok
+test combat::ai::appraisal::rescue_ally::tests::rescue_ally_uses_override_for_kit_check ... ok
+test combat::ai::appraisal::rescue_ally::tests::rescue_ally_zero_when_no_allies_in_danger ... ok
+test combat::ai::appraisal::self_preserve::tests::self_preserve_dampened_after_defensive ... ok
+test combat::ai::appraisal::rescue_ally::tests::rescue_ally_zero_when_override_empties_kit ... ok
+test combat::ai::appraisal::self_preserve::tests::self_preserve_amplified_by_recent_damage ... ok
+test combat::ai::appraisal::self_preserve::tests::self_preserve_high_at_low_hp ... ok
+test combat::ai::appraisal::self_preserve::tests::self_preserve_zero_at_full_hp ... ok
+test combat::ai::appraisal::tests::default_need_signals_are_zero ... ok
+test combat::ai::appraisal::tests::compute_need_signals_setup_aoe_remains_zero_after_9b ... ok
+test combat::ai::config::difficulty::tests::lerp_curve_migration_values_match_original_hardcodes ... ok
+test combat::ai::config::difficulty::tests::noise_is_only_on_easy ... ok
+test combat::ai::config::difficulty::tests::top_k_is_argmax_above_easy ... ok
+test combat::ai::config::role::tests::bias_amplifies_dominant_axis ... ok
+test combat::ai::config::role::tests::empty_profile_falls_back_to_melee ... ok
+test combat::ai::config::role::tests::factor_weights_mix_correctly ... ok
+test combat::ai::config::role::tests::dominant_label_shows_primary ... ok
+test combat::ai::config::role::tests::dominant_label_shows_hybrid ... ok
+test combat::ai::config::role::tests::pure_axis_stays_pure_after_bias ... ok
+test combat::ai::config::role::tests::pure_support_heal_weight_near_axis_value ... ok
+test combat::ai::config::role::tests::role_value_scales_with_support ... ok
+test combat::ai::config::tuning::tests::apply_override_empty_is_identity ... ok
+test combat::ai::config::tuning::tests::apply_override_partial_thresholds ... ok
+test combat::ai::config::tuning::tests::response_curve_linear_clamped_lerp_at_midpoint ... ok
+test combat::ai::config::tuning::tests::curves_default_loads_via_toml_roundtrip ... ok
+test combat::ai::config::tuning::tests::apply_override_toml_roundtrip ... ok
+test combat::ai::config::tuning::tests::response_curve_linear_clamped_step_when_lo_eq_hi ... ok
+test combat::ai::config::tuning::tests::response_curve_linear_clamped_zero_below_lo_one_above_hi ... ok
+test combat::ai::config::tuning::tests::response_curve_logistic_ascending_low_at_zero_high_at_one ... ok
+test combat::ai::config::tuning::tests::response_curve_logistic_at_mid_returns_half ... ok
+test combat::ai::config::tuning::tests::response_curve_logistic_descending_inverted ... ok
+test combat::ai::config::tuning::tests::tables_axis_terminal_weights_parses_and_defaults ... ok
+test combat::ai::intent::agenda::tests::agenda_critical_self_preservation_emits_two_items ... ok
+test combat::ai::intent::agenda::tests::agenda_forced_targeting_emits_single_item ... ok
+test combat::ai::intent::agenda::tests::agenda_hard_rescue_emits_two_items ... ok
+test combat::ai::intent::agenda::tests::agenda_hard_rescue_skips_focus_target_when_no_threat ... ok
+test combat::ai::intent::agenda::tests::agenda_items_ordered_by_raw_score_desc ... ok
+test combat::ai::intent::agenda::tests::agenda_normal_tactical_emits_at_least_one ... ok
+test combat::ai::intent::bands::tests::band_critical_self_preservation_fires_on_panic ... ok
+test combat::ai::intent::bands::tests::band_forced_targeting_fires_on_canonical_case ... ok
+test combat::ai::intent::bands::tests::band_hard_rescue_opportunity_fires_on_high_rescue_need ... ok
+test combat::ai::intent::bands::tests::band_normal_tactical_fallback ... ok
+test combat::ai::intent::bands::tests::band_priority_order_forced_beats_critical ... ok
+test combat::ai::intent::considerations::tests::all_axes_in_unit_range_with_saturated_needs ... ok
+test combat::ai::intent::considerations::tests::composition_collapses_to_base_when_considerations_uniform ... ok
+test combat::ai::intent::considerations::tests::consideration_weights_dominate_in_critical_self_band ... ok
+test combat::ai::intent::considerations::tests::continuation_value_high_when_committed_and_repair_aligned ... ok
+test combat::ai::intent::considerations::tests::continuation_value_zero_without_repair_or_commitment ... ok
+test combat::ai::intent::considerations::tests::feasibility_one_when_no_plan_provided ... ok
+test combat::ai::intent::considerations::tests::feasibility_reads_viability_when_plan_provided ... ok
+test combat::ai::intent::considerations::tests::leverage_high_for_cast_with_high_enemy_damage ... ok
+test combat::ai::intent::considerations::tests::leverage_zero_when_no_plan_provided ... ok
+test combat::ai::intent::considerations::tests::role_affinity_dps_focus_target_high ... ok
+test combat::ai::intent::considerations::tests::role_affinity_healer_protect_ally_high ... ok
+test combat::ai::intent::considerations::tests::safety_low_when_terminal_exposure_high ... ok
+test combat::ai::intent::considerations::tests::safety_one_when_no_plan_provided ... ok
+test combat::ai::intent::considerations::tests::urgency_high_when_self_preserve_high_for_protect_self ... ok
+test combat::ai::intent::considerations::tests::urgency_zero_when_no_need_signal ... ok
+test combat::ai::intent::considerations::tests::weighted_dot_in_unit_range_for_valid_input ... ok
+test combat::ai::intent::considerations::tests::weighted_dot_zero_weights_returns_one ... ok
+test combat::ai::intent::score::tests::cc_reach_prefers_cc_ability_range ... ok
+test combat::ai::intent::score::tests::focus_target_scores_proportional_to_damage ... ok
+test combat::ai::intent::score::tests::focus_target_wrong_target_scores_near_zero ... ok
+test combat::ai::intent::score::tests::intent_score_via_narrow_offensive_api_matches_legacy::apply_cc_direct ... ok
+test combat::ai::intent::score::tests::intent_score_via_narrow_offensive_api_matches_legacy::focus_aoe_covers ... ok
+test combat::ai::intent::score::tests::intent_score_via_narrow_offensive_api_matches_legacy::focus_aoe_misses ... ok
+test combat::ai::intent::score::tests::intent_score_via_narrow_offensive_api_matches_legacy::focus_direct ... ok
+test combat::ai::intent::score::tests::pursuit_closing_is_mild_positive ... ok
+test combat::ai::intent::score::tests::pursuit_entering_reach_scores_full_bonus ... ok
+test combat::ai::intent::score::tests::pursuit_no_distance_change_is_zero ... ok
+test combat::ai::intent::score::tests::pursuit_retreat_is_soft_negative ... ok
+test combat::ai::intent::select::tests::killable_requires_action_points ... ok
+test combat::ai::intent::select::tests::stickiness_modulated_by_continue_commitment ... ok
+test combat::ai::log::tests::actor_tick_current_schema_round_trip ... ok
+test combat::ai::log::tests::actor_tick_event_round_trips ... ok
+test combat::ai::log::tests::actor_tick_v28_load_yields_unsupported_schema_error ... ok
+test combat::ai::log::tests::actor_tick_v29_load_yields_unsupported_schema_error ... ok
+test combat::ai::log::tests::actor_tick_v30_load_yields_unsupported_schema_error ... ok
+test combat::ai::log::tests::actor_tick_v31_load_yields_unsupported_schema_error ... ok
+test combat::ai::config::role::tests::infer_profile_uses_override_when_set ... ok
+test combat::ai::log::tests::ai_memory_snapshot_round_trips ... ok
+test combat::ai::config::role::tests::infer_burevestnik_is_ranged_with_support ... ok
+test combat::ai::log::tests::annotation_with_legacy_fields_deserialises_via_ignore_unknown ... ok
+test combat::ai::config::role::tests::infer_molnienosets_is_melee_assassin ... ok
+test combat::ai::config::role::tests::infer_starshina_is_support ... ok
+test combat::ai::log::tests::build_actor_tick_event_full_has_chosen_annotation ... ok
+test combat::ai::log::tests::build_actor_tick_event_skip_uses_skip_decision_kind ... ok
+test combat::ai::log::tests::build_combat_log_dir_shape ... ok
+test combat::ai::log::tests::build_logged_plans_preserves_annotation_outcomes ... ok
+test combat::ai::config::role::tests::infer_stormborn_warrior_is_tank_melee ... ok
+test combat::ai::log::tests::decision_block_round_trips_via_json ... ok
+test combat::ai::log::tests::combat_log_header_serializes_and_is_skipped_by_miner_filter ... ok
+test combat::ai::log::tests::difficulty_snapshot_round_trips ... ok
+test combat::ai::log::tests::entry_serializes_current_schema_telemetry_fields ... ok
+test combat::ai::log::tests::parse_v26_returns_unsupported_schema_error ... ok
+test combat::ai::log::tests::parse_v27_returns_unsupported_schema_error ... ok
+test combat::ai::log::tests::plan_id_monotonic ... ok
+test combat::ai::log::tests::sanitize_replaces_unsafe_chars ... ok
+test combat::ai::log::tests::reservations_snapshot_round_trips ... ok
+test combat::ai::log::tests::schema_v31_rejected_with_clear_error ... ok
+test combat::ai::log::tests::schema_round_trip_v36_identity ... ok
+test combat::ai::log::tests::schema_v32_rejected_as_pre_score_trace_log ... ok
+test combat::ai::config::role::tests::infer_kael_is_ranged ... ok
+test combat::ai::log::tests::timestamp_format_known_epoch ... ok
+test combat::ai::log::tests::schema_v33_rejected_as_pre_v37_clean_break ... ok
+test combat::ai::log::tests::v35_log_rejected_as_pre_v37_clean_break ... ok
+test combat::ai::memory::ai_memory::tests::snapshot_detects_actor_hp_drop ... ok
+test combat::ai::memory::ai_memory::tests::snapshot_detects_actor_pos_mismatch ... ok
+test combat::ai::memory::ai_memory::tests::snapshot_detects_actor_status_change ... ok
+test combat::ai::log::tests::schema_v32_round_trip ... ok
+test combat::ai::memory::ai_memory::tests::snapshot_detects_target_death ... ok
+test combat::ai::memory::ai_memory::tests::snapshot_detects_target_hp_drop ... ok
+test combat::ai::memory::ai_memory::tests::snapshot_matches_unchanged_state ... ok
+test combat::ai::memory::goal::context::tests::confidence_clamps_to_unit_interval ... ok
+test combat::ai::memory::goal::context::tests::confidence_zero_safe_when_pool_max_zero ... ok
+test combat::ai::memory::goal::context::tests::extract_finish_for_low_hp_target ... ok
+test combat::ai::memory::goal::context::tests::extract_finish_when_p_kill_high ... ok
+test combat::ai::config::role::tests::tag_axis_vote_diff_from_legacy_is_intended ... ok
+test combat::ai::memory::goal::context::tests::extract_pressure_for_high_hp_target ... ok
+test combat::ai::memory::goal::context::tests::extract_retreat_uses_final_pos_anchor ... ok
+test combat::ai::log::tests::open_replaces_previous_writer ... ok
+test combat::ai::memory::goal::context::tests::extract_setupaoe_recovers_planned_ability ... ok
+test combat::ai::memory::goal::context::tests::extract_setupaoe_returns_none_without_cast_step ... ok
+test combat::ai::memory::goal::context::tests::stored_goal_context_uses_shared_compute_status_delta ... ok
+test combat::ai::memory::goal::lifecycle::tests::post_tick_clears_after_cast_in_place ... ok
+test combat::ai::memory::goal::lifecycle::tests::post_tick_clears_after_endturn_when_outcome_abandoned ... ok
+test combat::ai::memory::goal::lifecycle::tests::post_tick_clears_after_move_and_cast ... ok
+test combat::ai::intent::score::tests::focus_target_pursuit_enters_bubble_above_viability ... ok
+test combat::ai::memory::goal::lifecycle::tests::post_tick_preserves_after_endturn_when_outcome_preserved ... ok
+test combat::ai::memory::goal::lifecycle::tests::post_tick_stores_after_move ... ok
+test combat::ai::config::role::tests::infer_lyra_is_ranged_mage ... ok
+test combat::ai::memory::goal::lifecycle::tests::pre_tick_clears_when_invalidating ... ok
+test combat::ai::memory::goal::lifecycle::tests::pre_tick_clears_when_ttl_expired ... ok
+test combat::ai::memory::goal::lifecycle::tests::pre_tick_no_op_when_no_stored_goal ... ok
+test combat::ai::memory::goal::lifecycle::tests::pre_tick_preserves_when_relevant_or_cosmetic ... ok
+test combat::ai::outcome::builder::tests::ally_damage_zero_for_single_target ... ok
+test combat::ai::outcome::builder::tests::cc_turns_applied_for_stun_ability ... ok
+test combat::ai::outcome::builder::tests::enemy_damage_matches_sim_for_single_target ... ok
+test combat::ai::outcome::builder::tests::enemy_damage_per_entity_populated_for_aoe ... ok
+test combat::ai::config::role::tests::infer_aldric_is_control_tank ... ok
+test combat::ai::outcome::builder::tests::hp_restored_clamped_to_missing_hp ... ok
+test combat::ai::outcome::builder::tests::hp_restored_zero_for_full_hp_target ... ok
+test combat::ai::intent::score::tests::reposition_penalizes_worse_tile ... ok
+test combat::ai::outcome::builder::tests::mp_spent_equals_path_length_via_outcome ... ok
+test combat::ai::outcome::builder::tests::resource_facts_split_by_kind ... ok
+test combat::ai::outcome::builder::tests::hypothetical_kill_now_when_damage_exceeds_hp ... ok
+test combat::ai::outcome::builder::tests::step_path_danger_returns_max_along_path ... ok
+test combat::ai::outcome::builder::tests::step_path_danger_zero_for_cast ... ok
+test combat::ai::outcome::tests::annotation_default_is_selectable ... ok
+test combat::ai::outcome::tests::annotation_with_gate_only_is_not_selectable ... ok
+test combat::ai::orchestration::tests::pick_action_move_only_plan_has_empty_effective_ai_tags ... ok
+test combat::ai::outcome::tests::annotation_with_mask_is_not_selectable ... ok
+test combat::ai::outcome::tests::annotation_with_multiplier_only_is_selectable ... ok
+test combat::ai::outcome::tests::default_annotation_is_empty ... ok
+test combat::ai::outcome::tests::default_outcome_is_zero ... ok
+test combat::ai::outcome::tests::pick_info_default_noise_applied_zero ... ok
+test combat::ai::outcome::tests::pick_info_v29_load_pre_8c_round_trip ... ok
+test combat::ai::outcome::tests::plan_annotation_default_effective_ai_tags_empty ... ok
+test combat::ai::outcome::tests::plan_annotation_serde_round_trip_with_effective_ai_tags ... ok
+test combat::ai::outcome::tests::plan_annotation_serde_v29_log_without_effective_ai_tags_deserialises ... ok
+test combat::ai::outcome::builder::tests::hypothetical_cc_zero_for_melee_attack ... ok
+test combat::ai::pipeline::effects::tests::addend_effect_updates_trace_and_score ... ok
+test combat::ai::pipeline::effects::tests::mask_effect_marks_trace_as_masked ... ok
+test combat::ai::orchestration::tests::pick_action_override_propagates_to_annotation ... ok
+test combat::ai::outcome::builder::tests::estimate_kill_soon_rounds_expected_to_match_sim ... ok
+test combat::ai::outcome::builder::tests::estimate_kill_soon_is_zero_when_direct_damage_kills ... ok
+test combat::ai::outcome::builder::tests::estimate_kill_soon_fires_on_new_dot_from_ability ... ok
+test combat::ai::pipeline::effects::tests::multiplier_effect_with_sanity_observation ... ok
+test combat::ai::pipeline::effects::tests::selection_key_selectable_beats_not_selectable ... ok
+test combat::ai::pipeline::effects::tests::multiple_effects_on_same_plan_all_apply ... ok
+test combat::ai::outcome::builder::tests::estimate_kill_soon_fires_on_pending_dot ... ok
+test combat::ai::pipeline::score_trace::tests::compute_applies_addends_after_multipliers ... ok
+test combat::ai::pipeline::score_trace::tests::compute_applies_multipliers_in_push_order ... ok
+test combat::ai::pipeline::score_trace::tests::compute_addends_sum_in_order ... ok
+test combat::ai::pipeline::score_trace::tests::compute_base_only ... ok
+test combat::ai::pipeline::score_trace::tests::compute_default_returns_zero ... ok
+test combat::ai::pipeline::score_trace::tests::compute_gates_do_not_zero_score ... ok
+test combat::ai::pipeline::score_trace::tests::compute_ignores_masks ... ok
+test combat::ai::pipeline::score_trace::tests::is_masked_detects_any_mask ... ok
+test combat::ai::pipeline::score_trace::tests::reset_effects_clears_but_preserves_base ... ok
+test combat::ai::outcome::builder::tests::hypothetical_populates_enemy_damage_matches_raw_formula ... ok
+test combat::ai::pipeline::score_trace::tests::score_trace_log_empty_fields_omitted_in_json ... ok
+test combat::ai::pipeline::score_trace::tests::score_trace_log_schema_additive_parses_without_field ... ok
+test combat::ai::pipeline::score_trace::tests::score_trace_log_roundtrips_through_json ... ok
+test combat::ai::pipeline::score_trace::tests::tle_1_1_multiplier_hit_carries_sanity_detail_when_paired_with_sanity_obs ... ok
+test combat::ai::pipeline::score_trace::tests::tle_1_2_multiplier_hit_carries_critic_detail_when_paired_with_critic_obs ... ok
+test combat::ai::pipeline::effects::tests::invalid_pairing_panics - should panic ... ok
+test combat::ai::pipeline::effects::tests::selection_key_within_bucket_orders_by_score_desc ... ok
+test combat::ai::pipeline::score_trace::tests::tle_1_3_mask_hit_carries_original_score_when_paired_with_contract_obs ... ok
+test combat::ai::orchestration::tests::pick_action_populates_effective_ai_tags_per_cast_step ... ok
+test combat::ai::pipeline::spec::tests::negative_post_score_gate_before_rescore ... ok
+test combat::ai::pipeline::score_trace::tests::tle_1_5_score_trace_log_serializes_detail_field ... ok
+test combat::ai::pipeline::spec::tests::negative_reads_without_writer ... ok
+test combat::ai::pipeline::spec::tests::negative_rescore_after_multiplier ... ok
+test combat::ai::pipeline::score_trace::tests::tle_1_4_multiplier_hit_without_observation_panics_in_debug - should panic ... ok
+test combat::ai::pipeline::spec::tests::negative_two_rescore_stages ... ok
+test combat::ai::pipeline::spec::tests::production_pipeline_order_is_valid ... ok
+test combat::ai::pipeline::spec::tests::stage_specs_ids_match_pipeline_order ... ok
+test combat::ai::pipeline::spec::tests::stage_specs_length_matches_pipeline ... ok
+test combat::ai::pipeline::stages::critics::blindspot_ranged::tests::blindspot_fires_on_canonical_case ... ok
+test combat::ai::pipeline::stages::critics::blindspot_ranged::tests::blindspot_passes_on_clean_plan ... ok
+test combat::ai::pipeline::stages::critics::blindspot_ranged::tests::blindspot_severity_scales_with_input ... ok
+test combat::ai::pipeline::stages::critics::buff_into_void::tests::buff_into_void_fires_on_canonical_case ... ok
+test combat::ai::pipeline::stages::critics::buff_into_void::tests::buff_into_void_passes_on_clean_plan ... ok
+test combat::ai::pipeline::stages::critics::buff_into_void::tests::buff_into_void_severity_scales_with_input ... ok
+test combat::ai::pipeline::stages::critics::heal_without_rescue_value::tests::heal_without_rescue_fires_on_canonical_case ... ok
+test combat::ai::pipeline::stages::critics::heal_without_rescue_value::tests::heal_without_rescue_passes_on_clean_plan ... ok
+test combat::ai::outcome::builder::tests::estimate_kill_soon_zero_when_combined_insufficient ... ok
+test combat::ai::pipeline::stages::critics::overcommit_into_danger::tests::overcommit_fires_on_canonical_case ... ok
+test combat::ai::pipeline::stages::critics::heal_without_rescue_value::tests::heal_without_rescue_severity_scales_with_input ... ok
+test combat::ai::pipeline::stages::critics::overcommit_into_danger::tests::overcommit_passes_on_clean_plan ... ok
+test combat::ai::pipeline::stages::critics::overcommit_into_danger::tests::overcommit_severity_scales_with_input ... ok
+test combat::ai::pipeline::stages::critics::rare_resource_for_low_impact::tests::rare_resource_fires_on_canonical_case ... ok
+test combat::ai::pipeline::stages::critics::rare_resource_for_low_impact::tests::rare_resource_passes_on_clean_plan ... ok
+test combat::ai::pipeline::stages::critics::rare_resource_for_low_impact::tests::rare_resource_severity_scales_with_input ... ok
+test combat::ai::pipeline::stages::critics::rare_resource_for_low_impact::tests::rare_resource_skips_status_only_abilities ... ok
+test combat::ai::pipeline::stages::critics::self_lethal_without_payoff::tests::self_lethal_fires_on_canonical_case ... ok
+test combat::ai::pipeline::stages::critics::self_lethal_without_payoff::tests::self_lethal_passes_on_clean_plan ... ok
+test combat::ai::pipeline::stages::critics::self_lethal_without_payoff::tests::self_lethal_severity_scales_with_input ... ok
+test combat::ai::pipeline::stages::critics::tests::critic_kind_serde_round_trip ... ok
+test combat::ai::pipeline::stages::critics::tests::critic_reason_serde_round_trip ... ok
+test combat::ai::pipeline::stages::critics::tests::critics_stage_no_op_when_empty ... ok
+test combat::ai::pipeline::stages::critics::tests::critics_stage_writes_hit_and_multiplies_score ... ok
+test combat::ai::pipeline::stages::critics::tests::critics_survive_through_adaptation_path ... ok
+test combat::ai::pipeline::stages::critics::tests::p3a_critics_invariant_score_equals_compute_with_multiple_hits ... ok
+test combat::ai::pipeline::stages::critics::tests::p3a_critics_no_hits_leave_trace_with_only_base ... ok
+test combat::ai::pipeline::stages::critics::tests::p3a_critics_push_multipliers_to_trace ... ok
+test combat::ai::pipeline::stages::critics::tests::p3a_critics_trace_base_synced_from_score ... ok
+test combat::ai::pipeline::stages::critics::tests::plan_annotation_critics_default_empty ... ok
+test combat::ai::pipeline::stages::finalize::tests::finalize_applies_per_plan_modes ... ok
+test combat::ai::pipeline::stages::finalize::tests::finalize_default_mode_idempotent ... ok
+test combat::ai::pipeline::stages::finalize::tests::p3a_finalize_clears_upstream_effects ... ok
+test combat::ai::pipeline::stages::finalize::tests::p3a_finalize_empty_pool_no_op ... ok
+test combat::ai::pipeline::stages::finalize::tests::p3a_finalize_records_rescore_mode_per_plan ... ok
+test combat::ai::pipeline::stages::finalize::tests::p3a_finalize_sets_trace_base_to_new_score ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::approach_target_eligible_in_normal_tactical_when_no_offensive_plan ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::approach_target_eligible_when_forced_and_no_offensive_in_pool ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::approach_target_failure_uses_not_approaching_target_reason ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::approach_target_ineligible_in_normal_tactical_when_offensive_plan_exists ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::approach_target_ineligible_when_forced_but_offensive_plan_in_pool ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::eligible_killable_gate_for_non_killable_focus_target ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::item_scoring_empty_agenda_is_noop ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::item_scoring_no_agenda_in_ctx_is_noop ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::item_scoring_non_protect_self_item_is_eligible ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::item_scoring_populates_per_item_for_each_agenda_item ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::item_scoring_protect_self_ineligible_for_non_defensive_plan ... ok
+test combat::ai::pipeline::stages::item_scoring::tests::mode_laststand_does_not_break_per_item_scoring ... ok
+test combat::ai::pipeline::stages::killable_gate::algorithm_tests::can_finish_ignores_collateral_kill_line ... ok
+test combat::ai::pipeline::stages::killable_gate::algorithm_tests::can_finish_tier_prunes_all_non_killing ... ok
+test combat::ai::pipeline::stages::killable_gate::algorithm_tests::gate_disabled_under_apply_cc ... ok
+test combat::ai::pipeline::stages::killable_gate::algorithm_tests::gate_disabled_under_protect_self ... ok
+test combat::ai::pipeline::stages::killable_gate::algorithm_tests::gate_ignores_plans_already_masked_by_prior_layer ... ok
+test combat::ai::pipeline::stages::killable_gate::algorithm_tests::gate_respects_last_stand_mode ... ok
+test combat::ai::pipeline::stages::killable_gate::algorithm_tests::no_kill_line_is_noop ... ok
+test combat::ai::pipeline::stages::killable_gate::algorithm_tests::pressure_ignores_collateral_damage ... ok
+test combat::ai::pipeline::stages::killable_gate::algorithm_tests::pressure_tier_prunes_non_offensive_only ... ok
+test combat::ai::pipeline::stages::killable_gate::stage_tests::killable_gate_no_annotation_when_gate_does_not_fire ... ok
+test combat::ai::pipeline::stages::killable_gate::stage_tests::killable_gate_skips_when_intent_not_focus_target ... ok
+test combat::ai::pipeline::stages::killable_gate::stage_tests::killable_gate_writes_contract_when_active ... ok
+test combat::ai::pipeline::stages::killable_gate::stage_tests::p3a_killable_gate_emits_gate_hit_only ... ok
+test combat::ai::pipeline::stages::killable_gate::stage_tests::p3a_killable_gate_gated_plan_not_selectable ... ok
+test combat::ai::pipeline::stages::killable_gate::stage_tests::p3a_killable_gate_no_hit_when_intent_not_focus_target ... ok
+test combat::ai::pipeline::stages::mode_selection::tests::mode_selection_adaptation_reason_is_protect_self_no_defensive ... ok
+test combat::ai::pipeline::stages::mode_selection::tests::mode_selection_does_not_mutate_score ... ok
+test combat::ai::pipeline::stages::mode_selection::tests::mode_selection_no_adaptation_when_no_trigger ... ok
+test combat::ai::pipeline::stages::mode_selection::tests::mode_selection_records_original_score ... ok
+test combat::ai::pipeline::stages::mode_selection::tests::mode_selection_writes_adaptation_for_laststand_plans ... ok
+test combat::ai::pipeline::stages::modifiers::repair_bonus::tests::repair_bonus_matches_legacy_formula ... ok
+test combat::ai::pipeline::stages::modifiers::repair_bonus::tests::repair_bonus_modulated_by_continue_commitment ... ok
+test combat::ai::pipeline::stages::modifiers::repair_bonus::tests::repair_bonus_scaled_by_threshold ... ok
+test combat::ai::pipeline::stages::modifiers::repair_bonus::tests::repair_bonus_zero_when_no_stored_goal ... ok
+test combat::ai::pipeline::stages::modifiers::summon_bonus::tests::summon_bonus_zero_for_no_summon_plan ... ok
+test combat::ai::pipeline::stages::modifiers::tests::p3a_modifiers_masked_plan_trace_unchanged ... ok
+test combat::ai::pipeline::stages::modifiers::tests::p3a_modifiers_push_addends_to_trace ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::feasibility_continuous_distinguishes_two_adjusted_scores ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::leverage_apply_cc_aoe_cc_does_not_credit_other_enemies ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::feasibility_zero_when_viability_failed ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::leverage_focus_target_aoe_does_not_credit_other_enemies ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::leverage_apply_cc_uses_target_specific_cc ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::leverage_last_stand_uses_total_damage_and_kill ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::leverage_focus_target_uses_target_specific_damage ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::leverage_protect_ally_combines_heal_and_cc ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::leverage_protect_self_caps_at_survival_when_no_danger_reduction ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::overlay_noop_when_agenda_empty ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::leverage_protect_self_uses_reduction_when_danger_decreases ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::overlay_safety_reflects_max_of_self_damage_and_exposure ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::leverage_reposition_uses_terminal_factors ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::overlay_feasibility_is_continuous_adjusted_score ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::overlay_safety_self_damage_dominates_exposure ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::overlay_urgency_and_role_affinity_preserved_from_item ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::overlay_uses_plan_annotation_outcomes_not_pipeline_annotation ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::plan_aware_overlay_changes_feasibility_axis ... ok
+test combat::ai::pipeline::stages::overlay_considerations::tests::safety_drops_below_one_when_exposure_at_end_is_high ... ok
+test combat::ai::pipeline::stages::pick_best::tests::attributed_plan_beats_fallback_plan_with_equal_initial_score ... ok
+test combat::ai::pipeline::stages::pick_best::tests::commit_plan_tests::commit_empty_plan_ends_turn ... ok
+test combat::ai::pipeline::stages::pick_best::tests::agenda_item_attribution_persisted_in_annotation ... ok
+test combat::ai::pipeline::stages::pick_best::tests::commit_plan_tests::commit_move_cast_bundles_into_two ... ok
+test combat::ai::pipeline::stages::pick_best::tests::commit_plan_tests::commit_move_move_keeps_first_only_no_bundle ... ok
+test combat::ai::pipeline::stages::pick_best::tests::commit_plan_tests::commit_solo_move_consumes_one ... ok
+test combat::ai::pipeline::stages::pick_best::tests::cdot_changes_score_additively_with_intent_weight ... ok
+test combat::ai::pipeline::stages::pick_best::tests::composition_collapses_to_base_when_considerations_uniform ... ok
+test combat::ai::pipeline::stages::pick_best::tests::composed_equals_initial_plus_cdot_when_intent_matches_primary ... ok
+test combat::ai::pipeline::stages::pick_best::tests::empty_agenda_falls_back_to_legacy_pipeline ... ok
+test combat::ai::pipeline::stages::pick_best::tests::fallback_plan_can_beat_attributed_plan_with_low_cdot_when_initial_dominates ... ok
+test combat::ai::pipeline::stages::pick_best::tests::ineligible_item_is_skipped_in_argmax ... ok
+test combat::ai::pipeline::stages::pick_best::tests::intent_delta_is_identical_for_different_base_scores ... ok
+test combat::ai::pipeline::stages::pick_best::tests::multi_item_pick_attributes_to_winning_item ... ok
+test combat::ai::pipeline::stages::pick_best::tests::item_score_does_not_scale_with_unrelated_base_score ... ok
+test combat::ai::pipeline::stages::pick_best::tests::pick_best_noop_on_empty_pool ... ok
+test combat::ai::pipeline::stages::pick_best::tests::pick_best_marks_exactly_one_chosen ... ok
+test combat::ai::pipeline::stages::pick_best::tests::pick_best_selects_highest_score ... ok
+test combat::ai::pipeline::stages::pick_best::tests::pick_jitter_is_plan_order_invariant ... ok
+test combat::ai::pipeline::stages::pick_best::tests::pick_jitter_no_op_when_noise_amp_zero ... ok
+test combat::ai::pipeline::stages::pick_best::tests::pick_jitter_records_noise_applied_in_pick_info ... ok
+test combat::ai::pipeline::stages::pick_best::tests::pick_jitter_skips_masked_plans ... ok
+test combat::ai::pipeline::stages::pick_best::tests::pipeline_pick_runs_jitter_before_argmax ... ok
+test combat::ai::pipeline::stages::protect_self::tests::p3a_protect_self_mask_emits_mask_hit ... ok
+test combat::ai::pipeline::stages::protect_self::tests::p3a_protect_self_mask_invariant ... ok
+test combat::ai::pipeline::stages::protect_self::tests::p3a_protect_self_mask_no_hit_when_defensive ... ok
+test combat::ai::pipeline::stages::protect_self::tests::protect_self_mask_no_annotation_when_all_defensive ... ok
+test combat::ai::pipeline::stages::protect_self::tests::protect_self_mask_skips_when_intent_not_protect_self ... ok
+test combat::ai::pipeline::stages::protect_self::tests::protect_self_mask_writes_contract_when_non_defensive ... ok
+test combat::ai::pipeline::stages::repair_affinity::tests::repair_affinity_stage_no_op_when_no_stored_goal ... ok
+test combat::ai::pipeline::stages::repair_affinity::tests::repair_affinity_stage_populates_annotation ... ok
+test combat::ai::pipeline::stages::sanity::tests::expected_aoo_damage_matrix ... ok
+test combat::ai::pipeline::stages::sanity::tests::p3a_sanity_invariant_holds_for_all_finite_plans ... ok
+test combat::ai::pipeline::stages::sanity::tests::p3a_sanity_masked_plan_trace_unchanged_or_only_base ... ok
+test combat::ai::pipeline::stages::sanity::tests::p3a_sanity_no_hits_trace_has_only_base ... ok
+test combat::ai::pipeline::stages::sanity::tests::p3a_sanity_with_hits_pushes_multipliers ... ok
+test combat::ai::pipeline::stages::sanity::tests::plan_has_self_aoe_detects_friendly_fire_circle_on_caster ... ok
+test combat::ai::pipeline::stages::sanity::tests::sanity_only_fires_residual_rules ... ok
+test combat::ai::pipeline::stages::sanity::tests::sanity_stage_no_hits_for_low_hp_danger_tile ... ok
+test combat::ai::pipeline::stages::sanity::tests::sanity_stage_no_hits_leaves_annotation_empty ... ok
+test combat::ai::pipeline::stages::sanity::tests::sanity_survives_adaptation_path ... ok
+test combat::ai::pipeline::stages::viability::tests::viability_stage_above_threshold_is_noop ... ok
+test combat::ai::pipeline::stages::viability::tests::viability_stage_no_enemies_keeps_intent ... ok
+test combat::ai::pipeline::stages::viability::tests::viability_stage_switches_intent_on_midpanic ... ok
+test combat::ai::pipeline::stages::viability::tests::viability_stage_writes_annotation_section ... ok
+test combat::ai::pipeline::tests::scored_pool_empty_has_zero_len ... ok
+test combat::ai::pipeline::tests::p3a_full_pipeline_trace_compute_equals_ann_score ... ok
+test combat::ai::pipeline::tests::pipeline_runs_modifiers_after_repair_before_pick ... ok
+test combat::ai::pipeline::tests::scored_pool_invariant_holds_after_construct ... ok
+test combat::ai::plan::future_value::tests::deserialized_plan_sim_empty_stays_empty ... ok
+test combat::ai::plan::future_value::tests::end_turn_prefix_is_empty ... ok
+test combat::ai::pipeline::stages::pick_best::tests::commit_plan_tests::commit_solo_cast_consumes_one ... ok
+test combat::ai::plan::future_value::tests::mobility_component_scales_with_reachable_count ... ok
+test combat::ai::pipeline::stages::modifiers::trade_bonus::tests::trade_bonus_matches_legacy_formula ... ok
+test combat::ai::plan::future_value::tests::move_only_prefix_takes_destination ... ok
+test combat::ai::plan::future_value::tests::move_then_cast_prefix_is_two_steps ... ok
+test combat::ai::pipeline::stages::modifiers::summon_bonus::tests::summon_bonus_matches_legacy_formula ... ok
+test combat::ai::plan::future_value::tests::plateau_tie_rate_formula ... ok
+test combat::ai::pipeline::stages::modifiers::trade_bonus::tests::trade_bonus_zero_for_neutral_plan ... ok
+test combat::ai::plan::future_value::tests::sim_snapshots_truncated_to_prefix_len ... ok
+test combat::ai::plan::future_value::tests::solo_cast_prefix_is_one_step ... ok
+test combat::ai::plan::generator::tests::annotation_enemy_damage_populated_for_cast_steps ... ok
+test combat::ai::plan::generator::tests::aoe_cc_on_stunned_target_still_allowed ... ok
+test combat::ai::plan::generator::tests::aoe_friendly_fire_accepted_when_enemies_outnumber_allies_two_to_one ... ok
+test combat::ai::plan::generator::tests::aoe_friendly_fire_rejected_when_hits_ally_without_enough_enemies ... ok
+test combat::ai::plan::future_value::tests::attack_component_zero_when_no_enemies ... ok
+test combat::ai::plan::generator::tests::apply_endturn_ticks_status_exactly_once_per_branch ... ok
+test combat::ai::plan::generator::tests::ap_exhaustion_stops_cast_extension ... ok
+test combat::ai::plan::future_value::tests::attack_component_picks_best_reachable_target ... ok
+test combat::ai::plan::generator::tests::dedup_collapses_same_ability_target_cast_tile ... ok
+test combat::ai::plan::generator::tests::dedup_keeps_distinct_targets ... ok
+test combat::ai::plan::future_value::tests::future_value_sums_components ... ok
+test combat::ai::plan::future_value::tests::empty_plans_returns_empty ... ok
+test combat::ai::plan::generator::tests::depth_1_plan_set_includes_empty_and_single_casts ... ok
+test combat::ai::plan::generator::tests::enumerate_terminates_when_actor_dies_mid_plan ... ok
+test combat::ai::plan::generator::tests::disadvantage_status_discounts_plan_damage_estimate ... ok
+test combat::ai::plan::generator::tests::beam_pruning_limits_per_depth_frontier ... ok
+test combat::ai::plan::future_value::tests::focus_target_ignores_non_target_enemies ... ok
+test combat::ai::plan::generator::tests::generate_plans_allows_summon_when_only_dead_summons_fill_slots ... ok
+test combat::ai::plan::generator::tests::generate_plans_excludes_summon_when_cap_reached ... ok
+test combat::ai::plan::generator::tests::generate_plans_excludes_taunt_violating_casts ... ok
+test combat::ai::plan::generator::tests::generate_plans_excludes_mana_casts_under_blocks_mana_status ... ok
+test combat::ai::plan::future_value::tests::phantom_tail_plans_tie_with_tailless_equivalents ... ok
+test combat::ai::plan::generator::tests::ground_generator_emits_enemy_centered_cells ... ok
+test combat::ai::plan::generator::tests::overheal_rejects_target_above_90_percent ... ok
+test combat::ai::plan::generator::tests::wasted_single_target_cc_on_stunned_rejected ... ok
+test combat::ai::plan::generator::tests::generate_plans_caps_multiple_summons_within_single_plan ... ok
+test combat::ai::plan::parity_tests::tests::damage_hp_delta_matches_final_damage_formula ... ok
+test combat::ai::plan::future_value::tests::apply_cc_uses_only_cc_abilities ... ok
+test combat::ai::plan::parity_tests::tests::grant_movement_pays_ap_engine_defers_mp ... ok
+test combat::ai::plan::parity_tests::tests::heal_hp_delta_accounts_for_dot_cleanse ... ok
+test combat::ai::plan::generator::tests::single_step_lethal_move_still_recorded ... ok
+test combat::ai::plan::parity_tests::tests::none_primary_only_deducts_costs ... ok
+test combat::ai::plan::parity_tests::tests::heal_hp_delta_caps_at_missing_hp ... ok
+test combat::ai::plan::generator::tests::rank_targets_picks_legal_when_top_k_by_rank_all_illegal ... ok
+test combat::ai::plan::parity_tests::tests::summon_leaves_snapshot_unit_count_unchanged ... ok
+test combat::ai::plan::parity_tests::tests::spell_damage_ignores_armor ... ok
+test combat::ai::plan::future_value::tests::protect_self_suppresses_attack_component ... ok
+test combat::ai::plan::parity_tests::tests::restore_resources_pays_ap_engine_defers_increment ... ok
+test combat::ai::plan::reach::tests::corpse_tile_is_fully_blocked ... ok
+test combat::ai::plan::reach::tests::ally_tile_is_not_stoppable_but_passable ... ok
+test combat::ai::plan::sim::tests::aoe_circle_hits_all_enemies_in_radius ... ok
+test combat::ai::plan::reach::tests::enemy_tile_is_not_stoppable ... ok
+test combat::ai::plan::reach::tests::neighbour_tile_is_reachable_with_mp ... ok
+test combat::ai::plan::future_value::tests::longer_prefix_wins_over_shorter_with_same_end_state ... ok
+test combat::ai::plan::sim::tests::apply_damage_grants_rage_to_both_attacker_and_defender ... ok
+test combat::ai::plan::future_value::tests::pos_component_reads_position_eval ... ok
+test combat::ai::plan::sim::tests::apply_damage_grants_rage_to_attacker_per_hit ... ok
+test combat::ai::plan::sim::tests::apply_damage_grants_rage_to_defender_per_hit ... ok
+test combat::ai::plan::sim::tests::aoe_damage_grants_rage_per_target_to_attacker ... ok
+test combat::ai::plan::sim::tests::apply_move_aoo_mitigated_by_armor_bonus ... ok
+test combat::ai::plan::sim::tests::apply_move_aoo_rage_caps_at_max ... ok
+test combat::ai::plan::sim::tests::apply_move_aoo_only_once_per_enemy_per_step ... ok
+test combat::ai::plan::sim::tests::apply_move_aoo_grants_rage_to_both_sides ... ok
+test combat::ai::plan::sim::tests::apply_move_decrements_enemy_reactions ... ok
+test combat::ai::plan::sim::tests::apply_move_kills_actor_with_lethal_aoo ... ok
+test combat::ai::plan::sim::tests::apply_move_no_aoo_when_already_used_reaction ... ok
+test combat::ai::plan::sim::tests::apply_move_no_aoo_when_path_stays_adjacent ... ok
+test combat::ai::plan::sim::tests::apply_move_records_aoo_self_damage ... ok
+test combat::ai::plan::sim::tests::cast_decrements_ap_and_pays_mana ... ok
+test combat::ai::plan::sim::tests::damage_respects_min_one_floor_against_heavy_armor ... ok
+test combat::ai::plan::sim::tests::damage_subtracts_armor_and_decrements_hp ... ok
+test combat::ai::plan::sim::tests::grant_movement_pays_ap_engine_defers_mp ... ok
+test combat::ai::plan::sim::tests::heal_caps_at_missing_hp ... ok
+test combat::ai::plan::sim::tests::heal_cleanses_dot_before_restoring_hp ... ok
+test combat::ai::plan::sim::tests::lethal_damage_removes_unit_and_records_kill ... ok
+test combat::ai::plan::sim::tests::rage_caps_at_max_for_attacker ... ok
+test combat::ai::plan::generator::tests::killed_target_absent_in_second_step_enumeration ... ok
+test combat::ai::plan::sim::tests::rage_caps_at_max_for_defender ... ok
+test combat::ai::plan::sim::tests::move_step_updates_pos_and_drains_mp ... ok
+test combat::ai::plan::sim::tests::status_applied_this_step_armor_affects_next_step ... ok
+test combat::ai::plan::sim::tests::stun_status_is_recorded_in_outcome_and_tags ... ok
+test combat::ai::plan::sim::tests::units_without_rage_component_are_unaffected ... ok
+test combat::ai::plan::types::prefix_tests::committed_prefix_matches_plan_shape ... ok
+test combat::ai::repair::affinity::tests::aggregate_no_stored_goal_yields_zero ... ok
+test combat::ai::repair::affinity::tests::goal_alignment_partial_for_finish_to_apply_cc_same_target ... ok
+test combat::ai::repair::affinity::tests::goal_alignment_partial_for_target_switch_within_focus_target ... ok
+test combat::ai::repair::affinity::tests::goal_alignment_perfect_for_same_target_finish ... ok
+test combat::ai::repair::affinity::tests::goal_alignment_zero_for_cross_intent_abandon ... ok
+test combat::ai::repair::affinity::tests::method_alignment_set_when_planned_ability_matches ... ok
+test combat::ai::repair::affinity::tests::method_alignment_zero_when_no_planned_ability ... ok
+test combat::ai::repair::affinity::tests::region_alignment_decays_with_distance ... ok
+test combat::ai::repair::affinity::tests::region_alignment_full_at_anchor ... ok
+test combat::ai::repair::affinity::tests::region_alignment_zero_outside_radius ... ok
+test combat::ai::repair::affinity::tests::severity_factor_invalidating_zeros_aggregate ... ok
+test combat::ai::repair::affinity::tests::ttl_factor_decays_linearly ... ok
+test combat::ai::repair::affinity::tests::ttl_factor_zero_when_age_exceeds_ttl ... ok
+test combat::ai::repair::tests::classify_all_existing_codes_have_explicit_severity ... ok
+test combat::ai::repair::tests::classify_goal_preserved_cast_yields_method_delivered ... ok
+test combat::ai::repair::tests::classify_goal_preserved_move_yields_in_transit ... ok
+test combat::ai::repair::tests::classify_invalidating_severity_yields_abandoned_invalidating ... ok
+test combat::ai::repair::tests::classify_mismatch_legacy_codes_unchanged ... ok
+test combat::ai::repair::tests::classify_no_stored_goal_when_stored_none ... ok
+test combat::ai::repair::tests::classify_reactive_abandon_on_killable ... ok
+test combat::ai::repair::tests::classify_reactive_abandon_on_protect_ally ... ok
+test combat::ai::repair::tests::classify_reactive_abandon_on_taunt ... ok
+test combat::ai::repair::tests::classify_reactive_abandon_on_urgency ... ok
+test combat::ai::repair::tests::classify_status_change_buff_removed_relevant ... ok
+test combat::ai::repair::tests::classify_status_change_compulsion_set_invalidates ... ok
+test combat::ai::repair::tests::classify_status_change_dot_added_relevant ... ok
+test combat::ai::repair::tests::classify_status_change_hardcc_set_invalidates ... ok
+test combat::ai::repair::tests::classify_status_change_pure_tick_cosmetic ... ok
+test combat::ai::repair::tests::classify_status_change_softcc_set_relevant ... ok
+test combat::ai::repair::tests::classify_ttl_expired ... ok
+test combat::ai::repair::tests::classify_voluntary_abandon_on_intent_diverged ... ok
+test combat::ai::repair::tests::compute_status_delta_added_diff ... ok
+test combat::ai::repair::tests::compute_status_delta_pure_tick_empty ... ok
+test combat::ai::repair::tests::compute_status_delta_removed_diff ... ok
+test combat::ai::repair::tests::cosmetic_codes_dont_invalidate_goal ... ok
+test combat::ai::repair::tests::invalidating_codes_safe_default ... ok
+test combat::ai::repair::tests::last_goal_cleared_after_cast_in_place ... ok
+test combat::ai::repair::tests::last_goal_cleared_after_move_and_cast ... ok
+test combat::ai::repair::tests::last_goal_preserved_across_endturn ... ok
+test combat::ai::repair::tests::stale_goal_cleared_when_invalidating ... ok
+test combat::ai::repair::tests::stale_goal_cleared_when_ttl_expired ... ok
+test combat::ai::replay::pipeline::golden_tests::golden_record_json_roundtrip ... ok
+test combat::ai::replay::tests::empty_expectations_passes ... ok
+test combat::ai::replay::tests::decision_kind_mismatch_fails ... ok
+test combat::ai::replay::tests::empty_overlay_passes ... ok
+test combat::ai::replay::tests::not_end_position_in_list_fails ... ok
+test combat::ai::replay::tests::not_end_position_not_in_list_passes ... ok
+test combat::ai::replay::tests::not_target_excludes_actual_fails ... ok
+test combat::ai::replay::tests::not_target_not_in_list_passes ... ok
+test combat::ai::replay::tests::single_variant_exact_match_passes ... ok
+test combat::ai::replay::tests::primary_effect_mismatch_on_move_fails ... ok
+test combat::ai::replay::tests::single_variant_any_of_match_passes ... ok
+test combat::ai::replay::tests::two_variants_both_fail_mentions_both ... ok
+test combat::ai::replay::tests::two_variants_first_fails_second_passes ... ok
+test combat::ai::plan::parity_tests::tests::property_sweep_all_content_abilities ... ok
+test combat::ai::scoring::factors::aggregate::tests::continuation_doesnt_break_protect_self_mask ... ok
+test combat::ai::scoring::factors::aggregate::tests::cast_plus_roundtrip_tail_no_credit ... ok
+test combat::ai::scoring::factors::adjustments::tests::overkill_scales_damage_and_kill_uniformly ... ok
+test combat::ai::scoring::factors::aggregate::tests::cast_kills_then_tail_no_credit ... ok
+test combat::ai::scoring::factors::aggregate::tests::cast_plus_approach_tail_earns_credit ... ok
+test combat::ai::scoring::factors::aggregate::tests::cast_then_cast_then_move_uses_first_cast_as_boundary ... ok
+test combat::ai::scoring::factors::aggregate::tests::discovery_eval_used_when_no_goal ... ok
+test combat::ai::scoring::factors::aggregate::tests::factor_weights_continuation_differs_from_discovery_for_non_unit_axis ... ok
+test combat::ai::scoring::factors::aggregate::tests::cast_after_moves_keeps_cast_intent ... ok
+test combat::ai::scoring::factors::aggregate::tests::aggregate_factors_to_score_no_longer_writes_noise ... ok
+test combat::ai::scoring::factors::aggregate::tests::cast_plus_move_tail_collapses_to_single_pursuit ... ok
+test combat::ai::scoring::factors::aggregate::tests::factor_weights_continuation_used_when_last_goal_present ... ok
+test combat::ai::scoring::factors::aggregate::tests::goal_achieved_latch_still_works ... ok
+test combat::ai::scoring::factors::aggregate::tests::post_goal_leaves_step_weight_purely_geometric ... ok
+test combat::ai::scoring::factors::aggregate::tests::noise_is_plan_order_invariant ... ok
+test combat::ai::scoring::factors::aggregate::tests::scorer_tolerates_empty_sim_snapshots_from_deserialized_plan ... ok
+test combat::ai::scoring::factors::aggregate::tests::pure_move_chain_intent_equals_single_pursuit ... ok
+test combat::ai::scoring::factors::aoe_hits::tests::enemies_allies_and_self_are_separated ... ok
+test combat::ai::scoring::factors::aoe_hits::tests::actor_never_leaks_into_allies ... ok
+test combat::ai::scoring::factors::aoe_hits::tests::units_outside_area_are_ignored ... ok
+test combat::ai::scoring::factors::aggregate::tests::sum_factors_scale_by_step_weight ... ok
+test combat::ai::scoring::factors::aggregate::tests::repair_bonus_zero_when_severity_invalidating ... ok
+test combat::ai::scoring::factors::aggregate::tests::rescore_matches_full_score_under_same_intent ... ok
+test combat::ai::scoring::factors::aggregate::tests::self_lethal_kill_support_outscores_passive_under_last_stand ... ok
+test combat::ai::scoring::factors::aggregate::tests::terminal_aggregator_amplified_by_self_preserve ... ok
+test combat::ai::scoring::factors::aggregate::tests::round_trip_pure_move_intent_no_credit ... ok
+test combat::ai::scoring::factors::aggregate::tests::terminal_aggregator_role_weighted_distinguishes_tank_vs_ranged ... ok
+test combat::ai::scoring::factors::offensive::tests::compute_offensive_aoe_per_entity_progression ... ok
+test combat::ai::scoring::factors::plan::intent::tests::plan_factor_compute_matches_legacy_intent ... ok
+test combat::ai::scoring::factors::aggregate::tests::terminal_aggregator_zero_when_all_axes_zero ... ok
+test combat::ai::scoring::factors::plan::self_survival::tests::move_and_cast_bundle_counts_move_destination ... ok
+test combat::ai::scoring::factors::plan::self_survival::tests::move_only_counts_first_move_destination ... ok
+test combat::ai::scoring::factors::offensive::tests::compute_offensive_friendly_fire_super_linear ... ok
+test combat::ai::scoring::factors::offensive::tests::compute_offensive_reads_facts_and_applies_policy ... ok
+test combat::ai::scoring::factors::aggregate::tests::trade_bonus_favors_valuable_victim ... ok
+test combat::ai::scoring::factors::plan::self_survival::tests::self_heal_cast_gives_positive_survival ... ok
+test combat::ai::scoring::factors::plan::self_survival::tests::exit_danger_uses_committed_prefix_end ... ok
+test combat::ai::scoring::factors::registry::tests::default_norm_signed_uses_abs_max ... ok
+test combat::ai::scoring::factors::registry::tests::default_norm_unsigned ... ok
+test combat::ai::scoring::factors::plan::self_survival::tests::armor_buff_in_phantom_cast_ignored ... ok
+test combat::ai::scoring::factors::registry::tests::default_norm_zero_denom_returns_zero ... ok
+test combat::ai::scoring::factors::registry::tests::need_axis_none_always_one ... ok
+test combat::ai::scoring::factors::step::saturation::tests::different_buff_class_not_penalized ... ok
+test combat::ai::scoring::factors::step::saturation::tests::fresh_target_no_penalty ... ok
+test combat::ai::scoring::factors::plan::self_survival::tests::retreat_move_gives_positive_survival ... ok
+test combat::ai::scoring::factors::step::saturation::tests::redundant_buff_penalized ... ok
+test combat::ai::scoring::factors::step::saturation::tests::self_buff_penalized_when_caster_has_class ... ok
+test combat::ai::scoring::factors::plan::self_survival::tests::self_survival_ignores_intent_parameter ... ok
+test combat::ai::scoring::factors::plan::self_survival::tests::self_heal_in_committed_cast_counts ... ok
+test combat::ai::scoring::factors::plan::tempo_gain::tests::approach_move_gives_positive_tempo ... ok
+test combat::ai::scoring::factors::plan::self_survival::tests::self_heal_in_phantom_tail_does_not_count ... ok
+test combat::ai::scoring::factors::plan::tempo_gain::tests::backtrack_longer_path_no_credit ... ok
+test combat::ai::scoring::factors::terminal::tests::terminal_score_missing_keys_default_zero ... ok
+test combat::ai::scoring::factors::terminal::tests::terminal_score_serde_round_trip_named_map ... ok
+test combat::ai::scoring::factors::terminal::tests::terminal_score_unknown_key_errors ... ok
+test combat::ai::scoring::factors::plan::tempo_gain::tests::cast_without_preceding_move_gives_zero_tempo ... ok
+test combat::ai::scoring::factors::plan::self_survival::tests::summon_plan_gives_zero_survival ... ok
+test combat::ai::scoring::factors::step::scarcity::tests::scarcity_penalizes_expensive_on_dying_target ... ok
+test combat::ai::scoring::factors::step::scarcity::tests::scarcity_penalizes_early_round_spend ... ok
+test combat::ai::scoring::factors::step::scarcity::tests::scarcity_rewards_aoe_on_cluster ... ok
+test combat::ai::scoring::factors::step::scarcity::tests::scarcity_rewards_kill_on_support ... ok
+test combat::ai::scoring::factors::step::scarcity::tests::scarcity_neutral_for_free_abilities ... ok
+test combat::ai::scoring::factors::plan::tempo_gain::tests::round_trip_move_gives_nonpositive_tempo ... ok
+test combat::ai::scoring::factors::step::tests::step_factor_move_step_yields_zero_offensive ... ok
+test combat::ai::scoring::factors::terminal_state::tests::ally_rescue_skips_self ... ok
+test combat::ai::scoring::factors::terminal_state::tests::ally_rescue_credits_low_hp_to_safe_transition ... ok
+test combat::ai::scoring::factors::terminal_state::tests::ally_rescue_zero_when_endangered_ally_still_low_at_end ... ok
+test combat::ai::scoring::factors::terminal_state::tests::board_control_gain_positive_when_moved_to_better ... ok
+test combat::ai::scoring::factors::terminal_state::tests::board_control_gain_zero_when_pos_unchanged ... ok
+test combat::ai::scoring::factors::terminal_state::tests::ally_rescue_zero_when_no_endangered_ally ... ok
+test combat::ai::scoring::factors::step::tests::step_factor_routes_each_variant_to_its_own_column ... ok
+test combat::ai::scoring::factors::terminal_state::tests::exposure_at_end_high_in_dangerous_tile ... ok
+test combat::ai::scoring::factors::terminal_state::tests::exposure_at_end_non_zero_when_actor_in_enemy_threat_zone ... ok
+test combat::ai::scoring::factors::terminal_state::tests::exposure_at_end_zero_in_safe_backline ... ok
+test combat::ai::scoring::factors::terminal_state::tests::density_value_high_when_3_enemies_in_radius ... ok
+test combat::ai::scoring::factors::terminal_state::tests::exposure_at_end_zero_when_no_danger ... ok
+test combat::ai::scoring::factors::terminal_state::tests::density_value_zero_when_no_cluster ... ok
+test combat::ai::scoring::factors::terminal_state::tests::board_control_gain_negative_when_moved_to_worse ... ok
+test combat::ai::scoring::factors::terminal_state::tests::density_value_zero_for_non_aoe_actor ... ok
+test combat::ai::scoring::factors::terminal_state::tests::line_actionability_proportional_to_targets_in_range ... ok
+test combat::ai::scoring::factors::terminal_state::tests::line_actionability_zero_when_no_abilities ... ok
+test combat::ai::scoring::factors::terminal_state::tests::secure_kill_clamped_to_one_for_multiple_kills ... ok
+test combat::ai::scoring::factors::terminal_state::tests::secure_kill_high_when_p_kill_now_one ... ok
+test combat::ai::scoring::factors::terminal_state::tests::secure_kill_partial_credit_for_kill_soon ... ok
+test combat::ai::scoring::factors::terminal_state::tests::secure_kill_zero_for_no_kill_plan ... ok
+test combat::ai::scoring::factors::tests::factor_kind_macro_generates_correct_enum_metadata ... ok
+test combat::ai::scoring::factors::terminal_state::tests::line_actionability_zero_when_no_enemies_in_range ... ok
+test combat::ai::scoring::factors::tests::factor_values_missing_keys_default_zero ... ok
+test combat::ai::scoring::factors::tests::factor_values_serde_round_trip_named_map ... ok
+test combat::ai::scoring::factors::tests::factor_values_unknown_key_errors ... ok
+test combat::ai::scoring::horizon::tests::horizon_empty_for_non_damaging_actor ... ok
+test combat::ai::scoring::horizon::tests::horizon_exhausts_resource_pool ... ok
+test combat::ai::scoring::horizon::tests::horizon_free_attack_plateaus ... ok
+test combat::ai::scoring::horizon::tests::horizon_greedy_falls_back_after_resource_drain ... ok
+test combat::ai::scoring::horizon::tests::horizon_regen_unlocks_extra_casts ... ok
+test combat::ai::scoring::horizon::tests::stun_value_devalues_resource_starved_target ... ok
+test combat::ai::scoring::policy::cc::tests::additive_over_components ... ok
+test combat::ai::scoring::policy::cc::tests::all_zero_gives_zero ... ok
+test combat::ai::scoring::policy::cc::tests::each_component_contributes_independently ... ok
+test combat::ai::scoring::policy::cc::tests::monotonic_in_each_component ... ok
+test combat::ai::scoring::policy::damage::tests::full_progress_doubles_weight ... ok
+test combat::ai::scoring::factors::terminal_state::tests::line_actionability_zero_when_actor_dead_at_end ... ok
+test combat::ai::scoring::policy::damage::tests::monotonic_in_raw_for_fixed_progress ... ok
+test combat::ai::scoring::policy::damage::tests::progress_clamped_to_one_by_caller ... ok
+test combat::ai::scoring::factors::terminal_state::tests::next_turn_lethality_uses_initial_snap_when_sim_snapshots_empty ... ok
+test combat::ai::scoring::factors::terminal_state::tests::next_turn_lethality_clamped_to_one ... ok
+test combat::ai::scoring::policy::damage::tests::zero_progress_halves_weight ... ok
+test combat::ai::scoring::policy::damage::tests::zero_raw_gives_zero ... ok
+test combat::ai::scoring::policy::friendly_fire::tests::full_hp_obliteration_doubles ... ok
+test combat::ai::scoring::policy::friendly_fire::tests::monotonic_increasing_in_raw ... ok
+test combat::ai::scoring::policy::friendly_fire::tests::small_hit_close_to_linear ... ok
+test combat::ai::scoring::policy::friendly_fire::tests::super_linear_growth ... ok
+test combat::ai::scoring::policy::friendly_fire::tests::zero_raw_gives_zero ... ok
+test combat::ai::scoring::policy::heal::tests::danger_drives_urgency_above_hp_missing ... ok
+test combat::ai::scoring::policy::heal::tests::full_hp_target_low_urgency ... ok
+test combat::ai::scoring::policy::heal::tests::near_death_target_high_urgency ... ok
+test combat::ai::scoring::policy::heal::tests::proportional_to_horizon_sum ... ok
+test combat::ai::scoring::policy::heal::tests::urgency_capped_at_two ... ok
+test combat::ai::scoring::policy::heal::tests::zero_restored_gives_zero ... ok
+test combat::ai::scoring::factors::terminal_state::tests::next_turn_lethality_high_when_dpr_exceeds_hp ... ok
+test combat::ai::scoring::policy::status::tests::armor_shred_value_abs_symmetry ... ok
+test combat::ai::scoring::policy::status::tests::armor_shred_value_scales_with_duration ... ok
+test combat::ai::scoring::policy::status::tests::armor_shred_value_zero_for_zero_bonus ... ok
+test combat::ai::scoring::policy::status::tests::stun_denial_falls_back_to_threat_on_empty_horizon ... ok
+test combat::ai::scoring::policy::status::tests::stun_denial_uses_horizon_window ... ok
+test combat::ai::scoring::policy::status::tests::vulnerability_value_abs_symmetry ... ok
+test combat::ai::scoring::policy::status::tests::vulnerability_value_scales_with_duration ... ok
+test combat::ai::scoring::policy::status::tests::vulnerability_value_zero_for_zero_bonus ... ok
+test combat::ai::scoring::policy::tests::damage_value_formula_matches_old_inline ... ok
+test combat::ai::scoring::policy::tests::damage_value_monotone_in_raw ... ok
+test combat::ai::scoring::policy::tests::damage_value_non_negative ... ok
+test combat::ai::scoring::policy::tests::friendly_fire_penalty_formula_matches_old_inline ... ok
+test combat::ai::scoring::position_eval::tests::escape_does_not_affect_position_eval ... ok
+test combat::ai::scoring::position_eval::tests::safe_tile_scores_zero_for_all_roles ... ok
+test combat::ai::scoring::position_eval::tests::support_avoids_danger_more_than_bruiser ... ok
+test combat::ai::scoring::target_selection::tests::support_target_scores_higher_than_bruiser ... ok
+test combat::ai::scoring::target_selection::tests::wounded_target_scores_higher ... ok
+test combat::ai::scoring::factors::terminal_state::tests::next_turn_lethality_zero_when_no_enemies_in_reach ... ok
+test combat::ai::scoring::factors::terminal_state::tests::next_turn_lethality_zero_when_actor_dead_at_end ... ok
+test combat::ai::scoring::factors::terminal_state::tests::pressure_spacing_positive_when_moved_into_support ... ok
+test combat::ai::scoring::factors::terminal_state::tests::pressure_spacing_negative_when_moved_away ... ok
+test combat::ai::scoring::factors::terminal_state::tests::pressure_spacing_zero_when_pos_unchanged ... ok
+test combat::ai::scoring::trade::tests::_ent_helper_available ... ok
+test combat::ai::scoring::trade::tests::aoe_killing_ally_and_rat_nets_negative ... ok
+test combat::ai::scoring::trade::tests::cc_kit_adds_value ... ok
+test combat::ai::scoring::trade::tests::dead_unit_returns_zero ... ok
+test combat::ai::scoring::trade::tests::empty_kit_zero_threat_returns_zero ... ok
+test combat::ai::scoring::trade::tests::empty_plan_is_neutral ... ok
+test combat::ai::scoring::trade::tests::enemy_kill_credits_killed_value ... ok
+test combat::ai::scoring::trade::tests::move_then_cast_prefix_counts_both_steps ... ok
+test combat::ai::scoring::trade::tests::healer_outranks_bruiser_of_same_threat ... ok
+test combat::ai::scoring::trade::tests::self_buff_status_does_not_count_as_cc ... ok
+test combat::ai::scoring::trade::tests::sustained_offense_outranks_burst_exhausted ... ok
+test combat::ai::scoring::trade::tests::self_lethal_move_no_kill_equals_minus_self ... ok
+test combat::ai::scoring::trade::tests::self_in_killed_list_suppresses_self_lost_path ... ok
+test combat::ai::scoring::trade::tests::unknown_victim_is_skipped ... ok
+test combat::ai::scoring::trade::tests::tail_step_kill_is_not_credited ... ok
+test combat::ai::world::cache::cache_parity_tests::cache_fields_match_unit_snapshot_for_all_units ... ok
+test combat::ai::scoring::trade::tests::zero_threat_zeroes_cc_channel ... ok
+test combat::ai::world::influence::tests::all_cells_matches_grid ... ok
+test combat::ai::world::influence::tests::ally_support_drops_with_distance ... ok
+test combat::ai::world::influence::tests::built_maps_stay_within_zero_one ... ok
+test combat::ai::world::influence::tests::ally_support_healer_bonus ... ok
+test combat::ai::world::influence::tests::influence_map_add_and_get ... ok
+test combat::ai::world::influence::tests::danger_map_marks_threat_zone ... ok
+test combat::ai::world::influence::tests::opportunity_not_dominated_by_threat ... ok
+test combat::ai::world::reservations::tests::cc_is_set_like ... ok
+test combat::ai::world::influence::tests::escape_inversely_correlated_with_danger ... ok
+test combat::ai::world::influence::tests::danger_gradient_closer_is_more_dangerous ... ok
+test combat::ai::world::reservations::tests::damage_accumulates ... ok
+test combat::ai::world::reservations::tests::clear_resets_all ... ok
+test combat::ai::world::influence::tests::escape_bounded_minus_one_plus_one ... ok
+test combat::ai::world::reservations::tests::queries_return_zero_for_unknown ... ok
+test combat::ai::world::reservations::tests::tile_reservation ... ok
+test combat::ai::world::snapshot::affordability_tests::can_afford_covers_ap_and_all_resource_kinds ... ok
+test combat::ai::world::snapshot::affordability_tests::dead_units_stay_in_snapshot_and_are_filtered_by_default ... ok
+test combat::ai::world::snapshot::affordability_tests::resource_amount_treats_absent_option_pools_as_zero ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::add_status_inserts_and_calls_refresh ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::apply_armor_buff_recomputes_armor_bonus ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::apply_haste_increases_speed ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::apply_slow_decreases_speed ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::apply_vulnerability_recomputes_damage_taken_bonus ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::compulsion_status_makes_unit_forces_targeting ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::base_speed_serialized_on_round_trip ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::base_speed_default_zero_on_v35_deserialise ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::expire_haste_restores_speed ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::hard_cc_status_makes_unit_is_stunned ... ok
+test combat::ai::scoring::policy::status::tests::status_value_matches_scoring_status_score ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::multiple_speed_statuses_stack ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::remove_status_returns_true_when_removed_false_when_absent ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::refresh_preserves_non_status_tags ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::statuses_accessor_returns_immutable_slice ... ok
+test combat::ai::world::snapshot::snapshot_api_tests::view_state_matches_unit_snapshot_basic_fields ... ok
+test combat::ai::scoring::policy::tests::policy_non_negative_for_random_inputs ... ok
+test combat::ai::world::tags::cache::tests::override_empty_vec_results_in_empty_tag_set ... ok
+test combat::ai::world::tags::cache::tests::override_multi_tag_combines ... ok
+test combat::ai::world::tags::cache::tests::build_caches_status_first_then_abilities_dependency_satisfied ... ok
+test combat::ai::world::tags::cache::tests::build_caches_global_content_covers_all_abilities ... ok
+test combat::ai::world::tags::cache::tests::build_caches_is_idempotent ... ok
+test combat::ai::world::tags::cache::tests::override_unknown_tag_panics - should panic ... ok
+test combat::ai::world::tags::cache::tests::override_replaces_derived_not_appends ... ok
+test combat::ai::world::tags::cache::tests::override_none_uses_derived ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_fireball ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_field_medic ... ok
+test combat::ai::world::tags::classify::tests::classify_is_pure_no_io ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_backstab ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_melee_attack ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_bow_shot ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_flash ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_burn ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_heal ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_rest ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_rush ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_paralyzing_shot ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_compulsion_set_for_forces_targeting ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_stun ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_poison_shot ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_move ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_thunderstrike ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_paralyzing_shot_has_offensive_and_apply_cc ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_spark ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_taunt ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_taunt_has_peel_via_taunted_status ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_for_broken_faith ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_for_pact_control ... ok
+test combat::ai::world::tags::tests::ability_tag_set_iter_order_is_stable ... ok
+test combat::ai::world::tags::tests::ability_tag_set_serde_round_trip_named_list ... ok
+test combat::ai::world::tags::tests::ability_tag_set_unknown_string_in_deserialize_errors ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_for_exhaustion ... ok
+test combat::ai::world::tags::classify::tests::derive_ability_tags_for_summon_storm_spirit ... ok
+test combat::ai::world::tags::tests::status_tag_set_iter_order_is_stable ... ok
+test combat::ai::world::tags::tests::status_tag_set_serde_round_trip_named_list ... ok
+test combat::effects_outcome::tests::crit_fail_broken_faith_produces_self_status ... ok
+test combat::effects_outcome::tests::crit_fail_circuit_breach_self_damage_uses_mana_cost ... ok
+test combat::effects_outcome::tests::crit_fail_mana_overload_with_mana_cost_fires_effects_and_flags_overload ... ok
+test combat::effects_outcome::tests::crit_fail_mana_overload_without_mana_cost_falls_back_to_miss ... ok
+test combat::effects_outcome::tests::crit_fail_miss_variant_skips_primary ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_for_defending ... ok
+test combat::effects_outcome::tests::no_crit_fail_fires_primary_effect ... ok
+test content::abilities::tests::damage_uses_str_and_own_dice ... ok
+test content::abilities::tests::expected_combines_dice_and_bonus ... ok
+test content::abilities::tests::expected_without_dice_is_bonus_only ... ok
+test content::abilities::tests::heal_uses_int_plus_spell_power_and_is_heal ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_for_paralyzed ... ok
+test content::abilities::tests::none_and_grant_movement_return_none ... ok
+test content::abilities::tests::parse_abilities_default_override_is_none ... ok
+test content::abilities::tests::parse_abilities_with_override_field_round_trip ... ok
+test content::abilities::tests::spell_damage_uses_int_plus_spell_power_and_pierces ... ok
+test content::abilities::tests::weapon_attack_uses_str_and_weapon_dice ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_for_stunned ... ok
+test game::components::tests::is_alive_false_at_zero_hp ... ok
+test game::components::tests::is_alive_true_above_zero ... ok
+test game::hex::tests::can_stop_allows_empty ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_for_burning ... ok
+test game::hex::tests::can_stop_rejects_occupied ... ok
+test game::hex::tests::can_stop_allows_self_tile_even_if_occupied ... ok
+test game::hex::tests::circle_clips_to_bounds ... ok
+test game::hex::tests::circle_radius_0_is_center_only ... ok
+test game::hex::tests::circle_radius_1_has_7_cells_in_center ... ok
+test game::hex::tests::line_adjacent_produces_two_cells ... ok
+test game::hex::tests::line_non_adjacent_normalizes_direction ... ok
+test game::hex::tests::line_same_cell_returns_empty ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_for_disoriented ... ok
+test game::hex::tests::los_blocked_by_intermediate_cell ... ok
+test game::hex::tests::los_not_blocked_by_endpoints ... ok
+test game::hex::tests::los_to_neighbor_no_blockers ... ok
+test game::hex::tests::los_to_self_is_true ... ok
+test game::hex::tests::offset_roundtrips ... ok
+test game::hex::tests::passable_allows_in_bounds_non_blocker ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_for_poisoned ... ok
+test game::hex::tests::passable_rejects_blocker ... ok
+test game::hex::tests::passable_rejects_out_of_bounds ... ok
+test game::hex::tests::pixel_roundtrip ... ok
+test game::hex::tests::visible_cells_no_blockers_equals_circle ... ok
+test game::hex::tests::visible_cells_with_blocker_hides_cells_behind ... ok
+test game::pathfinding::tests::ally_is_passable ... ok
+test game::pathfinding::tests::blocked_by_enemy_returns_none ... ok
+test game::pathfinding::tests::direct_neighbor_path_length_one ... ok
+test game::pathfinding::tests::out_of_bounds_goal_returns_none ... ok
+test game::pathfinding::tests::same_cell_returns_empty_path ... ok
+test game::pathfinding::tests::path_avoids_enemy ... ok
+test game::resources::queue_tests::advance_on_empty_stays_zero ... ok
+test game::pathfinding::tests::reach_from_separates_pass_through_from_stop_rules ... ok
+test game::resources::queue_tests::advance_wraps_around ... ok
+test game::resources::queue_tests::current_none_on_empty_queue ... ok
+test game::resources::queue_tests::current_returns_active_entity ... ok
+test persistence::save_repo::tests::empty_profile_roundtrip ... ok
+test persistence::save_repo::tests::roundtrip_preserves_data ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_taunted_has_compulsion ... ok
+test combat::ai::world::tags::classify::tests::derive_status_tags_for_taunted ... ok
+test combat::engine_bridge::tests::ecs_content_view_status_bonuses_reads_real_armor_bonus ... ok
+test combat::engine_bridge::tests::refresh_aggregates_via_ecs_content_view_picks_up_defending_armor ... ok
+test combat::ai::scoring::policy::tests::policy_non_negative_for_all_scenario_fixtures ... ok
+
+test result: ok. 822 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src/bin/mine_ai_logs.rs (target/llvm-cov-target/debug/deps/mine_ai_logs-aa2e7196780fdd5a)
+
+running 38 tests
+test tests::approximate_fresh_intent_uses_chosen_intent_field_when_present ... ok
+test tests::approximate_fresh_intent_uses_agenda_item_index ... ok
+test tests::approximate_fresh_intent_falls_back_to_agenda_zero ... ok
+test tests::approximate_fresh_intent_heuristic_fallback ... ok
+test tests::f1_unchosen_plan_not_counted ... ok
+test tests::c6_skip_with_stored_does_not_classify ... ok
+test tests::decision_kind_counted_correctly ... ok
+test tests::c6_voluntary_no_longer_false_positive_on_move_with_matching_agenda ... ok
+test tests::f1_ability_tag_counts_chosen_plan_with_offensive ... ok
+test tests::f2_setup_aoe_goal_count_zero_for_non_setup_aoe_goals ... ok
+test tests::f1_plan_counted_once_per_tag_even_if_multiple_steps ... ok
+test tests::f3_severity_counts_relevant_event ... ok
+test tests::h1_band_tick_count_incremented_for_events_with_band ... ok
+test tests::h1_skip_path_does_not_increment_band_counts ... ok
+test tests::h1c_per_kind_leverage_buckets_split_correctly ... ok
+test tests::h1c_reposition_and_setup_aoe_share_bucket ... ok
+test tests::h1c_unattributed_chosen_treats_all_as_losers ... ok
+test tests::h2_item_win_rate_attributed_when_chosen_plan_has_agenda_item ... ok
+test tests::h1c_winners_vs_losers_split_correctly ... ok
+test tests::h3a_target_none_rate_by_band_kind ... ok
+test tests::h3a_agenda_size_tracked_per_band ... ok
+test tests::h3a_unattributed_classified_as_no_items_when_agenda_empty ... ok
+test tests::h3b_no_data_when_reject_reasons_field_absent ... ok
+test tests::h3b_reject_reason_counted_when_field_present ... ok
+test tests::h3c_ap_mp_blocked_when_actor_has_zero_resources ... ok
+test tests::h3c_attributed_tick_not_counted ... ok
+test tests::h3c_no_plan_attempts_target_when_pool_skips_agenda_target ... ok
+test tests::h3c_no_target_when_all_agenda_items_have_no_target ... ok
+test tests::h3c_only_move_plans_when_no_cast_steps_at_all ... ok
+test tests::mine_e1_skips_zero_contributions ... ok
+test tests::mine_e2_skips_zero_noise ... ok
+test tests::mine_v29_corpus_produces_jitter_section ... ok
+test tests::mine_v33_corpus_produces_modifier_section ... ok
+test tests::pct_zero_denominator_returns_zero ... ok
+test tests::plan_depth_tracks_chosen_steps_len ... ok
+test tests::skip_event_counted_separately ... ok
+test tests::transition_matrix_self_loops_and_changes ... ok
+test tests::v26_schema_skipped_with_error ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/replay_ai_log.rs (target/llvm-cov-target/debug/deps/replay_ai_log-98065d778f8e98ba)
+
+running 5 tests
+test tests::decisions_differ_end_vs_cast ... ok
+test tests::decisions_match_end_turn ... ok
+test tests::skip_decision_does_not_match_any_ai_decision ... ok
+test tests::v27_schema_triggers_unsupported_error ... ok
+test tests::golden_record_json_roundtrip ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/replay_engine_trace.rs (target/llvm-cov-target/debug/deps/replay_engine_trace-b7c2a6d68c4d1910)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/llvm-cov-target/debug/deps/storyforge-51ee9900fe954133)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/combat.rs (target/llvm-cov-target/debug/deps/combat-f4227a23268f4133)
+
+running 45 tests
+test ai_scenarios::enrich_ai_scenarios ... ignored
+test equipment::bonuses_from_multiple_items_stack ... ok
+test equipment::armor_bonus_adds_to_stat ... ok
+test equipment::armor_sums_across_all_slots ... ok
+test equipment::one_handed_with_off_hand_is_ok ... ok
+test equipment::no_bonuses_returns_base_stats ... ok
+test equipment::weapon_armor_counts_in_total ... ok
+test equipment::two_handed_with_off_hand_panics - should panic ... ok
+test aoo::no_melee_enemy_no_opportunity ... ok
+test aoo::stunned_enemy_no_opportunity ... ok
+test aoo::multiple_provokers_all_fire ... ok
+test aoo::leave_adjacent_triggers_aoo ... ok
+test handoff::entity_for_uid_lookup_works_for_summoned_units ... ok
+test aoo::move_within_adjacency_no_trigger ... ok
+test aoo::dead_actor_truncates_path ... ok
+test handoff::actor_with_exhausted_resources_can_act_on_round_2 ... ok
+test handoff::build_turn_order_skips_dead_first_initiative ... ok
+test handoff::summoned_unit_can_act_in_ai_turn ... ok
+test aoo::enemy_mover_hero_provokes ... ok
+test handoff::combat_2_bootstraps_fresh_after_combat_1 ... ok
+test aoo::opportunity_once_per_round ... ok
+test handoff::combat_2_starts_clean_after_combat_1 ... ok
+test handoff::current_actor_dies_mid_move_settles_on_next ... ok
+test handoff::status_does_not_tick_twice_per_turn ... ok
+test handoff::exactly_one_active_combatant_after_mid_round_handoff ... ok
+test movement::partial_move_subtracts_pool_and_allows_second_move ... ok
+test movement::move_rejected_when_path_longer_than_pool ... ok
+test sim_parity::parity_aoo_decrements_reactions_real_vs_sim ... ok
+test sim_parity::parity_aoo_grants_rage_real_vs_sim ... ok
+test sim_parity::parity_aoo_real_vs_sim ... ok
+test sim_parity::parity_armor_buff_mitigation_real_vs_sim ... ok
+test sim_parity::parity_no_op_scenario_zero_drift ... ok
+test sim_parity::parity_haste_speed_real_vs_sim ... ok
+test sim_parity::parity_rage_real_vs_sim ... ok
+test sim_parity::parity_rage_aoe_real_vs_sim ... ok
+test ai_scenarios::all_ai_scenarios_pass ... ok
+test replay_assert::missing_overlay_exit_2 ... ok
+test replay_assert::wrong_cast_ability_exit_1 ... ok
+test replay_assert::two_variants_or_logic_passes ... ok
+test replay_assert::verbose_flag_prints_details ... ok
+test replay_assert::empty_overlay_exit_0 ... ok
+test replay_assert::correct_cast_ability_passes ... ok
+test replay_assert::correct_decision_kind_passes ... ok
+test replay_assert::any_of_decision_kind_passes ... ok
+test replay_assert::wrong_decision_kind_exit_1 ... ok
+
+test result: ok. 44 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+     Running tests/combat_engine.rs (target/llvm-cov-target/debug/deps/combat_engine-5736f68420b42181)
+
+running 180 tests
+test aura::dead_source_contributes_nothing ... ok
+test aura::ally_only_aura_affects_ally ... ok
+test aura::out_of_range_gives_no_bonus ... ok
+test aura::enemy_aura_does_not_affect_same_team ... ok
+test aura::in_range_gives_speed_bonus ... ok
+test aura::ally_only_aura_does_not_affect_enemy ... ok
+test aura::source_death_removes_coverage_from_membership_set ... ok
+test aura::aura_gained_when_mover_enters_radius ... ok
+test aura::aura_stun_causes_skip_on_advance_turn ... ok
+test aura::aura_lost_when_mover_leaves_radius ... ok
+test aura::source_moves_out_emits_lost_for_multiple_targets ... ok
+test bridge_smoke::cast_emits_damage_result_log_entry ... ok
+test bridge_smoke::cast_crit_fail_miss_emits_critical_miss_log_entry ... ok
+test bridge_smoke::engine_enqueues_movement_animation ... ok
+test bridge_smoke::cast_emits_status_applied_log_entry ... ok
+test bridge_smoke::cast_summon_creates_ecs_entity_synchronously ... ok
+test bridge_smoke::aoo_dice_flows_from_equipment_through_process_action_system ... ok
+test bridge_smoke::engine_emits_combat_log_opportunity_attack ... ok
+test bridge_smoke::engine_emits_combat_log_unit_moved ... ok
+test bridge_smoke::cast_emits_mana_changed_log_entry ... ok
+test bridge_smoke::aoo_does_not_fire_from_stunned_enemy ... ok
+test bridge_smoke::cast_no_crit_fail_no_crit_fail_log_when_d20_non_one ... ok
+test bridge_smoke::engine_trace_writer_init_and_step ... ok
+test bridge_smoke::ai_log_engine_step_range_populated ... ok
+test cast::cast_aoe_damages_targets_in_per_target_order ... ok
+test cast::cast_aoe_heal_restores_multiple_targets ... ok
+test cast::cast_applies_status_to_each_aoe_target ... ok
+test bridge_smoke::projector_writes_statuses_from_engine_state ... ok
+test cast::cast_applies_status_to_self_via_myself ... ok
+test cast::cast_crit_fail_apply_status ... ok
+test cast::cast_applies_status_to_target ... ok
+test bridge_smoke::process_action_system_routes_cast_into_engine ... ok
+test bridge_smoke::process_action_move_writes_engine_state_and_projects_to_ecs ... ok
+test cast::cast_crit_fail_double_cost ... ok
+test cast::cast_crit_fail_emits_event ... ok
+test cast::cast_crit_fail_miss_skips_damage ... ok
+test bridge_smoke::projector_removes_bonus_movement_when_mp_zero ... ok
+test bridge_smoke::engine_inserts_dead_marker_on_aoo_kill ... ok
+test cast::cast_damage_hits_target_with_str_mod ... ok
+test cast::cast_crit_fail_self_damage ... ok
+test cast::cast_legal_pays_ap_cost ... ok
+test cast::cast_heal_restores_target_hp ... ok
+test cast::cast_legal_pays_mana_cost ... ok
+test cast::cast_legal_pays_no_cost_when_zero ... ok
+test bridge_smoke::phase_transition_via_cast_writes_ecs_and_emits_log_entry ... ok
+test cast::cast_proceeds_normally_when_d20_not_one ... ok
+test cast::cast_no_crit_fail_no_event_when_d20_non_one ... ok
+test cast::cast_spell_damage_pierces_armor ... ok
+test cast::cast_summon_ability_pushes_spawn_effect_and_creates_unit ... ok
+test cast::cast_summon_at_max_cap_emits_spawn_blocked ... ok
+test cast::cast_summon_crit_fail_miss_skips_spawn_but_pays_cost ... ok
+test bridge_smoke::projector_preserves_aura_applied_status_during_cast_projection ... ok
+test cast::cast_weapon_attack_no_damage_when_no_weapon ... ok
+test cast::cast_weapon_attack_uses_weapon_dice ... ok
+test cast::step_cast_returns_err_illegal_for_dead_target ... ok
+test bridge_smoke::projector_writes_mana_from_engine_state ... ok
+test cast::step_cast_returns_err_illegal_for_unknown_ability ... ok
+test cast::step_cast_returns_ok_when_legal ... ok
+test dice::bonus_only_expression ... ok
+test dice::expected_value_roll_is_deterministic ... ok
+test effect::apply_status_pushes_new_entry ... ok
+test effect::apply_status_replaces_existing_with_same_id ... ok
+test effect::damage_armor_reduces_final_damage ... ok
+test bridge_smoke::engine_trace_full_combat_record_replay ... ok
+test effect::damage_nonlethal_derives_rage_source_then_target ... ok
+test effect::damage_lethal_derives_rage_source_rage_target_death_target_in_order ... ok
+test effect::damage_pierces_ignores_armor ... ok
+test bridge_smoke::projector_writes_engine_mutation_to_ecs ... ok
+test effect::death_cascade_from_damage_clears_statuses ... ok
+test effect::death_derives_remove_status_per_local_status ... ok
+test effect::death_does_not_touch_sirota_statuses_on_other_units ... ok
+test effect::death_sets_hp_to_zero_and_unit_is_dead ... ok
+test effect::death_with_duplicate_status_ids_dedups_to_one_remove ... ok
+test dice::seeded_dice_rolls_in_range ... ok
+test effect::decrement_mp_clamps_at_zero ... ok
+test effect::decrement_reactions_clamps_at_zero ... ok
+test effect::effect_to_event_emits_spawn_blocked_on_failure ... ok
+test effect::effect_to_event_emits_unit_spawned_on_success ... ok
+test effect::expire_status_decrements_rounds ... ok
+test effect::expire_status_removes_at_zero ... ok
+test effect::expire_status_silent_when_absent ... ok
+test effect::gain_rage_increments_and_clamps_at_max ... ok
+test effect::gain_rage_noop_when_unit_has_no_rage ... ok
+test effect::heal_full_neutralizes_dot_then_restores_hp ... ok
+test effect::heal_neutralizes_multiple_dots_in_order ... ok
+test effect::heal_no_dot_restores_hp ... ok
+test effect::heal_partial_dot_consumes_all_heal_no_hp_restored ... ok
+test effect::move_position_updates_pos ... ok
+test effect::pay_cost_clamps_pool_at_zero ... ok
+test effect::pay_cost_decrements_mana ... ok
+test effect::pay_cost_hp_decrements_directly ... ok
+test effect::pay_cost_skips_when_pool_absent ... ok
+test effect::refresh_aggregates_clears_bonuses_when_no_statuses ... ok
+test effect::refresh_aggregates_recomputes_armor_bonus_from_statuses ... ok
+test effect::refresh_aggregates_recomputes_speed_from_statuses ... ok
+test effect::remove_status_filters_by_id_and_derives_refresh ... ok
+test effect::remove_status_noop_when_absent ... ok
+test effect::spawn_blocked_at_max_active_cap ... ok
+test effect::spawn_blocked_by_corpse_tombstone ... ok
+test effect::spawn_blocked_when_no_free_position ... ok
+test effect::spawn_blocked_when_template_missing ... ok
+test dice::expected_matches_monte_carlo_within_1pct ... ok
+test effect::spawn_creates_unit_with_correct_template_stats ... ok
+test effect::spawn_synthetic_uid_above_bevy_bit_range ... ok
+test effect::spawn_unit_carries_aoo_dice_from_template ... ok
+test effect::spawn_unit_carries_caster_context_from_template ... ok
+test effect::spawn_unit_has_default_caster_when_template_default ... ok
+test effect::tick_dot_emits_status_ticked_event ... ok
+test effect::tick_dot_silent_when_status_absent ... ok
+test effect::tick_dot_silent_when_target_missing ... ok
+test effect::tick_dot_with_both_dot_and_percent_returns_two_damages ... ok
+test effect::tick_dot_with_dot_per_tick_damages_target_via_pierce ... ok
+test effect::tick_dot_with_percent_dot_uses_ceil ... ok
+test end_turn::dead_skip_in_middle_of_round ... ok
+test end_turn::all_stunned_budget_breaks_loop ... ok
+test end_turn::end_of_round_wraps_and_emits_round_started ... ok
+test end_turn::mid_round_handoff ... ok
+test end_turn::rejects_when_actor_not_current ... ok
+test end_turn::round_wrap_skips_first_actor_if_stunned ... ok
+test end_turn::sirota_dot_propagates_when_dead_unit_skipped ... ok
+test end_turn::stunned_skip_via_direct_status_wraps_to_next_round ... ok
+test parity::parity_aoo_chain_two_enemies ... ok
+test parity::parity_aoo_kills_mover_mid_path_truncates ... ok
+test parity::parity_move_no_aoo_stays_adjacent ... ok
+test parity::parity_pure_move_no_enemies ... ok
+test phase::multi_threshold_each_damage_fires_own_phase ... ok
+test phase::non_triggering_damage_no_enter_phase ... ok
+test phase::phase_cascade_sets_max_hp_and_emits_phase_entered_event ... ok
+test phase::phase_trigger_does_not_fire_for_unrelated_unit ... ok
+test phase::phase_trigger_fires_at_threshold ... ok
+test phase::preempt_death_no_died_event_in_stream ... ok
+test phase::preempt_death_phase_revives_unit ... ok
+test reaction::aoo_does_not_fire_from_dead_enemy ... ok
+test reaction::aoo_does_not_fire_when_enemy_has_no_weapon ... ok
+test reaction::aoo_does_not_fire_when_no_reactions ... ok
+test reaction::aoo_does_not_fire_when_still_adjacent ... ok
+test reaction::aoo_triggers_on_disengage ... ok
+test reaction::aoo_triggers_when_enemy_disengages_from_player ... ok
+test reaction::expand_reaction_emits_decrement_then_damage ... ok
+test reaction::expand_reaction_returns_empty_when_no_weapon ... ok
+test step::step_actor_death_mid_path_truncates_remaining_aoos ... ok
+test step::step_move_no_enemies ... ok
+test step::endturn_rejects_unknown_actor ... ok
+test step::endturn_emits_turn_events_for_mid_round_handoff ... ok
+test step::step_move_through_ally_succeeds ... ok
+test step::current_actor_dies_mid_move_via_aoo_settles_on_next_alive ... ok
+test step::endturn_rejects_when_actor_not_current ... ok
+test step::step_move_through_enemy_returns_path_blocked ... ok
+test step::step_move_to_occupied_destination_enemy ... ok
+test step::step_move_to_occupied_destination_friend ... ok
+test step::step_move_with_aoo_chain ... ok
+test step::step_recursion_depth_capped ... ok
+test step::step_returns_out_of_mp_error ... ok
+test step::step_returns_unknown_actor_error ... ok
+test step::step_two_flankers_only_first_fires_when_lethal ... ok
+test legality_parity::multi_taunter_both_are_legal_targets ... ok
+test targeting::aoe_cells_circle_radius_0_is_center_only ... ok
+test legality_parity::legality_parity_bevy_vs_engine ... ok
+test targeting::aoe_cells_line_same_cell_returns_empty ... ok
+test targeting::aoe_cells_circle_radius_1_has_7_cells ... ok
+test targeting::aoe_cells_none_returns_empty ... ok
+test targeting::aoe_circle_collects_enemies_in_radius_excludes_allies_when_no_friendly_fire ... ok
+test targeting::aoe_circle_with_friendly_fire_includes_allies_and_actor ... ok
+test targeting::aoe_returns_empty_when_actor_team_unknown ... ok
+test targeting::non_aoe_returns_primary_target_only ... ok
+test turn_queue::advance_on_empty_queue_stays_at_zero ... ok
+test turn_queue::advance_steps_through_queue_and_wraps ... ok
+test turn_queue::combat_state_default_has_empty_queue ... ok
+test turn_queue::default_queue_is_empty_and_current_is_none ... ok
+test turn_queue::new_queue_has_index_zero_and_correct_current ... ok
+test turn_queue::set_turn_queue_sets_order_and_index ... ok
+test turn_queue::start_round_resets_queue_index_even_when_advanced ... ok
+test turn_queue::start_round_resets_reactions_for_alive_units_only ... ok
+test turn_queue::start_round_sets_index_zero_and_phase_actor_turn ... ok
+test turn_queue::wrapped_after_false_when_index_advanced_within_queue ... ok
+test turn_queue::wrapped_after_on_empty_queue_is_true ... ok
+test turn_queue::wrapped_after_on_length_one_queue_always_true ... ok
+test turn_queue::wrapped_after_true_when_index_less_than_prev ... ok
+test state::dead_unit_is_tombstone_with_hp_zero ... ok
+test state::from_ecs_round_trip_10_units ... ok
+
+test result: ok. 180 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/engine_step_range_correlation.rs (target/llvm-cov-target/debug/deps/engine_step_range_correlation-f2b43a4cc6e091d0)
+
+running 1 test
+test engine_step_range_correlates_with_action_actor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/golden_smoke.rs (target/llvm-cov-target/debug/deps/golden_smoke-2000dd645772c2e6)
+
+running 1 test
+test golden_baseline_zero_diff ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/projection_isolation.rs (target/llvm-cov-target/debug/deps/projection_isolation-2b58a2dbb75a3907)
+
+running 2 tests
+test allowed_files_actually_exist ... ok
+test engine_projected_components_only_written_by_bridge ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/toml_content_view_parity.rs (target/llvm-cov-target/debug/deps/toml_content_view_parity-232d6cfd0ee0e55e)
+
+running 1 test
+test toml_content_view_matches_ecs_content_view ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Filename                                                                  Regions    Missed Regions     Cover   Functions  Missed Functions  Executed       Lines      Missed Lines     Cover    Branches   Missed Branches     Cover
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+crates/combat_engine/src/content_hash.rs                                      130                 0   100.00%           9                 0   100.00%          64                 0   100.00%           0                 0         -
+crates/combat_engine/src/dice.rs                                              121                41    66.12%          20                 4    80.00%          87                23    73.56%           0                 0         -
+crates/combat_engine/src/effect.rs                                            666                51    92.34%          20                 0   100.00%         415                32    92.29%           0                 0         -
+crates/combat_engine/src/event.rs                                             107                 4    96.26%           4                 0   100.00%          95                 1    98.95%           0                 0         -
+crates/combat_engine/src/legality.rs                                          116                 9    92.24%           4                 0   100.00%          77                 8    89.61%           0                 0         -
+crates/combat_engine/src/lib.rs                                                14                 0   100.00%           4                 0   100.00%          12                 0   100.00%           0                 0         -
+crates/combat_engine/src/reaction.rs                                           79                 2    97.47%           4                 0   100.00%          65                 2    96.92%           0                 0         -
+crates/combat_engine/src/state.rs                                             868                55    93.66%          60                 7    88.33%         473                21    95.56%           0                 0         -
+crates/combat_engine/src/step.rs                                              628                20    96.82%          27                 1    96.30%         409                14    96.58%           0                 0         -
+crates/combat_engine/src/targeting.rs                                          86                16    81.40%           5                 1    80.00%          51                 6    88.24%           0                 0         -
+crates/combat_engine/src/toml_content_view.rs                                 507               204    59.76%          36                18    50.00%         307               127    58.63%           0                 0         -
+crates/combat_engine/src/trace.rs                                              44                 0   100.00%           6                 0   100.00%          30                 0   100.00%           0                 0         -
+crates/combat_engine/src/turn_queue.rs                                        127                 2    98.43%          16                 0   100.00%          74                 0   100.00%           0                 0         -
+src/bin/mine_ai_logs.rs                                                      4359              2237    48.68%         147                65    55.78%        2359              1126    52.27%           0                 0         -
+src/bin/replay_ai_log.rs                                                     1109               613    44.72%          50                31    38.00%         652               360    44.79%           0                 0         -
+src/bin/replay_engine_trace.rs                                                337               337     0.00%          21                21     0.00%         207               207     0.00%           0                 0         -
+src/combat/advance_turn.rs                                                    113                53    53.10%          11                 4    63.64%          92                43    53.26%           0                 0         -
+src/combat/ai/action_state.rs                                                 482                 8    98.34%          27                 1    96.30%         316                 3    99.05%           0                 0         -
+src/combat/ai/adapt/mod.rs                                                     46                 6    86.96%           8                 1    87.50%          30                 6    80.00%           0                 0         -
+src/combat/ai/adapt/select.rs                                                 960                39    95.94%          23                 1    95.65%         517                24    95.36%           0                 0         -
+src/combat/ai/appraisal/apply_cc.rs                                           353                 0   100.00%          12                 0   100.00%         143                 0   100.00%           0                 0         -
+src/combat/ai/appraisal/conserve_resource.rs                                  133                 0   100.00%           4                 0   100.00%          48                 0   100.00%           0                 0         -
+src/combat/ai/appraisal/continue_commitment.rs                                277                 3    98.92%           7                 0   100.00%         125                 1    99.20%           0                 0         -
+src/combat/ai/appraisal/finish_target.rs                                      205                12    94.15%           8                 0   100.00%          89                 6    93.26%           0                 0         -
+src/combat/ai/appraisal/mod.rs                                                156                 0   100.00%          10                 0   100.00%         108                 0   100.00%           0                 0         -
+src/combat/ai/appraisal/reposition.rs                                         195                 0   100.00%           6                 0   100.00%          82                 0   100.00%           0                 0         -
+src/combat/ai/appraisal/rescue_ally.rs                                        548                 0   100.00%          15                 0   100.00%         189                 0   100.00%           0                 0         -
+src/combat/ai/appraisal/self_preserve.rs                                      221                 0   100.00%           6                 0   100.00%          93                 0   100.00%           0                 0         -
+src/combat/ai/config/difficulty.rs                                            146                17    88.36%          20                 4    80.00%         128                12    90.62%           0                 0         -
+src/combat/ai/config/role.rs                                                  727                27    96.29%          46                 1    97.83%         449                15    96.66%           0                 0         -
+src/combat/ai/config/tuning.rs                                                337                37    89.02%          20                 1    95.00%         269                 4    98.51%           0                 0         -
+src/combat/ai/intent/agenda.rs                                                618                48    92.23%          28                 4    85.71%         420                35    91.67%           0                 0         -
+src/combat/ai/intent/bands.rs                                                 344                 5    98.55%          14                 0   100.00%         213                10    95.31%           0                 0         -
+src/combat/ai/intent/considerations.rs                                        377                16    95.76%          30                 0   100.00%         291                16    94.50%           0                 0         -
+src/combat/ai/intent/kinds.rs                                                  95                74    22.11%           4                 1    75.00%          58                38    34.48%           0                 0         -
+src/combat/ai/intent/score.rs                                                1301                87    93.31%          34                 2    94.12%         688                37    94.62%           0                 0         -
+src/combat/ai/intent/select.rs                                                628               213    66.08%          35                11    68.57%         461               173    62.47%           0                 0         -
+src/combat/ai/log/debug.rs                                                    665               665     0.00%          33                33     0.00%         441               441     0.00%           0                 0         -
+src/combat/ai/log/engine_trace.rs                                              69                14    79.71%           8                 2    75.00%          45                 2    95.56%           0                 0         -
+src/combat/ai/log/mod.rs                                                     1570               467    70.25%         101                42    58.42%        1060               329    68.96%           0                 0         -
+src/combat/ai/log/serde_helpers.rs                                            118                56    52.54%          21                11    47.62%          63                28    55.56%           0                 0         -
+src/combat/ai/memory/ai_memory.rs                                             447                56    87.47%          22                 5    77.27%         179                36    79.89%           0                 0         -
+src/combat/ai/memory/goal/context.rs                                          558                36    93.55%          29                 2    93.10%         366                38    89.62%           0                 0         -
+src/combat/ai/memory/goal/lifecycle.rs                                        474                 2    99.58%          21                 0   100.00%         307                 1    99.67%           0                 0         -
+src/combat/ai/orchestration/fallback.rs                                        90                90     0.00%           5                 5     0.00%          56                56     0.00%           0                 0         -
+src/combat/ai/orchestration/mod.rs                                            600               241    59.83%          25                15    40.00%         408               176    56.86%           0                 0         -
+src/combat/ai/outcome/builder.rs                                              987                33    96.66%          50                 0   100.00%         650                30    95.38%           0                 0         -
+src/combat/ai/outcome/mod.rs                                                  258                 9    96.51%          22                 2    90.91%         192                10    94.79%           0                 0         -
+src/combat/ai/pipeline/effects.rs                                             264                 0   100.00%          19                 0   100.00%         206                 0   100.00%           0                 0         -
+src/combat/ai/pipeline/mod.rs                                                 211                 3    98.58%          14                 0   100.00%         129                 2    98.45%           0                 0         -
+src/combat/ai/pipeline/order.rs                                                78                 0   100.00%          13                 0   100.00%          41                 0   100.00%           0                 0         -
+src/combat/ai/pipeline/score_trace.rs                                         434                 1    99.77%          31                 0   100.00%         269                 0   100.00%           0                 0         -
+src/combat/ai/pipeline/spec.rs                                                181                20    88.95%          11                 1    90.91%         148                12    91.89%           0                 0         -
+src/combat/ai/pipeline/stages/critics/blindspot_ranged.rs                     264                11    95.83%          17                 4    76.47%         142                 8    94.37%           0                 0         -
+src/combat/ai/pipeline/stages/critics/buff_into_void.rs                       325                14    95.69%           9                 1    88.89%         182                11    93.96%           0                 0         -
+src/combat/ai/pipeline/stages/critics/heal_without_rescue_value.rs            342                 5    98.54%           8                 1    87.50%         179                 5    97.21%           0                 0         -
+src/combat/ai/pipeline/stages/critics/mod.rs                                  475                16    96.63%          29                 5    82.76%         304                13    95.72%           0                 0         -
+src/combat/ai/pipeline/stages/critics/overcommit_into_danger.rs               273                 7    97.44%          14                 2    85.71%         143                 6    95.80%           0                 0         -
+src/combat/ai/pipeline/stages/critics/rare_resource_for_low_impact.rs         412                 5    98.79%          11                 1    90.91%         204                 5    97.55%           0                 0         -
+src/combat/ai/pipeline/stages/critics/self_lethal_without_payoff.rs           218                11    94.95%          13                 2    84.62%         137                 9    93.43%           0                 0         -
+src/combat/ai/pipeline/stages/finalize.rs                                     336                10    97.02%          17                 1    94.12%         168                 7    95.83%           0                 0         -
+src/combat/ai/pipeline/stages/item_scoring.rs                                 683                 7    98.98%          30                 1    96.67%         391                 7    98.21%           0                 0         -
+src/combat/ai/pipeline/stages/killable_gate/mod.rs                            965                11    98.86%          42                 3    92.86%         520                 8    98.46%           0                 0         -
+src/combat/ai/pipeline/stages/mode_selection.rs                               268                 4    98.51%          16                 1    93.75%         127                 4    96.85%           0                 0         -
+src/combat/ai/pipeline/stages/modifiers/mod.rs                                144                 3    97.92%           9                 1    88.89%          74                 3    95.95%           0                 0         -
+src/combat/ai/pipeline/stages/modifiers/repair_bonus.rs                       489                 0   100.00%          10                 0   100.00%         254                 0   100.00%           0                 0         -
+src/combat/ai/pipeline/stages/modifiers/summon_bonus.rs                       260                 5    98.08%           9                 0   100.00%         118                 2    98.31%           0                 0         -
+src/combat/ai/pipeline/stages/modifiers/trade_bonus.rs                        216                 0   100.00%           5                 0   100.00%         105                 0   100.00%           0                 0         -
+src/combat/ai/pipeline/stages/overlay_considerations.rs                      1141                13    98.86%          44                 1    97.73%         735                12    98.37%           0                 0         -
+src/combat/ai/pipeline/stages/pick_best.rs                                   1412               120    91.50%          61                 5    91.80%         870                76    91.26%           0                 0         -
+src/combat/ai/pipeline/stages/protect_self.rs                                 366                 4    98.91%          21                 1    95.24%         174                 3    98.28%           0                 0         -
+src/combat/ai/pipeline/stages/repair_affinity.rs                              173                 3    98.27%           7                 1    85.71%         114                 3    97.37%           0                 0         -
+src/combat/ai/pipeline/stages/sanity/healer_exposure.rs                        33                 0   100.00%           2                 0   100.00%          29                 0   100.00%           0                 0         -
+src/combat/ai/pipeline/stages/sanity/mod.rs                                   853                34    96.01%          45                 5    88.89%         505                22    95.64%           0                 0         -
+src/combat/ai/pipeline/stages/sanity/retreat_trap.rs                           14                 0   100.00%           2                 0   100.00%          14                 0   100.00%           0                 0         -
+src/combat/ai/pipeline/stages/sanity/synergy_bonus.rs                          44                 0   100.00%           4                 0   100.00%          34                 0   100.00%           0                 0         -
+src/combat/ai/pipeline/stages/viability.rs                                    250                16    93.60%          13                 1    92.31%         135                10    92.59%           0                 0         -
+src/combat/ai/plan/future_value.rs                                           1310                58    95.57%          46                 1    97.83%         579                17    97.06%           0                 0         -
+src/combat/ai/plan/generator.rs                                              2537                14    99.45%          98                 0   100.00%        1396                10    99.28%           0                 0         -
+src/combat/ai/plan/reach.rs                                                   165                 1    99.39%           8                 0   100.00%          66                 0   100.00%           0                 0         -
+src/combat/ai/plan/sim.rs                                                    1784                44    97.53%          59                 2    96.61%         987                24    97.57%           0                 0         -
+src/combat/ai/plan/types.rs                                                   167                 9    94.61%          13                 0   100.00%         107                 4    96.26%           0                 0         -
+src/combat/ai/repair/affinity.rs                                              384                21    94.53%          23                 0   100.00%         259                11    95.75%           0                 0         -
+src/combat/ai/repair/mod.rs                                                   668                25    96.26%          53                 5    90.57%         460                14    96.96%           0                 0         -
+src/combat/ai/replay/mod.rs                                                   389                61    84.32%          37                 0   100.00%         324                49    84.88%           0                 0         -
+src/combat/ai/replay/pipeline.rs                                              397               125    68.51%          17                 7    58.82%         221                65    70.59%           0                 0         -
+src/combat/ai/scoring/factors/adjustments.rs                                  128                25    80.47%           8                 4    50.00%          95                20    78.95%           0                 0         -
+src/combat/ai/scoring/factors/aggregate.rs                                   2810                89    96.83%          52                 0   100.00%        1475                39    97.36%           0                 0         -
+src/combat/ai/scoring/factors/aoe_hits.rs                                     175                 2    98.86%           5                 0   100.00%          65                 0   100.00%           0                 0         -
+src/combat/ai/scoring/factors/mod.rs                                          330                24    92.73%          23                 4    82.61%         175                14    92.00%           0                 0         -
+src/combat/ai/scoring/factors/offensive.rs                                    382                 5    98.69%          12                 0   100.00%         226                 3    98.67%           0                 0         -
+src/combat/ai/scoring/factors/plan/intent.rs                                   62                 0   100.00%           3                 0   100.00%          31                 0   100.00%           0                 0         -
+src/combat/ai/scoring/factors/plan/mod.rs                                      50                22    56.00%           7                 2    71.43%          29                 9    68.97%           0                 0         -
+src/combat/ai/scoring/factors/plan/self_survival.rs                           685                 3    99.56%          14                 0   100.00%         353                 1    99.72%           0                 0         -
+src/combat/ai/scoring/factors/plan/tempo_gain.rs                              347                 6    98.27%          13                 1    92.31%         171                 3    98.25%           0                 0         -
+src/combat/ai/scoring/factors/registry.rs                                      58                 0   100.00%           6                 0   100.00%          34                 0   100.00%           0                 0         -
+src/combat/ai/scoring/factors/step/cc.rs                                        5                 0   100.00%           1                 0   100.00%           8                 0   100.00%           0                 0         -
+src/combat/ai/scoring/factors/step/damage.rs                                    5                 0   100.00%           1                 0   100.00%           8                 0   100.00%           0                 0         -
+src/combat/ai/scoring/factors/step/heal.rs                                      5                 0   100.00%           1                 0   100.00%           8                 0   100.00%           0                 0         -
+src/combat/ai/scoring/factors/step/kill_now.rs                                  5                 0   100.00%           1                 0   100.00%           8                 0   100.00%           0                 0         -
+src/combat/ai/scoring/factors/step/kill_promised.rs                             5                 0   100.00%           1                 0   100.00%           8                 0   100.00%           0                 0         -
+src/combat/ai/scoring/factors/step/mod.rs                                     250                 9    96.40%          10                 1    90.00%         117                 4    96.58%           0                 0         -
+src/combat/ai/scoring/factors/step/saturation.rs                              269                 3    98.88%          15                 0   100.00%         203                 0   100.00%           0                 0         -
+src/combat/ai/scoring/factors/step/scarcity.rs                                398                21    94.72%          16                 1    93.75%         188                19    89.89%           0                 0         -
+src/combat/ai/scoring/factors/terminal/ally_rescue.rs                           6                 6     0.00%           1                 1     0.00%           3                 3     0.00%           0                 0         -
+src/combat/ai/scoring/factors/terminal/board_control_gain.rs                    5                 5     0.00%           1                 1     0.00%           3                 3     0.00%           0                 0         -
+src/combat/ai/scoring/factors/terminal/density_value.rs                         6                 6     0.00%           1                 1     0.00%           3                 3     0.00%           0                 0         -
+src/combat/ai/scoring/factors/terminal/exposure_at_end.rs                       5                 5     0.00%           1                 1     0.00%           3                 3     0.00%           0                 0         -
+src/combat/ai/scoring/factors/terminal/line_actionability.rs                    6                 6     0.00%           1                 1     0.00%           3                 3     0.00%           0                 0         -
+src/combat/ai/scoring/factors/terminal/mod.rs                                 225                56    75.11%          18                 5    72.22%         127                23    81.89%           0                 0         -
+src/combat/ai/scoring/factors/terminal/next_turn_lethality.rs                   6                 6     0.00%           1                 1     0.00%           3                 3     0.00%           0                 0         -
+src/combat/ai/scoring/factors/terminal/pressure_spacing_zone.rs                 5                 5     0.00%           1                 1     0.00%           3                 3     0.00%           0                 0         -
+src/combat/ai/scoring/factors/terminal/secure_kill.rs                           4                 4     0.00%           1                 1     0.00%           3                 3     0.00%           0                 0         -
+src/combat/ai/scoring/factors/terminal_state.rs                              1780                10    99.44%          51                 0   100.00%         725                 4    99.45%           0                 0         -
+src/combat/ai/scoring/horizon.rs                                              610                47    92.30%          39                 6    84.62%         413                26    93.70%           0                 0         -
+src/combat/ai/scoring/policy/cc.rs                                             29                 0   100.00%           5                 0   100.00%          20                 0   100.00%           0                 0         -
+src/combat/ai/scoring/policy/damage.rs                                         33                 0   100.00%           6                 0   100.00%          21                 0   100.00%           0                 0         -
+src/combat/ai/scoring/policy/friendly_fire.rs                                  45                 0   100.00%           6                 0   100.00%          25                 0   100.00%           0                 0         -
+src/combat/ai/scoring/policy/heal.rs                                           61                 0   100.00%           7                 0   100.00%          41                 0   100.00%           0                 0         -
+src/combat/ai/scoring/policy/status.rs                                        144                 7    95.14%          16                 0   100.00%          95                 4    95.79%           0                 0         -
+src/combat/ai/scoring/position_eval.rs                                        108                 0   100.00%           6                 0   100.00%          60                 0   100.00%           0                 0         -
+src/combat/ai/scoring/target_selection.rs                                     181                 3    98.34%           6                 0   100.00%          86                 1    98.84%           0                 0         -
+src/combat/ai/scoring/trade.rs                                                948                 4    99.58%          39                 0   100.00%         531                 2    99.62%           0                 0         -
+src/combat/ai/system.rs                                                       421               421     0.00%          21                21     0.00%         281               281     0.00%           0                 0         -
+src/combat/ai/test_helpers.rs                                                 605                54    91.07%          62                 6    90.32%         511                39    92.37%           0                 0         -
+src/combat/ai/world/cache.rs                                                  110                17    84.55%          12                 4    66.67%          65                10    84.62%           0                 0         -
+src/combat/ai/world/influence.rs                                              834                70    91.61%          42                 5    88.10%         344                29    91.57%           0                 0         -
+src/combat/ai/world/reservations.rs                                           190                 0   100.00%          22                 0   100.00%          93                 0   100.00%           0                 0         -
+src/combat/ai/world/snapshot.rs                                              1269               267    78.96%         106                26    75.47%         738               180    75.61%           0                 0         -
+src/combat/ai/world/tags/cache.rs                                             257                 9    96.50%          18                 1    94.44%         134                 3    97.76%           0                 0         -
+src/combat/ai/world/tags/classify.rs                                          690                 4    99.42%          47                 2    95.74%         365                 2    99.45%           0                 0         -
+src/combat/ai/world/tags/mod.rs                                               308                34    88.96%          31                 2    93.55%         171                20    88.30%           0                 0         -
+src/combat/command_input.rs                                                   266               266     0.00%           8                 8     0.00%         164               164     0.00%           0                 0         -
+src/combat/dice_resource.rs                                                     9                 6    33.33%           3                 2    33.33%           9                 6    33.33%           0                 0         -
+src/combat/effects_outcome.rs                                                 311                38    87.78%          18                 1    94.44%         227                32    85.90%           0                 0         -
+src/combat/effects_state.rs                                                    49                 5    89.80%           1                 0   100.00%          33                 3    90.91%           0                 0         -
+src/combat/enemy_popup.rs                                                     148               148     0.00%           5                 5     0.00%         100               100     0.00%           0                 0         -
+src/combat/engine_bridge.rs                                                  1547               417    73.04%          54                12    77.78%        1098               245    77.69%           0                 0         -
+src/combat/legality_adapter.rs                                                116                 9    92.24%          17                 1    94.12%          69                 4    94.20%           0                 0         -
+src/combat/mod.rs                                                              17                17     0.00%           1                 1     0.00%          16                16     0.00%           0                 0         -
+src/combat/pipeline.rs                                                         47                47     0.00%           1                 1     0.00%          68                68     0.00%           0                 0         -
+src/combat/turn_order.rs                                                      110                48    56.36%           4                 1    75.00%          81                25    69.14%           0                 0         -
+src/content/abilities.rs                                                      370                36    90.27%          33                 7    78.79%         260                22    91.54%           0                 0         -
+src/content/armor.rs                                                           57                32    43.86%           8                 6    25.00%          34                14    58.82%           0                 0         -
+src/content/campaigns.rs                                                      118                13    88.98%          11                 5    54.55%          62                 9    85.48%           0                 0         -
+src/content/classes.rs                                                         63                19    69.84%           7                 4    42.86%          47                12    74.47%           0                 0         -
+src/content/content_view.rs                                                   247                10    95.95%          21                 5    76.19%         143                 5    96.50%           0                 0         -
+src/content/encounters.rs                                                     269                44    83.64%          47                12    74.47%         193                29    84.97%           0                 0         -
+src/content/races.rs                                                           68                20    70.59%           7                 3    57.14%          53                13    75.47%           0                 0         -
+src/content/scenarios.rs                                                      107                35    67.29%          11                 6    45.45%          80                19    76.25%           0                 0         -
+src/content/settings.rs                                                        67                56    16.42%          13                11    15.38%          73                56    23.29%           0                 0         -
+src/content/statuses.rs                                                        77                27    64.94%           9                 4    55.56%          60                19    68.33%           0                 0         -
+src/content/unit_templates.rs                                                  66                 4    93.94%           8                 2    75.00%          50                 2    96.00%           0                 0         -
+src/content/weapons.rs                                                         62                23    62.90%           7                 4    42.86%          43                15    65.12%           0                 0         -
+src/core/mod.rs                                                                 3                 0   100.00%           1                 0   100.00%           3                 0   100.00%           0                 0         -
+src/game/bundles.rs                                                            34                 0   100.00%           3                 0   100.00%          47                 0   100.00%           0                 0         -
+src/game/combat_log.rs                                                        201               196     2.49%           6                 5    16.67%         118               115     2.54%           0                 0         -
+src/game/components.rs                                                         78                53    32.05%          22                15    31.82%          79                50    36.71%           0                 0         -
+src/game/hex.rs                                                               377                 0   100.00%          39                 0   100.00%         187                 0   100.00%           0                 0         -
+src/game/pathfinding.rs                                                       318                 0   100.00%          18                 0   100.00%         176                 0   100.00%           0                 0         -
+src/game/resources.rs                                                         433                53    87.76%          24                 6    75.00%         213                31    85.45%           0                 0         -
+src/main.rs                                                                   106               106     0.00%           1                 1     0.00%         201               201     0.00%           0                 0         -
+src/persistence/mod.rs                                                         20                20     0.00%           2                 2     0.00%          18                18     0.00%           0                 0         -
+src/persistence/paths.rs                                                       43                43     0.00%           5                 5     0.00%          22                22     0.00%           0                 0         -
+src/persistence/save_repo.rs                                                  182               134    26.37%          12                10    16.67%         118                87    26.27%           0                 0         -
+src/persistence/settings_repo.rs                                               59                59     0.00%           3                 3     0.00%          34                34     0.00%           0                 0         -
+src/scenario/combat_scene.rs                                                  334               334     0.00%          10                10     0.00%         211               211     0.00%           0                 0         -
+src/scenario/input.rs                                                           9                 9     0.00%           1                 1     0.00%           8                 8     0.00%           0                 0         -
+src/scenario/mod.rs                                                           164               164     0.00%           8                 8     0.00%         131               131     0.00%           0                 0         -
+src/ui/ability_panel.rs                                                       664               664     0.00%          29                29     0.00%         484               484     0.00%           0                 0         -
+src/ui/animation.rs                                                           138               138     0.00%           8                 8     0.00%         131               131     0.00%           0                 0         -
+src/ui/button.rs                                                               57                57     0.00%           5                 5     0.00%          64                64     0.00%           0                 0         -
+src/ui/combat_ui.rs                                                           256               256     0.00%          18                18     0.00%         253               253     0.00%           0                 0         -
+src/ui/console_log.rs                                                          24                24     0.00%           3                 3     0.00%          17                17     0.00%           0                 0         -
+src/ui/hex_grid/input.rs                                                      282               282     0.00%          12                12     0.00%         180               180     0.00%           0                 0         -
+src/ui/hex_grid/render.rs                                                     228               228     0.00%           8                 8     0.00%         156               156     0.00%           0                 0         -
+src/ui/hex_grid/visuals.rs                                                    477               477     0.00%          22                22     0.00%         351               351     0.00%           0                 0         -
+src/ui/log_ui.rs                                                              107               107     0.00%           7                 7     0.00%          83                83     0.00%           0                 0         -
+src/ui/main_menu_ui.rs                                                        243               243     0.00%          17                17     0.00%         222               222     0.00%           0                 0         -
+src/ui/modal.rs                                                               211               211     0.00%          10                10     0.00%         190               190     0.00%           0                 0         -
+src/ui/settings_ui.rs                                                         328               328     0.00%          17                17     0.00%         304               304     0.00%           0                 0         -
+src/ui/story_ui.rs                                                            164               164     0.00%          12                12     0.00%         150               150     0.00%           0                 0         -
+src/ui/turn_order_ui.rs                                                       475               475     0.00%          16                16     0.00%         282               282     0.00%           0                 0         -
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+TOTAL                                                                       67387             13986    79.25%        3408               799    76.56%       40271              9332    76.83%           0                 0         -

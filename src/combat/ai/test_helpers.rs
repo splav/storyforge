@@ -801,3 +801,265 @@ impl PoolBuilder {
         self.pool
     }
 }
+
+
+// ── Critic test helpers ───────────────────────────────────────────────────
+
+/// Owned context for direct-`evaluate` critic tests (Pattern B).
+///
+/// Holds all the data that the lifetime-chained `ScoringCtx` borrows from,
+/// so the test body stays clean.  Use [`CriticScenarioBuilder`] to construct,
+/// then call [`CriticScenario::run`] to receive a ready `ScoringCtx`.
+///
+/// # Example
+///
+/// ```ignore
+/// let scn = CriticScenarioBuilder::new(caster)
+///     .with_units(vec![target])
+///     .with_ability("heal", heal_ability("heal"))
+///     .build();
+///
+/// assert_critic_fires(&HealWithoutRescueValue, &plan, &ann, &scn,
+///     CriticKind::HealWithoutRescueValue, expected_multiplier,
+///     |reason| { /* inspect CriticReason fields */ });
+/// ```
+pub(crate) struct CriticScenario {
+    actor: UnitSnapshot,
+    content: ContentView,
+    difficulty: crate::combat::ai::config::difficulty::DifficultyProfile,
+    snap_units: Vec<UnitSnapshot>,
+    maps: crate::combat::ai::world::influence::InfluenceMaps,
+    reservations: crate::combat::ai::world::reservations::Reservations,
+}
+
+impl CriticScenario {
+    /// Build the lifetime-chained `ScoringCtx` and pass it to `body`.
+    ///
+    /// The closure receives `(&ScoringCtx, &TurnPlan, &PlanAnnotation)` so
+    /// the caller never needs to keep plan/ann separately.
+    pub fn run<R>(&self, body: impl FnOnce(&crate::combat::ai::orchestration::ScoringCtx<'_, '_>) -> R) -> R {
+        let world = make_test_ctx(&self.content, &self.difficulty);
+        let snap = snapshot_from(self.snap_units.clone(), 1);
+        let ctx = make_scoring_ctx(&world, &snap, &self.maps, &self.reservations, &self.actor);
+        body(&ctx)
+    }
+}
+
+/// Fluent builder for [`CriticScenario`].
+///
+/// # Example
+///
+/// ```ignore
+/// let scn = CriticScenarioBuilder::new(caster)
+///     .with_units(vec![target])
+///     .with_ability("buff_shield", buff_ability("buff_shield", "shield"))
+///     .build();
+/// ```
+pub(crate) struct CriticScenarioBuilder {
+    actor: UnitSnapshot,
+    extra_units: Vec<UnitSnapshot>,
+    abilities: Vec<(crate::core::AbilityId, crate::content::abilities::AbilityDef)>,
+}
+
+impl CriticScenarioBuilder {
+    pub fn new(actor: UnitSnapshot) -> Self {
+        Self { actor, extra_units: Vec::new(), abilities: Vec::new() }
+    }
+
+    /// Additional units placed in the snapshot alongside the actor.
+    pub fn with_units(mut self, units: Vec<UnitSnapshot>) -> Self {
+        self.extra_units = units;
+        self
+    }
+
+    /// Register one ability in the content view.  Call multiple times for
+    /// multiple abilities.
+    pub fn with_ability(mut self, id: &str, def: crate::content::abilities::AbilityDef) -> Self {
+        self.abilities.push((crate::core::AbilityId::from(id), def));
+        self
+    }
+
+    pub fn build(self) -> CriticScenario {
+        let mut content = empty_content();
+        for (id, def) in self.abilities {
+            content.abilities.insert(id, def);
+        }
+        let mut snap_units = vec![self.actor.clone()];
+        snap_units.extend(self.extra_units);
+        CriticScenario {
+            actor: self.actor,
+            content,
+            difficulty: crate::combat::ai::config::difficulty::DifficultyProfile::default(),
+            snap_units,
+            maps: empty_maps(),
+            reservations: crate::combat::ai::world::reservations::Reservations::default(),
+        }
+    }
+}
+
+/// Run `critic.evaluate(plan, ann, ctx)` inside a [`CriticScenario`].
+///
+/// Returns the `Option<CriticHit>` from the critic.
+pub(crate) fn run_critic<C: crate::combat::ai::pipeline::stages::critics::PlanCritic>(
+    critic: &C,
+    plan: &crate::combat::ai::plan::types::TurnPlan,
+    ann: &crate::combat::ai::outcome::PlanAnnotation,
+    scn: &CriticScenario,
+) -> Option<crate::combat::ai::pipeline::stages::critics::CriticHit> {
+    scn.run(|ctx| critic.evaluate(plan, ann, ctx))
+}
+
+/// Assert that a critic **fires** for the given plan, checking kind,
+/// multiplier, and reason.
+///
+/// - `expected_kind`: the `CriticKind` variant the hit must carry.
+/// - `expected_multiplier`: exact multiplier value (compared with ε = 1e-6).
+/// - `reason_check`: closure that receives `&CriticReason`; panic inside it
+///   if the reason fields are wrong.
+///
+/// Returns the `CriticHit` so callers can do additional assertions.
+pub(crate) fn assert_critic_fires<C>(
+    critic: &C,
+    plan: &crate::combat::ai::plan::types::TurnPlan,
+    ann: &crate::combat::ai::outcome::PlanAnnotation,
+    scn: &CriticScenario,
+    expected_kind: crate::combat::ai::pipeline::stages::critics::CriticKind,
+    expected_multiplier: f32,
+    reason_check: impl FnOnce(&crate::combat::ai::pipeline::stages::critics::CriticReason),
+) -> crate::combat::ai::pipeline::stages::critics::CriticHit
+where
+    C: crate::combat::ai::pipeline::stages::critics::PlanCritic,
+{
+    let hit = run_critic(critic, plan, ann, scn)
+        .unwrap_or_else(|| panic!("critic {:?} must fire, but returned None", expected_kind));
+    assert_eq!(
+        hit.critic, expected_kind,
+        "critic kind mismatch: expected {:?}, got {:?}", expected_kind, hit.critic,
+    );
+    assert!(
+        (hit.multiplier - expected_multiplier).abs() < 1e-6,
+        "multiplier mismatch: expected {expected_multiplier}, got {}",
+        hit.multiplier,
+    );
+    reason_check(&hit.reason);
+    hit
+}
+
+/// Assert that a critic **does not fire** for the given plan.
+pub(crate) fn assert_critic_passes<C>(
+    critic: &C,
+    plan: &crate::combat::ai::plan::types::TurnPlan,
+    ann: &crate::combat::ai::outcome::PlanAnnotation,
+    scn: &CriticScenario,
+)
+where
+    C: crate::combat::ai::pipeline::stages::critics::PlanCritic,
+{
+    let result = run_critic(critic, plan, ann, scn);
+    assert!(
+        result.is_none(),
+        "critic must not fire, but returned {:?}",
+        result,
+    );
+}
+
+// ── Stage-flow critic helpers (Pattern A) ────────────────────────────────
+
+/// Assert that a critic fired via the full stage flow
+/// (`CriticsStage → PoolBuilder → StageTestHarness`).
+///
+/// Checks that exactly one `MultiplierKind::Critic` hit appears in
+/// `pool.annotations[0].score_trace.multipliers`, that its `value` matches
+/// `expected_multiplier` (ε = 1e-6), and that its `CriticKind` matches
+/// `expected_kind`.  Then calls `reason_check` with the `&CriticReason`.
+///
+/// # Arguments
+///
+/// * `harness` — pre-configured `StageTestHarness` (actor + maps + extra_units).
+/// * `plans`   — plans to put in the pool (first plan is inspected).
+/// * `critic`  — the `PlanCritic` to wrap in `CriticsStage`.
+/// * `reason_check` — closure receiving `&CriticReason`; panic inside to fail.
+pub(crate) fn assert_stage_critic_fires<C>(
+    harness: &StageTestHarness,
+    plans: Vec<crate::combat::ai::plan::types::TurnPlan>,
+    critic: C,
+    expected_kind: crate::combat::ai::pipeline::stages::critics::CriticKind,
+    expected_multiplier: f32,
+    reason_check: impl FnOnce(&crate::combat::ai::pipeline::stages::critics::CriticReason),
+) where
+    C: crate::combat::ai::pipeline::stages::critics::PlanCritic + 'static,
+{
+    use crate::combat::ai::pipeline::stages::critics::CriticsStage;
+    use crate::combat::ai::pipeline::score_trace::{MultiplierDetail, MultiplierKind};
+    use crate::combat::ai::pipeline::PlanStage;
+
+    let stage = CriticsStage::single(critic);
+    let mut pool = PoolBuilder::new(plans)
+        .scores(&[1.0])
+        .trace_base_eq_score()
+        .build();
+    harness.run(|ctx| stage.apply(&mut pool, ctx));
+
+    let hits: Vec<_> = pool.annotations[0]
+        .score_trace
+        .multipliers
+        .iter()
+        .filter(|m| matches!(m.kind, MultiplierKind::Critic))
+        .collect();
+    assert_eq!(hits.len(), 1, "expected exactly one Critic multiplier, got {}", hits.len());
+    let hit = hits[0];
+    assert!(
+        (hit.value - expected_multiplier).abs() < 1e-6,
+        "stage critic multiplier mismatch: expected {expected_multiplier}, got {}",
+        hit.value,
+    );
+    if let Some(MultiplierDetail::Critic { critic: kind, reason }) = &hit.detail {
+        assert_eq!(
+            *kind, expected_kind,
+            "critic kind mismatch: expected {:?}, got {:?}", expected_kind, kind,
+        );
+        reason_check(reason);
+    } else {
+        panic!(
+            "Critic multiplier must carry MultiplierDetail::Critic, got {:?}",
+            hit.detail,
+        );
+    }
+}
+
+/// Assert that a critic **does not fire** via the full stage flow.
+///
+/// Checks that no `MultiplierKind::Critic` hit appears in
+/// `pool.annotations[0].score_trace.multipliers`.
+pub(crate) fn assert_stage_critic_passes<C>(
+    harness: &StageTestHarness,
+    plans: Vec<crate::combat::ai::plan::types::TurnPlan>,
+    critic: C,
+)
+where
+    C: crate::combat::ai::pipeline::stages::critics::PlanCritic + 'static,
+{
+    use crate::combat::ai::pipeline::stages::critics::CriticsStage;
+    use crate::combat::ai::pipeline::score_trace::MultiplierKind;
+    use crate::combat::ai::pipeline::PlanStage;
+
+    let stage = CriticsStage::single(critic);
+    let mut pool = PoolBuilder::new(plans)
+        .scores(&[1.0])
+        .trace_base_eq_score()
+        .build();
+    harness.run(|ctx| stage.apply(&mut pool, ctx));
+
+    let critic_hits: Vec<_> = pool.annotations[0]
+        .score_trace
+        .multipliers
+        .iter()
+        .filter(|m| matches!(m.kind, MultiplierKind::Critic))
+        .collect();
+    assert!(
+        critic_hits.is_empty(),
+        "critic must not fire, but got {} Critic multiplier(s): {:?}",
+        critic_hits.len(),
+        critic_hits,
+    );
+}

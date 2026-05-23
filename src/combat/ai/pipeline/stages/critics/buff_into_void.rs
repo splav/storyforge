@@ -109,14 +109,13 @@ impl PlanCritic for BuffIntoVoid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::pipeline::stages::critics::{CriticKind, PlanCritic};
+    use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
     use crate::combat::ai::outcome::PlanAnnotation;
     use crate::combat::ai::plan::types::TurnPlan;
-    use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::ActiveStatusView;
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-        snapshot_from,
+        UnitBuilder, CriticScenarioBuilder,
+        assert_critic_fires, assert_critic_passes, run_critic,
     };
     use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType};
     use crate::core::{AbilityId, StatusId};
@@ -142,10 +141,10 @@ mod tests {
                 aoe: AoEShape::None,
                 friendly_fire: false,
                 statuses: vec![StatusApplication {
-                status: StatusId::from(status_id),
-                on: StatusOn::Target,
-                duration_rounds: 2,
-            }],
+                    status: StatusId::from(status_id),
+                    on: StatusOn::Target,
+                    duration_rounds: 2,
+                }],
                 key: None,
             },
         }
@@ -170,128 +169,79 @@ mod tests {
 
     #[test]
     fn buff_into_void_fires_on_canonical_case() {
-        // ── 1. Test data ──
-        // Target already has "shield" status active.
-        // Caster casts an ability that applies "shield" again → critic must fire.
-        let caster_pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(2, 0);
+        // Target already has "shield" status active → critic must fire.
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(2, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let mut target = UnitBuilder::new(2, Team::Enemy, target_pos).build();
-        target.statuses = vec![ActiveStatusView {
-            id: StatusId::from("shield"),
-            rounds_remaining: 2,
-            dot_per_tick: 0,
-        }];
+        target.statuses = vec![ActiveStatusView { id: StatusId::from("shield"), rounds_remaining: 2, dot_per_tick: 0 }];
 
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("buff_shield", buff_ability("buff_shield", "shield"))
+            .build();
         let plan = cast_plan("buff_shield", target_entity, target_pos);
+        let ann  = PlanAnnotation::default();
 
-        // ── 2. Harness (custom content needed — evaluate() called directly) ──
-        let mut content = empty_content();
-        content.abilities.insert(AbilityId::from("buff_shield"), buff_ability("buff_shield", "shield"));
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = snapshot_from(vec![caster.clone(), target], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
-
-        // ── 3. Pool (N/A — critic tested via evaluate()) ──
-        let ann = PlanAnnotation::default();
-
-        // ── 4. Act ──
-        let result = BuffIntoVoid.evaluate(&plan, &ann, &ctx);
-
-        // ── 5. Assert ──
-        assert!(result.is_some(), "critic must fire when target already has the status");
-        let hit = result.unwrap();
-        assert_eq!(hit.critic, CriticKind::BuffIntoVoid);
-        assert!(
-            (hit.multiplier - BUFF_INTO_VOID_MULTIPLIER).abs() < 1e-6,
-            "multiplier must be {BUFF_INTO_VOID_MULTIPLIER}, got {}", hit.multiplier
+        assert_critic_fires(
+            &BuffIntoVoid, &plan, &ann, &scn,
+            CriticKind::BuffIntoVoid, BUFF_INTO_VOID_MULTIPLIER,
+            |reason| {
+                let CriticReason::BuffIntoVoid { target_already_buffed, .. } = reason else {
+                    panic!("expected BuffIntoVoid reason, got {reason:?}");
+                };
+                assert!(*target_already_buffed, "target_already_buffed must be true");
+            },
         );
-        if let CriticReason::BuffIntoVoid { target_already_buffed, .. } = hit.reason {
-            assert!(target_already_buffed, "target_already_buffed must be true");
-        } else {
-            panic!("expected BuffIntoVoid reason, got {:?}", hit.reason);
-        }
     }
 
     // ── passes on clean plan (target has no status) ───────────────────────────
 
     #[test]
     fn buff_into_void_passes_on_clean_plan() {
-        // ── 1. Test data ──
         // Target has no statuses — applying "shield" is useful.
-        let caster_pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(2, 0);
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(2, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let target = UnitBuilder::new(2, Team::Enemy, target_pos).build();
 
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("buff_shield", buff_ability("buff_shield", "shield"))
+            .build();
         let plan = cast_plan("buff_shield", target_entity, target_pos);
+        let ann  = PlanAnnotation::default();
 
-        // ── 2. Harness (custom content needed — evaluate() called directly) ──
-        let mut content = empty_content();
-        content.abilities.insert(AbilityId::from("buff_shield"), buff_ability("buff_shield", "shield"));
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = snapshot_from(vec![caster.clone(), target], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
-
-        // ── 3. Pool (N/A — critic tested via evaluate()) ──
-        let ann = PlanAnnotation::default();
-
-        // ── 4. Act ──
-        let result = BuffIntoVoid.evaluate(&plan, &ann, &ctx);
-
-        // ── 5. Assert ──
-        assert!(result.is_none(), "critic must not fire when target has no such status");
+        assert_critic_passes(&BuffIntoVoid, &plan, &ann, &scn);
     }
 
     // ── fires on redundant cast within plan (second step duplicates first) ────
 
     #[test]
     fn buff_into_void_severity_scales_with_input() {
-        // ── 1. Test data ──
-        // Two cast steps in the plan applying the same status to the same target.
-        // First cast: target has no status → passes.
-        // Second cast: first cast already recorded status → critic fires.
-        let caster_pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(2, 0);
+        // Single cast with no existing status → None.
+        // Double cast of same status to same target → Some (redundant within plan).
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(2, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
         let target = UnitBuilder::new(2, Team::Enemy, target_pos).build();
 
-        // ── 2. Harness (custom content needed — evaluate() called directly) ──
-        let mut content = empty_content();
-        content.abilities.insert(AbilityId::from("buff_shield"), buff_ability("buff_shield", "shield"));
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = snapshot_from(vec![caster.clone(), target], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("buff_shield", buff_ability("buff_shield", "shield"))
+            .build();
 
-        // ── 3. Plans ──
         let single_plan = cast_plan("buff_shield", target_entity, target_pos);
         let double_plan = TurnPlan {
             steps: vec![
-                PlanStep::Cast {
-                    ability: AbilityId::from("buff_shield"),
-                    target: target_entity,
-                    target_pos,
-                },
-                PlanStep::Cast {
-                    ability: AbilityId::from("buff_shield"),
-                    target: target_entity,
-                    target_pos,
-                },
+                PlanStep::Cast { ability: AbilityId::from("buff_shield"), target: target_entity, target_pos },
+                PlanStep::Cast { ability: AbilityId::from("buff_shield"), target: target_entity, target_pos },
             ],
             final_pos: caster_pos,
             residual_ap: 0,
@@ -301,30 +251,18 @@ mod tests {
         };
         let ann = PlanAnnotation::default();
 
-        // ── 4. Act ──
-        let result_single = BuffIntoVoid.evaluate(&single_plan, &ann, &ctx);
-        let result_double = BuffIntoVoid.evaluate(&double_plan, &ann, &ctx);
+        // Single cast — must not fire.
+        assert_critic_passes(&BuffIntoVoid, &single_plan, &ann, &scn);
 
-        // ── 5. Assert ──
-        // Single cast with no existing status → None (no boundary hit).
+        // Double cast — second step is redundant, must fire.
+        let hit = run_critic(&BuffIntoVoid, &double_plan, &ann, &scn)
+            .expect("second cast of same status must trigger buff_into_void critic");
+        let CriticReason::BuffIntoVoid { target_already_buffed, .. } = hit.reason else {
+            panic!("expected BuffIntoVoid reason");
+        };
         assert!(
-            result_single.is_none(),
-            "single cast with no existing status must not fire",
+            !target_already_buffed,
+            "target_already_buffed must be false (redundant within plan, not pre-existing)",
         );
-        // Double cast — second step duplicates the first → Some.
-        assert!(
-            result_double.is_some(),
-            "second cast of same status must trigger buff_into_void critic",
-        );
-        if let Some(hit) = result_double {
-            if let CriticReason::BuffIntoVoid { target_already_buffed, .. } = hit.reason {
-                assert!(
-                    !target_already_buffed,
-                    "target_already_buffed must be false (redundant within plan, not pre-existing)",
-                );
-            } else {
-                panic!("expected BuffIntoVoid reason");
-            }
-        }
     }
 }

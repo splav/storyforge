@@ -135,14 +135,12 @@ impl PlanCritic for HealWithoutRescueValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combat::ai::pipeline::stages::critics::{CriticKind, PlanCritic};
+    use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
     use crate::combat::ai::outcome::{ActionOutcomeEstimate, PlanAnnotation};
     use crate::combat::ai::plan::types::TurnPlan;
-    use crate::combat::ai::world::reservations::Reservations;
-    
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
-        snapshot_from,
+        UnitBuilder, CriticScenarioBuilder,
+        assert_critic_passes, run_critic,
     };
     use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
     use crate::core::{AbilityId, DiceExpr};
@@ -172,6 +170,7 @@ mod tests {
         }
     }
 
+    /// Build a (plan, annotation) pair for a heal cast with a given `hp_restored` estimate.
     fn cast_heal_plan(
         ability: &str,
         target_entity: Entity,
@@ -195,148 +194,97 @@ mod tests {
             hp_restored,
             ..Default::default()
         });
-        let ann = PlanAnnotation::default();
-        (plan, ann)
+        (plan, PlanAnnotation::default())
     }
 
     // ── fires on canonical case ───────────────────────────────────────────────
 
     #[test]
     fn heal_without_rescue_fires_on_canonical_case() {
-        // ── 1. Test data ──
         // Target: hp=28/30 (93% — above HP_NEED_GATE), no enemies → threat_proxy=0
-        // → rescue_need ≈ 0 → fires with worst-case multiplier (1 - MAX_PENALTY = 0.4).
-        let caster_pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(2, 0);
+        // → rescue_need ≈ 0 → fires with worst-case multiplier (1 - MAX_PENALTY).
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(2, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
-        let target = UnitBuilder::new(2, Team::Enemy, target_pos)
-            .hp(28)
-            .max_hp(30)
-            .build();
+        let target = UnitBuilder::new(2, Team::Enemy, target_pos).hp(28).max_hp(30).build();
 
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("heal", heal_ability("heal"))
+            .build();
         let (plan, ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 3.0);
 
-        // ── 2. Context ──
-        let mut content = empty_content();
-        content.abilities.insert(AbilityId::from("heal"), heal_ability("heal"));
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = snapshot_from(vec![caster.clone(), target], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
-
-        // ── 3. Pool (N/A — critic tested via evaluate()) ──
-        // ── 4. Act ──
-        let hit = HealWithoutRescueValue
-            .evaluate(&plan, &ann, &ctx)
+        let hit = run_critic(&HealWithoutRescueValue, &plan, &ann, &scn)
             .expect("must fire: healthy ally + no threat");
-
-        // ── 5. Assert ──
         assert_eq!(hit.critic, CriticKind::HealWithoutRescueValue);
         assert!(
             hit.multiplier < 1.0 && hit.multiplier >= 1.0 - MAX_PENALTY - 1e-6,
-            "multiplier {} must be in [{}, 1.0)",
-            hit.multiplier,
-            1.0 - MAX_PENALTY,
+            "multiplier {} must be in [{}, 1.0)", hit.multiplier, 1.0 - MAX_PENALTY,
         );
-        if let CriticReason::HealWithoutRescueValue { rescue_need, target_hp_pct } = hit.reason {
-            assert!(rescue_need < FIRE_THRESHOLD, "rescue_need {rescue_need}");
-            assert!(target_hp_pct >= HP_NEED_GATE, "target_hp_pct {target_hp_pct}");
-        } else {
+        let CriticReason::HealWithoutRescueValue { rescue_need, target_hp_pct } = hit.reason else {
             panic!("expected HealWithoutRescueValue reason, got {:?}", hit.reason);
-        }
+        };
+        assert!(rescue_need < FIRE_THRESHOLD, "rescue_need {rescue_need}");
+        assert!(target_hp_pct >= HP_NEED_GATE, "target_hp_pct {target_hp_pct}");
     }
 
     // ── passes when target is wounded enough for HP-need gate ─────────────────
 
     #[test]
     fn heal_without_rescue_passes_on_clean_plan() {
-        // ── 1. Test data ──
         // Target hp=15/30=50% (< HP_NEED_GATE=0.6) → wounded ally, heal justified.
-        let caster_pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(2, 0);
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(2, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
-        let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
-        let low_hp_target = UnitBuilder::new(2, Team::Enemy, target_pos)
-            .hp(15)
-            .max_hp(30)
-            .build();
+        let caster         = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
+        let low_hp_target  = UnitBuilder::new(2, Team::Enemy, target_pos).hp(15).max_hp(30).build();
 
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![low_hp_target])
+            .with_ability("heal", heal_ability("heal"))
+            .build();
         let (plan, ann) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 10.0);
 
-        // ── 2. Context ──
-        let mut content = empty_content();
-        content.abilities.insert(AbilityId::from("heal"), heal_ability("heal"));
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let snap = snapshot_from(vec![caster.clone(), low_hp_target], 1);
-        let maps = empty_maps();
-        let reservations = Reservations::default();
-        let ctx = make_scoring_ctx(&world, &snap, &maps, &reservations, &caster);
-
-        // ── 3. Pool (N/A — critic tested via evaluate()) ──
-        // ── 4. Act + 5. Assert ──
-        assert!(
-            HealWithoutRescueValue.evaluate(&plan, &ann, &ctx).is_none(),
-            "must not fire: HP 50% < HP_NEED_GATE = {HP_NEED_GATE}",
-        );
+        assert_critic_passes(&HealWithoutRescueValue, &plan, &ann, &scn);
     }
 
     // ── HP-need gate boundary ─────────────────────────────────────────────────
 
     #[test]
     fn heal_without_rescue_severity_scales_with_input() {
-        // ── 1. Test data ──
-        // The HP-need gate at 0.6: just above → fires; just below → passes.
+        // hp_pct ≈ 0.77 (above gate) → fires; hp_pct = 0.5 (below gate) → passes.
         // Multiplier with empty_maps is near-floor (no enemies → threat_proxy=0).
-        let caster_pos = hex_from_offset(0, 0);
-        let target_pos = hex_from_offset(2, 0);
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(2, 0);
         let target_entity = Entity::from_raw_u32(2).expect("valid");
 
         let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
 
-        // ── 2. Context (shared) ──
-        let mut content = empty_content();
-        content.abilities.insert(AbilityId::from("heal"), heal_ability("heal"));
-        let difficulty = crate::combat::ai::config::difficulty::DifficultyProfile::default();
-        let world = make_test_ctx(&content, &difficulty);
-        let reservations = Reservations::default();
-
-        // ── 3+4. Plans and act — fires case (hp_pct ≈ 0.77) ──
-        let target_fires = UnitBuilder::new(2, Team::Enemy, target_pos)
-            .hp(23)
-            .max_hp(30)
+        // Fires case: hp_pct ≈ 0.77.
+        let target_fires = UnitBuilder::new(2, Team::Enemy, target_pos).hp(23).max_hp(30).build();
+        let scn_f = CriticScenarioBuilder::new(caster.clone())
+            .with_units(vec![target_fires])
+            .with_ability("heal", heal_ability("heal"))
             .build();
-        let snap_f = snapshot_from(vec![caster.clone(), target_fires], 1);
-        let maps_f = empty_maps();
-        let ctx_f = make_scoring_ctx(&world, &snap_f, &maps_f, &reservations, &caster);
         let (plan_f, ann_f) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 3.0);
-        let hit_f = HealWithoutRescueValue.evaluate(&plan_f, &ann_f, &ctx_f);
-
-        // 3+4. Plans and act — passes case (hp_pct = 0.5) ──
-        let target_passes = UnitBuilder::new(2, Team::Enemy, target_pos)
-            .hp(15)
-            .max_hp(30)
-            .build();
-        let snap_p = snapshot_from(vec![caster.clone(), target_passes], 1);
-        let maps_p = empty_maps();
-        let ctx_p = make_scoring_ctx(&world, &snap_p, &maps_p, &reservations, &caster);
-        let (plan_p, ann_p) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 8.0);
-        let hit_p = HealWithoutRescueValue.evaluate(&plan_p, &ann_p, &ctx_p);
-
-        // ── 5. Assert ──
+        let hit_f = scn_f.run(|ctx| HealWithoutRescueValue.evaluate(&plan_f, &ann_f, ctx));
         assert!(hit_f.is_some(), "hp_pct ≈ 0.77 must fire");
         let m_f = hit_f.unwrap().multiplier;
-        assert!((1.0 - MAX_PENALTY..1.0).contains(&m_f),
-            "multiplier {m_f} should be in [{}, 1.0)", 1.0 - MAX_PENALTY);
-
         assert!(
-            hit_p.is_none(),
-            "hp_pct = 0.5 (< HP_NEED_GATE) must not fire",
+            (1.0 - MAX_PENALTY..1.0).contains(&m_f),
+            "multiplier {m_f} should be in [{}, 1.0)", 1.0 - MAX_PENALTY,
         );
+
+        // Passes case: hp_pct = 0.5.
+        let target_passes = UnitBuilder::new(2, Team::Enemy, target_pos).hp(15).max_hp(30).build();
+        let scn_p = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target_passes])
+            .with_ability("heal", heal_ability("heal"))
+            .build();
+        let (plan_p, ann_p) = cast_heal_plan("heal", target_entity, target_pos, caster_pos, 8.0);
+        assert_critic_passes(&HealWithoutRescueValue, &plan_p, &ann_p, &scn_p);
     }
 }

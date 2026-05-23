@@ -181,6 +181,12 @@ impl CriticsStage {
             ],
         }
     }
+
+    /// Construct a stage with a single critic. Used by test helpers to run
+    /// one critic in isolation via the full stage flow.
+    pub(crate) fn single(critic: impl PlanCritic + 'static) -> Self {
+        Self { critics: vec![Box::new(critic)] }
+    }
 }
 
 impl ScoreEffectStage for CriticsStage {
