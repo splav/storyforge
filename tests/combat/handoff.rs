@@ -445,6 +445,96 @@ fn combat_2_starts_clean_after_combat_1() {
     let _ = (hero, enemy);
 }
 
+// ── Test 4b: bootstrap is fresh after teardown + respawn ─────────────────────
+
+/// After combat 1 → teardown → fresh spawn → bootstrap, the engine must
+/// have the new units, no tombstones from combat 1, queue order matching
+/// the new ECS TurnQueue, and accept an action without stale id_map errors.
+///
+/// Complements `combat_2_starts_clean_after_combat_1` which validates teardown
+/// only; this test validates the POST-teardown bootstrap.
+#[test]
+fn combat_2_bootstraps_fresh_after_combat_1() {
+    use bevy::ecs::system::RunSystemOnce;
+    use storyforge::combat::engine_bridge::{
+        reset_engine_mirrors_on_exit_combat, CombatStateRes, UnitIdMap,
+    };
+    use storyforge::game::resources::TurnQueue;
+
+    let mut app = movement_app();
+
+    // ── Combat 1: spawn 2 units, bootstrap, verify engine mirrors. ────────────
+    let hero1  = spawn_at(&mut app, hex_from_offset(2, 2), test_hero(base_stats()),  "Hero1");
+    let enemy1 = spawn_at(&mut app, hex_from_offset(5, 2), test_enemy(base_stats()), "Enemy1");
+    {
+        let mut queue = app.world_mut().resource_mut::<TurnQueue>();
+        queue.order = vec![hero1, enemy1];
+        queue.index = 0;
+    }
+    app.world_mut().entity_mut(hero1).insert(ActiveCombatant);
+    init_engine_state(&mut app);
+    {
+        let state = &app.world().resource::<CombatStateRes>().0;
+        assert_eq!(state.units().len(), 2, "combat 1: engine must have 2 units after bootstrap");
+    }
+
+    // ── Mutate engine state: hero EndTurns once. ──────────────────────────────
+    write_message(&mut app, ActionInput::EndTurn { actor: hero1 });
+    app.update();
+
+    // ── Teardown: simulate OnExit(AppState::Combat). ──────────────────────────
+    app.world_mut()
+        .run_system_once(reset_engine_mirrors_on_exit_combat)
+        .expect("reset_engine_mirrors_on_exit_combat failed");
+    {
+        let cs = app.world().resource::<CombatStateRes>();
+        assert!(cs.0.units().is_empty(), "engine units must be cleared by teardown");
+        let id_map = app.world().resource::<UnitIdMap>();
+        assert!(
+            id_map.entity_to_id.is_empty() && id_map.id_to_entity.is_empty(),
+            "id_map must be empty after teardown"
+        );
+    }
+
+    // ── Combat 2: despawn old entities, spawn fresh ones. ─────────────────────
+    app.world_mut().entity_mut(hero1).despawn();
+    app.world_mut().entity_mut(enemy1).despawn();
+    let hero2  = spawn_at(&mut app, hex_from_offset(1, 1), test_hero(base_stats()),  "Hero2");
+    let enemy2 = spawn_at(&mut app, hex_from_offset(4, 4), test_enemy(base_stats()), "Enemy2");
+    {
+        let mut queue = app.world_mut().resource_mut::<TurnQueue>();
+        queue.order = vec![hero2, enemy2];
+        queue.index = 0;
+    }
+    app.world_mut().entity_mut(hero2).insert(ActiveCombatant);
+
+    // ── Bootstrap combat 2 ────────────────────────────────────────────────────
+    init_engine_state(&mut app);
+    {
+        let state = &app.world().resource::<CombatStateRes>().0;
+        assert_eq!(state.units().len(), 2, "combat 2: exactly 2 units, no stale tombstones");
+
+        // Verify queue order matches the new ECS entities.
+        let id_map = app.world().resource::<UnitIdMap>();
+        let hero2_uid  = id_map.get_id(hero2).expect("hero2 must be in id_map");
+        let enemy2_uid = id_map.get_id(enemy2).expect("enemy2 must be in id_map");
+        assert_eq!(
+            state.turn_queue.order,
+            vec![hero2_uid, enemy2_uid],
+            "combat 2: engine queue order must match ECS TurnQueue"
+        );
+        assert_eq!(
+            state.turn_queue.current(),
+            Some(hero2_uid),
+            "combat 2: current actor must be hero2"
+        );
+    }
+
+    // ── Hero2 takes an action — verify no panic / no stale-id errors. ─────────
+    write_message(&mut app, ActionInput::EndTurn { actor: hero2 });
+    app.update();
+}
+
 // ── Test 5: synthetic UnitId snapshot lookup (B-prime, 1b522d3) ──────────────
 
 /// `BattleSnapshot::entity_for_uid` must not panic for synthetic UnitIds
