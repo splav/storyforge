@@ -17,6 +17,14 @@ toml  = "0.8"
 bitflags = "2"
 directories = "6"
 
+[features]
+# Включить `bevy/dynamic_linking` только для локальной dev-сборки:
+#   cargo run   --features dev
+#   cargo build --features dev
+#   cargo test  --features dev
+# Релиз и бенчи запускать БЕЗ этой фичи — нужен статический линк.
+dev = ["bevy/dynamic_linking"]
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 
