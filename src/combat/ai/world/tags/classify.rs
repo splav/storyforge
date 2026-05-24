@@ -199,309 +199,423 @@ mod tests {
             .clone()
     }
 
-    // ── derive_status_tags pin tests ──────────────────────────────────────────
+    // ── Synthesized-input helpers ─────────────────────────────────────────────
+    //
+    // Phase 3: rule-based tests use minimal synthesized StatusDef / AbilityDef
+    // objects instead of loading the real TOML content. This gives:
+    //   - branch-level mutation discrimination (each test hits one OR-branch)
+    //   - no coupling to content edits (rename of "fireball" doesn't break tests)
+    //   - faster runtime (no TOML I/O)
+    //
+    // The remaining content-pin tests (load_content + status_def / ability) live
+    // in the `// Special/regression tests` section below and intentionally couple
+    // to specific TOML entries — they are guards on content↔classifier alignment
+    // for taunt/taunted (the most behaviour-critical pair).
+
+    fn empty_engine_status() -> combat_engine::StatusDef {
+        combat_engine::StatusDef {
+            causes_disadvantage: false,
+            blocks_mana_abilities: false,
+            forces_targeting: false,
+            skips_turn: false,
+            armor_bonus: 0,
+            damage_taken_bonus: 0,
+            speed_bonus: 0,
+            hp_percent_dot: 0,
+        }
+    }
+
+    fn make_status(engine: combat_engine::StatusDef) -> StatusDef {
+        StatusDef {
+            id: StatusId::from("test_status"),
+            name: "test_status".to_string(),
+            dot_dice: None,
+            ai_controlled: false,
+            buff_class: None,
+            engine,
+        }
+    }
+
+    fn make_ability(
+        effect: crate::content::abilities::EffectDef,
+        target_type: crate::content::abilities::TargetType,
+        statuses: Vec<crate::content::abilities::StatusApplication>,
+    ) -> AbilityDef {
+        AbilityDef {
+            id: AbilityId::from("test_ability"),
+            name: "test_ability".to_string(),
+            magic_domains: vec![],
+            magic_method: String::new(),
+            ai_tags_override: None,
+            is_move_toggle: false,
+            engine: combat_engine::AbilityDef {
+                key: None,
+                cost_ap: 1,
+                costs: vec![],
+                range: combat_engine::content::AbilityRange::SELF_ONLY,
+                target_type,
+                aoe: combat_engine::content::AoEShape::None,
+                friendly_fire: false,
+                effect,
+                statuses,
+            },
+        }
+    }
+
+    fn empty_lookup() -> HashMap<StatusId, StatusTagSet> {
+        HashMap::new()
+    }
+
+    fn lookup_with(id: &str, tags: StatusTagSet) -> HashMap<StatusId, StatusTagSet> {
+        let mut m = HashMap::new();
+        m.insert(StatusId::from(id), tags);
+        m
+    }
+
+    fn defs_with_forces_targeting(id: &str) -> HashMap<StatusId, StatusDef> {
+        let mut eng = empty_engine_status();
+        eng.forces_targeting = true;
+        let mut m = HashMap::new();
+        m.insert(StatusId::from(id), make_status(eng));
+        m
+    }
+
+    fn status_app(id: &str, on: crate::content::abilities::StatusOn) -> crate::content::abilities::StatusApplication {
+        crate::content::abilities::StatusApplication {
+            status: StatusId::from(id),
+            duration_rounds: 1,
+            on,
+        }
+    }
+
+    // ── derive_status_tags rule tests ─────────────────────────────────────────
 
     #[test]
-    fn derive_status_tags_for_defending() {
-        let content = load_content();
-        let def = status_def("defending", &content);
-        // armor_bonus=4, buff_class=ArmorBuff → BUFF
-        assert_eq!(derive_status_tags(&def), StatusTagSet::BUFF);
+    fn status_skips_turn_yields_hard_cc() {
+        let mut eng = empty_engine_status();
+        eng.skips_turn = true;
+        assert_eq!(derive_status_tags(&make_status(eng)), StatusTagSet::HARD_CC);
     }
 
     #[test]
-    fn derive_status_tags_for_taunted() {
-        let content = load_content();
-        let def = status_def("taunted", &content);
-        // forces_targeting=true → COMPULSION (step 9.B); no other AI-side fields;
-        // Cosmetic fallback is suppressed because Compulsion is set.
-        assert_eq!(derive_status_tags(&def), StatusTagSet::COMPULSION);
+    fn status_disadvantage_yields_soft_cc() {
+        let mut eng = empty_engine_status();
+        eng.causes_disadvantage = true;
+        assert_eq!(derive_status_tags(&make_status(eng)), StatusTagSet::SOFT_CC);
     }
 
     #[test]
-    fn derive_status_tags_for_stunned() {
-        let content = load_content();
-        let def = status_def("stunned", &content);
-        // skips_turn=true → HARD_CC
-        assert_eq!(derive_status_tags(&def), StatusTagSet::HARD_CC);
+    fn status_negative_speed_yields_soft_cc() {
+        let mut eng = empty_engine_status();
+        eng.speed_bonus = -1;
+        assert_eq!(derive_status_tags(&make_status(eng)), StatusTagSet::SOFT_CC);
     }
 
     #[test]
-    fn derive_status_tags_for_burning() {
-        let content = load_content();
-        let def = status_def("burning", &content);
-        // damage_taken_bonus=1 — vulnerability, not dot_dice or hp_percent_dot → COSMETIC
-        assert_eq!(derive_status_tags(&def), StatusTagSet::COSMETIC);
+    fn status_positive_speed_alone_yields_cosmetic() {
+        // Classifier rule: only `speed_bonus < 0` maps to SoftCC. Positive
+        // speed_bonus is not recognised as a Buff — falls through to Cosmetic.
+        // This pins the documented rule against accidental `speed_bonus > 0 → Buff`.
+        let mut eng = empty_engine_status();
+        eng.speed_bonus = 1;
+        assert_eq!(derive_status_tags(&make_status(eng)), StatusTagSet::COSMETIC);
     }
 
     #[test]
-    fn derive_status_tags_for_paralyzed() {
-        let content = load_content();
-        let def = status_def("paralyzed", &content);
-        // skips_turn=true → HARD_CC
-        assert_eq!(derive_status_tags(&def), StatusTagSet::HARD_CC);
-    }
-
-    #[test]
-    fn derive_status_tags_for_poisoned() {
-        let content = load_content();
-        let def = status_def("poisoned", &content);
-        // dot_count=1, dot_sides=4 → DOT
+    fn status_dot_dice_yields_dot() {
+        let dice = combat_engine::DiceExpr::new(1, 4, 0);
+        let def = StatusDef {
+            dot_dice: Some(dice),
+            ..make_status(empty_engine_status())
+        };
         assert_eq!(derive_status_tags(&def), StatusTagSet::DOT);
     }
 
     #[test]
-    fn derive_status_tags_for_broken_faith() {
-        let content = load_content();
-        let def = status_def("broken_faith", &content);
-        // blocks_mana_abilities=true — not in 5 status tags → COSMETIC
+    fn status_hp_percent_dot_yields_dot() {
+        let mut eng = empty_engine_status();
+        eng.hp_percent_dot = 5;
+        assert_eq!(derive_status_tags(&make_status(eng)), StatusTagSet::DOT);
+    }
+
+    #[test]
+    fn status_armor_bonus_yields_buff() {
+        let mut eng = empty_engine_status();
+        eng.armor_bonus = 4;
+        assert_eq!(derive_status_tags(&make_status(eng)), StatusTagSet::BUFF);
+    }
+
+    #[test]
+    fn status_buff_class_yields_buff() {
+        let def = StatusDef {
+            buff_class: Some(crate::content::statuses::BuffClass::ArmorBuff),
+            ..make_status(empty_engine_status())
+        };
+        assert_eq!(derive_status_tags(&def), StatusTagSet::BUFF);
+    }
+
+    #[test]
+    fn status_unrecognised_field_yields_cosmetic_fallback() {
+        // `damage_taken_bonus`, `blocks_mana_abilities`, `ai_controlled` — none of
+        // these map to a tag; all-empty → Cosmetic (covers `burning`, `broken_faith`,
+        // `pact_control` content-side categories at the rule level).
+        let mut eng = empty_engine_status();
+        eng.damage_taken_bonus = 2;
+        eng.blocks_mana_abilities = true;
+        let def = StatusDef {
+            ai_controlled: true,
+            ..make_status(eng)
+        };
         assert_eq!(derive_status_tags(&def), StatusTagSet::COSMETIC);
     }
 
     #[test]
-    fn derive_status_tags_for_exhaustion() {
-        let content = load_content();
-        let def = status_def("exhaustion", &content);
-        // speed_bonus=-1 (SOFT_CC) + hp_percent_dot=5 (DOT)
+    fn status_combo_negative_speed_and_dot_yields_soft_cc_and_dot() {
+        // Exhaustion-style: SoftCC (speed_bonus<0) + DOT (hp_percent_dot>0).
+        // Tests that tags accumulate independently (not mutually exclusive).
+        let mut eng = empty_engine_status();
+        eng.speed_bonus = -1;
+        eng.hp_percent_dot = 5;
         assert_eq!(
-            derive_status_tags(&def),
+            derive_status_tags(&make_status(eng)),
             StatusTagSet::SOFT_CC | StatusTagSet::DOT
         );
     }
 
+    // ── derive_ability_tags rule tests: damage effects → OFFENSIVE ────────────
+
     #[test]
-    fn derive_status_tags_for_pact_control() {
-        let content = load_content();
-        let def = status_def("pact_control", &content);
-        // ai_controlled=true — not in 5 status tags → COSMETIC
-        assert_eq!(derive_status_tags(&def), StatusTagSet::COSMETIC);
+    fn ability_weapon_attack_yields_offensive() {
+        use crate::content::abilities::{EffectDef, TargetType};
+        let def = make_ability(EffectDef::WeaponAttack, TargetType::SingleEnemy, vec![]);
+        assert_eq!(derive_ability_tags(&def, &empty_lookup(), &HashMap::new()),
+                   AbilityTagSet::OFFENSIVE);
     }
 
     #[test]
-    fn derive_status_tags_for_disoriented() {
-        let content = load_content();
-        let def = status_def("disoriented", &content);
-        // causes_disadvantage=true → SOFT_CC
-        assert_eq!(derive_status_tags(&def), StatusTagSet::SOFT_CC);
+    fn ability_damage_effect_yields_offensive() {
+        use crate::content::abilities::{EffectDef, TargetType};
+        let dice = combat_engine::DiceExpr::new(1, 6, 0);
+        let def = make_ability(EffectDef::Damage { dice }, TargetType::SingleEnemy, vec![]);
+        assert_eq!(derive_ability_tags(&def, &empty_lookup(), &HashMap::new()),
+                   AbilityTagSet::OFFENSIVE);
     }
 
-    // ── derive_ability_tags pin tests ─────────────────────────────────────────
+    #[test]
+    fn ability_spell_damage_yields_offensive() {
+        use crate::content::abilities::{EffectDef, TargetType};
+        let dice = combat_engine::DiceExpr::new(1, 6, 0);
+        let def = make_ability(EffectDef::SpellDamage { dice }, TargetType::Ground, vec![]);
+        assert_eq!(derive_ability_tags(&def, &empty_lookup(), &HashMap::new()),
+                   AbilityTagSet::OFFENSIVE);
+    }
+
+    // ── derive_ability_tags rule tests: Rescue gate ───────────────────────────
 
     #[test]
-    fn derive_ability_tags_for_move() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("move", &content);
-        // effect=ToggleMoveMode → empty
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::empty()
+    fn ability_heal_to_ally_yields_rescue() {
+        use crate::content::abilities::{EffectDef, TargetType};
+        let dice = combat_engine::DiceExpr::new(1, 6, 0);
+        let def = make_ability(EffectDef::Heal { dice }, TargetType::SingleAlly, vec![]);
+        assert_eq!(derive_ability_tags(&def, &empty_lookup(), &HashMap::new()),
+                   AbilityTagSet::RESCUE);
+    }
+
+    #[test]
+    fn ability_heal_to_self_yields_no_rescue() {
+        // Rescue requires target_type==SingleAlly. Heal+Myself must not classify.
+        use crate::content::abilities::{EffectDef, TargetType};
+        let dice = combat_engine::DiceExpr::new(1, 6, 0);
+        let def = make_ability(EffectDef::Heal { dice }, TargetType::Myself, vec![]);
+        let tags = derive_ability_tags(&def, &empty_lookup(), &HashMap::new());
+        assert!(!tags.contains_tag(AbilityTag::Rescue), "Heal+Myself must not yield Rescue");
+    }
+
+    #[test]
+    fn ability_non_heal_to_ally_yields_no_rescue() {
+        // Rescue gate has TWO conjuncts: target_type==SingleAlly AND Heal. Verify
+        // SingleAlly with non-Heal effect does NOT yield Rescue (covers `&&` → `||`).
+        use crate::content::abilities::{EffectDef, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::SingleAlly, vec![]);
+        let tags = derive_ability_tags(&def, &empty_lookup(), &HashMap::new());
+        assert!(!tags.contains_tag(AbilityTag::Rescue), "non-Heal+SingleAlly must not yield Rescue");
+    }
+
+    // ── derive_ability_tags rule tests: Summon / Mobility / empty ─────────────
+
+    #[test]
+    fn ability_summon_yields_summon() {
+        use crate::content::abilities::{EffectDef, TargetType};
+        let def = make_ability(
+            EffectDef::Summon { template_id: "x".into(), max_active: None },
+            TargetType::Myself, vec![],
         );
+        assert_eq!(derive_ability_tags(&def, &empty_lookup(), &HashMap::new()),
+                   AbilityTagSet::SUMMON);
     }
 
     #[test]
-    fn derive_ability_tags_for_rest() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("rest", &content);
-        // effect=RestoreResources → empty
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::empty()
-        );
+    fn ability_grant_movement_yields_mobility() {
+        use crate::content::abilities::{EffectDef, TargetType};
+        let def = make_ability(EffectDef::GrantMovement { distance: 2 }, TargetType::Myself, vec![]);
+        assert_eq!(derive_ability_tags(&def, &empty_lookup(), &HashMap::new()),
+                   AbilityTagSet::MOBILITY);
     }
 
     #[test]
-    fn derive_ability_tags_for_melee_attack() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("melee_attack", &content);
-        // effect=WeaponAttack, target=SingleEnemy → OFFENSIVE
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::OFFENSIVE
-        );
+    fn ability_no_effect_no_statuses_yields_empty() {
+        use crate::content::abilities::{EffectDef, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::SingleEnemy, vec![]);
+        assert_eq!(derive_ability_tags(&def, &empty_lookup(), &HashMap::new()),
+                   AbilityTagSet::empty());
+    }
+
+    // ── derive_ability_tags rule tests: Defensive — 3 OR-branches + negative ──
+
+    #[test]
+    fn ability_applies_buff_to_self_via_my_self_yields_defensive() {
+        // Branch 1: on=MySelf (regardless of target_type).
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::SingleEnemy,
+            vec![status_app("buff", StatusOn::MySelf)]);
+        let tags = derive_ability_tags(&def, &lookup_with("buff", StatusTagSet::BUFF), &HashMap::new());
+        assert!(tags.contains_tag(AbilityTag::Defensive));
     }
 
     #[test]
-    fn derive_ability_tags_for_taunt() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("taunt", &content);
-        // defending(on=target,target=myself) → DEFENSIVE (Buff via armor_bonus)
-        // taunted(on=self) → PEEL (forces_targeting via status_defs)
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::DEFENSIVE | AbilityTagSet::PEEL
-        );
+    fn ability_applies_buff_to_ally_via_target_yields_defensive() {
+        // Branch 2: on=Target AND target_type=SingleAlly.
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::SingleAlly,
+            vec![status_app("buff", StatusOn::Target)]);
+        let tags = derive_ability_tags(&def, &lookup_with("buff", StatusTagSet::BUFF), &HashMap::new());
+        assert!(tags.contains_tag(AbilityTag::Defensive));
     }
 
     #[test]
-    fn derive_ability_tags_for_fireball() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("fireball", &content);
-        // effect=SpellDamage, target=Ground → OFFENSIVE
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::OFFENSIVE
-        );
+    fn ability_applies_buff_via_target_when_target_is_myself_yields_defensive() {
+        // Branch 3: on=Target AND target_type=Myself (e.g. taunt's defending status).
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::Myself,
+            vec![status_app("buff", StatusOn::Target)]);
+        let tags = derive_ability_tags(&def, &lookup_with("buff", StatusTagSet::BUFF), &HashMap::new());
+        assert!(tags.contains_tag(AbilityTag::Defensive));
     }
 
     #[test]
-    fn derive_ability_tags_for_thunderstrike() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("thunderstrike", &content);
-        // effect=SpellDamage, target=Ground → OFFENSIVE
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::OFFENSIVE
-        );
+    fn ability_applies_buff_to_enemy_target_yields_no_defensive() {
+        // Negative: on=Target + target_type=SingleEnemy. None of the 3 branches fire.
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::SingleEnemy,
+            vec![status_app("buff", StatusOn::Target)]);
+        let tags = derive_ability_tags(&def, &lookup_with("buff", StatusTagSet::BUFF), &HashMap::new());
+        assert!(!tags.contains_tag(AbilityTag::Defensive));
+    }
+
+    // ── derive_ability_tags rule tests: ApplyCC — branches + negatives ────────
+
+    #[test]
+    fn ability_applies_hardcc_to_single_enemy_yields_apply_cc() {
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::SingleEnemy,
+            vec![status_app("stun", StatusOn::Target)]);
+        let tags = derive_ability_tags(&def, &lookup_with("stun", StatusTagSet::HARD_CC), &HashMap::new());
+        assert!(tags.contains_tag(AbilityTag::ApplyCC));
     }
 
     #[test]
-    fn derive_ability_tags_for_heal() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("heal", &content);
-        // effect=Heal, target=SingleAlly → RESCUE
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::RESCUE
-        );
+    fn ability_applies_softcc_to_ground_yields_apply_cc() {
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::Ground,
+            vec![status_app("slow", StatusOn::Target)]);
+        let tags = derive_ability_tags(&def, &lookup_with("slow", StatusTagSet::SOFT_CC), &HashMap::new());
+        assert!(tags.contains_tag(AbilityTag::ApplyCC));
     }
 
     #[test]
-    fn derive_ability_tags_for_flash() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("flash", &content);
-        // effect=SpellDamage, target=SingleEnemy → OFFENSIVE
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::OFFENSIVE
-        );
+    fn ability_applies_cc_to_self_via_my_self_yields_no_apply_cc() {
+        // ApplyCC requires on=Target. on=MySelf must not qualify (covers `sa.on != Target` early-return).
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::SingleEnemy,
+            vec![status_app("stun", StatusOn::MySelf)]);
+        let tags = derive_ability_tags(&def, &lookup_with("stun", StatusTagSet::HARD_CC), &HashMap::new());
+        assert!(!tags.contains_tag(AbilityTag::ApplyCC));
     }
 
     #[test]
-    fn derive_ability_tags_for_burn() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("burn", &content);
-        // statuses=[burning(Cosmetic) on=target]; no damage effect → empty
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::empty()
-        );
+    fn ability_applies_cc_to_ally_target_yields_no_apply_cc() {
+        // ApplyCC requires target_type in {SingleEnemy, Ground}. SingleAlly must not qualify.
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::SingleAlly,
+            vec![status_app("stun", StatusOn::Target)]);
+        let tags = derive_ability_tags(&def, &lookup_with("stun", StatusTagSet::HARD_CC), &HashMap::new());
+        assert!(!tags.contains_tag(AbilityTag::ApplyCC));
     }
 
     #[test]
-    fn derive_ability_tags_for_spark() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("spark", &content);
-        // effect=SpellDamage, target=SingleEnemy → OFFENSIVE
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::OFFENSIVE
-        );
+    fn ability_applies_dot_to_enemy_yields_no_apply_cc() {
+        // ApplyCC checks tags HardCC || SoftCC. A DOT status alone does NOT qualify.
+        // (Covers backstab/poison_shot — Damage+DOT classifies as OFFENSIVE only.)
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::SingleEnemy,
+            vec![status_app("poison", StatusOn::Target)]);
+        let tags = derive_ability_tags(&def, &lookup_with("poison", StatusTagSet::DOT), &HashMap::new());
+        assert!(!tags.contains_tag(AbilityTag::ApplyCC));
+    }
+
+    // ── derive_ability_tags rule tests: Peel — 3 OR-branches + negative ──────
+
+    #[test]
+    fn ability_applies_forces_targeting_to_self_via_my_self_yields_peel() {
+        // Branch 1: on=MySelf.
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::Myself,
+            vec![status_app("taunt", StatusOn::MySelf)]);
+        let tags = derive_ability_tags(&def, &empty_lookup(), &defs_with_forces_targeting("taunt"));
+        assert!(tags.contains_tag(AbilityTag::Peel));
     }
 
     #[test]
-    fn derive_ability_tags_for_stun() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("stun", &content);
-        // statuses=[stunned(HARD_CC) on=target, target=SingleEnemy] → APPLY_CC
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::APPLY_CC
-        );
+    fn ability_applies_forces_targeting_to_ally_via_target_yields_peel() {
+        // Branch 2: on=Target AND target_type=SingleAlly.
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::SingleAlly,
+            vec![status_app("taunt", StatusOn::Target)]);
+        let tags = derive_ability_tags(&def, &empty_lookup(), &defs_with_forces_targeting("taunt"));
+        assert!(tags.contains_tag(AbilityTag::Peel));
     }
 
     #[test]
-    fn derive_ability_tags_for_backstab() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("backstab", &content);
-        // effect=Damage; statuses=[poisoned(DOT) on=target] — DOT is not CC → OFFENSIVE
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::OFFENSIVE
-        );
+    fn ability_applies_forces_targeting_via_target_when_target_is_myself_yields_peel() {
+        // Branch 3: on=Target AND target_type=Myself.
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::Myself,
+            vec![status_app("taunt", StatusOn::Target)]);
+        let tags = derive_ability_tags(&def, &empty_lookup(), &defs_with_forces_targeting("taunt"));
+        assert!(tags.contains_tag(AbilityTag::Peel));
     }
 
     #[test]
-    fn derive_ability_tags_for_rush() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("rush", &content);
-        // effect=GrantMovement, target=Myself → MOBILITY
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::MOBILITY
-        );
+    fn ability_applies_forces_targeting_to_enemy_yields_no_peel() {
+        // Negative: target_type=SingleEnemy. None of the 3 branches fire.
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let def = make_ability(EffectDef::None, TargetType::SingleEnemy,
+            vec![status_app("taunt", StatusOn::Target)]);
+        let tags = derive_ability_tags(&def, &empty_lookup(), &defs_with_forces_targeting("taunt"));
+        assert!(!tags.contains_tag(AbilityTag::Peel));
     }
 
-    #[test]
-    fn derive_ability_tags_for_field_medic() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("field_medic", &content);
-        // effect=Heal, target=SingleAlly → RESCUE
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::RESCUE
-        );
-    }
+    // ── derive_ability_tags rule tests: combos ────────────────────────────────
 
     #[test]
-    fn derive_ability_tags_for_bow_shot() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("bow_shot", &content);
-        // effect=Damage, target=SingleEnemy, range.min=2 → OFFENSIVE
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::OFFENSIVE
-        );
-    }
-
-    #[test]
-    fn derive_ability_tags_for_paralyzing_shot() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("paralyzing_shot", &content);
-        // effect=Damage (OFFENSIVE) + paralyzed(HARD_CC) on=target, target=SingleEnemy → APPLY_CC
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::OFFENSIVE | AbilityTagSet::APPLY_CC
-        );
-    }
-
-    #[test]
-    fn derive_ability_tags_for_poison_shot() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("poison_shot", &content);
-        // effect=Damage; statuses=[poisoned(DOT)] — DOT not CC → OFFENSIVE
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::OFFENSIVE
-        );
-    }
-
-    #[test]
-    fn derive_ability_tags_for_summon_storm_spirit() {
-        let content = load_content();
-        let lookup = build_status_lookup(&content);
-        let def = ability("summon_storm_spirit", &content);
-        // effect=Summon, target=Myself → SUMMON
-        assert_eq!(
-            derive_ability_tags(&def, &lookup, &content.statuses),
-            AbilityTagSet::SUMMON
-        );
+    fn ability_damage_plus_cc_status_yields_offensive_and_apply_cc() {
+        // Paralyzing-shot-style: Damage effect (OFFENSIVE) + HardCC status (APPLY_CC).
+        use crate::content::abilities::{EffectDef, StatusOn, TargetType};
+        let dice = combat_engine::DiceExpr::new(1, 6, 0);
+        let def = make_ability(EffectDef::Damage { dice }, TargetType::SingleEnemy,
+            vec![status_app("stun", StatusOn::Target)]);
+        let tags = derive_ability_tags(&def, &lookup_with("stun", StatusTagSet::HARD_CC), &HashMap::new());
+        assert_eq!(tags, AbilityTagSet::OFFENSIVE | AbilityTagSet::APPLY_CC);
     }
 
     // ── Special/regression tests ──────────────────────────────────────────────
