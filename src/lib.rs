@@ -1,6 +1,7 @@
 pub mod app_state;
 pub mod combat;
 pub use combat_engine;
+pub use combat_ai;
 pub mod content;
 pub mod game;
 pub mod persistence;

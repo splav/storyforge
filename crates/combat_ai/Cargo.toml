@@ -1,0 +1,20 @@
+[package]
+name = "combat_ai"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+# Default — pure Rust, no Bevy.
+default = []
+# Включается из главного crate; добавляет derive(Resource)/derive(Component)
+# для AI-типов, используемых как Bevy ECS resources/components.
+bevy = ["dep:bevy_ecs"]
+
+[dependencies]
+combat_engine = { path = "../combat_engine" }
+hexx = { version = "0.24", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+bevy_ecs = { version = "0.18", optional = true }
+
+[dev-dependencies]
+serde_json = "1"

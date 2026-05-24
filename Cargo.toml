@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/combat_engine"]
+members = ["crates/combat_engine", "crates/combat_ai"]
 
 [package]
 name = "storyforge"
@@ -9,6 +9,7 @@ default-run = "storyforge"
 
 [dependencies]
 combat_engine = { path = "crates/combat_engine" }
+combat_ai = { path = "crates/combat_ai", features = ["bevy"] }
 bevy  = "0.18"
 hexx  = { version = "0.24", features = ["bevy", "algorithms"] }
 serde = { version = "1", features = ["derive"] }
