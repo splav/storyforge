@@ -23,7 +23,7 @@ use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, EffectDef, TargetType};
 #[cfg(test)]
 use crate::content::abilities::EffectCalcExt;
-use crate::core::AbilityId;
+use combat_engine::AbilityId;
 use crate::game::hex::Hex;
 use crate::game::pathfinding::ReachableMap;
 use bevy::prelude::Entity;
@@ -693,7 +693,7 @@ mod tests {
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
     };
-    use crate::core::{AbilityId, DiceExpr};
+    use combat_engine::{AbilityId, DiceExpr};
     use crate::game::components::{Abilities, Team};
     use crate::game::hex::hex_from_offset;
 
@@ -1065,7 +1065,7 @@ mod tests {
     
     use crate::content::abilities::{StatusApplication, StatusOn};
     use crate::content::statuses::StatusDef;
-    use crate::core::StatusId;
+    use combat_engine::StatusId;
 
     fn heal_def(id: &str, range: u32) -> AbilityDef {
         AbilityDef {
@@ -1414,7 +1414,7 @@ mod tests {
     #[test]
     fn generate_plans_excludes_mana_casts_under_blocks_mana_status() {
         use crate::combat::ai::world::snapshot::ActiveStatusView;
-        use crate::core::ResourceKind;
+        use combat_engine::ResourceKind;
 
         // Actor has broken_faith + enough mana + both a mana spell and a
         // no-cost melee fallback.
@@ -1628,7 +1628,7 @@ mod tests {
     fn disadvantage_status_discounts_plan_damage_estimate() {
         use crate::combat::ai::world::snapshot::ActiveStatusView;
         use crate::content::statuses::StatusDef;
-        use crate::core::StatusId;
+        use combat_engine::StatusId;
 
         let base_actor = || unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
         let target = unit(2, Team::Player, hex_from_offset(1, 0), 20, 1);
@@ -2021,7 +2021,7 @@ mod tests {
         let poison_def = StatusDef {
             id: poison_id.clone(),
             name: "poison".into(),
-            dot_dice: Some(crate::core::DiceExpr::new(0, 0, 3)),
+            dot_dice: Some(combat_engine::DiceExpr::new(0, 0, 3)),
             ai_controlled: false,
             buff_class: None,
             engine: combat_engine::StatusDef {

@@ -41,7 +41,7 @@ use crate::combat::ai::orchestration::{AiWorld, ScoringCtx};
 use crate::content::abilities::{CasterContext, EffectDef};
 #[cfg(test)]
 use crate::content::abilities::EffectCalcExt;
-use crate::core::modifier;
+use combat_engine::modifier;
 use crate::game::components::Abilities;
 use bevy::prelude::Entity;
 
@@ -710,7 +710,7 @@ mod tests {
         use crate::combat::ai::test_helpers::UnitBuilder;
         use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
 
         // Give actor a weapon die so melee_attack (weapon_attack effect)
         // produces non-zero damage factors. Without weapon_dice the caster_ctx
@@ -1046,7 +1046,7 @@ mod tests {
         use crate::combat::ai::world::reservations::Reservations;
         use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, UnitBuilder};
         use crate::combat::ai::test_helpers::snapshot_from;
-        use crate::core::DiceRng;
+        use combat_engine::DiceRng;
         use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 
         let actor = unit(1, Team::Enemy, hex_from_offset(0, 0));
@@ -1127,7 +1127,7 @@ mod tests {
         use crate::combat::ai::test_helpers::snapshot_from;
         use crate::combat::ai::intent::TacticalIntent;
         use crate::content::abilities::CasterContext;
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .ap(2)
@@ -1350,7 +1350,7 @@ mod tests {
         use crate::combat::ai::test_helpers::UnitBuilder;
         use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .ap(2)
@@ -1430,7 +1430,7 @@ mod tests {
         use crate::combat::ai::test_helpers::UnitBuilder;
         use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .ap(3)
@@ -1514,7 +1514,7 @@ mod tests {
         use crate::combat::ai::test_helpers::UnitBuilder;
         use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .ap(3)
@@ -1603,7 +1603,7 @@ mod tests {
         use crate::combat::ai::test_helpers::UnitBuilder;
         use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
 
         let cast_pos = hex_from_offset(0, 6); // actor casts from here
         let actor = UnitBuilder::new(1, Team::Enemy, cast_pos)
@@ -1679,7 +1679,7 @@ mod tests {
         use crate::combat::ai::test_helpers::UnitBuilder;
         use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .ap(3)
@@ -1754,7 +1754,7 @@ mod tests {
         use crate::combat::ai::test_helpers::UnitBuilder;
         use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .ap(3)
@@ -1835,7 +1835,7 @@ mod tests {
         use crate::combat::ai::test_helpers::UnitBuilder;
         use crate::combat::ai::test_helpers::snapshot_from;
         use crate::content::abilities::CasterContext;
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
 
         let actor = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
             .ap(3)

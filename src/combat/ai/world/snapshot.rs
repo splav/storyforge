@@ -6,7 +6,7 @@ use crate::combat::ai::scoring::{applies_cc, estimate_damage_horizon, estimate_s
 use crate::combat::ai::config::tuning::AiTuningOverride;
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, TargetType};
 use crate::content::races::CritFailEffect;
-use crate::core::{AbilityId, ResourceKind, StatusId};
+use combat_engine::{AbilityId, ResourceKind, StatusId};
 use crate::game::components::{
     AiCombatantQ, Combatant, StatusEffects, Team,
 };
@@ -258,7 +258,7 @@ impl<'a> UnitView<'a> {
     }
 
     /// Current amount in the spendable pool for `kind`.
-    pub fn resource_amount(&self, kind: crate::core::ResourceKind) -> i32 {
+    pub fn resource_amount(&self, kind: combat_engine::ResourceKind) -> i32 {
         pool_amount(
             kind,
             self.state.hp,

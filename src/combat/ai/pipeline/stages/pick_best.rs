@@ -58,7 +58,7 @@ use crate::combat::ai::orchestration::{AiDecision, AiWorld, MoveOrigin};
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::content::abilities::{AoEShape, TargetType};
-use crate::core::DiceRng;
+use combat_engine::DiceRng;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 use std::hash::{Hash, Hasher};
@@ -572,7 +572,7 @@ mod tests {
     };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::core::DiceRng;
+    use combat_engine::DiceRng;
 
     // ── run_pick: no trace_base_eq_score — PickBest does not read score_trace ─
 
@@ -1308,7 +1308,7 @@ mod tests {
 
     mod commit_plan_tests {
         use super::*;
-        use crate::core::AbilityId;
+        use combat_engine::AbilityId;
         use crate::game::hex::hex_from_offset;
 
         fn ent(id: u32) -> Entity {

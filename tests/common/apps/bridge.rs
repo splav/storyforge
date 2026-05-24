@@ -38,7 +38,7 @@ use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectD
 use storyforge::content::content_view::{ActiveContent, ContentView};
 use storyforge::content::statuses::StatusDef;
 use storyforge::content::weapons::{HandType, WeaponDef};
-use storyforge::core::{AbilityId, DiceExpr, WeaponId};
+use combat_engine::{AbilityId, DiceExpr, WeaponId};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{CombatStats, Equipment, Team};

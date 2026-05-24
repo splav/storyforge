@@ -803,7 +803,7 @@ mod tests {
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType,
     };
-    use crate::core::{AbilityId, DiceExpr};
+    use combat_engine::{AbilityId, DiceExpr};
 
     fn fireball_def(radius: u32) -> AbilityDef {
         AbilityDef {

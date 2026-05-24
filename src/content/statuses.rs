@@ -1,4 +1,4 @@
-use crate::core::{DiceExpr, StatusId};
+use combat_engine::{DiceExpr, StatusId};
 use serde::Deserialize;
 
 /// Semantic class of a buff for saturation-penalty tracking. Two buffs of the

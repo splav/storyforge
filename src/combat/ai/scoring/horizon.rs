@@ -4,7 +4,7 @@ use crate::content::content_view::ContentView;
 use crate::combat::ai::world::snapshot::{UnitSnapshot, UnitView};
 use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, TargetType};
 use crate::content::statuses::StatusDef;
-use crate::core::ResourceKind;
+use combat_engine::ResourceKind;
 use crate::game::components::Abilities;
 use crate::game::hex::Hex;
 
@@ -386,7 +386,7 @@ mod tests {
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, StatusApplication, StatusOn,
     };
-    use crate::core::{AbilityId, DiceExpr, StatusId};
+    use combat_engine::{AbilityId, DiceExpr, StatusId};
     use std::collections::HashMap;
 
     fn content_with(abs: Vec<AbilityDef>) -> ContentView {

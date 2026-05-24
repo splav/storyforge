@@ -510,7 +510,7 @@ mod tests {
         use crate::content::abilities::AbilityDef as AppAbilityDef;
         use crate::combat::ai::plan::types::PlanStep;
         use crate::combat::ai::test_helpers::{CriticScenarioBuilder, assert_critic_passes};
-        use crate::core::AbilityId;
+        use combat_engine::AbilityId;
         use bevy::prelude::Entity;
         use combat_engine::{AbilityDef as EngineDef, AoEShape, AbilityRange, TargetType, EffectDef};
         use combat_engine::dice::DiceExpr;
@@ -573,7 +573,7 @@ mod tests {
         use crate::content::abilities::AbilityDef as AppAbilityDef;
         use crate::combat::ai::plan::types::PlanStep;
         use crate::combat::ai::test_helpers::{CriticScenarioBuilder, run_critic};
-        use crate::core::AbilityId;
+        use combat_engine::AbilityId;
         use bevy::prelude::Entity;
         use combat_engine::{AbilityDef as EngineDef, AoEShape, AbilityRange, TargetType, EffectDef};
         use combat_engine::dice::DiceExpr;

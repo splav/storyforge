@@ -8,7 +8,7 @@
 //! Templates have no hex position — position is always supplied at the use site.
 
 use crate::combat::ai::config::tuning::AiTuningOverride;
-use crate::core::{AbilityId, ArmorId, WeaponId};
+use combat_engine::{AbilityId, ArmorId, WeaponId};
 use crate::game::components::CombatStats;
 use serde::Deserialize;
 

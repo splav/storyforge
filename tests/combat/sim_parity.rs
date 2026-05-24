@@ -69,11 +69,11 @@ fn parity_haste_speed_real_vs_sim() {
     use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
     use storyforge::combat::ai::world::tags::{StatusTagCache, StatusTagSet};
     use storyforge::combat::ai::world::tags::cache::StatusBonuses;
-    use storyforge::core::StatusId;
+    use combat_engine::StatusId;
     use storyforge::game::components::Team;
     use storyforge::game::hex::hex_from_offset;
     use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication, StatusOn, TargetType};
-    use storyforge::core::AbilityId;
+    use combat_engine::AbilityId;
 
     // Build a cache with "haste" → speed_bonus=+2.
     let mut cache = StatusTagCache::default();
@@ -195,11 +195,11 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
     use storyforge::combat::ai::plan::types::PlanStep;
     use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
     use combat_engine::final_damage_f32;
-    use storyforge::core::StatusId;
+    use combat_engine::StatusId;
     use storyforge::game::components::Team;
     use storyforge::game::hex::hex_from_offset;
     use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, StatusApplication, StatusOn, TargetType};
-    use storyforge::core::{AbilityId, DiceExpr};
+    use combat_engine::{AbilityId, DiceExpr};
     use storyforge::content::statuses::StatusDef;
     use storyforge::content::content_view::ContentView;
     use std::collections::HashMap;
@@ -499,7 +499,7 @@ fn parity_rage_real_vs_sim() {
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
     };
     use storyforge::content::content_view::ContentView;
-    use storyforge::core::{AbilityId, DiceExpr};
+    use combat_engine::{AbilityId, DiceExpr};
     use storyforge::game::components::Team;
     use storyforge::game::hex::hex_from_offset;
     use std::collections::HashMap;
@@ -603,7 +603,7 @@ fn parity_rage_aoe_real_vs_sim() {
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
     };
     use storyforge::content::content_view::ContentView;
-    use storyforge::core::{AbilityId, DiceExpr};
+    use combat_engine::{AbilityId, DiceExpr};
     use storyforge::game::components::Team;
     use storyforge::game::hex::hex_from_offset;
     use std::collections::HashMap;

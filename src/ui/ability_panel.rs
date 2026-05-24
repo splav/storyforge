@@ -8,7 +8,7 @@ use crate::content::abilities::{
     AbilityDef, AoEShape, CasterContext, EffectCalcExt, EffectDef, StatusOn, TargetType,
 };
 use crate::content::statuses::StatusDef;
-use crate::core::{AbilityId, DiceExpr, ResourceKind};
+use combat_engine::{AbilityId, DiceExpr, ResourceKind};
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, CombatStats, Combatant, Dead, Energy, Equipment,
     Faction, Mana, Rage, Team, Vital,

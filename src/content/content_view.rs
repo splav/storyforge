@@ -17,7 +17,7 @@ use crate::content::unit_templates::{
 };
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::content::weapons::{parse_weapons, WeaponDef, WEAPONS_FILE};
-use crate::core::{AbilityId, ArmorId, StatusId, WeaponId};
+use combat_engine::{AbilityId, ArmorId, StatusId, WeaponId};
 use crate::game::components::{CombatStats, Equipment};
 use bevy::prelude::*;
 use std::collections::HashMap;

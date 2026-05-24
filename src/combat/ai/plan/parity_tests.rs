@@ -31,7 +31,7 @@ mod tests {
     use crate::content::content_view::ContentView;
     use crate::content::races::CritFailEffect;
     use crate::content::statuses::StatusDef;
-    use crate::core::{AbilityId, DiceExpr, ResourceKind, StatusId};
+    use combat_engine::{AbilityId, DiceExpr, ResourceKind, StatusId};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use bevy::prelude::Entity;

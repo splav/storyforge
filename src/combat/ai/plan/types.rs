@@ -3,7 +3,7 @@
 
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
-use crate::core::AbilityId;
+use combat_engine::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
 use std::hash::{Hash, Hasher};

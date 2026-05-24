@@ -1,4 +1,4 @@
-use crate::core::ArmorId;
+use combat_engine::ArmorId;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

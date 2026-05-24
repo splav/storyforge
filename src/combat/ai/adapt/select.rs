@@ -478,7 +478,7 @@ mod tests {
         AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType,
     };
     use crate::content::statuses::StatusDef;
-    use crate::core::{AbilityId, DiceExpr, StatusId};
+    use combat_engine::{AbilityId, DiceExpr, StatusId};
 
     /// Minimal self-heal AbilityDef for content injection in rescue tests.
     /// TargetType::SingleAlly makes `plan_is_defensive` return true for a
@@ -536,7 +536,7 @@ mod tests {
         let post_snap = snapshot_from(vec![actor_post.clone()], 1);
         TurnPlan {
             steps: vec![PlanStep::Cast {
-                ability: crate::core::AbilityId::from("heal"),
+                ability: combat_engine::AbilityId::from("heal"),
                 target: actor_post.entity,
                 target_pos: actor_post.pos,
             }],

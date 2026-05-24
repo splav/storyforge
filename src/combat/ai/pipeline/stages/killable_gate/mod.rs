@@ -260,7 +260,7 @@ mod algorithm_tests {
     use crate::combat::ai::world::snapshot::BattleSnapshot;
     use crate::combat::ai::test_helpers::{ent, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;
-    use crate::core::AbilityId;
+    use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -615,7 +615,7 @@ mod stage_tests {
     };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::core::{AbilityId, DiceRng};
+    use combat_engine::{AbilityId, DiceRng};
 
     fn pfv_kill_now(v: f32) -> PlanFactorValues {
         let mut f = PlanFactorValues::default();

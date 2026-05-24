@@ -2,7 +2,6 @@ pub mod app_state;
 pub mod combat;
 pub use combat_engine;
 pub mod content;
-pub mod core;
 pub mod game;
 pub mod persistence;
 pub mod scenario;

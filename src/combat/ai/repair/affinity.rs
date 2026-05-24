@@ -202,7 +202,7 @@ fn ttl_factor(stored: &StoredGoalContext, current_round: u32) -> f32 {
 mod tests {
     use super::*;
     use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
-    use crate::core::AbilityId;
+    use combat_engine::AbilityId;
     use crate::game::hex::Hex;
     use bevy::prelude::Entity;
 

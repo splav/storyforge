@@ -1,4 +1,4 @@
-use crate::core::{DiceExpr, WeaponId};
+use combat_engine::{DiceExpr, WeaponId};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

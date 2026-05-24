@@ -21,7 +21,7 @@ pub enum ActionInput {
     Move { actor: Entity, path: Vec<hexx::Hex> },
     Cast {
         actor: Entity,
-        ability: crate::core::AbilityId,
+        ability: combat_engine::AbilityId,
         target: Entity,
         target_pos: hexx::Hex,
     },

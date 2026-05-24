@@ -16,7 +16,7 @@ use crate::combat::ai::config::role::AxisProfile;
 use crate::combat::ai::config::tuning::AiTuningOverride;
 use crate::content::races::CritFailEffect;
 use crate::combat::ai::world::tags::AiTags;
-use crate::core::AbilityId;
+use combat_engine::AbilityId;
 
 // ── AiTags serde helpers ──────────────────────────────────────────────────────
 

@@ -20,7 +20,7 @@ use crate::combat::ai::intent::agenda::Agenda;
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::core::DiceRng;
+use combat_engine::DiceRng;
 use crate::game::hex::Hex;
 
 // ── StageCtx ────────────────────────────────────────────────────────────────
@@ -191,7 +191,7 @@ mod tests {
             empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
             snapshot_from,
         };
-        use crate::core::DiceRng;
+        use combat_engine::DiceRng;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
 
@@ -260,7 +260,7 @@ mod tests {
             empty_content, empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder,
             snapshot_from,
         };
-        use crate::core::DiceRng;
+        use combat_engine::DiceRng;
         use crate::game::components::Team;
         use crate::game::hex::hex_from_offset;
 

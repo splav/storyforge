@@ -1,7 +1,7 @@
 use crate::content::unit_templates::{
     EquipmentRecord, ResourcesBlock, ResourcesRecord, StatsRecord, UnitTemplateDef,
 };
-use crate::core::{AbilityId, ArmorId, WeaponId};
+use combat_engine::{AbilityId, ArmorId, WeaponId};
 use crate::game::components::CombatStats;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -70,7 +70,7 @@ pub struct EnemyDef {
 
 #[derive(Debug, Clone)]
 pub struct AuraDef {
-    pub status: crate::core::StatusId,
+    pub status: combat_engine::StatusId,
     pub radius: u32,
     pub affects: AuraAffects,
 }
@@ -223,7 +223,7 @@ fn convert_aura(path: &str, enc_id: &str, a: AuraRecord) -> AuraDef {
         ),
     };
     AuraDef {
-        status: crate::core::StatusId::from(a.status.as_str()),
+        status: combat_engine::StatusId::from(a.status.as_str()),
         radius: a.radius,
         affects,
     }

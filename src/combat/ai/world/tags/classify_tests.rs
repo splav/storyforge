@@ -7,7 +7,7 @@
 //! LOC). Splitting keeps the production logic immediately visible.
 
 use super::*;
-use crate::core::AbilityId;
+use combat_engine::AbilityId;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -532,7 +532,7 @@ fn derive_status_tags_taunted_has_compulsion() {
 #[test]
 fn derive_status_tags_compulsion_set_for_forces_targeting() {
     let def = StatusDef {
-        id: crate::core::StatusId::from("test_compulsion"),
+        id: combat_engine::StatusId::from("test_compulsion"),
         name: "test_compulsion".to_string(),
         dot_dice: None,
         ai_controlled: false,

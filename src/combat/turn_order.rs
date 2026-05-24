@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use crate::app_state::CombatPhase;
 use crate::combat::ai::world::reservations::Reservations;
-use crate::core::modifier;
+use combat_engine::modifier;
 use crate::combat::DiceRngRes;
 use crate::game::components::{ActiveCombatant, CombatStats, Combatant, Initiative, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};

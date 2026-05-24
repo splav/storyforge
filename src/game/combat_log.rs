@@ -1,5 +1,5 @@
 use crate::content::content_view::ContentView;
-use crate::core::StatusId;
+use combat_engine::StatusId;
 use bevy::prelude::*;
 
 

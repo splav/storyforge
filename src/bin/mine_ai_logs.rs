@@ -3151,7 +3151,7 @@ mod tests {
     fn h3c_no_plan_attempts_target_when_pool_skips_agenda_target() {
         use storyforge::combat::ai::intent::IntentKind;
         use bevy::prelude::Entity;
-        use storyforge::core::AbilityId;
+        use combat_engine::AbilityId;
         use hexx::Hex;
 
         let actor_bits = Entity::from_raw_u32(3).expect("valid").to_bits();

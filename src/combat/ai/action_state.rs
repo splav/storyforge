@@ -113,7 +113,7 @@ mod tests {
         AbilityDef, AbilityRange, AoEShape, EffectDef, ResourceCost, TargetType,
     };
     use crate::content::statuses::StatusDef;
-    use crate::core::{DiceExpr, ResourceKind, StatusId};
+    use combat_engine::{DiceExpr, ResourceKind, StatusId};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

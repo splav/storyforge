@@ -64,7 +64,7 @@ mod tests {
     };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::core::DiceRng;
+    use combat_engine::DiceRng;
 
     fn stored_finish(target: bevy::prelude::Entity, round: u32) -> StoredGoalContext {
         StoredGoalContext {
@@ -158,7 +158,7 @@ mod tests {
         // Plan that pursues the same FocusTarget → should get goal_alignment > 0
         let plan = TurnPlan {
             steps: vec![PlanStep::Cast {
-                ability: crate::core::AbilityId::from("attack"),
+                ability: combat_engine::AbilityId::from("attack"),
                 target,
                 target_pos,
             }],

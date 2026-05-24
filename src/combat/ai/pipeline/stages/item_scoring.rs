@@ -252,7 +252,7 @@ mod tests {
         StageTestHarness, UnitBuilder,
         snapshot_from,
     };
-    use crate::core::DiceRng;
+    use combat_engine::DiceRng;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

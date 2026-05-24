@@ -21,7 +21,7 @@ use crate::combat::ai::world::influence::{build_influence_maps, InfluenceConfig}
 
 use super::{build_actual_decision, run_assertion, ActualDecision, AssertResult, Overlay};
 use crate::content::content_view::ContentView;
-use crate::core::DiceRng;
+use combat_engine::DiceRng;
 
 // ── Assert pipeline ──────────────────────────────────────────────────────────
 

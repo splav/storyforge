@@ -1,7 +1,7 @@
 
 use storyforge::content::armor::{ArmorDef, ArmorSlot};
 use storyforge::content::weapons::{HandType, WeaponDef};
-use storyforge::core::DiceExpr;
+use combat_engine::DiceExpr;
 use storyforge::game::components::{CombatStats, Equipment};
 use storyforge::content::content_view::ContentView;
 

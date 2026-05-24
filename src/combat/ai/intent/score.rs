@@ -380,7 +380,7 @@ mod tests {
         empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder, snapshot_from,
     };
     use crate::combat::ai::config::difficulty::DifficultyProfile;
-    use crate::core::AbilityId;
+    use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
     use crate::content::content_view::ContentView;
@@ -536,7 +536,7 @@ mod tests {
             TargetType,
         };
         use crate::content::statuses::StatusDef;
-        use crate::core::{DiceExpr, StatusId};
+        use combat_engine::{DiceExpr, StatusId};
 
         let mut content = crate::combat::ai::test_helpers::empty_content();
         let stun_status_id = StatusId::from("stun");
@@ -666,7 +666,7 @@ mod tests {
     #[test]
     fn focus_target_scores_proportional_to_damage() {
         use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
 
         let target_pos = hex_from_offset(1, 0);
         let target = UnitBuilder::new(2, Team::Player, target_pos).hp(20).build();
@@ -776,7 +776,7 @@ mod tests {
     #[test]
     fn focus_target_wrong_target_scores_near_zero() {
         use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
 
         let focus_pos = hex_from_offset(1, 0);
         let other_pos = hex_from_offset(2, 0);
@@ -835,7 +835,7 @@ mod tests {
     mod intent_score_via_narrow_offensive_api_matches_legacy {
         use super::*;
         use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
         use crate::combat::ai::test_helpers::empty_content;
         use crate::combat::ai::test_helpers::snapshot_from;
 

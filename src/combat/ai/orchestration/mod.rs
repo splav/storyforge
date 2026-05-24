@@ -30,7 +30,7 @@ use crate::combat::ai::plan::{
 };
 use crate::combat::ai::world::reservations::Reservations;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot, UnitView};
-use crate::core::{AbilityId, DiceRng};
+use combat_engine::{AbilityId, DiceRng};
 use crate::game::hex::Hex;
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -609,7 +609,7 @@ mod tests {
     
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::core::DiceRng;
+    use combat_engine::DiceRng;
     use std::collections::HashMap;
 
     /// Helper: run pick_action with a single actor against an enemy,
@@ -707,7 +707,7 @@ mod tests {
         // Plans with Cast(melee_attack) must show MOBILITY, not OFFENSIVE.
         let content_base = crate::content::content_view::ContentView::load_global_for_tests();
         let mut content = content_base.clone();
-        let ability_id = crate::core::AbilityId::from("melee_attack");
+        let ability_id = combat_engine::AbilityId::from("melee_attack");
         if let Some(def) = content.abilities.get_mut(&ability_id) {
             def.ai_tags_override = Some(vec!["mobility".to_string()]);
         }

@@ -1,4 +1,4 @@
-use crate::core::AbilityId;
+use combat_engine::AbilityId;
 use crate::game::components::*;
 use bevy::prelude::*;
 

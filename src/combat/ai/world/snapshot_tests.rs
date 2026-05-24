@@ -18,7 +18,7 @@ mod affordability_tests {
     use super::*;
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::abilities::{AbilityRange, AoEShape, EffectDef, ResourceCost};
-    use crate::core::DiceExpr;
+    use combat_engine::DiceExpr;
     use crate::game::hex::hex_from_offset;
 
     fn base_unit() -> UnitSnapshot {
@@ -455,7 +455,7 @@ mod computation_tests {
     use crate::game::hex::hex_from_offset;
     use crate::game::components::Team;
     use crate::content::abilities::{AbilityRange, AoEShape, EffectDef, ResourceCost};
-    use crate::core::DiceExpr;
+    use combat_engine::DiceExpr;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -471,7 +471,7 @@ mod computation_tests {
 
     fn def_ap(cost_ap: i32) -> AbilityDef {
         AbilityDef {
-            id: crate::core::AbilityId::from("x"),
+            id: combat_engine::AbilityId::from("x"),
             name: "x".into(),
             magic_domains: Vec::new(),
             magic_method: String::new(),

@@ -164,7 +164,7 @@ mod tests {
     };
     use crate::combat::ai::orchestration::AiWorld;
     use crate::content::content_view::ContentView;
-    use crate::core::AbilityId;
+    use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
     use bevy::prelude::*;

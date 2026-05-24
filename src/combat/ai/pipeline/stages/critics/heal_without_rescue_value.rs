@@ -143,7 +143,7 @@ mod tests {
         assert_critic_passes, run_critic,
     };
     use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
-    use crate::core::{AbilityId, DiceExpr};
+    use combat_engine::{AbilityId, DiceExpr};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use bevy::prelude::Entity;
@@ -391,7 +391,7 @@ mod tests {
     ///   This test catches that too.
     fn non_heal_effect_with_outcome_fires() -> (crate::combat::ai::plan::types::TurnPlan, crate::combat::ai::outcome::PlanAnnotation, CriticScenario) {
         use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, TargetType};
-        use crate::core::AbilityId;
+        use combat_engine::AbilityId;
 
         let caster_pos    = hex_from_offset(0, 0);
         let target_pos    = hex_from_offset(2, 0);
@@ -461,7 +461,7 @@ mod tests {
         // Build plan WITHOUT an outcome entry (hp_restored=0 / no outcomes).
         let plan = crate::combat::ai::plan::types::TurnPlan {
             steps: vec![PlanStep::Cast {
-                ability: crate::core::AbilityId::from("heal"),
+                ability: combat_engine::AbilityId::from("heal"),
                 target: target_entity,
                 target_pos,
             }],

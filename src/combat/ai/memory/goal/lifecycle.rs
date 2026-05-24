@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn post_tick_clears_after_cast_in_place() {
-        let ability = crate::core::AbilityId::from("attack");
+        let ability = combat_engine::AbilityId::from("attack");
         let target = ent(2);
         let actor_unit = make_actor(1);
         let snap = snapshot_from(vec![actor_unit], 1);
@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn post_tick_clears_after_move_and_cast() {
-        let ability = crate::core::AbilityId::from("attack");
+        let ability = combat_engine::AbilityId::from("attack");
         let target = ent(2);
         let actor_unit = make_actor(1);
         let snap = snapshot_from(vec![actor_unit], 1);

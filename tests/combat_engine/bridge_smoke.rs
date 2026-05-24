@@ -26,7 +26,7 @@ use storyforge::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectD
 use storyforge::content::content_view::ActiveContent;
 use storyforge::content::statuses::StatusDef;
 use storyforge::combat::DiceRngRes;
-use storyforge::core::{AbilityId, DiceExpr, StatusId, WeaponId};
+use combat_engine::{AbilityId, DiceExpr, StatusId, WeaponId};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::combat_log::{CombatEvent, CombatLog};
 use storyforge::game::components::{
@@ -723,7 +723,7 @@ fn cast_emits_status_applied_log_entry() {
 #[test]
 fn cast_emits_mana_changed_log_entry() {
     use storyforge::content::abilities::{ResourceCost, TargetType};
-    use storyforge::core::ResourceKind;
+    use combat_engine::ResourceKind;
 
     let ability_def = AbilityDef {
         id: AbilityId::from("mana_blast"),
@@ -763,7 +763,7 @@ fn cast_emits_mana_changed_log_entry() {
 #[test]
 fn process_action_system_routes_cast_into_engine() {
     use storyforge::content::abilities::{ResourceCost, TargetType};
-    use storyforge::core::ResourceKind;
+    use combat_engine::ResourceKind;
 
     let mut app = common::bridge::bridge_app();
 
@@ -1124,7 +1124,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
 /// `expect_crit_fail=false` → log must NOT contain `CriticalMiss` or `CritFailSideEffect`.
 fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
     use storyforge::content::abilities::{ResourceCost, TargetType};
-    use storyforge::core::ResourceKind;
+    use combat_engine::ResourceKind;
 
     let ability_id = AbilityId::from("cf_test_ability");
     let ability_def = AbilityDef {

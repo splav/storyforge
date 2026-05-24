@@ -21,7 +21,7 @@ use crate::combat::ai::orchestration::{
 };
 use crate::content::settings::GameSettings;
 use crate::combat::DiceRngRes;
-use crate::core::DiceRng;
+use combat_engine::DiceRng;
 use crate::game::components::{
     ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, StatusEffects, Team,
 };

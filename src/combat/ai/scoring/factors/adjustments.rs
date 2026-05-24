@@ -4,7 +4,7 @@ use super::{OffensiveFactors, ScoredStep};
 use crate::combat::ai::orchestration::ScoringCtx;
 use crate::content::abilities::AbilityDef;
 use crate::content::races::CritFailEffect;
-use crate::core::ResourceKind;
+use combat_engine::ResourceKind;
 
 /// Coordination knob: overkill penalty + duplicate-CC.
 /// Phase 6 removed `focus` and `position` as scored factors, so the
@@ -81,7 +81,7 @@ mod tests {
         snapshot_from,
     };
     use crate::content::content_view::ContentView;
-    use crate::core::AbilityId;
+    use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

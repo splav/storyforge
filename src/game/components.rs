@@ -1,4 +1,4 @@
-use crate::core::{AbilityId, ArmorId, StatusId, WeaponId};
+use combat_engine::{AbilityId, ArmorId, StatusId, WeaponId};
 use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 

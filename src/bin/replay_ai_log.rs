@@ -42,7 +42,7 @@ use storyforge::combat::ai::world::reservations::Reservations;
 use storyforge::combat::ai::world::tags::cache::build_caches;
 use storyforge::combat::ai::orchestration::{AiDecision, AiWorld, pick_action};
 use storyforge::content::content_view::ContentView;
-use storyforge::core::DiceRng;
+use combat_engine::DiceRng;
 use storyforge::game::hex::Hex;
 
 // ── Regression metrics ──────────────────────────────────────────────────────
@@ -912,7 +912,7 @@ mod tests {
 
     #[test]
     fn decisions_differ_end_vs_cast() {
-        use storyforge::core::AbilityId;
+        use combat_engine::AbilityId;
         // from_raw_u32 always produces a valid Entity (generation=NonZero default).
         // from_bits(0x100000000) panics on Bevy 0.18 — generation 1 with index 0
         // is not a valid initialised entity layout.

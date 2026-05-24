@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 
 use crate::content::content_view::ContentView;
-use crate::core::{AbilityId, StatusId};
+use combat_engine::{AbilityId, StatusId};
 
 use super::classify::{derive_ability_tags, derive_status_tags, StatusTagLookup};
 use super::{AbilityTagSet, StatusTagSet};
@@ -142,7 +142,7 @@ fn parse_override(names: &[String], ability_id: &AbilityId) -> AbilityTagSet {
 mod tests {
     use super::*;
     use crate::content::content_view::ContentView;
-    use crate::core::AbilityId;
+    use combat_engine::AbilityId;
 
     fn load_content() -> ContentView {
         ContentView::load_global_for_tests()

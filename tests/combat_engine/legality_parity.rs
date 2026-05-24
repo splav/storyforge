@@ -35,7 +35,7 @@ use storyforge::combat_engine::state::UnitId;
 use storyforge::content::abilities::AbilityDef as BevyAbilityDef;
 use storyforge::content::content_view::{ActiveContent, ContentView as BevyContentView};
 use storyforge::content::statuses::StatusDef as BevyStatusDef;
-use storyforge::core::AbilityId;
+use combat_engine::AbilityId;
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::components::{

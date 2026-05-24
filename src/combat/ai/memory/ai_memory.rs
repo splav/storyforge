@@ -21,7 +21,7 @@ pub struct PlanSnapshot {
     pub actor_status_hash: u64,
     /// Status ids present on the actor at capture time — used to compute the
     /// diff (added/removed) when `actor_status_changed` fires (step 9.B.3).
-    pub actor_statuses_at_capture: Vec<crate::core::StatusId>,
+    pub actor_statuses_at_capture: Vec<combat_engine::StatusId>,
     /// Where the actor should be on the next tick (destination of the Move).
     pub expected_actor_pos: Hex,
     /// Intent target at plan time, if any (FocusTarget / ApplyCC / ProtectAlly).
@@ -199,7 +199,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::world::snapshot::ActiveStatusView;
     use crate::combat::ai::test_helpers::{UnitBuilder, snapshot_from};
-    use crate::core::StatusId;
+    use combat_engine::StatusId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

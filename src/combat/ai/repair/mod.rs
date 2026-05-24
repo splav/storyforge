@@ -15,7 +15,7 @@ pub use affinity::{RepairAffinity, RepairWeights, compute_repair_affinity};
 use crate::combat::ai::intent::{IntentReason, TacticalIntent};
 use crate::combat::ai::world::snapshot::ActiveStatusView;
 use crate::combat::ai::world::tags::{StatusTag, StatusTagCache};
-use crate::core::StatusId;
+use combat_engine::StatusId;
 use serde::{Deserialize, Serialize};
 
 /// Semantic severity of a detected state mismatch between a stored plan
@@ -515,7 +515,7 @@ mod tests {
             kind: GoalKind::Finish { target },
             region_anchor: crate::game::hex::Hex::new(0, 0),
             region_radius: 2,
-            planned_ability: Some(crate::core::AbilityId("slash".into())),
+            planned_ability: Some(combat_engine::AbilityId("slash".into())),
             ttl: 2,
             confidence: 1.0,
             created_round: 1,

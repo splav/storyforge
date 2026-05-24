@@ -19,7 +19,7 @@ use crate::combat::ai::orchestration::AiWorld;
 use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectCalcExt};
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;
-use crate::core::ResourceKind;
+use combat_engine::ResourceKind;
 use bevy::prelude::Entity;
 use crate::game::components::Team;
 
@@ -535,7 +535,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::test_helpers::{UnitBuilder, snapshot_from, unit_snapshot_to_engine_unit};
     use crate::content::content_view::ContentView;
-    use crate::core::{AbilityId, StatusId};
+    use combat_engine::{AbilityId, StatusId};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -581,7 +581,7 @@ mod tests {
         let snap_unit = UnitBuilder::new(1, Team::Player, hex_from_offset(1, 0)).full_hp(5).build();
         let mut target = unit_snapshot_to_engine_unit(&snap_unit);
         target.statuses = vec![ActiveStatus {
-            id: crate::core::StatusId::from("poisoned"),
+            id: combat_engine::StatusId::from("poisoned"),
             rounds_remaining: 2,
             dot_per_tick: 3,
             applier: UnitId(snap_unit.entity.to_bits()),
@@ -622,7 +622,7 @@ mod tests {
     /// with sim's damage resolution.
     #[test]
     fn estimate_kill_soon_rounds_expected_to_match_sim() {
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
         let content = db();
         let caster = CasterContext {
             str_mod: 2,
@@ -654,7 +654,7 @@ mod tests {
         use bevy::prelude::Entity;
         let maps = empty_maps_local();
         let step = PlanStep::Cast {
-            ability: crate::core::AbilityId::from("melee_attack"),
+            ability: combat_engine::AbilityId::from("melee_attack"),
             target: Entity::from_bits(1),
             target_pos: hex_from_offset(0, 0),
         };
@@ -736,9 +736,9 @@ mod tests {
 
     fn single_target_damage_def() -> AbilityDef {
         use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
         AbilityDef {
-            id: crate::core::AbilityId::from("test_strike"),
+            id: combat_engine::AbilityId::from("test_strike"),
             name: "test_strike".into(),
             magic_domains: vec![],
             magic_method: String::new(),
@@ -760,9 +760,9 @@ mod tests {
 
     fn aoe_damage_def(radius: u32) -> AbilityDef {
         use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
         AbilityDef {
-            id: crate::core::AbilityId::from("test_fireball"),
+            id: combat_engine::AbilityId::from("test_fireball"),
             name: "test_fireball".into(),
             magic_domains: vec![],
             magic_method: String::new(),
@@ -789,7 +789,7 @@ mod tests {
         use crate::content::statuses::StatusDef;
         let status_id = StatusId::from("stun_test");
         let def = AbilityDef {
-            id: crate::core::AbilityId::from("test_stun"),
+            id: combat_engine::AbilityId::from("test_stun"),
             name: "test_stun".into(),
             magic_domains: vec![],
             magic_method: String::new(),
@@ -833,9 +833,9 @@ mod tests {
 
     fn heal_def_inner() -> AbilityDef {
         use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, TargetType};
-        use crate::core::DiceExpr;
+        use combat_engine::DiceExpr;
         AbilityDef {
-            id: crate::core::AbilityId::from("test_heal"),
+            id: combat_engine::AbilityId::from("test_heal"),
             name: "test_heal".into(),
             magic_domains: vec![],
             magic_method: String::new(),

@@ -1,5 +1,5 @@
 use crate::content::weapons::WeaponDef;
-use crate::core::{modifier, AbilityId, DiceExpr, ResourceKind, StatusId, WeaponId};
+use combat_engine::{modifier, AbilityId, DiceExpr, ResourceKind, StatusId, WeaponId};
 use crate::game::components::{CombatStats, Equipment};
 use serde::Deserialize;
 

@@ -28,7 +28,7 @@ use crate::combat::ai::orchestration::{AiWorld, ScoringCtx};
 use crate::content::abilities::CasterContext;
 use crate::content::content_view::ContentView;
 use crate::content::races::CritFailEffect;
-use crate::core::{AbilityId, DiceRng};
+use combat_engine::{AbilityId, DiceRng};
 use crate::game::components::Team;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
@@ -858,7 +858,7 @@ impl CriticScenario {
 pub(crate) struct CriticScenarioBuilder {
     actor: UnitSnapshot,
     extra_units: Vec<UnitSnapshot>,
-    abilities: Vec<(crate::core::AbilityId, crate::content::abilities::AbilityDef)>,
+    abilities: Vec<(combat_engine::AbilityId, crate::content::abilities::AbilityDef)>,
 }
 
 impl CriticScenarioBuilder {
@@ -875,7 +875,7 @@ impl CriticScenarioBuilder {
     /// Register one ability in the content view.  Call multiple times for
     /// multiple abilities.
     pub fn with_ability(mut self, id: &str, def: crate::content::abilities::AbilityDef) -> Self {
-        self.abilities.push((crate::core::AbilityId::from(id), def));
+        self.abilities.push((combat_engine::AbilityId::from(id), def));
         self
     }
 

@@ -16,7 +16,7 @@ use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
 use crate::combat::ai::world::tags::StatusTagCache;
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::combat::ai::intent::TacticalIntent;
-use crate::core::AbilityId;
+use combat_engine::AbilityId;
 use crate::game::hex::Hex;
 
 // ── GoalKind ─────────────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ pub struct StoredGoalContext {
     /// Status ids present on the actor at store time — used to compute the
     /// diff (added/removed) when `actor_status_changed` fires (step 9.B.3).
     #[serde(default)]
-    pub actor_statuses_at_store: Vec<crate::core::StatusId>,
+    pub actor_statuses_at_store: Vec<combat_engine::StatusId>,
     /// Target HP at the time of store (0 when no target).
     pub target_hp_at_store: i32,
     /// Target position at the time of store (Hex::ZERO when no target).
@@ -300,7 +300,7 @@ pub fn extract_goal_context(
     let actor_rage_at_store = actor.rage.map(|(r, _)| r).unwrap_or(0);
     let actor_status_hash = crate::combat::ai::memory::ai_memory::status_hash_engine(&actor.statuses);
     // Status id list for delta-based severity classification (step 9.B.3).
-    let actor_statuses_at_store: Vec<crate::core::StatusId> =
+    let actor_statuses_at_store: Vec<combat_engine::StatusId> =
         actor.statuses.iter().map(|s| s.id.clone()).collect();
 
     Some(StoredGoalContext {
@@ -697,7 +697,7 @@ mod tests {
     fn stored_goal_context_uses_shared_compute_status_delta() {
         use crate::combat::ai::repair::compute_status_delta;
         use crate::combat::ai::world::snapshot::ActiveStatusView;
-        use crate::core::StatusId;
+        use combat_engine::StatusId;
 
         let stored_statuses: Vec<StatusId> = vec![];
         let current_statuses = vec![

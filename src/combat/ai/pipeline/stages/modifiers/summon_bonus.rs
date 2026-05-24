@@ -88,7 +88,7 @@ mod tests {
     use crate::combat::ai::orchestration::AiWorld;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-    use crate::core::DiceRng;
+    use combat_engine::DiceRng;
     use crate::combat::ai::pipeline::StageCtx;
     use std::collections::HashMap;
 
@@ -165,7 +165,7 @@ mod tests {
         let actor = UnitBuilder::new(1, Team::Enemy, pos).build();
         let snap = snapshot_from(vec![actor.clone()], 1);
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = crate::core::DiceRng::default();
+        let mut rng = combat_engine::DiceRng::default();
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
 
         // ── 3. ModifierCtx ──

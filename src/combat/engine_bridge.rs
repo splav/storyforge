@@ -63,7 +63,7 @@ use combat_engine::{
     StatusId,
 };
 use combat_engine::dice::DiceExpr as EngineDiceExpr;
-use crate::core::modifier;
+use combat_engine::modifier;
 
 // ── Entity ↔ UnitId mapping ───────────────────────────────────────────────────
 
@@ -351,7 +351,7 @@ fn build_engine_template_from_def(
             EngineDiceExpr::new(
                 core_dice.count,
                 core_dice.sides,
-                core_dice.bonus + crate::core::modifier(tpl.stats.strength),
+                core_dice.bonus + combat_engine::modifier(tpl.stats.strength),
             )
         })
     } else {
@@ -1066,7 +1066,7 @@ fn translate_end_turn_events(
 #[allow(clippy::too_many_arguments)]
 fn translate_cast_events(
     actor: Entity,
-    ability: &crate::core::AbilityId,
+    ability: &combat_engine::AbilityId,
     target: Entity,
     target_pos: hexx::Hex,
     mana_before: Option<i32>,

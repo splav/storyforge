@@ -122,7 +122,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{empty_maps, make_scoring_ctx, make_test_ctx, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::content_view::ContentView;
-    use crate::core::AbilityId;
+    use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

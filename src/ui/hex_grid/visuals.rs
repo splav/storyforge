@@ -23,7 +23,7 @@ use std::collections::HashSet;
 #[derive(Default)]
 pub struct DirtyBridgePrev {
     active: Option<Entity>,
-    ability: Option<crate::core::AbilityId>,
+    ability: Option<combat_engine::AbilityId>,
     move_mode: bool,
     target: Option<Entity>,
     hover: Option<Hex>,

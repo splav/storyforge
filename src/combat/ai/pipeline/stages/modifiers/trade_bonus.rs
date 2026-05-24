@@ -84,7 +84,7 @@ mod tests {
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
         };
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = crate::core::DiceRng::default();
+        let mut rng = combat_engine::DiceRng::default();
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
 
         // ── 3. ModifierCtx ──
@@ -136,7 +136,7 @@ mod tests {
             status_tags: crate::combat::ai::test_helpers::empty_status_tag_cache(),
         };
         let scoring = make_scoring_ctx(&world, &snap, &maps, &reservations, &actor);
-        let mut rng = crate::core::DiceRng::default();
+        let mut rng = combat_engine::DiceRng::default();
         let stage = StageCtx::new(&scoring, TacticalIntent::Reposition, IntentReason::NoRuleDefault, pos, &mut rng);
 
         // ── 3. ModifierCtx ──

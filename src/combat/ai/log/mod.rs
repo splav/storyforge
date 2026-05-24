@@ -50,7 +50,7 @@ use crate::combat::ai::pipeline::stages::sanity::SanityHit;
 use crate::combat::ai::plan::{PlanStep, StepOutcome, TurnPlan};
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use crate::combat::ai::orchestration::AiDecision;
-use crate::core::AbilityId;
+use combat_engine::AbilityId;
 use crate::game::hex::Hex;
 
 /// Log schema version.
@@ -937,7 +937,7 @@ impl From<&StoredGoalContextSnapshot> for StoredGoalContext {
             actor_statuses_at_store: s
                 .actor_statuses_at_store
                 .iter()
-                .map(|id| crate::core::StatusId::from(id.as_str()))
+                .map(|id| combat_engine::StatusId::from(id.as_str()))
                 .collect(),
             target_hp_at_store: s.target_hp_at_store,
             target_pos_at_store: Hex::new(s.target_pos_at_store[0], s.target_pos_at_store[1]),

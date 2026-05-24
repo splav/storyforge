@@ -240,7 +240,7 @@ mod tests {
         snapshot_from,
     };
     use crate::combat::ai::orchestration::ScoringCtx;
-    use crate::core::DiceRng;
+    use combat_engine::DiceRng;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

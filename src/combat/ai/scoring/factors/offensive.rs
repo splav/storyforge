@@ -11,7 +11,7 @@ use crate::combat::ai::outcome::ActionOutcomeEstimate;
 use crate::combat::ai::orchestration::ScoringCtx;
 use combat_engine::aoe_cells;
 use crate::content::abilities::{AbilityDef, EffectDef};
-use crate::core::AbilityId;
+use combat_engine::AbilityId;
 use crate::game::hex::Hex;
 use bevy::prelude::*;
 use std::collections::HashSet;
@@ -129,7 +129,7 @@ mod tests {
     
     use crate::combat::ai::outcome::ActionOutcomeEstimate;
     use crate::combat::ai::scoring::policy;
-    use crate::core::AbilityId;
+    use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

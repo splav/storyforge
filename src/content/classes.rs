@@ -1,4 +1,4 @@
-use crate::core::{AbilityId, ArmorId, WeaponId};
+use combat_engine::{AbilityId, ArmorId, WeaponId};
 use crate::game::components::CombatStats;
 use serde::Deserialize;
 

@@ -13,7 +13,7 @@
 
 use crate::content::abilities::{AbilityDef, CasterContext, EffectCalcExt, EffectDef, StatusOn};
 use crate::content::races::CritFailEffect;
-use crate::core::{DiceExpr, DiceRng, ResourceKind, StatusId};
+use combat_engine::{DiceExpr, DiceRng, ResourceKind, StatusId};
 use bevy::prelude::Entity;
 
 // ── Dice abstraction ────────────────────────────────────────────────────────
@@ -335,7 +335,7 @@ fn effect_breakdown(dice_str: &str, bonus: i32, total: i32) -> String {
 mod tests {
     use super::*;
     use crate::content::abilities::{AbilityRange, AoEShape, ResourceCost, TargetType};
-    use crate::core::AbilityId;
+    use combat_engine::AbilityId;
 
     fn ent(id: u32) -> Entity {
         Entity::from_raw_u32(id).expect("valid entity id")

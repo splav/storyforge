@@ -419,7 +419,7 @@ mod tests {
         empty_content, empty_maps, make_scoring_ctx, make_test_ctx, StageTestHarness, UnitBuilder,
         snapshot_from,
     };
-    use crate::core::DiceRng;
+    use combat_engine::DiceRng;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
@@ -490,7 +490,7 @@ mod tests {
         Entity::from_raw_u32(id).expect("valid entity id")
     }
 
-    fn ability_id() -> crate::core::AbilityId {
+    fn ability_id() -> combat_engine::AbilityId {
         "test_ability".into()
     }
 

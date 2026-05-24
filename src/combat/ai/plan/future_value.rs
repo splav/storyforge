@@ -354,7 +354,7 @@ mod tests {
     use crate::combat::ai::test_helpers::{make_scoring_ctx, make_test_ctx, UnitBuilder};
     use crate::combat::ai::test_helpers::snapshot_from;
     use crate::content::abilities::CasterContext;
-    use crate::core::DiceExpr;
+    use combat_engine::DiceExpr;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
 
@@ -374,7 +374,7 @@ mod tests {
 
     fn make_cast(ability: &str, target: bevy::prelude::Entity, pos: Hex) -> PlanStep {
         PlanStep::Cast {
-            ability: crate::core::AbilityId::from(ability),
+            ability: combat_engine::AbilityId::from(ability),
             target,
             target_pos: pos,
         }

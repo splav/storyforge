@@ -3,7 +3,7 @@ use crate::combat::ai::world::tags::{AbilityTag, AbilityTagCache, AbilityTagSet}
 use crate::combat::ai::config::tuning::AiTuning;
 use crate::content::abilities::{AoEShape, EffectDef};
 use crate::content::content_view::ContentView;
-use crate::core::AbilityId;
+use combat_engine::AbilityId;
 use bevy::prelude::*;
 
 // ── AxisProfile: vector-role across 5 archetypal axes ──────────────────────
@@ -306,7 +306,7 @@ mod tests {
     use crate::combat::ai::world::tags::cache::build_caches;
     const DAMAGE_IDX: usize = StepFactor::Damage as usize;
     const HEAL_IDX: usize = StepFactor::Heal as usize;
-    use crate::core::AbilityId;
+    use combat_engine::AbilityId;
 
     fn db_with_cache() -> (ContentView, AbilityTagCache) {
         let content = ContentView::load_global_for_tests();

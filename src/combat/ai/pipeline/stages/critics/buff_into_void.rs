@@ -20,7 +20,7 @@ use super::{CriticHit, CriticKind, CriticReason, PlanCritic};
 use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::core::StatusId;
+use combat_engine::StatusId;
 use bevy::prelude::Entity;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -118,7 +118,7 @@ mod tests {
         assert_critic_fires, assert_critic_passes, run_critic,
     };
     use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType};
-    use crate::core::{AbilityId, StatusId};
+    use combat_engine::{AbilityId, StatusId};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
     use bevy::prelude::Entity;

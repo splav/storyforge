@@ -52,7 +52,7 @@ use serde::Deserialize;
 use crate::combat::ai::plan::PlanStep;
 use crate::content::abilities::EffectDef;
 use crate::content::content_view::ContentView;
-use crate::core::AbilityId;
+use combat_engine::AbilityId;
 
 // ── Overlay types ─────────────────────────────────────────────────────────────
 

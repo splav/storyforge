@@ -25,7 +25,7 @@ use crate::combat::ai::outcome::PlanAnnotation;
 use crate::content::abilities::EffectCalcExt;
 use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::core::ResourceKind;
+use combat_engine::ResourceKind;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -140,7 +140,7 @@ mod tests {
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, TargetType,
     };
-    use crate::core::{AbilityId, DiceExpr, ResourceKind};
+    use combat_engine::{AbilityId, DiceExpr, ResourceKind};
     use crate::content::abilities::ResourceCost;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
@@ -301,7 +301,7 @@ mod tests {
         // Expensive status-only ability (cost=40, no damage). The critic must
         // not fire — value is in the status, not in damage.
         use crate::content::abilities::{StatusApplication, StatusOn};
-        use crate::core::StatusId;
+        use combat_engine::StatusId;
 
         let caster_pos    = hex_from_offset(0, 0);
         let target_pos    = hex_from_offset(3, 0);

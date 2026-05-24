@@ -18,7 +18,7 @@ use crate::combat::ai::orchestration::ScoringCtx;
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::content::abilities::StatusOn;
 use crate::content::content_view::ContentView;
-use crate::core::AbilityId;
+use combat_engine::AbilityId;
 use bevy::prelude::Entity;
 
 const BUFF_REDUNDANCY_PENALTY: f32 = -0.4;
@@ -96,7 +96,7 @@ mod tests {
     use crate::content::abilities::{AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, TargetType};
     use crate::content::content_view::ContentView;
     use crate::content::statuses::{BuffClass, StatusDef};
-    use crate::core::{AbilityId, StatusId};
+    use combat_engine::{AbilityId, StatusId};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

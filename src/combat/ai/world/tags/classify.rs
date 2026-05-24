@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::content::abilities::{AbilityDef, EffectDef, StatusOn, TargetType};
 use crate::content::statuses::StatusDef;
-use crate::core::StatusId;
+use combat_engine::StatusId;
 
 use super::{AbilityTag, AbilityTagSet, StatusTag, StatusTagSet};
 

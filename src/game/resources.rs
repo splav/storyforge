@@ -391,7 +391,7 @@ impl HexPositions {
 #[derive(Resource, Default)]
 pub struct SelectionState {
     pub selected_actor: Option<Entity>,
-    pub selected_ability: Option<crate::core::AbilityId>,
+    pub selected_ability: Option<combat_engine::AbilityId>,
     pub selected_target: Option<Entity>,
     pub move_mode: bool,
 }

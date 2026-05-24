@@ -438,7 +438,7 @@ mod tests {
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, EffectDef, StatusApplication, StatusOn, TargetType,
     };
-    use crate::core::{AbilityId, DiceExpr, ResourceKind, StatusId};
+    use combat_engine::{AbilityId, DiceExpr, ResourceKind, StatusId};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
