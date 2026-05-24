@@ -1,0 +1,525 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "summary": "Success",
+      "log_path": "log/baseline.log",
+      "diff_path": null,
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 19.549842875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.923373166,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/mod.rs:173:9: replace CriticsStage::first_wave -> Self with Default::default()",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/mod.rs",
+          "function": {
+            "function_name": "CriticsStage::first_wave",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 166,
+                "column": 5
+              },
+              "end": {
+                "line": 183,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 173,
+              "column": 9
+            },
+            "end": {
+              "line": 182,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__mod.rs_line_173_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__mod.rs_line_173_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.9281385,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/mod.rs:188:9: replace CriticsStage::single -> Self with Default::default()",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/mod.rs",
+          "function": {
+            "function_name": "CriticsStage::single",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 185,
+                "column": 5
+              },
+              "end": {
+                "line": 189,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 188,
+              "column": 9
+            },
+            "end": {
+              "line": 188,
+              "column": 49
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__mod.rs_line_188_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__mod.rs_line_188_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 3.885903125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/mod.rs:194:9: replace <impl ScoreEffectStage for CriticsStage>::id -> StageId with Default::default()",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/mod.rs",
+          "function": {
+            "function_name": "<impl ScoreEffectStage for CriticsStage>::id",
+            "return_type": "-> StageId",
+            "span": {
+              "start": {
+                "line": 193,
+                "column": 5
+              },
+              "end": {
+                "line": 195,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 194,
+              "column": 9
+            },
+            "end": {
+              "line": 194,
+              "column": 25
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__mod.rs_line_194_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__mod.rs_line_194_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.796526459,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/mod.rs:198:9: replace <impl ScoreEffectStage for CriticsStage>::compute_effects -> Vec<EmittedEffect> with vec![]",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/mod.rs",
+          "function": {
+            "function_name": "<impl ScoreEffectStage for CriticsStage>::compute_effects",
+            "return_type": "-> Vec<EmittedEffect>",
+            "span": {
+              "start": {
+                "line": 197,
+                "column": 5
+              },
+              "end": {
+                "line": 215,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 198,
+              "column": 9
+            },
+            "end": {
+              "line": 214,
+              "column": 16
+            }
+          },
+          "replacement": "vec![]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__mod.rs_line_198_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__mod.rs_line_198_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.680948292,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.8614534579999997,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/mod.rs:198:9: replace <impl ScoreEffectStage for CriticsStage>::compute_effects -> Vec<EmittedEffect> with vec![Default::default()]",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/mod.rs",
+          "function": {
+            "function_name": "<impl ScoreEffectStage for CriticsStage>::compute_effects",
+            "return_type": "-> Vec<EmittedEffect>",
+            "span": {
+              "start": {
+                "line": 197,
+                "column": 5
+              },
+              "end": {
+                "line": 215,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 198,
+              "column": 9
+            },
+            "end": {
+              "line": 214,
+              "column": 16
+            }
+          },
+          "replacement": "vec![Default::default()]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__mod.rs_line_198_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__mod.rs_line_198_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.669481042,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/mod.rs:220:9: replace <impl PlanStage for CriticsStage>::name -> &'static str with \"\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/mod.rs",
+          "function": {
+            "function_name": "<impl PlanStage for CriticsStage>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 219,
+                "column": 5
+              },
+              "end": {
+                "line": 221,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 220,
+              "column": 9
+            },
+            "end": {
+              "line": 220,
+              "column": 18
+            }
+          },
+          "replacement": "\"\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__mod.rs_line_220_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__mod.rs_line_220_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 27.436447833,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.516578583,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/mod.rs:220:9: replace <impl PlanStage for CriticsStage>::name -> &'static str with \"xyzzy\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/mod.rs",
+          "function": {
+            "function_name": "<impl PlanStage for CriticsStage>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 219,
+                "column": 5
+              },
+              "end": {
+                "line": 221,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 220,
+              "column": 9
+            },
+            "end": {
+              "line": 220,
+              "column": 18
+            }
+          },
+          "replacement": "\"xyzzy\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__mod.rs_line_220_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__mod.rs_line_220_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.326857,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.497720166,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/mod.rs:224:9: replace <impl PlanStage for CriticsStage>::apply with ()",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/mod.rs",
+          "function": {
+            "function_name": "<impl PlanStage for CriticsStage>::apply",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 223,
+                "column": 5
+              },
+              "end": {
+                "line": 225,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 224,
+              "column": 9
+            },
+            "end": {
+              "line": 224,
+              "column": 51
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__mod.rs_line_224_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__mod.rs_line_224_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.401527208,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.630713167,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 8,
+  "missed": 0,
+  "caught": 4,
+  "timeout": 0,
+  "unviable": 4,
+  "success": 0,
+  "start_time": "2026-05-24T12:21:43.370687Z",
+  "end_time": "2026-05-24T12:24:19.47081Z",
+  "cargo_mutants_version": "27.0.0"
+}

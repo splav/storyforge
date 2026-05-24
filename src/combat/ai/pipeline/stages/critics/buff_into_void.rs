@@ -265,4 +265,84 @@ mod tests {
             "target_already_buffed must be false (redundant within plan, not pre-existing)",
         );
     }
+
+    // ── name() is stable (catches name-mutation mutants) ──────────────────────
+
+    #[test]
+    fn name_is_stable() {
+        assert_eq!(BuffIntoVoid.name(), "buff_into_void");
+    }
+
+    // ── `&&` vs `||` discriminators in plan_applied.any() (line 84) ──────────
+
+    /// 2-step plan applying DIFFERENT statuses to the SAME target.
+    /// With `&&` (correct): `plan_applied` match requires both entity AND status —
+    /// neither step duplicates → critic must NOT fire.
+    /// With `||` (mutated to OR): entity match alone fires → critic would
+    /// incorrectly mark second step as buff-into-void.
+    #[test]
+    fn different_statuses_to_same_target_does_not_fire() {
+        let caster_pos    = hex_from_offset(0, 0);
+        let target_pos    = hex_from_offset(2, 0);
+        let target_entity = Entity::from_raw_u32(2).expect("valid");
+
+        let caster = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
+        let target = UnitBuilder::new(2, Team::Enemy, target_pos).build();
+
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target])
+            .with_ability("buff_shield", buff_ability("buff_shield", "shield"))
+            .with_ability("buff_haste", buff_ability("buff_haste", "haste"))
+            .build();
+
+        let plan = TurnPlan {
+            steps: vec![
+                PlanStep::Cast { ability: AbilityId::from("buff_shield"), target: target_entity, target_pos },
+                PlanStep::Cast { ability: AbilityId::from("buff_haste"),  target: target_entity, target_pos },
+            ],
+            final_pos: caster_pos,
+            residual_ap: 0,
+            residual_mp: 3,
+            outcomes: vec![Default::default(), Default::default()],
+            ..TurnPlan::default()
+        };
+        let ann = PlanAnnotation::default();
+        assert_critic_passes(&BuffIntoVoid, &plan, &ann, &scn);
+    }
+
+    /// 2-step plan applying the SAME status to DIFFERENT targets.
+    /// With `&&` (correct): entity differs → no match → critic must NOT fire.
+    /// With `||` (mutated): status match alone fires → critic would incorrectly
+    /// flag the second step.
+    #[test]
+    fn same_status_to_different_targets_does_not_fire() {
+        let caster_pos      = hex_from_offset(0, 0);
+        let target_a_pos    = hex_from_offset(2, 0);
+        let target_b_pos    = hex_from_offset(3, 0);
+        let target_a_entity = Entity::from_raw_u32(2).expect("valid");
+        let target_b_entity = Entity::from_raw_u32(3).expect("valid");
+
+        let caster   = UnitBuilder::new(1, Team::Enemy, caster_pos).build();
+        let target_a = UnitBuilder::new(2, Team::Enemy, target_a_pos).build();
+        let target_b = UnitBuilder::new(3, Team::Enemy, target_b_pos).build();
+
+        let scn = CriticScenarioBuilder::new(caster)
+            .with_units(vec![target_a, target_b])
+            .with_ability("buff_shield", buff_ability("buff_shield", "shield"))
+            .build();
+
+        let plan = TurnPlan {
+            steps: vec![
+                PlanStep::Cast { ability: AbilityId::from("buff_shield"), target: target_a_entity, target_pos: target_a_pos },
+                PlanStep::Cast { ability: AbilityId::from("buff_shield"), target: target_b_entity, target_pos: target_b_pos },
+            ],
+            final_pos: caster_pos,
+            residual_ap: 0,
+            residual_mp: 3,
+            outcomes: vec![Default::default(), Default::default()],
+            ..TurnPlan::default()
+        };
+        let ann = PlanAnnotation::default();
+        assert_critic_passes(&BuffIntoVoid, &plan, &ann, &scn);
+    }
 }

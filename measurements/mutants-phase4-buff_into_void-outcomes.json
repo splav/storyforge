@@ -1,0 +1,627 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "summary": "Success",
+      "log_path": "log/baseline.log",
+      "diff_path": null,
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.48029425,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.268881167,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs:39:9: replace <impl PlanCritic for BuffIntoVoid>::name -> &'static str with \"\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for BuffIntoVoid>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 38,
+                "column": 5
+              },
+              "end": {
+                "line": 40,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 39,
+              "column": 9
+            },
+            "end": {
+              "line": 39,
+              "column": 25
+            }
+          },
+          "replacement": "\"\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_39_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_39_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.15126925,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.954624917,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs:39:9: replace <impl PlanCritic for BuffIntoVoid>::name -> &'static str with \"xyzzy\"",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for BuffIntoVoid>::name",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 38,
+                "column": 5
+              },
+              "end": {
+                "line": 40,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 39,
+              "column": 9
+            },
+            "end": {
+              "line": 39,
+              "column": 25
+            }
+          },
+          "replacement": "\"xyzzy\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_39_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_39_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.4698245,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.844583917,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs:51:9: replace <impl PlanCritic for BuffIntoVoid>::evaluate -> Option<CriticHit> with None",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for BuffIntoVoid>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 42,
+                "column": 5
+              },
+              "end": {
+                "line": 104,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 51,
+              "column": 9
+            },
+            "end": {
+              "line": 103,
+              "column": 13
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_51_col_9.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_51_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 33.374092833,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.157675792,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs:51:9: replace <impl PlanCritic for BuffIntoVoid>::evaluate -> Option<CriticHit> with Some(Default::default())",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for BuffIntoVoid>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 42,
+                "column": 5
+              },
+              "end": {
+                "line": 104,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 51,
+              "column": 9
+            },
+            "end": {
+              "line": 103,
+              "column": 13
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_51_col_9_001.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_51_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.358215125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs:79:80: replace == with != in <impl PlanCritic for BuffIntoVoid>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for BuffIntoVoid>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 42,
+                "column": 5
+              },
+              "end": {
+                "line": 104,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 79,
+              "column": 80
+            },
+            "end": {
+              "line": 79,
+              "column": 82
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_79_col_80.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_79_col_80.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 30.916930375,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.220935125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs:84:55: replace && with || in <impl PlanCritic for BuffIntoVoid>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for BuffIntoVoid>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 42,
+                "column": 5
+              },
+              "end": {
+                "line": 104,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 55
+            },
+            "end": {
+              "line": 84,
+              "column": 57
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_84_col_55.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_84_col_55.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.375290375,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.413123541,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs:84:44: replace == with != in <impl PlanCritic for BuffIntoVoid>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for BuffIntoVoid>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 42,
+                "column": 5
+              },
+              "end": {
+                "line": 104,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 44
+            },
+            "end": {
+              "line": 84,
+              "column": 46
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_84_col_44.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_84_col_44.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.400494834,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.71070175,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs:84:63: replace == with != in <impl PlanCritic for BuffIntoVoid>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for BuffIntoVoid>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 42,
+                "column": 5
+              },
+              "end": {
+                "line": 104,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 63
+            },
+            "end": {
+              "line": 84,
+              "column": 65
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_84_col_63.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_84_col_63.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.182486417,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.601562958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs:86:36: replace || with && in <impl PlanCritic for BuffIntoVoid>::evaluate",
+          "package": "storyforge",
+          "file": "src/combat/ai/pipeline/stages/critics/buff_into_void.rs",
+          "function": {
+            "function_name": "<impl PlanCritic for BuffIntoVoid>::evaluate",
+            "return_type": "-> Option<CriticHit>",
+            "span": {
+              "start": {
+                "line": 42,
+                "column": 5
+              },
+              "end": {
+                "line": 104,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 86,
+              "column": 36
+            },
+            "end": {
+              "line": 86,
+              "column": 38
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_86_col_36.log",
+      "diff_path": "diff/src__combat__ai__pipeline__stages__critics__buff_into_void.rs_line_86_col_36.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.783489792,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.637140625,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 9,
+  "missed": 0,
+  "caught": 8,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-05-24T12:14:08.994204Z",
+  "end_time": "2026-05-24T12:17:27.309454Z",
+  "cargo_mutants_version": "27.0.0"
+}

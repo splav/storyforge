@@ -699,4 +699,10 @@ mod tests {
             assert_eq!(r, back);
         }
     }
+
+    #[test]
+    fn critics_stage_name_is_stable() {
+        let stage = CriticsStage::first_wave();
+        assert_eq!(stage.name(), "critics");
+    }
 }

@@ -174,4 +174,9 @@ mod tests {
         let h2 = StageTestHarness::new(ranged_actor);
         assert_stage_critic_passes(&h2, plan, BlindspotRanged);
     }
+
+    #[test]
+    fn name_is_stable() {
+        assert_eq!(BlindspotRanged.name(), "blindspot_ranged");
+    }
 }
