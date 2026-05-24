@@ -1,0 +1,2651 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "summary": "Success",
+      "log_path": "log/baseline.log",
+      "diff_path": null,
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.384251333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.362961875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:27:9: replace <impl StatusTagLookup for HashMap<StatusId, StatusTagSet>>::get_tags -> StatusTagSet with Default::default()",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "<impl StatusTagLookup for HashMap<StatusId, StatusTagSet>>::get_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 26,
+                "column": 5
+              },
+              "end": {
+                "line": 28,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 27,
+              "column": 9
+            },
+            "end": {
+              "line": 27,
+              "column": 50
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_27_col_9.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_27_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 32.419833833,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.232412375,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:44:5: replace derive_status_tags -> StatusTagSet with Default::default()",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 44,
+              "column": 5
+            },
+            "end": {
+              "line": 64,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_44_col_5.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_44_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.661697083,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.22240025,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:48:32: replace || with && in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 48,
+              "column": 32
+            },
+            "end": {
+              "line": 48,
+              "column": 34
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_48_col_32.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_48_col_32.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 25.026428333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.115709958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:48:51: replace < with == in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 48,
+              "column": 51
+            },
+            "end": {
+              "line": 48,
+              "column": 52
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_48_col_51.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_48_col_51.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.403966583,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.78982375,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:48:51: replace < with > in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 48,
+              "column": 51
+            },
+            "end": {
+              "line": 48,
+              "column": 52
+            }
+          },
+          "replacement": ">",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_48_col_51_001.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_48_col_51_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.081408917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.525316875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:48:51: replace < with <= in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 48,
+              "column": 51
+            },
+            "end": {
+              "line": 48,
+              "column": 52
+            }
+          },
+          "replacement": "<=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_48_col_51_002.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_48_col_51_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.801403540999999,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.582429667,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:51:31: replace || with && in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 51,
+              "column": 31
+            },
+            "end": {
+              "line": 51,
+              "column": 33
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_51_col_31.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_51_col_31.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.120895333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.918161125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:51:53: replace > with == in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 51,
+              "column": 53
+            },
+            "end": {
+              "line": 51,
+              "column": 54
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_51_col_53.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_51_col_53.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.200852208,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.4801311249999998,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:51:53: replace > with < in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 51,
+              "column": 53
+            },
+            "end": {
+              "line": 51,
+              "column": 54
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_51_col_53_001.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_51_col_53_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.012744542,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.9004647500000003,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:51:53: replace > with >= in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 51,
+              "column": 53
+            },
+            "end": {
+              "line": 51,
+              "column": 54
+            }
+          },
+          "replacement": ">=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_51_col_53_002.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_51_col_53_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.58191875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.298513792,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:54:33: replace || with && in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 54,
+              "column": 33
+            },
+            "end": {
+              "line": 54,
+              "column": 35
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_54_col_33.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_54_col_33.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.872655417,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.415606125,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:54:52: replace > with == in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 54,
+              "column": 52
+            },
+            "end": {
+              "line": 54,
+              "column": 53
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_54_col_52.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_54_col_52.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.176738708,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.702950208,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:54:52: replace > with < in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 54,
+              "column": 52
+            },
+            "end": {
+              "line": 54,
+              "column": 53
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_54_col_52_001.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_54_col_52_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.139069291,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.536539083,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:54:52: replace > with >= in derive_status_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_status_tags",
+            "return_type": "-> StatusTagSet",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 54,
+              "column": 52
+            },
+            "end": {
+              "line": 54,
+              "column": 53
+            }
+          },
+          "replacement": ">=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_54_col_52_002.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_54_col_52_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.350825917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.850122583,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:88:5: replace derive_ability_tags -> AbilityTagSet with Default::default()",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 88,
+              "column": 5
+            },
+            "end": {
+              "line": 157,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_88_col_5.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_88_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 27.632832791,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.784732209,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:100:9: replace && with || in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 100,
+              "column": 9
+            },
+            "end": {
+              "line": 100,
+              "column": 11
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_100_col_9.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_100_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 26.619247791,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.370147833,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:99:24: replace == with != in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 99,
+              "column": 24
+            },
+            "end": {
+              "line": 99,
+              "column": 26
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_99_col_24.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_99_col_24.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.986486709,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.951191209,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:119:13: replace || with && in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 119,
+              "column": 13
+            },
+            "end": {
+              "line": 119,
+              "column": 15
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_119_col_13.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_119_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.809616208,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.334127125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:118:13: replace || with && in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 118,
+              "column": 13
+            },
+            "end": {
+              "line": 118,
+              "column": 15
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_118_col_13.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_118_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.720724792,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.0351935,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:117:41: replace == with != in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 117,
+              "column": 41
+            },
+            "end": {
+              "line": 117,
+              "column": 43
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_117_col_41.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_117_col_41.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.629201209,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.770385,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:118:43: replace && with || in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 118,
+              "column": 43
+            },
+            "end": {
+              "line": 118,
+              "column": 45
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_118_col_43.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_118_col_43.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.177427167,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.5851915,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:118:23: replace == with != in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 118,
+              "column": 23
+            },
+            "end": {
+              "line": 118,
+              "column": 25
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_118_col_23.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_118_col_23.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.667663292,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.7675333330000003,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:118:62: replace == with != in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 118,
+              "column": 62
+            },
+            "end": {
+              "line": 118,
+              "column": 64
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_118_col_62.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_118_col_62.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.87806575,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.516238875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:119:43: replace && with || in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 119,
+              "column": 43
+            },
+            "end": {
+              "line": 119,
+              "column": 45
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_119_col_43.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_119_col_43.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.295460333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.550559958,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:119:23: replace == with != in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 119,
+              "column": 23
+            },
+            "end": {
+              "line": 119,
+              "column": 25
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_119_col_23.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_119_col_23.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.9030885,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.7079709579999998,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:119:62: replace == with != in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 119,
+              "column": 62
+            },
+            "end": {
+              "line": 119,
+              "column": 64
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_119_col_62.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_119_col_62.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.229573166,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.593608875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:120:29: replace && with || in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 120,
+              "column": 29
+            },
+            "end": {
+              "line": 120,
+              "column": 31
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_120_col_29.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_120_col_29.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.097231292,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.580593875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:128:18: replace != with == in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 128,
+              "column": 18
+            },
+            "end": {
+              "line": 128,
+              "column": 20
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_128_col_18.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_128_col_18.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.394107791,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.960397083,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:131:12: delete ! in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 131,
+              "column": 12
+            },
+            "end": {
+              "line": 131,
+              "column": 13
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_131_col_12.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_131_col_12.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.275774583,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.284202125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:135:46: replace || with && in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 135,
+              "column": 46
+            },
+            "end": {
+              "line": 135,
+              "column": 48
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_135_col_46.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_135_col_46.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.399892709,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.352709416,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:147:13: replace || with && in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 147,
+              "column": 13
+            },
+            "end": {
+              "line": 147,
+              "column": 15
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_147_col_13.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_147_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.980871959,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.909154625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:146:13: replace || with && in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 146,
+              "column": 13
+            },
+            "end": {
+              "line": 146,
+              "column": 15
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_146_col_13.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_146_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.702251625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.333024792,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:145:37: replace == with != in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 145,
+              "column": 37
+            },
+            "end": {
+              "line": 145,
+              "column": 39
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_145_col_37.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_145_col_37.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.312123792,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.669872666,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:146:43: replace && with || in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 146,
+              "column": 43
+            },
+            "end": {
+              "line": 146,
+              "column": 45
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_146_col_43.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_146_col_43.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.845561333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.397009625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:146:23: replace == with != in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 146,
+              "column": 23
+            },
+            "end": {
+              "line": 146,
+              "column": 25
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_146_col_23.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_146_col_23.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.970142917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.548232375,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:146:62: replace == with != in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 146,
+              "column": 62
+            },
+            "end": {
+              "line": 146,
+              "column": 64
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_146_col_62.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_146_col_62.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.308204916,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.023800292,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:147:43: replace && with || in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 147,
+              "column": 43
+            },
+            "end": {
+              "line": 147,
+              "column": 45
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_147_col_43.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_147_col_43.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.442924417,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.282059792,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:147:23: replace == with != in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 147,
+              "column": 23
+            },
+            "end": {
+              "line": 147,
+              "column": 25
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_147_col_23.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_147_col_23.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.375607166,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.057771333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:147:62: replace == with != in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 147,
+              "column": 62
+            },
+            "end": {
+              "line": 147,
+              "column": 64
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_147_col_62.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_147_col_62.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.120822041,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.751102709,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/combat/ai/world/tags/classify.rs:149:13: replace && with || in derive_ability_tags",
+          "package": "storyforge",
+          "file": "src/combat/ai/world/tags/classify.rs",
+          "function": {
+            "function_name": "derive_ability_tags",
+            "return_type": "-> AbilityTagSet",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 158,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 149,
+              "column": 13
+            },
+            "end": {
+              "line": 149,
+              "column": 15
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/src__combat__ai__world__tags__classify.rs_line_149_col_13.log",
+      "diff_path": "diff/src__combat__ai__world__tags__classify.rs_line_149_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.273259458,
+          "process_status": "Success",
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=storyforge@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.076528583,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/splav/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=storyforge@0.1.0",
+            "--lib"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 40,
+  "missed": 17,
+  "caught": 23,
+  "timeout": 0,
+  "unviable": 0,
+  "success": 0,
+  "start_time": "2026-05-24T05:40:59.96657Z",
+  "end_time": "2026-05-24T06:26:24.341529Z",
+  "cargo_mutants_version": "27.0.0"
+}

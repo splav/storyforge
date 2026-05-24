@@ -1,0 +1,17 @@
+src/combat/ai/world/tags/classify.rs:54:33: replace || with && in derive_status_tags
+src/combat/ai/world/tags/classify.rs:54:52: replace > with < in derive_status_tags
+src/combat/ai/world/tags/classify.rs:100:9: replace && with || in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:118:13: replace || with && in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:117:41: replace == with != in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:118:43: replace && with || in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:118:23: replace == with != in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:118:62: replace == with != in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:119:43: replace && with || in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:120:29: replace && with || in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:147:13: replace || with && in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:146:43: replace && with || in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:146:23: replace == with != in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:146:62: replace == with != in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:147:43: replace && with || in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:147:23: replace == with != in derive_ability_tags
+src/combat/ai/world/tags/classify.rs:147:62: replace == with != in derive_ability_tags
