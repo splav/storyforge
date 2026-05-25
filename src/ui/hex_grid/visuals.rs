@@ -12,7 +12,7 @@ use crate::game::components::{
 use crate::game::hex::{hex_circle, hex_line, Hex, LAYOUT};
 use crate::game::pathfinding::{reach_from, MovementEnv};
 use crate::game::hex_map::HexMap;
-use crate::game::resources::{HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags};
+use crate::game::resources::{HexCorpses, HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags};
 use crate::ui::animation::MovePath;
 use bevy::prelude::*;
 use std::collections::HashSet;
@@ -27,6 +27,7 @@ pub struct DirtyBridgePrev {
     target: Option<Entity>,
     hover: Option<Hex>,
     pos_gen: u64,
+    corpse_gen: u64,
     initialized: bool,
 }
 
@@ -35,6 +36,7 @@ pub fn ui_dirty_bridge(
     active_q: Query<Entity, With<ActiveCombatant>>,
     sel: Res<SelectionState>,
     positions: Res<HexPositions>,
+    corpses: Res<HexCorpses>,
     queue: Res<TurnQueue>,
     hover: Res<HexHover>,
     vitals_q: Query<(), Changed<Vital>>,
@@ -56,6 +58,7 @@ pub fn ui_dirty_bridge(
         prev.target = sel.selected_target;
         prev.hover = hover.0;
         prev.pos_gen = positions.generation;
+        prev.corpse_gen = corpses.generation;
         return;
     }
 
@@ -96,6 +99,17 @@ pub fn ui_dirty_bridge(
             | UiDirtyFlags::HEX_FILL
             | UiDirtyFlags::LABELS
             | UiDirtyFlags::TOKENS;
+    }
+
+    // Corpse layer mutations: cell fill / token / labels read corpses via
+    // HexMap, so a corpse-only change still needs UI refresh.  OVERLAY stays
+    // unchanged — overlays query alive units only (movement reach, ability range).
+    if corpses.generation != prev.corpse_gen {
+        prev.corpse_gen = corpses.generation;
+        dirty.0 |= UiDirtyFlags::HEX_FILL
+            | UiDirtyFlags::LABELS
+            | UiDirtyFlags::TOKENS
+            | UiDirtyFlags::TOOLTIP;
     }
 
     if queue.is_changed() {
