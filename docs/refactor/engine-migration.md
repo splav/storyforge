@@ -55,7 +55,7 @@ What stays in ECS **by design** (not debt):
 | **S5** | `Event::DotDamaged` atomic (drop bridge `pending_status_tick` state-machine) | ⏳ Deferred | wait for trigger |
 | **S6** | auto-end-turn lives in engine, not bridge | ⏳ Deferred | wait for trigger |
 | **S7** | `Event::EnergySpent` parity with `EnergyRegenerated` | ⏳ Deferred | wait for trigger |
-| **V4** | Engine internal: unify two status-bonus reflow paths | ⏳ Deferred | wait for trigger |
+| **V4** | Engine internal: unify two status-bonus reflow paths | ✅ Done | `097f78f` |
 
 ---
 
@@ -120,20 +120,18 @@ bridge-side diff in `process_action_system`. Asymmetric.
 passive drain, ability-of-another-unit consuming target's energy).
 Today the diff path captures everything.
 
-### V4 — engine status-bonus reflow unification
+### V4 — engine status-bonus reflow unification ✅ Done (`097f78f`)
 
-**Problem.** Engine pulls `armor_bonus`/`speed_bonus` from
-`ContentView::status_bonuses(status_id)` and `damage_taken_bonus` from
-`status_def.damage_taken_bonus` — two paths, two sources of truth.
-Synced today by convention, brittle.
-
-**Fix.** Pure engine internal: collapse both into a single
-`status_def.bonuses() -> StatusBonuses { armor, speed, damage_taken }`
-or extend `StatusBonuses` to carry all three. SCHEMA may not need to
-bump (depends on TOML shape).
-
-**Trigger.** Adding a fourth bonus type, or a status-bonus bug at the
-reflow boundary.
+Extended `StatusBonuses` to carry all three bonus fields
+(`armor_bonus`, `speed_bonus`, `damage_taken_bonus`). Collapsed the
+flat bonus fields on `StatusDef` into `bonuses: StatusBonuses`.
+`ContentView::status_bonuses` is now default-implemented on top of
+`status_def`. `RefreshAggregates` and `aura_effects_on` read all
+bonuses through a single call. Production overrides on
+`TomlContentView` and `EcsContentView` deleted. Also closed a silent
+AI-sim divergence: `SnapshotContentView` previously returned only
+armor+speed without `damage_taken_bonus`. SCHEMA unchanged (hashes
+`Unit` aggregates, not `StatusDef`). 44 files, −105 net lines.
 
 ---
 
@@ -155,7 +153,6 @@ Listed here so they don't reappear in future "what's left" surveys.
 
 **Engine extensions (wait for trigger):**
 - S5 / S6 / S7 individually scoped, group if triggers coincide.
-- V4 is pure engine internal; can land with any of S5-S7.
 
 **Cross-cutting (separate scope):**
 - `Messages<CombatEvent>` conversion — would touch ~6 UI consumers,
