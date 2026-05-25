@@ -58,7 +58,7 @@ What stays in ECS **by design** (not debt):
 | **S7** | `Event::EnergySpent` parity with `EnergyRegenerated` | ✅ Done | subsumed by C4 — `PoolChanged{pool: Energy, cause: Spent}` |
 | **V4** | Engine internal: unify two status-bonus reflow paths | ✅ Done | `097f78f` |
 | **Phase B** | engine-truth invariant completion (B-α adapter relocation, B-β template consolidation in `src/content/to_engine.rs`, B-γ S6) | ✅ Done | `4b4b0e3` |
-| **Phase C** | Resource-pool uniformity: `PoolKind` enum, `Unit.pools` (`EnumMap<PoolKind, Option<(i32,i32)>>`), unified regen loop, `Event::PoolChanged` surface; bridge projector reads from pools (C5); legacy `Unit` fields + dual-emit removed (C6); subsumes S7 | ✅ Done | C1:`cb6bcbc` C2:`ca66039` C3:`d70958b` C4:`c4eca57` C5:`664fbab` C6:_pending_ |
+| **Phase C** | Resource-pool uniformity: `PoolKind` enum, `Unit.pools` (`EnumMap<PoolKind, Option<(i32,i32)>>`), unified regen loop, `Event::PoolChanged` surface; bridge projector reads from pools (C5); legacy `Unit` fields + dual-emit removed (C6); subsumes S7 | ✅ Done | C1:`cb6bcbc` C2:`ca66039` C3:`d70958b` C4:`c4eca57` C5:`664fbab` C6:`86f204e` |
 
 ---
 
