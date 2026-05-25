@@ -58,7 +58,7 @@ What stays in ECS **by design** (not debt):
 | **S7** | `Event::EnergySpent` parity with `EnergyRegenerated` | ✅ Done | subsumed by C4 — `PoolChanged{pool: Energy, cause: Spent}` |
 | **V4** | Engine internal: unify two status-bonus reflow paths | ✅ Done | `097f78f` |
 | **Phase B** | engine-truth invariant completion (B-α adapter relocation, B-β template consolidation in `src/content/to_engine.rs`, B-γ S6) | ✅ Done | `4b4b0e3` |
-| **Phase C** | Resource-pool uniformity: `PoolKind` enum, `Unit.pools` (`EnumMap<PoolKind, Option<(i32,i32)>>`), unified regen loop, `Event::PoolChanged` surface; bridge projector reads from pools (C5); subsumes S7 | ✅ Done | C1:`cb6bcbc` C2:`ca66039` C3:`d70958b` C4:`c4eca57` C5:TBD |
+| **Phase C** | Resource-pool uniformity: `PoolKind` enum, `Unit.pools` (`EnumMap<PoolKind, Option<(i32,i32)>>`), unified regen loop, `Event::PoolChanged` surface; bridge projector reads from pools (C5); subsumes S7 | ✅ Done | C1:`cb6bcbc` C2:`ca66039` C3:`d70958b` C4:`c4eca57` C5:`664fbab` |
 
 ---
 
@@ -100,7 +100,7 @@ armor+speed without `damage_taken_bonus`. SCHEMA unchanged (hashes
 | Phase B-β: template consolidation | `12e2fd8` | Consolidated remaining bridge-side engine-construction templates into `src/content/to_engine.rs`. |
 | S6 / Phase B-γ: auto-end-turn in engine | `4b4b0e3` | `Event::TurnEnded{cause: ResourcesExhausted}` emitted inline by Cast arm; bridge auto-end block removed. Closed engine-truth invariant. |
 | C4: `Event::PoolChanged` + S7 subsumption | `c4eca57` | Unified pool-mutation event surface. Dual-emitted alongside legacy events. AP/MP refill now emits `PoolChanged{Refill}` (previously silent). S7 (`EnergySpent`) subsumed: energy spend is `PoolChanged{pool: Energy, cause: Spent}`. SCHEMA 40→41. |
-| **Phase C complete** (C5): bridge reads from `Unit.pools` | TBD | `project_state_to_ecs` sources AP/MP/Rage/Mana/Energy values from `unit.pools[PoolKind::*]`. Legacy fields write-only until C6 removes them. Two bridge_smoke tests updated to keep `pools` in sync with direct legacy-field mutations. |
+| **Phase C complete** (C5): bridge reads from `Unit.pools` | `664fbab` | `project_state_to_ecs` sources AP/MP/Rage/Mana/Energy values from `unit.pools[PoolKind::*]`. Legacy fields write-only until C6 removes them. Two bridge_smoke tests updated to keep `pools` in sync with direct legacy-field mutations. |
 
 ---
 
@@ -128,7 +128,7 @@ All planned migration phases are now closed.
 | S5/S6/S7 | `5db559d` / `4b4b0e3` / C4 | Atomic DotDamaged; auto-end in engine; EnergySpent via PoolChanged |
 | Phase A | `a7048f6` | `translate_events` + `TranslateCtx` unification |
 | Phase B (B-α/β/γ) | `4b4b0e3` | Engine-truth invariant; adapters to `to_engine.rs` |
-| Phase C (C1–C5) | this session | Resource-pool table; bridge projector reads from pools |
+| Phase C (C1–C5) | `664fbab` (C5) | Resource-pool table; bridge projector reads from pools |
 
 **Remaining open work (separate sessions):**
 - **C6:** Remove legacy fields (`Unit.mana`, `Unit.rage`, `Unit.energy`, `Unit.action_points`, `Unit.movement_points`, `Unit.max_ap`) and legacy events (`ManaRegenerated`, `EnergyRegenerated`, `RageGained`). Fields are currently write-only. Safe to remove once all callers migrate.
