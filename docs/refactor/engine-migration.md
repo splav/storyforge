@@ -54,9 +54,10 @@ What stays in ECS **by design** (not debt):
 | **L2** | Move `effects_outcome.rs` + `effects_state.rs` → `src/combat/ai/sim/` | ✅ Done | `ffe7e97` |
 | **S5** | `Event::DotDamaged` atomic (drop bridge `pending_status_tick` state-machine) | ✅ Done | `5db559d` |
 | **Phase A** | Unify bridge translators into `translate_events` + `TranslateCtx` | ✅ Done | `a7048f6` |
-| **S6** | auto-end-turn lives in engine, not bridge | ⏳ Deferred | wait for trigger |
+| **S6** | auto-end-turn lives in engine, not bridge | ✅ Done | `4b4b0e3` |
 | **S7** | `Event::EnergySpent` parity with `EnergyRegenerated` | ⏳ Deferred | wait for trigger |
 | **V4** | Engine internal: unify two status-bonus reflow paths | ✅ Done | `097f78f` |
+| **Phase B** | engine-truth invariant completion (B-α adapter relocation, B-β template consolidation in `src/content/to_engine.rs`, B-γ S6) | ✅ Done | `4b4b0e3` |
 
 ---
 
@@ -72,24 +73,6 @@ L1 and L2 closed in `ffe7e97`.
 
 All require an engine SCHEMA bump and parity-test churn. If two or
 more trigger simultaneously, group into a single bump window.
-
-### S6 — auto-end-turn in engine
-
-**Problem.** When a Cast exhausts `AP=0 && MP=0`, the bridge
-([engine_bridge.rs:917](../../src/combat/engine_bridge.rs:917))
-synchronously calls `step(Action::EndTurn)` after the Cast. This means
-a pure engine replay (without the bridge) would not auto-end — the
-trace records two separate steps but the chain of cause is invisible.
-Also: AI's agenda-builder has to know about this implicit
-end-on-exhaustion behavior.
-
-**Fix.** Engine `Action::Cast` arm itself emits the AdvanceTurn cascade
-when actor resources are depleted. SCHEMA 40→41. Drop the bridge's
-auto-end block.
-
-**Trigger.** AI agenda-builder grows logic depending on auto-end, or
-replay fidelity matters for a debugging task. **Highest risk** of the
-stages because it changes the AI surface.
 
 ### S7 — `Event::EnergySpent`
 
@@ -127,6 +110,9 @@ armor+speed without `damage_taken_bonus`. SCHEMA unchanged (hashes
 |---|---|---|
 | S5: `Event::DotDamaged` | `5db559d` | Fused `StatusTicked + UnitDamaged` pair into one atomic event; dropped `pending_status_tick` state-machine from bridge. |
 | Phase A: translator unification | `a7048f6` | Collapsed `translate_tick_events`, `translate_end_turn_events`, `translate_cast_events`, `translate_move_events` into `translate_events(events, &mut TranslateCtx)` with one exhaustive `match`. |
+| Phase B-α: adapter relocation | `0813083` | Moved content-adapter helpers out of bridge into `src/content/to_engine.rs`; bridge is now pure translation. |
+| Phase B-β: template consolidation | `12e2fd8` | Consolidated remaining bridge-side engine-construction templates into `src/content/to_engine.rs`. |
+| S6 / Phase B-γ: auto-end-turn in engine | `4b4b0e3` | `Event::TurnEnded{cause: ResourcesExhausted}` emitted inline by Cast arm; bridge auto-end block removed. Closed engine-truth invariant. |
 
 ---
 
@@ -147,7 +133,7 @@ Listed here so they don't reappear in future "what's left" surveys.
 ## 6. Suggested sequencing
 
 **Engine extensions (wait for trigger):**
-- S6 / S7 individually scoped, group if triggers coincide.
+- S7 individually scoped (only remaining deferred engine extension).
 
 **Cross-cutting (separate scope):**
 - `Messages<CombatEvent>` conversion — would touch ~6 UI consumers,
@@ -162,10 +148,15 @@ Migration is **complete** when:
 
 - All L items closed. ✅ (`ffe7e97`)
 - At least one of S5/S6/S7 triggered + landed (proves engine schema
-  evolution path works post-PR-A). ✅ S5 landed in `5db559d`.
+  evolution path works post-PR-A). ✅ S5 landed in `5db559d`, S6 landed
+  in `4b4b0e3`.
 - This document's "Pending" rows are empty or moved to historical record.
 - `docs/engine-architecture.md` updated to reflect final post-migration
   shape.
+
+**Migration is essentially complete** — Phase B (B-α/B-β/B-γ) closed the
+engine-truth invariant. Only S7 (`Event::EnergySpent`) remains as a
+deferred-pending-trigger item. The schema evolution path is proven.
 
 No hard deadline — migration is opportunistic, driven by triggers and
 session bandwidth.

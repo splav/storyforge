@@ -30,12 +30,15 @@ use crate::{
 /// for mana-cost casts, replacing the bridge-side mana-diff snapshot approach.
 /// Cast streams that previously had a trailing `ManaChanged` entry now carry it
 /// inline. Old v38 logs are incompatible (clean break).
-/// v40: `Event::TurnEnded` gains `cause: TurnEndCause` field (B-γ / S6).
-/// Engine emits `TurnEnded{cause: ResourcesExhausted}` inline after a Cast
-/// that leaves AP=0 and MP=0, removing the bridge's separate auto-end step.
-/// Recorded trace streams that had two steps (Cast + EndTurn) for exhausting
-/// casts now have one (Cast with embedded TurnEnded). Old v39 traces are
-/// incompatible (clean break).
+/// v40: Two engine wire-shape changes consolidated in one SCHEMA jump:
+/// (1) `Event::DotDamaged` atomic variant added (Phase A-S5 in `5db559d`):
+///     replaces the legacy `(StatusTicked, UnitDamaged)` pair for damaging
+///     DoT ticks. Buff-status ticks (zero damage) still emit `StatusTicked`.
+/// (2) `Event::TurnEnded` gains `cause: TurnEndCause` field (Phase B-γ / S6
+///     in `4b4b0e3`). Engine emits `TurnEnded{cause: ResourcesExhausted}`
+///     inline after a Cast that leaves AP=0 and MP=0, removing the bridge's
+///     separate auto-end step.
+/// Old v39 traces are incompatible (clean break).
 pub const SCHEMA_VERSION: u32 = 40;
 
 // ── Record types ─────────────────────────────────────────────────────────────
