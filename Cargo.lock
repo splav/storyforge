@@ -4827,6 +4827,7 @@ dependencies = [
  "combat_engine",
  "criterion",
  "directories",
+ "enum-map",
  "hexx",
  "serde",
  "serde_json",

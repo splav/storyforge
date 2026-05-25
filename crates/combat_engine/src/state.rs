@@ -392,21 +392,69 @@ impl CombatState {
 
         if let Some(u) = self.unit_mut(actor) {
             if u.is_alive() {
-                u.action_points = u.max_ap;
-                u.movement_points = u.speed;
-                if let Some((cur, max)) = u.mana.as_mut() {
-                    let new = (*cur + 1).min(*max);
-                    if new != *cur {
-                        *cur = new;
-                        events.push(Event::ManaRegenerated { unit: actor, current: new, max: *max });
+                use crate::{PoolKind, RegenRule};
+
+                // Capture effective speed before the mutable pool iteration —
+                // needed to sync pools[Mp].max for RefillToMax (mirrors prior
+                // `u.movement_points = u.speed` behavior).
+                let effective_speed = u.speed;
+
+                // Unified regen loop: iteration order is load-bearing for
+                // determinism (Mana, Rage, Energy, Ap, Mp).
+                for (kind, rule) in u.regen_per_pool.iter() {
+                    let Some((cur, max)) = u.pools[kind].as_mut() else { continue };
+                    match rule {
+                        RegenRule::None => {}
+                        RegenRule::Increment(amount) => {
+                            let new = (*cur + amount).min(*max);
+                            if new != *cur {
+                                *cur = new;
+                                // Emit legacy per-pool events for Mana/Energy.
+                                match kind {
+                                    PoolKind::Mana => events.push(Event::ManaRegenerated {
+                                        unit: actor,
+                                        current: new,
+                                        max: *max,
+                                    }),
+                                    PoolKind::Energy => events.push(Event::EnergyRegenerated {
+                                        unit: actor,
+                                        current: new,
+                                        max: *max,
+                                    }),
+                                    // No legacy event for other Increment pools (none today).
+                                    _ => {}
+                                }
+                            }
+                        }
+                        RegenRule::RefillToMax => {
+                            // For Mp, the effective max is the unit's current speed
+                            // (which includes status/aura bonuses via RefreshAggregates),
+                            // not the stale pool max. Sync it here so refill matches
+                            // the prior `u.movement_points = u.speed` behavior.
+                            if kind == PoolKind::Mp {
+                                *max = effective_speed;
+                            }
+                            *cur = *max; // unconditional
+                        }
                     }
                 }
-                if let Some((cur, max)) = u.energy.as_mut() {
-                    let new = (*cur + 1).min(*max);
-                    if new != *cur {
-                        *cur = new;
-                        events.push(Event::EnergyRegenerated { unit: actor, current: new, max: *max });
-                    }
+
+                // Mirror back to legacy fields — mandatory until C5 removes them.
+                // Regen happens via pools first; legacy fields are then synced.
+                if let Some((cur, max)) = u.pools[PoolKind::Mana] {
+                    u.mana = Some((cur, max));
+                }
+                if let Some((cur, max)) = u.pools[PoolKind::Rage] {
+                    u.rage = Some((cur, max));
+                }
+                if let Some((cur, max)) = u.pools[PoolKind::Energy] {
+                    u.energy = Some((cur, max));
+                }
+                if let Some((cur, _max)) = u.pools[PoolKind::Ap] {
+                    u.action_points = cur;
+                }
+                if let Some((cur, _max)) = u.pools[PoolKind::Mp] {
+                    u.movement_points = cur;
                 }
             }
         }
@@ -1012,5 +1060,70 @@ mod tests {
             Some((u.movement_points, u.movement_points)),
             "pools[Mp] must mirror legacy movement_points",
         );
+    }
+
+    /// C3: verify unified regen loop drives all 5 pools correctly.
+    ///
+    /// - Mana/Energy: incremented by 1, legacy fields mirrored.
+    /// - Ap/Mp: refilled to max, legacy fields mirrored.
+    /// - Rage: skipped (RegenRule::None), unchanged.
+    /// - Legacy fields match pools after the call.
+    #[test]
+    fn unified_regen_loop_increments_mana_energy_refills_ap_mp_skips_rage() {
+        use crate::PoolKind;
+
+        let uid = UnitId(42);
+        // Start with all resources partially spent / not full.
+        let mut unit = make_unit(uid, 1, 3, Some((4, 10))); // ap=1/3, mana=4/10
+        unit.energy = Some((2, 8));
+        unit.rage   = Some((3, 6));
+        // Sync pools to match (make_unit only sets pools for mana; update others).
+        unit.pools[PoolKind::Energy] = Some((2, 8));
+        unit.pools[PoolKind::Rage]   = Some((3, 6));
+        // ap already set via make_unit: pools[Ap] = Some((1,3)), action_points=1
+        // mp: make_unit sets pools[Mp]=Some((3,3)), movement_points=3 — spend 1
+        unit.movement_points = 2;
+        unit.pools[PoolKind::Mp] = Some((2, 3));
+        // Set regen rules: Mana/Energy increment, Ap/Mp refill, Rage none.
+        use crate::RegenRule;
+        unit.regen_per_pool[PoolKind::Mana]   = RegenRule::Increment(1);
+        unit.regen_per_pool[PoolKind::Rage]   = RegenRule::None;
+        unit.regen_per_pool[PoolKind::Energy] = RegenRule::Increment(1);
+        unit.regen_per_pool[PoolKind::Ap]     = RegenRule::RefillToMax;
+        unit.regen_per_pool[PoolKind::Mp]     = RegenRule::RefillToMax;
+
+        let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
+        let content = StubContent;
+
+        let events = state.start_actor_turn(uid, &content);
+        let u = state.unit(uid).unwrap();
+
+        // Mana: 4 → 5 (incremented), legacy mirrored.
+        assert_eq!(u.pools[PoolKind::Mana], Some((5, 10)), "pools[Mana] must increment");
+        assert_eq!(u.mana, Some((5, 10)), "legacy mana must mirror pools[Mana]");
+
+        // Energy: 2 → 3 (incremented), legacy mirrored.
+        assert_eq!(u.pools[PoolKind::Energy], Some((3, 8)), "pools[Energy] must increment");
+        assert_eq!(u.energy, Some((3, 8)), "legacy energy must mirror pools[Energy]");
+
+        // Rage: unchanged at 3 (RegenRule::None).
+        assert_eq!(u.pools[PoolKind::Rage], Some((3, 6)), "pools[Rage] must not change");
+        assert_eq!(u.rage, Some((3, 6)), "legacy rage must mirror pools[Rage]");
+
+        // Ap: refilled to max=3.
+        assert_eq!(u.pools[PoolKind::Ap], Some((3, 3)), "pools[Ap] must refill to max");
+        assert_eq!(u.action_points, 3, "legacy action_points must mirror pools[Ap]");
+
+        // Mp: refilled to max=3.
+        assert_eq!(u.pools[PoolKind::Mp], Some((3, 3)), "pools[Mp] must refill to max");
+        assert_eq!(u.movement_points, 3, "legacy movement_points must mirror pools[Mp]");
+
+        // Events: ManaRegenerated + EnergyRegenerated (Mana first, then Energy — iteration order).
+        let event_kinds: Vec<&str> = events.iter().map(|e| match e {
+            Event::ManaRegenerated { .. }   => "mana",
+            Event::EnergyRegenerated { .. } => "energy",
+            _                               => "other",
+        }).collect();
+        assert_eq!(event_kinds, vec!["mana", "energy"], "events must be Mana then Energy");
     }
 }

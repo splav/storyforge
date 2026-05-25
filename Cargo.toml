@@ -17,6 +17,7 @@ serde_json = "1"
 toml  = "0.8"
 bitflags = "2"
 directories = "6"
+enum-map = { version = "2", features = ["serde"] }
 
 [features]
 # Включить `bevy/dynamic_linking` только для локальной dev-сборки:

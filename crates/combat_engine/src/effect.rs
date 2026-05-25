@@ -270,6 +270,10 @@ pub fn apply_effect(
         Effect::DecrementMP { actor, by } => {
             if let Some(u) = state.unit_mut(*actor) {
                 u.movement_points = (u.movement_points - by).max(0);
+                // Mirror write to pools[Mp].
+                if let Some((pc, _)) = u.pools[crate::PoolKind::Mp].as_mut() {
+                    *pc = u.movement_points;
+                }
             }
             (vec![], ApplyCtx::default())
         }
@@ -277,6 +281,10 @@ pub fn apply_effect(
         Effect::DecrementAP { actor, by } => {
             if let Some(u) = state.unit_mut(*actor) {
                 u.action_points = (u.action_points - by).max(0);
+                // Mirror write to pools[Ap].
+                if let Some((pc, _)) = u.pools[crate::PoolKind::Ap].as_mut() {
+                    *pc = u.action_points;
+                }
             }
             (vec![], ApplyCtx::default())
         }
@@ -397,16 +405,28 @@ pub fn apply_effect(
                     ResourceKind::Mana => {
                         if let Some((current, _max)) = u.mana.as_mut() {
                             *current = (*current - amount).max(0);
+                            // Mirror write to pools (primary).
+                            if let Some((pc, _)) = u.pools[crate::PoolKind::Mana].as_mut() {
+                                *pc = *current;
+                            }
                         }
                     }
                     ResourceKind::Rage => {
                         if let Some((current, _max)) = u.rage.as_mut() {
                             *current = (*current - amount).max(0);
+                            // Mirror write to pools (primary).
+                            if let Some((pc, _)) = u.pools[crate::PoolKind::Rage].as_mut() {
+                                *pc = *current;
+                            }
                         }
                     }
                     ResourceKind::Energy => {
                         if let Some((current, _max)) = u.energy.as_mut() {
                             *current = (*current - amount).max(0);
+                            // Mirror write to pools (primary).
+                            if let Some((pc, _)) = u.pools[crate::PoolKind::Energy].as_mut() {
+                                *pc = *current;
+                            }
                         }
                     }
                 }
@@ -451,6 +471,10 @@ pub fn apply_effect(
             if let Some(u) = state.unit_mut(*target) {
                 if let Some((current, max)) = u.rage.as_mut() {
                     *current = (*current + 1).min(*max);
+                    // Mirror write to pools[Rage].
+                    if let Some((pc, _)) = u.pools[crate::PoolKind::Rage].as_mut() {
+                        *pc = *current;
+                    }
                 }
             }
             (vec![], ApplyCtx::default())

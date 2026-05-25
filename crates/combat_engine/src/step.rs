@@ -88,14 +88,29 @@ impl<'a> ActionState for EngineCheckState<'a> {
                 )
             },
         );
+        use crate::PoolKind;
+        // Read from pools (primary), fall back to legacy field when pools[k]
+        // is None (e.g. scenario snapshots captured pre-C2 that lack pools).
+        let mana_cur   = u.pools[PoolKind::Mana].map(|(c, _)| c)
+            .or_else(|| u.mana.map(|(c, _)| c));
+        let rage_cur   = u.pools[PoolKind::Rage].map(|(c, _)| c)
+            .or_else(|| u.rage.map(|(c, _)| c));
+        let energy_cur = u.pools[PoolKind::Energy].map(|(c, _)| c)
+            .or_else(|| u.energy.map(|(c, _)| c));
+        let pools = enum_map::enum_map! {
+            PoolKind::Mana   => mana_cur,
+            PoolKind::Rage   => rage_cur,
+            PoolKind::Energy => energy_cur,
+            // Ap/Mp are not resource-cost kinds; excluded from legality pools.
+            PoolKind::Ap     => None,
+            PoolKind::Mp     => None,
+        };
         Some(ActorView {
             pos: u.pos,
             team: u.team,
             hp: u.hp,
             ap: u.action_points,
-            mana: u.mana.map(|(c, _)| c),
-            rage: u.rage.map(|(c, _)| c),
-            energy: u.energy.map(|(c, _)| c),
+            pools,
             causes_disadvantage,
             blocks_mana_abilities,
             is_alive: u.is_alive(),

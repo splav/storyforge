@@ -63,9 +63,16 @@ impl ActionState for BevyActions<'_, '_, '_> {
             team: a.faction.0,
             hp: a.vital.hp,
             ap: a.ap.action_points,
-            mana: a.mana.map(|m| m.current),
-            rage: a.rage.map(|r| r.current),
-            energy: a.energy.map(|e| e.current),
+            pools: {
+                use combat_engine::{enum_map, PoolKind};
+                enum_map::enum_map! {
+                    PoolKind::Mana   => a.mana.map(|m| m.current),
+                    PoolKind::Rage   => a.rage.map(|r| r.current),
+                    PoolKind::Energy => a.energy.map(|e| e.current),
+                    PoolKind::Ap     => None,
+                    PoolKind::Mp     => None,
+                }
+            },
             causes_disadvantage,
             blocks_mana_abilities,
             is_alive: a.vital.is_alive(),

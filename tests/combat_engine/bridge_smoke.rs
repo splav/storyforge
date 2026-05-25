@@ -757,7 +757,10 @@ fn cast_emits_mana_changed_log_entry() {
         },
     };
 
-    run_cast_log_test(ability_def, common::apps::bridge::bridge_stats(), |unit| { unit.mana = Some((10, 10)); }, |log| {
+    run_cast_log_test(ability_def, common::apps::bridge::bridge_stats(), |unit| {
+        unit.mana = Some((10, 10));
+        unit.pools[combat_engine::PoolKind::Mana] = Some((10, 10));
+    }, |log| {
         let mana_events: Vec<_> = log.0.iter().filter_map(|e| {
             if let CombatEvent::ManaChanged { actor: a, current, max } = e {
                 Some((*a, *current, *max))
@@ -826,7 +829,9 @@ fn process_action_system_routes_cast_into_engine() {
     let caster_uid = entity_to_uid(caster);
     common::apps::bridge::with_engine_unit(&mut app, caster, |unit| {
         unit.action_points = 2;
+        unit.pools[combat_engine::PoolKind::Ap] = Some((2, unit.max_ap));
         unit.mana = Some((10, 10));
+        unit.pools[combat_engine::PoolKind::Mana] = Some((10, 10));
     });
 
     common::apps::bridge::write_cast(&mut app, caster, zap_id, target, target_pos);
@@ -1262,6 +1267,7 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
         let mut state = app.world_mut().resource_mut::<CombatStateRes>();
         let unit = state.0.unit_mut(caster_uid).unwrap();
         unit.mana = Some((10, 10));
+        unit.pools[combat_engine::PoolKind::Mana] = Some((10, 10));
         unit.action_points = 2;
     }
 

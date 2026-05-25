@@ -21,15 +21,15 @@ use crate::state::Team;
 use crate::{AbilityDef, AbilityId, ResourceKind, StatusDef, StatusId};
 
 /// Per-actor cross-cutting legality inputs.  Owned `Copy` for borrow-friendliness.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ActorView {
     pub pos: Hex,
     pub team: Team,
     pub hp: i32,
     pub ap: i32,
-    pub mana: Option<i32>,
-    pub rage: Option<i32>,
-    pub energy: Option<i32>,
+    /// Per-pool current amounts (no max needed for legality — only "can afford").
+    /// HP is excluded: it lives in the dedicated `hp` field above.
+    pub pools: enum_map::EnumMap<crate::PoolKind, Option<i32>>,
     pub causes_disadvantage: bool,
     pub blocks_mana_abilities: bool,
     pub is_alive: bool,
@@ -42,9 +42,9 @@ impl ActorView {
     pub fn resource_amount(&self, kind: ResourceKind) -> i32 {
         match kind {
             ResourceKind::Hp => self.hp,
-            ResourceKind::Mana => self.mana.unwrap_or(0),
-            ResourceKind::Rage => self.rage.unwrap_or(0),
-            ResourceKind::Energy => self.energy.unwrap_or(0),
+            ResourceKind::Mana   => self.pools[crate::PoolKind::Mana].unwrap_or(0),
+            ResourceKind::Rage   => self.pools[crate::PoolKind::Rage].unwrap_or(0),
+            ResourceKind::Energy => self.pools[crate::PoolKind::Energy].unwrap_or(0),
         }
     }
 }

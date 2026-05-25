@@ -272,6 +272,7 @@ fn cast_legal_pays_mana_cost() {
 
     let mut actor = make_unit(1, Team::Player, 0, 0); // action_points=2
     actor.mana = Some((10, 10));
+    actor.pools[storyforge::combat_engine::PoolKind::Mana] = Some((10, 10));
     let target = make_unit(2, Team::Enemy, 1, 0);
 
     let mut state = state_with(vec![actor, target]);
@@ -794,6 +795,7 @@ fn cast_crit_fail_double_cost() {
 
     let mut actor = make_unit(1, Team::Player, 0, 0);
     actor.mana = Some((10, 10));
+    actor.pools[storyforge::combat_engine::PoolKind::Mana] = Some((10, 10));
     let target = make_unit(2, Team::Enemy, 1, 0); // hp=10
 
     let mut state = state_with(vec![actor, target]);
