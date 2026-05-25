@@ -1934,7 +1934,7 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
     // Find indices of the relevant events.
     let ability_used_idx = log.0.iter().position(|e| matches!(e, CombatEvent::AbilityUsed { .. }));
     let turn_ended_idx = log.0.iter().position(|e| {
-        matches!(e, CombatEvent::TurnEnded { actor: a } if *a == hero)
+        matches!(e, CombatEvent::TurnEnded { actor: a, .. } if *a == hero)
     });
     let turn_started_enemy_idx = log.0.iter().position(|e| {
         matches!(e, CombatEvent::TurnStarted { actor: a } if *a == enemy)

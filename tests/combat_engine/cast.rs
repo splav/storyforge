@@ -1232,13 +1232,12 @@ fn cast_summon_at_max_cap_emits_spawn_blocked() {
 
 // ── Phase B-α: lock-in tests (pre-S6 contract) ────────────────────────────────
 
-/// Phase B-α: locks in pre-S6 engine contract. To be inverted in B-γ when S6 lands.
+/// Phase B-γ: S6 is now live — engine emits `TurnEnded{cause: ResourcesExhausted}`
+/// and advances the turn when AP+MP are exhausted after a Cast.
 ///
-/// Pure engine must NOT auto-end turn when AP+MP are exhausted after a cast.
-/// S6 will flip this: the engine itself emits TurnEnded{cause: ResourcesExhausted}
-/// and queues AdvanceTurn.  Until S6 lands, the turn-end is bridge-side only.
+/// Inverted from B-α canary `cast_exhausting_ap_mp_does_not_auto_advance_in_engine`.
 #[test]
-fn cast_exhausting_ap_mp_does_not_auto_advance_in_engine() {
+fn cast_exhausting_ap_mp_self_advances_in_engine_s6() {
     let mut actor = make_unit(1, Team::Player, 0, 0);
     // Override defaults: 1 AP, 0 MP — cast costs 1 AP, leaving AP=0, MP=0.
     actor.action_points = 1;
@@ -1247,7 +1246,7 @@ fn cast_exhausting_ap_mp_does_not_auto_advance_in_engine() {
     let target = make_unit(2, Team::Enemy, 1, 0);
 
     let mut state = state_with(vec![actor, target]);
-    // Set actor as the current combatant so we can assert the cursor doesn't move.
+    // Set actor as the current combatant so we can assert the cursor advances.
     state.set_turn_queue(vec![UnitId(1), UnitId(2)], 0);
 
     // Ability: costs 1 AP, no damage, targets a single enemy.
@@ -1269,20 +1268,40 @@ fn cast_exhausting_ap_mp_does_not_auto_advance_in_engine() {
     let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal cast should succeed");
 
-    // Pre-S6: engine must NOT emit TurnEnded on AP+MP exhaustion.
+    // S6: engine MUST emit exactly one TurnEnded with cause ResourcesExhausted.
+    use combat_engine::event::TurnEndCause;
+    let turn_ended_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, Event::TurnEnded { .. }))
+        .collect();
     assert_eq!(
-        events.iter().filter(|e| matches!(e, Event::TurnEnded { .. })).count(),
-        0,
-        "pure engine must NOT auto-end on AP/MP exhaustion pre-S6; events: {:?}",
+        turn_ended_events.len(),
+        1,
+        "engine must emit exactly one TurnEnded on AP/MP exhaustion (S6); events: {:?}",
         events,
     );
+    assert!(
+        matches!(
+            turn_ended_events[0],
+            Event::TurnEnded { cause: TurnEndCause::ResourcesExhausted, .. }
+        ),
+        "TurnEnded cause must be ResourcesExhausted; got: {:?}",
+        turn_ended_events[0],
+    );
 
-    // Turn cursor must remain on actor (index=0).
+    // Turn cursor must have advanced to actor 2 (index=1).
     assert_eq!(
         state.turn_queue.current(),
-        Some(UnitId(1)),
-        "turn cursor must not advance; queue: {:?}",
+        Some(UnitId(2)),
+        "turn cursor must advance after AP/MP exhaustion (S6); queue: {:?}",
         state.turn_queue,
+    );
+
+    // Sanity: TurnStarted for actor 2 is also in the stream.
+    assert!(
+        events.iter().any(|e| matches!(e, Event::TurnStarted { actor: UnitId(2) })),
+        "TurnStarted for actor 2 must be emitted; events: {:?}",
+        events,
     );
 
     // Sanity: AP was actually consumed.

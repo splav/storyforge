@@ -497,8 +497,10 @@ pub fn apply_effect(
             // step_inner's "current changed" check will then emit TurnStarted +
             // start_actor_turn for the new actor.
             if state.turn_queue.current() == Some(*unit) {
-                ctx.turn_skip_events
-                    .push(crate::event::Event::TurnEnded { actor: *unit });
+                ctx.turn_skip_events.push(crate::event::Event::TurnEnded {
+                    actor: *unit,
+                    cause: crate::event::TurnEndCause::DeathOfActor,
+                });
                 derived.push(Effect::AdvanceTurn);
             }
 

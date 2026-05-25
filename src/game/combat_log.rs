@@ -2,7 +2,7 @@ use crate::content::content_view::ContentView;
 use bevy::prelude::*;
 
 use combat_engine::{
-    event::TurnSkipReason,
+    event::{TurnSkipReason, TurnEndCause},
     effect::SpawnBlockedReason,
     content::CritFailOutcome,
     StatusId,
@@ -23,6 +23,24 @@ impl From<&TurnSkipReason> for TurnSkipReasonEcs {
         match r {
             TurnSkipReason::Dead => TurnSkipReasonEcs::Dead,
             TurnSkipReason::Stunned => TurnSkipReasonEcs::Stunned,
+        }
+    }
+}
+
+/// Mirror of engine `TurnEndCause` for the ECS / CombatLog side.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TurnEndCauseEcs {
+    Manual,
+    DeathOfActor,
+    ResourcesExhausted,
+}
+
+impl From<&TurnEndCause> for TurnEndCauseEcs {
+    fn from(c: &TurnEndCause) -> Self {
+        match c {
+            TurnEndCause::Manual => TurnEndCauseEcs::Manual,
+            TurnEndCause::DeathOfActor => TurnEndCauseEcs::DeathOfActor,
+            TurnEndCause::ResourcesExhausted => TurnEndCauseEcs::ResourcesExhausted,
         }
     }
 }
@@ -148,6 +166,7 @@ pub enum CombatEvent {
     /// *engine mirror* — `Event::TurnEnded`.
     TurnEnded {
         actor: Entity,
+        cause: TurnEndCauseEcs,
     },
     /// *engine mirror* — `Event::UnitMoved` (bridge aggregates per-step moves).
     UnitMoved {
@@ -254,7 +273,7 @@ impl CombatEvent {
                     format!("  ○ {} пропускает ход [оглушён]", name(*actor))
                 }
             },
-            CombatEvent::TurnEnded { actor } => format!("  ○ {} завершил ход", name(*actor)),
+            CombatEvent::TurnEnded { actor, .. } => format!("  ○ {} завершил ход", name(*actor)),
             CombatEvent::OpportunityAttack { attacker, target, damage, killed } => {
                 let tail = if *killed { " ✗" } else { "" };
                 format!(

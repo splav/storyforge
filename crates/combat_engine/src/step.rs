@@ -378,7 +378,7 @@ fn step_inner(
         Action::EndTurn { actor } => {
             // TurnEnded fires before the AdvanceTurn cascade so the stream
             // reads: outgoing ends → queue advances → skips/round → next starts.
-            events.push(Event::TurnEnded { actor: *actor });
+            events.push(Event::TurnEnded { actor: *actor, cause: crate::event::TurnEndCause::Manual });
             effect_queue.push_back(Effect::AdvanceTurn);
         }
         Action::Cast { actor, ability, target, target_pos } => {
@@ -720,6 +720,51 @@ fn step_inner(
             // Was previously done by bridge's engine_turn_start_system; absorbed here
             // so the full turn-lifecycle flows through one event stream.
             events.extend(state.start_actor_turn(next_actor, content));
+        }
+    }
+
+    // ── S6: voluntary auto-end after Cast exhausts AP+MP ─────────────────────
+    //
+    // If the action was a Cast and (a) the turn did NOT already advance via
+    // death-cascade or an explicit AdvanceTurn, AND (b) the actor now has
+    // AP ≤ 0 AND MP ≤ 0, emit TurnEnded{cause: ResourcesExhausted} and queue
+    // AdvanceTurn exactly as Action::EndTurn would — but without a second
+    // step() call.  The bridge's separate auto-end block is removed; this path
+    // is the single authoritative source.
+    if matches!(&action, Action::Cast { .. }) && initial_current == final_current {
+        if let Some(actor_unit) = state.unit(actor_id) {
+            if actor_unit.action_points <= 0 && actor_unit.movement_points <= 0 {
+                // Emit TurnEnded before the AdvanceTurn cascade.
+                events.push(Event::TurnEnded {
+                    actor: actor_id,
+                    cause: crate::event::TurnEndCause::ResourcesExhausted,
+                });
+                // Push AdvanceTurn and drain it inline so TurnStarted lands
+                // in the same event stream (mirrors the EndTurn arm).
+                let mut advance_queue: std::collections::VecDeque<Effect> =
+                    std::collections::VecDeque::from([Effect::AdvanceTurn]);
+                while let Some(eff) = advance_queue.pop_front() {
+                    if matches!(&eff, Effect::AdvanceTurn | Effect::BumpRound) {
+                        if turn_advance_budget == 0 {
+                            break;
+                        }
+                        turn_advance_budget -= 1;
+                    }
+                    let (derived, mut ctx) = apply_effect(state, &eff, content);
+                    events.append(&mut ctx.turn_skip_events);
+                    for ef in derived.into_iter().rev() {
+                        advance_queue.push_front(ef);
+                    }
+                }
+                // Emit TurnStarted if the cursor moved.
+                let s6_final = (state.turn_queue.current(), state.round);
+                if initial_current != s6_final {
+                    if let Some(next_actor) = s6_final.0 {
+                        events.push(Event::TurnStarted { actor: next_actor });
+                        events.extend(state.start_actor_turn(next_actor, content));
+                    }
+                }
+            }
         }
     }
 

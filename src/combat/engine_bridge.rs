@@ -1028,10 +1028,13 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         }
 
         // ── Turn / round lifecycle (any context after B5) ─────────────────────
-        Event::TurnEnded { actor } => {
+        Event::TurnEnded { actor, cause } => {
             if let Some(ent) = ctx.id_map.get_entity(*actor) {
                 ctx.pending_lifecycle.remove_active.push(*actor);
-                ctx.log.push(CombatEvent::TurnEnded { actor: ent });
+                ctx.log.push(CombatEvent::TurnEnded {
+                    actor: ent,
+                    cause: crate::game::combat_log::TurnEndCauseEcs::from(cause),
+                });
             }
         }
         Event::TurnSkipped { actor, reason } => {
@@ -1289,54 +1292,6 @@ pub fn process_action_system(
                         for ev in &events {
                             if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
                                 pending_phases.0.push((*unit, *phase_idx));
-                            }
-                        }
-                        // End turn only when both AP and MP are exhausted, and the
-                        // ability isn't GrantMovement (which exists specifically to
-                        // extend the move budget). Mirrors the legacy
-                        // `resolve_action_system` semantic — leftover MP after a cast
-                        // lets the actor spend remaining movement before ending.
-                        // Note: death of the current actor during a cast is handled
-                        // by the engine (B5): Effect::Death derives AdvanceTurn,
-                        // emitting TurnEnded/TurnStarted in the cast event stream,
-                        // which translate_events handles inline. This AP=0&&MP=0
-                        // check is a separate UX feature for voluntary
-                        // resource-exhaustion ending.
-                        let is_grant_movement = active_content
-                            .abilities
-                            .get(ability)
-                            .is_some_and(|d| matches!(d.effect, EffectDef::GrantMovement { .. }));
-                        if let Some(unit) = combat_state.0.unit(actor_uid) {
-                            if !is_grant_movement
-                                && unit.action_points <= 0
-                                && unit.movement_points <= 0
-                            {
-                                // AP and MP exhausted after cast — auto-end turn via engine.
-                                let auto_end = Action::EndTurn { actor: actor_uid };
-                                let end_content = build_ecs_content_view(&active_content);
-                                if let Ok((end_events, end_ctx)) = step(&mut combat_state.0, auto_end.clone(), &mut rng.0, &end_content) {
-                                    // Trace the auto-end-turn step too.
-                                    let end_hash = combat_engine::trace::post_state_hash_hex(&combat_state.0);
-                                    if let Err(e) = trace_writer.write_step(&auto_end, &end_events, end_ctx.rng_calls, end_hash) {
-                                        warn!("Engine trace auto-end-turn step write failed: {e}");
-                                    }
-                                    let mut end_ctx = TranslateCtx {
-                                        log: &mut log,
-                                        id_map: &mut id_map,
-                                        pending_deaths: &mut pending_deaths,
-                                        pending_lifecycle: &mut pending_lifecycle,
-                                        cast: None,
-                                        move_: None,
-                                    };
-                                    translate_events(&end_events, &mut end_ctx);
-                                    // Phase transitions during auto-end-turn (e.g. DoT ticks).
-                                    for ev in &end_events {
-                                        if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
-                                            pending_phases.0.push((*unit, *phase_idx));
-                                        }
-                                    }
-                                }
-
                             }
                         }
                     }

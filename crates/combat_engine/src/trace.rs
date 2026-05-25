@@ -26,9 +26,17 @@ use crate::{
 
 /// Trace schema version.  Matches the AI-log `SCHEMA_VERSION` after 5f.
 /// Bump on any change that adds/removes RNG calls or modifies record shape.
-/// v39: `Event::ManaRegenerated` now emitted by `Effect::PayCost` (mana).
-/// Cast streams include inline mana-change events; recorded traces change shape.
-pub const SCHEMA_VERSION: u32 = 39;
+/// v39: `Event::ManaRegenerated` is now also emitted after `Effect::PayCost`
+/// for mana-cost casts, replacing the bridge-side mana-diff snapshot approach.
+/// Cast streams that previously had a trailing `ManaChanged` entry now carry it
+/// inline. Old v38 logs are incompatible (clean break).
+/// v40: `Event::TurnEnded` gains `cause: TurnEndCause` field (B-γ / S6).
+/// Engine emits `TurnEnded{cause: ResourcesExhausted}` inline after a Cast
+/// that leaves AP=0 and MP=0, removing the bridge's separate auto-end step.
+/// Recorded trace streams that had two steps (Cast + EndTurn) for exhausting
+/// casts now have one (Cast with embedded TurnEnded). Old v39 traces are
+/// incompatible (clean break).
+pub const SCHEMA_VERSION: u32 = 40;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

@@ -199,7 +199,10 @@ use crate::game::hex::Hex;
 /// for mana-cost casts, replacing the bridge-side mana-diff snapshot approach.
 /// Cast streams that previously had a trailing `ManaChanged` entry now carry it
 /// inline. Old v38 logs are incompatible (clean break).
-pub const SCHEMA_VERSION: u32 = 39;
+/// v40: `Event::TurnEnded` gains `cause: TurnEndCause` (B-γ / S6). Engine
+/// emits `TurnEnded{cause: ResourcesExhausted}` inline after a Cast that
+/// exhausts AP+MP. Old v39 logs are incompatible (clean break).
+pub const SCHEMA_VERSION: u32 = 40;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init

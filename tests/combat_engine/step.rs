@@ -549,7 +549,7 @@ fn endturn_emits_turn_events_for_mid_round_handoff() {
     // ActionStarted, TurnEnded{1}, TurnStarted{2}, ActionFinished
     assert_eq!(events.len(), 4, "expected 4 events, got: {:?}", events);
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
-    assert!(matches!(&events[1], Event::TurnEnded { actor: UnitId(1) }));
+    assert!(matches!(&events[1], Event::TurnEnded { actor: UnitId(1), .. }));
     assert!(matches!(&events[2], Event::TurnStarted { actor: UnitId(2) }));
     assert!(matches!(&events[3], Event::ActionFinished { .. }));
     assert_eq!(state.turn_queue.index, 1);
@@ -656,7 +656,7 @@ fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
     // ── Event sequence assertions ─────────────────────────────────────────────
 
     let died    = events.iter().position(|e| matches!(e, Event::UnitDied    { unit:  UnitId(2) }));
-    let ended   = events.iter().position(|e| matches!(e, Event::TurnEnded   { actor: UnitId(2) }));
+    let ended   = events.iter().position(|e| matches!(e, Event::TurnEnded   { actor: UnitId(2), .. }));
     let started = events.iter().position(|e| matches!(e, Event::TurnStarted { actor: UnitId(1) }));
 
     assert!(died.is_some(),    "UnitDied{{2}} must be in the event stream");

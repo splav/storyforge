@@ -132,7 +132,7 @@ fn mid_round_handoff() {
 
     assert_eq!(events.len(), 4, "got: {:?}", events);
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
-    assert!(matches!(&events[1], Event::TurnEnded { actor } if *actor == uid(1)));
+    assert!(matches!(&events[1], Event::TurnEnded { actor, .. } if *actor == uid(1)));
     assert!(matches!(&events[2], Event::TurnStarted { actor } if *actor == uid(2)));
     assert!(matches!(&events[3], Event::ActionFinished { .. }));
 
@@ -161,7 +161,7 @@ fn end_of_round_wraps_and_emits_round_started() {
 
     assert_eq!(events.len(), 5, "got: {:?}", events);
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
-    assert!(matches!(&events[1], Event::TurnEnded { actor } if *actor == uid(2)));
+    assert!(matches!(&events[1], Event::TurnEnded { actor, .. } if *actor == uid(2)));
     assert!(matches!(&events[2], Event::RoundStarted { round: 2 }));
     assert!(matches!(&events[3], Event::TurnStarted { actor } if *actor == uid(1)));
     assert!(matches!(&events[4], Event::ActionFinished { .. }));
@@ -191,7 +191,7 @@ fn dead_skip_in_middle_of_round() {
 
     assert_eq!(events.len(), 5, "got: {:?}", events);
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
-    assert!(matches!(&events[1], Event::TurnEnded { actor } if *actor == uid(1)));
+    assert!(matches!(&events[1], Event::TurnEnded { actor, .. } if *actor == uid(1)));
     assert!(matches!(&events[2], Event::TurnSkipped { actor, reason: TurnSkipReason::Dead } if *actor == uid(2)));
     assert!(matches!(&events[3], Event::TurnStarted { actor } if *actor == uid(3)));
     assert!(matches!(&events[4], Event::ActionFinished { .. }));
@@ -225,7 +225,7 @@ fn stunned_skip_via_direct_status_wraps_to_next_round() {
 
     assert_eq!(events.len(), 6, "got: {:?}", events);
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
-    assert!(matches!(&events[1], Event::TurnEnded { actor } if *actor == uid(1)));
+    assert!(matches!(&events[1], Event::TurnEnded { actor, .. } if *actor == uid(1)));
     assert!(matches!(&events[2], Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == uid(2)));
     assert!(matches!(&events[3], Event::RoundStarted { round: 2 }));
     assert!(matches!(&events[4], Event::TurnStarted { actor } if *actor == uid(1)));
@@ -258,7 +258,7 @@ fn round_wrap_skips_first_actor_if_stunned() {
 
     assert_eq!(events.len(), 6, "got: {:?}", events);
     assert!(matches!(&events[0], Event::ActionStarted { .. }));
-    assert!(matches!(&events[1], Event::TurnEnded { actor } if *actor == uid(3)));
+    assert!(matches!(&events[1], Event::TurnEnded { actor, .. } if *actor == uid(3)));
     assert!(matches!(&events[2], Event::RoundStarted { round: 2 }));
     assert!(matches!(&events[3], Event::TurnSkipped { actor, reason: TurnSkipReason::Stunned } if *actor == uid(1)));
     assert!(matches!(&events[4], Event::TurnStarted { actor } if *actor == uid(2)));

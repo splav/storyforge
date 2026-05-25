@@ -68,11 +68,15 @@ pub enum Event {
         template_id: String,
         reason: SpawnBlockedReason,
     },
-    /// The actor's turn ended.  Emitted by `step(Action::EndTurn)` BEFORE the
-    /// `Effect::AdvanceTurn` cascade runs, so the stream reads naturally:
-    /// outgoing actor's turn ends → queue advances → skips/round wrap → next
-    /// actor's turn starts.
-    TurnEnded { actor: UnitId },
+    /// The actor's turn ended.  Emitted in three situations:
+    /// 1. `step(Action::EndTurn)` — `cause: Manual`
+    /// 2. `Effect::Death` of the current actor — `cause: DeathOfActor`
+    /// 3. `Action::Cast` exhausts both AP and MP (S6 path) — `cause: ResourcesExhausted`
+    ///
+    /// Always emitted BEFORE the `Effect::AdvanceTurn` cascade runs, so the
+    /// stream reads naturally: outgoing actor's turn ends → queue advances →
+    /// skips/round wrap → next actor's turn starts.
+    TurnEnded { actor: UnitId, cause: TurnEndCause },
     /// The next actor's turn began.  Emitted immediately after `TurnEnded` (or
     /// after `RoundStarted` when the round wrapped).
     TurnStarted { actor: UnitId },
@@ -111,6 +115,22 @@ pub enum Event {
 pub enum TurnSkipReason {
     Dead,
     Stunned,
+}
+
+/// Why the actor's turn ended.  Carried by `Event::TurnEnded` so consumers
+/// (bridge, replay, AI log) can distinguish the three paths without pattern-
+/// matching the surrounding event stream.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnEndCause {
+    /// `Action::EndTurn` was submitted explicitly (player / AI pressed end-turn).
+    Manual,
+    /// The current actor died mid-action; `Effect::Death` derived `AdvanceTurn`
+    /// which force-ended their turn.
+    DeathOfActor,
+    /// `Action::Cast` left AP=0 **and** MP=0; the engine's S6 path auto-ended
+    /// the turn without a second `step()` call.
+    ResourcesExhausted,
 }
 
 /// Convert an effect (post-application) to an `Event`.
