@@ -407,12 +407,19 @@ pub struct HexCorpses {
 
 impl HexCorpses {
     pub fn insert(&mut self, entity: Entity, pos: hexx::Hex) {
-        // Idempotent: if entity already recorded at same pos, skip.
         if let Some(&old_pos) = self.by_entity.get(&entity) {
             if old_pos == pos {
                 return;
             }
-            // Entity moved to a new pos (shouldn't happen for corpses, but be safe).
+            // Corpses are stationary by design — only living units traverse
+            // the map. If this fires, either engine semantics changed
+            // (push-corpse, drag-body) or a writer mis-routed an alive entity
+            // into the corpse layer. Release builds still re-link safely.
+            debug_assert!(
+                false,
+                "HexCorpses: entity {entity:?} moved from {old_pos:?} to {pos:?} — \
+                 corpses are stationary by design",
+            );
             self.by_pos.entry(old_pos).and_modify(|v| v.retain(|&e| e != entity));
         }
         self.by_entity.insert(entity, pos);

@@ -33,7 +33,6 @@ fn run_from_ecs(world: &mut World, round: u32, id_map: &mut UnitIdMap) -> Combat
                 Option<&Rage>,
                 Option<&Mana>,
                 Option<&Energy>,
-                Has<Dead>,
             ),
             With<Combatant>,
         >,
@@ -190,6 +189,8 @@ fn dead_unit_is_tombstone_with_hp_zero() {
     positions.insert(alive, hex_from_offset(0, 0));
 
     // Mark second unit as dead — lives in the corpse layer.
+    // hp=0 matches the projector convention: `from_ecs` uses `Vital.hp <= 0`
+    // (not `Has<Dead>`) to route an entity into HexCorpses.
     let dead = world
         .spawn((
             CombatantBundle::new(
@@ -200,6 +201,7 @@ fn dead_unit_is_tombstone_with_hp_zero() {
             Dead,
         ))
         .id();
+    world.get_mut::<Vital>(dead).unwrap().hp = 0;
     corpses.insert(dead, hex_from_offset(1, 0));
 
     world.insert_resource(positions);

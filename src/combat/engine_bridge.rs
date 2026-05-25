@@ -130,6 +130,9 @@ pub struct CombatStateRes(pub CombatState);
 // ── CombatState::from_ecs ────────────────────────────────────────────────────
 
 /// Query type alias for readability.
+///
+/// Deadness is read off `Vital.hp <= 0`, not `Has<Dead>` — matches the
+/// projector's convention so both directions agree on a single predicate.
 type CombatantRow<'a> = (
     Entity,
     &'a Vital,
@@ -141,7 +144,6 @@ type CombatantRow<'a> = (
     Option<&'a Rage>,
     Option<&'a Mana>,
     Option<&'a Energy>,
-    Has<Dead>,
 );
 
 /// Populate a `CombatState` from the current ECS world; also rebuilds `id_map`.
@@ -176,7 +178,8 @@ pub fn from_ecs(
 
     let units: Vec<Unit> = combatants
         .iter()
-        .filter_map(|(entity, vital, speed, ap, reactions, faction, statuses, rage, mana, energy_opt, is_dead)| {
+        .filter_map(|(entity, vital, speed, ap, reactions, faction, statuses, rage, mana, energy_opt)| {
+            let is_dead = vital.hp <= 0;
             // Alive units live in HexPositions; dead units in HexCorpses.
             let pos = if is_dead {
                 corpses.get(&entity)?
