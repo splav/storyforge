@@ -108,15 +108,8 @@ pub fn queue_enemy_popup(
                         name(*target)
                     ));
                 }
-                CombatEvent::HealResult {
-                    target,
-                    formula,
-                    amount,
-                } => {
-                    lines.push(format!(
-                        "Лечение: {} → +{} HP ({})",
-                        formula, amount, name(*target)
-                    ));
+                CombatEvent::HealResult { target, amount } => {
+                    lines.push(format!("Лечение: +{} HP ({})", amount, name(*target)));
                 }
                 CombatEvent::StatusApplied { target, status } => {
                     let sname = content

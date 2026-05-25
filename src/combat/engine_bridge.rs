@@ -40,7 +40,9 @@ use crate::content::races::CritFailEffect;
 use crate::combat::ai::config::role::{infer_profile, AxisProfile};
 use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::world::tags::AbilityTagCache;
-use crate::game::combat_log::{CombatEvent, CombatLog};
+use crate::game::combat_log::{
+    CombatEvent, CombatLog, CritFailOutcomeEcs, SpawnBlockedReasonEcs, TurnSkipReasonEcs,
+};
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, AuraSource, BonusMovement, CombatPath, CombatStats,
     Combatant, Dead, Energy, Equipment, EnemyPhases, Faction, Mana, Rage, Reactions, Speed,
@@ -653,7 +655,7 @@ pub(crate) fn translate_tick_events(
                 if let Some((tick_target, tick_status)) = pending_status_tick.take() {
                     if tick_target == *target {
                         if let Some(tgt_ent) = id_map.get_entity(*target) {
-                            log.push(CombatEvent::PoisonTick {
+                            log.push(CombatEvent::DotTicked {
                                 target: tgt_ent,
                                 status: tick_status,
                                 damage: *amount,
@@ -708,11 +710,7 @@ pub(crate) fn translate_tick_events(
                     log.push(CombatEvent::ManaChanged { actor: ent, current: *current, max: *max });
                 }
             }
-            Event::EnergyRegenerated { unit, current, max } => {
-                if let Some(ent) = id_map.get_entity(*unit) {
-                    log.push(CombatEvent::EnergyChanged { actor: ent, current: *current, max: *max });
-                }
-            }
+            Event::EnergyRegenerated { .. } => {}
             Event::UnitHealed { .. }
             | Event::StatusApplied { .. }
             | Event::ReactionFired { .. }
@@ -843,12 +841,6 @@ pub fn process_action_system(
 
                 let content = build_ecs_content_view(&active_content);
 
-                let mana_before = combat_state
-                    .0
-                    .unit(actor_uid)
-                    .and_then(|u| u.mana)
-                    .map(|(c, _)| c);
-
                 let action_for_trace = action.clone();
                 match step(&mut combat_state.0, action, &mut rng.0, &content) {
                     Ok((events, ctx)) => {
@@ -862,10 +854,8 @@ pub fn process_action_system(
                             ability,
                             *target,
                             *target_pos,
-                            mana_before,
                             &events,
                             &mut id_map,
-                            &combat_state,
                             &active_content,
                             &mut commands,
                             &mut log,
@@ -1005,10 +995,13 @@ fn translate_end_turn_events(
                     log.push(CombatEvent::TurnEnded { actor: ent });
                 }
             }
-            Event::TurnSkipped { actor, .. } => {
+            Event::TurnSkipped { actor, reason } => {
                 if let Some(ent) = id_map.get_entity(*actor) {
                     commands.entity(ent).remove::<ActiveCombatant>();
-                    log.push(CombatEvent::TurnSkipped { actor: ent });
+                    log.push(CombatEvent::TurnSkipped {
+                        actor: ent,
+                        reason: TurnSkipReasonEcs::from(reason),
+                    });
                 }
             }
             Event::RoundStarted { round } => {
@@ -1069,10 +1062,8 @@ fn translate_cast_events(
     ability: &combat_engine::AbilityId,
     target: Entity,
     target_pos: hexx::Hex,
-    mana_before: Option<i32>,
     events: &[Event],
     id_map: &mut UnitIdMap,
-    combat_state: &CombatStateRes,
     active_content: &ActiveContent,
     commands: &mut Commands,
     log: &mut CombatLog,
@@ -1114,7 +1105,6 @@ fn translate_cast_events(
                 let Some(tgt_ent) = id_map.get_entity(*tgt_uid) else { continue };
                 log.push(CombatEvent::HealResult {
                     target: tgt_ent,
-                    formula: "engine".into(),
                     amount: *amount,
                 });
             }
@@ -1149,28 +1139,21 @@ fn translate_cast_events(
                     });
                 }
             }
+            Event::ManaRegenerated { unit, current, max } => {
+                if let Some(ent) = id_map.get_entity(*unit) {
+                    log.push(CombatEvent::ManaChanged { actor: ent, current: *current, max: *max });
+                }
+            }
             Event::CritFailed { actor: actor_uid, outcome } => {
                 let Some(actor_ent) = id_map.get_entity(*actor_uid) else { continue };
                 match outcome {
                     combat_engine::CritFailOutcome::Miss => {
                         log.push(CombatEvent::CriticalMiss { actor: actor_ent });
                     }
-                    combat_engine::CritFailOutcome::DoubleCost => {
+                    _ => {
                         log.push(CombatEvent::CritFailSideEffect {
                             actor: actor_ent,
-                            effect_name: "mana_overload".into(),
-                        });
-                    }
-                    combat_engine::CritFailOutcome::SelfDamage(_) => {
-                        log.push(CombatEvent::CritFailSideEffect {
-                            actor: actor_ent,
-                            effect_name: "circuit_breach".into(),
-                        });
-                    }
-                    combat_engine::CritFailOutcome::ApplyStatus(status_id) => {
-                        log.push(CombatEvent::CritFailSideEffect {
-                            actor: actor_ent,
-                            effect_name: status_id.0.clone(),
+                            outcome: CritFailOutcomeEcs::from(outcome),
                         });
                     }
                 }
@@ -1194,29 +1177,17 @@ fn translate_cast_events(
                     log,
                 );
             }
-            Event::SpawnBlocked { summoner: summoner_uid, template_id, reason } => {
+            Event::SpawnBlocked { summoner: summoner_uid, reason, .. } => {
                 let Some(summoner_entity) = id_map.get_entity(*summoner_uid) else { continue };
-                let reason_text = match reason {
-                    combat_engine::SpawnBlockedReason::TemplateMissing => {
-                        format!("шаблон '{}' не найден", template_id)
-                    }
-                    combat_engine::SpawnBlockedReason::MaxActiveReached => {
-                        "лимит призванных достигнут".to_string()
-                    }
-                    combat_engine::SpawnBlockedReason::NoFreePosition => {
-                        "рядом нет свободной клетки".to_string()
-                    }
-                };
                 log.push(CombatEvent::SummonBlocked {
                     summoner: summoner_entity,
-                    reason: reason_text,
+                    reason: SpawnBlockedReasonEcs::from(reason),
                 });
             }
             Event::ReactionFired { .. }
             | Event::UnitMoved { .. }
             | Event::ActionStarted { .. }
             | Event::ActionFinished { .. }
-            | Event::ManaRegenerated { .. }
             | Event::EnergyRegenerated { .. }
             | Event::StatusTicked { .. }
             // PhaseEntered: ECS writes handled at caller level (apply_phase_ecs_writes).
@@ -1238,17 +1209,6 @@ fn translate_cast_events(
                     log,
                     next_phase,
                 );
-            }
-        }
-    }
-
-    // ManaChanged: diff before/after. Emit one entry if mana changed.
-    if let Some(actor_uid) = id_map.get_id(actor) {
-        if let Some(unit) = combat_state.0.unit(actor_uid) {
-            if let Some((current, max)) = unit.mana {
-                if mana_before != Some(current) {
-                    log.push(CombatEvent::ManaChanged { actor, current, max });
-                }
             }
         }
     }

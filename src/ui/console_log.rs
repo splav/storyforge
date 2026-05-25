@@ -17,8 +17,9 @@ pub fn print_log_system(
     let name = |e: Entity| names.get(e).map(|n| n.as_str()).unwrap_or("?").to_string();
     let new_events = &log.0[cursor.0..];
     for event in new_events {
-        let line = event.format(name, &content, settings.crit_fail_die);
-        println!("{line}");
+        if let Some(line) = event.format(name, &content, settings.crit_fail_die, &crate::game::combat_log::BuiltinRu) {
+            println!("{line}");
+        }
     }
     cursor.0 = log.0.len();
 }

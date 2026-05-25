@@ -41,7 +41,10 @@ pub fn update_log(
     t.0 = log
         .0
         .iter()
-        .map(|e| format!("{}\n", e.format(name, &content, settings.crit_fail_die)))
+        .filter_map(|e| {
+            e.format(name, &content, settings.crit_fail_die, &crate::game::combat_log::BuiltinRu)
+                .map(|s| format!("{s}\n"))
+        })
         .collect();
 }
 

@@ -26,7 +26,9 @@ use crate::{
 
 /// Trace schema version.  Matches the AI-log `SCHEMA_VERSION` after 5f.
 /// Bump on any change that adds/removes RNG calls or modifies record shape.
-pub const SCHEMA_VERSION: u32 = 38;
+/// v39: `Event::ManaRegenerated` now emitted by `Effect::PayCost` (mana).
+/// Cast streams include inline mana-change events; recorded traces change shape.
+pub const SCHEMA_VERSION: u32 = 39;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

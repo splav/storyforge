@@ -139,7 +139,15 @@ pub fn effect_to_event(
                 amount: ctx.heal_amount.unwrap_or(0),
             })
         }
-        Effect::PayCost { .. } => None,
+        Effect::PayCost { actor, kind, .. } => {
+            if *kind == crate::ResourceKind::Mana {
+                state.unit(*actor).and_then(|u| u.mana).map(|(current, max)| {
+                    Event::ManaRegenerated { unit: *actor, current, max }
+                })
+            } else {
+                None
+            }
+        }
         Effect::ApplyStatus { target, status, .. } => {
             Some(Event::StatusApplied {
                 target: *target,

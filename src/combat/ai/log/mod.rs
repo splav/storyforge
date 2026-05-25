@@ -195,7 +195,11 @@ use crate::game::hex::Hex;
 /// now serialize only `cache` + `state`. `state.round` is the source of truth
 /// for the round number. v37 logs are incompatible (clean break) — they will
 /// return `LogError::UnsupportedSchema`.
-pub const SCHEMA_VERSION: u32 = 38;
+/// v39: `Event::ManaRegenerated` is now also emitted after `Effect::PayCost`
+/// for mana-cost casts, replacing the bridge-side mana-diff snapshot approach.
+/// Cast streams that previously had a trailing `ManaChanged` entry now carry it
+/// inline. Old v38 logs are incompatible (clean break).
+pub const SCHEMA_VERSION: u32 = 39;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init
