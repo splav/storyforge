@@ -9,8 +9,9 @@ Plan to unify scattered test helpers into the layout documented in
 |---|---|---|
 | H5 — split mega-files via `#[path]` | ✅ Done | `b7fde9c` |
 | H3 — restructure `tests/common/` | ✅ Done | `5630aa0` |
+| H5b — split 6 more test-heavy AI files | ✅ Done | `7175918` |
+| H0 — concrete audit | ✅ Done | (этот документ) |
 | H1 — split `src/combat/ai/test_helpers.rs` | ❌ Attempted, reverted | — |
-| H0 — concrete audit (grep `cast_plan`/`buff_ability`/`hex_from_offset`) | ⏳ Pending | — |
 | H2 — lift inline duplicates | ⏳ Pending | — |
 | H4 — shared parity scaffolding | ⏳ Pending (narrowed scope) | — |
 | H6 — CI mutation advisory job | ⏳ Pending (infra-dep) | — |
@@ -28,10 +29,11 @@ re-scoped, and hours re-estimated. See §3 below.
 | `tests/common/` (post-H3) | Integration test scaffolding — restructured into `fixtures.rs`, `apps/engine.rs`, `apps/bridge.rs`, `scenarios/statuses.rs` | `tests/combat/*.rs`, `tests/combat_engine/*.rs` |
 | **Inline locals** | Per-file `cast_plan`, `buff_ability`, `make_unit_snapshot`, etc. | Each test file independently |
 
-Audit signals from the session that produced this plan:
-- **6+ critic test files re-implement `cast_plan(ability, entity, pos)`** inline.
-- **5+ files have a local `buff_ability(id, status_id)` helper.**
-- **20+ test files re-import `hex_from_offset`** via the same path; could be re-exported from `tests/common/`.
+Audit signals **superseded by H0 audit** (see §3.H0). The original predictions
+(`cast_plan`, `buff_ability` × 5+ duplicates each) **no longer match the codebase**
+— those helpers were renamed or lifted between the original plan and the audit.
+Current real duplicates are listed in §3.H0.
+
 - **3 "parity" files** (`crates/combat_engine/tests/parity.rs`, `tests/combat_engine/legality_parity.rs`, `tests/combat/sim_parity.rs`) — they test **different pairs**, so no body consolidation, but scene-setup builders may be sharable.
 
 ---
@@ -108,34 +110,88 @@ mod tests;`. 1241 tests passing.
 `scenarios/`. Backward-compat re-exports in `mod.rs` preserve all pre-H3
 import paths. Zero changes to test files outside `tests/common/`.
 
-### Phase H0 — concrete audit (PENDING, 1h)
+### Phase H0 — concrete audit (DONE)
 
-Before H2, run real greps and turn them into a table:
+**Method:** scanned all 2645 `fn` definitions in `src/` + `tests/`, grouped by
+name, filtered trait impls (`new`, `default`, `deserialize`, `serialize`,
+`deref`, `fmt`, `from`, `iter`, `apply`, `name`, `compute`, etc.), inspected
+signatures of remaining candidates.
 
-```bash
-rg -c "fn cast_plan\(" src/ tests/                  # count per-file
-rg -c "fn buff_ability\(" src/ tests/
-rg -c "use storyforge::game::hex::hex_from_offset" src/ tests/
-```
+**Surprise:** original candidates from the pre-H0 plan **don't exist** in the
+current codebase:
+
+| Original candidate | Definitions | Status |
+|---|---|---|
+| `cast_plan` | 0 | Renamed/lifted before audit |
+| `buff_ability` | 0 | Renamed/lifted before audit |
+| `hex_from_offset` | 1 canonical in `src/game/hex.rs` | 88 usages, all importing canonical → not duplicated |
+
+**Actual duplicates found:**
+
+#### HIGH priority — clean lift, identical signatures (~70 LOC win, 1-2h)
+
+| Helper | Signature | Files | Canonical | LOC saved |
+|---|---|---|---|---|
+| **`ent`** | `fn ent(id: u32) -> Entity` | **11** | `src/combat/ai/test_helpers.rs:30832` (already exists!) | ~30 |
+| **`empty_plan`** | `fn empty_plan() -> TurnPlan` | **5** | Doesn't exist — create in `test_helpers` | ~25 |
+| **`zero_needs`** | `fn zero_needs() -> NeedSignals` | **3** | Trivial — inline `NeedSignals::default()` | ~9 |
+| **`unit` (3-arg)** | `fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot` | 2 (1 canonical + 1 dup in `aggregate_tests.rs`) | `test_helpers::unit` (already exists!) | ~5 |
+
+**`ent` is the standout:** canonical helper has lived in `test_helpers.rs` for a
+while, but 10 files independently reimplemented it inline. Authors likely
+didn't discover the existing one. Pre-H1 H2-style lift of `ent` alone is
+~10 trivial Edits.
+
+#### MEDIUM priority — divergent signatures, needs Builder (~160-200 LOC, 3-5h)
+
+| Helper | Files | Signature variants | Lift strategy |
+|---|---|---|---|
+| **`make_unit`** (Engine `Unit`, not `UnitSnapshot`) | 10 in `tests/combat_engine/*` + 1 in `saturation.rs` | 9 distinct: e.g. `(id, hp, max_hp)`, `(id, team, pos_col, pos_row)`, `(id, alive)`, `(id, team, reactions)`, ... | New `Unit::test_default(id).with_hp(N).with_team(T).build()` builder in `tests/common/apps/engine.rs`. Only `cast.rs` and `step.rs` have identical sigs — could be lifted as-is. |
+| **`unit` (extended)** | 3 (`generator_tests`, `sim_tests`, `sanity/mod`) | `(id, team, pos, hp, max_ap)`, `(id, team, pos, hp, armor)`, `(id, team, pos, hp)` | Extend `test_helpers::UnitSnapshot::test_builder(id).with_pos(...).with_hp(...)` |
+| **`move_plan`** | 6 in pipeline/stages/critics tests | 3 sig families: `()`, `(dest: Hex)`, `(path: Vec<Hex>)` | 3 helpers in `test_helpers`: `empty_move_plan`, `move_plan_to(dest)`, `move_plan_path(path)` |
+
+#### Not duplicates (false positives)
+
+- `team_of`, `unit_at_cell` — trait + 2 mock impls (`tests/combat_engine/targeting.rs`, `src/combat/ai/plan/parity_tests.rs`). Polymorphism, not duplication.
+- `compute` × 22 — `StepFactor::compute` per-factor production code.
+- `name`, `apply`, `new`, `default`, `from`, `iter` — standard trait impls.
+
+**Realistic total LOC win:** ~230-270 (HIGH + MEDIUM combined). Plan's
+"≥ 300 LOC" target reachable only with full MEDIUM phase (Builder pattern
+introduction, ~5-7h of work). HIGH-only delivery is ~70 LOC for ~1.5h.
+
+### Phase H2 — lift inline duplicates (PENDING, split into two sub-phases)
+
+Concrete candidate list locked by H0. Split into two sub-phases for
+incremental delivery:
+
+**H2a — HIGH lifts only (1-2h, ~70 LOC win):**
+1. `ent`: 10 inline copies → import existing `test_helpers::ent`. Mostly
+   `Edit` work on 10 files.
+2. `unit` (3-arg) in `aggregate_tests.rs`: 1 inline copy → import existing
+   `test_helpers::unit`.
+3. `empty_plan`: create `test_helpers::plan_helpers::empty_plan() -> TurnPlan`,
+   replace 5 inline copies.
+4. `zero_needs`: inline 3 callers to `NeedSignals::default()` directly,
+   delete locals.
+
+After each lift: `cargo nextest run --features dev` green.
+
+**H2b — MEDIUM lifts (3-5h, ~160-200 LOC win):**
+5. Introduce `Unit::test_default(id)` builder (engine Unit, not UnitSnapshot)
+   in `tests/common/apps/engine.rs`. Migrate 10 `make_unit(...)` callers
+   in `tests/combat_engine/*` to chain `.with_hp(...).with_team(...)` etc.
+6. Extend `UnitBuilder` (or add `UnitSnapshotBuilder`) in `test_helpers` to
+   cover `(hp, max_ap)`, `(hp, armor)`, `(hp)` overloads — migrate 3 callers.
+7. Add `move_plan_to(dest)` / `move_plan_path(path)` / `empty_move_plan()` to
+   `test_helpers::plan_helpers` — migrate 6 callers.
 
 Acceptance:
-- A table in this plan: helper → files using it → suggested target location.
-- Confidence about whether `cast_plan` actually has the same signature
-  everywhere (it might not).
-
-### Phase H2 — lift inline duplicates (PENDING, 5-8h)
-
-After H0:
-1. For each helper duplicated in 2+ places, lift to the target submodule.
-2. Update inline imports across files; verify `cargo nextest run --workspace`
-   green after **each** lifted helper (not at the end).
-3. Run `cargo mutants` on `src/combat/ai/pipeline/stages/critics/`
-   before+after to confirm no coverage regressions from the moves.
-
-Acceptance:
-- ≥ 300 LOC removed across test files (mostly duplicates).
-- No new helpers in `tests/common/` are unused.
-- 1241+ tests still green.
+- H2a alone: ≥ 60 LOC removed, 1151+ tests green.
+- H2a + H2b: ≥ 230 LOC removed, no new helpers in `test_helpers` are unused.
+- Per-helper green check (not batch — bisect-friendly).
+- Run `cargo mutants` on `src/combat/ai/pipeline/stages/critics/`
+  before+after H2 to confirm no coverage regressions from the moves.
 
 ### Phase H1 — split `test_helpers.rs` (PENDING, 2-4h)
 
