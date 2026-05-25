@@ -62,7 +62,6 @@ use combat_engine::{
     reaction::ReactionKind,
     state::{ActiveStatus, CombatState, Pool, RoundPhase, Unit, UnitId},
     step::step,
-    StatusId,
 };
 use combat_engine::dice::DiceExpr as EngineDiceExpr;
 use combat_engine::modifier;
@@ -732,44 +731,42 @@ pub(crate) fn translate_tick_events(
     pending_deaths: &mut PendingDeathInserts,
     log: &mut CombatLog,
 ) {
-    let mut pending_status_tick: Option<(UnitId, StatusId)> = None;
-
     for ev in events {
         match ev {
-            Event::StatusTicked { target, status, .. } => {
-                pending_status_tick = Some((*target, status.clone()));
+            // Damaging tick: engine now emits a single fused DotDamaged instead
+            // of the old StatusTicked + UnitDamaged pair.
+            Event::DotDamaged { target, source, source_status, raw, mitigation, pierces, amount } => {
+                let Some(tgt_ent) = id_map.get_entity(*target) else { continue };
+                let Some(src_ent) = id_map.get_entity(*source) else { continue };
+                log.push(CombatEvent::DotDamaged {
+                    target: tgt_ent,
+                    source: src_ent,
+                    source_status: source_status.clone(),
+                    raw: *raw,
+                    mitigation: *mitigation,
+                    pierces: *pierces,
+                    amount: *amount,
+                });
             }
-            Event::UnitDamaged { target, amount, .. } => {
-                if let Some((tick_target, tick_status)) = pending_status_tick.take() {
-                    if tick_target == *target {
-                        if let Some(tgt_ent) = id_map.get_entity(*target) {
-                            log.push(CombatEvent::DotTicked {
-                                target: tgt_ent,
-                                status: tick_status,
-                                damage: *amount,
-                            });
-                        }
-                    } else {
-                        if let Some(tgt_ent) = id_map.get_entity(*target) {
-                            log.push(CombatEvent::DamageResult {
-                                target: tgt_ent,
-                                raw: *amount,
-                                armor_reduced: 0,
-                                final_damage: *amount,
-                            });
-                        }
-                    }
-                } else if let Some(tgt_ent) = id_map.get_entity(*target) {
+            // Zero-damage tick (buff-only status): still emits StatusTicked.
+            Event::StatusTicked { .. } => {
+                // No CombatLog entry for zero-damage ticks; silently consumed.
+            }
+            // UnitDamaged from tick-cascade is now suppressed by engine (TickDot
+            // applies damage inline). Any UnitDamaged here is from non-tick sources
+            // (e.g. sirota-DoT reactions) — route to DamageResult as before.
+            Event::UnitDamaged { target, amount, raw, mitigation, pierces, .. } => {
+                if let Some(tgt_ent) = id_map.get_entity(*target) {
+                    let armor_reduced = if *pierces { 0 } else { *mitigation };
                     log.push(CombatEvent::DamageResult {
                         target: tgt_ent,
-                        raw: *amount,
-                        armor_reduced: 0,
+                        raw: raw.round() as i32,
+                        armor_reduced,
                         final_damage: *amount,
                     });
                 }
             }
             Event::StatusRemoved { target, status } => {
-                pending_status_tick = None;
                 if let Some(tgt_ent) = id_map.get_entity(*target) {
                     log.push(CombatEvent::StatusExpired {
                         target: tgt_ent,
@@ -778,7 +775,6 @@ pub(crate) fn translate_tick_events(
                 }
             }
             Event::UnitDied { unit } => {
-                pending_status_tick = None;
                 if let Some(ent) = id_map.get_entity(*unit) {
                     log.push(CombatEvent::UnitDied { entity: ent });
                     pending_deaths.0.push(*unit);
@@ -1283,6 +1279,8 @@ fn translate_cast_events(
             | Event::ActionFinished { .. }
             | Event::EnergyRegenerated { .. }
             | Event::StatusTicked { .. }
+            // DotDamaged is not produced during cast actions.
+            | Event::DotDamaged { .. }
             // PhaseEntered: ECS writes handled at caller level (apply_phase_ecs_writes).
             | Event::PhaseEntered { .. } => {}
             // Turn/round/aura events: normally not produced by Cast, but after B5
@@ -1397,12 +1395,13 @@ fn translate_move_events(
                     pending_deaths.0.push(*unit);
                 }
             }
-            // Heal / status / crit-fail / spawn events not produced by Move.
+            // Heal / status / crit-fail / spawn / dot events not produced by Move.
             // No-op pins for exhaustiveness.
             Event::UnitHealed { .. }
             | Event::StatusApplied { .. }
             | Event::StatusRemoved { .. }
             | Event::StatusTicked { .. }
+            | Event::DotDamaged { .. }
             | Event::CritFailed { .. }
             | Event::UnitSpawned { .. }
             | Event::SpawnBlocked { .. } => {}

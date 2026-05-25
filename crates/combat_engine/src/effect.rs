@@ -141,6 +141,20 @@ pub struct DamageCtx {
     pub final_amount: i32,
 }
 
+/// Structured DoT tick breakdown produced by the `TickDot` effect arm.
+///
+/// Populated when a tick deals damage (dot_per_tick > 0 or hp_percent_dot > 0).
+/// `mitigation` is always 0 (DoT pierces armor). `pierces` is always true.
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DotDamageCtx {
+    pub source: crate::state::UnitId,
+    pub source_status: crate::StatusId,
+    pub raw: f32,
+    pub mitigation: i32,
+    pub pierces: bool,
+    pub final_amount: i32,
+}
+
 /// Why a `Spawn` effect did not produce a new unit.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -183,6 +197,11 @@ pub struct ApplyCtx {
     /// cascade. Used by the trace writer to record a per-step canary; replay
     /// re-seeds the same `DiceRng` and asserts the delta matches.
     pub rng_calls: u64,
+    /// Set by `TickDot` when the tick deals damage (dot_per_tick > 0 or
+    /// hp_percent_dot > 0).  Carries the fused breakdown so `effect_to_event`
+    /// can emit `Event::DotDamaged` instead of the now-separate StatusTicked +
+    /// UnitDamaged pair.
+    pub dot_damage: Option<DotDamageCtx>,
 }
 
 fn skip_or_settle_current(
@@ -528,27 +547,59 @@ pub fn apply_effect(
 
             let percent = content.status_def(status).map(|sd| sd.hp_percent_dot).unwrap_or(0);
 
-            if dot_per_tick > 0 {
-                derived.push(Effect::Damage {
-                    target: *target,
-                    raw: dot_per_tick as f32,
-                    source: applier,
-                    pierces: true,
-                });
-            }
-            if percent > 0 {
+            // Compute total raw DoT damage from both components (flat + percent).
+            let flat_raw = if dot_per_tick > 0 { dot_per_tick as f32 } else { 0.0 };
+            let percent_raw = if percent > 0 {
                 let amount = (max_hp * percent + 99) / 100;
-                if amount > 0 {
-                    derived.push(Effect::Damage {
-                        target: *target,
-                        raw: amount as f32,
-                        source: applier,
-                        pierces: true,
-                    });
-                }
-            }
+                amount as f32
+            } else {
+                0.0
+            };
+            let total_raw = flat_raw + percent_raw;
 
-            (derived, ApplyCtx::default())
+            if total_raw > 0.0 {
+                // DoT always pierces — no armor mitigation.
+                let final_amount = total_raw.round() as i32;
+
+                // Apply HP reduction directly (bypass Effect::Damage derivation so we
+                // can fuse into a single DotDamaged event without emitting UnitDamaged).
+                let hp_after = if let Some(u) = state.unit_mut(*target) {
+                    u.hp = (u.hp - final_amount).max(0);
+                    u.hp
+                } else {
+                    0
+                };
+
+                // Derive the same cascade that Effect::Damage would have derived.
+                derived.push(Effect::GainRage { target: applier });
+                derived.push(Effect::GainRage { target: *target });
+
+                let cur_max_hp = state.unit(*target).map(|u| u.max_hp).unwrap_or(0);
+                if let Some((phase_idx, _transition)) =
+                    state.unit(*target).and_then(|u| u.check_phase_trigger(hp_after, cur_max_hp))
+                {
+                    derived.push(Effect::EnterPhase { unit: *target, phase_idx });
+                } else if hp_after <= 0 {
+                    derived.push(Effect::Death { unit: *target });
+                }
+
+                let ctx = ApplyCtx {
+                    dot_damage: Some(DotDamageCtx {
+                        source: applier,
+                        source_status: status.clone(),
+                        raw: total_raw,
+                        mitigation: 0,
+                        pierces: true,
+                        final_amount,
+                    }),
+                    ..ApplyCtx::default()
+                };
+                (derived, ctx)
+            } else {
+                // Zero-damage tick (buff-only status): no HP change, no cascade.
+                // effect_to_event will emit StatusTicked so the log records the tick.
+                (derived, ApplyCtx::default())
+            }
         }
 
         Effect::ExpireStatus { target, status } => {

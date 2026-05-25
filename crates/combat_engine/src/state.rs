@@ -730,18 +730,92 @@ mod tests {
 
         let events = state.start_actor_turn(applier, &content);
 
+        // Fused DotDamaged event replaces the old StatusTicked + UnitDamaged pair.
+        let dot_ev = events.iter().find(|e| matches!(e,
+            Event::DotDamaged { target, source_status, amount, .. }
+            if *target == victim && source_status.0 == "burning" && *amount == 3
+        ));
+        assert!(dot_ev.is_some(), "DotDamaged(target=victim, status=burning, amount=3) expected");
+
+        // No standalone StatusTicked for the same tick (would indicate regression to old pair).
         let ticked = events.iter().any(|e| matches!(e,
             Event::StatusTicked { target, status, .. }
             if *target == victim && status.0 == "burning"
         ));
-        let damaged = events.iter().any(|e| matches!(e,
-            Event::UnitDamaged { target, amount, .. }
-            if *target == victim && *amount == 3
+        assert!(!ticked, "StatusTicked must NOT appear for a damaging tick (regression guard)");
+
+        // No standalone UnitDamaged for the same tick target (fusion guard).
+        let standalone_damaged = events.iter().any(|e| matches!(e,
+            Event::UnitDamaged { target, .. }
+            if *target == victim
         ));
-        assert!(ticked, "StatusTicked expected");
-        assert!(damaged, "UnitDamaged(3) expected");
-        assert_eq!(state.unit(victim).unwrap().hp, 17);
-        assert_eq!(state.unit(victim).unwrap().statuses[0].rounds_remaining, 2);
+        assert!(!standalone_damaged, "standalone UnitDamaged must NOT appear for a DoT tick (regression guard)");
+
+        assert_eq!(state.unit(victim).unwrap().hp, 17, "HP should be reduced by 3");
+        assert_eq!(state.unit(victim).unwrap().statuses[0].rounds_remaining, 2, "rounds_remaining decremented");
+    }
+
+    /// A buff-only status (dot_per_tick=0, hp_percent_dot=0) emits `StatusTicked`
+    /// and does NOT reduce HP.
+    #[test]
+    fn zero_damage_status_tick_still_emits_status_ticked() {
+        let applier = UnitId(1);
+        let victim = UnitId(2);
+        let applier_unit = make_unit(applier, 0, 2, None);
+        let mut victim_unit = make_unit(victim, 0, 2, None);
+        victim_unit.hp = 10;
+        victim_unit.max_hp = 10;
+        // dot_per_tick = 0 → zero-damage tick; StubContent has hp_percent_dot = 0.
+        victim_unit.statuses.push(make_status("haste", applier, 2, 0));
+        let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
+        let content = StubContent;
+
+        let events = state.start_actor_turn(applier, &content);
+
+        let ticked = events.iter().any(|e| matches!(e,
+            Event::StatusTicked { target, status, .. }
+            if *target == victim && status.0 == "haste"
+        ));
+        assert!(ticked, "StatusTicked expected for zero-damage buff tick");
+
+        // No DotDamaged emitted for a zero-damage tick.
+        let dot = events.iter().any(|e| matches!(e, Event::DotDamaged { .. }));
+        assert!(!dot, "DotDamaged must NOT appear for a zero-damage buff tick");
+
+        // HP untouched.
+        assert_eq!(state.unit(victim).unwrap().hp, 10, "HP must be unchanged for zero-damage tick");
+    }
+
+    /// Two different DoT statuses on the same victim (both from the same applier)
+    /// each produce their own `DotDamaged` event — no cross-contamination.
+    #[test]
+    fn multiple_dot_statuses_each_emit_own_dot_damaged() {
+        let applier = UnitId(1);
+        let victim = UnitId(2);
+        let applier_unit = make_unit(applier, 0, 2, None);
+        let mut victim_unit = make_unit(victim, 0, 2, None);
+        victim_unit.hp = 20;
+        victim_unit.max_hp = 20;
+        victim_unit.statuses.push(make_status("poison", applier, 2, 3));
+        victim_unit.statuses.push(make_status("burning", applier, 2, 2));
+        let mut state = CombatState::new(vec![applier_unit, victim_unit], 1, RoundPhase::ActorTurn, 0);
+        let content = StubContent;
+
+        let events = state.start_actor_turn(applier, &content);
+
+        let poison_ev = events.iter().any(|e| matches!(e,
+            Event::DotDamaged { target, source_status, amount, .. }
+            if *target == victim && source_status.0 == "poison" && *amount == 3
+        ));
+        let burning_ev = events.iter().any(|e| matches!(e,
+            Event::DotDamaged { target, source_status, amount, .. }
+            if *target == victim && source_status.0 == "burning" && *amount == 2
+        ));
+        assert!(poison_ev, "DotDamaged(poison, 3) expected");
+        assert!(burning_ev, "DotDamaged(burning, 2) expected");
+
+        // HP reduced by both: 20 - 3 - 2 = 15.
+        assert_eq!(state.unit(victim).unwrap().hp, 15, "HP reduced by both DoT ticks");
     }
 
     #[test]

@@ -27,9 +27,23 @@ pub enum Event {
     StatusApplied { target: UnitId, status: StatusId },
     StatusRemoved { target: UnitId, status: StatusId },
     /// One DoT tick was applied to `target` from `status` originally cast by `source`.
-    /// Fires BEFORE the derived `UnitDamaged` event so log can render "поражён ядом"
-    /// then damage breakdown.
+    /// Emitted by `effect_to_event(TickDot)` when `dot_per_tick == 0` AND
+    /// `hp_percent_dot == 0` (buff-only status tick with no damage component).
     StatusTicked { target: UnitId, status: StatusId, source: UnitId },
+    /// Fused event emitted when a DoT tick deals damage.  Replaces the previous
+    /// `StatusTicked + UnitDamaged` pair with a single atomic event so consumers
+    /// never need to correlate two events.
+    ///
+    /// `mitigation` is always 0 (DoT pierces armor). `pierces` is always true.
+    DotDamaged {
+        target: UnitId,
+        source: UnitId,
+        source_status: StatusId,
+        raw: f32,
+        mitigation: i32,
+        pierces: bool,
+        amount: i32,
+    },
     RageGained { unit: UnitId, current: i32, max: i32 },
     ReactionFired { actor: UnitId, kind: ReactionKind, against: UnitId },
     UnitDied { unit: UnitId },
@@ -172,16 +186,30 @@ pub fn effect_to_event(
         Effect::Death { unit } => Some(Event::UnitDied { unit: *unit }),
         Effect::RefreshAggregates { .. } => None,
         Effect::TickDot { target, status } => {
-            state.unit(*target).and_then(|u| {
-                u.statuses
-                    .iter()
-                    .find(|s| s.id == *status)
-                    .map(|s| Event::StatusTicked {
-                        target: *target,
-                        status: status.clone(),
-                        source: s.applier,
-                    })
-            })
+            if let Some(dot) = &ctx.dot_damage {
+                // Damaging tick: emit fused DotDamaged.
+                Some(Event::DotDamaged {
+                    target: *target,
+                    source: dot.source,
+                    source_status: dot.source_status.clone(),
+                    raw: dot.raw,
+                    mitigation: dot.mitigation,
+                    pierces: dot.pierces,
+                    amount: dot.final_amount,
+                })
+            } else {
+                // Zero-damage tick (buff-only status): emit StatusTicked.
+                state.unit(*target).and_then(|u| {
+                    u.statuses
+                        .iter()
+                        .find(|s| s.id == *status)
+                        .map(|s| Event::StatusTicked {
+                            target: *target,
+                            status: status.clone(),
+                            source: s.applier,
+                        })
+                })
+            }
         }
         Effect::ExpireStatus { .. } => None,
         Effect::Spawn { summoner, template_id, .. } => {

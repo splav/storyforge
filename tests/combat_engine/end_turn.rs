@@ -304,12 +304,12 @@ fn sirota_dot_propagates_when_dead_unit_skipped() {
         matches!(e, Event::TurnSkipped { actor, reason: TurnSkipReason::Dead } if *actor == uid(2))
     }).expect("TurnSkipped{B} must appear");
 
-    // StatusTicked (DoT tick) must appear before TurnSkipped{B}.
-    let ticked_pos = events.iter().position(|e| {
-        matches!(e, Event::StatusTicked { target, .. } if *target == uid(3))
+    // DotDamaged (DoT tick) must appear before TurnSkipped{B} if it fires.
+    let dot_pos = events.iter().position(|e| {
+        matches!(e, Event::DotDamaged { target, .. } if *target == uid(3))
     });
-    if let Some(pos) = ticked_pos {
-        assert!(pos < skip_pos, "StatusTicked must precede TurnSkipped");
+    if let Some(pos) = dot_pos {
+        assert!(pos < skip_pos, "DotDamaged must precede TurnSkipped");
     }
     // Whether or not DoT fires depends on tick_actor_statuses; at minimum
     // TurnSkipped{B,Dead} must appear.

@@ -691,27 +691,36 @@ fn status_with_dot(id: &str, dot_per_tick: i32, applier: u64) -> ActiveStatus {
     }
 }
 
-/// Flat dot_per_tick produces a piercing Damage effect toward the applier.
+/// Flat dot_per_tick produces piercing damage applied inline and populates ApplyCtx.dot_damage.
 #[test]
 fn tick_dot_with_dot_per_tick_damages_target_via_pierce() {
     let mut target = make_unit(1, 10, 10);
-    target.armor = 5; // armor must be ignored
+    target.armor = 5; // armor must be ignored (pierces = true)
     target.statuses.push(status_with_dot("poison", 3, 2));
     let applier = make_unit(2, 10, 10);
     let mut state = state_with(vec![target, applier]);
 
-    let (derived, _) = apply_effect(
+    let (derived, ctx) = apply_effect(
         &mut state,
         &Effect::TickDot { target: UnitId(1), status: StatusId::from("poison") },
         &StubContent::neutral(),
     );
 
-    assert_eq!(derived.len(), 1);
-    assert!(matches!(
-        derived[0],
-        Effect::Damage { target: UnitId(1), raw, source: UnitId(2), pierces: true }
-        if raw == 3.0
-    ));
+    // HP reduced by 3 (armor ignored, pierce = true).
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 7, "HP should be reduced by 3");
+
+    // dot_damage ctx carries the fused breakdown.
+    let dot = ctx.dot_damage.as_ref().expect("dot_damage must be populated");
+    assert_eq!(dot.source, UnitId(2));
+    assert_eq!(dot.source_status, StatusId::from("poison"));
+    assert!((dot.raw - 3.0).abs() < f32::EPSILON);
+    assert_eq!(dot.mitigation, 0);
+    assert!(dot.pierces);
+    assert_eq!(dot.final_amount, 3);
+
+    // No longer derives Effect::Damage — cascade (GainRage×2) is derived directly.
+    let rage_derived = derived.iter().filter(|e| matches!(e, Effect::GainRage { .. })).count();
+    assert_eq!(rage_derived, 2, "should derive GainRage for source and target");
 }
 
 /// hp_percent_dot uses ceil division: ceil(7 * 10 / 100) = 1.
@@ -721,37 +730,45 @@ fn tick_dot_with_percent_dot_uses_ceil() {
     target.statuses.push(status_with_dot("burning", 0, 2));
     let mut state = state_with(vec![target]);
 
-    let (derived, _) = apply_effect(
+    let (_derived, ctx) = apply_effect(
         &mut state,
         &Effect::TickDot { target: UnitId(1), status: StatusId::from("burning") },
         &StubContent::with_hp_percent_dot(10), // 10% of 7 = 0.7 → ceil = 1
     );
 
-    assert_eq!(derived.len(), 1);
-    assert!(matches!(
-        derived[0],
-        Effect::Damage { target: UnitId(1), raw, source: UnitId(2), pierces: true }
-        if raw == 1.0
-    ));
+    // HP reduced by 1 (ceil of 10% of 7).
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 6, "HP should be reduced by 1 (ceil)");
+
+    let dot = ctx.dot_damage.as_ref().expect("dot_damage must be populated");
+    assert_eq!(dot.final_amount, 1);
+    assert!((dot.raw - 1.0).abs() < f32::EPSILON);
+    assert!(dot.pierces);
+    assert_eq!(dot.mitigation, 0);
 }
 
-/// Both dot_per_tick > 0 and hp_percent_dot > 0 produce two Damage effects.
+/// Both dot_per_tick > 0 and hp_percent_dot > 0 fuse into a single DotDamaged ctx
+/// with the combined raw total (flat + percent-ceil).
 #[test]
 fn tick_dot_with_both_dot_and_percent_returns_two_damages() {
     let mut target = make_unit(1, 10, 10);
     target.statuses.push(status_with_dot("poison", 2, 2));
     let mut state = state_with(vec![target]);
 
-    // hp_percent_dot=20% of max_hp=10 → ceil(10*20/100) = 2
-    let (derived, _) = apply_effect(
+    // hp_percent_dot=20% of max_hp=10 → ceil(10*20/100) = 2; flat = 2 → total = 4
+    let (_derived, ctx) = apply_effect(
         &mut state,
         &Effect::TickDot { target: UnitId(1), status: StatusId::from("poison") },
         &StubContent::with_hp_percent_dot(20),
     );
 
-    assert_eq!(derived.len(), 2, "one Damage per source (flat + percent)");
-    assert!(matches!(derived[0], Effect::Damage { raw, pierces: true, .. } if raw == 2.0));
-    assert!(matches!(derived[1], Effect::Damage { raw, pierces: true, .. } if raw == 2.0));
+    // HP reduced by flat(2) + percent(2) = 4.
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 6, "HP should be reduced by 4 (2 flat + 2 percent)");
+
+    // Single fused DotDamageCtx with total raw.
+    let dot = ctx.dot_damage.as_ref().expect("dot_damage must be populated");
+    assert!((dot.raw - 4.0).abs() < f32::EPSILON, "raw should be sum of flat + percent");
+    assert_eq!(dot.final_amount, 4);
+    assert!(dot.pierces);
 }
 
 /// No status on target → silent no-op.
@@ -784,8 +801,7 @@ fn tick_dot_silent_when_target_missing() {
     assert!(derived.is_empty());
 }
 
-/// `effect_to_event(TickDot)` returns `StatusTicked` with the correct target,
-/// status, and source (the applier from the active status entry).
+/// `effect_to_event(TickDot)` with empty ctx (zero-damage tick) returns `StatusTicked`.
 #[test]
 fn tick_dot_emits_status_ticked_event() {
     let mut target = make_unit(1, 10, 10);
@@ -797,6 +813,7 @@ fn tick_dot_emits_status_ticked_event() {
     });
     let state = state_with(vec![target]);
 
+    // Passing ApplyCtx::default() simulates a zero-damage tick (dot_damage = None).
     let effect = Effect::TickDot { target: UnitId(1), status: StatusId::from("poison") };
     let event = effect_to_event(&effect, &state, None, &ApplyCtx::default());
 
@@ -807,6 +824,41 @@ fn tick_dot_emits_status_ticked_event() {
             source: UnitId(42),
             ref status,
         }) if status == &StatusId::from("poison")
+    ));
+}
+
+/// `effect_to_event(TickDot)` with a populated `dot_damage` ctx returns `DotDamaged`.
+#[test]
+fn tick_dot_emits_dot_damaged_event_when_damage_present() {
+    use combat_engine::effect::DotDamageCtx;
+
+    let target = make_unit(1, 10, 10);
+    let state = state_with(vec![target]);
+
+    let effect = Effect::TickDot { target: UnitId(1), status: StatusId::from("poison") };
+    let ctx = ApplyCtx {
+        dot_damage: Some(DotDamageCtx {
+            source: UnitId(42),
+            source_status: StatusId::from("poison"),
+            raw: 3.0,
+            mitigation: 0,
+            pierces: true,
+            final_amount: 3,
+        }),
+        ..ApplyCtx::default()
+    };
+    let event = effect_to_event(&effect, &state, None, &ctx);
+
+    assert!(matches!(
+        event,
+        Some(Event::DotDamaged {
+            target: UnitId(1),
+            source: UnitId(42),
+            amount: 3,
+            pierces: true,
+            mitigation: 0,
+            ..
+        })
     ));
 }
 

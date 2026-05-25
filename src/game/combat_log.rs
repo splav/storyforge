@@ -174,11 +174,15 @@ pub enum CombatEvent {
         current: i32,
         max: i32,
     },
-    /// *engine mirror* — `Event::StatusTicked` + subsequent `UnitDamaged` pair.
-    DotTicked {
+    /// *engine mirror* — `Event::DotDamaged` (fused DoT tick + damage).
+    DotDamaged {
         target: Entity,
-        status: StatusId,
-        damage: i32,
+        source: Entity,
+        source_status: StatusId,
+        raw: f32,
+        mitigation: i32,
+        pierces: bool,
+        amount: i32,
     },
     /// *ECS-only* — emitted once when combat ends.
     CombatEnded {
@@ -334,12 +338,12 @@ impl CombatEvent {
                     .map_or(status.0.as_str(), |s| s.name.as_str());
                 format!("    статус «{}» спал с {}", sname, name(*target))
             }
-            CombatEvent::DotTicked { target, status, damage } => {
+            CombatEvent::DotDamaged { target, source_status, amount, .. } => {
                 let sname = content
                     .statuses
-                    .get(status)
-                    .map_or(status.0.as_str(), |s| s.name.as_str());
-                format!("    «{}» наносит {} урона ({})", sname, damage, name(*target))
+                    .get(source_status)
+                    .map_or(source_status.0.as_str(), |s| s.name.as_str());
+                format!("    «{}» наносит {} урона ({})", sname, amount, name(*target))
             }
             CombatEvent::CriticalMiss { actor } => {
                 format!(
