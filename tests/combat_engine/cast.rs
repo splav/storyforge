@@ -1228,3 +1228,66 @@ fn cast_summon_at_max_cap_emits_spawn_blocked() {
     // Unit count unchanged — still 2 (summoner + existing summon).
     assert_eq!(state.alive_units().count(), 2, "no new unit inserted when cap reached");
 }
+
+
+// ── Phase B-α: lock-in tests (pre-S6 contract) ────────────────────────────────
+
+/// Phase B-α: locks in pre-S6 engine contract. To be inverted in B-γ when S6 lands.
+///
+/// Pure engine must NOT auto-end turn when AP+MP are exhausted after a cast.
+/// S6 will flip this: the engine itself emits TurnEnded{cause: ResourcesExhausted}
+/// and queues AdvanceTurn.  Until S6 lands, the turn-end is bridge-side only.
+#[test]
+fn cast_exhausting_ap_mp_does_not_auto_advance_in_engine() {
+    let mut actor = make_unit(1, Team::Player, 0, 0);
+    // Override defaults: 1 AP, 0 MP — cast costs 1 AP, leaving AP=0, MP=0.
+    actor.action_points = 1;
+    actor.movement_points = 0;
+
+    let target = make_unit(2, Team::Enemy, 1, 0);
+
+    let mut state = state_with(vec![actor, target]);
+    // Set actor as the current combatant so we can assert the cursor doesn't move.
+    state.set_turn_queue(vec![UnitId(1), UnitId(2)], 0);
+
+    // Ability: costs 1 AP, no damage, targets a single enemy.
+    let ability = AbilityDef {
+        cost_ap: 1,
+        costs: vec![],
+        effect: EffectDef::None,
+        ..single_enemy_ability()
+    };
+    let content = StubContent::with_ability("exhausting_strike", ability);
+
+    let action = Action::Cast {
+        actor: UnitId(1),
+        ability: AbilityId::from("exhausting_strike"),
+        target: UnitId(2),
+        target_pos: hex_from_offset(1, 0),
+    };
+
+    let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
+        .expect("legal cast should succeed");
+
+    // Pre-S6: engine must NOT emit TurnEnded on AP+MP exhaustion.
+    assert_eq!(
+        events.iter().filter(|e| matches!(e, Event::TurnEnded { .. })).count(),
+        0,
+        "pure engine must NOT auto-end on AP/MP exhaustion pre-S6; events: {:?}",
+        events,
+    );
+
+    // Turn cursor must remain on actor (index=0).
+    assert_eq!(
+        state.turn_queue.current(),
+        Some(UnitId(1)),
+        "turn cursor must not advance; queue: {:?}",
+        state.turn_queue,
+    );
+
+    // Sanity: AP was actually consumed.
+    assert!(
+        state.unit(UnitId(1)).unwrap().action_points <= 0,
+        "AP must be exhausted after the cast",
+    );
+}

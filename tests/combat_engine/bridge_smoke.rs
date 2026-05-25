@@ -1830,3 +1830,293 @@ fn ai_log_engine_step_range_populated() {
     let _ = std::fs::remove_file(&ai_path);
     let _ = std::fs::remove_file(&trace_path);
 }
+
+
+// ── Phase B-α: lock-in tests (pre-S6 bridge contract) ─────────────────────────
+
+/// Locks in the observable bridge contract for Cast-that-exhausts-AP/MP.
+///
+/// Today the bridge has a synchronous auto-end block that fires step(EndTurn)
+/// when the caster's AP+MP hit 0 after a cast.  After B-γ (S6) the engine will
+/// self-end its turn, but the bridge output observable to the UI must be
+/// identical in both cases.  This test pins that contract.
+///
+/// Setup: hero casts an ability with cost_ap=1.  Hero starts with AP=1, MP=0
+/// so after the cast AP=0, MP=0 → auto-end fires.
+///
+/// Assertions (must pass pre- AND post-S6):
+///  - CombatLog contains, in order: AbilityUsed(hero), TurnEnded(hero), TurnStarted(enemy).
+///  - ActiveCombatant migrated from hero to enemy.
+#[test]
+fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
+    use storyforge::content::abilities::TargetType;
+    use storyforge::game::components::ActiveCombatant;
+
+    let caster_pos = hex_from_offset(0, 0);
+    let target_pos = hex_from_offset(1, 0);
+
+    let mut app = common::apps::bridge::bridge_app();
+
+    // Register a minimal cast ability (no damage needed — we just need AP cost).
+    let ability_id = AbilityId::from("exhausting_zap");
+    let ability_def = AbilityDef {
+        id: ability_id.clone(),
+        name: "Exhausting Zap".into(),
+        magic_domains: vec![],
+        magic_method: String::new(),
+        ai_tags_override: None,
+        is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 5 },
+            effect: EffectDef::None,
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+        },
+    };
+    common::apps::bridge::insert_ability(&mut app, ability_def);
+
+    let hero = common::apps::bridge::spawn_unit(
+        &mut app,
+        Team::Player,
+        common::apps::bridge::bridge_stats(),
+        0,
+        6,
+        vec![ability_id.clone()],
+        common::apps::bridge::no_equipment(),
+        caster_pos,
+    );
+    let enemy = common::apps::bridge::spawn_unit(
+        &mut app,
+        Team::Enemy,
+        common::apps::bridge::bridge_stats(),
+        0,
+        6,
+        vec![],
+        common::apps::bridge::no_equipment(),
+        target_pos,
+    );
+
+    common::apps::bridge::bootstrap(&mut app);
+
+    // Set engine turn queue: hero is index=0 (current), enemy is index=1.
+    // bootstrap() doesn't set the engine turn queue when the ECS TurnQueue is
+    // empty (bridge tests don't run build_turn_order). Without this, step(EndTurn)
+    // inside the auto-end block fails with NotCurrent and is silently swallowed.
+    let hero_uid = entity_to_uid(hero);
+    let enemy_uid = entity_to_uid(enemy);
+    {
+        let mut state = app.world_mut().resource_mut::<CombatStateRes>();
+        state.0.set_turn_queue(vec![hero_uid, enemy_uid], 0);
+    }
+
+    // Set hero: AP=1 (default is 1 from CombatantBundle), MP=0.
+    // Bridge auto-end fires when AP<=0 && MP<=0 after cast.
+    common::apps::bridge::with_engine_unit(&mut app, hero, |u| {
+        u.action_points = 1;
+        u.movement_points = 0;
+    });
+
+    // Insert ActiveCombatant on hero to simulate it being the active combatant.
+    app.world_mut().entity_mut(hero).insert(ActiveCombatant);
+
+    common::apps::bridge::script_no_crit_fail(&mut app);
+    common::apps::bridge::write_cast(&mut app, hero, ability_id, enemy, target_pos);
+    app.update();
+
+    // ── Assert CombatLog order ────────────────────────────────────────────────
+    let log = app.world().resource::<CombatLog>();
+
+    // Find indices of the relevant events.
+    let ability_used_idx = log.0.iter().position(|e| matches!(e, CombatEvent::AbilityUsed { .. }));
+    let turn_ended_idx = log.0.iter().position(|e| {
+        matches!(e, CombatEvent::TurnEnded { actor: a } if *a == hero)
+    });
+    let turn_started_enemy_idx = log.0.iter().position(|e| {
+        matches!(e, CombatEvent::TurnStarted { actor: a } if *a == enemy)
+    });
+
+    assert!(
+        ability_used_idx.is_some(),
+        "CombatLog must contain AbilityUsed; log: {:?}", log.0,
+    );
+    assert!(
+        turn_ended_idx.is_some(),
+        "CombatLog must contain TurnEnded(hero); log: {:?}", log.0,
+    );
+    assert!(
+        turn_started_enemy_idx.is_some(),
+        "CombatLog must contain TurnStarted(enemy); log: {:?}", log.0,
+    );
+
+    // Order: AbilityUsed → TurnEnded(hero) → TurnStarted(enemy).
+    let au = ability_used_idx.unwrap();
+    let te = turn_ended_idx.unwrap();
+    let ts = turn_started_enemy_idx.unwrap();
+    assert!(
+        au < te && te < ts,
+        "expected AbilityUsed[{au}] < TurnEnded[{te}] < TurnStarted[{ts}]; log: {:?}",
+        log.0,
+    );
+
+    // ── Assert ActiveCombatant migrated hero → enemy ──────────────────────────
+    // apply_pending_turn_lifecycle_system runs after process_action_system via
+    // PendingTurnLifecycle.remove_active / insert_active queues.
+    // After the full app.update(), ActiveCombatant should be on enemy, not hero.
+    assert!(
+        app.world().get::<ActiveCombatant>(enemy).is_some(),
+        "enemy must have ActiveCombatant after turn handoff",
+    );
+    assert!(
+        app.world().get::<ActiveCombatant>(hero).is_none(),
+        "hero must NOT have ActiveCombatant after turn handoff",
+    );
+}
+
+/// Locks in the DoT applier semantics during Cast-that-exhausts-AP/MP.
+///
+/// Hero has a poison status applied to the enemy (applier=hero_uid).
+/// `tick_actor_statuses` fires for statuses where `applier == starting_actor`,
+/// so hero's poison-on-enemy ticks when HERO's turn starts (round 2+), NOT
+/// when the turn hands off to the enemy.
+///
+/// This test pins the semantic so B-γ cannot accidentally invert it.
+/// Must pass both pre- and post-S6.
+#[test]
+fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
+    use storyforge::content::abilities::TargetType;
+    use storyforge::combat_engine::state::ActiveStatus as EngineActiveStatus;
+    use storyforge::combat::engine_bridge::entity_to_uid;
+
+    let caster_pos = hex_from_offset(0, 0);
+    let target_pos = hex_from_offset(1, 0);
+
+    let mut app = common::apps::bridge::bridge_app();
+
+    // Register ability (AP=1, no damage, just to trigger exhaustion).
+    let ability_id = AbilityId::from("final_strike");
+    let ability_def = AbilityDef {
+        id: ability_id.clone(),
+        name: "Final Strike".into(),
+        magic_domains: vec![],
+        magic_method: String::new(),
+        ai_tags_override: None,
+        is_move_toggle: false,
+        engine: combat_engine::AbilityDef {
+            target_type: TargetType::SingleEnemy,
+            range: AbilityRange { min: 0, max: 5 },
+            effect: EffectDef::None,
+            costs: vec![],
+            cost_ap: 1,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            statuses: vec![],
+            key: None,
+        },
+    };
+    common::apps::bridge::insert_ability(&mut app, ability_def);
+
+    // Register a poison StatusDef with hp_percent_dot=10 so ticking it would
+    // deal damage.  If the DoT fires on handoff, enemy HP drops — and we assert
+    // it does NOT drop.
+    let poison_id = StatusId::from("hero_poison");
+    app.world_mut()
+        .resource_mut::<storyforge::content::content_view::ActiveContent>()
+        .0
+        .statuses
+        .insert(poison_id.clone(), storyforge::content::statuses::StatusDef {
+            id: poison_id.clone(),
+            name: "Hero Poison".into(),
+            dot_dice: None,
+            ai_controlled: false,
+            buff_class: None,
+            engine: combat_engine::StatusDef {
+                hp_percent_dot: 10,
+                ..Default::default()
+            },
+        });
+
+    let hero = common::apps::bridge::spawn_unit(
+        &mut app,
+        Team::Player,
+        common::apps::bridge::bridge_stats(),
+        0,
+        6,
+        vec![ability_id.clone()],
+        common::apps::bridge::no_equipment(),
+        caster_pos,
+    );
+    let enemy = common::apps::bridge::spawn_unit(
+        &mut app,
+        Team::Enemy,
+        common::apps::bridge::bridge_stats(),
+        0,
+        6,
+        vec![],
+        common::apps::bridge::no_equipment(),
+        target_pos,
+    );
+
+    common::apps::bridge::bootstrap(&mut app);
+
+    let hero_uid = entity_to_uid(hero);
+    let enemy_uid = entity_to_uid(enemy);
+
+    // Set engine turn queue: hero is index=0 (current), enemy is index=1.
+    // Required for step(EndTurn) in the bridge auto-end block to succeed.
+    {
+        let mut state = app.world_mut().resource_mut::<CombatStateRes>();
+        state.0.set_turn_queue(vec![hero_uid, enemy_uid], 0);
+    }
+
+    // Record enemy HP before the cast.
+    let enemy_hp_before = app
+        .world()
+        .resource::<CombatStateRes>()
+        .0
+        .unit(enemy_uid)
+        .unwrap()
+        .hp;
+
+    // Inject hero's poison onto the enemy engine unit directly.
+    // applier=hero_uid means it ticks at hero's turn start, NOT enemy's.
+    common::apps::bridge::with_engine_unit(&mut app, enemy, |u| {
+        u.statuses.push(EngineActiveStatus {
+            id: poison_id.clone(),
+            rounds_remaining: 3,
+            dot_per_tick: 0,   // flat tick = 0; damage comes from hp_percent_dot in StatusDef
+            applier: hero_uid,
+        });
+    });
+
+    // Hero: AP=1, MP=0 → cast exhausts AP.
+    common::apps::bridge::with_engine_unit(&mut app, hero, |u| {
+        u.action_points = 1;
+        u.movement_points = 0;
+    });
+
+    common::apps::bridge::script_no_crit_fail(&mut app);
+    common::apps::bridge::write_cast(&mut app, hero, ability_id, enemy, target_pos);
+    app.update();
+
+    // Enemy HP must NOT have changed — hero's poison ticks at HERO's round-2
+    // turn start, not at the handoff to enemy's turn.
+    let enemy_hp_after = app
+        .world()
+        .resource::<CombatStateRes>()
+        .0
+        .unit(enemy_uid)
+        .unwrap()
+        .hp;
+
+    assert_eq!(
+        enemy_hp_after, enemy_hp_before,
+        "enemy HP must be unchanged immediately after cast-and-handoff; \
+         hero's poison (applier=hero) ticks at hero's turn start (round 2+), \
+         not at enemy's turn start. before={enemy_hp_before}, after={enemy_hp_after}",
+    );
+}
