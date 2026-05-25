@@ -10,7 +10,7 @@ use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPh
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
-    CombatContext, CombatObjective, GameDb, HexPositions, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
+    CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
 };
 use crate::combat::enemy_popup::PopupCursor;
 use crate::ui::animation::AnimationQueue;
@@ -189,6 +189,7 @@ pub fn despawn_combatants(
     tokens: Query<Entity, With<UnitToken>>,
     backgrounds: Query<Entity, With<BattleBackground>>,
     mut positions: ResMut<HexPositions>,
+    mut corpses: ResMut<HexCorpses>,
     mut queue: ResMut<TurnQueue>,
     mut ctx: ResMut<CombatContext>,
     mut sel: ResMut<SelectionState>,
@@ -199,6 +200,7 @@ pub fn despawn_combatants(
         commands.entity(entity).despawn();
     }
     positions.clear();
+    corpses.clear();
     queue.order.clear();
     queue.index = 0;
     ctx.encounter = None;
@@ -223,6 +225,7 @@ pub fn restart_combat_system(
     cleanup: Query<Entity, Or<(With<UnitToken>, With<crate::ui::animation::EnemyActionPopup>)>>,
     mut preset: ResMut<PresetInitiative>,
     mut positions: ResMut<HexPositions>,
+    mut corpses: ResMut<HexCorpses>,
     mut queue: ResMut<TurnQueue>,
     mut ctx: ResMut<CombatContext>,
     mut objective: ResMut<CombatObjective>,
@@ -255,6 +258,7 @@ pub fn restart_combat_system(
         commands.entity(entity).despawn();
     }
     positions.clear();
+    corpses.clear();
     queue.order.clear();
     queue.index = 0;
     sel.clear();

@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 use crate::game::components::{Combatant, Faction, StartingHexPos, Team, UnitToken, VictoryTarget};
 use crate::game::hex::{hex_from_offset, row_cols, Hex, GRID_COLS, GRID_ROWS, HEX_SIZE, LAYOUT};
+use crate::game::hex_map::HexMap;
 use crate::game::resources::HexPositions;
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
@@ -125,12 +126,16 @@ pub fn spawn_hex_label<M: Component>(
 }
 
 /// Resolves the entity occupying the hex cell that a label is linked to.
+///
+/// Living unit takes priority. If no living unit is at the hex, falls back to
+/// the first corpse — so labels still render the dead unit's name/HP for the
+/// gray-filled corpse tile.
 pub fn label_occupant(
     link: &HexCellLink,
     cells: &Query<(Entity, &Hex, &Children)>,
-    positions: &HexPositions,
+    map: &HexMap,
 ) -> Option<Entity> {
-    cells.get(link.0).ok().and_then(|(_, &hex, _)| positions.entity_at(hex))
+    cells.get(link.0).ok().and_then(|(_, &hex, _)| map.any_at(hex))
 }
 
 // ── Grid math ─────────────────────────────────────────────────────────────────

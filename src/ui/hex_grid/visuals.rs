@@ -11,9 +11,8 @@ use crate::game::components::{
 };
 use crate::game::hex::{hex_circle, hex_line, Hex, LAYOUT};
 use crate::game::pathfinding::{reach_from, MovementEnv};
-use crate::game::resources::{
-    HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags,
-};
+use crate::game::hex_map::HexMap;
+use crate::game::resources::{HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags};
 use crate::ui::animation::MovePath;
 use bevy::prelude::*;
 use std::collections::HashSet;
@@ -143,7 +142,7 @@ pub fn update_hex_visuals(
     sel: Res<SelectionState>,
     hover: Res<HexHover>,
     content: Res<ActiveContent>,
-    positions: Res<HexPositions>,
+    map: HexMap,
     mats: Res<HexMaterials>,
     cells: Query<(Entity, &Hex, &Children)>,
     combatant_q: Query<HexCombatantQ>,
@@ -177,7 +176,7 @@ pub fn update_hex_visuals(
             let info = active_q
                 .single()
                 .ok()
-                .and_then(|e| positions.get(&e))
+                .and_then(|e| map.position_of(e))
                 .zip(
                     sel.selected_ability
                         .as_ref()
@@ -205,7 +204,7 @@ pub fn update_hex_visuals(
             let info = active_q
                 .single()
                 .ok()
-                .and_then(|e| positions.get(&e))
+                .and_then(|e| map.position_of(e))
                 .zip(
                     sel.selected_ability
                         .as_ref()
@@ -231,10 +230,10 @@ pub fn update_hex_visuals(
         overlay.movement = if sel.move_mode {
             if let Ok(actor) = active_q.single() {
                 if let (Some(actor_pos), Ok(ap)) =
-                    (positions.get(&actor), ap_q.get(actor))
+                    (map.position_of(actor), ap_q.get(actor))
                 {
-                    let enemy_positions: HashSet<Hex> = positions
-                        .iter()
+                    let enemy_positions: HashSet<Hex> = map
+                        .iter_living()
                         .filter(|(&e, _)| {
                             e != actor
                                 && combatant_q
@@ -243,8 +242,8 @@ pub fn update_hex_visuals(
                         })
                         .map(|(_, &p)| p)
                         .collect();
-                    let stop_blockers: HashSet<Hex> = positions
-                        .iter()
+                    let stop_blockers: HashSet<Hex> = map
+                        .iter_living()
                         .filter(|(&e, _)| e != actor)
                         .map(|(_, &p)| p)
                         .collect();
@@ -264,7 +263,7 @@ pub fn update_hex_visuals(
     // AoE preview: recompute whenever hover or ability selection changes.
     if flags.intersects(UiDirtyFlags::TOOLTIP | UiDirtyFlags::OVERLAY) {
         overlay.aoe_preview = if let Some(hovered) = hover.0 {
-            let actor_pos = active_q.single().ok().and_then(|e| positions.get(&e));
+            let actor_pos = active_q.single().ok().and_then(|e| map.position_of(e));
             let aoe_def = sel.selected_ability
                 .as_ref()
                 .and_then(|id| content.abilities.get(id))
@@ -291,7 +290,7 @@ pub fn update_hex_visuals(
 
     for (cell_entity, &hex_cell, children) in &cells {
         let pos = hex_cell;
-        let occupant = positions.entity_at(pos);
+        let occupant = map.living_at(pos);
         let is_active = occupant.is_some_and(|e| active == Some(e));
         let is_target = occupant.is_some_and(|e| sel.selected_target == Some(e));
         let is_in_range = range_cells.contains(&pos);
@@ -299,8 +298,12 @@ pub fn update_hex_visuals(
         let is_in_move = move_cells.contains(&pos);
         let is_aoe = aoe_cells.contains(&pos);
 
+        // Cell fill resolves to living unit first, then corpse — so the gray
+        // corpse tile shows when a unit died on an otherwise empty hex.
+        let fill_entity = map.any_at(pos);
+
         if let Ok(mut mat) = cell_mats.get_mut(cell_entity) {
-            mat.0 = match occupant {
+            mat.0 = match fill_entity {
                 None => {
                     if is_aoe {
                         mats.aoe_preview.clone()
@@ -359,7 +362,7 @@ pub fn update_hex_visuals(
     }
 
     for (link, mut text, mut vis) in &mut name_labels {
-        if let Some(c) = super::render::label_occupant(link, &cells, &positions)
+        if let Some(c) = super::render::label_occupant(link, &cells, &map)
             .and_then(|e| combatant_q.get(e).ok())
         {
             let n = c.name.as_str();
@@ -375,7 +378,7 @@ pub fn update_hex_visuals(
     }
 
     for (link, mut text, mut vis) in &mut hp_labels {
-        if let Some(c) = super::render::label_occupant(link, &cells, &positions)
+        if let Some(c) = super::render::label_occupant(link, &cells, &map)
             .and_then(|e| combatant_q.get(e).ok())
         {
             text.0 = format!("{}/{}", c.vital.hp, c.vital.max_hp);
@@ -386,7 +389,7 @@ pub fn update_hex_visuals(
     }
 
     for (link, mut text, mut vis) in &mut mana_labels {
-        if let Some(c) = super::render::label_occupant(link, &cells, &positions)
+        if let Some(c) = super::render::label_occupant(link, &cells, &map)
             .and_then(|e| combatant_q.get(e).ok())
         {
             if let Some(m) = c.mana {
@@ -409,11 +412,12 @@ pub fn update_hex_visuals(
 
 // ── System: Update token positions ────────────────────────────────────────────
 
-/// Syncs UnitToken transforms with HexPositions (when not animating).
-/// Also hides tokens of dead units and updates material color.
+/// Syncs UnitToken transforms with the hex position of each token's entity.
+/// Living units use team color; dead units use `token_dead` (gray) and are
+/// positioned at their corpse-layer hex so the tombstone sprite stays visible.
 pub fn update_token_positions(
     dirty: Res<UiDirty>,
-    positions: Res<HexPositions>,
+    map: HexMap,
     grid_offset: Res<HexGridOffset>,
     mats: Res<HexMaterials>,
     mut tokens: Query<(
@@ -434,7 +438,7 @@ pub fn update_token_positions(
             continue;
         }
 
-        let Some(pos) = positions.get(&token.0) else {
+        let Some(pos) = map.position_of(token.0) else {
             *vis = Visibility::Hidden;
             continue;
         };
@@ -444,16 +448,13 @@ pub fn update_token_positions(
             continue;
         };
 
-        if is_dead {
-            *vis = Visibility::Hidden;
-            continue;
-        }
-
         let pixel = LAYOUT.hex_to_world_pos(pos) + grid_offset.0;
         transform.translation.x = pixel.x;
         transform.translation.y = pixel.y;
 
-        mat.0 = if faction.0 == Team::Player {
+        mat.0 = if is_dead {
+            mats.token_dead.clone()
+        } else if faction.0 == Team::Player {
             mats.token_player.clone()
         } else {
             mats.token_enemy.clone()

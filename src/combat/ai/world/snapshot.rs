@@ -11,7 +11,7 @@ use crate::game::components::{
     AiCombatantQ, Combatant, StatusEffects, Team,
 };
 use crate::game::hex::Hex;
-use crate::game::resources::HexPositions;
+use crate::game::hex_map::HexMap;
 use crate::combat::ai::world::tags::{AiTags, StatusTagCache};
 #[cfg(test)]
 use crate::combat::ai::world::tags::cache::StatusBonuses;
@@ -460,7 +460,7 @@ pub fn build_snapshot(
     _round: u32,
     combatants: &Query<AiCombatantQ, With<Combatant>>,
     statuses_q: &Query<&StatusEffects>,
-    positions: &HexPositions,
+    hex_map: &HexMap,
     roles: &Query<&AxisProfile>,
     content: &ContentView,
     difficulty: &DifficultyProfile,
@@ -475,7 +475,11 @@ pub fn build_snapshot(
     let ai_units: Vec<UnitAiCache> = combatants
         .iter()
         .filter_map(|c| {
-            let _pos = positions.get(&c.entity)?;
+            // Guard: entity must exist in at least one spatial layer.
+            // Dead units live in HexCorpses — position_of checks both layers so
+            // they are not silently dropped from the snapshot (they serve as hp=0
+            // markers for death-aware AI accessors like `dead_units`).
+            let _pos = hex_map.position_of(c.entity)?;
             let role = roles.get(c.entity).copied().unwrap_or_default();
             let caster_ctx = CasterContext::new(c.stats, Some(c.equipment), &content.weapons);
             let threat = estimate_st_damage(&caster_ctx, c.abilities, content);

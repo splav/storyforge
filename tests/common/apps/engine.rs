@@ -26,7 +26,7 @@ use storyforge::content::settings::GameSettings;
 use storyforge::game::combat_log::CombatLog;
 use storyforge::game::messages::ActionInput;
 use storyforge::game::resources::{
-    CombatContext, CombatObjective, GameDb, HexPositions, SelectionState, TurnQueue,
+    CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions, SelectionState, TurnQueue,
 };
 use storyforge::ui::hex_grid::{HexMaterials, TokenMesh};
 
@@ -52,6 +52,7 @@ pub fn movement_app() -> App {
         .init_resource::<GameSettings>()
         .init_resource::<SelectionState>()
         .init_resource::<HexPositions>()
+        .init_resource::<HexCorpses>()
         .init_resource::<DiceRngRes>()
         .init_resource::<AnimationQueue>()
         .init_resource::<Reservations>()

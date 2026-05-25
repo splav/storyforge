@@ -44,7 +44,7 @@ use storyforge::game::components::{
 };
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::messages::ActionInput;
-use storyforge::game::resources::{CombatContext, HexPositions, TurnQueue};
+use storyforge::game::resources::{CombatContext, HexCorpses, HexPositions, TurnQueue};
 use storyforge::ui::animation::AnimationQueue;
 use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
@@ -91,6 +91,7 @@ fn bridge_app() -> App {
         .init_resource::<CombatStateRes>()
         .init_resource::<UnitIdMap>()
         .init_resource::<HexPositions>()
+        .init_resource::<HexCorpses>()
         .init_resource::<TurnQueue>()
         .init_resource::<CombatContext>()
         .init_resource::<ActiveContent>()
@@ -386,10 +387,13 @@ fn legality_parity_bevy_vs_engine() {
             applier: taunter,
         });
 
-    // dead_enemy: Enemy with hp=0.
+    // dead_enemy: Enemy with hp=0 and Dead marker (matches real bridge behavior).
     let dead_enemy = app
         .world_mut()
-        .spawn(CombatantBundle::new(Team::Enemy, base_stats(), 0, 6, vec![], no_equip()))
+        .spawn((
+            CombatantBundle::new(Team::Enemy, base_stats(), 0, 6, vec![], no_equip()),
+            storyforge::game::components::Dead,
+        ))
         .id();
     app.world_mut()
         .entity_mut(dead_enemy)
@@ -462,10 +466,14 @@ fn legality_parity_bevy_vs_engine() {
         pos.insert(enemy, enemy_pos);
         pos.insert(ally, ally_pos);
         pos.insert(taunter, taunter_pos);
-        pos.insert(dead_enemy, dead_enemy_pos);
         pos.insert(actor_no_ap, actor_no_ap_pos);
         pos.insert(actor_no_mana, actor_no_mana_pos);
         pos.insert(actor_mana_blocked, actor_mana_blocked_pos);
+    }
+    // dead_enemy lives in the corpse layer (HexPositions = alive only).
+    {
+        let mut corpse_pos = app.world_mut().resource_mut::<HexCorpses>();
+        corpse_pos.insert(dead_enemy, dead_enemy_pos);
     }
 
     // ── Sync engine state from ECS ────────────────────────────────────────────

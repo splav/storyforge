@@ -14,7 +14,7 @@ use storyforge::game::components::{
     Speed, StatusEffects, Team as EcsTeam, Vital,
 };
 use storyforge::game::hex::{hex_from_offset, Hex};
-use storyforge::game::resources::HexPositions;
+use storyforge::game::resources::{HexCorpses, HexPositions};
 
 /// Run `from_ecs` against `world` via a one-shot `SystemState`.
 /// Centralised here so the chunky query tuple lives in one place.
@@ -38,10 +38,11 @@ fn run_from_ecs(world: &mut World, round: u32, id_map: &mut UnitIdMap) -> Combat
             With<Combatant>,
         >,
         Res<HexPositions>,
+        Res<HexCorpses>,
         Res<ActiveContent>,
     )> = bevy::ecs::system::SystemState::new(world);
-    let (combatants, positions, active_content) = ss.get(world);
-    from_ecs(&combatants, &positions, round, id_map, &active_content)
+    let (combatants, positions, corpses, active_content) = ss.get(world);
+    from_ecs(&combatants, &positions, &corpses, round, id_map, &active_content)
 }
 
 fn minimal_stats() -> CombatStats {
@@ -116,6 +117,7 @@ fn build_10_unit_world(world: &mut World) -> (Vec<Entity>, Vec<Hex>) {
     }
 
     world.insert_resource(positions);
+    world.insert_resource(HexCorpses::default());
     world.insert_resource(ActiveContent(
         storyforge::content::content_view::ContentView::load_global_for_tests(),
     ));
@@ -175,6 +177,7 @@ fn from_ecs_round_trip_10_units() {
 fn dead_unit_is_tombstone_with_hp_zero() {
     let mut world = World::new();
     let mut positions = HexPositions::default();
+    let mut corpses = HexCorpses::default();
 
     // Spawn one alive + one dead unit.
     let alive = world
@@ -186,7 +189,7 @@ fn dead_unit_is_tombstone_with_hp_zero() {
         .id();
     positions.insert(alive, hex_from_offset(0, 0));
 
-    // Mark second unit as dead.
+    // Mark second unit as dead — lives in the corpse layer.
     let dead = world
         .spawn((
             CombatantBundle::new(
@@ -197,9 +200,10 @@ fn dead_unit_is_tombstone_with_hp_zero() {
             Dead,
         ))
         .id();
-    positions.insert(dead, hex_from_offset(1, 0));
+    corpses.insert(dead, hex_from_offset(1, 0));
 
     world.insert_resource(positions);
+    world.insert_resource(corpses);
     world.insert_resource(ActiveContent(
         storyforge::content::content_view::ContentView::load_global_for_tests(),
     ));

@@ -51,7 +51,7 @@ use crate::game::components::{
 use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
 use crate::game::messages::{ActionInput, RestartCombat};
-use crate::game::resources::{CombatContext, HexPositions, TurnQueue};
+use crate::game::resources::{CombatContext, HexCorpses, HexPositions, TurnQueue};
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
@@ -154,7 +154,8 @@ type CombatantRow<'a> = (
 /// - `Faction` — team
 /// - `StatusEffects` (optional) — active statuses
 /// - `Rage` / `Mana` (optional) — resource pools
-/// - `HexPositions` resource — unit positions
+/// - `HexPositions` resource — alive unit positions (occupancy layer)
+/// - `HexCorpses` resource — dead unit positions (corpse layer)
 ///
 /// Dead units (`Has<Dead>`) are kept as tombstones (hp=0), matching the
 /// `BattleSnapshot` convention so downstream code can filter by `is_alive()`.
@@ -166,6 +167,7 @@ type CombatantRow<'a> = (
 pub fn from_ecs(
     combatants: &Query<CombatantRow, With<Combatant>>,
     positions: &HexPositions,
+    corpses: &HexCorpses,
     round: u32,
     id_map: &mut UnitIdMap,
     content: &ActiveContent,
@@ -175,7 +177,12 @@ pub fn from_ecs(
     let units: Vec<Unit> = combatants
         .iter()
         .filter_map(|(entity, vital, speed, ap, reactions, faction, statuses, rage, mana, energy_opt, is_dead)| {
-            let pos = positions.get(&entity)?;
+            // Alive units live in HexPositions; dead units in HexCorpses.
+            let pos = if is_dead {
+                corpses.get(&entity)?
+            } else {
+                positions.get(&entity)?
+            };
 
             let uid = entity_to_uid(entity);
             id_map.insert(entity, uid);
@@ -1371,7 +1378,7 @@ type ProjectionRow<'a> = (
 /// `Update` system — writes engine `CombatState` back to ECS components.
 ///
 /// Projects:
-/// - `pos`              → `HexPositions`
+/// - `pos`              → `HexPositions` (alive) / `HexCorpses` (dead)
 /// - `hp`               → `Vital.hp`
 /// - `movement_points`  → `ActionPoints.movement_points`
 /// - `reactions_left`   → `Reactions.remaining`
@@ -1391,11 +1398,17 @@ type ProjectionRow<'a> = (
 /// MP+reactions refill happens in `StartRound` (symmetric with `start_actor_turn`).
 ///
 /// Engine is authoritative for state; ECS is a read-only projection.
+///
+/// **Layer model:** alive units live in [`HexPositions`] (one-per-hex invariant);
+/// dead units live in [`HexCorpses`] (multi-occupant). The two branches below
+/// are order-insensitive: whichever entity is iterated first, `remove` on the
+/// wrong layer is a no-op, so there is no cross-contamination.
 pub fn project_state_to_ecs(
     mut commands: Commands,
     combat_state: Res<CombatStateRes>,
     id_map: Res<UnitIdMap>,
     mut positions: ResMut<HexPositions>,
+    mut corpses: ResMut<HexCorpses>,
     mut combatants: Query<ProjectionRow, With<Combatant>>,
 ) {
     for unit in combat_state.0.units() {
@@ -1404,7 +1417,18 @@ pub fn project_state_to_ecs(
             continue;
         };
 
-        // Write position.
+        if unit.hp <= 0 {
+            // Transition to corpse layer (idempotent — engine.unit.pos is stable).
+            positions.remove(&entity);
+            corpses.insert(entity, unit.pos);
+            // Still sync hp=0 so Vital reflects death; skip AP/MP/Rage/Mana/Energy/Status.
+            if let Ok((mut vital, _, _, _, _, _, _, _)) = combatants.get_mut(entity) {
+                vital.hp = unit.hp;
+            }
+            continue;
+        }
+
+        // Alive — occupancy layer.
         positions.insert(entity, unit.pos);
 
         // Write Vital / ActionPoints / Reactions / Rage / Mana / Energy / StatusEffects.
@@ -1489,6 +1513,7 @@ pub fn project_state_to_ecs(
 pub fn bootstrap_combat_state(
     combatants: Query<CombatantRow, With<Combatant>>,
     positions: Res<HexPositions>,
+    corpses: Res<HexCorpses>,
     combat_context: Res<CombatContext>,
     ecs_queue: Res<TurnQueue>,
     mut id_map: ResMut<UnitIdMap>,
@@ -1510,7 +1535,7 @@ pub fn bootstrap_combat_state(
 
     use crate::content::encounters::AuraAffects;
 
-    let mut state = from_ecs(&combatants, &positions, combat_context.round, &mut id_map, &active_content);
+    let mut state = from_ecs(&combatants, &positions, &corpses, combat_context.round, &mut id_map, &active_content);
 
     // ── Populate per-unit combat fields ──────────────────────────────────────
 

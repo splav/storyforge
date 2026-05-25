@@ -339,6 +339,11 @@ pub struct CampaignState {
 
 // ── Hex positions ────────────────────────────────────────────────────────────
 
+/// Spatial index for the **occupancy layer** — alive units only.
+///
+/// Living units have a one-per-hex invariant: at most one entity at any
+/// given hex. Dead units live in [`HexCorpses`] — corpse layer — and do not
+/// appear here. Pathfinder / legality / occupancy queries should read this.
 #[derive(Resource, Default)]
 pub struct HexPositions {
     by_entity: HashMap<Entity, hexx::Hex>,
@@ -383,6 +388,59 @@ impl HexPositions {
 
     pub fn iter(&self) -> impl Iterator<Item = (&Entity, &hexx::Hex)> {
         self.by_entity.iter()
+    }
+}
+
+/// Spatial index for the **corpse layer** — dead units.
+///
+/// Living units live in [`HexPositions`] (one-per-hex invariant). Dead units
+/// live here — multiple corpses per hex are allowed (sequential deaths,
+/// AoO-mid-move on ally hex, etc.). Pathfinder / legality / occupancy queries
+/// should read [`HexPositions`]; rendering or corpse-targeting effects
+/// (future resurrect / cleave / loot) should read this index.
+#[derive(Resource, Default)]
+pub struct HexCorpses {
+    by_entity: HashMap<Entity, hexx::Hex>,
+    by_pos: HashMap<hexx::Hex, Vec<Entity>>,
+    pub generation: u64,
+}
+
+impl HexCorpses {
+    pub fn insert(&mut self, entity: Entity, pos: hexx::Hex) {
+        // Idempotent: if entity already recorded at same pos, skip.
+        if let Some(&old_pos) = self.by_entity.get(&entity) {
+            if old_pos == pos {
+                return;
+            }
+            // Entity moved to a new pos (shouldn't happen for corpses, but be safe).
+            self.by_pos.entry(old_pos).and_modify(|v| v.retain(|&e| e != entity));
+        }
+        self.by_entity.insert(entity, pos);
+        self.by_pos.entry(pos).or_default().push(entity);
+        self.generation += 1;
+    }
+
+    pub fn remove(&mut self, entity: &Entity) {
+        if let Some(pos) = self.by_entity.remove(entity) {
+            self.by_pos.entry(pos).and_modify(|v| v.retain(|&e| &e != entity));
+        }
+        self.generation += 1;
+    }
+
+    /// Returns all corpses at the given hex.
+    pub fn at(&self, pos: &hexx::Hex) -> &[Entity] {
+        self.by_pos.get(pos).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    /// Reverse lookup: which hex does this corpse occupy?
+    pub fn get(&self, entity: &Entity) -> Option<hexx::Hex> {
+        self.by_entity.get(entity).copied()
+    }
+
+    pub fn clear(&mut self) {
+        self.by_entity.clear();
+        self.by_pos.clear();
+        self.generation += 1;
     }
 }
 

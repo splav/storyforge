@@ -6,6 +6,7 @@ use crate::game::components::{ActionPoints, ActiveCombatant, Combatant, Dead, En
 use crate::game::hex::{in_bounds, is_passable, Hex, LAYOUT};
 use crate::game::messages::ActionInput;
 use crate::game::pathfinding::find_path;
+use crate::game::hex_map::HexMap;
 use crate::game::resources::{HexPositions, SelectionState, UiDirty, UiDirtyFlags};
 use bevy::prelude::*;
 use std::collections::HashSet;
@@ -41,7 +42,7 @@ pub fn update_hex_tooltip(
     dirty: Res<UiDirty>,
     hover: Res<HexHover>,
     content: Res<ActiveContent>,
-    positions: Res<HexPositions>,
+    map: HexMap,
     combatant_q: Query<(
         &Name,
         &Vital,
@@ -65,7 +66,7 @@ pub fn update_hex_tooltip(
         return;
     };
 
-    let Some(entity) = positions.entity_at(hovered) else {
+    let Some(entity) = map.any_at(hovered) else {
         *vis = Visibility::Hidden;
         return;
     };

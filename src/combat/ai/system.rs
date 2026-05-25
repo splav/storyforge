@@ -26,7 +26,8 @@ use crate::game::components::{
     ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, StatusEffects, Team,
 };
 use crate::game::messages::ActionInput;
-use crate::game::resources::{CombatContext, HexPositions};
+use crate::game::hex_map::HexMap;
+use crate::game::resources::CombatContext;
 use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -48,7 +49,7 @@ pub struct AiEnv<'w> {
     settings: Res<'w, GameSettings>,
     difficulty: Res<'w, DifficultyProfile>,
     inf_cfg: Res<'w, InfluenceConfig>,
-    positions: Res<'w, HexPositions>,
+    hex_map: HexMap<'w>,
     combat_ctx: Res<'w, CombatContext>,
     /// Step 9.A: tag cache for effective_ai_tags diagnostic writeback.
     ability_tags: Res<'w, AbilityTagCache>,
@@ -121,11 +122,11 @@ fn run_ai_turn(
     let settings = &env.settings;
     let difficulty = &env.difficulty;
     let inf_cfg = &env.inf_cfg;
-    let positions = &env.positions;
     let combat_ctx = &env.combat_ctx;
     let ability_tags: &AbilityTagCache = &env.ability_tags;
     let status_tags: &StatusTagCache = &env.status_tags;
-    let Some(actor_pos) = positions.get(&actor) else {
+    // AI actors are always alive; position_of also checks corpse layer for safety.
+    let Some(actor_pos) = env.hex_map.position_of(actor) else {
         warn!("AI: actor {:?} has no position, ending turn", actor);
         msgs.action_input.write(ActionInput::EndTurn { actor });
         return;
@@ -137,7 +138,7 @@ fn run_ai_turn(
     // invalidating-clear must run before any early-return.
     let actor_team = c.faction.0;
     let snap = build_snapshot(
-        combat_ctx.round, combatants, statuses, positions, roles, content, difficulty,
+        combat_ctx.round, combatants, statuses, &env.hex_map, roles, content, difficulty,
         env.combat_state.0.clone(),
         &env.id_map,
     );
