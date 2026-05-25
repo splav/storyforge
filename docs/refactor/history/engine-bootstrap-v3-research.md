@@ -9,7 +9,7 @@ V2 (content-aware `from_ecs`) — рекомендован, но не сдела
 
 ## Блок A: каталог мутаций engine `CombatState` в runtime
 
-Engine state живёт в `CombatStateRes` ([src/combat/engine_bridge.rs:65-69](../../src/combat/engine_bridge.rs:65)). Источник истины — `find_referencing_symbols(CombatStateRes)` + targeted re-scan `engine_bridge.rs` и `combat_engine` crate.
+Engine state живёт в `CombatStateRes` ([src/combat/engine_bridge.rs:65-69](../../../src/combat/engine_bridge.rs:65)). Источник истины — `find_referencing_symbols(CombatStateRes)` + targeted re-scan `engine_bridge.rs` и `combat_engine` crate.
 
 ### A.1 Production ECS-side mutations of `CombatStateRes`
 

@@ -3,8 +3,8 @@
 Single source of truth for ECS↔engine migration debt. Supersedes the
 "what's pending" sections of:
 
-- `combat-event-mirror.md` (PR-A/B done, stages 5-7 tracked here)
-- `engine-bootstrap-v3.md` (V1-V3 done, V4 tracked here)
+- [`history/combat-event-mirror.md`](history/combat-event-mirror.md) (PR-A/B done, stages 5-7 tracked here)
+- [`history/engine-bootstrap-v3.md`](history/engine-bootstrap-v3.md) (V1-V3 done, V4 tracked here)
 
 Those documents remain as **historical record** of decisions made; this
 file is **current state**. Test-helper refactoring lives separately in

@@ -3,7 +3,7 @@
 > **Historical record.** PR-A and PR-B (the work described in this plan) are
 > complete and committed (`09648b6` and `7914276`). Stages 5/6/7 — the
 > engine-side schema bumps deferred from §6 — now live in
-> [`engine-migration.md`](engine-migration.md), which is the current
+> [`engine-migration.md`](../engine-migration.md), which is the current
 > source of truth for "what's still pending". This file preserves the
 > rationale for the architectural decisions (D1-D8) made during PR-A.
 
@@ -19,7 +19,7 @@ lossy translation in `engine_bridge.rs`.
 | Plan agreed (this doc) | ✅ Done | — |
 | PR-A "CombatEvent flat mirror" | ✅ Done | `09648b6` |
 | PR-B "Side-effect extraction" | ✅ Done | `7914276` |
-| Engine schema bumps (etапы 5/6/7) | ⏳ Deferred — see [engine-migration.md](engine-migration.md) | — |
+| Engine schema bumps (etапы 5/6/7) | ⏳ Deferred — see [engine-migration.md](../engine-migration.md) | — |
 
 ---
 
@@ -33,7 +33,7 @@ events shows `{"turn_skipped":{"actor":...,"reason":"dead"}}`.
 
 Root cause is a 3-layer drop of structural information:
 
-1. **Engine** correctly distinguishes — `Event::TurnSkipped { actor, reason: TurnSkipReason }` with `Dead | Stunned` ([crates/combat_engine/src/event.rs:67](../../crates/combat_engine/src/event.rs:67), :97).
+1. **Engine** correctly distinguishes — `Event::TurnSkipped { actor, reason: TurnSkipReason }` with `Dead | Stunned` ([crates/combat_engine/src/event.rs:67](../../../crates/combat_engine/src/event.rs:67), :97).
 2. **Bridge** drops `reason`:
    ```rust
    // src/combat/engine_bridge.rs:1008
@@ -41,8 +41,8 @@ Root cause is a 3-layer drop of structural information:
        log.push(CombatEvent::TurnSkipped { actor: ent });
    }
    ```
-3. **ECS event** has no `reason` field ([src/game/combat_log.rs:50](../../src/game/combat_log.rs:50)).
-4. **Formatter** hardcodes the string ([src/game/combat_log.rs:148](../../src/game/combat_log.rs:148)).
+3. **ECS event** has no `reason` field ([src/game/combat_log.rs:50](../../../src/game/combat_log.rs:50)).
+4. **Formatter** hardcodes the string ([src/game/combat_log.rs:148](../../../src/game/combat_log.rs:148)).
 
 ### 1.2 Same class of problem — found in 6+ places
 
@@ -51,14 +51,14 @@ or drops fields in at least these places:
 
 | Smell | Where | Class |
 |---|---|---|
-| `TurnSkipped.reason` dropped | [combat_log.rs:50](../../src/game/combat_log.rs:50) + [engine_bridge.rs:1008](../../src/combat/engine_bridge.rs:1008) | this bug |
-| `CritFailSideEffect { effect_name: String }` mixes 3 domain entities into one string, loses status localization | [combat_log.rs:97](../../src/game/combat_log.rs:97) + [engine_bridge.rs:1152](../../src/combat/engine_bridge.rs:1152) | structured→string |
-| `SummonBlocked { reason: String }` — `SpawnBlockedReason` enum converted to RU text in the bridge | [combat_log.rs:119](../../src/game/combat_log.rs:119) + [engine_bridge.rs:1197](../../src/combat/engine_bridge.rs:1197) | structured→string |
-| `HealResult.formula = "engine".into()` — placeholder value visible to user as `"лечение: engine → +N HP"` | [combat_log.rs:37](../../src/game/combat_log.rs:37) + [engine_bridge.rs:1117](../../src/combat/engine_bridge.rs:1117) | dead field leaks |
-| `PoisonTick`/`PoisonCleansed` — legacy naming for any DoT (engine emits generic `StatusTicked`) | [combat_log.rs:82](../../src/game/combat_log.rs:82) + [engine_bridge.rs:649](../../src/combat/engine_bridge.rs:649) | legacy naming |
-| `ManaChanged` derived from `mana_before`/`mana_after` snapshot diff instead of an engine fact | [engine_bridge.rs:1245](../../src/combat/engine_bridge.rs:1245) | missing engine event |
-| `WillOverload` — variant never `push`-ed anywhere | [combat_log.rs:101](../../src/game/combat_log.rs:101) | dead variant |
-| auto-end-turn (`AP=0 && MP=0`) lives in bridge, not engine — replay-impure | [engine_bridge.rs:894](../../src/combat/engine_bridge.rs:894) | engine logic leaked |
+| `TurnSkipped.reason` dropped | [combat_log.rs:50](../../../src/game/combat_log.rs:50) + [engine_bridge.rs:1008](../../../src/combat/engine_bridge.rs:1008) | this bug |
+| `CritFailSideEffect { effect_name: String }` mixes 3 domain entities into one string, loses status localization | [combat_log.rs:97](../../../src/game/combat_log.rs:97) + [engine_bridge.rs:1152](../../../src/combat/engine_bridge.rs:1152) | structured→string |
+| `SummonBlocked { reason: String }` — `SpawnBlockedReason` enum converted to RU text in the bridge | [combat_log.rs:119](../../../src/game/combat_log.rs:119) + [engine_bridge.rs:1197](../../../src/combat/engine_bridge.rs:1197) | structured→string |
+| `HealResult.formula = "engine".into()` — placeholder value visible to user as `"лечение: engine → +N HP"` | [combat_log.rs:37](../../../src/game/combat_log.rs:37) + [engine_bridge.rs:1117](../../../src/combat/engine_bridge.rs:1117) | dead field leaks |
+| `PoisonTick`/`PoisonCleansed` — legacy naming for any DoT (engine emits generic `StatusTicked`) | [combat_log.rs:82](../../../src/game/combat_log.rs:82) + [engine_bridge.rs:649](../../../src/combat/engine_bridge.rs:649) | legacy naming |
+| `ManaChanged` derived from `mana_before`/`mana_after` snapshot diff instead of an engine fact | [engine_bridge.rs:1245](../../../src/combat/engine_bridge.rs:1245) | missing engine event |
+| `WillOverload` — variant never `push`-ed anywhere | [combat_log.rs:101](../../../src/game/combat_log.rs:101) | dead variant |
+| auto-end-turn (`AP=0 && MP=0`) lives in bridge, not engine — replay-impure | [engine_bridge.rs:894](../../../src/combat/engine_bridge.rs:894) | engine logic leaked |
 
 ---
 
@@ -194,12 +194,12 @@ Replace all `CombatEvent::OldVariant { ... }` with new flat-enum equivalents:
 
 | File | Role | Effort |
 |---|---|---|
-| [src/game/combat_log.rs](../../src/game/combat_log.rs) (310 LOC) | enum + format definition | full rewrite |
-| [src/combat/engine_bridge.rs](../../src/combat/engine_bridge.rs) (~1500 LOC) | translate-functions (lines 639, 990, 1067, 1270), `apply_phase_ecs_writes` (408), `spawn_ecs_entity_from_engine_unit` (465) | enum migration only; side-effects unchanged |
-| [crates/combat_engine/src/event.rs](../../crates/combat_engine/src/event.rs) | truth source for mirror | bump SCHEMA |
-| [crates/combat_engine/src/cast.rs](../../crates/combat_engine/src/cast.rs) | emit `ManaRegenerated` after PayCost | +~20 LOC |
-| [src/combat/enemy_popup.rs](../../src/combat/enemy_popup.rs) | UI consumer matching specific variants | minimal — flat enum saves us |
-| [tests/combat_engine/bridge_smoke.rs](../../tests/combat_engine/bridge_smoke.rs) | ~30 pattern-match assertions | heaviest test migration |
+| [src/game/combat_log.rs](../../../src/game/combat_log.rs) (310 LOC) | enum + format definition | full rewrite |
+| [src/combat/engine_bridge.rs](../../../src/combat/engine_bridge.rs) (~1500 LOC) | translate-functions (lines 639, 990, 1067, 1270), `apply_phase_ecs_writes` (408), `spawn_ecs_entity_from_engine_unit` (465) | enum migration only; side-effects unchanged |
+| [crates/combat_engine/src/event.rs](../../../crates/combat_engine/src/event.rs) | truth source for mirror | bump SCHEMA |
+| [crates/combat_engine/src/cast.rs](../../../crates/combat_engine/src/cast.rs) | emit `ManaRegenerated` after PayCost | +~20 LOC |
+| [src/combat/enemy_popup.rs](../../../src/combat/enemy_popup.rs) | UI consumer matching specific variants | minimal — flat enum saves us |
+| [tests/combat_engine/bridge_smoke.rs](../../../tests/combat_engine/bridge_smoke.rs) | ~30 pattern-match assertions | heaviest test migration |
 
 ---
 
