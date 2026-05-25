@@ -56,13 +56,57 @@ Before implementing:
 
 ### Commands
 
+Dev-цикл идёт через фичу `dev`, которая включает `bevy/dynamic_linking`
+(Bevy линкуется как dylib → инкрементальная линковка ~3× быстрее,
+бинарь 9.5 MB вместо 146 MB). Релиз и бенчмарки запускать **без** этой
+фичи — нужен статический линк.
+
 ```bash
-cargo build          # компиляция
-cargo run            # запуск (открывает окно Bevy)
-cargo check          # быстрая проверка без линковки
-cargo clippy         # линтер
-cargo test           # юнит + интеграционные тесты
+# Dev cycle (фича dev = bevy/dynamic_linking)
+cargo build  --features dev      # сборка
+cargo run    --features dev      # запуск (открывает окно Bevy)
+cargo check  --features dev      # быстрая проверка без линковки
+cargo clippy --features dev      # линтер
+
+# Тесты — через cargo-nextest (3× быстрее warm, 10× при filter)
+cargo nextest run --features dev                            # все ~1150 тестов (~4 s warm)
+cargo nextest run --features dev -E 'test(/combat::ai/)'    # только AI tests (~2.6 s warm)
+cargo nextest run --features dev -E 'test(=foo)'            # один конкретный тест
+cargo test        --features dev --doc                      # doc-tests (nextest их не умеет)
+
+# Релиз / бенчмарки — БЕЗ --features dev
+cargo build --release
+cargo bench
 ```
+
+Установка nextest: `cargo install cargo-nextest --locked`.
+
+Удобные алиасы можно положить в **личный** `.cargo/config.toml` (он не
+в git'е — там же при желании lld linker config для своей машины):
+
+```toml
+[alias]
+b  = "build --features dev"
+r  = "run --features dev"
+c  = "check --features dev"
+t  = "test --features dev"
+nt  = "nextest run --features dev"
+nta = "nextest run --features dev -E 'test(/combat::ai/)'"
+```
+
+### Build performance notes
+
+- **Cold build**: ~6 min wall (~3300 s CPU на 8 ядрах). Доминируют
+  Bevy/wgpu/naga: bevy_render 169 s, bevy_pbr 153 s, bevy_ui 124 s.
+  Свой `storyforge` lib — 39 s (30-я строчка). 
+- **Incremental edit** в AI: 5–11 s в зависимости от impact'а
+  (leaf factor: ~5 s; heavy type вроде `UnitSnapshot`: ~11 s).
+- **Test cycle warm**: 4 s через `cargo nextest run`, 12 s через `cargo test`.
+- **Test cycle filter** (AI only, warm): 2.6 s через nextest, 25 s через `cargo test` —
+  cargo test пересобирает test binaries даже при substring-фильтре.
+- Workspace: `crates/combat_engine` (pure-Rust), `crates/combat_ai` (skeleton,
+  заготовка для будущего выноса AI-слоя — пока неиспользуется).
+- Quick room для cold build: урезать дефолтные фичи Bevy (`bevy = { default-features = false, ... }`) — экономит 2-3 мин (отключить `bevy_pbr`, `bevy_anti_alias`, `bevy_post_process`, `bevy_audio`, лишние image формат).
 
 ### Bevy 0.18
 
