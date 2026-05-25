@@ -1,5 +1,12 @@
 # CombatEvent Mirror Refactor
 
+> **Historical record.** PR-A and PR-B (the work described in this plan) are
+> complete and committed (`09648b6` and `7914276`). Stages 5/6/7 — the
+> engine-side schema bumps deferred from §6 — now live in
+> [`engine-migration.md`](engine-migration.md), which is the current
+> source of truth for "what's still pending". This file preserves the
+> rationale for the architectural decisions (D1-D8) made during PR-A.
+
 Plan to fix the `[оглушён]`-on-dead-units bug as the surface symptom of a
 broader architectural problem: `CombatEvent` (the ECS/UI event enum) and
 engine `Event` (the pure-Rust truth source) have drifted apart through
@@ -10,9 +17,9 @@ lossy translation in `engine_bridge.rs`.
 | Phase | Status | Commit |
 |---|---|---|
 | Plan agreed (this doc) | ✅ Done | — |
-| PR-A "CombatEvent flat mirror" | ⏳ Pending | — |
-| PR-B "Side-effect extraction" | ⏳ Deferred (post-trigger) | — |
-| Engine schema bumps (etапы 5/6/7) | ⏳ Deferred (no trigger) | — |
+| PR-A "CombatEvent flat mirror" | ✅ Done | `09648b6` |
+| PR-B "Side-effect extraction" | ✅ Done | `7914276` |
+| Engine schema bumps (etапы 5/6/7) | ⏳ Deferred — see [engine-migration.md](engine-migration.md) | — |
 
 ---
 

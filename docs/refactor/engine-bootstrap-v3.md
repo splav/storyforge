@@ -1,5 +1,13 @@
 # Engine Bootstrap Refactor (V3)
 
+> **Historical record.** V1 — V3 (включая 3.6 two-combats regression
+> и 3.7 dynamic spawn) — закрыты в коммитах `6a4f24b`, `db29cb0`,
+> `9c08d60`, `d56720c`. V4 (engine status reflow unification) теперь
+> отслеживается в [`engine-migration.md`](engine-migration.md), который
+> является текущим источником правды по миграции ECS→engine. Этот
+> документ остаётся как запись research-фазы и архитектурных решений
+> V3.
+
 **Статус**: planning. V1 (fix `EcsContentView::status_bonuses` stub) сделан и закоммичен отдельно. Этот документ описывает дальнейшую работу.
 
 ## Контекст: почему вообще копаем
