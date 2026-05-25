@@ -91,9 +91,10 @@ pub enum PoolKind {
 
 /// Per-pool turn-start regeneration policy. Stored on `UnitTemplate`.
 /// Used by `state.rs::start_actor_turn` to drive the unified regen loop.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub enum RegenRule {
     /// No turn-start change. Used by Rage (only gains via combat).
+    #[default]
     None,
     /// Add `amount`, clamp at max. Used by Mana, Energy.
     Increment(i32),
@@ -123,6 +124,10 @@ pub enum PoolChangeCause {
 pub fn modifier(stat: i32) -> i32 {
     stat >> 1 // арифметический сдвиг = floor для степеней двойки
 }
+
+/// Re-exported so crates that depend on `combat_engine` can use the `enum_map!`
+/// macro without declaring their own `enum-map` dependency.
+pub use enum_map;
 
 pub mod action;
 pub mod toml_content_view;

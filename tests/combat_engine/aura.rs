@@ -25,6 +25,7 @@ use storyforge::combat_engine::{
 fn uid(n: u64) -> UnitId { UnitId(n) }
 
 fn make_unit(id: UnitId, team: Team, pos: Hex, alive: bool) -> Unit {
+    use storyforge::combat_engine::{PoolKind, RegenRule};
     Unit {
         id,
         team,
@@ -50,6 +51,20 @@ fn make_unit(id: UnitId, team: Team, pos: Hex, alive: bool) -> Unit {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((2, 2)),
+            PoolKind::Mp     => Some((20, 20)),
+        },
+        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     }
 }
 

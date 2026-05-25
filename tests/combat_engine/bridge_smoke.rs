@@ -495,6 +495,20 @@ fn projector_writes_engine_mutation_to_ecs() {
             aoo_dice: None,
             auras: Vec::new(),
             enemy_phases: Vec::new(),
+            pools: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Mana   => None,
+                combat_engine::PoolKind::Rage   => None,
+                combat_engine::PoolKind::Energy => None,
+                combat_engine::PoolKind::Ap     => Some((2, 2)),
+                combat_engine::PoolKind::Mp     => Some((6, 6)),
+            },
+            regen_per_pool: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+                combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+                combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+                combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+                combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+            },
         };
         let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -877,6 +891,20 @@ fn projector_writes_mana_from_engine_state() {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Mana   => None,
+            combat_engine::PoolKind::Rage   => None,
+            combat_engine::PoolKind::Energy => None,
+            combat_engine::PoolKind::Ap     => Some((1, 1)),
+            combat_engine::PoolKind::Mp     => Some((6, 6)),
+        },
+        regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+        },
     };
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -942,6 +970,20 @@ fn projector_writes_statuses_from_engine_state() {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Mana   => None,
+            combat_engine::PoolKind::Rage   => None,
+            combat_engine::PoolKind::Energy => None,
+            combat_engine::PoolKind::Ap     => Some((1, 1)),
+            combat_engine::PoolKind::Mp     => Some((6, 6)),
+        },
+        regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+        },
     };
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -1039,6 +1081,20 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Mana   => None,
+            combat_engine::PoolKind::Rage   => None,
+            combat_engine::PoolKind::Energy => None,
+            combat_engine::PoolKind::Ap     => Some((1, 1)),
+            combat_engine::PoolKind::Mp     => Some((6, 6)),
+        },
+        regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+        },
     };
     let aura_unit = Unit {
         id: aura_source_uid,
@@ -1065,6 +1121,20 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Mana   => None,
+            combat_engine::PoolKind::Rage   => None,
+            combat_engine::PoolKind::Energy => None,
+            combat_engine::PoolKind::Ap     => Some((1, 1)),
+            combat_engine::PoolKind::Mp     => Some((6, 6)),
+        },
+        regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+        },
     };
     let state = CombatState::new(vec![actor_unit, aura_unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;

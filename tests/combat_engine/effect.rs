@@ -73,6 +73,7 @@ impl ContentView for StubContent {
 }
 
 fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
+    use storyforge::combat_engine::{PoolKind, RegenRule};
     Unit {
         id: UnitId(id),
         team: Team::Player,
@@ -98,6 +99,20 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((2, 2)),
+            PoolKind::Mp     => Some((4, 4)),
+        },
+        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     }
 }
 
@@ -1060,6 +1075,7 @@ use storyforge::combat_engine::UnitTemplate;
 use storyforge::combat_engine::effect::SpawnBlockedReason;
 
 fn test_template() -> UnitTemplate {
+    use storyforge::combat_engine::{PoolKind, RegenRule};
     UnitTemplate {
         max_hp: 8,
         armor: 1,
@@ -1072,6 +1088,13 @@ fn test_template() -> UnitTemplate {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     }
 }
 
@@ -1286,6 +1309,7 @@ use storyforge::combat_engine::dice::DiceExpr;
 
 /// Template with a non-trivial CasterContext (str_mod=3, weapon_dice=2d6).
 fn melee_template() -> UnitTemplate {
+    use storyforge::combat_engine::{PoolKind, RegenRule};
     let weapon_dice = DiceExpr::new(2, 6, 0);
     UnitTemplate {
         max_hp: 10,
@@ -1305,6 +1329,13 @@ fn melee_template() -> UnitTemplate {
         aoo_dice: Some(DiceExpr::new(2, 6, 3)), // weapon + str_mod baked in
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     }
 }
 

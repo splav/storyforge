@@ -422,6 +422,20 @@ mod snapshot_api_tests {
             aoo_dice: None,
             auras: Vec::new(),
             enemy_phases: Vec::new(),
+            pools: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Mana   => None,
+                combat_engine::PoolKind::Rage   => None,
+                combat_engine::PoolKind::Energy => None,
+                combat_engine::PoolKind::Ap     => Some((2, 2)),
+                combat_engine::PoolKind::Mp     => Some((3, 3)),
+            },
+            regen_per_pool: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+                combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+                combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+                combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+                combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+            },
         };
 
         let combat_state = CombatState::new(

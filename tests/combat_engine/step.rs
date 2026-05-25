@@ -41,6 +41,7 @@ impl ContentView for StubContent {
 
 
 fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
+    use storyforge::combat_engine::{PoolKind, RegenRule};
     Unit {
         id: UnitId(id),
         team,
@@ -66,6 +67,20 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((2, 2)),
+            PoolKind::Mp     => Some((6, 6)),
+        },
+        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     }
 }
 

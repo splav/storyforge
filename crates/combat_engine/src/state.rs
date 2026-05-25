@@ -128,6 +128,26 @@ pub struct Unit {
     /// on `Event::PhaseEntered`. Empty for non-bosses.
     #[serde(default)]
     pub enemy_phases: Vec<crate::content::PhaseEntry>,
+
+    /// **Phase C-2 parallel-shape.** New unified resource table. Currently
+    /// populated alongside legacy fields; not yet read by any code path.
+    /// C3 migrates readers; C5 removes legacy fields.
+    ///
+    /// Iteration order: `Mana, Rage, Energy, Ap, Mp` (declaration order of
+    /// `PoolKind`). Load-bearing for replay-trace determinism.
+    ///
+    /// **Invariants:**
+    /// - `pools[Mana]`/`pools[Rage]`/`pools[Energy]`: Some iff legacy field is Some.
+    /// - `pools[Ap]`/`pools[Mp]`: Some for every alive combat unit; None
+    ///   reserved for future non-combatant entities (none exist today).
+    #[serde(default)]
+    pub pools: enum_map::EnumMap<crate::PoolKind, Option<(i32, i32)>>,
+
+    /// **Phase C-2 parallel-shape.** Per-pool turn-start regen policy
+    /// copied from `UnitTemplate.regen_per_pool` at spawn. Currently unused
+    /// by `start_actor_turn`; C3 wires the unified regen loop.
+    #[serde(default)]
+    pub regen_per_pool: enum_map::EnumMap<crate::PoolKind, crate::RegenRule>,
 }
 
 impl Unit {
@@ -595,6 +615,14 @@ mod tests {
     }
 
     fn make_unit(id: UnitId, action_points: i32, max_ap: i32, mana: Option<Pool>) -> Unit {
+        use crate::{PoolKind, RegenRule};
+        let pools = enum_map::enum_map! {
+            PoolKind::Mana   => mana,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((action_points, max_ap)),
+            PoolKind::Mp     => Some((3, 3)),
+        };
         Unit {
             id,
             team: Team::Player,
@@ -620,6 +648,14 @@ mod tests {
             aoo_dice: None,
             auras: Vec::new(),
             enemy_phases: Vec::new(),
+            pools,
+            regen_per_pool: enum_map::enum_map! {
+                PoolKind::Mana   => RegenRule::Increment(1),
+                PoolKind::Rage   => RegenRule::None,
+                PoolKind::Energy => RegenRule::Increment(1),
+                PoolKind::Ap     => RegenRule::RefillToMax,
+                PoolKind::Mp     => RegenRule::RefillToMax,
+            },
         }
     }
 
@@ -939,6 +975,42 @@ mod tests {
             state.unit(uid).unwrap().damage_taken_bonus,
             2,
             "damage_taken_bonus must reflect the active status bonus after RefreshAggregates"
+        );
+    }
+
+
+    #[test]
+    fn pools_shape_matches_legacy_fields_after_spawn() {
+        // Verify Phase C-2 invariant: Unit.pools tracks legacy resource fields 1:1.
+        // Uses make_unit (which populates both shapes) as the test fixture.
+        use crate::PoolKind;
+
+        // Unit with mana set — exercises all five pools.
+        let mana: Pool = (5, 10);
+        let u = make_unit(UnitId(1), 2, 3, Some(mana));
+
+        // Mana: pools[Mana] == mana
+        assert_eq!(u.pools[PoolKind::Mana], u.mana, "pools[Mana] must mirror legacy mana");
+
+        // Rage: both None (make_unit sets no rage)
+        assert_eq!(u.pools[PoolKind::Rage], u.rage, "pools[Rage] must mirror legacy rage");
+
+        // Energy: both None (make_unit sets no energy)
+        assert_eq!(u.pools[PoolKind::Energy], u.energy, "pools[Energy] must mirror legacy energy");
+
+        // Ap: pools[Ap] == Some((action_points, max_ap))
+        assert_eq!(
+            u.pools[PoolKind::Ap],
+            Some((u.action_points, u.max_ap)),
+            "pools[Ap] must mirror legacy action_points/max_ap",
+        );
+
+        // Mp: pools[Mp] == Some((movement_points, movement_points))
+        // mp-max == current at spawn (speed-derived, no separate max field yet)
+        assert_eq!(
+            u.pools[PoolKind::Mp],
+            Some((u.movement_points, u.movement_points)),
+            "pools[Mp] must mirror legacy movement_points",
         );
     }
 }

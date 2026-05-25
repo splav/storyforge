@@ -40,6 +40,7 @@ fn uid(n: u64) -> UnitId { UnitId(n) }
 fn abid(s: &str) -> AbilityId { AbilityId(s.to_string()) }
 
 fn make_unit(id: u64, team: Team, hp: i32, max_hp: i32, pos: Hex) -> Unit {
+    use combat_engine::{PoolKind, RegenRule};
     Unit {
         id: uid(id),
         team,
@@ -65,6 +66,20 @@ fn make_unit(id: u64, team: Team, hp: i32, max_hp: i32, pos: Hex) -> Unit {
         aoo_dice: None,
         auras: vec![],
         enemy_phases: vec![],
+        pools: combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((3, 3)),
+            PoolKind::Mp     => Some((6, 6)),
+        },
+        regen_per_pool: combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     }
 }
 

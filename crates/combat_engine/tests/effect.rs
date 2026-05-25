@@ -19,6 +19,7 @@ fn uid(n: u64) -> UnitId {
 }
 
 fn make_unit(id: u64, team: Team, hp: i32, pos: Hex) -> Unit {
+    use combat_engine::{PoolKind, RegenRule};
     Unit {
         id: uid(id),
         team,
@@ -44,6 +45,20 @@ fn make_unit(id: u64, team: Team, hp: i32, pos: Hex) -> Unit {
         aoo_dice: None,
         auras: vec![],
         enemy_phases: vec![],
+        pools: combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((2, 2)),
+            PoolKind::Mp     => Some((3, 3)),
+        },
+        regen_per_pool: combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     }
 }
 
@@ -96,7 +111,7 @@ fn death_of_current_actor_derives_advance_turn_and_emits_turn_ended() {
     assert!(
         ctx.turn_skip_events
             .iter()
-            .any(|e| matches!(e, Event::TurnEnded { actor } if *actor == uid(1))),
+            .any(|e| matches!(e, Event::TurnEnded { actor, .. } if *actor == uid(1))),
         "Expected Event::TurnEnded {{ actor: uid(1) }} in ctx.turn_skip_events; got: {:?}",
         ctx.turn_skip_events
     );

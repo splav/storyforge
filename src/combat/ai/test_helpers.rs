@@ -331,6 +331,20 @@ impl UnitBuilder {
             aoo_dice,
             auras: Vec::new(),
             enemy_phases: Vec::new(),
+            pools: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Mana   => u.mana,
+                combat_engine::PoolKind::Rage   => u.rage,
+                combat_engine::PoolKind::Energy => u.energy,
+                combat_engine::PoolKind::Ap     => Some((u.action_points, u.max_ap)),
+                combat_engine::PoolKind::Mp     => Some((u.movement_points, u.movement_points)),
+            },
+            regen_per_pool: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+                combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+                combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+                combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+                combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+            },
         };
         let ai_cache = UnitAiCache {
             entity:              u.entity,
@@ -411,6 +425,20 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
         aoo_dice,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Mana   => u.mana,
+            combat_engine::PoolKind::Rage   => u.rage,
+            combat_engine::PoolKind::Energy => u.energy,
+            combat_engine::PoolKind::Ap     => Some((u.action_points, u.max_ap)),
+            combat_engine::PoolKind::Mp     => Some((u.movement_points, u.movement_points)),
+        },
+        regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+        },
     };
     let ai_cache = UnitAiCache {
         entity:              u.entity,

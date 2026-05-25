@@ -637,6 +637,7 @@ fn summoned_unit_can_act_in_ai_turn() {
     );
 
     // Build minimal engine Unit structs (all fields optional/defaulted).
+    use storyforge::combat_engine::{PoolKind, RegenRule};
     let make_engine_unit = |id: UnitId, team: Team| Unit {
         id,
         team,
@@ -653,6 +654,20 @@ fn summoned_unit_can_act_in_ai_turn() {
         aoo_dice: None,
         auras: vec![],
         enemy_phases: vec![],
+        pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((2, 2)),
+            PoolKind::Mp     => Some((4, 4)),
+        },
+        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     };
 
     let state = CombatState::new(

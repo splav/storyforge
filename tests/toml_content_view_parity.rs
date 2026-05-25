@@ -108,6 +108,7 @@ fn map_unit_template(content: &BridgeContentView, id: &str) -> Option<UnitTempla
     } else {
         None
     };
+    use storyforge::combat_engine::{PoolKind, RegenRule};
     Some(UnitTemplate {
         max_hp:     effective.max_hp,
         armor,
@@ -120,6 +121,13 @@ fn map_unit_template(content: &BridgeContentView, id: &str) -> Option<UnitTempla
         aoo_dice,
         auras:        Vec::new(),
         enemy_phases: Vec::new(),
+        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     })
 }
 

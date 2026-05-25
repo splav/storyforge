@@ -210,6 +210,20 @@ pub fn from_ecs(
             let rage_pool: Option<Pool> = rage.map(|r| (r.current, r.max));
             let mana_pool: Option<Pool> = mana.map(|m| (m.current, m.max));
             let energy_pool: Option<Pool> = energy_opt.map(|e| (e.current, e.max));
+            let bridge_pools = combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Mana   => mana_pool,
+                combat_engine::PoolKind::Rage   => rage_pool,
+                combat_engine::PoolKind::Energy => energy_pool,
+                combat_engine::PoolKind::Ap     => Some((ap.action_points, ap.max_ap)),
+                combat_engine::PoolKind::Mp     => Some((ap.movement_points, ap.movement_points)),
+            };
+            let bridge_regen = combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+                combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+                combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+                combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+                combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+            };
 
             // Compute status-derived aggregate bonuses from active statuses.
             // Mirrors Effect::RefreshAggregates (status half only); aura-based
@@ -257,6 +271,8 @@ pub fn from_ecs(
                 aoo_dice: None,
                 auras: Vec::new(),
                 enemy_phases: Vec::new(),
+                pools: bridge_pools,
+                regen_per_pool: bridge_regen,
             })
         })
         .collect();
@@ -370,6 +386,13 @@ fn build_engine_template_from_def(
         aoo_dice,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+        },
     }
 }
 
@@ -1787,6 +1810,20 @@ mod tests {
             aoo_dice: None,
             auras: Vec::new(),
             enemy_phases: Vec::new(),
+            pools: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Mana   => None,
+                combat_engine::PoolKind::Rage   => None,
+                combat_engine::PoolKind::Energy => None,
+                combat_engine::PoolKind::Ap     => Some((1, 1)),
+                combat_engine::PoolKind::Mp     => Some((3, 3)),
+            },
+            regen_per_pool: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
+                combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
+                combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
+                combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
+                combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
+            },
         };
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
 

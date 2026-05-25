@@ -22,6 +22,7 @@ use hexx::Hex;
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
+    use combat_engine::{PoolKind, RegenRule};
     Unit {
         id: UnitId(id),
         team,
@@ -47,6 +48,20 @@ fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((4, 4)),
+            PoolKind::Mp     => Some((10, 10)),
+        },
+        regen_per_pool: combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     }
 }
 

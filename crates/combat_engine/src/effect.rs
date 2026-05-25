@@ -791,6 +791,16 @@ pub fn apply_effect(
             };
 
             let new_uid = state.alloc_synthetic_uid();
+            let mana_pool   = if template.mana_max   > 0 { Some((template.mana_max,   template.mana_max))   } else { None };
+            let rage_pool   = if template.rage_max   > 0 { Some((0,                   template.rage_max))   } else { None };
+            let energy_pool = if template.energy_max > 0 { Some((template.energy_max, template.energy_max)) } else { None };
+            let spawn_pools = enum_map::enum_map! {
+                crate::PoolKind::Mana   => mana_pool,
+                crate::PoolKind::Rage   => rage_pool,
+                crate::PoolKind::Energy => energy_pool,
+                crate::PoolKind::Ap     => Some((template.max_ap,       template.max_ap)),
+                crate::PoolKind::Mp     => Some((template.base_speed,   template.base_speed)),
+            };
             let new_unit = Unit {
                 id: new_uid,
                 team: summoner_team,
@@ -808,14 +818,16 @@ pub fn apply_effect(
                 reactions_left: 0,
                 reactions_max: 1,
                 statuses: Vec::new(),
-                rage: if template.rage_max > 0 { Some((0, template.rage_max)) } else { None },
-                mana: if template.mana_max > 0 { Some((template.mana_max, template.mana_max)) } else { None },
-                energy: if template.energy_max > 0 { Some((template.energy_max, template.energy_max)) } else { None },
+                rage: rage_pool,
+                mana: mana_pool,
+                energy: energy_pool,
                 summoner: Some(*summoner),
                 caster_context: template.caster_context.clone(),
                 aoo_dice: template.aoo_dice,
                 auras: template.auras.clone(),
                 enemy_phases: template.enemy_phases.clone(),
+                pools: spawn_pools,
+                regen_per_pool: template.regen_per_pool,
             };
 
             state.insert_unit(new_unit);

@@ -198,6 +198,10 @@ pub struct UnitTemplate {
     pub auras: Vec<crate::content::AuraDef>,
     /// Phase transitions for boss-like units (empty for most templates).
     pub enemy_phases: Vec<crate::content::PhaseEntry>,
+    /// **Phase C-2 parallel-shape.** Per-pool turn-start regen policy.
+    /// Currently hardcoded at construction time; TOML wiring lands in C5.
+    /// Copied onto `Unit.regen_per_pool` at spawn / bridge init.
+    pub regen_per_pool: enum_map::EnumMap<crate::PoolKind, crate::RegenRule>,
 }
 
 // ── Aura types (Phase 4 step 4c) ─────────────────────────────────────────────

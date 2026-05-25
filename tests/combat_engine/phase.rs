@@ -20,6 +20,7 @@ use storyforge::combat_engine::{
 fn uid(n: u64) -> UnitId { UnitId(n) }
 
 fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
+    use storyforge::combat_engine::{PoolKind, RegenRule};
     Unit {
         id: uid(id),
         team: Team::Enemy,
@@ -45,6 +46,20 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((2, 2)),
+            PoolKind::Mp     => Some((3, 3)),
+        },
+        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     }
 }
 
@@ -56,6 +71,7 @@ fn make_boss(id: u64, hp: i32, max_hp: i32, phases: Vec<PhaseEntry>) -> Unit {
 }
 
 fn make_attacker(id: u64) -> Unit {
+    use storyforge::combat_engine::{PoolKind, RegenRule};
     Unit {
         id: uid(id),
         team: Team::Player,
@@ -81,6 +97,20 @@ fn make_attacker(id: u64) -> Unit {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((3, 3)),
+            PoolKind::Mp     => Some((3, 3)),
+        },
+        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     }
 }
 

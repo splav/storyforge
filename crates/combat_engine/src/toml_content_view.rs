@@ -650,6 +650,13 @@ fn convert_template(
         aoo_dice,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        regen_per_pool: enum_map::enum_map! {
+            crate::PoolKind::Mana   => crate::RegenRule::Increment(1),
+            crate::PoolKind::Rage   => crate::RegenRule::None,
+            crate::PoolKind::Energy => crate::RegenRule::Increment(1),
+            crate::PoolKind::Ap     => crate::RegenRule::RefillToMax,
+            crate::PoolKind::Mp     => crate::RegenRule::RefillToMax,
+        },
     };
 
     (r.id, tpl)

@@ -35,6 +35,7 @@ fn abid(s: &str) -> AbilityId { AbilityId(s.to_string()) }
 use hexx::Hex;
 
 fn unit_all_some(id: u64) -> Unit {
+    use combat_engine::{PoolKind, RegenRule};
     Unit {
         id: uid(id),
         team: Team::Player,
@@ -67,6 +68,20 @@ fn unit_all_some(id: u64) -> Unit {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => Some((15, 20)),
+            PoolKind::Rage   => Some((7, 10)),
+            PoolKind::Energy => Some((0, 5)),
+            PoolKind::Ap     => Some((2, 2)),
+            PoolKind::Mp     => Some((4, 4)),
+        },
+        regen_per_pool: combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     }
 }
 
@@ -293,6 +308,7 @@ fn unit_all_some_fields() {
 
 #[test]
 fn unit_all_none_fields() {
+    use combat_engine::{PoolKind, RegenRule};
     roundtrip(Unit {
         id: uid(1),
         team: Team::Enemy,
@@ -318,6 +334,20 @@ fn unit_all_none_fields() {
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
+        pools: combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => Some((2, 2)),
+            PoolKind::Mp     => Some((3, 3)),
+        },
+        regen_per_pool: combat_engine::enum_map::enum_map! {
+            PoolKind::Mana   => RegenRule::Increment(1),
+            PoolKind::Rage   => RegenRule::None,
+            PoolKind::Energy => RegenRule::Increment(1),
+            PoolKind::Ap     => RegenRule::RefillToMax,
+            PoolKind::Mp     => RegenRule::RefillToMax,
+        },
     });
 }
 
@@ -426,7 +456,7 @@ fn crit_fail_outcome_double_cost() {
 
 #[test]
 fn status_bonuses_roundtrip() {
-    roundtrip(StatusBonuses { speed_bonus: 2, armor_bonus: -1 });
+    roundtrip(StatusBonuses { speed_bonus: 2, armor_bonus: -1, damage_taken_bonus: 0 });
 }
 
 #[test]
