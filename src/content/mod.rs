@@ -8,5 +8,6 @@ pub mod races;
 pub mod scenarios;
 pub mod settings;
 pub mod statuses;
+pub mod to_engine;
 pub mod unit_templates;
 pub mod weapons;

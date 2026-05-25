@@ -337,7 +337,7 @@ fn build_engine_template_from_def(
         int_mod: bevy_ctx.int_mod,
         spell_power: bevy_ctx.spell_power,
         weapon_dice: bevy_ctx.weapon_dice,
-        crit_fail_outcome: crate::combat::ai::plan::sim::map_crit_fail_effect(&crit_fail_effect),
+        crit_fail_outcome: crate::content::to_engine::crit_fail_outcome(&crit_fail_effect),
     };
 
     // AoO dice: unit needs a melee WeaponAttack ability (range.max == 1) + weapon dice.
@@ -1588,7 +1588,7 @@ pub fn bootstrap_combat_state(
             int_mod: bevy_ctx.int_mod,
             spell_power: bevy_ctx.spell_power,
             weapon_dice: bevy_ctx.weapon_dice,
-            crit_fail_outcome: crate::combat::ai::plan::sim::map_crit_fail_effect(&crit_fail_outcome),
+            crit_fail_outcome: crate::content::to_engine::crit_fail_outcome(&crit_fail_outcome),
         };
         if let Some(unit) = state.unit_mut(uid) {
             unit.caster_context = engine_ctx;

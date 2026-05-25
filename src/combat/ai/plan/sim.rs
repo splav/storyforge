@@ -15,8 +15,7 @@ use crate::combat::ai::world::snapshot::{
     BattleSnapshot, UnitView,
 };
 use crate::combat::ai::world::tags::StatusTagCache;
-use crate::content::races::CritFailEffect;
-use crate::content::abilities::{AbilityDef, CasterContext, EffectDef, TargetType};
+use crate::content::abilities::{AbilityDef, CasterContext};
 use crate::content::content_view::ContentView;
 use crate::game::hex::Hex;
 use bevy::prelude::Entity;
@@ -27,10 +26,6 @@ use combat_engine::{
     dice::ExpectedValue as EngineExpectedValue,
     state::{CombatState, Team, UnitId},
     step::step,
-};
-use combat_engine::{
-    EffectDef as EngineEffectDef, StatusApplication as EngineStatusApplication,
-    StatusOn as EngineStatusOn,
 };
 use crate::combat::engine_bridge::entity_to_uid;
 
@@ -311,23 +306,6 @@ struct SnapshotContentView {
     statuses: std::collections::HashMap<combat_engine::StatusId, combat_engine::StatusDef>,
 }
 
-/// Translate Bevy `CritFailEffect` → engine `CritFailOutcome`.
-///
-/// CircuitBreach uses a fixed `SelfDamage(0d1+2)` placeholder (Phase 2 step 6f).
-/// Full mana_cost-derived damage parity is a Phase 2 step 7 follow-up.
-pub(crate) fn map_crit_fail_effect(e: &CritFailEffect) -> combat_engine::CritFailOutcome {
-    use CritFailEffect::*;
-    use combat_engine::CritFailOutcome as Out;
-    use combat_engine::{DiceExpr, StatusId};
-    match e {
-        Miss => Out::Miss,
-        ManaOverload => Out::DoubleCost,
-        BrokenFaith => Out::ApplyStatus(StatusId::from("broken_faith")),
-        CircuitBreach => Out::SelfDamage(DiceExpr::new(0, 1, 2)), // placeholder; step 7 refines
-        Exhaustion => Out::ApplyStatus(StatusId::from("exhaustion")),
-        PactControl => Out::ApplyStatus(StatusId::from("pact_control")),
-    }
-}
 
 impl SnapshotContentView {
     fn from_snapshot(_snap: &BattleSnapshot) -> Self {
@@ -340,65 +318,17 @@ impl SnapshotContentView {
     /// Full constructor for Cast steps: populates ability + status definitions
     /// from the Bevy `ContentView` so that engine legality can resolve them.
     fn with_content(_snap: &BattleSnapshot, content: &ContentView) -> Self {
-        let abilities = content.abilities.iter().map(|(id, def)| {
-            let engine_def = combat_engine::AbilityDef {
-                key: def.key.clone(),
-                cost_ap: def.cost_ap,
-                costs: def.costs.iter().map(|c| combat_engine::Cost {
-                    resource: c.resource,
-                    amount: c.amount,
-                }).collect(),
-                range: combat_engine::AbilityRange { min: def.range.min, max: def.range.max },
-                target_type: match def.target_type {
-                    TargetType::SingleEnemy => combat_engine::TargetType::SingleEnemy,
-                    TargetType::SingleAlly  => combat_engine::TargetType::SingleAlly,
-                    TargetType::Myself      => combat_engine::TargetType::Myself,
-                    TargetType::Ground      => combat_engine::TargetType::Ground,
-                },
-                aoe: match def.aoe {
-                    crate::content::abilities::AoEShape::None => combat_engine::AoEShape::None,
-                    crate::content::abilities::AoEShape::Circle { radius } => combat_engine::AoEShape::Circle { radius },
-                    crate::content::abilities::AoEShape::Line { length } => combat_engine::AoEShape::Line { length },
-                },
-                friendly_fire: def.friendly_fire,
-                effect: match &def.effect {
-                    EffectDef::None             => EngineEffectDef::None,
-                    EffectDef::WeaponAttack     => EngineEffectDef::WeaponAttack,
-                    EffectDef::Damage { dice }       => EngineEffectDef::Damage { dice: *dice },
-                    EffectDef::SpellDamage { dice }  => EngineEffectDef::SpellDamage { dice: *dice },
-                    EffectDef::Heal { dice }         => EngineEffectDef::Heal { dice: *dice },
-                    EffectDef::GrantMovement { distance } => EngineEffectDef::GrantMovement { distance: *distance },
-                    EffectDef::RestoreResources => EngineEffectDef::RestoreResources,
-                    // Summon is out of engine scope in Phase 2.
-                    EffectDef::Summon { .. } => EngineEffectDef::None,
-                },
-                statuses: def.statuses.iter().map(|s| EngineStatusApplication {
-                    status: s.status.clone(),
-                    duration_rounds: s.duration_rounds,
-                    on: match s.on {
-                        crate::content::abilities::StatusOn::Target => EngineStatusOn::Target,
-                        crate::content::abilities::StatusOn::MySelf => EngineStatusOn::MySelf,
-                    },
-                }).collect(),
-            };
-            (id.clone(), engine_def)
-        }).collect();
+        let abilities = content
+            .abilities
+            .iter()
+            .map(|(id, def)| (id.clone(), crate::content::to_engine::ability_def(def)))
+            .collect();
 
-        let statuses = content.statuses.iter().map(|(id, def)| {
-            let engine_def = combat_engine::StatusDef {
-                causes_disadvantage: def.causes_disadvantage,
-                blocks_mana_abilities: def.blocks_mana_abilities,
-                forces_targeting: def.forces_targeting,
-                skips_turn: def.skips_turn,
-                bonuses: combat_engine::StatusBonuses {
-                    armor_bonus: def.bonuses.armor_bonus,
-                    damage_taken_bonus: def.bonuses.damage_taken_bonus,
-                    speed_bonus: def.bonuses.speed_bonus,
-                },
-                hp_percent_dot: def.hp_percent_dot,
-            };
-            (id.clone(), engine_def)
-        }).collect();
+        let statuses = content
+            .statuses
+            .iter()
+            .map(|(id, def)| (id.clone(), crate::content::to_engine::status_def(def)))
+            .collect();
 
         Self { abilities, statuses }
     }
