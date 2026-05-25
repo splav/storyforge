@@ -45,13 +45,13 @@ pub fn derive_status_tags(def: &StatusDef) -> StatusTagSet {
     if def.skips_turn {
         s.insert_tag(StatusTag::HardCC);
     }
-    if def.causes_disadvantage || def.speed_bonus < 0 {
+    if def.causes_disadvantage || def.bonuses.speed_bonus < 0 {
         s.insert_tag(StatusTag::SoftCC);
     }
     if def.dot_dice.is_some() || def.hp_percent_dot > 0 {
         s.insert_tag(StatusTag::Dot);
     }
-    if def.buff_class.is_some() || def.armor_bonus > 0 {
+    if def.buff_class.is_some() || def.bonuses.armor_bonus > 0 {
         s.insert_tag(StatusTag::Buff);
     }
     if def.forces_targeting {

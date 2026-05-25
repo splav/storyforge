@@ -10,10 +10,9 @@
 //! - `CombatState::start_round` resets reactions, index, and phase
 
 use storyforge::combat_engine::{
-    content::{ContentView, StatusBonuses},
+    content::ContentView,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     turn_queue::TurnQueue,
-    StatusId,
 };
 use hexx::Hex;
 
@@ -26,16 +25,13 @@ static STUB_STATUS_DEF: storyforge::combat_engine::StatusDef = storyforge::comba
     blocks_mana_abilities: false,
     forces_targeting: false,
     skips_turn: false,
-    armor_bonus: 0,
-    damage_taken_bonus: 0,
-    speed_bonus: 0,
+    bonuses: storyforge::combat_engine::StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
     hp_percent_dot: 0,
 };
 
 impl ContentView for StubContent {
-    fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<&storyforge::combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<&storyforge::combat_engine::StatusDef> {
+    fn status_def(&self, _: &storyforge::combat_engine::StatusId) -> Option<&storyforge::combat_engine::StatusDef> {
         Some(&STUB_STATUS_DEF)
     }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }

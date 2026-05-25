@@ -499,9 +499,7 @@ pub fn apply_effect(
                     let b = content.status_bonuses(&s.id);
                     speed_bonus += b.speed_bonus;
                     armor_bonus += b.armor_bonus;
-                    if let Some(def) = content.status_def(&s.id) {
-                        damage_taken_bonus += def.damage_taken_bonus;
-                    }
+                    damage_taken_bonus += b.damage_taken_bonus;
                 }
                 u.speed = u.base_speed + speed_bonus;
                 u.armor_bonus = armor_bonus;

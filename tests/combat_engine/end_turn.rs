@@ -30,9 +30,7 @@ fn make_def(skips_turn: bool) -> StatusDef {
         blocks_mana_abilities: false,
         forces_targeting: false,
         skips_turn,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        speed_bonus: 0,
+        bonuses: StatusBonuses::default(),
         hp_percent_dot: 0,
     }
 }
@@ -56,8 +54,6 @@ impl StubContent {
 }
 
 impl ContentView for StubContent {
-    fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
-
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
         -> Option<&storyforge::combat_engine::AbilityDef> { None }
 

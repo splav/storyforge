@@ -9,7 +9,7 @@
 //! - Event::PhaseEntered carries correct prev_max_hp / new_max_hp.
 
 use storyforge::combat_engine::{
-    content::{ContentView, PhaseEntry, StatusBonuses},
+    content::{ContentView, PhaseEntry},
     event::Event,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     StatusDef, StatusId,
@@ -101,7 +101,6 @@ impl PhaseContent {
 }
 
 impl ContentView for PhaseContent {
-    fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
         -> Option<&storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
@@ -122,7 +121,6 @@ impl TwoPhaseContent {
 }
 
 impl ContentView for TwoPhaseContent {
-    fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId)
         -> Option<&storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }

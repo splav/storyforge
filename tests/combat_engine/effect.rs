@@ -29,9 +29,7 @@ impl StubContent {
             blocks_mana_abilities: false,
             forces_targeting: false,
             skips_turn: false,
-            armor_bonus,
-            damage_taken_bonus: 0,
-            speed_bonus,
+            bonuses: storyforge::combat_engine::StatusBonuses { armor_bonus, damage_taken_bonus: 0, speed_bonus },
             hp_percent_dot,
         }
     }
@@ -62,6 +60,7 @@ impl ContentView for StubContent {
         StatusBonuses {
             speed_bonus: self.speed_bonus,
             armor_bonus: self.armor_bonus,
+            damage_taken_bonus: 0,
         }
     }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<&storyforge::combat_engine::AbilityDef> { None }

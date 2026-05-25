@@ -83,11 +83,9 @@ mod tests {
             buff_class: None,
             engine: combat_engine::StatusDef {
                 skips_turn: true, // HardCC — derive_status_tags: skips_turn → HardCC
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
+                bonuses: combat_engine::StatusBonuses::default(),
                 forces_targeting: false,
                 blocks_mana_abilities: false,
-                speed_bonus: 0,
                 hp_percent_dot: 0,
                 causes_disadvantage: false,
             },

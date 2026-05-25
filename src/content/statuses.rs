@@ -126,14 +126,16 @@ pub fn parse_statuses(path: &str, src: &str) -> Vec<StatusDef> {
                 ai_controlled: r.ai_controlled,
                 buff_class,
                 engine: combat_engine::StatusDef {
-                    armor_bonus: r.armor_bonus,
-                    damage_taken_bonus: r.damage_taken_bonus,
-                    skips_turn: r.skips_turn,
-                    forces_targeting: r.forces_targeting,
-                    blocks_mana_abilities: r.blocks_mana_abilities,
-                    speed_bonus: r.speed_bonus,
-                    hp_percent_dot: r.hp_percent_dot,
                     causes_disadvantage: r.causes_disadvantage,
+                    blocks_mana_abilities: r.blocks_mana_abilities,
+                    forces_targeting: r.forces_targeting,
+                    skips_turn: r.skips_turn,
+                    bonuses: combat_engine::StatusBonuses {
+                        armor_bonus: r.armor_bonus,
+                        speed_bonus: r.speed_bonus,
+                        damage_taken_bonus: r.damage_taken_bonus,
+                    },
+                    hp_percent_dot: r.hp_percent_dot,
                 },
             }
         })

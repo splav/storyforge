@@ -100,13 +100,6 @@ impl TomlContentView {
 }
 
 impl ContentView for TomlContentView {
-    fn status_bonuses(&self, id: &StatusId) -> StatusBonuses {
-        self.statuses.get(id).map(|d| StatusBonuses {
-            speed_bonus: d.speed_bonus,
-            armor_bonus: d.armor_bonus,
-        }).unwrap_or_default()
-    }
-
     fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> {
         self.abilities.get(id)
     }
@@ -459,9 +452,11 @@ fn load_statuses(data_dir: &Path) -> Result<HashMap<StatusId, StatusDef>, LoadEr
             blocks_mana_abilities: r.blocks_mana_abilities,
             forces_targeting: r.forces_targeting,
             skips_turn: r.skips_turn,
-            armor_bonus: r.armor_bonus,
-            damage_taken_bonus: r.damage_taken_bonus,
-            speed_bonus: r.speed_bonus,
+            bonuses: StatusBonuses {
+                armor_bonus: r.armor_bonus,
+                damage_taken_bonus: r.damage_taken_bonus,
+                speed_bonus: r.speed_bonus,
+            },
             hp_percent_dot: r.hp_percent_dot,
         };
         map.insert(id, def);

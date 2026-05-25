@@ -90,9 +90,9 @@ pub fn build_caches(content: &ContentView) -> (StatusTagCache, AbilityTagCache) 
     for (id, def) in &content.statuses {
         status_map.insert(id.clone(), derive_status_tags(def));
         bonuses_map.insert(id.clone(), StatusBonuses {
-            speed_bonus: def.speed_bonus,
-            armor_bonus: def.armor_bonus,
-            damage_taken_bonus: def.damage_taken_bonus,
+            speed_bonus: def.bonuses.speed_bonus,
+            armor_bonus: def.bonuses.armor_bonus,
+            damage_taken_bonus: def.bonuses.damage_taken_bonus,
         });
     }
 

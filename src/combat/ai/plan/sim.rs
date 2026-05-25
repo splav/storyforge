@@ -390,9 +390,11 @@ impl SnapshotContentView {
                 blocks_mana_abilities: def.blocks_mana_abilities,
                 forces_targeting: def.forces_targeting,
                 skips_turn: def.skips_turn,
-                armor_bonus: def.armor_bonus,
-                damage_taken_bonus: def.damage_taken_bonus,
-                speed_bonus: def.speed_bonus,
+                bonuses: combat_engine::StatusBonuses {
+                    armor_bonus: def.bonuses.armor_bonus,
+                    damage_taken_bonus: def.bonuses.damage_taken_bonus,
+                    speed_bonus: def.bonuses.speed_bonus,
+                },
                 hp_percent_dot: def.hp_percent_dot,
             };
             (id.clone(), engine_def)
@@ -405,8 +407,9 @@ impl SnapshotContentView {
 impl EngineContentView for SnapshotContentView {
     fn status_bonuses(&self, id: &combat_engine::StatusId) -> EngineStatusBonuses {
         self.statuses.get(id).map(|def| EngineStatusBonuses {
-            armor_bonus: def.armor_bonus,
-            speed_bonus: def.speed_bonus,
+            armor_bonus: def.bonuses.armor_bonus,
+            speed_bonus: def.bonuses.speed_bonus,
+            damage_taken_bonus: def.bonuses.damage_taken_bonus,
         }).unwrap_or_default()
     }
 

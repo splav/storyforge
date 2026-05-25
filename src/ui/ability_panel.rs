@@ -586,11 +586,11 @@ fn effect_line_ru(def: &AbilityDef, ctx: Option<&CasterContext>) -> String {
 
 fn status_desc_ru(def: &StatusDef) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if def.armor_bonus != 0 {
-        parts.push(format!("броня {:+}", def.armor_bonus));
+    if def.bonuses.armor_bonus != 0 {
+        parts.push(format!("броня {:+}", def.bonuses.armor_bonus));
     }
-    if def.damage_taken_bonus != 0 {
-        parts.push(format!("получаемый урон {:+}", def.damage_taken_bonus));
+    if def.bonuses.damage_taken_bonus != 0 {
+        parts.push(format!("получаемый урон {:+}", def.bonuses.damage_taken_bonus));
     }
     if def.skips_turn {
         parts.push("пропускает ход".into());
@@ -604,8 +604,8 @@ fn status_desc_ru(def: &StatusDef) -> String {
     if def.blocks_mana_abilities {
         parts.push("нельзя тратить ману".into());
     }
-    if def.speed_bonus != 0 {
-        parts.push(format!("скорость {:+}", def.speed_bonus));
+    if def.bonuses.speed_bonus != 0 {
+        parts.push(format!("скорость {:+}", def.bonuses.speed_bonus));
     }
     if def.hp_percent_dot > 0 {
         parts.push(format!("−{}% макс. HP/ход", def.hp_percent_dot));

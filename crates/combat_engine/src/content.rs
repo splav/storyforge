@@ -95,6 +95,8 @@ pub struct StatusBonuses {
     pub speed_bonus: i32,
     /// Added to equipment `armor` to get effective mitigation.
     pub armor_bonus: i32,
+    /// Added to incoming damage delta after mitigation.
+    pub damage_taken_bonus: i32,
 }
 
 /// Resource cost for an ability (one entry per resource kind).
@@ -160,18 +162,13 @@ pub struct AbilityDef {
 }
 
 /// Engine-side minimal status definition — legality + aggregate-relevant fields.
-///
-/// Aggregates (`armor_bonus`, `speed_bonus`) overlap with `StatusBonuses`;
-/// Phase 2 keeps both, `status_bonuses()` may later be derived from this.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct StatusDef {
     pub causes_disadvantage: bool,
     pub blocks_mana_abilities: bool,
     pub forces_targeting: bool,
     pub skips_turn: bool,
-    pub armor_bonus: i32,
-    pub damage_taken_bonus: i32,
-    pub speed_bonus: i32,
+    pub bonuses: StatusBonuses,
     /// Percent of max_hp dealt as DoT per tick; ceil formula: `(max_hp * pct + 99) / 100`.
     pub hp_percent_dot: i32,
 }
@@ -298,10 +295,12 @@ pub struct PhaseEntry {
 pub trait ContentView {
     /// Stat bonuses granted by a single status instance.
     ///
-    /// Returns `StatusBonuses::default()` (all zeros) for unknown status ids.
-    /// This matches the real path: statuses not present in `content.statuses`
-    /// contribute nothing.
-    fn status_bonuses(&self, id: &StatusId) -> StatusBonuses;
+    /// Default implementation derives bonuses from `status_def`. Override only
+    /// when the impl backs `status_def` with `None` but still needs to surface
+    /// bonuses (rare — see `tests/combat_engine/effect.rs`).
+    fn status_bonuses(&self, id: &StatusId) -> StatusBonuses {
+        self.status_def(id).map(|d| d.bonuses).unwrap_or_default()
+    }
 
     /// Engine-side ability definition.  `None` if the id is unknown.
     ///

@@ -249,10 +249,8 @@ mod tests {
                 buff_class: None,
                 engine: combat_engine::StatusDef {
                     forces_targeting: false,
-                    speed_bonus: 0,
+                    bonuses: combat_engine::StatusBonuses::default(),
                     hp_percent_dot: 0,
-                    armor_bonus: 0,
-                    damage_taken_bonus: 0,
                     skips_turn: false,
                     causes_disadvantage: false,
                     blocks_mana_abilities: true,
@@ -330,10 +328,8 @@ mod tests {
                 buff_class: None,
                 engine: combat_engine::StatusDef {
                     forces_targeting: false,
-                    speed_bonus: 0,
+                    bonuses: combat_engine::StatusBonuses::default(),
                     hp_percent_dot: 0,
-                    armor_bonus: 0,
-                    damage_taken_bonus: 0,
                     skips_turn: false,
                     causes_disadvantage: true,
                     blocks_mana_abilities: false,

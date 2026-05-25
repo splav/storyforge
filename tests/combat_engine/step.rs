@@ -9,13 +9,12 @@
 
 use storyforge::combat_engine::{
     action::{Action, ActionError},
-    content::{ContentView, StatusBonuses},
+    content::ContentView,
     dice::{DiceExpr, ExpectedValue},
     event::Event,
     legality::IllegalReason,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     step::step,
-    StatusId,
 };
 use storyforge::game::hex::hex_from_offset;
 
@@ -35,9 +34,8 @@ impl StubContent {
 }
 
 impl ContentView for StubContent {
-    fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<&storyforge::combat_engine::AbilityDef> { None }
-    fn status_def(&self, _: &StatusId) -> Option<&storyforge::combat_engine::StatusDef> { None }
+    fn status_def(&self, _: &storyforge::combat_engine::StatusId) -> Option<&storyforge::combat_engine::StatusDef> { None }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }
 }
 

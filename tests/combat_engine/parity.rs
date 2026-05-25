@@ -16,7 +16,7 @@ use storyforge::combat::ai::world::tags::StatusTagCache;
 
 use storyforge::combat_engine::{
     action::Action,
-    content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
+    content::ContentView as EngineContentView,
     dice::ExpectedValue,
     state::{CombatState, RoundPhase},
     step::step,
@@ -88,9 +88,6 @@ impl SnapContent {
 }
 
 impl EngineContentView for SnapContent {
-    fn status_bonuses(&self, _: &StatusId) -> EngineStatusBonuses {
-        EngineStatusBonuses::default()
-    }
     fn ability_def(&self, _: &storyforge::combat_engine::AbilityId) -> Option<&storyforge::combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<&storyforge::combat_engine::StatusDef> { None }
     fn unit_template(&self, _: &str) -> Option<storyforge::combat_engine::UnitTemplate> { None }

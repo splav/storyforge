@@ -15,7 +15,6 @@ impl ContentView for AuraContent {
     fn ability_def(&self, _: &AbilityId) -> Option<&combat_engine::content::AbilityDef> { None }
     fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
     fn unit_template(&self, _: &str) -> Option<combat_engine::content::UnitTemplate> { None }
-    fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

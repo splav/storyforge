@@ -38,17 +38,20 @@ fn map_status(content: &BridgeContentView, id: &StatusId) -> Option<StatusDef> {
         blocks_mana_abilities: def.blocks_mana_abilities,
         forces_targeting:     def.forces_targeting,
         skips_turn:           def.skips_turn,
-        armor_bonus:          def.armor_bonus,
-        damage_taken_bonus:   def.damage_taken_bonus,
-        speed_bonus:          def.speed_bonus,
+        bonuses: StatusBonuses {
+            armor_bonus:        def.bonuses.armor_bonus,
+            damage_taken_bonus: def.bonuses.damage_taken_bonus,
+            speed_bonus:        def.bonuses.speed_bonus,
+        },
         hp_percent_dot:       def.hp_percent_dot,
     })
 }
 
 fn map_status_bonuses(content: &BridgeContentView, id: &StatusId) -> StatusBonuses {
     content.statuses.get(id).map(|d| StatusBonuses {
-        speed_bonus: d.speed_bonus,
-        armor_bonus: d.armor_bonus,
+        speed_bonus: d.bonuses.speed_bonus,
+        armor_bonus: d.bonuses.armor_bonus,
+        damage_taken_bonus: d.bonuses.damage_taken_bonus,
     }).unwrap_or_default()
 }
 
@@ -222,9 +225,9 @@ fn toml_content_view_matches_ecs_content_view() {
                     || e.blocks_mana_abilities != g.blocks_mana_abilities
                     || e.forces_targeting  != g.forces_targeting
                     || e.skips_turn        != g.skips_turn
-                    || e.armor_bonus       != g.armor_bonus
-                    || e.damage_taken_bonus != g.damage_taken_bonus
-                    || e.speed_bonus       != g.speed_bonus
+                    || e.bonuses.armor_bonus       != g.bonuses.armor_bonus
+                    || e.bonuses.damage_taken_bonus != g.bonuses.damage_taken_bonus
+                    || e.bonuses.speed_bonus       != g.bonuses.speed_bonus
                     || e.hp_percent_dot    != g.hp_percent_dot
                 {
                     failures.push(format!(

@@ -91,9 +91,7 @@ impl AuraContent {
             blocks_mana_abilities: false,
             forces_targeting: false,
             skips_turn: stun,
-            armor_bonus,
-            damage_taken_bonus: 0,
-            speed_bonus,
+            bonuses: StatusBonuses { armor_bonus, damage_taken_bonus: 0, speed_bonus },
             hp_percent_dot: 0,
         }
     }
@@ -128,7 +126,7 @@ impl AuraContent {
 impl ContentView for AuraContent {
     fn status_bonuses(&self, id: &StatusId) -> StatusBonuses {
         if *id == self.status_id {
-            StatusBonuses { speed_bonus: self.speed_bonus, armor_bonus: self.armor_bonus }
+            StatusBonuses { speed_bonus: self.speed_bonus, armor_bonus: self.armor_bonus, damage_taken_bonus: 0 }
         } else {
             StatusBonuses::default()
         }

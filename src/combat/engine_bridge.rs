@@ -57,7 +57,7 @@ use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
 use combat_engine::{
     action::Action,
-    content::{AuraDef, ContentView as EngineContentView, StatusBonuses, TeamRelation},
+    content::{AuraDef, ContentView as EngineContentView, TeamRelation},
     event::Event,
     reaction::ReactionKind,
     state::{ActiveStatus, CombatState, Pool, RoundPhase, Unit, UnitId},
@@ -220,9 +220,9 @@ pub fn from_ecs(
             let mut damage_taken_bonus: i32 = 0;
             for s in &statuses_vec {
                 if let Some(def) = content.statuses.get(&s.id) {
-                    armor_bonus       += def.engine.armor_bonus;
-                    speed_bonus       += def.engine.speed_bonus;
-                    damage_taken_bonus += def.engine.damage_taken_bonus;
+                    armor_bonus       += def.engine.bonuses.armor_bonus;
+                    speed_bonus       += def.engine.bonuses.speed_bonus;
+                    damage_taken_bonus += def.engine.bonuses.damage_taken_bonus;
                 }
             }
 
@@ -278,17 +278,6 @@ pub struct EcsContentView<'a> {
 }
 
 impl<'a> EngineContentView for EcsContentView<'a> {
-    fn status_bonuses(&self, id: &combat_engine::StatusId) -> StatusBonuses {
-        self.active_content
-            .statuses
-            .get(id)
-            .map(|s| StatusBonuses {
-                armor_bonus: s.engine.armor_bonus,
-                speed_bonus: s.engine.speed_bonus,
-            })
-            .unwrap_or_default()
-    }
-
     fn ability_def(&self, id: &combat_engine::AbilityId) -> Option<&combat_engine::AbilityDef> {
         self.active_content.abilities.get(id).map(|a| &a.engine)
     }

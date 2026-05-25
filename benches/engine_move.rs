@@ -112,9 +112,6 @@ impl BenchContent {
 }
 
 impl EngineContentView for BenchContent {
-    fn status_bonuses(&self, _: &combat_engine::StatusId) -> EngineStatusBonuses {
-        EngineStatusBonuses::default()
-    }
     fn ability_def(&self, _: &combat_engine::AbilityId) -> Option<&combat_engine::AbilityDef> { None }
     fn status_def(&self, _: &combat_engine::StatusId) -> Option<&combat_engine::StatusDef> { None }
     fn unit_template(&self, _: &str) -> Option<combat_engine::UnitTemplate> { None }

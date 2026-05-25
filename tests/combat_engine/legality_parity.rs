@@ -69,10 +69,6 @@ const TAUNT_STATUS: &str = "taunt";
 struct TestEngineContent<'a>(&'a BevyContentView);
 
 impl<'a> EngineContentView for TestEngineContent<'a> {
-    fn status_bonuses(&self, _: &storyforge::combat_engine::StatusId) -> StatusBonuses {
-        StatusBonuses::default()
-    }
-
     fn ability_def(&self, id: &storyforge::combat_engine::AbilityId) -> Option<&AbilityDef> {
         self.0.abilities.get(id).map(|a| &a.engine)
     }
@@ -275,12 +271,10 @@ fn insert_mana_block_status(app: &mut App) {
                 ai_controlled: false,
                 buff_class: None,
                 engine: EngineStatusDef {
-                    armor_bonus: 0,
-                    damage_taken_bonus: 0,
+                    bonuses: StatusBonuses::default(),
                     skips_turn: false,
                     forces_targeting: false,
                     blocks_mana_abilities: true,
-                    speed_bonus: 0,
                     hp_percent_dot: 0,
                     causes_disadvantage: false,
                 },
@@ -302,12 +296,10 @@ fn insert_taunt_status(app: &mut App) {
                 ai_controlled: false,
                 buff_class: None,
                 engine: EngineStatusDef {
-                    armor_bonus: 0,
-                    damage_taken_bonus: 0,
+                    bonuses: StatusBonuses::default(),
                     skips_turn: false,
                     forces_targeting: true,
                     blocks_mana_abilities: false,
-                    speed_bonus: 0,
                     hp_percent_dot: 0,
                     causes_disadvantage: false,
                 },

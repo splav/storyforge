@@ -177,11 +177,11 @@ pub fn hypothetical(
         if sd.skips_turn {
             cc_turns_applied += dur;
         }
-        if sd.damage_taken_bonus != 0 {
-            vulnerability_applied += sd.damage_taken_bonus as f32 * dur;
+        if sd.bonuses.damage_taken_bonus != 0 {
+            vulnerability_applied += sd.bonuses.damage_taken_bonus as f32 * dur;
         }
-        if sd.armor_bonus != 0 {
-            armor_shred_applied += sd.armor_bonus as f32 * dur;
+        if sd.bonuses.armor_bonus != 0 {
+            armor_shred_applied += sd.bonuses.armor_bonus as f32 * dur;
         }
     }
 
@@ -464,11 +464,11 @@ pub(crate) fn build_status_facts(
         if sd.skips_turn {
             cc_turns += dur * n;
         }
-        if sd.damage_taken_bonus != 0 {
-            vuln += sd.damage_taken_bonus as f32 * dur * n;
+        if sd.bonuses.damage_taken_bonus != 0 {
+            vuln += sd.bonuses.damage_taken_bonus as f32 * dur * n;
         }
-        if sd.armor_bonus != 0 {
-            shred += sd.armor_bonus as f32 * dur * n;
+        if sd.bonuses.armor_bonus != 0 {
+            shred += sd.bonuses.armor_bonus as f32 * dur * n;
         }
     }
 
@@ -818,12 +818,10 @@ mod tests {
             ai_controlled: false,
             buff_class: None,
             engine: combat_engine::StatusDef {
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
+                bonuses: combat_engine::StatusBonuses::default(),
                 skips_turn: true,
                 forces_targeting: false,
                 blocks_mana_abilities: false,
-                speed_bonus: 0,
                 hp_percent_dot: 0,
                 causes_disadvantage: false,
             },

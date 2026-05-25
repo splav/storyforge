@@ -498,13 +498,12 @@ impl CombatState {
                 if !matches {
                     continue;
                 }
-                // Fold status bonuses from this aura's status into the result.
+                // Fold all bonuses (speed, armor, damage_taken) and flags via one call.
                 let b = content.status_bonuses(&aura.status_id);
                 out.speed_bonus         += b.speed_bonus;
                 out.armor_bonus         += b.armor_bonus;
-                // StatusDef carries additional flags; retrieve them if available.
+                out.damage_taken_bonus  += b.damage_taken_bonus;
                 if let Some(def) = content.status_def(&aura.status_id) {
-                    out.damage_taken_bonus  += def.damage_taken_bonus;
                     out.skips_turn          |= def.skips_turn;
                     out.causes_disadvantage |= def.causes_disadvantage;
                 }
@@ -583,14 +582,11 @@ mod tests {
         blocks_mana_abilities: false,
         forces_targeting: false,
         skips_turn: false,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        speed_bonus: 0,
+        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
         hp_percent_dot: 0,
     };
 
     impl ContentView for StubContent {
-        fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
         fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
         fn status_def(&self, _: &StatusId) -> Option<&StatusDef> {
             Some(&STUB_STATUS_DEF)
@@ -838,13 +834,10 @@ mod tests {
         blocks_mana_abilities: false,
         forces_targeting: false,
         skips_turn: false,
-        armor_bonus: 0,
-        damage_taken_bonus: 2,
-        speed_bonus: 0,
+        bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 2 },
         hp_percent_dot: 0,
     };
     impl ContentView for VulnContent {
-        fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
         fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
         fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&VULN_STATUS_DEF) }
         fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }

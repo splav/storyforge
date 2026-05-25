@@ -22,12 +22,10 @@ pub fn insert_stun_status(app: &mut App) {
             ai_controlled: false,
             buff_class: None,
             engine: storyforge::combat_engine::StatusDef {
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
+                bonuses: storyforge::combat_engine::StatusBonuses::default(),
                 skips_turn: true,
                 forces_targeting: false,
                 blocks_mana_abilities: false,
-                speed_bonus: 0,
                 hp_percent_dot: 0,
                 causes_disadvantage: false,
             },

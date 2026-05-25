@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use storyforge::combat_engine::{
     action::{Action, ActionError},
     content::{
-        AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, StatusApplication, StatusBonuses,
+        AbilityDef, AbilityRange, AoEShape, ContentView, EffectDef, StatusApplication,
         StatusOn, TargetType, UnitTemplate,
     },
     dice::{DiceExpr, DiceRng, ExpectedValue},
@@ -72,7 +72,6 @@ impl StubContent {
 }
 
 impl ContentView for StubContent {
-    fn status_bonuses(&self, _: &StatusId) -> StatusBonuses { StatusBonuses::default() }
     fn ability_def(&self, id: &AbilityId) -> Option<&AbilityDef> { self.abilities.get(id) }
     fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { None }
     fn unit_template(&self, id: &str) -> Option<storyforge::combat_engine::UnitTemplate> {

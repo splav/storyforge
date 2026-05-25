@@ -63,9 +63,7 @@ fn empty_engine_status() -> combat_engine::StatusDef {
         blocks_mana_abilities: false,
         forces_targeting: false,
         skips_turn: false,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        speed_bonus: 0,
+        bonuses: combat_engine::StatusBonuses::default(),
         hp_percent_dot: 0,
     }
 }
@@ -152,7 +150,7 @@ fn status_disadvantage_yields_soft_cc() {
 #[test]
 fn status_negative_speed_yields_soft_cc() {
     let mut eng = empty_engine_status();
-    eng.speed_bonus = -1;
+    eng.bonuses.speed_bonus = -1;
     assert_eq!(derive_status_tags(&make_status(eng)), StatusTagSet::SOFT_CC);
 }
 
@@ -162,7 +160,7 @@ fn status_positive_speed_alone_yields_cosmetic() {
     // speed_bonus is not recognised as a Buff — falls through to Cosmetic.
     // This pins the documented rule against accidental `speed_bonus > 0 → Buff`.
     let mut eng = empty_engine_status();
-    eng.speed_bonus = 1;
+    eng.bonuses.speed_bonus = 1;
     assert_eq!(derive_status_tags(&make_status(eng)), StatusTagSet::COSMETIC);
 }
 
@@ -186,7 +184,7 @@ fn status_hp_percent_dot_yields_dot() {
 #[test]
 fn status_armor_bonus_yields_buff() {
     let mut eng = empty_engine_status();
-    eng.armor_bonus = 4;
+    eng.bonuses.armor_bonus = 4;
     assert_eq!(derive_status_tags(&make_status(eng)), StatusTagSet::BUFF);
 }
 
@@ -205,7 +203,7 @@ fn status_unrecognised_field_yields_cosmetic_fallback() {
     // these map to a tag; all-empty → Cosmetic (covers `burning`, `broken_faith`,
     // `pact_control` content-side categories at the rule level).
     let mut eng = empty_engine_status();
-    eng.damage_taken_bonus = 2;
+    eng.bonuses.damage_taken_bonus = 2;
     eng.blocks_mana_abilities = true;
     let def = StatusDef {
         ai_controlled: true,
@@ -219,7 +217,7 @@ fn status_combo_negative_speed_and_dot_yields_soft_cc_and_dot() {
     // Exhaustion-style: SoftCC (speed_bonus<0) + DOT (hp_percent_dot>0).
     // Tests that tags accumulate independently (not mutually exclusive).
     let mut eng = empty_engine_status();
-    eng.speed_bonus = -1;
+    eng.bonuses.speed_bonus = -1;
     eng.hp_percent_dot = 5;
     assert_eq!(
         derive_status_tags(&make_status(eng)),
@@ -540,11 +538,9 @@ fn derive_status_tags_compulsion_set_for_forces_targeting() {
         engine: combat_engine::StatusDef {
             // All other fields at their zero/None values — pure forces_targeting effect.
             forces_targeting: true,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
+            bonuses: combat_engine::StatusBonuses::default(),
             skips_turn: false,
             blocks_mana_abilities: false,
-            speed_bonus: 0,
             hp_percent_dot: 0,
             causes_disadvantage: false,
         },
