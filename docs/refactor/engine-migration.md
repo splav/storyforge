@@ -52,7 +52,8 @@ What stays in ECS **by design** (not debt):
 | PR-B | Bridge side-effects → apply-systems | ✅ Done | `7914276` |
 | **L1** | Drop empty `advance_turn_system` shim | ✅ Done | `ffe7e97` |
 | **L2** | Move `effects_outcome.rs` + `effects_state.rs` → `src/combat/ai/sim/` | ✅ Done | `ffe7e97` |
-| **S5** | `Event::DotDamaged` atomic (drop bridge `pending_status_tick` state-machine) | ⏳ Deferred | wait for trigger |
+| **S5** | `Event::DotDamaged` atomic (drop bridge `pending_status_tick` state-machine) | ✅ Done | `5db559d` |
+| **Phase A** | Unify bridge translators into `translate_events` + `TranslateCtx` | ✅ Done | `a7048f6` |
 | **S6** | auto-end-turn lives in engine, not bridge | ⏳ Deferred | wait for trigger |
 | **S7** | `Event::EnergySpent` parity with `EnergyRegenerated` | ⏳ Deferred | wait for trigger |
 | **V4** | Engine internal: unify two status-bonus reflow paths | ✅ Done | `097f78f` |
@@ -69,23 +70,8 @@ L1 and L2 closed in `ffe7e97`.
 
 ## 4. Deferred engine extensions
 
-All four require an engine SCHEMA bump and parity-test churn. If two or
+All require an engine SCHEMA bump and parity-test churn. If two or
 more trigger simultaneously, group into a single bump window.
-
-### S5 — `Event::DotDamaged` atomic
-
-**Problem.** Engine currently emits a pair: `Event::StatusTicked` then
-`Event::UnitDamaged` for each DoT proc. Bridge ties them via a local
-state-machine `pending_status_tick: Option<(UnitId, StatusId)>` in
-[engine_bridge.rs:645](../../src/combat/engine_bridge.rs:645). The
-pairing relies on documented event order — fragile if a future event
-ever slips between them.
-
-**Fix.** Engine emits one `Event::DotDamaged { target, source_status, raw, mitigation, pierces, amount }`.
-Drops the state-machine in bridge. SCHEMA 39→40.
-
-**Trigger.** A third DoT variant lands, or a bridge bug in pairing
-surfaces. Today the pair is well-behaved.
 
 ### S6 — auto-end-turn in engine
 
@@ -135,6 +121,15 @@ armor+speed without `damage_taken_bonus`. SCHEMA unchanged (hashes
 
 ---
 
+## 4b. Recent structural improvements
+
+| Change | Commit | What it does |
+|---|---|---|
+| S5: `Event::DotDamaged` | `5db559d` | Fused `StatusTicked + UnitDamaged` pair into one atomic event; dropped `pending_status_tick` state-machine from bridge. |
+| Phase A: translator unification | `a7048f6` | Collapsed `translate_tick_events`, `translate_end_turn_events`, `translate_cast_events`, `translate_move_events` into `translate_events(events, &mut TranslateCtx)` with one exhaustive `match`. |
+
+---
+
 ## 5. By-design surface (NOT debt)
 
 Listed here so they don't reappear in future "what's left" surveys.
@@ -152,7 +147,7 @@ Listed here so they don't reappear in future "what's left" surveys.
 ## 6. Suggested sequencing
 
 **Engine extensions (wait for trigger):**
-- S5 / S6 / S7 individually scoped, group if triggers coincide.
+- S6 / S7 individually scoped, group if triggers coincide.
 
 **Cross-cutting (separate scope):**
 - `Messages<CombatEvent>` conversion — would touch ~6 UI consumers,
@@ -167,7 +162,7 @@ Migration is **complete** when:
 
 - All L items closed. ✅ (`ffe7e97`)
 - At least one of S5/S6/S7 triggered + landed (proves engine schema
-  evolution path works post-PR-A).
+  evolution path works post-PR-A). ✅ S5 landed in `5db559d`.
 - This document's "Pending" rows are empty or moved to historical record.
 - `docs/engine-architecture.md` updated to reflect final post-migration
   shape.
