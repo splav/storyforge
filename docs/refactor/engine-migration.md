@@ -50,8 +50,8 @@ What stays in ECS **by design** (not debt):
 | C-ui | `ui_dirty_bridge` tracks `HexCorpses.generation` | ✅ Done | `df33a9a` |
 | C-dead | Unified deadness predicate (`vital.hp ≤ 0`) + corpse stationarity assert | ✅ Done | `8102aa1` |
 | PR-B | Bridge side-effects → apply-systems | ✅ Done | `7914276` |
-| **L1** | Drop empty `advance_turn_system` shim | ⏳ Pending | trivial cleanup |
-| **L2** | Move `effects_outcome.rs` + `effects_state.rs` → `src/combat/ai/sim/` | ⏳ Pending | naming fix |
+| **L1** | Drop empty `advance_turn_system` shim | ✅ Done | `ffe7e97` |
+| **L2** | Move `effects_outcome.rs` + `effects_state.rs` → `src/combat/ai/sim/` | ✅ Done | `ffe7e97` |
 | **S5** | `Event::DotDamaged` atomic (drop bridge `pending_status_tick` state-machine) | ⏳ Deferred | wait for trigger |
 | **S6** | auto-end-turn lives in engine, not bridge | ⏳ Deferred | wait for trigger |
 | **S7** | `Event::EnergySpent` parity with `EnergyRegenerated` | ⏳ Deferred | wait for trigger |
@@ -59,29 +59,11 @@ What stays in ECS **by design** (not debt):
 
 ---
 
-## 3. Legacy cleanup — pending
+## 3. Legacy cleanup
 
-### L1 — drop `advance_turn_system` empty shim
+(All legacy cleanup complete — see history.)
 
-[src/combat/advance_turn.rs:22](../../src/combat/advance_turn.rs:22) is
-`pub fn advance_turn_system() { /* empty */ }`, kept only as "stable
-registration point" for `check_victory_system`. Same effect via
-`SystemSet` ordering. ~10 LOC removal, zero risk.
-
-### L2 — relocate AI sim files
-
-`src/combat/effects_outcome.rs` and `src/combat/effects_state.rs` are
-the AI's predictive simulation (`compute_ability_outcome`,
-`compute_affected_targets`) — parallel to engine `step()` for fast
-scoring rollouts. They live in `src/combat/` but semantically belong
-under `src/combat/ai/sim/`.
-
-Move + update callsites (`src/combat/ai/plan/sim.rs`,
-`src/combat/ai/plan/parity_tests.rs`, `src/combat/ai/scoring/factors/aoe_hits.rs`).
-Parity-tests against engine `targeting::compute_affected_targets` and
-`step()` continue to guarantee divergence detection.
-
-~5 minutes of `mv` + import updates.
+L1 and L2 closed in `ffe7e97`.
 
 ---
 
@@ -171,9 +153,6 @@ Listed here so they don't reappear in future "what's left" surveys.
 
 ## 6. Suggested sequencing
 
-**Cheap wins (any time):**
-- L1 + L2 together (~30 min, low risk). Pure cleanup, no functional change.
-
 **Engine extensions (wait for trigger):**
 - S5 / S6 / S7 individually scoped, group if triggers coincide.
 - V4 is pure engine internal; can land with any of S5-S7.
@@ -189,7 +168,7 @@ Listed here so they don't reappear in future "what's left" surveys.
 
 Migration is **complete** when:
 
-- All L items closed.
+- All L items closed. ✅ (`ffe7e97`)
 - At least one of S5/S6/S7 triggered + landed (proves engine schema
   evolution path works post-PR-A).
 - This document's "Pending" rows are empty or moved to historical record.
