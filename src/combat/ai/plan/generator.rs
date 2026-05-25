@@ -60,8 +60,8 @@ pub fn generate_plans(
     let seed = TurnPlan {
         steps: Vec::new(),
         final_pos: actor_u.pos,
-        residual_ap: actor_u.action_points,
-        residual_mp: actor_u.movement_points,
+        residual_ap: actor_u.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
+        residual_mp: actor_u.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0),
         outcomes: Vec::new(),
         partial_score: seed_partial_score(actor_u, maps),
         sim_snapshots: Vec::new(),
@@ -85,7 +85,8 @@ pub fn generate_plans(
                 .unwrap_or_else(|| snap.clone());
             let base_sim = SimState::from_snapshot(&base_snapshot, actor, ctx.status_tags);
             let Some(sa) = base_sim.actor_unit() else { continue };
-            if sa.action_points <= 0 && sa.movement_points <= 0 {
+            if sa.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) <= 0
+                && sa.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0) <= 0 {
                 continue;
             }
             // Grab the actor's caster snapshot once — str/int/spell-power come
@@ -176,7 +177,9 @@ pub fn generate_plans(
                     .unwrap_or(true);
 
                 let (final_pos, residual_ap, residual_mp) = match ext_sim.actor_unit() {
-                    Some(u) => (u.pos, u.action_points, u.movement_points),
+                    Some(u) => (u.pos,
+                               u.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
+                               u.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0)),
                     None => (plan.final_pos, 0, 0),
                 };
 
@@ -359,7 +362,7 @@ fn enumerate_next_steps(
     }
 
     // Move steps (if MP > 0). Skipped if actor is grounded.
-    if actor.movement_points > 0 {
+    if actor.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0) > 0 {
         let reach = super::reach_from(&sim.snapshot, actor);
         let top_tiles = pick_top_move_tiles(&reach, sim, maps, actor.pos);
         for tile in top_tiles {

@@ -95,7 +95,7 @@ pub(crate) fn select_intent_normal(
     let reach_budget = (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
     let killable = snap
         .enemies_of(active.team)
-        .filter(|_| active.action_points > 0)
+        .filter(|_| active.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) > 0)
         .filter(|e| active.cache.threat >= e.eff_hp() as f32)
         .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
         .min_by_key(|e| e.eff_hp());
@@ -353,7 +353,7 @@ pub fn select_intent(
         let reach_budget = (active.speed.max(0) as u32).saturating_add(active.cache.max_attack_range);
         let killable = snap
             .enemies_of(active.team)
-            .filter(|_| active.action_points > 0)
+            .filter(|_| active.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) > 0)
             .filter(|e| active.cache.threat >= e.eff_hp() as f32)
             .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
             .min_by_key(|e| e.eff_hp());

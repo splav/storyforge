@@ -84,7 +84,7 @@ fn opportunity_once_per_round() {
     init_engine_state(&mut app);
 
     // Two separate ActionInput::Move events in the SAME round. Between them we manually restore
-    // movement_points and hero position directly in CombatStateRes; we do NOT touch
+    // pools[Mp] and hero position directly in CombatStateRes; we do NOT touch
     // reactions_left. Without a StartRound reset the second leave must not produce an AoO.
     write_message(&mut app, ActionInput::Move { actor: hero, path: vec![away_pos()] });
     app.update();
@@ -92,10 +92,11 @@ fn opportunity_once_per_round() {
 
     {
         use storyforge::combat::engine_bridge::{entity_to_uid, CombatStateRes};
+        use storyforge::combat_engine::PoolKind;
         let hero_uid = entity_to_uid(hero);
         let mut state = app.world_mut().resource_mut::<CombatStateRes>();
         let unit = state.0.unit_mut(hero_uid).expect("hero in engine state");
-        unit.movement_points = 10;
+        unit.pools[PoolKind::Mp] = Some((10, 10));
         unit.pos = start_pos();
         // DO NOT reset reactions_left — that's what the test is verifying.
     }

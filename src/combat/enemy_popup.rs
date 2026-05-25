@@ -121,8 +121,8 @@ pub fn queue_enemy_popup(
                 CombatEvent::UnitDied { entity } => {
                     lines.push(format!("{} погиб!", name(*entity)));
                 }
-                CombatEvent::RageGained { .. } | CombatEvent::ManaChanged { .. } => {
-                    // Skip resource change events in popup.
+                CombatEvent::PoolChanged { .. } => {
+                    // Skip pool-change events in popup.
                 }
                 _ => break,
             }

@@ -1,4 +1,5 @@
 use super::AppraisalCtx;
+use combat_engine::PoolKind;
 
 pub(super) fn compute_finish_target(ctx: &AppraisalCtx<'_>) -> f32 {
     let active = ctx.active;
@@ -11,7 +12,7 @@ pub(super) fn compute_finish_target(ctx: &AppraisalCtx<'_>) -> f32 {
     // None means no killable target exists → signal stays 0.
     let killable_low_hp: Option<f32> = snap
         .enemies_of(active.team)
-        .filter(|_| active.action_points > 0)
+        .filter(|_| active.pools[PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) > 0)
         .filter(|e| active.cache.threat >= e.eff_hp() as f32)
         .filter(|e| active.pos.unsigned_distance_to(e.pos) <= reach_budget)
         .map(|e| 1.0 - e.hp_pct())

@@ -181,18 +181,6 @@ pub enum CombatEvent {
         damage: i32,
         killed: bool,
     },
-    /// *engine mirror* — `Event::RageGained`.
-    RageGained {
-        actor: Entity,
-        current: i32,
-        max: i32,
-    },
-    /// *engine mirror* — `Event::ManaRegenerated` (also emitted for mana spend).
-    ManaChanged {
-        actor: Entity,
-        current: i32,
-        max: i32,
-    },
     /// *engine mirror* — `Event::DotDamaged` (fused DoT tick + damage).
     DotDamaged {
         target: Entity,
@@ -237,9 +225,7 @@ pub enum CombatEvent {
         summoner: Entity,
         reason: SpawnBlockedReasonEcs,
     },
-    /// *engine mirror* — `Event::PoolChanged`. Unified pool-mutation event
-    /// (C4). Dual-emitted alongside legacy `RageGained` / `ManaChanged` for
-    /// one transition cycle; legacy variants will be removed in a follow-up.
+    /// *engine mirror* — `Event::PoolChanged`. Unified pool-mutation event (C4+C6).
     PoolChanged {
         actor: Entity,
         pool: combat_engine::PoolKind,
@@ -306,11 +292,21 @@ impl CombatEvent {
                     tr
                 )
             }
-            CombatEvent::RageGained { actor, current, max } => {
-                format!("  ⚡ {}: ярость {}/{}", name(*actor), current, max)
-            }
-            CombatEvent::ManaChanged { actor, current, max } => {
-                format!("  ✦ {}: мана {}/{}", name(*actor), current, max)
+            CombatEvent::PoolChanged { actor, pool, current, max, cause } => {
+                use combat_engine::{PoolKind, PoolChangeCause};
+                let pool_name = match pool {
+                    PoolKind::Mana   => "мана",
+                    PoolKind::Rage   => "ярость",
+                    PoolKind::Energy => "энергия",
+                    PoolKind::Ap     => return None, // AP/MP changes are silent
+                    PoolKind::Mp     => return None,
+                };
+                let icon = match cause {
+                    PoolChangeCause::Regen | PoolChangeCause::Refill | PoolChangeCause::Gained => "⚡",
+                    PoolChangeCause::Spent   => "✦",
+                    PoolChangeCause::MaxChanged => "✦",
+                };
+                format!("  {icon} {}: {pool_name} {current}/{max}", name(*actor))
             }
             CombatEvent::AbilityUsed {
                 actor,
@@ -421,10 +417,6 @@ impl CombatEvent {
                     "=== ПОРАЖЕНИЕ ===".into()
                 }
             }
-            // PoolChanged is dual-emitted alongside legacy per-pool events (C4);
-            // suppress in the log to avoid duplicate lines until legacy events
-            // are removed in the follow-up cleanup.
-            CombatEvent::PoolChanged { .. } => return None,
         };
         Some(line)
     }

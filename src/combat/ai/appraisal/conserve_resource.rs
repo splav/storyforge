@@ -1,11 +1,12 @@
 use super::AppraisalCtx;
+use combat_engine::PoolKind;
 
 pub(super) fn compute_conserve_resource(ctx: &AppraisalCtx<'_>) -> f32 {
     let active = ctx.active;
     let tuning = ctx.tuning;
-    // mana is Option<(current, max)>; units without a mana bar have no
+    // mana pool is Option<(current, max)>; units without a mana bar have no
     // resource pressure (ratio = 1.0 → low signal on the descending logistic).
-    let mana_ratio = match active.mana {
+    let mana_ratio = match active.pools[PoolKind::Mana] {
         Some((current, max)) if max > 0 => current as f32 / max as f32,
         _ => 1.0,
     };

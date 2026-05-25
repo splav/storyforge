@@ -94,15 +94,9 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
         damage_taken_bonus: 0,
         base_speed: 6,
         speed: 6,
-        action_points: 2,
-        max_ap: 2,
-        movement_points: 6,
         reactions_left: 1,
         reactions_max: 1,
         statuses: vec![],
-        rage: None,
-        mana: None,
-        energy: None,
         summoner: None,
         caster_context: Default::default(),
         aoo_dice: None,
@@ -166,7 +160,7 @@ fn step_cast_returns_err_illegal_for_unknown_ability() {
 
     assert_eq!(err, ActionError::Illegal(IllegalReason::UnknownAbility));
     // State must be unchanged (rollback).
-    assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 2);
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 2);
 }
 
 /// `step(Cast)` targeting a dead unit (hp=0) → `Illegal(TargetDead)`.
@@ -192,7 +186,7 @@ fn step_cast_returns_err_illegal_for_dead_target() {
 
     assert_eq!(err, ActionError::Illegal(IllegalReason::TargetDead));
     // State must be unchanged (rollback).
-    assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 2);
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 2);
 }
 
 /// `step(Cast)` when the cast is fully legal and the ability has no damage effect →
@@ -229,7 +223,7 @@ fn step_cast_returns_ok_when_legal() {
     assert!(matches!(events[1], Event::ActionFinished { .. }));
 
     // State is unchanged — no AP spent, no HP lost.
-    assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 2, "actor AP unchanged");
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 2, "actor AP unchanged");
     assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "target HP unchanged");
 }
 
@@ -260,7 +254,7 @@ fn cast_legal_pays_ap_cost() {
     let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal cast should succeed");
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 1, "AP decremented by 1");
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP decremented by 1");
     assert!(matches!(events.last(), Some(Event::ActionFinished { .. })));
 }
 
@@ -271,7 +265,7 @@ fn cast_legal_pays_mana_cost() {
     use storyforge::combat_engine::ResourceKind;
 
     let mut actor = make_unit(1, Team::Player, 0, 0); // action_points=2
-    actor.mana = Some((10, 10));
+    actor.pools[storyforge::combat_engine::PoolKind::Mana] = Some((10, 10));
     actor.pools[storyforge::combat_engine::PoolKind::Mana] = Some((10, 10));
     let target = make_unit(2, Team::Enemy, 1, 0);
 
@@ -295,8 +289,8 @@ fn cast_legal_pays_mana_cost() {
         .expect("legal cast should succeed");
 
     let u = state.unit(UnitId(1)).unwrap();
-    assert_eq!(u.action_points, 1, "AP decremented by 1");
-    assert_eq!(u.mana, Some((7, 10)), "mana decremented by 3");
+    assert_eq!(u.pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP decremented by 1");
+    assert_eq!(u.pools[storyforge::combat_engine::PoolKind::Mana], Some((7, 10)), "mana decremented by 3");
 }
 
 // ── Step 6d tests: damage fanout ─────────────────────────────────────────────
@@ -453,8 +447,8 @@ fn cast_aoe_damages_targets_in_per_target_order() {
         CasterContext,
     };
 
-    let mut actor = make_unit(1, Team::Player, 0, 0);
-    actor.action_points = 2;
+    let actor = make_unit(1, Team::Player, 0, 0);
+    // AP is already 2 from make_unit; pool is canonical since Phase C-6.
 
     // Target center at (3,0); place 3 enemies: one at center, two at neighbors.
     let target_pos = hex_from_offset(3, 0);
@@ -557,7 +551,7 @@ fn cast_legal_pays_no_cost_when_zero() {
     assert!(matches!(events[0], Event::ActionStarted { .. }));
     assert!(matches!(events[1], Event::ActionFinished { .. }));
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 2, "AP unchanged for zero-cost");
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 2, "AP unchanged for zero-cost");
 }
 
 // ── Step 6e tests: heal + status fanout ──────────────────────────────────────
@@ -783,7 +777,7 @@ fn cast_crit_fail_miss_skips_damage() {
     step(&mut state, action, &mut rng, &content).expect("should succeed");
 
     assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "target hp unchanged on miss crit-fail");
-    assert_eq!(state.unit(UnitId(1)).unwrap().action_points, 1, "AP still paid");
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP still paid");
 }
 
 /// d20 = 1 + DoubleCost outcome → mana cost doubled; no damage to target.
@@ -794,7 +788,7 @@ fn cast_crit_fail_double_cost() {
     use storyforge::combat_engine::ResourceKind;
 
     let mut actor = make_unit(1, Team::Player, 0, 0);
-    actor.mana = Some((10, 10));
+    actor.pools[storyforge::combat_engine::PoolKind::Mana] = Some((10, 10));
     actor.pools[storyforge::combat_engine::PoolKind::Mana] = Some((10, 10));
     let target = make_unit(2, Team::Enemy, 1, 0); // hp=10
 
@@ -825,7 +819,7 @@ fn cast_crit_fail_double_cost() {
     step(&mut state, action, &mut rng, &content).expect("should succeed");
 
     let actor_unit = state.unit(UnitId(1)).unwrap();
-    assert_eq!(actor_unit.mana, Some((4, 10)), "mana = 10 - 3*2 = 4");
+    assert_eq!(actor_unit.pools[storyforge::combat_engine::PoolKind::Mana], Some((4, 10)), "mana = 10 - 3*2 = 4");
     assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "target hp unchanged");
 }
 
@@ -1178,7 +1172,7 @@ fn cast_summon_ability_pushes_spawn_effect_and_creates_unit() {
     assert_eq!(new_unit.summoner, Some(summoner_id));
 
     // Summoner paid AP.
-    assert_eq!(state.unit(summoner_id).unwrap().action_points, 1, "AP decremented by 1");
+    assert_eq!(state.unit(summoner_id).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP decremented by 1");
 }
 
 /// Crit-fail (d20=1, Miss outcome) on a Summon: cost paid, no spawn.
@@ -1211,7 +1205,7 @@ fn cast_summon_crit_fail_miss_skips_spawn_but_pays_cost() {
     let (events, _ctx) = step(&mut state, action, &mut rng, &content).expect("should succeed");
 
     // AP still paid.
-    assert_eq!(state.unit(summoner_id).unwrap().action_points, 1, "AP paid on crit-fail");
+    assert_eq!(state.unit(summoner_id).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP paid on crit-fail");
     // Unit count unchanged.
     assert_eq!(state.alive_units().count(), 1, "no unit spawned on crit-fail");
     // CritFailed event present, no UnitSpawned.
@@ -1265,8 +1259,8 @@ fn cast_summon_at_max_cap_emits_spawn_blocked() {
 fn cast_exhausting_ap_mp_self_advances_in_engine_s6() {
     let mut actor = make_unit(1, Team::Player, 0, 0);
     // Override defaults: 1 AP, 0 MP — cast costs 1 AP, leaving AP=0, MP=0.
-    actor.action_points = 1;
-    actor.movement_points = 0;
+    actor.pools[storyforge::combat_engine::PoolKind::Ap] = Some((1, 1));
+    actor.pools[storyforge::combat_engine::PoolKind::Mp] = Some((0, 6));
 
     let target = make_unit(2, Team::Enemy, 1, 0);
 
@@ -1331,7 +1325,7 @@ fn cast_exhausting_ap_mp_self_advances_in_engine_s6() {
 
     // Sanity: AP was actually consumed.
     assert!(
-        state.unit(UnitId(1)).unwrap().action_points <= 0,
+        state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) <= 0,
         "AP must be exhausted after the cast",
     );
 }

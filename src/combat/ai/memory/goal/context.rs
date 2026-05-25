@@ -191,7 +191,7 @@ impl StoredGoalContext {
             });
         }
         // 3. Actor rage changed — cosmetic side-effect of AoO / round mechanics.
-        if actor.rage.map(|(r, _)| r).unwrap_or(0) != self.actor_rage_at_store {
+        if actor.pools[combat_engine::PoolKind::Rage].map(|(r, _)| r).unwrap_or(0) != self.actor_rage_at_store {
             return Some(PlanContinuationCheck {
                 severity: classify_mismatch("actor_rage_changed", &no_delta_ctx),
                 reason_code: "actor_rage_changed",
@@ -297,7 +297,7 @@ pub fn extract_goal_context(
     // region_anchor is also captured for the target severity checks.
     let target_entity = kind.target_entity();
     let target_snap = target_entity.and_then(|e| snap.unit(e));
-    let actor_rage_at_store = actor.rage.map(|(r, _)| r).unwrap_or(0);
+    let actor_rage_at_store = actor.pools[combat_engine::PoolKind::Rage].map(|(r, _)| r).unwrap_or(0);
     let actor_status_hash = crate::combat::ai::memory::ai_memory::status_hash_engine(&actor.statuses);
     // Status id list for delta-based severity classification (step 9.B.3).
     let actor_statuses_at_store: Vec<combat_engine::StatusId> =

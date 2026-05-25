@@ -46,7 +46,12 @@ use crate::{
 /// engine-migration.md — `EnergySpent` is expressed as
 /// `PoolChanged{pool: Energy, cause: Spent}` instead of a dedicated event.
 /// Old v40 traces incompatible (clean break).
-pub const SCHEMA_VERSION: u32 = 41;
+/// v42: Phase C-6 final cleanup — legacy `Unit` fields (`mana`, `rage`,
+/// `energy`, `action_points`, `max_ap`, `movement_points`) removed from engine
+/// `Unit` struct. `Event::PoolChanged` is the sole canonical pool-mutation
+/// event; legacy `ManaRegenerated`/`EnergyRegenerated`/`RageGained` aliases
+/// dropped. Old v41 traces are incompatible (clean break).
+pub const SCHEMA_VERSION: u32 = 42;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

@@ -253,8 +253,8 @@ fn cast_decrements_ap_and_pays_mana() {
     );
 
     let a = sim.unit(actor_id).unwrap();
-    assert_eq!(a.action_points, 1, "AP drops from 2 to 1");
-    assert_eq!(a.mana, Some((2, 10)), "mana 5 - 3 = 2");
+    assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP drops from 2 to 1");
+    assert_eq!(a.pools[combat_engine::PoolKind::Mana], Some((2, 10)), "mana 5 - 3 = 2");
 }
 
 #[test]
@@ -275,7 +275,7 @@ fn move_step_updates_pos_and_drains_mp() {
     assert!(outcome.moved);
     let a = sim.unit(actor_id).unwrap();
     assert_eq!(a.pos, target);
-    assert_eq!(a.movement_points, 1, "speed 3 - path 2 = 1");
+    assert_eq!(a.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 1, "speed 3 - path 2 = 1");
 }
 
 // ── stun status ─────────────────────────────────────────────────────────
@@ -608,8 +608,8 @@ fn grant_movement_pays_ap_engine_defers_mp() {
     let a = sim.unit(actor_id).unwrap();
     // Engine pays AP (cost_ap=1), but GrantMovement effect fanout is Phase 3 —
     // MP stays at the initial value (3) since no GrantMovement Effect is emitted.
-    assert_eq!(a.movement_points, 3, "engine defers GrantMovement to Phase 3; MP unchanged");
-    assert_eq!(a.action_points, 0, "AP cost still paid by engine");
+    assert_eq!(a.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 3, "engine defers GrantMovement to Phase 3; MP unchanged");
+    assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP cost still paid by engine");
 }
 
 // ── AoO propagation (step 12.2) ─────────────────────────────────────────
@@ -866,8 +866,8 @@ fn apply_damage_grants_rage_to_attacker_per_hit() {
         false,
     );
 
-    assert_eq!(sim.actor_unit().unwrap().rage, Some((6, 10)), "attacker rage (5/10) → (6/10)");
-    assert_eq!(sim.unit(target_id).unwrap().rage, None, "defender has no rage component");
+    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((6, 10)), "attacker rage (5/10) → (6/10)");
+    assert_eq!(sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage], None, "defender has no rage component");
 }
 
 /// Single-target hit: defender has rage, attacker does not.
@@ -903,8 +903,8 @@ fn apply_damage_grants_rage_to_defender_per_hit() {
         false,
     );
 
-    assert_eq!(sim.unit(target_id).unwrap().rage, Some((4, 10)), "defender rage (3/10) → (4/10)");
-    assert_eq!(sim.actor_unit().unwrap().rage, None, "attacker has no rage component");
+    assert_eq!(sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((4, 10)), "defender rage (3/10) → (4/10)");
+    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], None, "attacker has no rage component");
 }
 
 /// Single-target hit: both sides have rage. Each gains exactly +1.
@@ -940,8 +940,8 @@ fn apply_damage_grants_rage_to_both_attacker_and_defender() {
         false,
     );
 
-    assert_eq!(sim.actor_unit().unwrap().rage, Some((3, 10)), "attacker (2/10) → (3/10)");
-    assert_eq!(sim.unit(target_id).unwrap().rage, Some((8, 10)), "defender (7/10) → (8/10)");
+    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((3, 10)), "attacker (2/10) → (3/10)");
+    assert_eq!(sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((8, 10)), "defender (7/10) → (8/10)");
 }
 
 /// AoE hitting 3 enemies: attacker rage gets +1 per target hit (total +3).
@@ -983,10 +983,10 @@ fn aoe_damage_grants_rage_per_target_to_attacker() {
     );
 
     assert_eq!(outcome.hits, 3, "AoE should hit all 3 enemies");
-    assert_eq!(sim.actor_unit().unwrap().rage, Some((8, 10)), "attacker (5/10) + 3 hits = (8/10)");
-    assert_eq!(sim.unit(t1_id).unwrap().rage, Some((1, 10)), "t1 (0/10) → (1/10)");
-    assert_eq!(sim.unit(t2_id).unwrap().rage, Some((1, 10)), "t2 (0/10) → (1/10)");
-    assert_eq!(sim.unit(t3_id).unwrap().rage, Some((1, 10)), "t3 (0/10) → (1/10)");
+    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((8, 10)), "attacker (5/10) + 3 hits = (8/10)");
+    assert_eq!(sim.unit(t1_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((1, 10)), "t1 (0/10) → (1/10)");
+    assert_eq!(sim.unit(t2_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((1, 10)), "t2 (0/10) → (1/10)");
+    assert_eq!(sim.unit(t3_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((1, 10)), "t3 (0/10) → (1/10)");
 }
 
 /// Rage clamps at max: attacker at max rage stays there after a hit.
@@ -1020,7 +1020,7 @@ fn rage_caps_at_max_for_attacker() {
         false,
     );
 
-    assert_eq!(sim.actor_unit().unwrap().rage, Some((10, 10)), "attacker rage capped at max 10");
+    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((10, 10)), "attacker rage capped at max 10");
 }
 
 /// Rage clamps at max: defender at max rage stays there after taking a hit.
@@ -1054,7 +1054,7 @@ fn rage_caps_at_max_for_defender() {
         false,
     );
 
-    assert_eq!(sim.unit(target_id).unwrap().rage, Some((10, 10)), "defender rage capped at max 10");
+    assert_eq!(sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((10, 10)), "defender rage capped at max 10");
 }
 
 /// Units with no rage component (rage: None) are silently unaffected.
@@ -1087,8 +1087,8 @@ fn units_without_rage_component_are_unaffected() {
         false,
     );
 
-    assert_eq!(sim.actor_unit().unwrap().rage, None, "attacker has no rage component, stays None");
-    assert_eq!(sim.unit(target_id).unwrap().rage, None, "defender has no rage component, stays None");
+    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], None, "attacker has no rage component, stays None");
+    assert_eq!(sim.unit(target_id).unwrap().pools[combat_engine::PoolKind::Rage], None, "defender has no rage component, stays None");
 }
 
 // ── AoO rage (drift #3, AoO branch) ─────────────────────────────────────
@@ -1115,9 +1115,9 @@ fn apply_move_aoo_grants_rage_to_both_sides() {
     );
     sim.apply_move(&[hex_from_offset(2, 3)]);
 
-    assert_eq!(sim.actor_unit().unwrap().rage, Some((1, 10)), "victim +1 rage");
+    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((1, 10)), "victim +1 rage");
     assert_eq!(
-        sim.unit(enemy_id).unwrap().rage,
+        sim.unit(enemy_id).unwrap().pools[combat_engine::PoolKind::Rage],
         Some((1, 10)),
         "AoO attacker +1 rage",
     );
@@ -1144,8 +1144,8 @@ fn apply_move_aoo_rage_caps_at_max() {
     );
     sim.apply_move(&[hex_from_offset(2, 3)]);
 
-    assert_eq!(sim.actor_unit().unwrap().rage, Some((10, 10)));
-    assert_eq!(sim.unit(enemy_id).unwrap().rage, Some((10, 10)));
+    assert_eq!(sim.actor_unit().unwrap().pools[combat_engine::PoolKind::Rage], Some((10, 10)));
+    assert_eq!(sim.unit(enemy_id).unwrap().pools[combat_engine::PoolKind::Rage], Some((10, 10)));
 }
 
 // TODO(12.3): `self_damage_grants_two_rage_for_self_aoe` — actor is both

@@ -85,15 +85,9 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
         damage_taken_bonus: 0,
         base_speed: 4,
         speed: 4,
-        action_points: 2,
-        max_ap: 2,
-        movement_points: 4,
         reactions_left: 1,
         reactions_max: 1,
         statuses: vec![],
-        rage: None,
-        mana: None,
-        energy: None,
         summoner: None,
         caster_context: Default::default(),
         aoo_dice: None,
@@ -118,7 +112,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
 
 fn unit_with_rage(id: u64, rage_current: i32, rage_max: i32) -> Unit {
     let mut u = make_unit(id, 20, 20);
-    u.rage = Some((rage_current, rage_max));
+    u.pools[storyforge::combat_engine::PoolKind::Rage] = Some((rage_current, rage_max));
     u
 }
 
@@ -157,7 +151,8 @@ fn decrement_mp_clamps_at_zero() {
         &StubContent::neutral(),
     );
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 0);
+    let mp = state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    assert_eq!(mp, 0);
     assert!(derived.is_empty());
 }
 
@@ -256,19 +251,21 @@ fn damage_pierces_ignores_armor() {
 
 #[test]
 fn gain_rage_increments_and_clamps_at_max() {
+    use storyforge::combat_engine::PoolKind;
     let u = unit_with_rage(1, 4, 5);
     let mut state = state_with(vec![u]);
 
     apply_effect(&mut state, &Effect::GainRage { target: UnitId(1) }, &StubContent::neutral());
-    assert_eq!(state.unit(UnitId(1)).unwrap().rage, Some((5, 5)));
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[PoolKind::Rage], Some((5, 5)));
 
     // One more gain — already at max, should stay at 5.
     apply_effect(&mut state, &Effect::GainRage { target: UnitId(1) }, &StubContent::neutral());
-    assert_eq!(state.unit(UnitId(1)).unwrap().rage, Some((5, 5)));
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[PoolKind::Rage], Some((5, 5)));
 }
 
 #[test]
 fn gain_rage_noop_when_unit_has_no_rage() {
+    use storyforge::combat_engine::PoolKind;
     let u = make_unit(1, 10, 10); // rage = None
     let mut state = state_with(vec![u]);
 
@@ -278,7 +275,7 @@ fn gain_rage_noop_when_unit_has_no_rage() {
         &StubContent::neutral(),
     );
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().rage, None);
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[PoolKind::Rage], None);
     assert!(derived.is_empty());
 }
 
@@ -515,8 +512,9 @@ fn heal_neutralizes_multiple_dots_in_order() {
 /// PayCost decrements the matching resource pool, clamped at 0.
 #[test]
 fn pay_cost_decrements_mana() {
+    use storyforge::combat_engine::PoolKind;
     let mut u = make_unit(1, 10, 10);
-    u.mana = Some((8, 10));
+    u.pools[PoolKind::Mana] = Some((8, 10));
     let mut state = state_with(vec![u]);
 
     apply_effect(
@@ -528,13 +526,14 @@ fn pay_cost_decrements_mana() {
         },
         &StubContent::neutral(),
     );
-    assert_eq!(state.unit(UnitId(1)).unwrap().mana, Some((5, 10)));
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[PoolKind::Mana], Some((5, 10)));
 }
 
 #[test]
 fn pay_cost_clamps_pool_at_zero() {
+    use storyforge::combat_engine::PoolKind;
     let mut u = make_unit(1, 10, 10);
-    u.rage = Some((2, 5));
+    u.pools[PoolKind::Rage] = Some((2, 5));
     let mut state = state_with(vec![u]);
 
     apply_effect(
@@ -546,7 +545,7 @@ fn pay_cost_clamps_pool_at_zero() {
         },
         &StubContent::neutral(),
     );
-    assert_eq!(state.unit(UnitId(1)).unwrap().rage, Some((0, 5)));
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[PoolKind::Rage], Some((0, 5)));
 }
 
 #[test]
@@ -567,6 +566,7 @@ fn pay_cost_hp_decrements_directly() {
 
 #[test]
 fn pay_cost_skips_when_pool_absent() {
+    use storyforge::combat_engine::PoolKind;
     let u = make_unit(1, 10, 10); // mana: None
     let mut state = state_with(vec![u]);
     // Should not panic; pool stays None.
@@ -579,7 +579,7 @@ fn pay_cost_skips_when_pool_absent() {
         },
         &StubContent::neutral(),
     );
-    assert_eq!(state.unit(UnitId(1)).unwrap().mana, None);
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[PoolKind::Mana], None);
 }
 
 // ── ApplyStatus ──────────────────────────────────────────────────────────────
@@ -1100,6 +1100,7 @@ fn test_template() -> UnitTemplate {
 
 #[test]
 fn spawn_creates_unit_with_correct_template_stats() {
+    use storyforge::combat_engine::PoolKind;
     let summoner = make_unit(1, 20, 20);
     let summoner_pos = summoner.pos;
     let summoner_team = summoner.team;
@@ -1123,7 +1124,8 @@ fn spawn_creates_unit_with_correct_template_stats() {
     assert_eq!(spawned.max_hp, 8);
     assert_eq!(spawned.armor, 1);
     assert_eq!(spawned.base_speed, 4);
-    assert_eq!(spawned.max_ap, 1);
+    // max_ap is encoded in pools[Ap]
+    assert_eq!(spawned.pools[PoolKind::Ap].map(|(_, max)| max).unwrap_or(0), 1);
     assert_eq!(spawned.team, summoner_team);
     assert_eq!(spawned.summoner, Some(UnitId(1)));
     assert_eq!(spawned.pos, pos);

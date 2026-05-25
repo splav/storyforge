@@ -119,8 +119,10 @@ fn parity_pure_move_no_enemies() {
     assert_eq!(sim_unit.pos,    hex_from_offset(3, 0), "sim: final pos");
 
     // MP: 6 - 3 = 3.
-    assert_eq!(engine_unit.movement_points, 3, "engine: MP after 3-hex move");
-    assert_eq!(sim_unit.movement_points,    3, "sim: MP after 3-hex move");
+    let engine_mp = engine_unit.pools[storyforge::combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    let sim_mp    = sim_unit.pools[storyforge::combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    assert_eq!(engine_mp, 3, "engine: MP after 3-hex move");
+    assert_eq!(sim_mp,    3, "sim: MP after 3-hex move");
 
     assert_eq!(engine_unit.hp, sim_unit.hp, "hp parity: no enemies → no damage");
 }
@@ -242,8 +244,10 @@ fn parity_aoo_chain_two_enemies() {
     assert_eq!(engine_actor.hp, sim_actor.hp,
         "actor hp must match: each path took 4+4=8 damage from two AoOs, hp 20→12");
     assert_eq!(engine_actor.pos, sim_actor.pos, "actor final position must match");
-    assert_eq!(engine_actor.movement_points, sim_actor.movement_points,
-        "movement_points must match");
+
+    let engine_mp = engine_actor.pools[storyforge::combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    let sim_mp    = sim_actor.pools[storyforge::combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    assert_eq!(engine_mp, sim_mp, "movement_points must match");
 
     // Both enemies consumed their reactions.
     assert_eq!(engine_state.unit(ea_uid).unwrap().reactions_left, 0,

@@ -89,14 +89,9 @@ impl<'a> ActionState for EngineCheckState<'a> {
             },
         );
         use crate::PoolKind;
-        // Read from pools (primary), fall back to legacy field when pools[k]
-        // is None (e.g. scenario snapshots captured pre-C2 that lack pools).
-        let mana_cur   = u.pools[PoolKind::Mana].map(|(c, _)| c)
-            .or_else(|| u.mana.map(|(c, _)| c));
-        let rage_cur   = u.pools[PoolKind::Rage].map(|(c, _)| c)
-            .or_else(|| u.rage.map(|(c, _)| c));
-        let energy_cur = u.pools[PoolKind::Energy].map(|(c, _)| c)
-            .or_else(|| u.energy.map(|(c, _)| c));
+        let mana_cur   = u.pools[PoolKind::Mana].map(|(c, _)| c);
+        let rage_cur   = u.pools[PoolKind::Rage].map(|(c, _)| c);
+        let energy_cur = u.pools[PoolKind::Energy].map(|(c, _)| c);
         let pools = enum_map::enum_map! {
             PoolKind::Mana   => mana_cur,
             PoolKind::Rage   => rage_cur,
@@ -105,11 +100,12 @@ impl<'a> ActionState for EngineCheckState<'a> {
             PoolKind::Ap     => None,
             PoolKind::Mp     => None,
         };
+        let ap_cur = u.pools[PoolKind::Ap].map(|(c, _)| c).unwrap_or(0);
         Some(ActorView {
             pos: u.pos,
             team: u.team,
             hp: u.hp,
-            ap: u.action_points,
+            ap: ap_cur,
             pools,
             causes_disadvantage,
             blocks_mana_abilities,
@@ -317,7 +313,8 @@ fn step_inner(
             if path.is_empty() {
                 return Err(ActionError::NoPath);
             }
-            if path.len() as i32 > unit.movement_points {
+            let mp_cur = unit.pools[crate::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+            if path.len() as i32 > mp_cur {
                 return Err(ActionError::OutOfMP);
             }
 
@@ -754,7 +751,9 @@ fn step_inner(
     // is the single authoritative source.
     if matches!(&action, Action::Cast { .. }) && initial_current == final_current {
         if let Some(actor_unit) = state.unit(actor_id) {
-            if actor_unit.action_points <= 0 && actor_unit.movement_points <= 0 {
+            let ap_left = actor_unit.pools[crate::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0);
+            let mp_left = actor_unit.pools[crate::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+            if ap_left <= 0 && mp_left <= 0 {
                 // Emit TurnEnded before the AdvanceTurn cascade.
                 events.push(Event::TurnEnded {
                     actor: actor_id,

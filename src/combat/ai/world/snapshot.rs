@@ -259,18 +259,19 @@ impl<'a> UnitView<'a> {
 
     /// Current amount in the spendable pool for `kind`.
     pub fn resource_amount(&self, kind: combat_engine::ResourceKind) -> i32 {
-        pool_amount(
-            kind,
-            self.state.hp,
-            self.state.mana.map(|(c, _)| c).unwrap_or(0),
-            self.state.rage.map(|(c, _)| c).unwrap_or(0),
-            self.state.energy.map(|(c, _)| c).unwrap_or(0),
-        )
+        use combat_engine::PoolKind;
+        match kind {
+            combat_engine::ResourceKind::Hp     => self.state.hp,
+            combat_engine::ResourceKind::Mana   => self.state.pools[PoolKind::Mana].map(|(c, _)| c).unwrap_or(0),
+            combat_engine::ResourceKind::Rage   => self.state.pools[PoolKind::Rage].map(|(c, _)| c).unwrap_or(0),
+            combat_engine::ResourceKind::Energy => self.state.pools[PoolKind::Energy].map(|(c, _)| c).unwrap_or(0),
+        }
     }
 
     /// True iff the unit has enough AP and every resource cost to cast `def`.
     pub fn can_afford(&self, def: &crate::content::abilities::AbilityDef) -> bool {
-        self.state.action_points >= def.cost_ap
+        let ap = self.state.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0);
+        ap >= def.cost_ap
             && def.costs.iter().all(|c| self.resource_amount(c.resource) >= c.amount)
     }
 

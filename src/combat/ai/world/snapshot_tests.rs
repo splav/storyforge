@@ -408,15 +408,9 @@ mod snapshot_api_tests {
             damage_taken_bonus: 0,
             base_speed: 3,
             speed: 3,
-            action_points: 2,
-            max_ap: 2,
-            movement_points: 3,
             reactions_left: 0,
             reactions_max: 1,
             statuses: vec![],
-            rage: None,
-            mana: None,
-            energy: None,
             summoner: None,
             caster_context: Default::default(),
             aoo_dice: None,
@@ -451,7 +445,9 @@ mod snapshot_api_tests {
         let view = snap.unit(entity).expect("view must resolve for known entity");
         assert_eq!(view.hp, snap_unit.hp, "view.hp must match UnitSnapshot.hp");
         assert_eq!(view.pos, snap_unit.pos, "view.pos must match UnitSnapshot.pos");
-        assert_eq!(view.action_points, snap_unit.action_points, "view.ap must match");
+        // AP is read from pools[Ap] on engine Unit.
+        let view_ap = view.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0);
+        assert_eq!(view_ap, snap_unit.action_points, "view.ap must match");
     }
 }
 

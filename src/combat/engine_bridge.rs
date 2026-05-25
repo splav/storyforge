@@ -251,9 +251,6 @@ pub fn from_ecs(
                 damage_taken_bonus,
                 base_speed: speed.0,
                 speed: speed.0 + speed_bonus,
-                action_points: ap.action_points,
-                max_ap: ap.max_ap,
-                movement_points: ap.movement_points,
                 // Bootstrap-initial: a unit always enters combat with a full reaction
                 // budget. We intentionally ignore `Reactions.remaining` here — the ECS
                 // default starts at 0 (matching `Effect::Spawn`'s reactions_left=0 for
@@ -263,9 +260,6 @@ pub fn from_ecs(
                 reactions_left: reactions.max as i32,
                 reactions_max: reactions.max as i32,
                 statuses: statuses_vec,
-                rage: rage_pool,
-                mana: mana_pool,
-                energy: energy_pool,
                 summoner: None,
                 // Per-combat fields populated by bootstrap_combat_state after from_ecs.
                 caster_context: combat_engine::CasterContext::default(),
@@ -990,28 +984,7 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
             }
         }
 
-        // ── Resource changes ──────────────────────────────────────────────────
-        Event::RageGained { unit, current, max } => {
-            if let Some(ent) = ctx.id_map.get_entity(*unit) {
-                ctx.log.push(CombatEvent::RageGained {
-                    actor: ent,
-                    current: *current,
-                    max: *max,
-                });
-            }
-        }
-        Event::ManaRegenerated { unit, current, max } => {
-            if let Some(ent) = ctx.id_map.get_entity(*unit) {
-                ctx.log.push(CombatEvent::ManaChanged {
-                    actor: ent,
-                    current: *current,
-                    max: *max,
-                });
-            }
-        }
-        Event::EnergyRegenerated { .. } => {
-            // no-op: energy regen has no CombatLog entry yet
-        }
+        // ── Resource changes (C6: only PoolChanged remains) ──────────────────
 
         // ── Crit-fail (cast only) ─────────────────────────────────────────────
         Event::CritFailed { actor: actor_uid, outcome } => {
@@ -1099,7 +1072,7 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
             // via pending_phases.0.push(...) after the translate_events call
         }
 
-        // ── Unified pool-change (C4, dual-emitted alongside legacy events) ────
+        // ── Unified pool-change (C6: sole pool-mutation event) ───────────────
         Event::PoolChanged { unit, pool, current, max, cause } => {
             if let Some(ent) = ctx.id_map.get_entity(*unit) {
                 ctx.log.push(CombatEvent::PoolChanged {
@@ -1828,15 +1801,9 @@ mod tests {
             damage_taken_bonus: 0,
             base_speed: 3,
             speed: 3,
-            action_points: 1,
-            max_ap: 1,
-            movement_points: 3,
             reactions_left: 1,
             reactions_max: 1,
             statuses: Vec::new(),
-            rage: None,
-            mana: None,
-            energy: None,
             summoner: None,
             caster_context: combat_engine::CasterContext::default(),
             aoo_dice: None,

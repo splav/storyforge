@@ -46,20 +46,18 @@ impl ActionState for SnapshotActionState<'_> {
                 )
             },
         );
+        use combat_engine::{enum_map, PoolKind};
         Some(ActorView {
             pos: u.pos,
             team: u.team,
             hp: u.hp,
-            ap: u.action_points,
-            pools: {
-                use combat_engine::{enum_map, PoolKind};
-                enum_map::enum_map! {
-                    PoolKind::Mana   => u.mana.map(|(cur, _)| cur),
-                    PoolKind::Rage   => u.rage.map(|(cur, _)| cur),
-                    PoolKind::Energy => u.energy.map(|(cur, _)| cur),
-                    PoolKind::Ap     => None,
-                    PoolKind::Mp     => None,
-                }
+            ap: u.pools[PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
+            pools: enum_map::enum_map! {
+                PoolKind::Mana   => u.pools[PoolKind::Mana].map(|(c, _)| c),
+                PoolKind::Rage   => u.pools[PoolKind::Rage].map(|(c, _)| c),
+                PoolKind::Energy => u.pools[PoolKind::Energy].map(|(c, _)| c),
+                PoolKind::Ap     => None,
+                PoolKind::Mp     => None,
             },
             causes_disadvantage,
             blocks_mana_abilities,

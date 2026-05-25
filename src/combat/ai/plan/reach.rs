@@ -41,7 +41,8 @@ pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
         .collect();
 
     let env = MovementEnv { enemy_positions, stop_blockers };
-    reach_from_env(actor.pos, actor.movement_points, &env)
+    let mp = actor.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    reach_from_env(actor.pos, mp, &env)
 }
 
 #[cfg(test)]

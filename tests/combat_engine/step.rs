@@ -15,7 +15,6 @@ use storyforge::combat_engine::{
     legality::IllegalReason,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     step::step,
-    PoolChangeCause, PoolKind,
 };
 use storyforge::game::hex::hex_from_offset;
 
@@ -54,15 +53,9 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
         damage_taken_bonus: 0,
         base_speed: 6,
         speed: 6,
-        action_points: 2,
-        max_ap: 2,
-        movement_points: 6,
         reactions_left: 1,
         reactions_max: 1,
         statuses: vec![],
-        rage: None,
-        mana: None,
-        energy: None,
         summoner: None,
         caster_context: Default::default(),
         aoo_dice: None,
@@ -117,8 +110,9 @@ fn step_move_no_enemies() {
             cause: combat_engine::PoolChangeCause::Spent, .. }
     )), "PoolChanged{{Spent,Mp}} must fire on Move");
 
-    // MP reduced.
-    assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 4); // 6 - 2
+    // MP reduced: 6 - 2 = 4.
+    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    assert_eq!(mp, 4);
     // Final position.
     assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(2, 0));
 }
@@ -128,7 +122,8 @@ fn step_move_no_enemies() {
 #[test]
 fn step_returns_out_of_mp_error() {
     let mut actor = make_unit(1, Team::Player, 0, 0);
-    actor.movement_points = 1;
+    // Set MP to 1 (max stays 6 from make_unit).
+    actor.pools[combat_engine::PoolKind::Mp] = Some((1, 6));
     let mut state = state_with(vec![actor]);
     // path of 2 but only 1 MP
     let path = vec![hex_from_offset(1, 0), hex_from_offset(2, 0)];
@@ -138,8 +133,9 @@ fn step_returns_out_of_mp_error() {
         .map(|(ev, _)| ev)
         .expect_err("should fail with OutOfMP");
     assert_eq!(err, ActionError::OutOfMP);
-    // State unchanged (rollback).
-    assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 1);
+    // State unchanged (rollback): MP still 1.
+    let mp = state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+    assert_eq!(mp, 1);
 }
 
 // ── step_move_unknown_actor ───────────────────────────────────────────────────
@@ -168,7 +164,7 @@ fn step_move_with_aoo_chain() {
     //   enemy A at (0,1) — adjacent to (0,0) but not (1,0)? Let's verify later.
     // We use a simpler setup: mover at col=1, enemy at col=0 (adjacent), dest col=3.
     let mut mover = make_unit(1, Team::Player, 1, 0);
-    mover.movement_points = 4;
+    mover.pools[combat_engine::PoolKind::Mp] = Some((4, 6));
 
     let mover_start = hex_from_offset(1, 0);
     let step1 = hex_from_offset(2, 0);   // moves away from enemy
@@ -177,7 +173,7 @@ fn step_move_with_aoo_chain() {
     // Enemy adjacent to mover's start position.
     let mut enemy_a = make_unit(2, Team::Enemy, 0, 0);
     enemy_a.pos = hex_from_offset(0, 0); // adjacent to (1,0)
-    enemy_a.rage = Some((0, 5));
+    enemy_a.pools[combat_engine::PoolKind::Rage] = Some((0, 5));
     enemy_a.aoo_dice = Some(DiceExpr::new(0, 6, 3));
 
     mover.pos = mover_start;
@@ -234,7 +230,7 @@ fn step_actor_death_mid_path_truncates_remaining_aoos() {
     mover.pos = start;
     mover.hp = 1;
     mover.max_hp = 20;
-    mover.movement_points = 4;
+    mover.pools[combat_engine::PoolKind::Mp] = Some((4, 6));
 
     // Two enemies adjacent to `start` but NOT on the path [(1,0),(2,0)],
     // so path-occupancy validation does not reject the move.
@@ -324,7 +320,7 @@ fn step_move_through_ally_succeeds() {
     );
     assert!(result.is_ok(), "passing through ally should succeed");
     assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(2, 0));
-    assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 4);
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 4);
 }
 
 /// Moving through an enemy hex is forbidden; state rolls back.
@@ -345,7 +341,7 @@ fn step_move_through_enemy_returns_path_blocked() {
 
     assert_eq!(err, ActionError::PathBlockedByEnemy { hex: hex_from_offset(1, 0) });
     assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(0, 0));
-    assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 6);
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 6);
 }
 
 /// Destination occupied by a friendly unit is forbidden.
@@ -366,7 +362,7 @@ fn step_move_to_occupied_destination_friend() {
 
     assert_eq!(err, ActionError::DestinationOccupied { hex: hex_from_offset(2, 0) });
     assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(0, 0));
-    assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 6);
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 6);
 }
 
 /// Destination occupied by an enemy unit is also forbidden.
@@ -387,7 +383,7 @@ fn step_move_to_occupied_destination_enemy() {
 
     assert_eq!(err, ActionError::DestinationOccupied { hex: hex_from_offset(2, 0) });
     assert_eq!(state.unit(UnitId(1)).unwrap().pos, hex_from_offset(0, 0));
-    assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 6);
+    assert_eq!(state.unit(UnitId(1)).unwrap().pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 6);
 }
 
 // ── step_two_flankers_only_first_fires_when_lethal ────────────────────────────
@@ -426,7 +422,7 @@ fn step_two_flankers_only_first_fires_when_lethal() {
     let mut mover = make_unit(1, Team::Player, 0, 0);
     mover.pos = start;
     mover.hp = 1;
-    mover.movement_points = 6;
+    mover.pools[combat_engine::PoolKind::Mp] = Some((6, 6));
 
     let aoo = DiceExpr::new(0, 6, 5);
     let mut enemy_a = make_unit(2, Team::Enemy, 0, 0);
@@ -521,7 +517,7 @@ fn step_recursion_depth_capped() {
 
     let mut mover = make_unit(1, Team::Player, 5, 5);
     mover.pos = start;
-    mover.movement_points = 20;
+    mover.pools[combat_engine::PoolKind::Mp] = Some((20, 20));
 
     let neighbors: Vec<_> = start.all_neighbors().into_iter().enumerate().map(|(i, nb)| {
         let mut e = make_unit(100 + i as u64, Team::Enemy, 0, 0);
@@ -649,7 +645,7 @@ fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
     let mut enemy_b = make_unit(2, Team::Enemy, 0, 0);
     enemy_b.pos = enemy_b_start;
     enemy_b.hp = 1;
-    enemy_b.movement_points = 6;
+    enemy_b.pools[combat_engine::PoolKind::Mp] = Some((6, 6));
 
     let mut state = state_with(vec![hero_a, enemy_b]);
     // Queue [A=1, B=2], current = B (index 1).

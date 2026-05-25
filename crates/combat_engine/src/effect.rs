@@ -276,10 +276,8 @@ pub fn apply_effect(
         Effect::DecrementMP { actor, by } => {
             let mut ctx = ApplyCtx::default();
             if let Some(u) = state.unit_mut(*actor) {
-                u.movement_points = (u.movement_points - by).max(0);
-                // Mirror write to pools[Mp].
                 if let Some((pc, max)) = u.pools[crate::PoolKind::Mp].as_mut() {
-                    *pc = u.movement_points;
+                    *pc = (*pc - by).max(0);
                     ctx.pool_events.push(crate::event::Event::PoolChanged {
                         unit: *actor,
                         pool: crate::PoolKind::Mp,
@@ -295,10 +293,8 @@ pub fn apply_effect(
         Effect::DecrementAP { actor, by } => {
             let mut ctx = ApplyCtx::default();
             if let Some(u) = state.unit_mut(*actor) {
-                u.action_points = (u.action_points - by).max(0);
-                // Mirror write to pools[Ap].
                 if let Some((pc, max)) = u.pools[crate::PoolKind::Ap].as_mut() {
-                    *pc = u.action_points;
+                    *pc = (*pc - by).max(0);
                     ctx.pool_events.push(crate::event::Event::PoolChanged {
                         unit: *actor,
                         pool: crate::PoolKind::Ap,
@@ -426,51 +422,39 @@ pub fn apply_effect(
                         u.hp = (u.hp - amount).max(0);
                     }
                     ResourceKind::Mana => {
-                        if let Some((current, _max)) = u.mana.as_mut() {
-                            *current = (*current - amount).max(0);
-                            // Mirror write to pools (primary).
-                            if let Some((pc, max)) = u.pools[crate::PoolKind::Mana].as_mut() {
-                                *pc = *current;
-                                ctx.pool_events.push(crate::event::Event::PoolChanged {
-                                    unit: *actor,
-                                    pool: crate::PoolKind::Mana,
-                                    current: *pc,
-                                    max: *max,
-                                    cause: crate::PoolChangeCause::Spent,
-                                });
-                            }
+                        if let Some((pc, max)) = u.pools[crate::PoolKind::Mana].as_mut() {
+                            *pc = (*pc - amount).max(0);
+                            ctx.pool_events.push(crate::event::Event::PoolChanged {
+                                unit: *actor,
+                                pool: crate::PoolKind::Mana,
+                                current: *pc,
+                                max: *max,
+                                cause: crate::PoolChangeCause::Spent,
+                            });
                         }
                     }
                     ResourceKind::Rage => {
-                        if let Some((current, _max)) = u.rage.as_mut() {
-                            *current = (*current - amount).max(0);
-                            // Mirror write to pools (primary).
-                            if let Some((pc, max)) = u.pools[crate::PoolKind::Rage].as_mut() {
-                                *pc = *current;
-                                ctx.pool_events.push(crate::event::Event::PoolChanged {
-                                    unit: *actor,
-                                    pool: crate::PoolKind::Rage,
-                                    current: *pc,
-                                    max: *max,
-                                    cause: crate::PoolChangeCause::Spent,
-                                });
-                            }
+                        if let Some((pc, max)) = u.pools[crate::PoolKind::Rage].as_mut() {
+                            *pc = (*pc - amount).max(0);
+                            ctx.pool_events.push(crate::event::Event::PoolChanged {
+                                unit: *actor,
+                                pool: crate::PoolKind::Rage,
+                                current: *pc,
+                                max: *max,
+                                cause: crate::PoolChangeCause::Spent,
+                            });
                         }
                     }
                     ResourceKind::Energy => {
-                        if let Some((current, _max)) = u.energy.as_mut() {
-                            *current = (*current - amount).max(0);
-                            // Mirror write to pools (primary).
-                            if let Some((pc, max)) = u.pools[crate::PoolKind::Energy].as_mut() {
-                                *pc = *current;
-                                ctx.pool_events.push(crate::event::Event::PoolChanged {
-                                    unit: *actor,
-                                    pool: crate::PoolKind::Energy,
-                                    current: *pc,
-                                    max: *max,
-                                    cause: crate::PoolChangeCause::Spent,
-                                });
-                            }
+                        if let Some((pc, max)) = u.pools[crate::PoolKind::Energy].as_mut() {
+                            *pc = (*pc - amount).max(0);
+                            ctx.pool_events.push(crate::event::Event::PoolChanged {
+                                unit: *actor,
+                                pool: crate::PoolKind::Energy,
+                                current: *pc,
+                                max: *max,
+                                cause: crate::PoolChangeCause::Spent,
+                            });
                         }
                     }
                 }
@@ -514,19 +498,15 @@ pub fn apply_effect(
         Effect::GainRage { target } => {
             let mut ctx = ApplyCtx::default();
             if let Some(u) = state.unit_mut(*target) {
-                if let Some((current, max)) = u.rage.as_mut() {
-                    *current = (*current + 1).min(*max);
-                    // Mirror write to pools[Rage].
-                    if let Some((pc, pmax)) = u.pools[crate::PoolKind::Rage].as_mut() {
-                        *pc = *current;
-                        ctx.pool_events.push(crate::event::Event::PoolChanged {
-                            unit: *target,
-                            pool: crate::PoolKind::Rage,
-                            current: *pc,
-                            max: *pmax,
-                            cause: crate::PoolChangeCause::Gained,
-                        });
-                    }
+                if let Some((pc, pmax)) = u.pools[crate::PoolKind::Rage].as_mut() {
+                    *pc = (*pc + 1).min(*pmax);
+                    ctx.pool_events.push(crate::event::Event::PoolChanged {
+                        unit: *target,
+                        pool: crate::PoolKind::Rage,
+                        current: *pc,
+                        max: *pmax,
+                        cause: crate::PoolChangeCause::Gained,
+                    });
                 }
             }
             (vec![], ctx)
@@ -867,15 +847,12 @@ pub fn apply_effect(
             };
 
             let new_uid = state.alloc_synthetic_uid();
-            let mana_pool   = if template.mana_max   > 0 { Some((template.mana_max,   template.mana_max))   } else { None };
-            let rage_pool   = if template.rage_max   > 0 { Some((0,                   template.rage_max))   } else { None };
-            let energy_pool = if template.energy_max > 0 { Some((template.energy_max, template.energy_max)) } else { None };
             let spawn_pools = enum_map::enum_map! {
-                crate::PoolKind::Mana   => mana_pool,
-                crate::PoolKind::Rage   => rage_pool,
-                crate::PoolKind::Energy => energy_pool,
-                crate::PoolKind::Ap     => Some((template.max_ap,       template.max_ap)),
-                crate::PoolKind::Mp     => Some((template.base_speed,   template.base_speed)),
+                crate::PoolKind::Mana   => if template.mana_max   > 0 { Some((template.mana_max,   template.mana_max))   } else { None },
+                crate::PoolKind::Rage   => if template.rage_max   > 0 { Some((0,                   template.rage_max))   } else { None },
+                crate::PoolKind::Energy => if template.energy_max > 0 { Some((template.energy_max, template.energy_max)) } else { None },
+                crate::PoolKind::Ap     => Some((template.max_ap,     template.max_ap)),
+                crate::PoolKind::Mp     => Some((template.base_speed, template.base_speed)),
             };
             let new_unit = Unit {
                 id: new_uid,
@@ -888,15 +865,9 @@ pub fn apply_effect(
                 damage_taken_bonus: 0,
                 base_speed: template.base_speed,
                 speed: template.base_speed,
-                action_points: template.max_ap,
-                max_ap: template.max_ap,
-                movement_points: template.base_speed,
                 reactions_left: 0,
                 reactions_max: 1,
                 statuses: Vec::new(),
-                rage: rage_pool,
-                mana: mana_pool,
-                energy: energy_pool,
                 summoner: Some(*summoner),
                 caster_context: template.caster_context.clone(),
                 aoo_dice: template.aoo_dice,

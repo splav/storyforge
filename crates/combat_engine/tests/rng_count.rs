@@ -34,15 +34,9 @@ fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
         damage_taken_bonus: 0,
         base_speed: 6,
         speed: 6,
-        action_points: 4,
-        max_ap: 4,
-        movement_points: 10,
         reactions_left: 1,
         reactions_max: 1,
         statuses: vec![],
-        rage: None,
-        mana: None,
-        energy: None,
         summoner: None,
         caster_context: Default::default(),
         aoo_dice: None,
@@ -181,7 +175,7 @@ fn cast_3_targets_consumes_d20_plus_3_damage_rolls() {
     let neighbors: Vec<Hex> = target_pos.all_neighbors().to_vec();
 
     let mut actor = make_unit(1, Team::Player, Hex::ZERO);
-    actor.action_points = 4;
+    // AP is already 4 from make_unit; pool is canonical since Phase C-6.
     // CritFailOutcome is now on the unit (5c.1); CastContent only needs ability_def.
     actor.caster_context.crit_fail_outcome = CritFailOutcome::Miss;
 

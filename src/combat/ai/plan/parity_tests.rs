@@ -293,8 +293,8 @@ mod tests {
 
         let a = sim.unit(actor_id).unwrap();
         // Phase 3 TODO: once engine emits GrantMovement effect, assert a.movement_points == 3 + 5.
-        assert_eq!(a.movement_points, 3, "engine defers GrantMovement to Phase 3; MP unchanged");
-        assert_eq!(a.action_points, 0, "AP cost still paid");
+        assert_eq!(a.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0), 3, "engine defers GrantMovement to Phase 3; MP unchanged");
+        assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP cost still paid");
     }
 
     /// `OutcomePrimary::RestoreResources` — engine defers to Phase 3.
@@ -325,11 +325,11 @@ mod tests {
 
         let a = sim.unit(actor_id).unwrap();
         // Phase 3 TODO: once engine emits RestoreResources effect, assert +1 on each.
-        assert_eq!(a.action_points, 0, "AP cost paid");
+        assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP cost paid");
         assert_eq!(a.hp, 15, "engine defers RestoreResources to Phase 3; HP unchanged");
-        assert_eq!(a.mana, Some((3, 10)), "mana unchanged");
-        assert_eq!(a.rage, Some((1, 5)), "rage unchanged");
-        assert_eq!(a.energy, Some((0, 8)), "energy unchanged");
+        assert_eq!(a.pools[combat_engine::PoolKind::Mana], Some((3, 10)), "mana unchanged");
+        assert_eq!(a.pools[combat_engine::PoolKind::Rage], Some((1, 5)), "rage unchanged");
+        assert_eq!(a.pools[combat_engine::PoolKind::Energy], Some((0, 8)), "energy unchanged");
     }
 
     /// `OutcomePrimary::Summon` — sim does not spawn units; snapshot is unchanged
@@ -373,8 +373,8 @@ mod tests {
 
         let a = sim.unit(actor_id).unwrap();
         // Costs deducted (AP + mana).
-        assert_eq!(a.action_points, 0, "AP paid");
-        assert_eq!(a.mana, Some((before_mana - 3, 10)), "mana paid");
+        assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP paid");
+        assert_eq!(a.pools[combat_engine::PoolKind::Mana], Some((before_mana - 3, 10)), "mana paid");
         // No new unit spawned.
         assert_eq!(
             sim.snapshot.state.units().len(),
@@ -420,8 +420,8 @@ mod tests {
         let t = sim.unit(target_id).unwrap();
 
         // Costs deducted.
-        assert_eq!(a.action_points, 0, "AP paid");
-        assert_eq!(a.rage, Some((2, 10)), "rage paid");
+        assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP paid");
+        assert_eq!(a.pools[combat_engine::PoolKind::Rage], Some((2, 10)), "rage paid");
         // Primary has no HP effect on target.
         assert_eq!(t.hp, before_hp, "target HP unchanged by None primary");
         // Status landed (non-None status is applied even with None primary).
@@ -636,9 +636,9 @@ mod tests {
                 // AP.
                 let expected_ap = (actor.action_points - def.cost_ap).max(0);
                 assert_eq!(
-                    actor_after.action_points, expected_ap,
+                    actor_after.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), expected_ap,
                     "[{label}] AP after={} expected={}",
-                    actor_after.action_points, expected_ap,
+                    actor_after.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), expected_ap,
                 );
                 // Per-resource costs.
                 for cost in &def.costs {
@@ -743,9 +743,9 @@ mod tests {
     fn resource_of_view(u: &crate::combat::ai::world::snapshot::UnitView<'_>, kind: ResourceKind) -> i32 {
         match kind {
             ResourceKind::Hp => u.hp,
-            ResourceKind::Mana => u.mana.map(|(c, _)| c).unwrap_or(0),
-            ResourceKind::Rage => u.rage.map(|(c, _)| c).unwrap_or(0),
-            ResourceKind::Energy => u.energy.map(|(c, _)| c).unwrap_or(0),
+            ResourceKind::Mana => u.pools[combat_engine::PoolKind::Mana].map(|(c, _)| c).unwrap_or(0),
+            ResourceKind::Rage => u.pools[combat_engine::PoolKind::Rage].map(|(c, _)| c).unwrap_or(0),
+            ResourceKind::Energy => u.pools[combat_engine::PoolKind::Energy].map(|(c, _)| c).unwrap_or(0),
         }
     }
 

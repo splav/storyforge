@@ -207,7 +207,12 @@ use crate::game::hex::Hex;
 /// `EnergyRegenerated`/`RageGained`. AP/MP refill at turn-start now emits
 /// `PoolChanged{cause: Refill}` (previously silent). Old v40 logs are
 /// incompatible (clean break).
-pub const SCHEMA_VERSION: u32 = 41;
+/// v42: Phase C-6 final cleanup — legacy `Unit` fields (`mana`, `rage`,
+/// `energy`, `action_points`, `max_ap`, `movement_points`) removed entirely.
+/// `Event::PoolChanged` is now the sole canonical pool-mutation event;
+/// dual-emit of `ManaRegenerated`/`EnergyRegenerated`/`RageGained` dropped.
+/// Old v41 logs are incompatible (clean break).
+pub const SCHEMA_VERSION: u32 = 42;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init

@@ -519,9 +519,9 @@ fn actor_debug(active: UnitView<'_>) -> ActorDebug {
         max_hp: active.max_hp,
         threat: active.cache.threat,
         tags: active.cache.tags,
-        action_points: active.action_points,
-        max_ap: active.max_ap,
-        movement_points: active.movement_points,
+        action_points: active.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
+        max_ap: active.pools[combat_engine::PoolKind::Ap].map(|(_, m)| m).unwrap_or(0),
+        movement_points: active.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0),
     }
 }
 

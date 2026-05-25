@@ -569,12 +569,12 @@ fn parity_rage_real_vs_sim() {
 
     // Real pipeline: both source and target gain +1 rage per damage event.
     assert_eq!(
-        sim.unit(attacker_id).unwrap().rage,
+        sim.unit(attacker_id).unwrap().pools[storyforge::combat_engine::PoolKind::Rage],
         Some((6, 10)),
         "attacker rage (5/10) should become (6/10) after dealing damage",
     );
     assert_eq!(
-        sim.unit(defender_id).unwrap().rage,
+        sim.unit(defender_id).unwrap().pools[storyforge::combat_engine::PoolKind::Rage],
         Some((4, 10)),
         "defender rage (3/10) should become (4/10) after taking damage",
     );
@@ -681,14 +681,14 @@ fn parity_rage_aoe_real_vs_sim() {
 
     // Attacker gets +1 per damage event → +3 total.
     assert_eq!(
-        sim.unit(attacker_id).unwrap().rage,
+        sim.unit(attacker_id).unwrap().pools[storyforge::combat_engine::PoolKind::Rage],
         Some((8, 10)),
         "attacker rage (5/10) + 3 hits = (8/10)",
     );
     // Each defender gets +1.
-    assert_eq!(sim.unit(d1_id).unwrap().rage, Some((1, 10)), "d1 (0/10) → (1/10)");
-    assert_eq!(sim.unit(d2_id).unwrap().rage, Some((1, 10)), "d2 (0/10) → (1/10)");
-    assert_eq!(sim.unit(d3_id).unwrap().rage, Some((1, 10)), "d3 (0/10) → (1/10)");
+    assert_eq!(sim.unit(d1_id).unwrap().pools[storyforge::combat_engine::PoolKind::Rage], Some((1, 10)), "d1 (0/10) → (1/10)");
+    assert_eq!(sim.unit(d2_id).unwrap().pools[storyforge::combat_engine::PoolKind::Rage], Some((1, 10)), "d2 (0/10) → (1/10)");
+    assert_eq!(sim.unit(d3_id).unwrap().pools[storyforge::combat_engine::PoolKind::Rage], Some((1, 10)), "d3 (0/10) → (1/10)");
 }
 
 /// Parity check (12.3, AoO branch): when a Move provokes an AoO, the real
@@ -738,9 +738,9 @@ fn parity_aoo_grants_rage_real_vs_sim() {
     );
 
     // Both sides bumped by exactly 1, mirroring `for actor in [attacker, ev.actor]`.
-    assert_eq!(sim.actor_unit().unwrap().rage, Some((5, 10)), "victim 4 → 5");
+    assert_eq!(sim.actor_unit().unwrap().pools[storyforge::combat_engine::PoolKind::Rage], Some((5, 10)), "victim 4 → 5");
     assert_eq!(
-        sim.unit(enemy_id).unwrap().rage,
+        sim.unit(enemy_id).unwrap().pools[storyforge::combat_engine::PoolKind::Rage],
         Some((8, 10)),
         "AoO attacker 7 → 8",
     );

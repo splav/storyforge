@@ -14,7 +14,7 @@ pub(super) fn fallback_move(
     snap: &BattleSnapshot,
     maps: &InfluenceMaps,
 ) -> AiDecision {
-    if active.movement_points == 0 {
+    if active.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0) == 0 {
         return AiDecision::EndTurn;
     }
 

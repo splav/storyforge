@@ -70,7 +70,8 @@ fn process_action_move_writes_engine_state_and_projects_to_ecs() {
     let (engine_pos, engine_mp) = {
         let state = app.world().resource::<CombatStateRes>();
         let unit = state.0.unit(actor_uid).expect("actor must still be in engine state");
-        (unit.pos, unit.movement_points)
+        let mp = unit.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+        (unit.pos, mp)
     };
     assert_eq!(engine_pos, target, "engine state must show actor at target hex after step()");
     assert_eq!(engine_mp, 5, "engine movement_points must be 6 - 1 = 5 after one-hex move");
@@ -481,15 +482,9 @@ fn projector_writes_engine_mutation_to_ecs() {
             damage_taken_bonus: 0,
             base_speed: 6,
             speed: 6,
-            action_points: 2,
-            max_ap: 2,
-            movement_points: 6,
             reactions_left: 1,
             reactions_max: 1,
             statuses: vec![],
-            rage: None,
-            mana: None,
-            energy: None,
             summoner: None,
             caster_context: Default::default(),
             aoo_dice: None,
@@ -525,7 +520,6 @@ fn projector_writes_engine_mutation_to_ecs() {
         let unit = res.0.unit_mut(new_actor_uid).expect("unit must be in engine state");
         unit.pos = target_pos;
         unit.hp = target_hp;
-        unit.movement_points = target_mp;
         unit.pools[combat_engine::PoolKind::Mp] = Some((target_mp, target_mp));
         unit.reactions_left = target_reactions;
     }
@@ -607,13 +601,7 @@ fn run_cast_log_test(
     common::apps::bridge::bootstrap(&mut app);
 
     let caster_uid = entity_to_uid(caster);
-    app.world_mut()
-        .resource_mut::<CombatStateRes>()
-        .0
-        .unit_mut(caster_uid)
-        .unwrap()
-        .action_points = 2;
-
+    // AP is now in pools (canonical since Phase C-6); no legacy field write needed.
     setup_unit(
         app.world_mut()
             .resource_mut::<CombatStateRes>()
@@ -759,15 +747,17 @@ fn cast_emits_mana_changed_log_entry() {
     };
 
     run_cast_log_test(ability_def, common::apps::bridge::bridge_stats(), |unit| {
-        unit.mana = Some((10, 10));
         unit.pools[combat_engine::PoolKind::Mana] = Some((10, 10));
     }, |log| {
         let mana_events: Vec<_> = log.0.iter().filter_map(|e| {
-            if let CombatEvent::ManaChanged { actor: a, current, max } = e {
+            if let CombatEvent::PoolChanged {
+                actor: a, pool: combat_engine::PoolKind::Mana,
+                current, max, cause: combat_engine::PoolChangeCause::Spent
+            } = e {
                 Some((*a, *current, *max))
             } else { None }
         }).collect();
-        assert_eq!(mana_events.len(), 1, "expected exactly one ManaChanged, got {:?}", mana_events);
+        assert_eq!(mana_events.len(), 1, "expected exactly one PoolChanged{{Spent,Mana}}, got {:?}", mana_events);
         let (_, mc_current, mc_max) = mana_events[0];
         assert_eq!(mc_current, 7, "mana after cast must be 10 - 3 = 7");
         assert_eq!(mc_max, 10, "mana max must be 10");
@@ -829,9 +819,7 @@ fn process_action_system_routes_cast_into_engine() {
     // state directly so PayCost has a pool to deduct from.
     let caster_uid = entity_to_uid(caster);
     common::apps::bridge::with_engine_unit(&mut app, caster, |unit| {
-        unit.action_points = 2;
-        unit.pools[combat_engine::PoolKind::Ap] = Some((2, unit.max_ap));
-        unit.mana = Some((10, 10));
+        unit.pools[combat_engine::PoolKind::Ap] = Some((2, 2));
         unit.pools[combat_engine::PoolKind::Mana] = Some((10, 10));
     });
 
@@ -842,8 +830,16 @@ fn process_action_system_routes_cast_into_engine() {
     // Engine state: caster's AP and mana paid.
     let state = app.world().resource::<CombatStateRes>();
     let caster_unit = state.0.unit(caster_uid).expect("caster still in state");
-    assert_eq!(caster_unit.action_points, 1, "AP cost paid");
-    assert_eq!(caster_unit.mana, Some((7, 10)), "Mana cost paid (10 - 3)");
+    assert_eq!(
+        caster_unit.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
+        1,
+        "AP cost paid"
+    );
+    assert_eq!(
+        caster_unit.pools[combat_engine::PoolKind::Mana],
+        Some((7, 10)),
+        "Mana cost paid (10 - 3)"
+    );
 }
 
 // ── Phase 2 step 7c: Mana + StatusEffects projection tests ──────────────────
@@ -883,22 +879,16 @@ fn projector_writes_mana_from_engine_state() {
         damage_taken_bonus: 0,
         base_speed: 6,
         speed: 6,
-        action_points: 1,
-        max_ap: 1,
-        movement_points: 6,
         reactions_left: 1,
         reactions_max: 1,
         statuses: vec![],
-        rage: None,
-        mana: Some((10, 10)),
-        energy: None,
         summoner: None,
         caster_context: Default::default(),
         aoo_dice: None,
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         pools: combat_engine::enum_map::enum_map! {
-            combat_engine::PoolKind::Mana   => None,
+            combat_engine::PoolKind::Mana   => Some((10, 10)),
             combat_engine::PoolKind::Rage   => None,
             combat_engine::PoolKind::Energy => None,
             combat_engine::PoolKind::Ap     => Some((1, 1)),
@@ -919,7 +909,6 @@ fn projector_writes_mana_from_engine_state() {
     {
         let mut res = app.world_mut().resource_mut::<CombatStateRes>();
         let u = res.0.unit_mut(actor_uid).expect("unit in state");
-        u.mana = Some((4, 10));
         u.pools[combat_engine::PoolKind::Mana] = Some((4, 10));
     }
 
@@ -929,8 +918,9 @@ fn projector_writes_mana_from_engine_state() {
         .world()
         .entity(actor)
         .get::<Mana>()
-        .expect("actor must have Mana");
-    assert_eq!(mana.current, 4, "Mana.current must match engine after projection");
+        .expect("Mana component must exist");
+    assert_eq!(mana.current, 4, "Mana.current must equal engine mana after projection");
+    assert_eq!(mana.max, 10, "Mana.max must remain unchanged");
 }
 
 /// Projector writes `StatusEffects` from engine state.
@@ -963,15 +953,9 @@ fn projector_writes_statuses_from_engine_state() {
         damage_taken_bonus: 0,
         base_speed: 6,
         speed: 6,
-        action_points: 1,
-        max_ap: 1,
-        movement_points: 6,
         reactions_left: 1,
         reactions_max: 1,
         statuses: vec![],
-        rage: None,
-        mana: None,
-        energy: None,
         summoner: None,
         caster_context: Default::default(),
         aoo_dice: None,
@@ -1020,9 +1004,7 @@ fn projector_writes_statuses_from_engine_state() {
     assert_eq!(s.rounds_remaining, 3, "rounds_remaining must match");
     assert_eq!(s.dot_per_tick, 2, "dot_per_tick must match");
     assert_eq!(s.applier, actor, "applier entity must resolve to actor");
-}
-
-/// Projector preserves aura-applied ECS statuses that the engine doesn't know about.
+}// Projector preserves aura-applied ECS statuses that the engine doesn't know about.
 ///
 /// The aura entry (written by `apply_auras_system` in TurnStart, after
 /// `init_state_from_ecs`) has a different applier entity than the
@@ -1048,8 +1030,6 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
     app.world_mut().resource_mut::<UnitIdMap>().insert(aura_source, aura_source_uid);
 
     // Pre-seed ECS: actor already has an aura-applied status (aura_buff from aura_source).
-    // This simulates what apply_auras_system writes in TurnStart, which the engine
-    // doesn't know about because init_state_from_ecs ran before TurnStart.
     app.world_mut()
         .entity_mut(actor)
         .get_mut::<StatusEffects>()
@@ -1062,7 +1042,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
             applier: aura_source,
         });
 
-    // Seed engine state: actor has no statuses (engine was seeded before aura was applied).
+    // Seed engine state: actor has no statuses.
     let actor_unit = Unit {
         id: actor_uid,
         team: EngineTeam::Player,
@@ -1074,15 +1054,9 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         damage_taken_bonus: 0,
         base_speed: 6,
         speed: 6,
-        action_points: 1,
-        max_ap: 1,
-        movement_points: 6,
         reactions_left: 1,
         reactions_max: 1,
         statuses: vec![],
-        rage: None,
-        mana: None,
-        energy: None,
         summoner: None,
         caster_context: Default::default(),
         aoo_dice: None,
@@ -1114,15 +1088,9 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         damage_taken_bonus: 0,
         base_speed: 6,
         speed: 6,
-        action_points: 1,
-        max_ap: 1,
-        movement_points: 6,
         reactions_left: 1,
         reactions_max: 1,
         statuses: vec![],
-        rage: None,
-        mana: None,
-        energy: None,
         summoner: None,
         caster_context: Default::default(),
         aoo_dice: None,
@@ -1187,7 +1155,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         .iter()
         .find(|s| s.id.0 == "burning")
         .unwrap();
-    assert_eq!(burning_entry.applier, actor, "burning applier must resolve to actor entity");
+    assert_eq!(burning_entry.applier, actor, "burning applier maps from actor_uid to actor entity");
 }
 
 // ── Phase 2 step 7d: crit-fail event → CombatLog translation tests ───────────
@@ -1268,9 +1236,9 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
     {
         let mut state = app.world_mut().resource_mut::<CombatStateRes>();
         let unit = state.0.unit_mut(caster_uid).unwrap();
-        unit.mana = Some((10, 10));
+        // Mana pool set via canonical pools field (Phase C-6).
         unit.pools[combat_engine::PoolKind::Mana] = Some((10, 10));
-        unit.action_points = 2;
+        // AP is already set by bootstrap; pool is canonical since Phase C-6.
     }
 
     common::apps::bridge::script_d20(&mut app, d20);
@@ -1393,7 +1361,7 @@ fn cast_summon_creates_ecs_entity_synchronously() {
 
     // Ensure summoner has AP.
     common::apps::bridge::with_engine_unit(&mut app, summoner, |unit| {
-        unit.action_points = 1;
+        unit.pools[combat_engine::PoolKind::Ap] = Some((1, 1));
     });
 
     // Script crit-fail d20 to non-1 (summon has no damage roll after that).
@@ -1995,8 +1963,8 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
     // Set hero: AP=1 (default is 1 from CombatantBundle), MP=0.
     // Bridge auto-end fires when AP<=0 && MP<=0 after cast.
     common::apps::bridge::with_engine_unit(&mut app, hero, |u| {
-        u.action_points = 1;
-        u.movement_points = 0;
+        u.pools[combat_engine::PoolKind::Ap] = Some((1, 1));
+        u.pools[combat_engine::PoolKind::Mp] = Some((0, 6));
     });
 
     // Insert ActiveCombatant on hero to simulate it being the active combatant.
@@ -2173,8 +2141,8 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
 
     // Hero: AP=1, MP=0 → cast exhausts AP.
     common::apps::bridge::with_engine_unit(&mut app, hero, |u| {
-        u.action_points = 1;
-        u.movement_points = 0;
+        u.pools[combat_engine::PoolKind::Ap] = Some((1, 1));
+        u.pools[combat_engine::PoolKind::Mp] = Some((0, 6));
     });
 
     common::apps::bridge::script_no_crit_fail(&mut app);

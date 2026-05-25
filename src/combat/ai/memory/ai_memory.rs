@@ -38,7 +38,7 @@ impl PlanSnapshot {
     ) -> Self {
         Self {
             actor_hp: actor.hp,
-            actor_rage: actor.rage.map(|(r, _)| r).unwrap_or(0),
+            actor_rage: actor.pools[combat_engine::PoolKind::Rage].map(|(r, _)| r).unwrap_or(0),
             actor_status_hash: status_hash_engine(&actor.statuses),
             actor_statuses_at_capture: actor.statuses.iter().map(|s| s.id.clone()).collect(),
             expected_actor_pos,
@@ -61,7 +61,7 @@ impl PlanSnapshot {
         if actor.hp < self.actor_hp {
             return Some("actor_hp_drop");
         }
-        if actor.rage.map(|(r, _)| r).unwrap_or(0) != self.actor_rage {
+        if actor.pools[combat_engine::PoolKind::Rage].map(|(r, _)| r).unwrap_or(0) != self.actor_rage {
             return Some("actor_rage_changed");
         }
         if status_hash_engine(&actor.statuses) != self.actor_status_hash {

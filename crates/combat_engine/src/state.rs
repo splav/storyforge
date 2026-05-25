@@ -66,7 +66,8 @@ pub enum RoundPhase {
 
 // ── Unit ─────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(into = "UnitWire")]
 pub struct Unit {
     pub id: UnitId,
     pub team: Team,
@@ -83,32 +84,21 @@ pub struct Unit {
     /// `RefreshAggregates`). Positive = unit takes more damage (vulnerability).
     /// Mirrors `UnitSnapshot.damage_taken_bonus`; kept in sync via the engine's
     /// aggregate refresh.
-    #[serde(default)]
     pub damage_taken_bonus: i32,
     /// Base speed (without status speed_bonus).
     pub base_speed: i32,
     /// Effective speed = base_speed + speed bonuses from statuses.
     pub speed: i32,
-    pub action_points: i32,
-    pub max_ap: i32,
-    pub movement_points: i32,
     pub reactions_left: i32,
     /// Maximum reactions per round. Populated by the bridge from `Reactions.max`.
     pub reactions_max: i32,
     pub statuses: Vec<ActiveStatus>,
-    /// `None` if the unit has no rage mechanic.
-    pub rage: Option<Pool>,
-    /// `None` if the unit has no mana mechanic.
-    pub mana: Option<Pool>,
-    /// `None` if the unit has no energy mechanic.
-    pub energy: Option<Pool>,
     /// Set when this unit was spawned via `Effect::Spawn`. `None` for units
     /// present at combat start (loaded from ECS).
     pub summoner: Option<UnitId>,
     /// Resolved caster stats (weapon dice, modifiers, crit-fail outcome).
     /// Populated at combat init from `Equipment` + `CombatStats` ECS components.
     /// Used by the Cast fanout (damage / heal formulas).
-    #[serde(default)]
     pub caster_context: crate::content::CasterContext,
     /// AoO dice for this unit, if it can perform opportunity attacks.
     /// `Some(dice)` iff the unit has a melee `WeaponAttack` ability and an
@@ -116,38 +106,204 @@ pub struct Unit {
     /// `None` means "cannot AoO" — distinct from `caster_context.weapon_dice`,
     /// which carries the raw weapon dice used for Cast damage rolls (ranged
     /// units have weapon_dice but no aoo_dice).
-    #[serde(default)]
     pub aoo_dice: Option<crate::dice::DiceExpr>,
     /// Passive aura definitions emitted by this unit.
     /// Populated at combat init from the `AuraSource` ECS component.
     /// Empty for units with no auras.
-    #[serde(default)]
     pub auras: Vec<crate::content::AuraDef>,
     /// Pending phase-transition thresholds for this unit (boss-only).
-    /// First entry = next phase to trigger. Bridge translator pops entry[0]
-    /// on `Event::PhaseEntered`. Empty for non-bosses.
-    #[serde(default)]
+    /// First entry = next phase to trigger. Bridge translator reads this to
+    /// write ECS-only deltas on `Event::PhaseEntered`. Empty for non-bosses.
     pub enemy_phases: Vec<crate::content::PhaseEntry>,
 
-    /// **Phase C-2 parallel-shape.** New unified resource table. Currently
-    /// populated alongside legacy fields; not yet read by any code path.
-    /// C3 migrates readers; C5 removes legacy fields.
+    /// Unified resource table. Canonical source of truth for all resource pools
+    /// (Mana, Rage, Energy, Ap, Mp) since Phase C-6.
     ///
     /// Iteration order: `Mana, Rage, Energy, Ap, Mp` (declaration order of
     /// `PoolKind`). Load-bearing for replay-trace determinism.
     ///
     /// **Invariants:**
-    /// - `pools[Mana]`/`pools[Rage]`/`pools[Energy]`: Some iff legacy field is Some.
+    /// - `pools[Mana]`/`pools[Rage]`/`pools[Energy]`: Some iff the unit has
+    ///   that resource mechanic.
     /// - `pools[Ap]`/`pools[Mp]`: Some for every alive combat unit; None
     ///   reserved for future non-combatant entities (none exist today).
-    #[serde(default)]
     pub pools: enum_map::EnumMap<crate::PoolKind, Option<(i32, i32)>>,
 
-    /// **Phase C-2 parallel-shape.** Per-pool turn-start regen policy
-    /// copied from `UnitTemplate.regen_per_pool` at spawn. Currently unused
-    /// by `start_actor_turn`; C3 wires the unified regen loop.
+    /// Per-pool turn-start regen policy copied from `UnitTemplate.regen_per_pool`
+    /// at spawn.
+    pub regen_per_pool: enum_map::EnumMap<crate::PoolKind, crate::RegenRule>,
+}
+
+/// Wire format for `Unit` — includes legacy fields for backward-compatible
+/// deserialization of pre-C6 JSONL fixtures (schema v37–v41) that serialized
+/// `action_points`, `max_ap`, `movement_points`, `mana`, `rage`, `energy`
+/// instead of `pools`. On deserialization, if `pools[Ap]` / `pools[Mp]` are
+/// `None` but legacy AP/MP fields are present, they are migrated into `pools`.
+/// On serialization, `Unit` is written as `UnitWire` with only the canonical
+/// `pools` field (legacy fields are omitted — forward-only output).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct UnitWire {
+    pub id: UnitId,
+    pub team: Team,
+    pub pos: Hex,
+    pub hp: i32,
+    pub max_hp: i32,
+    pub armor: i32,
+    pub armor_bonus: i32,
+    #[serde(default)]
+    pub damage_taken_bonus: i32,
+    pub base_speed: i32,
+    pub speed: i32,
+    pub reactions_left: i32,
+    pub reactions_max: i32,
+    pub statuses: Vec<ActiveStatus>,
+    pub summoner: Option<UnitId>,
+    #[serde(default)]
+    pub caster_context: crate::content::CasterContext,
+    #[serde(default)]
+    pub aoo_dice: Option<crate::dice::DiceExpr>,
+    #[serde(default)]
+    pub auras: Vec<crate::content::AuraDef>,
+    #[serde(default)]
+    pub enemy_phases: Vec<crate::content::PhaseEntry>,
+
+    // ── canonical pools (C-6+) ──────────────────────────────────────────────
+    #[serde(default)]
+    pub pools: enum_map::EnumMap<crate::PoolKind, Option<(i32, i32)>>,
     #[serde(default)]
     pub regen_per_pool: enum_map::EnumMap<crate::PoolKind, crate::RegenRule>,
+
+    // ── legacy fields (pre-C6, for backward-compat deserialization only) ───
+    // Silently ignored on read if `pools` is already populated.
+    #[serde(default)]
+    action_points: Option<i32>,
+    #[serde(default)]
+    max_ap: Option<i32>,
+    #[serde(default)]
+    movement_points: Option<i32>,
+    // Stored as Option<(i32, i32)> in old JSON: [current, max]
+    #[serde(default, deserialize_with = "de_legacy_pool")]
+    mana: Option<(i32, i32)>,
+    #[serde(default, deserialize_with = "de_legacy_pool")]
+    rage: Option<(i32, i32)>,
+    #[serde(default, deserialize_with = "de_legacy_pool")]
+    energy: Option<(i32, i32)>,
+}
+
+/// Deserializes a legacy pool field from either a JSON array `[cur, max]`
+/// or `null`. Pre-C6 fixtures serialized `mana`/`rage`/`energy` as arrays.
+fn de_legacy_pool<'de, D>(d: D) -> Result<Option<(i32, i32)>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    let raw: Option<serde_json::Value> = Option::deserialize(d)?;
+    match raw {
+        None => Ok(None),
+        Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Array(arr)) if arr.len() == 2 => {
+            let cur = arr[0].as_i64().ok_or_else(|| serde::de::Error::custom("expected int"))? as i32;
+            let max = arr[1].as_i64().ok_or_else(|| serde::de::Error::custom("expected int"))? as i32;
+            Ok(Some((cur, max)))
+        }
+        _ => Ok(None),
+    }
+}
+
+impl From<UnitWire> for Unit {
+    fn from(w: UnitWire) -> Self {
+        use crate::PoolKind;
+        let mut pools = w.pools;
+        // Migrate legacy AP/MP if pools[Ap/Mp] absent (pre-C6 fixtures).
+        if pools[PoolKind::Ap].is_none() {
+            if let (Some(ap), Some(max)) = (w.action_points, w.max_ap) {
+                pools[PoolKind::Ap] = Some((ap, max));
+            }
+        }
+        if pools[PoolKind::Mp].is_none() {
+            if let Some(mp) = w.movement_points {
+                // Legacy had no max_mp field — use base_speed as max.
+                pools[PoolKind::Mp] = Some((mp, w.base_speed));
+            }
+        }
+        if pools[PoolKind::Mana].is_none() {
+            if let Some(v) = w.mana {
+                pools[PoolKind::Mana] = Some(v);
+            }
+        }
+        if pools[PoolKind::Rage].is_none() {
+            if let Some(v) = w.rage {
+                pools[PoolKind::Rage] = Some(v);
+            }
+        }
+        if pools[PoolKind::Energy].is_none() {
+            if let Some(v) = w.energy {
+                pools[PoolKind::Energy] = Some(v);
+            }
+        }
+        Unit {
+            id: w.id,
+            team: w.team,
+            pos: w.pos,
+            hp: w.hp,
+            max_hp: w.max_hp,
+            armor: w.armor,
+            armor_bonus: w.armor_bonus,
+            damage_taken_bonus: w.damage_taken_bonus,
+            base_speed: w.base_speed,
+            speed: w.speed,
+            reactions_left: w.reactions_left,
+            reactions_max: w.reactions_max,
+            statuses: w.statuses,
+            summoner: w.summoner,
+            caster_context: w.caster_context,
+            aoo_dice: w.aoo_dice,
+            auras: w.auras,
+            enemy_phases: w.enemy_phases,
+            pools,
+            regen_per_pool: w.regen_per_pool,
+        }
+    }
+}
+
+impl From<Unit> for UnitWire {
+    fn from(u: Unit) -> Self {
+        UnitWire {
+            id: u.id,
+            team: u.team,
+            pos: u.pos,
+            hp: u.hp,
+            max_hp: u.max_hp,
+            armor: u.armor,
+            armor_bonus: u.armor_bonus,
+            damage_taken_bonus: u.damage_taken_bonus,
+            base_speed: u.base_speed,
+            speed: u.speed,
+            reactions_left: u.reactions_left,
+            reactions_max: u.reactions_max,
+            statuses: u.statuses,
+            summoner: u.summoner,
+            caster_context: u.caster_context,
+            aoo_dice: u.aoo_dice,
+            auras: u.auras,
+            enemy_phases: u.enemy_phases,
+            pools: u.pools,
+            regen_per_pool: u.regen_per_pool,
+            // Legacy fields never written — only read for backward compat.
+            action_points: None,
+            max_ap: None,
+            movement_points: None,
+            mana: None,
+            rage: None,
+            energy: None,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Unit {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Unit::from(UnitWire::deserialize(d)?))
+    }
 }
 
 impl Unit {
@@ -409,22 +565,6 @@ impl CombatState {
                             let new = (*cur + amount).min(*max);
                             if new != *cur {
                                 *cur = new;
-                                // Legacy per-pool events (preserved for one cycle).
-                                match kind {
-                                    PoolKind::Mana => events.push(Event::ManaRegenerated {
-                                        unit: actor,
-                                        current: new,
-                                        max: *max,
-                                    }),
-                                    PoolKind::Energy => events.push(Event::EnergyRegenerated {
-                                        unit: actor,
-                                        current: new,
-                                        max: *max,
-                                    }),
-                                    // No legacy event for other Increment pools (none today).
-                                    _ => {}
-                                }
-                                // New unified event (dual-emitted alongside legacy).
                                 events.push(Event::PoolChanged {
                                     unit: actor,
                                     pool: kind,
@@ -442,8 +582,8 @@ impl CombatState {
                             if kind == PoolKind::Mp {
                                 *max = effective_speed;
                             }
-                            // Emit-on-change only: previously silent; now emits
-                            // PoolChanged{Refill} when AP/MP were spent (cur < max).
+                            // Emit-on-change only: emit PoolChanged{Refill} when
+                            // AP/MP were spent (cur < max).
                             if *cur != *max {
                                 *cur = *max;
                                 events.push(Event::PoolChanged {
@@ -458,24 +598,6 @@ impl CombatState {
                             }
                         }
                     }
-                }
-
-                // Mirror back to legacy fields — mandatory until C5 removes them.
-                // Regen happens via pools first; legacy fields are then synced.
-                if let Some((cur, max)) = u.pools[PoolKind::Mana] {
-                    u.mana = Some((cur, max));
-                }
-                if let Some((cur, max)) = u.pools[PoolKind::Rage] {
-                    u.rage = Some((cur, max));
-                }
-                if let Some((cur, max)) = u.pools[PoolKind::Energy] {
-                    u.energy = Some((cur, max));
-                }
-                if let Some((cur, _max)) = u.pools[PoolKind::Ap] {
-                    u.action_points = cur;
-                }
-                if let Some((cur, _max)) = u.pools[PoolKind::Mp] {
-                    u.movement_points = cur;
                 }
             }
         }
@@ -703,15 +825,9 @@ mod tests {
             damage_taken_bonus: 0,
             base_speed: 3,
             speed: 3,
-            action_points,
-            max_ap,
-            movement_points: 3,
             reactions_left: 1,
             reactions_max: 1,
             statuses: vec![],
-            rage: None,
-            mana,
-            energy: None,
             summoner: None,
             caster_context: Default::default(),
             aoo_dice: None,
@@ -739,30 +855,25 @@ mod tests {
 
     #[test]
     fn start_actor_turn_refills_ap_and_regens_mana() {
+        use crate::PoolKind;
         let uid = UnitId(1);
         let mut unit = make_unit(uid, 0, 2, Some((1, 10)));
-        unit.movement_points = 0; // depleted from previous turn
-        unit.pools[crate::PoolKind::Mp] = Some((0, 3)); // sync pools to match legacy field
+        unit.pools[PoolKind::Mp] = Some((0, 3)); // depleted MP
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
 
         let events = state.start_actor_turn(uid, &content);
 
         let u = state.unit(uid).unwrap();
-        assert_eq!(u.action_points, 2);
-        assert_eq!(u.movement_points, 3, "MP refilled to speed");
-        assert_eq!(u.mana, Some((2, 10)));
-        // C4: legacy ManaRegenerated + unified PoolChanged{Regen} for mana,
-        // plus PoolChanged{Refill} for AP and MP (both were depleted).
-        assert!(events.iter().any(|e| matches!(
-            e,
-            Event::ManaRegenerated { unit: UnitId(1), current: 2, max: 10 }
-        )), "legacy ManaRegenerated must still fire");
+        assert_eq!(u.pools[PoolKind::Ap].map(|(c, _)| c), Some(2), "AP refilled to max");
+        assert_eq!(u.pools[PoolKind::Mp].map(|(c, _)| c), Some(3), "MP refilled to speed");
+        assert_eq!(u.pools[PoolKind::Mana], Some((2, 10)), "mana incremented to 2");
+        // C6: only PoolChanged events (no legacy events).
         assert!(events.iter().any(|e| matches!(
             e,
             Event::PoolChanged { unit: UnitId(1), pool: crate::PoolKind::Mana,
                 current: 2, max: 10, cause: crate::PoolChangeCause::Regen }
-        )), "unified PoolChanged{{Regen, Mana}} must fire");
+        )), "PoolChanged{{Regen, Mana}} must fire");
         assert!(events.iter().any(|e| matches!(
             e,
             Event::PoolChanged { pool: crate::PoolKind::Ap,
@@ -777,41 +888,51 @@ mod tests {
 
     #[test]
     fn start_actor_turn_refills_movement_points_to_speed() {
+        use crate::PoolKind;
         let uid = UnitId(11);
         let mut unit = make_unit(uid, 0, 2, None);
         unit.base_speed = 4;
         unit.speed = 4;
-        unit.movement_points = 0;
+        unit.pools[PoolKind::Mp] = Some((0, 4)); // depleted, max matches speed
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
 
         state.start_actor_turn(uid, &content);
 
-        assert_eq!(state.unit(uid).unwrap().movement_points, 4);
+        assert_eq!(
+            state.unit(uid).unwrap().pools[PoolKind::Mp].map(|(c, _)| c),
+            Some(4),
+            "MP refilled to speed=4"
+        );
     }
 
     #[test]
     fn start_actor_turn_refills_mp_to_effective_speed_including_bonus() {
         // When a status grants +2 speed_bonus, u.speed = base_speed + bonus.
         // start_actor_turn must refill to u.speed, not u.base_speed.
+        use crate::PoolKind;
         let uid = UnitId(12);
         let mut unit = make_unit(uid, 0, 2, None);
         unit.base_speed = 3;
         unit.speed = 5; // reflects status speed_bonus of +2
-        unit.movement_points = 0;
+        unit.pools[PoolKind::Mp] = Some((0, 3)); // old max was 3; will be updated to 5
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
 
         state.start_actor_turn(uid, &content);
 
-        assert_eq!(state.unit(uid).unwrap().movement_points, 5,
-            "should refill to effective speed, not base_speed");
+        assert_eq!(
+            state.unit(uid).unwrap().pools[PoolKind::Mp].map(|(c, _)| c),
+            Some(5),
+            "should refill to effective speed, not base_speed"
+        );
     }
 
     #[test]
     fn start_actor_turn_mana_clamps_at_max() {
+        use crate::PoolKind;
         // make_unit(uid, 0, 1, ...) sets AP=0/max=1 — AP refill will fire.
-        // The test focuses on mana: at max (10/10), no ManaRegenerated fires.
+        // The test focuses on mana: at max (10/10), no PoolChanged{Mana} fires.
         let uid = UnitId(2);
         let unit = make_unit(uid, 0, 1, Some((10, 10)));
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
@@ -819,11 +940,7 @@ mod tests {
 
         let events = state.start_actor_turn(uid, &content);
 
-        assert_eq!(state.unit(uid).unwrap().mana, Some((10, 10)));
-        assert!(
-            !events.iter().any(|e| matches!(e, Event::ManaRegenerated { .. })),
-            "no ManaRegenerated when mana already at max",
-        );
+        assert_eq!(state.unit(uid).unwrap().pools[PoolKind::Mana], Some((10, 10)));
         assert!(
             !events.iter().any(|e| matches!(
                 e, Event::PoolChanged { pool: crate::PoolKind::Mana, .. }
@@ -834,18 +951,19 @@ mod tests {
 
     #[test]
     fn start_actor_turn_skips_dead_unit_refills() {
+        use crate::PoolKind;
         let uid = UnitId(3);
         let mut unit = make_unit(uid, 0, 2, Some((1, 10)));
         unit.hp = 0;
-        unit.movement_points = 0;
+        unit.pools[PoolKind::Mp] = Some((0, 3)); // depleted
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
 
         let events = state.start_actor_turn(uid, &content);
 
         let u = state.unit(uid).unwrap();
-        assert_eq!(u.action_points, 0, "dead unit AP unchanged");
-        assert_eq!(u.movement_points, 0, "dead unit MP unchanged");
+        assert_eq!(u.pools[PoolKind::Ap].map(|(c, _)| c), Some(0), "dead unit AP unchanged");
+        assert_eq!(u.pools[PoolKind::Mp].map(|(c, _)| c), Some(0), "dead unit MP unchanged");
         assert!(events.is_empty(), "no refill events and no statuses to tick");
     }
 
@@ -989,8 +1107,11 @@ mod tests {
 
         let events = state.start_actor_turn(applier, &content);
 
-        let no_mana_regen = !events.iter().any(|e| matches!(e, Event::ManaRegenerated { .. }));
-        assert!(no_mana_regen, "dead applier must not regen mana");
+        // Dead applier: no pool regen events.
+        let no_pool_regen = !events.iter().any(|e| matches!(e,
+            Event::PoolChanged { cause: crate::PoolChangeCause::Regen, .. }
+        ));
+        assert!(no_pool_regen, "dead applier must not emit regen events");
         let damaged = events.iter().any(|e| matches!(e,
             Event::UnitDamaged { target, amount, .. }
             if *target == victim && *amount == 4
@@ -1021,9 +1142,10 @@ mod tests {
     }
 
     #[test]
-    fn start_actor_turn_no_statuses_returns_only_pool_events() {
+    fn start_actor_turn_no_statuses_returns_only_refill_events() {
+        use crate::PoolKind;
         // make_unit sets AP=0/max=2 and MP=3/max=3 (already full), mana=5/max=10.
-        // C4: ManaRegenerated (legacy) + PoolChanged{Regen,Mana} + PoolChanged{Refill,Ap}.
+        // C6: only PoolChanged{Regen,Mana} + PoolChanged{Refill,Ap}.
         // MP is already at max (3/3), so no PoolChanged{Refill,Mp}.
         let uid = UnitId(1);
         let unit = make_unit(uid, 0, 2, Some((5, 10)));
@@ -1032,13 +1154,11 @@ mod tests {
 
         let events = state.start_actor_turn(uid, &content);
 
-        assert!(events.iter().any(|e| matches!(e, Event::ManaRegenerated { .. })),
-            "legacy ManaRegenerated must fire");
         assert!(events.iter().any(|e| matches!(
             e,
             Event::PoolChanged { pool: crate::PoolKind::Mana,
                 cause: crate::PoolChangeCause::Regen, .. }
-        )), "unified PoolChanged{{Regen,Mana}} must fire");
+        )), "PoolChanged{{Regen,Mana}} must fire");
         // No PoolChanged{Refill,Mp}: MP was already at max in make_unit.
         assert!(!events.iter().any(|e| matches!(
             e,
@@ -1048,10 +1168,16 @@ mod tests {
         // All events are pool-related; no status tick or damage events.
         for e in &events {
             assert!(
-                matches!(e, Event::ManaRegenerated { .. } | Event::PoolChanged { .. }),
+                matches!(e, Event::PoolChanged { .. }),
                 "unexpected non-pool event with no statuses: {e:?}"
             );
         }
+        // verify AP refill event present
+        assert!(events.iter().any(|e| matches!(
+            e,
+            Event::PoolChanged { pool: PoolKind::Ap,
+                cause: crate::PoolChangeCause::Refill, .. }
+        )), "PoolChanged{{Refill,Ap}} must fire when AP was depleted");
     }
 
     /// ContentView stub that returns a StatusDef with damage_taken_bonus = 2
@@ -1096,66 +1222,48 @@ mod tests {
         );
     }
 
-
     #[test]
-    fn pools_shape_matches_legacy_fields_after_spawn() {
-        // Verify Phase C-2 invariant: Unit.pools tracks legacy resource fields 1:1.
-        // Uses make_unit (which populates both shapes) as the test fixture.
+    fn pools_canonical_after_spawn() {
+        // Verify that pools is the sole source of truth for resources (C6).
+        // Uses make_unit which populates only pools (no legacy fields).
         use crate::PoolKind;
 
-        // Unit with mana set — exercises all five pools.
         let mana: Pool = (5, 10);
         let u = make_unit(UnitId(1), 2, 3, Some(mana));
 
-        // Mana: pools[Mana] == mana
-        assert_eq!(u.pools[PoolKind::Mana], u.mana, "pools[Mana] must mirror legacy mana");
+        // Mana: pools[Mana] == Some((5,10))
+        assert_eq!(u.pools[PoolKind::Mana], Some((5, 10)), "pools[Mana] correct");
 
-        // Rage: both None (make_unit sets no rage)
-        assert_eq!(u.pools[PoolKind::Rage], u.rage, "pools[Rage] must mirror legacy rage");
+        // Rage: None (make_unit sets no rage)
+        assert_eq!(u.pools[PoolKind::Rage], None, "pools[Rage] is None");
 
-        // Energy: both None (make_unit sets no energy)
-        assert_eq!(u.pools[PoolKind::Energy], u.energy, "pools[Energy] must mirror legacy energy");
+        // Energy: None (make_unit sets no energy)
+        assert_eq!(u.pools[PoolKind::Energy], None, "pools[Energy] is None");
 
         // Ap: pools[Ap] == Some((action_points, max_ap))
-        assert_eq!(
-            u.pools[PoolKind::Ap],
-            Some((u.action_points, u.max_ap)),
-            "pools[Ap] must mirror legacy action_points/max_ap",
-        );
+        assert_eq!(u.pools[PoolKind::Ap], Some((2, 3)), "pools[Ap] correct");
 
-        // Mp: pools[Mp] == Some((movement_points, movement_points))
-        // mp-max == current at spawn (speed-derived, no separate max field yet)
-        assert_eq!(
-            u.pools[PoolKind::Mp],
-            Some((u.movement_points, u.movement_points)),
-            "pools[Mp] must mirror legacy movement_points",
-        );
+        // Mp: pools[Mp] == Some((3,3))
+        assert_eq!(u.pools[PoolKind::Mp], Some((3, 3)), "pools[Mp] correct");
     }
 
-    /// C3: verify unified regen loop drives all 5 pools correctly.
+    /// C3/C6: verify unified regen loop drives all 5 pools correctly.
     ///
-    /// - Mana/Energy: incremented by 1, legacy fields mirrored.
-    /// - Ap/Mp: refilled to max, legacy fields mirrored.
+    /// - Mana/Energy: incremented by 1.
+    /// - Ap/Mp: refilled to max.
     /// - Rage: skipped (RegenRule::None), unchanged.
-    /// - Legacy fields match pools after the call.
     #[test]
     fn unified_regen_loop_increments_mana_energy_refills_ap_mp_skips_rage() {
-        use crate::PoolKind;
+        use crate::{PoolKind, PoolChangeCause, RegenRule};
 
         let uid = UnitId(42);
         // Start with all resources partially spent / not full.
         let mut unit = make_unit(uid, 1, 3, Some((4, 10))); // ap=1/3, mana=4/10
-        unit.energy = Some((2, 8));
-        unit.rage   = Some((3, 6));
-        // Sync pools to match (make_unit only sets pools for mana; update others).
         unit.pools[PoolKind::Energy] = Some((2, 8));
         unit.pools[PoolKind::Rage]   = Some((3, 6));
-        // ap already set via make_unit: pools[Ap] = Some((1,3)), action_points=1
-        // mp: make_unit sets pools[Mp]=Some((3,3)), movement_points=3 — spend 1
-        unit.movement_points = 2;
+        // mp: make_unit sets pools[Mp]=Some((3,3)), spend 1
         unit.pools[PoolKind::Mp] = Some((2, 3));
         // Set regen rules: Mana/Energy increment, Ap/Mp refill, Rage none.
-        use crate::RegenRule;
         unit.regen_per_pool[PoolKind::Mana]   = RegenRule::Increment(1);
         unit.regen_per_pool[PoolKind::Rage]   = RegenRule::None;
         unit.regen_per_pool[PoolKind::Energy] = RegenRule::Increment(1);
@@ -1168,55 +1276,47 @@ mod tests {
         let events = state.start_actor_turn(uid, &content);
         let u = state.unit(uid).unwrap();
 
-        // Mana: 4 → 5 (incremented), legacy mirrored.
+        // Mana: 4 → 5 (incremented).
         assert_eq!(u.pools[PoolKind::Mana], Some((5, 10)), "pools[Mana] must increment");
-        assert_eq!(u.mana, Some((5, 10)), "legacy mana must mirror pools[Mana]");
 
-        // Energy: 2 → 3 (incremented), legacy mirrored.
+        // Energy: 2 → 3 (incremented).
         assert_eq!(u.pools[PoolKind::Energy], Some((3, 8)), "pools[Energy] must increment");
-        assert_eq!(u.energy, Some((3, 8)), "legacy energy must mirror pools[Energy]");
 
         // Rage: unchanged at 3 (RegenRule::None).
         assert_eq!(u.pools[PoolKind::Rage], Some((3, 6)), "pools[Rage] must not change");
-        assert_eq!(u.rage, Some((3, 6)), "legacy rage must mirror pools[Rage]");
 
         // Ap: refilled to max=3.
         assert_eq!(u.pools[PoolKind::Ap], Some((3, 3)), "pools[Ap] must refill to max");
-        assert_eq!(u.action_points, 3, "legacy action_points must mirror pools[Ap]");
 
         // Mp: refilled to max=3.
         assert_eq!(u.pools[PoolKind::Mp], Some((3, 3)), "pools[Mp] must refill to max");
-        assert_eq!(u.movement_points, 3, "legacy movement_points must mirror pools[Mp]");
 
-        // C4: dual-emit — legacy per-pool events fire, plus PoolChanged events.
-        // Legacy: ManaRegenerated then EnergyRegenerated (iteration order).
-        assert!(events.iter().any(|e| matches!(e, Event::ManaRegenerated { .. })),
-            "legacy ManaRegenerated must fire");
-        assert!(events.iter().any(|e| matches!(e, Event::EnergyRegenerated { .. })),
-            "legacy EnergyRegenerated must fire");
-        // Unified: PoolChanged{Regen,Mana} and PoolChanged{Regen,Energy}.
+        // C6: PoolChanged events only (no legacy events).
         assert!(events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: crate::PoolKind::Mana, cause: crate::PoolChangeCause::Regen, .. }
+            e, Event::PoolChanged { pool: PoolKind::Mana, cause: PoolChangeCause::Regen, .. }
         )), "PoolChanged{{Regen,Mana}} must fire");
         assert!(events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: crate::PoolKind::Energy, cause: crate::PoolChangeCause::Regen, .. }
+            e, Event::PoolChanged { pool: PoolKind::Energy, cause: PoolChangeCause::Regen, .. }
         )), "PoolChanged{{Regen,Energy}} must fire");
-        // Refill events for Ap and Mp (both were partially spent).
         assert!(events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: crate::PoolKind::Ap, cause: crate::PoolChangeCause::Refill, .. }
+            e, Event::PoolChanged { pool: PoolKind::Ap, cause: PoolChangeCause::Refill, .. }
         )), "PoolChanged{{Refill,Ap}} must fire");
         assert!(events.iter().any(|e| matches!(
-            e, Event::PoolChanged { pool: crate::PoolKind::Mp, cause: crate::PoolChangeCause::Refill, .. }
+            e, Event::PoolChanged { pool: PoolKind::Mp, cause: PoolChangeCause::Refill, .. }
         )), "PoolChanged{{Refill,Mp}} must fire");
-        // Legacy order preserved: ManaRegenerated before EnergyRegenerated.
-        let mana_pos   = events.iter().position(|e| matches!(e, Event::ManaRegenerated { .. })).unwrap();
-        let energy_pos = events.iter().position(|e| matches!(e, Event::EnergyRegenerated { .. })).unwrap();
-        assert!(mana_pos < energy_pos, "ManaRegenerated must precede EnergyRegenerated");
+        // Iteration order: Mana before Energy.
+        let mana_pos   = events.iter().position(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Mana, cause: PoolChangeCause::Regen, .. }
+        )).unwrap();
+        let energy_pos = events.iter().position(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Energy, cause: PoolChangeCause::Regen, .. }
+        )).unwrap();
+        assert!(mana_pos < energy_pos, "Mana PoolChanged must precede Energy PoolChanged");
     }
 
-    // ── C4 tests: Event::PoolChanged dual-emit ────────────────────────────────
+    // ── C4/C6 tests: Event::PoolChanged ──────────────────────────────────────
 
-    /// C4-1: Every pool mutation kind (Regen, Refill, Spent, Gained) emits
+    /// C4-1/C6: Every pool mutation kind (Regen, Refill, Spent, Gained) emits
     /// a `PoolChanged` event with the correct cause.
     #[test]
     fn pool_changed_emitted_for_each_mutation_kind() {
@@ -1241,8 +1341,6 @@ mod tests {
         // Unit with all pools populated.
         let uid = UnitId(1);
         let mut unit = make_unit(uid, 1, 3, Some((5, 10)));
-        unit.rage   = Some((2, 8));
-        unit.energy = Some((3, 6));
         unit.pools[PoolKind::Rage]   = Some((2, 8));
         unit.pools[PoolKind::Energy] = Some((3, 6));
         unit.regen_per_pool[PoolKind::Mana]   = RegenRule::Increment(1);
@@ -1251,7 +1349,6 @@ mod tests {
         unit.regen_per_pool[PoolKind::Ap]     = RegenRule::RefillToMax;
         unit.regen_per_pool[PoolKind::Mp]     = RegenRule::RefillToMax;
         // Spend AP so Refill fires.
-        unit.action_points = 1;
         unit.pools[PoolKind::Ap] = Some((1, 3));
 
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
@@ -1286,10 +1383,9 @@ mod tests {
         )), "PoolChanged{{Gained,Rage}} must be in ctx.pool_events");
     }
 
-    /// C4-2: Both `Event::ManaRegenerated` and `Event::PoolChanged{Regen,Mana}`
-    /// fire for the same mutation, and carry consistent current/max values.
+    /// C6: PoolChanged{Regen,Mana} fires with correct current/max values.
     #[test]
-    fn dual_emit_pool_changed_alongside_legacy_mana_regenerated() {
+    fn pool_changed_regen_mana_carries_correct_values() {
         use crate::{PoolKind, PoolChangeCause};
 
         let uid = UnitId(7);
@@ -1299,28 +1395,19 @@ mod tests {
 
         let events = state.start_actor_turn(uid, &content);
 
-        // Both must fire.
-        let legacy = events.iter().find(|e| matches!(e, Event::ManaRegenerated { .. }))
-            .expect("ManaRegenerated must fire");
         let unified = events.iter().find(|e| matches!(
             e, Event::PoolChanged { pool: PoolKind::Mana, cause: PoolChangeCause::Regen, .. }
         )).expect("PoolChanged{{Regen,Mana}} must fire");
 
-        // Extract values and compare.
-        let (leg_cur, leg_max) = match legacy {
-            Event::ManaRegenerated { current, max, .. } => (*current, *max),
-            _ => unreachable!(),
-        };
         let (uni_cur, uni_max) = match unified {
             Event::PoolChanged { current, max, .. } => (*current, *max),
             _ => unreachable!(),
         };
-        assert_eq!((leg_cur, leg_max), (uni_cur, uni_max),
-            "legacy and unified events must carry identical current/max");
-        assert_eq!(leg_cur, 4, "mana should have incremented from 3 to 4");
+        assert_eq!(uni_cur, 4, "mana should have incremented from 3 to 4");
+        assert_eq!(uni_max, 10, "mana max should be 10");
     }
 
-    /// C4-3: `PoolChanged{Refill}` fires only when AP/MP were actually spent.
+    /// C4-3/C6: `PoolChanged{Refill}` fires only when AP/MP were actually spent.
     /// When they are already at max, no Refill event is emitted.
     #[test]
     fn ap_mp_refill_emits_pool_changed_only_on_change() {
@@ -1330,7 +1417,6 @@ mod tests {
 
         // --- Case A: AP/MP were depleted → Refill fires ---
         let mut unit_a = make_unit(uid, 0, 2, None); // AP=0/max=2
-        unit_a.movement_points = 0;
         unit_a.pools[PoolKind::Mp] = Some((0, 3));
         let mut state_a = CombatState::new(vec![unit_a], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;

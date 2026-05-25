@@ -783,7 +783,9 @@ impl Aggregate {
 
                     // Bucket 1: ap_mp_blocked — actor has no AP and no MP.
                     let bucket = if let Some(actor) = actor_snap {
-                        if actor.action_points == 0 && actor.movement_points == 0 {
+                        let ap = actor.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0);
+                        let mp = actor.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+                        if ap == 0 && mp == 0 {
                             H3cBucket::ApMpBlocked
                         } else {
                             // Bucket 2: no_target_in_agenda — all items have target=None.
@@ -796,7 +798,8 @@ impl Aggregate {
                                     .and_then(|e| event.snapshot.unit(e));
                                 let unreachable = target_snap.map(|t| {
                                     let dist = actor.pos.unsigned_distance_to(t.pos);
-                                    dist > (actor.movement_points as u32) + actor.cache.max_attack_range
+                                    let actor_mp = actor.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
+                                    dist > (actor_mp as u32) + actor.cache.max_attack_range
                                 }).unwrap_or(false);
 
                                 if unreachable {

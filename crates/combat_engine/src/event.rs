@@ -44,7 +44,6 @@ pub enum Event {
         pierces: bool,
         amount: i32,
     },
-    RageGained { unit: UnitId, current: i32, max: i32 },
     ReactionFired { actor: UnitId, kind: ReactionKind, against: UnitId },
     UnitDied { unit: UnitId },
     /// Cast crit-failed.  Fired by `step()`'s `Action::Cast` arm immediately
@@ -54,8 +53,6 @@ pub enum Event {
     /// the appropriate log line (`CriticalMiss` vs `CritFailSideEffect`).
     CritFailed { actor: UnitId, outcome: crate::content::CritFailOutcome },
     ActionFinished { action: Action },
-    ManaRegenerated { unit: UnitId, current: i32, max: i32 },
-    EnergyRegenerated { unit: UnitId, current: i32, max: i32 },
     UnitSpawned {
         uid: UnitId,
         summoner: UnitId,
@@ -108,10 +105,8 @@ pub enum Event {
         new_max_hp: i32,
     },
     /// Unified pool-change event. Fires for every mutation of a unit's
-    /// resource pool (regen, refill, spend, gain, max-shift). Replaces the
-    /// per-pool events (ManaRegenerated, EnergyRegenerated, RageGained)
-    /// which are dual-emitted in C4 for backwards compat and removed in a
-    /// follow-up cleanup.
+    /// resource pool (regen, refill, spend, gain, max-shift). Sole canonical
+    /// pool-mutation event since Phase C-6.
     ///
     /// `cause` carries the reason (Regen/Refill/Spent/Gained/MaxChanged).
     ///
@@ -191,14 +186,9 @@ pub fn effect_to_event(
                 amount: ctx.heal_amount.unwrap_or(0),
             })
         }
-        Effect::PayCost { actor, kind, .. } => {
-            if *kind == crate::ResourceKind::Mana {
-                state.unit(*actor).and_then(|u| u.mana).map(|(current, max)| {
-                    Event::ManaRegenerated { unit: *actor, current, max }
-                })
-            } else {
-                None
-            }
+        Effect::PayCost { .. } => {
+            // Pool events are emitted via ctx.pool_events, not effect_to_event.
+            None
         }
         Effect::ApplyStatus { target, status, .. } => {
             Some(Event::StatusApplied {
@@ -212,12 +202,8 @@ pub fn effect_to_event(
                 status: status.clone(),
             })
         }
-        Effect::GainRage { target } => {
-            if let Some(u) = state.unit(*target) {
-                if let Some((current, max)) = u.rage {
-                    return Some(Event::RageGained { unit: *target, current, max });
-                }
-            }
+        Effect::GainRage { .. } => {
+            // Pool events are emitted via ctx.pool_events, not effect_to_event.
             None
         }
         Effect::DecrementReactions { .. } => None,

@@ -1,11 +1,12 @@
 use super::AppraisalCtx;
+use combat_engine::PoolKind;
 
 pub(super) fn compute_reposition(ctx: &AppraisalCtx<'_>) -> f32 {
     let active = ctx.active;
     let snap = ctx.snap;
     let maps = ctx.maps;
     let tuning = ctx.tuning;
-    let has_ap = active.action_points >= 1;
+    let has_ap = active.pools[PoolKind::Ap].map(|(c, _)| c).unwrap_or(0) >= 1;
     let cur_pos_eval = crate::combat::ai::scoring::position_eval::evaluate_position(
         active.pos, &active.cache.role, tuning, maps,
     );
