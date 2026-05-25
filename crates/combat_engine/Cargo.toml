@@ -8,4 +8,5 @@ hexx = { version = "0.24", features = ["bevy", "algorithms", "serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 blake3 = "1"
+enum-map = { version = "2", features = ["serde"] }
 toml = "0.8"

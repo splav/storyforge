@@ -70,6 +70,54 @@ pub enum ResourceKind {
     Energy,
 }
 
+// ── Phase C pool infrastructure ───────────────────────────────────────────────
+
+/// Five spendable / regenerable resource pools per unit.
+///
+/// **Iteration order is load-bearing.** Determinism contract: replay-trace
+/// hashing depends on `enum_map::Iter` order, which follows variant
+/// declaration order. Adding a variant in the middle is a SCHEMA bump.
+///
+/// HP is excluded: its damage / heal / death paths are special-cased throughout
+/// the engine and do not fit the uniform pool model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, enum_map::Enum, serde::Serialize, serde::Deserialize)]
+pub enum PoolKind {
+    Mana,
+    Rage,
+    Energy,
+    Ap,
+    Mp,
+}
+
+/// Per-pool turn-start regeneration policy. Stored on `UnitTemplate`.
+/// Used by `state.rs::start_actor_turn` to drive the unified regen loop.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum RegenRule {
+    /// No turn-start change. Used by Rage (only gains via combat).
+    None,
+    /// Add `amount`, clamp at max. Used by Mana, Energy.
+    Increment(i32),
+    /// Set current = max unconditionally. Used by Ap, Mp.
+    RefillToMax,
+}
+
+/// Reason a pool's current/max changed. Carried on `Event::PoolChanged`
+/// (added in C4). Bridge mirror parameterizes log/UI rendering by this.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum PoolChangeCause {
+    /// Turn-start regen step (Increment rule fired).
+    Regen,
+    /// Turn-start refill (RefillToMax rule fired, current changed to max).
+    Refill,
+    /// Resource was spent — PayCost / DecrementAP / DecrementMP.
+    Spent,
+    /// Resource was gained outside regen (e.g. GainRage on damage).
+    Gained,
+    /// RefreshAggregates updated the `max` (e.g. speed_bonus from a status
+    /// changed MP-max, status-derived AP-max change).
+    MaxChanged,
+}
+
 /// Модификатор характеристики: floor(stat / 2).
 /// Диапазон характеристик −5..10 → модификаторы −3..+5.
 pub fn modifier(stat: i32) -> i32 {
