@@ -15,6 +15,7 @@ use storyforge::combat_engine::{
     legality::IllegalReason,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     step::step,
+    PoolChangeCause, PoolKind,
 };
 use storyforge::game::hex::hex_from_offset;
 
@@ -90,7 +91,7 @@ fn state_with(units: Vec<Unit>) -> CombatState {
 
 // ── step_move_no_enemies ──────────────────────────────────────────────────────
 
-/// Pure move with no enemies: events = ActionStarted, UnitMoved, ActionFinished.
+/// Pure move with no enemies: events = ActionStarted, UnitMoved×2, PoolChanged{Spent,Mp}, ActionFinished.
 /// MP is decremented by path length.
 #[test]
 fn step_move_no_enemies() {
@@ -102,11 +103,19 @@ fn step_move_no_enemies() {
     let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &StubContent::no_weapon())
         .expect("move should succeed");
 
-    // Event sequence.
+    // Bookend events.
     assert!(matches!(events[0], Event::ActionStarted { .. }));
-    assert!(matches!(events[1], Event::UnitMoved { actor, .. } if actor == UnitId(1)));
-    assert!(matches!(events[2], Event::UnitMoved { actor, .. } if actor == UnitId(1)));
     assert!(matches!(events[events.len()-1], Event::ActionFinished { .. }));
+
+    // Two UnitMoved events must be present (one per hex step).
+    let moved: Vec<_> = events.iter().filter(|e| matches!(e, Event::UnitMoved { actor, .. } if *actor == UnitId(1))).collect();
+    assert_eq!(moved.len(), 2, "expected 2 UnitMoved events for a 2-step path");
+
+    // C4: DecrementMP now emits PoolChanged{Spent,Mp}.
+    assert!(events.iter().any(|e| matches!(
+        e, Event::PoolChanged { pool: combat_engine::PoolKind::Mp,
+            cause: combat_engine::PoolChangeCause::Spent, .. }
+    )), "PoolChanged{{Spent,Mp}} must fire on Move");
 
     // MP reduced.
     assert_eq!(state.unit(UnitId(1)).unwrap().movement_points, 4); // 6 - 2

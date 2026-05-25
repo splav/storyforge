@@ -39,7 +39,14 @@ use crate::{
 ///     inline after a Cast that leaves AP=0 and MP=0, removing the bridge's
 ///     separate auto-end step.
 /// Old v39 traces are incompatible (clean break).
-pub const SCHEMA_VERSION: u32 = 40;
+/// v41: Phase C-4 — `Event::PoolChanged` introduced as unified pool-change
+/// event surface, dual-emitted alongside legacy `ManaRegenerated`/
+/// `EnergyRegenerated`/`RageGained`. AP/MP refill at turn-start now emits
+/// `PoolChanged{cause: Refill}` (previously silent). Subsumes S7 from
+/// engine-migration.md — `EnergySpent` is expressed as
+/// `PoolChanged{pool: Energy, cause: Spent}` instead of a dedicated event.
+/// Old v40 traces incompatible (clean break).
+pub const SCHEMA_VERSION: u32 = 41;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

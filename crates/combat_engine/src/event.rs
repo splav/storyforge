@@ -107,6 +107,24 @@ pub enum Event {
         prev_max_hp: i32,
         new_max_hp: i32,
     },
+    /// Unified pool-change event. Fires for every mutation of a unit's
+    /// resource pool (regen, refill, spend, gain, max-shift). Replaces the
+    /// per-pool events (ManaRegenerated, EnergyRegenerated, RageGained)
+    /// which are dual-emitted in C4 for backwards compat and removed in a
+    /// follow-up cleanup.
+    ///
+    /// `cause` carries the reason (Regen/Refill/Spent/Gained/MaxChanged).
+    ///
+    /// Note: `PoolChangeCause::MaxChanged` is declared but not yet emitted —
+    /// reserved for when `RefreshAggregates` is wired to propagate pool-max
+    /// changes (e.g. MP-max from speed_bonus). Will be added in a future commit.
+    PoolChanged {
+        unit: UnitId,
+        pool: crate::PoolKind,
+        current: i32,
+        max: i32,
+        cause: crate::PoolChangeCause,
+    },
 }
 
 /// Why a unit's turn was skipped in `Effect::AdvanceTurn`.

@@ -202,7 +202,12 @@ use crate::game::hex::Hex;
 /// v40: `Event::TurnEnded` gains `cause: TurnEndCause` (B-γ / S6). Engine
 /// emits `TurnEnded{cause: ResourcesExhausted}` inline after a Cast that
 /// exhausts AP+MP. Old v39 logs are incompatible (clean break).
-pub const SCHEMA_VERSION: u32 = 40;
+/// v41: Phase C-4 — `Event::PoolChanged` introduced as unified pool-change
+/// event surface, dual-emitted alongside legacy `ManaRegenerated`/
+/// `EnergyRegenerated`/`RageGained`. AP/MP refill at turn-start now emits
+/// `PoolChanged{cause: Refill}` (previously silent). Old v40 logs are
+/// incompatible (clean break).
+pub const SCHEMA_VERSION: u32 = 41;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init

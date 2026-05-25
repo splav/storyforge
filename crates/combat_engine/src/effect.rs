@@ -202,6 +202,12 @@ pub struct ApplyCtx {
     /// can emit `Event::DotDamaged` instead of the now-separate StatusTicked +
     /// UnitDamaged pair.
     pub dot_damage: Option<DotDamageCtx>,
+    /// Additional `Event::PoolChanged` events produced by pool-mutation effects
+    /// (`PayCost`, `DecrementAP`, `DecrementMP`, `GainRage`). Drained by the
+    /// pump loop in `step()` immediately after the main event from
+    /// `effect_to_event`.  Dual-emitted alongside legacy per-pool events in C4;
+    /// legacy events will be removed in a follow-up cleanup.
+    pub pool_events: Vec<crate::event::Event>,
 }
 
 fn skip_or_settle_current(
@@ -268,25 +274,41 @@ pub fn apply_effect(
         }
 
         Effect::DecrementMP { actor, by } => {
+            let mut ctx = ApplyCtx::default();
             if let Some(u) = state.unit_mut(*actor) {
                 u.movement_points = (u.movement_points - by).max(0);
                 // Mirror write to pools[Mp].
-                if let Some((pc, _)) = u.pools[crate::PoolKind::Mp].as_mut() {
+                if let Some((pc, max)) = u.pools[crate::PoolKind::Mp].as_mut() {
                     *pc = u.movement_points;
+                    ctx.pool_events.push(crate::event::Event::PoolChanged {
+                        unit: *actor,
+                        pool: crate::PoolKind::Mp,
+                        current: *pc,
+                        max: *max,
+                        cause: crate::PoolChangeCause::Spent,
+                    });
                 }
             }
-            (vec![], ApplyCtx::default())
+            (vec![], ctx)
         }
 
         Effect::DecrementAP { actor, by } => {
+            let mut ctx = ApplyCtx::default();
             if let Some(u) = state.unit_mut(*actor) {
                 u.action_points = (u.action_points - by).max(0);
                 // Mirror write to pools[Ap].
-                if let Some((pc, _)) = u.pools[crate::PoolKind::Ap].as_mut() {
+                if let Some((pc, max)) = u.pools[crate::PoolKind::Ap].as_mut() {
                     *pc = u.action_points;
+                    ctx.pool_events.push(crate::event::Event::PoolChanged {
+                        unit: *actor,
+                        pool: crate::PoolKind::Ap,
+                        current: *pc,
+                        max: *max,
+                        cause: crate::PoolChangeCause::Spent,
+                    });
                 }
             }
-            (vec![], ApplyCtx::default())
+            (vec![], ctx)
         }
 
         Effect::Damage { target, raw, source, pierces } => {
@@ -397,6 +419,7 @@ pub fn apply_effect(
         }
 
         Effect::PayCost { actor, kind, amount } => {
+            let mut ctx = ApplyCtx::default();
             if let Some(u) = state.unit_mut(*actor) {
                 match kind {
                     ResourceKind::Hp => {
@@ -406,8 +429,15 @@ pub fn apply_effect(
                         if let Some((current, _max)) = u.mana.as_mut() {
                             *current = (*current - amount).max(0);
                             // Mirror write to pools (primary).
-                            if let Some((pc, _)) = u.pools[crate::PoolKind::Mana].as_mut() {
+                            if let Some((pc, max)) = u.pools[crate::PoolKind::Mana].as_mut() {
                                 *pc = *current;
+                                ctx.pool_events.push(crate::event::Event::PoolChanged {
+                                    unit: *actor,
+                                    pool: crate::PoolKind::Mana,
+                                    current: *pc,
+                                    max: *max,
+                                    cause: crate::PoolChangeCause::Spent,
+                                });
                             }
                         }
                     }
@@ -415,8 +445,15 @@ pub fn apply_effect(
                         if let Some((current, _max)) = u.rage.as_mut() {
                             *current = (*current - amount).max(0);
                             // Mirror write to pools (primary).
-                            if let Some((pc, _)) = u.pools[crate::PoolKind::Rage].as_mut() {
+                            if let Some((pc, max)) = u.pools[crate::PoolKind::Rage].as_mut() {
                                 *pc = *current;
+                                ctx.pool_events.push(crate::event::Event::PoolChanged {
+                                    unit: *actor,
+                                    pool: crate::PoolKind::Rage,
+                                    current: *pc,
+                                    max: *max,
+                                    cause: crate::PoolChangeCause::Spent,
+                                });
                             }
                         }
                     }
@@ -424,14 +461,21 @@ pub fn apply_effect(
                         if let Some((current, _max)) = u.energy.as_mut() {
                             *current = (*current - amount).max(0);
                             // Mirror write to pools (primary).
-                            if let Some((pc, _)) = u.pools[crate::PoolKind::Energy].as_mut() {
+                            if let Some((pc, max)) = u.pools[crate::PoolKind::Energy].as_mut() {
                                 *pc = *current;
+                                ctx.pool_events.push(crate::event::Event::PoolChanged {
+                                    unit: *actor,
+                                    pool: crate::PoolKind::Energy,
+                                    current: *pc,
+                                    max: *max,
+                                    cause: crate::PoolChangeCause::Spent,
+                                });
                             }
                         }
                     }
                 }
             }
-            (vec![], ApplyCtx::default())
+            (vec![], ctx)
         }
 
         Effect::ApplyStatus { target, status, rounds, dot_per_tick, applier } => {
@@ -468,16 +512,24 @@ pub fn apply_effect(
         }
 
         Effect::GainRage { target } => {
+            let mut ctx = ApplyCtx::default();
             if let Some(u) = state.unit_mut(*target) {
                 if let Some((current, max)) = u.rage.as_mut() {
                     *current = (*current + 1).min(*max);
                     // Mirror write to pools[Rage].
-                    if let Some((pc, _)) = u.pools[crate::PoolKind::Rage].as_mut() {
+                    if let Some((pc, pmax)) = u.pools[crate::PoolKind::Rage].as_mut() {
                         *pc = *current;
+                        ctx.pool_events.push(crate::event::Event::PoolChanged {
+                            unit: *target,
+                            pool: crate::PoolKind::Rage,
+                            current: *pc,
+                            max: *pmax,
+                            cause: crate::PoolChangeCause::Gained,
+                        });
                     }
                 }
             }
-            (vec![], ApplyCtx::default())
+            (vec![], ctx)
         }
 
         Effect::DecrementReactions { actor } => {

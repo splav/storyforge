@@ -237,6 +237,16 @@ pub enum CombatEvent {
         summoner: Entity,
         reason: SpawnBlockedReasonEcs,
     },
+    /// *engine mirror* — `Event::PoolChanged`. Unified pool-mutation event
+    /// (C4). Dual-emitted alongside legacy `RageGained` / `ManaChanged` for
+    /// one transition cycle; legacy variants will be removed in a follow-up.
+    PoolChanged {
+        actor: Entity,
+        pool: combat_engine::PoolKind,
+        current: i32,
+        max: i32,
+        cause: combat_engine::PoolChangeCause,
+    },
 }
 
 // ── Formatter ─────────────────────────────────────────────────────────────────
@@ -411,6 +421,10 @@ impl CombatEvent {
                     "=== ПОРАЖЕНИЕ ===".into()
                 }
             }
+            // PoolChanged is dual-emitted alongside legacy per-pool events (C4);
+            // suppress in the log to avoid duplicate lines until legacy events
+            // are removed in the follow-up cleanup.
+            CombatEvent::PoolChanged { .. } => return None,
         };
         Some(line)
     }

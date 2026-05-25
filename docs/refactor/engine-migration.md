@@ -55,7 +55,7 @@ What stays in ECS **by design** (not debt):
 | **S5** | `Event::DotDamaged` atomic (drop bridge `pending_status_tick` state-machine) | ✅ Done | `5db559d` |
 | **Phase A** | Unify bridge translators into `translate_events` + `TranslateCtx` | ✅ Done | `a7048f6` |
 | **S6** | auto-end-turn lives in engine, not bridge | ✅ Done | `4b4b0e3` |
-| **S7** | `Event::EnergySpent` parity with `EnergyRegenerated` | ⏳ Deferred | wait for trigger |
+| **S7** | `Event::EnergySpent` parity with `EnergyRegenerated` | ✅ Done | subsumed by C4 — `PoolChanged{pool: Energy, cause: Spent}` |
 | **V4** | Engine internal: unify two status-bonus reflow paths | ✅ Done | `097f78f` |
 | **Phase B** | engine-truth invariant completion (B-α adapter relocation, B-β template consolidation in `src/content/to_engine.rs`, B-γ S6) | ✅ Done | `4b4b0e3` |
 
@@ -71,23 +71,8 @@ L1 and L2 closed in `ffe7e97`.
 
 ## 4. Deferred engine extensions
 
-All require an engine SCHEMA bump and parity-test churn. If two or
-more trigger simultaneously, group into a single bump window.
-
-### S7 — `Event::EnergySpent`
-
-**Problem.** Mana has both `ManaRegenerated` (engine) and the PR-A
-mini-slice that emits `ManaRegenerated` on `PayCost{Mana}`. Energy has
-only `EnergyRegenerated` — energy spend is currently captured by
-bridge-side diff in `process_action_system`. Asymmetric.
-
-**Fix.** Engine emits `Event::EnergySpent` from
-`Effect::PayCost { kind: Energy }`. Bridge drops the diff path. SCHEMA
-41→42.
-
-**Trigger.** Energy is spent outside `Action::Cast` (toggle aura,
-passive drain, ability-of-another-unit consuming target's energy).
-Today the diff path captures everything.
+No deferred engine extensions remain — all S-items are closed. See
+Section 4b for structural improvements landed.
 
 ### V4 — engine status-bonus reflow unification ✅ Done (`097f78f`)
 
@@ -113,6 +98,7 @@ armor+speed without `damage_taken_bonus`. SCHEMA unchanged (hashes
 | Phase B-α: adapter relocation | `0813083` | Moved content-adapter helpers out of bridge into `src/content/to_engine.rs`; bridge is now pure translation. |
 | Phase B-β: template consolidation | `12e2fd8` | Consolidated remaining bridge-side engine-construction templates into `src/content/to_engine.rs`. |
 | S6 / Phase B-γ: auto-end-turn in engine | `4b4b0e3` | `Event::TurnEnded{cause: ResourcesExhausted}` emitted inline by Cast arm; bridge auto-end block removed. Closed engine-truth invariant. |
+| C4: `Event::PoolChanged` + S7 subsumption | this commit | Unified pool-mutation event surface. Dual-emitted alongside legacy events. AP/MP refill now emits `PoolChanged{Refill}` (previously silent). S7 (`EnergySpent`) subsumed: energy spend is `PoolChanged{pool: Energy, cause: Spent}`. SCHEMA 40→41. |
 
 ---
 
@@ -132,8 +118,13 @@ Listed here so they don't reappear in future "what's left" surveys.
 
 ## 6. Suggested sequencing
 
-**Engine extensions (wait for trigger):**
-- S7 individually scoped (only remaining deferred engine extension).
+**Engine extensions:** All S-items closed (S5 in `5db559d`, S6 in
+`4b4b0e3`, S7 subsumed in C4). No deferred extensions remain.
+
+**Phase C cleanup (C5):** Remove legacy per-pool events
+(`ManaRegenerated`, `EnergyRegenerated`, `RageGained`) now that all
+consumers can migrate to `PoolChanged`. Separate commit per the C1–C5
+plan.
 
 **Cross-cutting (separate scope):**
 - `Messages<CombatEvent>` conversion — would touch ~6 UI consumers,
@@ -148,15 +139,16 @@ Migration is **complete** when:
 
 - All L items closed. ✅ (`ffe7e97`)
 - At least one of S5/S6/S7 triggered + landed (proves engine schema
-  evolution path works post-PR-A). ✅ S5 landed in `5db559d`, S6 landed
-  in `4b4b0e3`.
+  evolution path works post-PR-A). ✅ S5 in `5db559d`, S6 in `4b4b0e3`,
+  S7 subsumed in C4 via `PoolChanged{pool: Energy, cause: Spent}`.
 - This document's "Pending" rows are empty or moved to historical record.
 - `docs/engine-architecture.md` updated to reflect final post-migration
   shape.
 
 **Migration is essentially complete** — Phase B (B-α/B-β/B-γ) closed the
-engine-truth invariant. Only S7 (`Event::EnergySpent`) remains as a
-deferred-pending-trigger item. The schema evolution path is proven.
+engine-truth invariant. All S-items (S5/S6/S7) are now closed. Phase C
+(C1–C4) added the unified resource-pool layer; C5 (legacy event cleanup)
+is the only remaining planned work.
 
 No hard deadline — migration is opportunistic, driven by triggers and
 session bandwidth.

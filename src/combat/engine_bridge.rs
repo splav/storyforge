@@ -1097,6 +1097,19 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
             // no-op: ECS writes for phase transitions are handled at the callsite
             // via pending_phases.0.push(...) after the translate_events call
         }
+
+        // ── Unified pool-change (C4, dual-emitted alongside legacy events) ────
+        Event::PoolChanged { unit, pool, current, max, cause } => {
+            if let Some(ent) = ctx.id_map.get_entity(*unit) {
+                ctx.log.push(CombatEvent::PoolChanged {
+                    actor: ent,
+                    pool: *pool,
+                    current: *current,
+                    max: *max,
+                    cause: *cause,
+                });
+            }
+        }
     }
 }
 

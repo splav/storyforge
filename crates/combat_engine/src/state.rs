@@ -409,7 +409,7 @@ impl CombatState {
                             let new = (*cur + amount).min(*max);
                             if new != *cur {
                                 *cur = new;
-                                // Emit legacy per-pool events for Mana/Energy.
+                                // Legacy per-pool events (preserved for one cycle).
                                 match kind {
                                     PoolKind::Mana => events.push(Event::ManaRegenerated {
                                         unit: actor,
@@ -424,6 +424,14 @@ impl CombatState {
                                     // No legacy event for other Increment pools (none today).
                                     _ => {}
                                 }
+                                // New unified event (dual-emitted alongside legacy).
+                                events.push(Event::PoolChanged {
+                                    unit: actor,
+                                    pool: kind,
+                                    current: new,
+                                    max: *max,
+                                    cause: crate::PoolChangeCause::Regen,
+                                });
                             }
                         }
                         RegenRule::RefillToMax => {
@@ -434,7 +442,20 @@ impl CombatState {
                             if kind == PoolKind::Mp {
                                 *max = effective_speed;
                             }
-                            *cur = *max; // unconditional
+                            // Emit-on-change only: previously silent; now emits
+                            // PoolChanged{Refill} when AP/MP were spent (cur < max).
+                            if *cur != *max {
+                                *cur = *max;
+                                events.push(Event::PoolChanged {
+                                    unit: actor,
+                                    pool: kind,
+                                    current: *cur,
+                                    max: *max,
+                                    cause: crate::PoolChangeCause::Refill,
+                                });
+                            } else {
+                                *cur = *max; // already at max, no event
+                            }
                         }
                     }
                 }
@@ -721,6 +742,7 @@ mod tests {
         let uid = UnitId(1);
         let mut unit = make_unit(uid, 0, 2, Some((1, 10)));
         unit.movement_points = 0; // depleted from previous turn
+        unit.pools[crate::PoolKind::Mp] = Some((0, 3)); // sync pools to match legacy field
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         let content = StubContent;
 
@@ -730,11 +752,27 @@ mod tests {
         assert_eq!(u.action_points, 2);
         assert_eq!(u.movement_points, 3, "MP refilled to speed");
         assert_eq!(u.mana, Some((2, 10)));
-        assert_eq!(events.len(), 1);
-        assert!(matches!(
-            events[0],
+        // C4: legacy ManaRegenerated + unified PoolChanged{Regen} for mana,
+        // plus PoolChanged{Refill} for AP and MP (both were depleted).
+        assert!(events.iter().any(|e| matches!(
+            e,
             Event::ManaRegenerated { unit: UnitId(1), current: 2, max: 10 }
-        ));
+        )), "legacy ManaRegenerated must still fire");
+        assert!(events.iter().any(|e| matches!(
+            e,
+            Event::PoolChanged { unit: UnitId(1), pool: crate::PoolKind::Mana,
+                current: 2, max: 10, cause: crate::PoolChangeCause::Regen }
+        )), "unified PoolChanged{{Regen, Mana}} must fire");
+        assert!(events.iter().any(|e| matches!(
+            e,
+            Event::PoolChanged { pool: crate::PoolKind::Ap,
+                cause: crate::PoolChangeCause::Refill, .. }
+        )), "PoolChanged{{Refill, Ap}} must fire when AP was depleted");
+        assert!(events.iter().any(|e| matches!(
+            e,
+            Event::PoolChanged { pool: crate::PoolKind::Mp,
+                cause: crate::PoolChangeCause::Refill, .. }
+        )), "PoolChanged{{Refill, Mp}} must fire when MP was depleted");
     }
 
     #[test]
@@ -772,6 +810,8 @@ mod tests {
 
     #[test]
     fn start_actor_turn_mana_clamps_at_max() {
+        // make_unit(uid, 0, 1, ...) sets AP=0/max=1 — AP refill will fire.
+        // The test focuses on mana: at max (10/10), no ManaRegenerated fires.
         let uid = UnitId(2);
         let unit = make_unit(uid, 0, 1, Some((10, 10)));
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
@@ -780,7 +820,16 @@ mod tests {
         let events = state.start_actor_turn(uid, &content);
 
         assert_eq!(state.unit(uid).unwrap().mana, Some((10, 10)));
-        assert!(events.is_empty(), "no event when mana already at max");
+        assert!(
+            !events.iter().any(|e| matches!(e, Event::ManaRegenerated { .. })),
+            "no ManaRegenerated when mana already at max",
+        );
+        assert!(
+            !events.iter().any(|e| matches!(
+                e, Event::PoolChanged { pool: crate::PoolKind::Mana, .. }
+            )),
+            "no PoolChanged{{Mana}} when mana already at max",
+        );
     }
 
     #[test]
@@ -972,7 +1021,10 @@ mod tests {
     }
 
     #[test]
-    fn start_actor_turn_no_statuses_returns_only_refill_events() {
+    fn start_actor_turn_no_statuses_returns_only_pool_events() {
+        // make_unit sets AP=0/max=2 and MP=3/max=3 (already full), mana=5/max=10.
+        // C4: ManaRegenerated (legacy) + PoolChanged{Regen,Mana} + PoolChanged{Refill,Ap}.
+        // MP is already at max (3/3), so no PoolChanged{Refill,Mp}.
         let uid = UnitId(1);
         let unit = make_unit(uid, 0, 2, Some((5, 10)));
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
@@ -980,8 +1032,26 @@ mod tests {
 
         let events = state.start_actor_turn(uid, &content);
 
-        assert_eq!(events.len(), 1);
-        assert!(matches!(events[0], Event::ManaRegenerated { .. }));
+        assert!(events.iter().any(|e| matches!(e, Event::ManaRegenerated { .. })),
+            "legacy ManaRegenerated must fire");
+        assert!(events.iter().any(|e| matches!(
+            e,
+            Event::PoolChanged { pool: crate::PoolKind::Mana,
+                cause: crate::PoolChangeCause::Regen, .. }
+        )), "unified PoolChanged{{Regen,Mana}} must fire");
+        // No PoolChanged{Refill,Mp}: MP was already at max in make_unit.
+        assert!(!events.iter().any(|e| matches!(
+            e,
+            Event::PoolChanged { pool: crate::PoolKind::Mp,
+                cause: crate::PoolChangeCause::Refill, .. }
+        )), "no PoolChanged{{Refill,Mp}} when MP was already full");
+        // All events are pool-related; no status tick or damage events.
+        for e in &events {
+            assert!(
+                matches!(e, Event::ManaRegenerated { .. } | Event::PoolChanged { .. }),
+                "unexpected non-pool event with no statuses: {e:?}"
+            );
+        }
     }
 
     /// ContentView stub that returns a StatusDef with damage_taken_bonus = 2
@@ -1118,12 +1188,172 @@ mod tests {
         assert_eq!(u.pools[PoolKind::Mp], Some((3, 3)), "pools[Mp] must refill to max");
         assert_eq!(u.movement_points, 3, "legacy movement_points must mirror pools[Mp]");
 
-        // Events: ManaRegenerated + EnergyRegenerated (Mana first, then Energy — iteration order).
-        let event_kinds: Vec<&str> = events.iter().map(|e| match e {
-            Event::ManaRegenerated { .. }   => "mana",
-            Event::EnergyRegenerated { .. } => "energy",
-            _                               => "other",
-        }).collect();
-        assert_eq!(event_kinds, vec!["mana", "energy"], "events must be Mana then Energy");
+        // C4: dual-emit — legacy per-pool events fire, plus PoolChanged events.
+        // Legacy: ManaRegenerated then EnergyRegenerated (iteration order).
+        assert!(events.iter().any(|e| matches!(e, Event::ManaRegenerated { .. })),
+            "legacy ManaRegenerated must fire");
+        assert!(events.iter().any(|e| matches!(e, Event::EnergyRegenerated { .. })),
+            "legacy EnergyRegenerated must fire");
+        // Unified: PoolChanged{Regen,Mana} and PoolChanged{Regen,Energy}.
+        assert!(events.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: crate::PoolKind::Mana, cause: crate::PoolChangeCause::Regen, .. }
+        )), "PoolChanged{{Regen,Mana}} must fire");
+        assert!(events.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: crate::PoolKind::Energy, cause: crate::PoolChangeCause::Regen, .. }
+        )), "PoolChanged{{Regen,Energy}} must fire");
+        // Refill events for Ap and Mp (both were partially spent).
+        assert!(events.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: crate::PoolKind::Ap, cause: crate::PoolChangeCause::Refill, .. }
+        )), "PoolChanged{{Refill,Ap}} must fire");
+        assert!(events.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: crate::PoolKind::Mp, cause: crate::PoolChangeCause::Refill, .. }
+        )), "PoolChanged{{Refill,Mp}} must fire");
+        // Legacy order preserved: ManaRegenerated before EnergyRegenerated.
+        let mana_pos   = events.iter().position(|e| matches!(e, Event::ManaRegenerated { .. })).unwrap();
+        let energy_pos = events.iter().position(|e| matches!(e, Event::EnergyRegenerated { .. })).unwrap();
+        assert!(mana_pos < energy_pos, "ManaRegenerated must precede EnergyRegenerated");
+    }
+
+    // ── C4 tests: Event::PoolChanged dual-emit ────────────────────────────────
+
+    /// C4-1: Every pool mutation kind (Regen, Refill, Spent, Gained) emits
+    /// a `PoolChanged` event with the correct cause.
+    #[test]
+    fn pool_changed_emitted_for_each_mutation_kind() {
+        use crate::{PoolKind, PoolChangeCause, RegenRule};
+        use crate::effect::{apply_effect, Effect};
+        use crate::content::{ContentView, StatusBonuses};
+        use crate::{AbilityId, AbilityDef, StatusId, StatusDef};
+
+        struct Stub;
+        static DEF: StatusDef = StatusDef {
+            causes_disadvantage: false, blocks_mana_abilities: false,
+            forces_targeting: false, skips_turn: false,
+            bonuses: StatusBonuses { speed_bonus: 0, armor_bonus: 0, damage_taken_bonus: 0 },
+            hp_percent_dot: 0,
+        };
+        impl ContentView for Stub {
+            fn ability_def(&self, _: &AbilityId) -> Option<&AbilityDef> { None }
+            fn status_def(&self, _: &StatusId) -> Option<&StatusDef> { Some(&DEF) }
+            fn unit_template(&self, _: &str) -> Option<crate::content::UnitTemplate> { None }
+        }
+
+        // Unit with all pools populated.
+        let uid = UnitId(1);
+        let mut unit = make_unit(uid, 1, 3, Some((5, 10)));
+        unit.rage   = Some((2, 8));
+        unit.energy = Some((3, 6));
+        unit.pools[PoolKind::Rage]   = Some((2, 8));
+        unit.pools[PoolKind::Energy] = Some((3, 6));
+        unit.regen_per_pool[PoolKind::Mana]   = RegenRule::Increment(1);
+        unit.regen_per_pool[PoolKind::Rage]   = RegenRule::None;
+        unit.regen_per_pool[PoolKind::Energy] = RegenRule::Increment(1);
+        unit.regen_per_pool[PoolKind::Ap]     = RegenRule::RefillToMax;
+        unit.regen_per_pool[PoolKind::Mp]     = RegenRule::RefillToMax;
+        // Spend AP so Refill fires.
+        unit.action_points = 1;
+        unit.pools[PoolKind::Ap] = Some((1, 3));
+
+        let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
+        let content = Stub;
+
+        // --- Regen: turn-start fires PoolChanged{Regen} for Mana and Energy ---
+        let regen_events = state.start_actor_turn(uid, &content);
+        assert!(regen_events.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Mana, cause: PoolChangeCause::Regen, .. }
+        )), "PoolChanged{{Regen,Mana}} must fire");
+        assert!(regen_events.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Energy, cause: PoolChangeCause::Regen, .. }
+        )), "PoolChanged{{Regen,Energy}} must fire");
+
+        // --- Refill: AP was spent → PoolChanged{Refill,Ap} ---
+        assert!(regen_events.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Ap, cause: PoolChangeCause::Refill, .. }
+        )), "PoolChanged{{Refill,Ap}} must fire when AP was spent");
+
+        // --- Spent: PayCost{Mana} → PoolChanged{Spent,Mana} ---
+        let pay_eff = Effect::PayCost { actor: uid, kind: crate::ResourceKind::Mana, amount: 2 };
+        let (_, ctx) = apply_effect(&mut state, &pay_eff, &content);
+        assert!(ctx.pool_events.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Mana, cause: PoolChangeCause::Spent, .. }
+        )), "PoolChanged{{Spent,Mana}} must be in ctx.pool_events");
+
+        // --- Gained: GainRage → PoolChanged{Gained,Rage} ---
+        let rage_eff = Effect::GainRage { target: uid };
+        let (_, rage_ctx) = apply_effect(&mut state, &rage_eff, &content);
+        assert!(rage_ctx.pool_events.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Rage, cause: PoolChangeCause::Gained, .. }
+        )), "PoolChanged{{Gained,Rage}} must be in ctx.pool_events");
+    }
+
+    /// C4-2: Both `Event::ManaRegenerated` and `Event::PoolChanged{Regen,Mana}`
+    /// fire for the same mutation, and carry consistent current/max values.
+    #[test]
+    fn dual_emit_pool_changed_alongside_legacy_mana_regenerated() {
+        use crate::{PoolKind, PoolChangeCause};
+
+        let uid = UnitId(7);
+        let unit = make_unit(uid, 2, 2, Some((3, 10))); // mana=3/10
+        let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
+        let content = StubContent;
+
+        let events = state.start_actor_turn(uid, &content);
+
+        // Both must fire.
+        let legacy = events.iter().find(|e| matches!(e, Event::ManaRegenerated { .. }))
+            .expect("ManaRegenerated must fire");
+        let unified = events.iter().find(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Mana, cause: PoolChangeCause::Regen, .. }
+        )).expect("PoolChanged{{Regen,Mana}} must fire");
+
+        // Extract values and compare.
+        let (leg_cur, leg_max) = match legacy {
+            Event::ManaRegenerated { current, max, .. } => (*current, *max),
+            _ => unreachable!(),
+        };
+        let (uni_cur, uni_max) = match unified {
+            Event::PoolChanged { current, max, .. } => (*current, *max),
+            _ => unreachable!(),
+        };
+        assert_eq!((leg_cur, leg_max), (uni_cur, uni_max),
+            "legacy and unified events must carry identical current/max");
+        assert_eq!(leg_cur, 4, "mana should have incremented from 3 to 4");
+    }
+
+    /// C4-3: `PoolChanged{Refill}` fires only when AP/MP were actually spent.
+    /// When they are already at max, no Refill event is emitted.
+    #[test]
+    fn ap_mp_refill_emits_pool_changed_only_on_change() {
+        use crate::{PoolKind, PoolChangeCause};
+
+        let uid = UnitId(3);
+
+        // --- Case A: AP/MP were depleted → Refill fires ---
+        let mut unit_a = make_unit(uid, 0, 2, None); // AP=0/max=2
+        unit_a.movement_points = 0;
+        unit_a.pools[PoolKind::Mp] = Some((0, 3));
+        let mut state_a = CombatState::new(vec![unit_a], 1, RoundPhase::ActorTurn, 0);
+        let content = StubContent;
+
+        let events_a = state_a.start_actor_turn(uid, &content);
+        assert!(events_a.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Ap, cause: PoolChangeCause::Refill, .. }
+        )), "Refill must fire for AP when depleted");
+        assert!(events_a.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Mp, cause: PoolChangeCause::Refill, .. }
+        )), "Refill must fire for MP when depleted");
+
+        // --- Case B: AP/MP already at max → no Refill event ---
+        let unit_b = make_unit(uid, 2, 2, None); // AP=2/max=2 (full)
+        // make_unit sets MP=3/max=3 (full)
+        let mut state_b = CombatState::new(vec![unit_b], 1, RoundPhase::ActorTurn, 0);
+
+        let events_b = state_b.start_actor_turn(uid, &content);
+        assert!(!events_b.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Ap, cause: PoolChangeCause::Refill, .. }
+        )), "no Refill for AP when already at max");
+        assert!(!events_b.iter().any(|e| matches!(
+            e, Event::PoolChanged { pool: PoolKind::Mp, cause: PoolChangeCause::Refill, .. }
+        )), "no Refill for MP when already at max");
     }
 }

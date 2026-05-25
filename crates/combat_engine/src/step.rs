@@ -616,6 +616,9 @@ fn step_inner(
             events.push(ev);
         }
 
+        // Drain unified PoolChanged events (dual-emitted alongside legacy events).
+        events.append(&mut ctx.pool_events);
+
         // Drain skip events from AdvanceTurn/BumpRound cascades.
         events.append(&mut ctx.turn_skip_events);
 
@@ -696,6 +699,9 @@ fn step_inner(
                     {
                         events.push(ev);
                     }
+
+                    // Drain unified PoolChanged events (dual-emitted alongside legacy events).
+                    events.append(&mut sub_ctx.pool_events);
 
                     events.append(&mut sub_ctx.turn_skip_events);
 
