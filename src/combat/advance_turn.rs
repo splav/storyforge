@@ -5,23 +5,6 @@ use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::CombatObjective;
 use bevy::prelude::*;
 
-/// Turn-advance shim — Phase 4e.
-///
-/// All turn/round/skip logic has migrated to the engine (`Effect::AdvanceTurn`,
-/// `Effect::BumpRound`) and is bridged via `translate_end_turn_events` inside
-/// `process_action_system`.  This system no longer reads `EndTurn` messages or
-/// mutates the `TurnQueue` resource directly.
-///
-/// `ActiveCombatant` insertion (mid-round) and `NextState<CombatPhase>::StartRound`
-/// (on round wrap) are set inside `translate_end_turn_events` when the engine
-/// emits `TurnStarted` / `RoundStarted`.
-///
-/// The system is kept in the Finalize chain as a stable registration point for
-/// the `check_victory_system` that follows it.
-pub fn advance_turn_system() {
-    // Intentionally empty — all logic delegated to engine bridge.
-}
-
 /// Event-driven victory/defeat detection. Runs after any system that may
 /// insert `Dead`: checks the objective whenever at least one entity became
 /// dead since the last run. Entities revived by `phase_transition_system`

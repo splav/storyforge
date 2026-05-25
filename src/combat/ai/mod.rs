@@ -10,6 +10,7 @@ pub mod memory;
 pub mod outcome;
 pub mod plan;
 pub mod scoring;
+pub mod sim;
 pub mod replay;
 pub mod system;
 pub mod intent;

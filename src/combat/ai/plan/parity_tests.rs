@@ -20,10 +20,10 @@ mod tests {
     use crate::combat::ai::world::snapshot::{ActiveStatusView, BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::{empty_content, empty_status_tag_cache, snapshot_from, UnitBuilder};
     use combat_engine::final_damage_f32;
-    use crate::combat::effects_outcome::{
+    use crate::combat::ai::sim::effects_outcome::{
         compute_ability_outcome, ExpectedValue, OutcomePrimary,
     };
-    use crate::combat::effects_state::{compute_affected_targets, TargetRef, TargetState};
+    use crate::combat::ai::sim::effects_state::{compute_affected_targets, TargetRef, TargetState};
     use crate::content::abilities::{
         AbilityDef, AbilityRange, AoEShape, CasterContext, EffectDef, ResourceCost,
         StatusApplication, StatusOn, TargetType,

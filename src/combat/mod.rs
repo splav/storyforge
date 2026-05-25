@@ -3,8 +3,6 @@ pub mod ai;
 pub mod dice_resource;
 pub mod engine_bridge;
 pub mod command_input;
-pub mod effects_outcome;
-pub mod effects_state;
 pub mod enemy_popup;
 pub mod legality_adapter;
 pub mod pipeline;

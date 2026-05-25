@@ -101,7 +101,6 @@ impl Plugin for CombatPipelinePlugin {
             Update,
             (
                 enemy_popup::queue_enemy_popup,
-                advance_turn::advance_turn_system,
                 advance_turn::check_victory_system,
             )
                 .chain()
