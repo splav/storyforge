@@ -62,6 +62,7 @@ use combat_engine::{
     reaction::ReactionKind,
     state::{ActiveStatus, CombatState, Pool, RoundPhase, Unit, UnitId},
     step::step,
+    PoolKind,
 };
 use combat_engine::dice::DiceExpr as EngineDiceExpr;
 use combat_engine::modifier;
@@ -1407,9 +1408,13 @@ type ProjectionRow<'a> = (
 /// Projects:
 /// - `pos`              → `HexPositions` (alive) / `HexCorpses` (dead)
 /// - `hp`               → `Vital.hp`
-/// - `movement_points`  → `ActionPoints.movement_points`
+/// - `pools[Ap]`        → `ActionPoints.action_points` + `ActionPoints.max_ap`
+/// - `pools[Mp]`        → `ActionPoints.movement_points`
 /// - `reactions_left`   → `Reactions.remaining`
 /// - `reactions_max`    → `Reactions.max`
+/// - `pools[Rage]`      → `Rage.current`
+/// - `pools[Mana]`      → `Mana.current`
+/// - `pools[Energy]`    → `Energy.current`
 ///
 /// Initialise engine `CombatState` from the current ECS snapshot.
 ///
@@ -1430,6 +1435,11 @@ type ProjectionRow<'a> = (
 /// dead units live in [`HexCorpses`] (multi-occupant). The two branches below
 /// are order-insensitive: whichever entity is iterated first, `remove` on the
 /// wrong layer is a no-op, so there is no cross-contamination.
+///
+/// **C5:** resource values sourced from `Unit.pools[PoolKind::*]` (unified pool
+/// table). Legacy fields `unit.mana`, `unit.rage`, `unit.energy`,
+/// `unit.action_points`, `unit.movement_points` are no longer read here;
+/// they remain write-only (mirrored by C3 mutators) until C6 removes them.
 pub fn project_state_to_ecs(
     mut commands: Commands,
     combat_state: Res<CombatStateRes>,
@@ -1463,8 +1473,17 @@ pub fn project_state_to_ecs(
             combatants.get_mut(entity)
         {
             vital.hp = unit.hp;
-            ap.action_points = unit.action_points;
-            ap.movement_points = unit.movement_points;
+
+            // AP / MP — sourced from pools[Ap] / pools[Mp] (C5).
+            // Invariant: both are Some for every alive combatant.
+            if let Some((ap_cur, ap_max)) = unit.pools[PoolKind::Ap] {
+                ap.action_points  = ap_cur;
+                ap.max_ap         = ap_max;
+            }
+            if let Some((mp_cur, _mp_max)) = unit.pools[PoolKind::Mp] {
+                ap.movement_points = mp_cur;
+            }
+
             reactions.remaining = unit.reactions_left as u8;
             reactions.max       = unit.reactions_max as u8;
 
@@ -1474,18 +1493,18 @@ pub fn project_state_to_ecs(
 
             // Project rage.current when both sides carry a rage pool.
             if let (Some((engine_current, _engine_max)), Some(mut ecs_rage)) =
-                (unit.rage, rage_opt)
+                (unit.pools[PoolKind::Rage], rage_opt)
             {
                 ecs_rage.current = engine_current;
             }
 
             // Project mana.current when both sides carry a mana pool.
-            if let (Some((current, _max)), Some(mut mana_comp)) = (unit.mana, mana_opt) {
+            if let (Some((current, _max)), Some(mut mana_comp)) = (unit.pools[PoolKind::Mana], mana_opt) {
                 mana_comp.current = current;
             }
 
             // Project energy.current when both sides carry an energy pool.
-            if let (Some((current, _max)), Some(mut energy_comp)) = (unit.energy, energy_opt) {
+            if let (Some((current, _max)), Some(mut energy_comp)) = (unit.pools[PoolKind::Energy], energy_opt) {
                 energy_comp.current = current;
             }
 

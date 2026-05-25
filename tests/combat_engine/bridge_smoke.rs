@@ -526,6 +526,7 @@ fn projector_writes_engine_mutation_to_ecs() {
         unit.pos = target_pos;
         unit.hp = target_hp;
         unit.movement_points = target_mp;
+        unit.pools[combat_engine::PoolKind::Mp] = Some((target_mp, target_mp));
         unit.reactions_left = target_reactions;
     }
 
@@ -919,6 +920,7 @@ fn projector_writes_mana_from_engine_state() {
         let mut res = app.world_mut().resource_mut::<CombatStateRes>();
         let u = res.0.unit_mut(actor_uid).expect("unit in state");
         u.mana = Some((4, 10));
+        u.pools[combat_engine::PoolKind::Mana] = Some((4, 10));
     }
 
     app.update();

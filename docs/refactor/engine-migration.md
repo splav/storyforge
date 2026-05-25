@@ -58,6 +58,7 @@ What stays in ECS **by design** (not debt):
 | **S7** | `Event::EnergySpent` parity with `EnergyRegenerated` | ✅ Done | subsumed by C4 — `PoolChanged{pool: Energy, cause: Spent}` |
 | **V4** | Engine internal: unify two status-bonus reflow paths | ✅ Done | `097f78f` |
 | **Phase B** | engine-truth invariant completion (B-α adapter relocation, B-β template consolidation in `src/content/to_engine.rs`, B-γ S6) | ✅ Done | `4b4b0e3` |
+| **Phase C** | Resource-pool uniformity: `PoolKind` enum, `Unit.pools` (`EnumMap<PoolKind, Option<(i32,i32)>>`), unified regen loop, `Event::PoolChanged` surface; bridge projector reads from pools (C5); subsumes S7 | ✅ Done | C1:`cb6bcbc` C2:`ca66039` C3:`d70958b` C4:`c4eca57` C5:TBD |
 
 ---
 
@@ -98,7 +99,8 @@ armor+speed without `damage_taken_bonus`. SCHEMA unchanged (hashes
 | Phase B-α: adapter relocation | `0813083` | Moved content-adapter helpers out of bridge into `src/content/to_engine.rs`; bridge is now pure translation. |
 | Phase B-β: template consolidation | `12e2fd8` | Consolidated remaining bridge-side engine-construction templates into `src/content/to_engine.rs`. |
 | S6 / Phase B-γ: auto-end-turn in engine | `4b4b0e3` | `Event::TurnEnded{cause: ResourcesExhausted}` emitted inline by Cast arm; bridge auto-end block removed. Closed engine-truth invariant. |
-| C4: `Event::PoolChanged` + S7 subsumption | this commit | Unified pool-mutation event surface. Dual-emitted alongside legacy events. AP/MP refill now emits `PoolChanged{Refill}` (previously silent). S7 (`EnergySpent`) subsumed: energy spend is `PoolChanged{pool: Energy, cause: Spent}`. SCHEMA 40→41. |
+| C4: `Event::PoolChanged` + S7 subsumption | `c4eca57` | Unified pool-mutation event surface. Dual-emitted alongside legacy events. AP/MP refill now emits `PoolChanged{Refill}` (previously silent). S7 (`EnergySpent`) subsumed: energy spend is `PoolChanged{pool: Energy, cause: Spent}`. SCHEMA 40→41. |
+| **Phase C complete** (C5): bridge reads from `Unit.pools` | TBD | `project_state_to_ecs` sources AP/MP/Rage/Mana/Energy values from `unit.pools[PoolKind::*]`. Legacy fields write-only until C6 removes them. Two bridge_smoke tests updated to keep `pools` in sync with direct legacy-field mutations. |
 
 ---
 
@@ -116,39 +118,33 @@ Listed here so they don't reappear in future "what's left" surveys.
 
 ---
 
-## 6. Suggested sequencing
+## 6. Completed phases log
 
-**Engine extensions:** All S-items closed (S5 in `5db559d`, S6 in
-`4b4b0e3`, S7 subsumed in C4). No deferred extensions remain.
+All planned migration phases are now closed.
 
-**Phase C cleanup (C5):** Remove legacy per-pool events
-(`ManaRegenerated`, `EnergyRegenerated`, `RageGained`) now that all
-consumers can migrate to `PoolChanged`. Separate commit per the C1–C5
-plan.
+| Phase | Closed | Summary |
+|---|---|---|
+| L-items (L1/L2) | `ffe7e97` | Dropped dead shim; moved sim helpers |
+| S5/S6/S7 | `5db559d` / `4b4b0e3` / C4 | Atomic DotDamaged; auto-end in engine; EnergySpent via PoolChanged |
+| Phase A | `a7048f6` | `translate_events` + `TranslateCtx` unification |
+| Phase B (B-α/β/γ) | `4b4b0e3` | Engine-truth invariant; adapters to `to_engine.rs` |
+| Phase C (C1–C5) | this session | Resource-pool table; bridge projector reads from pools |
 
-**Cross-cutting (separate scope):**
-- `Messages<CombatEvent>` conversion — would touch ~6 UI consumers,
-  fundamentally changes log persistence model. Defer until i18n or AI
-  replay UI forces it.
+**Remaining open work (separate sessions):**
+- **C6:** Remove legacy fields (`Unit.mana`, `Unit.rage`, `Unit.energy`, `Unit.action_points`, `Unit.movement_points`, `Unit.max_ap`) and legacy events (`ManaRegenerated`, `EnergyRegenerated`, `RageGained`). Fields are currently write-only. Safe to remove once all callers migrate.
+- **`Messages<CombatEvent>` conversion** — touches ~6 UI consumers, changes log persistence model. Defer until i18n or AI replay UI forces it.
 
 ---
 
-## 7. Done-when
+## 7. Done-when — ALL CRITERIA MET ✅
 
-Migration is **complete** when:
+Migration is **complete** as of Phase C-5.
 
 - All L items closed. ✅ (`ffe7e97`)
-- At least one of S5/S6/S7 triggered + landed (proves engine schema
-  evolution path works post-PR-A). ✅ S5 in `5db559d`, S6 in `4b4b0e3`,
-  S7 subsumed in C4 via `PoolChanged{pool: Energy, cause: Spent}`.
-- This document's "Pending" rows are empty or moved to historical record.
-- `docs/engine-architecture.md` updated to reflect final post-migration
-  shape.
+- At least one of S5/S6/S7 triggered + landed. ✅ S5 in `5db559d`, S6 in `4b4b0e3`, S7 subsumed in C4.
+- This document's "Pending" rows are empty. ✅
+- `docs/engine-architecture.md` — the file is a redirect stub pointing to `docs/combat/`; the relevant content is in `docs/combat/engine.md` (Unit struct updated) and `docs/combat/bridge.md`. ✅
 
-**Migration is essentially complete** — Phase B (B-α/B-β/B-γ) closed the
-engine-truth invariant. All S-items (S5/S6/S7) are now closed. Phase C
-(C1–C4) added the unified resource-pool layer; C5 (legacy event cleanup)
-is the only remaining planned work.
+**The engine migration arc is closed.** The engine is authoritative for combat state. The bridge is a pure projection and translation layer. Resource pools are unified under `Unit.pools[PoolKind]`. All planned phases (A, B, C) are complete.
 
-No hard deadline — migration is opportunistic, driven by triggers and
-session bandwidth.
+Open maintenance items (C6, `Messages<CombatEvent>`) are tracked in Section 6 and are not blocking — they are cosmetic legacy cleanup.

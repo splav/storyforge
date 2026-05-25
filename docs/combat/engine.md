@@ -35,10 +35,15 @@ Serde-derived so the engine trace can serialize/deserialize every call.
 The observable consequence stream emitted after each `step()`:
 
 `Damage`, `Heal`, `Died`, `StatusApplied`, `StatusTicked`, `StatusExpired`,
-`AoO`, `Move`, `TurnStarted`, `TurnEnded`, `TurnSkipped`,
-`RoundStarted`, `PhaseEntered`, `UnitSpawned`, `SpawnBlocked`.
+`AoO`, `Move`, `TurnStarted`, `TurnEnded{cause}`, `TurnSkipped`,
+`RoundStarted`, `PhaseEntered`, `UnitSpawned`, `SpawnBlocked`,
+`PoolChanged{pool, delta, new_current, new_max, cause}` (Phase C-4, schema v41).
 
-Also serde-derived — written verbatim into `engine.jsonl` (schema v38).
+`PoolChanged` is the unified pool-mutation surface for all five resource kinds
+(`Mana`, `Rage`, `Energy`, `Ap`, `Mp`). Legacy events `ManaRegenerated`,
+`EnergyRegenerated`, `RageGained` are dual-emitted alongside it until C6 removes them.
+
+Also serde-derived — written verbatim into `engine.jsonl` (schema v41).
 
 ### ApplyCtx
 
@@ -107,25 +112,39 @@ pub struct Unit {
     pub damage_taken_bonus:  i32,          // vulnerability: positive = more damage taken
     pub base_speed:          i32,
     pub speed:               i32,          // effective = base + status speed bonuses
+    // Legacy scalar fields — write-only after C5; removed in C6.
     pub action_points:       i32,
     pub max_ap:              i32,
     pub movement_points:     i32,
     pub reactions_left:      i32,
     pub reactions_max:       i32,          // populated from Reactions.max at bootstrap
-    pub rage:                Option<Pool>,
-    pub mana:                Option<Pool>,
-    pub energy:              Option<Pool>,
+    pub rage:                Option<Pool>, // legacy — write-only after C5
+    pub mana:                Option<Pool>, // legacy — write-only after C5
+    pub energy:              Option<Pool>, // legacy — write-only after C5
     pub summoner:            Option<UnitId>, // Some(_) if spawned via Effect::Spawn
     pub statuses:            Vec<ActiveStatus>,
     pub caster_context:      CasterContext, // weapon dice, modifiers, crit-fail outcome
     pub auras:               Vec<AuraDef>,  // passive auras emitted by this unit
     pub enemy_phases:        Vec<PhaseEntry>, // boss phase thresholds (empty for non-bosses)
     pub aoo_dice:            Option<DiceExpr>, // None = cannot AoO
+    // Phase C: unified resource table (canonical source of truth after C5).
+    pub pools:               EnumMap<PoolKind, Option<(i32, i32)>>,  // (current, max)
+    pub regen_per_pool:      EnumMap<PoolKind, RegenRule>,
 }
 ```
 
+**ResourceTable invariants (Phase C):**
+- `pools[Mana/Rage/Energy]`: `Some` iff unit has that mechanic; `None` otherwise.
+- `pools[Ap]` / `pools[Mp]`: always `Some` for alive combatants.
+- Five pool kinds in declaration order: `Mana, Rage, Energy, Ap, Mp` (iteration order load-bearing for replay determinism).
+- HP is excluded: damage/heal/death paths are special-cased throughout the engine.
+
 `armor_bonus`, `speed`, and `damage_taken_bonus` are derived aggregates —
-they are recomputed from `statuses` by `Effect::RefreshAggregates`.
+recomputed from `statuses` by `Effect::RefreshAggregates`.
+
+The bridge projector (`project_state_to_ecs`) reads from `pools` since C5;
+legacy scalar fields (`action_points`, `mana`, etc.) are mirrored for C6
+backward-compat and will be removed when C6 lands.
 
 ---
 
