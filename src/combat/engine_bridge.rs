@@ -544,6 +544,95 @@ pub struct ContentParams<'w, 's> {
     pub phases_q: Query<'w, 's, (Entity, &'static EnemyPhases)>,
 }
 
+// ── Queue Resources for deferred ECS side-effects ────────────────────────────
+
+/// Deferred list of units to mark `Dead` this `Execute` frame.
+///
+/// Producers: `translate_tick_events`, `translate_cast_events`,
+/// `translate_move_events`. Consumer: `apply_pending_deaths_system`.
+#[derive(Resource, Default)]
+pub struct PendingDeathInserts(pub Vec<UnitId>);
+
+/// Deferred turn-lifecycle mutations to apply after `project_state_to_ecs`.
+///
+/// Producers: `translate_end_turn_events` (and callers that delegate to it).
+/// Consumer: `apply_pending_turn_lifecycle_system`.
+#[derive(Resource, Default)]
+pub struct PendingTurnLifecycle {
+    pub remove_active: Vec<UnitId>,
+    pub insert_active: Vec<UnitId>,
+    /// When true, a `RoundStarted` was seen this frame; `StartRound` transition
+    /// is scheduled and `insert_active` is suppressed because `build_turn_order`
+    /// will set `ActiveCombatant` on the new actor during re-entry.
+    pub round_started: bool,
+}
+
+/// Deferred animation pushes to apply after `project_state_to_ecs`.
+///
+/// Producer: `translate_move_events`. Consumer: `apply_pending_animations_system`.
+#[derive(Resource, Default)]
+pub struct PendingAnimations(pub Vec<PendingAnim>);
+
+// ── apply-systems for the new queue Resources ─────────────────────────────────
+
+/// Drains `PendingDeathInserts` and inserts the `Dead` marker component.
+///
+/// Runs after `process_action_system`, before `project_state_to_ecs`.
+pub fn apply_pending_deaths_system(
+    mut pending: ResMut<PendingDeathInserts>,
+    id_map: Res<UnitIdMap>,
+    mut commands: Commands,
+) {
+    for uid in std::mem::take(&mut pending.0) {
+        if let Some(ent) = id_map.get_entity(uid) {
+            commands.entity(ent).insert(Dead);
+        }
+    }
+}
+
+/// Drains `PendingTurnLifecycle`: removes/inserts `ActiveCombatant` and
+/// schedules `CombatPhase::StartRound` when a new round began.
+///
+/// Runs after `apply_pending_deaths_system`, before `project_state_to_ecs`.
+pub fn apply_pending_turn_lifecycle_system(
+    mut pending: ResMut<PendingTurnLifecycle>,
+    id_map: Res<UnitIdMap>,
+    mut commands: Commands,
+    mut next_phase: Option<ResMut<NextState<CombatPhase>>>,
+) {
+    for uid in std::mem::take(&mut pending.remove_active) {
+        if let Some(ent) = id_map.get_entity(uid) {
+            commands.entity(ent).remove::<ActiveCombatant>();
+        }
+    }
+    if pending.round_started {
+        if let Some(ref mut np) = next_phase {
+            np.set(CombatPhase::StartRound);
+        }
+        // round_started suppresses insert_active: build_turn_order will set
+        // ActiveCombatant on the new actor during the next StartRound chain.
+        pending.insert_active.clear();
+        pending.round_started = false;
+    } else {
+        for uid in std::mem::take(&mut pending.insert_active) {
+            if let Some(ent) = id_map.get_entity(uid) {
+                commands.entity(ent).insert(ActiveCombatant);
+            }
+        }
+    }
+}
+
+/// Drains `PendingAnimations` into `AnimationQueue`.
+///
+/// Runs after `project_state_to_ecs`, before `apply_phase_transitions_system`.
+pub fn apply_pending_animations_system(
+    mut pending: ResMut<PendingAnimations>,
+    mut anim_queue: ResMut<AnimationQueue>,
+) {
+    for anim in std::mem::take(&mut pending.0) {
+        anim_queue.0.push_back(anim);
+    }
+}
 // ── spawn_ecs_entity_from_engine_unit ────────────────────────────────────────
 
 /// Instantiate a new ECS combatant entity from a unit already present in the
@@ -651,7 +740,7 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
 pub(crate) fn translate_tick_events(
     events: &[Event],
     id_map: &UnitIdMap,
-    commands: &mut Commands,
+    pending_deaths: &mut PendingDeathInserts,
     log: &mut CombatLog,
 ) {
     let mut pending_status_tick: Option<(UnitId, StatusId)> = None;
@@ -703,7 +792,7 @@ pub(crate) fn translate_tick_events(
                 pending_status_tick = None;
                 if let Some(ent) = id_map.get_entity(*unit) {
                     log.push(CombatEvent::UnitDied { entity: ent });
-                    commands.entity(ent).insert(Dead);
+                    pending_deaths.0.push(*unit);
                 }
             }
             Event::RageGained { unit, current, max } => {
@@ -741,6 +830,8 @@ pub(crate) fn translate_tick_events(
     }
 }
 
+// ── process_action_system ──────────────────────────────────────────────────────
+
 /// `Update` system — authoritative action handler via `combat_engine::step()`.
 ///
 /// Reads `ActionInput` messages, calls `step()` against the mirrored
@@ -765,11 +856,12 @@ pub fn process_action_system(
     active_content: Res<ActiveContent>,
     mut rng: ResMut<crate::combat::DiceRngRes>,
     mut log: ResMut<CombatLog>,
-    mut anim_queue: ResMut<AnimationQueue>,
     mut positions: ResMut<HexPositions>,
     visuals: VisualAssets,
-    mut next_phase: Option<ResMut<NextState<CombatPhase>>>,
     mut pending_phases: ResMut<PendingPhaseTransitions>,
+    mut pending_deaths: ResMut<PendingDeathInserts>,
+    mut pending_lifecycle: ResMut<PendingTurnLifecycle>,
+    mut pending_animations: ResMut<PendingAnimations>,
     mut trace_writer: ResMut<crate::combat::ai::log::engine_trace::EngineTraceWriter>,
 ) {
     for msg in reader.read() {
@@ -804,12 +896,12 @@ pub fn process_action_system(
                             &events,
                             &id_map,
                             &combat_state,
-                            &mut commands,
                             &mut log,
-                            &mut anim_queue,
                             &visuals.grid_offset,
                             &visuals.tokens,
-                            &mut next_phase,
+                            &mut pending_deaths,
+                            &mut pending_lifecycle,
+                            &mut pending_animations,
                         );
                         // AoO on a move can cross a phase threshold; queue for apply system.
                         for ev in &events {
@@ -871,7 +963,8 @@ pub fn process_action_system(
                             &mut log,
                             &mut positions,
                             &visuals,
-                            &mut next_phase,
+                            &mut pending_deaths,
+                            &mut pending_lifecycle,
                         );
                         // Queue phase transitions from cast events (most common case:
                         // boss crosses HP threshold from a direct damage spell).
@@ -909,7 +1002,7 @@ pub fn process_action_system(
                                     if let Err(e) = trace_writer.write_step(&auto_end, &end_events, end_ctx.rng_calls, end_hash) {
                                         warn!("Engine trace auto-end-turn step write failed: {e}");
                                     }
-                                    translate_end_turn_events(&end_events, &id_map, &mut commands, &mut log, &mut next_phase);
+                                    translate_end_turn_events(&end_events, &id_map, &mut log, &mut pending_deaths, &mut pending_lifecycle);
                                     // Phase transitions during auto-end-turn (e.g. DoT ticks).
                                     for ev in &end_events {
                                         if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
@@ -953,9 +1046,9 @@ pub fn process_action_system(
                         translate_end_turn_events(
                             &events,
                             &id_map,
-                            &mut commands,
                             &mut log,
-                            &mut next_phase,
+                            &mut pending_deaths,
+                            &mut pending_lifecycle,
                         );
                         // DoT ticks at end of turn can cross a phase threshold.
                         for ev in &events {
@@ -990,9 +1083,9 @@ pub fn process_action_system(
 fn translate_end_turn_events(
     events: &[Event],
     id_map: &UnitIdMap,
-    commands: &mut Commands,
     log: &mut CombatLog,
-    next_phase: &mut Option<ResMut<NextState<CombatPhase>>>,
+    pending_deaths: &mut PendingDeathInserts,
+    pending_lifecycle: &mut PendingTurnLifecycle,
 ) {
     let mut round_started = false;
 
@@ -1000,14 +1093,13 @@ fn translate_end_turn_events(
         match ev {
             Event::TurnEnded { actor } => {
                 if let Some(ent) = id_map.get_entity(*actor) {
-                    // Mirror previous advance_turn_system: drop ActiveCombatant on old actor (lost in Phase 4e sweep)
-                    commands.entity(ent).remove::<ActiveCombatant>();
+                    pending_lifecycle.remove_active.push(*actor);
                     log.push(CombatEvent::TurnEnded { actor: ent });
                 }
             }
             Event::TurnSkipped { actor, reason } => {
                 if let Some(ent) = id_map.get_entity(*actor) {
-                    commands.entity(ent).remove::<ActiveCombatant>();
+                    pending_lifecycle.remove_active.push(*actor);
                     log.push(CombatEvent::TurnSkipped {
                         actor: ent,
                         reason: TurnSkipReasonEcs::from(reason),
@@ -1016,9 +1108,6 @@ fn translate_end_turn_events(
             }
             Event::RoundStarted { round } => {
                 log.push(CombatEvent::RoundStarted { round: *round });
-                if let Some(ref mut np) = next_phase {
-                    np.set(CombatPhase::StartRound);
-                }
                 round_started = true;
             }
             Event::TurnStarted { actor } => {
@@ -1026,7 +1115,7 @@ fn translate_end_turn_events(
                     if !round_started {
                         // Mid-round handoff: insert ActiveCombatant on the new actor.
                         // After RoundStarted, build_turn_order inserts it on re-entry.
-                        commands.entity(ent).insert(ActiveCombatant);
+                        pending_lifecycle.insert_active.push(*actor);
                     }
                     log.push(CombatEvent::TurnStarted { actor: ent });
                 }
@@ -1048,9 +1137,13 @@ fn translate_end_turn_events(
                 }
             }
             other => {
-                translate_tick_events(std::slice::from_ref(other), id_map, commands, log);
+                translate_tick_events(std::slice::from_ref(other), id_map, pending_deaths, log);
             }
         }
+    }
+    // Signal round boundary to the consumer system.
+    if round_started {
+        pending_lifecycle.round_started = true;
     }
 }
 
@@ -1079,7 +1172,8 @@ fn translate_cast_events(
     log: &mut CombatLog,
     positions: &mut HexPositions,
     visuals: &VisualAssets,
-    next_phase: &mut Option<ResMut<NextState<CombatPhase>>>,
+    pending_deaths: &mut PendingDeathInserts,
+    pending_lifecycle: &mut PendingTurnLifecycle,
 ) {
     // Emit AbilityUsed from content lookup; fall back to id-as-name if absent.
     let (ability_name, is_aoe, cost_str) = active_content
@@ -1137,7 +1231,7 @@ fn translate_cast_events(
             Event::UnitDied { unit } => {
                 if let Some(ent) = id_map.get_entity(*unit) {
                     log.push(CombatEvent::UnitDied { entity: ent });
-                    commands.entity(ent).insert(Dead);
+                    pending_deaths.0.push(*unit);
                 }
             }
             Event::RageGained { unit, current, max } => {
@@ -1215,9 +1309,9 @@ fn translate_cast_events(
                 translate_end_turn_events(
                     std::slice::from_ref(ev),
                     id_map,
-                    commands,
                     log,
-                    next_phase,
+                    pending_deaths,
+                    pending_lifecycle,
                 );
             }
         }
@@ -1242,12 +1336,12 @@ fn translate_move_events(
     events: &[Event],
     id_map: &UnitIdMap,
     combat_state: &CombatStateRes,
-    commands: &mut Commands,
     log: &mut CombatLog,
-    anim_queue: &mut AnimationQueue,
     grid_offset: &HexGridOffset,
     tokens: &Query<(Entity, &UnitToken)>,
-    next_phase: &mut Option<ResMut<NextState<CombatPhase>>>,
+    pending_deaths: &mut PendingDeathInserts,
+    pending_lifecycle: &mut PendingTurnLifecycle,
+    pending_animations: &mut PendingAnimations,
 ) {
     let mut first_from: Option<hexx::Hex> = None;
     let mut last_to: Option<hexx::Hex> = None;
@@ -1311,7 +1405,7 @@ fn translate_move_events(
             Event::UnitDied { unit } => {
                 if let Some(entity) = id_map.get_entity(*unit) {
                     log.push(CombatEvent::UnitDied { entity });
-                    commands.entity(entity).insert(Dead);
+                    pending_deaths.0.push(*unit);
                 }
             }
             // Heal / status / crit-fail / spawn events not produced by Move.
@@ -1340,9 +1434,9 @@ fn translate_move_events(
                 translate_end_turn_events(
                     std::slice::from_ref(ev),
                     id_map,
-                    commands,
                     log,
-                    next_phase,
+                    pending_deaths,
+                    pending_lifecycle,
                 );
             }
         }
@@ -1356,7 +1450,7 @@ fn translate_move_events(
     // Enqueue movement animation if there were any move steps.
     if !waypoints.is_empty() {
         if let Some((token_entity, _)) = tokens.iter().find(|(_, t)| t.0 == actor) {
-            anim_queue.0.push_back(PendingAnim::Movement {
+            pending_animations.0.push(PendingAnim::Movement {
                 token: token_entity,
                 waypoints,
             });
@@ -1526,9 +1620,9 @@ pub fn bootstrap_combat_state(
     aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
     phases_q: Query<(Entity, &EnemyPhases), With<Combatant>>,
     active_content: Res<ActiveContent>,
-    mut commands: Commands,
     mut log: ResMut<CombatLog>,
     mut pending_phases: ResMut<PendingPhaseTransitions>,
+    mut pending_deaths: ResMut<PendingDeathInserts>,
 ) {
     // Idempotency guard: engine state evolves authoritatively via step() on
     // round 2+; re-importing would discard those mutations.
@@ -1636,7 +1730,7 @@ pub fn bootstrap_combat_state(
         let content = build_ecs_content_view(&active_content);
         let events = state.start_actor_turn(first_actor, &content);
 
-        translate_tick_events(&events, &*id_map, &mut commands, &mut log);
+        translate_tick_events(&events, &*id_map, &mut pending_deaths, &mut log);
 
         // Queue ECS-only phase deltas (same pattern as process_action_system).
         for ev in &events {
@@ -1666,10 +1760,18 @@ fn reset_engine_mirrors(
     combat_state: &mut CombatStateRes,
     id_map: &mut UnitIdMap,
     pending_phases: &mut PendingPhaseTransitions,
+    pending_deaths: &mut PendingDeathInserts,
+    pending_lifecycle: &mut PendingTurnLifecycle,
+    pending_animations: &mut PendingAnimations,
 ) {
     *combat_state = CombatStateRes::default();
     id_map.clear();
     pending_phases.0.clear();
+    pending_deaths.0.clear();
+    pending_lifecycle.remove_active.clear();
+    pending_lifecycle.insert_active.clear();
+    pending_lifecycle.round_started = false;
+    pending_animations.0.clear();
 }
 
 /// `OnExit(AppState::Combat)` system — natural combat-end teardown.
@@ -1677,8 +1779,11 @@ pub fn reset_engine_mirrors_on_exit_combat(
     mut combat_state: ResMut<CombatStateRes>,
     mut id_map: ResMut<UnitIdMap>,
     mut pending_phases: ResMut<PendingPhaseTransitions>,
+    mut pending_deaths: ResMut<PendingDeathInserts>,
+    mut pending_lifecycle: ResMut<PendingTurnLifecycle>,
+    mut pending_animations: ResMut<PendingAnimations>,
 ) {
-    reset_engine_mirrors(&mut combat_state, &mut id_map, &mut pending_phases);
+    reset_engine_mirrors(&mut combat_state, &mut id_map, &mut pending_phases, &mut pending_deaths, &mut pending_lifecycle, &mut pending_animations);
 }
 
 /// `Update` system listening to `RestartCombat` messages. The restart flow
@@ -1691,11 +1796,14 @@ pub fn reset_engine_mirrors_on_restart(
     mut combat_state: ResMut<CombatStateRes>,
     mut id_map: ResMut<UnitIdMap>,
     mut pending_phases: ResMut<PendingPhaseTransitions>,
+    mut pending_deaths: ResMut<PendingDeathInserts>,
+    mut pending_lifecycle: ResMut<PendingTurnLifecycle>,
+    mut pending_animations: ResMut<PendingAnimations>,
 ) {
     if reader.read().next().is_none() {
         return;
     }
-    reset_engine_mirrors(&mut combat_state, &mut id_map, &mut pending_phases);
+    reset_engine_mirrors(&mut combat_state, &mut id_map, &mut pending_phases, &mut pending_deaths, &mut pending_lifecycle, &mut pending_animations);
 }
 
 

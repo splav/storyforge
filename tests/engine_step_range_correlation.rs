@@ -22,8 +22,11 @@ use std::io::BufRead;
 use storyforge::combat::ai::log::{ActorTickEvent, AiLogger, PendingAiLogEntries, SCHEMA_VERSION};
 use storyforge::combat::ai::log::engine_trace::EngineTraceWriter;
 use storyforge::combat::engine_bridge::{
-    apply_phase_transitions_system, bootstrap_combat_state, entity_to_uid, process_action_system,
-    project_state_to_ecs, CombatStateRes, PendingPhaseTransitions, UnitIdMap,
+    apply_phase_transitions_system, apply_pending_deaths_system,
+    apply_pending_turn_lifecycle_system, apply_pending_animations_system,
+    bootstrap_combat_state, entity_to_uid, process_action_system,
+    project_state_to_ecs, CombatStateRes, PendingPhaseTransitions,
+    PendingDeathInserts, PendingTurnLifecycle, PendingAnimations, UnitIdMap,
 };
 use storyforge::combat::ai::world::tags::AbilityTagCache;
 use storyforge::combat::DiceRngRes;
@@ -58,6 +61,9 @@ fn correlation_app() -> App {
         .init_resource::<AnimationQueue>()
         .insert_resource(HexGridOffset(Vec2::ZERO))
         .init_resource::<PendingPhaseTransitions>()
+        .init_resource::<PendingDeathInserts>()
+        .init_resource::<PendingTurnLifecycle>()
+        .init_resource::<PendingAnimations>()
         .init_resource::<EngineTraceWriter>()
         .init_resource::<AiLogger>()
         .init_resource::<PendingAiLogEntries>()
@@ -90,7 +96,10 @@ fn correlation_app() -> App {
             Update,
             (
                 process_action_system,
+                apply_pending_deaths_system,
+                apply_pending_turn_lifecycle_system,
                 project_state_to_ecs,
+                apply_pending_animations_system,
                 apply_phase_transitions_system,
                 storyforge::combat::ai::log::flush_pending_ai_log_system,
             )

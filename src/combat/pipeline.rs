@@ -9,7 +9,9 @@ use bevy::prelude::*;
 use crate::app_state::{AppState, CombatPhase};
 use crate::combat::engine_bridge::{
     CombatStateRes, UnitIdMap, apply_phase_transitions_system, bootstrap_combat_state,
-    PendingPhaseTransitions, process_action_system, project_state_to_ecs,
+    PendingPhaseTransitions, PendingDeathInserts, PendingTurnLifecycle, PendingAnimations,
+    apply_pending_deaths_system, apply_pending_turn_lifecycle_system,
+    apply_pending_animations_system, process_action_system, project_state_to_ecs,
     reset_engine_mirrors_on_exit_combat, reset_engine_mirrors_on_restart,
 };
 use crate::ui;
@@ -27,7 +29,10 @@ impl Plugin for CombatPipelinePlugin {
         // Engine state resources (Phase 0: transitional, ECS still authoritative).
         app.init_resource::<CombatStateRes>()
             .init_resource::<UnitIdMap>()
-            .init_resource::<PendingPhaseTransitions>();
+            .init_resource::<PendingPhaseTransitions>()
+            .init_resource::<PendingDeathInserts>()
+            .init_resource::<PendingTurnLifecycle>()
+            .init_resource::<PendingAnimations>();
 
         // Engine mirror teardown — combat plugin owns its own lifecycle:
         // - OnExit(AppState::Combat) covers normal Victory/Defeat → next combat.
@@ -82,7 +87,10 @@ impl Plugin for CombatPipelinePlugin {
             Update,
             (
                 process_action_system,
+                apply_pending_deaths_system,
+                apply_pending_turn_lifecycle_system,
                 project_state_to_ecs,
+                apply_pending_animations_system,
                 apply_phase_transitions_system,
                 super::ai::log::flush_pending_ai_log_system,
             )
