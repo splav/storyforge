@@ -377,7 +377,6 @@ mod tests {
     }
     fn default_tuning() -> AiTuning { AiTuning::default() }
     fn default_difficulty() -> DifficultyProfile { DifficultyProfile::default() }
-    fn zero_needs() -> NeedSignals { NeedSignals::default() }
 
     fn taunt_status_tags() -> StatusTagCache {
         let mut content = empty_content();
@@ -435,7 +434,7 @@ mod tests {
             snap.unit(active.entity).expect("active in snap"),
             &snap,
             &maps,
-            &zero_needs(),
+            &NeedSignals::default(),
             &difficulty,
             &tuning,
             &AiMemory::default(),
@@ -608,7 +607,7 @@ mod tests {
             snap.unit(active.entity).expect("active in snap"),
             &snap,
             &maps,
-            &zero_needs(),
+            &NeedSignals::default(),
             &difficulty,
             &tuning,
             &AiMemory::default(),

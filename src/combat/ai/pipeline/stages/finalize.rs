@@ -110,16 +110,12 @@ mod tests {
     use crate::combat::ai::plan::types::TurnPlan;
     use crate::combat::ai::scoring::factors::{aggregate::score_plans_with_raw, PlanFactorValues};
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
+        empty_content, empty_maps, empty_plan, make_scoring_ctx, make_test_ctx, PoolBuilder,
         StageTestHarness, UnitBuilder,
         snapshot_from,
     };
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-
-    fn empty_plan() -> TurnPlan {
-        TurnPlan::default()
-    }
 
     // ── finalize_applies_per_plan_modes ────────────────────────────────────
 

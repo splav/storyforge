@@ -1308,12 +1308,9 @@ mod tests {
 
     mod commit_plan_tests {
         use super::*;
+        use crate::combat::ai::test_helpers::ent;
         use combat_engine::AbilityId;
         use crate::game::hex::hex_from_offset;
-
-        fn ent(id: u32) -> Entity {
-            Entity::from_raw_u32(id).expect("valid")
-        }
 
         fn plan_from(steps: Vec<PlanStep>) -> TurnPlan {
             TurnPlan {

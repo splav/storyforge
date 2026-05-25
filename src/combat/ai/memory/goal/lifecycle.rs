@@ -110,17 +110,10 @@ mod tests {
     use crate::combat::ai::plan::types::{TurnPlan, PlanStep};
     use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
     use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
-    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{ent, snapshot_from};
     use crate::combat::ai::orchestration::ChosenInfo;
     use crate::game::hex::hex_from_offset;
     use crate::game::components::Team;
-
-    fn ent(id: u32) -> Entity {
-        // Match UnitBuilder::new convention so that snap.unit(ent(N)) finds the
-        // unit built via UnitBuilder::new(N, ...). Using from_bits would yield a
-        // different Entity (different generation), and snap lookups would fail.
-        Entity::from_raw_u32(id).expect("valid entity id")
-    }
 
     fn make_actor(id: u32) -> crate::combat::ai::world::snapshot::UnitSnapshot {
         crate::combat::ai::test_helpers::UnitBuilder::new(id, Team::Enemy, hex_from_offset(0, 0))

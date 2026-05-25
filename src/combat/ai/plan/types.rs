@@ -235,11 +235,8 @@ impl TurnPlan {
 #[cfg(test)]
 mod prefix_tests {
     use super::*;
+    use crate::combat::ai::test_helpers::ent;
     use crate::game::hex::hex_from_offset;
-
-    fn ent(id: u32) -> Entity {
-        Entity::from_raw_u32(id).expect("valid")
-    }
 
     fn cast() -> PlanStep {
         PlanStep::Cast {

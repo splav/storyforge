@@ -586,12 +586,8 @@ mod tests {
     // fallback deserialized plans use. Direct, no sim wiring needed.
 
     use crate::combat::ai::plan::{PlanStep, StepOutcome, TurnPlan};
-    
+    use crate::combat::ai::test_helpers::ent;
     use bevy::prelude::Entity;
-
-    fn ent(id: u32) -> Entity {
-        Entity::from_raw_u32(id).expect("valid")
-    }
 
     /// Plan with a single `Move` step and a prescribed `killed` outcome.
     /// AoO-relevant: the Move step is what `expected_aoo_damage` scans.

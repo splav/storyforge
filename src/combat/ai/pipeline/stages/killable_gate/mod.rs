@@ -258,17 +258,12 @@ mod algorithm_tests {
     use crate::combat::ai::adapt::EvaluationMode;
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::{ent, UnitBuilder};
-    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{ent, empty_plan, snapshot_from, UnitBuilder};
     use combat_engine::AbilityId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
     // ── Fixtures ──────────────────────────────────────────────────────────
-
-    fn empty_plan() -> TurnPlan {
-        TurnPlan { steps: vec![], ..TurnPlan::default() }
-    }
 
     fn cast_plan(target: Entity) -> TurnPlan {
         TurnPlan {

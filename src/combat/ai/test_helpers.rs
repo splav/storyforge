@@ -530,8 +530,14 @@ pub(crate) fn unit(id: u32, team: Team, pos: Hex) -> UnitSnapshot {
 }
 
 /// Convenience for making an `Entity` from a raw u32 test id.
-pub(crate) fn ent(id: u32) -> Entity {
+pub fn ent(id: u32) -> Entity {
     Entity::from_raw_u32(id).expect("valid entity id")
+}
+
+/// Empty `TurnPlan` — sugar for `TurnPlan::default()`. Used by stages whose
+/// tests need a no-op plan input.
+pub fn empty_plan() -> TurnPlan {
+    TurnPlan::default()
 }
 
 // ── Influence maps ─────────────────────────────────────────────────────────

@@ -334,12 +334,9 @@ fn effect_breakdown(dice_str: &str, bonus: i32, total: i32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::ai::test_helpers::ent;
     use crate::content::abilities::{AbilityRange, AoEShape, ResourceCost, TargetType};
     use combat_engine::AbilityId;
-
-    fn ent(id: u32) -> Entity {
-        Entity::from_raw_u32(id).expect("valid entity id")
-    }
 
     /// `DiceSource` double that returns a fixed dice roll. Crit-fail used to
     /// be a method on the trait; it now lives at the call site, so tests

@@ -202,13 +202,10 @@ fn ttl_factor(stored: &StoredGoalContext, current_round: u32) -> f32 {
 mod tests {
     use super::*;
     use crate::combat::ai::memory::goal::{GoalKind, StoredGoalContext};
+    use crate::combat::ai::test_helpers::ent;
     use combat_engine::AbilityId;
     use crate::game::hex::Hex;
     use bevy::prelude::Entity;
-
-    fn ent(id: u32) -> Entity {
-        Entity::from_raw_u32(id).expect("valid entity id")
-    }
 
     fn stored(kind: GoalKind, anchor: Hex, radius: u32, ability: Option<&str>) -> StoredGoalContext {
         StoredGoalContext {

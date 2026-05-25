@@ -226,8 +226,6 @@ mod tests {
         }
     }
 
-    fn zero_needs() -> NeedSignals { NeedSignals::default() }
-
     fn pure_support() -> AxisProfile {
         AxisProfile { tank: 0.0, melee: 0.0, ranged: 0.0, control: 0.0, support: 1.0 }
     }
@@ -243,7 +241,7 @@ mod tests {
     #[test]
     fn urgency_zero_when_no_need_signal() {
         let it = item(IntentKind::ProtectSelf);
-        let needs = zero_needs(); // self_preserve = 0.0
+        let needs = NeedSignals::default(); // self_preserve = 0.0
         let c = compute_considerations(&it, &needs, &neutral_role(), None);
         assert!(
             c.urgency.abs() < 1e-6,
@@ -271,7 +269,7 @@ mod tests {
         // In 11.3, compute_considerations is always called without plan data.
         // Default must be 1.0 (assume reachable).
         let it = item(IntentKind::FocusTarget);
-        let c = compute_considerations(&it, &zero_needs(), &neutral_role(), None);
+        let c = compute_considerations(&it, &NeedSignals::default(), &neutral_role(), None);
         assert!(
             (c.feasibility - 1.0).abs() < 1e-6,
             "feasibility default must be 1.0, got {}",
@@ -285,7 +283,7 @@ mod tests {
         // This test documents the 11.4 TODO: once plan_for_item is wired in,
         // feasibility should reflect viability score.  For now verify it's 1.0.
         let it = item(IntentKind::FocusTarget);
-        let c = compute_considerations(&it, &zero_needs(), &neutral_role(), None);
+        let c = compute_considerations(&it, &NeedSignals::default(), &neutral_role(), None);
         // Assertion: 1.0 until 11.4 wires the plan overlay.
         assert!(
             (c.feasibility - 1.0).abs() < 1e-6,
@@ -299,7 +297,7 @@ mod tests {
     #[test]
     fn leverage_zero_when_no_plan_provided() {
         let it = item(IntentKind::FocusTarget);
-        let c = compute_considerations(&it, &zero_needs(), &neutral_role(), None);
+        let c = compute_considerations(&it, &NeedSignals::default(), &neutral_role(), None);
         assert!(
             c.leverage.abs() < 1e-6,
             "leverage default must be 0.0 when no plan provided, got {}",
@@ -314,7 +312,7 @@ mod tests {
         // with high enemy_damage should produce leverage near 1.0.
         // For now verify the 11.3 default.
         let it = item(IntentKind::FocusTarget);
-        let c = compute_considerations(&it, &zero_needs(), &neutral_role(), None);
+        let c = compute_considerations(&it, &NeedSignals::default(), &neutral_role(), None);
         // 11.3: always 0.0 (plan overlay deferred to 11.4).
         assert!(
             c.leverage.abs() < 1e-6,
@@ -328,7 +326,7 @@ mod tests {
     #[test]
     fn safety_one_when_no_plan_provided() {
         let it = item(IntentKind::Reposition);
-        let c = compute_considerations(&it, &zero_needs(), &neutral_role(), None);
+        let c = compute_considerations(&it, &NeedSignals::default(), &neutral_role(), None);
         assert!(
             (c.safety - 1.0).abs() < 1e-6,
             "safety default must be 1.0 when no plan provided, got {}",
@@ -343,7 +341,7 @@ mod tests {
         // should drive safety toward 0.0.
         // For now verify the 11.3 default.
         let it = item(IntentKind::FocusTarget);
-        let c = compute_considerations(&it, &zero_needs(), &neutral_role(), None);
+        let c = compute_considerations(&it, &NeedSignals::default(), &neutral_role(), None);
         // 11.3: always 1.0 (plan overlay deferred to 11.4).
         assert!(
             (c.safety - 1.0).abs() < 1e-6,
@@ -357,7 +355,7 @@ mod tests {
     #[test]
     fn role_affinity_healer_protect_ally_high() {
         let it = item(IntentKind::ProtectAlly);
-        let c = compute_considerations(&it, &zero_needs(), &pure_support(), None);
+        let c = compute_considerations(&it, &NeedSignals::default(), &pure_support(), None);
         assert!(
             (c.role_affinity - 1.0).abs() < 1e-6,
             "healer × ProtectAlly should be 1.0, got {}",
@@ -368,7 +366,7 @@ mod tests {
     #[test]
     fn role_affinity_dps_focus_target_high() {
         let it = item(IntentKind::FocusTarget);
-        let c = compute_considerations(&it, &zero_needs(), &pure_melee_dps(), None);
+        let c = compute_considerations(&it, &NeedSignals::default(), &pure_melee_dps(), None);
         assert!(
             (c.role_affinity - 1.0).abs() < 1e-6,
             "melee DPS × FocusTarget should be 1.0, got {}",

@@ -161,7 +161,7 @@ mod tests {
     use crate::combat::ai::pipeline::stages::modifiers::ModifierContribution;
     use crate::combat::ai::pipeline::stages::sanity::{SanityHit, SanityRule};
     use crate::combat::ai::plan::types::TurnPlan;
-    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
+    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder, empty_plan};
     use crate::game::components::Team;
     use crate::game::hex::Hex;
 
@@ -182,10 +182,6 @@ mod tests {
 
     fn make_actor() -> crate::combat::ai::world::snapshot::UnitSnapshot {
         UnitBuilder::new(1, Team::Enemy, Hex::ZERO).build()
-    }
-
-    fn empty_plan() -> TurnPlan {
-        TurnPlan::default()
     }
 
     #[test]

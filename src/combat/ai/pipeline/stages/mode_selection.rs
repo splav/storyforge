@@ -71,13 +71,9 @@ mod tests {
     use crate::combat::ai::scoring::factors::{PlanFactor, PlanFactorValues};
     use crate::combat::ai::intent::TacticalIntent;
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
-    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder};
+    use crate::combat::ai::test_helpers::{PoolBuilder, StageTestHarness, UnitBuilder, empty_plan};
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-
-    fn empty_plan() -> TurnPlan {
-        TurnPlan::default()
-    }
 
     fn move_plan(dest: crate::game::hex::Hex) -> TurnPlan {
         TurnPlan {

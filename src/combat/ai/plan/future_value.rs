@@ -352,15 +352,11 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::tags::AiTags;
     use crate::combat::ai::test_helpers::{make_scoring_ctx, make_test_ctx, UnitBuilder};
-    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{ent, snapshot_from};
     use crate::content::abilities::CasterContext;
     use combat_engine::DiceExpr;
     use crate::game::components::Team;
     use crate::game::hex::{hex_from_offset, Hex};
-
-    fn ent(id: u32) -> bevy::prelude::Entity {
-        bevy::prelude::Entity::from_raw_u32(id).expect("valid")
-    }
 
     /// `CasterContext` with a weapon so `WeaponAttack` effect yields non-zero expected damage.
     fn melee_caster() -> CasterContext {

@@ -15,7 +15,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use bevy::prelude::Entity;
 use storyforge::combat::ai::plan::sim::SimState;
 use storyforge::combat::ai::plan::types::PlanStep;
-use storyforge::combat::ai::test_helpers::snapshot_from;
+use storyforge::combat::ai::test_helpers::{ent, snapshot_from};
 use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
 use storyforge::combat_engine::{
@@ -32,9 +32,6 @@ use storyforge::game::hex::hex_from_offset;
 
 // ── Shared scenario setup ─────────────────────────────────────────────────────
 
-fn ent(id: u32) -> Entity {
-    Entity::from_raw_u32(id).expect("valid")
-}
 
 fn make_unit_snap(id: u32, team: Team, col: i32, row: i32, aoo: Option<f32>) -> UnitSnapshot {
     UnitSnapshot {

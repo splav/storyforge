@@ -208,10 +208,6 @@ mod tests {
         DifficultyProfile::default()
     }
 
-    fn zero_needs() -> NeedSignals {
-        NeedSignals::default()
-    }
-
     // ── 1. ForcedTargeting fires on canonical taunter ─────────────────────
 
     fn taunt_status_tags() -> StatusTagCache {
@@ -262,7 +258,7 @@ mod tests {
         let status_tags = taunt_status_tags();
 
         let active_view = snap.unit(active.entity).expect("active in snap");
-        let (band, reason) = assign_band(active_view, &snap, &maps, &zero_needs(), &difficulty, &tuning, &status_tags);
+        let (band, reason) = assign_band(active_view, &snap, &maps, &NeedSignals::default(), &difficulty, &tuning, &status_tags);
 
         assert_eq!(band, PriorityBand::ForcedTargeting);
         assert_eq!(reason, BandReason::TauntForced { taunter: taunter_entity });
@@ -347,7 +343,7 @@ mod tests {
         let tuning = default_tuning();
         let difficulty = default_difficulty();
         // Zero needs — no panic, no rescue pressure.
-        let needs = zero_needs();
+        let needs = NeedSignals::default();
 
         let active_view = snap.unit(active.entity).expect("active in snap");
         let (band, reason) = assign_band(active_view, &snap, &maps, &needs, &difficulty, &tuning, &StatusTagCache::default());

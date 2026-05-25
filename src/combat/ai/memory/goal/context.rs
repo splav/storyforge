@@ -399,16 +399,11 @@ fn region_anchor_for(
 mod tests {
     use super::*;
     use crate::combat::ai::world::snapshot::BattleSnapshot;
-    use crate::combat::ai::test_helpers::UnitBuilder;
-    use crate::combat::ai::test_helpers::snapshot_from;
+    use crate::combat::ai::test_helpers::{UnitBuilder, ent, snapshot_from};
     use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::components::Team;
     use crate::game::hex::Hex;
     use bevy::prelude::Entity;
-
-    fn ent(id: u32) -> Entity {
-        Entity::from_raw_u32(id).expect("valid entity id")
-    }
 
     fn default_tuning() -> AiTuning {
         AiTuning::default()

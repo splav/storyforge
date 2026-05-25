@@ -10,7 +10,7 @@
 use bevy::prelude::Entity;
 use storyforge::combat::ai::plan::sim::SimState;
 use storyforge::combat::ai::plan::types::PlanStep;
-use storyforge::combat::ai::test_helpers::{snapshot_from_pairs, UnitBuilder};
+use storyforge::combat::ai::test_helpers::{ent, snapshot_from_pairs, UnitBuilder};
 use storyforge::combat::ai::world::snapshot::BattleSnapshot;
 use storyforge::combat::ai::world::tags::StatusTagCache;
 
@@ -28,10 +28,6 @@ use storyforge::game::components::Team;
 use storyforge::game::hex::hex_from_offset;
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
-
-fn ent(id: u32) -> Entity {
-    Entity::from_raw_u32(id).expect("valid")
-}
 
 /// Build a unit pair with parity-test defaults: hp/max_hp=30, ap=2, speed=6, threat=0.
 /// Pass `aoo=Some(d)` to arm the unit with expected AoO damage `d` and `reactions` reactions.

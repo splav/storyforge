@@ -248,17 +248,13 @@ mod tests {
     use crate::combat::ai::world::reservations::Reservations;
     use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
     use crate::combat::ai::test_helpers::{
-        empty_content, empty_maps, make_scoring_ctx, make_test_ctx, PoolBuilder,
+        empty_content, empty_maps, empty_plan, make_scoring_ctx, make_test_ctx, PoolBuilder,
         StageTestHarness, UnitBuilder,
         snapshot_from,
     };
     use combat_engine::DiceRng;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
-
-    fn empty_plan() -> TurnPlan {
-        TurnPlan::default()
-    }
 
     /// A plan that moves toward `to`; final_pos = to.
     fn move_plan_to(to: Hex) -> TurnPlan {

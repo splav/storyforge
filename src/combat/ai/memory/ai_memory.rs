@@ -198,17 +198,13 @@ pub struct AiMemory {
 mod tests {
     use super::*;
     use crate::combat::ai::world::snapshot::ActiveStatusView;
-    use crate::combat::ai::test_helpers::{UnitBuilder, snapshot_from};
+    use crate::combat::ai::test_helpers::{UnitBuilder, ent, snapshot_from};
     use combat_engine::StatusId;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 
     fn make_status(id: &str, rounds: u32) -> ActiveStatusView {
         ActiveStatusView { id: StatusId::from(id), rounds_remaining: rounds, dot_per_tick: 0 }
-    }
-
-    fn ent(id: u32) -> Entity {
-        Entity::from_raw_u32(id).unwrap()
     }
 
     #[test]
