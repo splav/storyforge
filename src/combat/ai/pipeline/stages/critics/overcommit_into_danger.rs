@@ -111,10 +111,8 @@ mod tests {
     use crate::combat::ai::plan::types::{PlanStep, TurnPlan};
     use crate::combat::ai::pipeline::stages::critics::{CriticKind, CriticReason};
     use crate::combat::ai::test_helpers::{
-        StageTestHarness, UnitBuilder,
-        assert_stage_critic_passes, assert_stage_critic_fires, run_critic, CriticScenarioBuilder,
+        StageTestHarness, UnitBuilder, assert_stage_critic_passes,
     };
-    use crate::combat::ai::outcome::PlanAnnotation;
     use crate::game::components::Team;
     use crate::game::hex::hex_from_offset;
 

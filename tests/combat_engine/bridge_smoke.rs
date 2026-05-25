@@ -46,9 +46,9 @@ fn process_action_move_writes_engine_state_and_projects_to_ecs() {
     let start = hex_from_offset(0, 0);
     let target = hex_from_offset(1, 0); // direct neighbor — costs 1 MP
 
-    let mut app = common::bridge::bridge_app();
-    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
-    common::bridge::bootstrap(&mut app);
+    let mut app = common::apps::bridge::bridge_app();
+    let actor = common::apps::bridge::spawn_caster(&mut app, start, vec![]);
+    common::apps::bridge::bootstrap(&mut app);
 
     // Verify engine state was initialized correctly.
     let actor_uid = entity_to_uid(actor);
@@ -119,13 +119,13 @@ fn aoo_dice_flows_from_equipment_through_process_action_system() {
     let ability_id = AbilityId::from("test_attack");
     let weapon_id = WeaponId::from("test_sword");
 
-    let cv = common::bridge::melee_content(&ability_id, &weapon_id).into_view();
+    let cv = common::apps::bridge::melee_content(&ability_id, &weapon_id).into_view();
 
-    let mut app = common::bridge::bridge_app();
+    let mut app = common::apps::bridge::bridge_app();
     app.insert_resource(ActiveContent(cv));
 
-    let player = common::bridge::spawn_caster(&mut app, player_start, vec![]);
-    let enemy = common::bridge::spawn_enemy_with_weapon(
+    let player = common::apps::bridge::spawn_caster(&mut app, player_start, vec![]);
+    let enemy = common::apps::bridge::spawn_enemy_with_weapon(
         &mut app,
         enemy_pos,
         vec![ability_id],
@@ -137,11 +137,11 @@ fn aoo_dice_flows_from_equipment_through_process_action_system() {
         .unwrap()
         .remaining = 1;
 
-    common::bridge::bootstrap(&mut app);
+    common::apps::bridge::bootstrap(&mut app);
 
     let max_hp = app.world().entity(player).get::<Vital>().unwrap().max_hp;
 
-    common::bridge::write_move(&mut app, player, vec![escape_hex]);
+    common::apps::bridge::write_move(&mut app, player, vec![escape_hex]);
     app.update();
 
     let hp_after = app.world().entity(player).get::<Vital>().unwrap().hp;
@@ -188,15 +188,15 @@ fn aoo_does_not_fire_from_stunned_enemy() {
         },
     };
 
-    let cv = common::bridge::melee_content(&ability_id, &weapon_id)
+    let cv = common::apps::bridge::melee_content(&ability_id, &weapon_id)
         .with_status(stun_def)
         .into_view();
 
-    let mut app = common::bridge::bridge_app();
+    let mut app = common::apps::bridge::bridge_app();
     app.insert_resource(ActiveContent(cv));
 
-    let player = common::bridge::spawn_caster(&mut app, player_start, vec![]);
-    let enemy = common::bridge::spawn_enemy_with_weapon(
+    let player = common::apps::bridge::spawn_caster(&mut app, player_start, vec![]);
+    let enemy = common::apps::bridge::spawn_enemy_with_weapon(
         &mut app,
         enemy_pos,
         vec![ability_id],
@@ -221,12 +221,12 @@ fn aoo_does_not_fire_from_stunned_enemy() {
             dot_per_tick: 0,
         });
 
-    common::bridge::bootstrap(&mut app);
+    common::apps::bridge::bootstrap(&mut app);
 
     let max_hp = app.world().entity(player).get::<Vital>().unwrap().max_hp;
     let enemy_reactions_before = app.world().entity(enemy).get::<Reactions>().unwrap().remaining;
 
-    common::bridge::write_move(&mut app, player, vec![escape_hex]);
+    common::apps::bridge::write_move(&mut app, player, vec![escape_hex]);
     app.update();
 
     let hp_after = app.world().entity(player).get::<Vital>().unwrap().hp;
@@ -256,17 +256,17 @@ fn engine_emits_combat_log_opportunity_attack() {
 
     let ability_id = AbilityId::from("b1_aoo_attack");
     let weapon_id = WeaponId::from("b1_aoo_sword");
-    let content = common::bridge::melee_content(&ability_id, &weapon_id).into_view();
+    let content = common::apps::bridge::melee_content(&ability_id, &weapon_id).into_view();
 
-    let mut app = common::bridge::bridge_app();
+    let mut app = common::apps::bridge::bridge_app();
     app.insert_resource(ActiveContent(content));
 
-    let player = common::bridge::spawn_caster(&mut app, player_start, vec![]);
-    let enemy = common::bridge::spawn_enemy_with_weapon(&mut app, enemy_pos, vec![ability_id], weapon_id);
+    let player = common::apps::bridge::spawn_caster(&mut app, player_start, vec![]);
+    let enemy = common::apps::bridge::spawn_enemy_with_weapon(&mut app, enemy_pos, vec![ability_id], weapon_id);
     app.world_mut().entity_mut(enemy).get_mut::<Reactions>().unwrap().remaining = 1;
 
-    common::bridge::bootstrap(&mut app);
-    common::bridge::write_move(&mut app, player, vec![escape_hex]);
+    common::apps::bridge::bootstrap(&mut app);
+    common::apps::bridge::write_move(&mut app, player, vec![escape_hex]);
     app.update();
 
     let log = app.world().resource::<CombatLog>();
@@ -289,10 +289,10 @@ fn engine_emits_combat_log_unit_moved() {
     let start = hex_from_offset(0, 0);
     let target = hex_from_offset(1, 0);
 
-    let mut app = common::bridge::bridge_app();
-    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
-    common::bridge::bootstrap(&mut app);
-    common::bridge::write_move(&mut app, actor, vec![target]);
+    let mut app = common::apps::bridge::bridge_app();
+    let actor = common::apps::bridge::spawn_caster(&mut app, start, vec![]);
+    common::apps::bridge::bootstrap(&mut app);
+    common::apps::bridge::write_move(&mut app, actor, vec![target]);
     app.update();
 
     let log = app.world().resource::<CombatLog>();
@@ -314,14 +314,14 @@ fn engine_enqueues_movement_animation() {
     let start = hex_from_offset(0, 0);
     let step1 = hex_from_offset(1, 0);
 
-    let mut app = common::bridge::bridge_app();
-    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
+    let mut app = common::apps::bridge::bridge_app();
+    let actor = common::apps::bridge::spawn_caster(&mut app, start, vec![]);
     // Spawn a token entity pointing at the actor.
     let token_entity = app.world_mut().spawn(UnitToken(actor)).id();
-    common::bridge::bootstrap(&mut app);
+    common::apps::bridge::bootstrap(&mut app);
 
     let path = vec![step1];
-    common::bridge::write_move(&mut app, actor, path.clone());
+    common::apps::bridge::write_move(&mut app, actor, path.clone());
     app.update();
 
     let queue = app.world().resource::<AnimationQueue>();
@@ -345,13 +345,13 @@ fn projector_removes_bonus_movement_when_mp_zero() {
     let start = hex_from_offset(0, 0);
     let target = hex_from_offset(1, 0);
 
-    let mut app = common::bridge::bridge_app();
+    let mut app = common::apps::bridge::bridge_app();
 
     // Spawn actor with movement_points = 1 (just enough for a 1-step path).
-    let actor = common::bridge::spawn_caster_with_speed(&mut app, start, vec![], 1);
+    let actor = common::apps::bridge::spawn_caster_with_speed(&mut app, start, vec![], 1);
     app.world_mut().entity_mut(actor).insert(BonusMovement);
-    common::bridge::bootstrap(&mut app);
-    common::bridge::write_move(&mut app, actor, vec![target]);
+    common::apps::bridge::bootstrap(&mut app);
+    common::apps::bridge::write_move(&mut app, actor, vec![target]);
     app.update();
 
     assert!(
@@ -374,24 +374,24 @@ fn engine_inserts_dead_marker_on_aoo_kill() {
 
     let ability_id = AbilityId::from("b1_kill_attack");
     let weapon_id = WeaponId::from("b1_kill_sword");
-    let cv = common::bridge::melee_content(&ability_id, &weapon_id).into_view();
+    let cv = common::apps::bridge::melee_content(&ability_id, &weapon_id).into_view();
 
-    let mut app = common::bridge::bridge_app();
+    let mut app = common::apps::bridge::bridge_app();
     app.insert_resource(ActiveContent(cv));
 
     // Player with hp=1 — any hit is lethal.
     let weak_stats = CombatStats { max_hp: 1, strength: 5, dexterity: 5, constitution: 10, intelligence: 0, wisdom: 10, charisma: 10 };
-    let player = common::bridge::spawn_unit(
+    let player = common::apps::bridge::spawn_unit(
         &mut app,
         Team::Player,
         weak_stats,
         0,
         6,
         vec![],
-        common::bridge::no_equipment(),
+        common::apps::bridge::no_equipment(),
         player_start,
     );
-    let enemy = common::bridge::spawn_enemy_with_weapon(
+    let enemy = common::apps::bridge::spawn_enemy_with_weapon(
         &mut app,
         enemy_pos,
         vec![ability_id],
@@ -402,9 +402,9 @@ fn engine_inserts_dead_marker_on_aoo_kill() {
     // Script the dice: roll maximum damage (6) to guarantee a kill on hp=1.
     app.world_mut().resource_mut::<DiceRngRes>().script(&[6]);
 
-    common::bridge::bootstrap(&mut app);
+    common::apps::bridge::bootstrap(&mut app);
 
-    common::bridge::write_move(&mut app, player, vec![escape_hex]);
+    common::apps::bridge::write_move(&mut app, player, vec![escape_hex]);
     app.update();
 
     // Dead component must be inserted.
@@ -431,15 +431,15 @@ fn projector_writes_engine_mutation_to_ecs() {
     // --- Phase A: seed engine state via the full bridge_app ---
     let start = hex_from_offset(0, 0);
 
-    let mut seed_app = common::bridge::bridge_app();
+    let mut seed_app = common::apps::bridge::bridge_app();
 
-    common::bridge::spawn_caster(&mut seed_app, start, vec![]);
+    common::apps::bridge::spawn_caster(&mut seed_app, start, vec![]);
 
     // Seed engine state from ECS (no mirror system in bridge_app).
-    common::bridge::bootstrap(&mut seed_app);
+    common::apps::bridge::bootstrap(&mut seed_app);
 
     // --- Phase B: set up projector-only app with the same entity / resources ---
-    let mut app = common::bridge::projector_only_app();
+    let mut app = common::apps::bridge::projector_only_app();
 
     // Spawn the same actor entity in the new world (entity id is stable across
     // App instances; we need the same Entity bits so UnitIdMap lookups work).
@@ -447,11 +447,11 @@ fn projector_writes_engine_mutation_to_ecs() {
         .world_mut()
         .spawn(CombatantBundle::new(
             Team::Player,
-            common::bridge::bridge_stats(),
+            common::apps::bridge::bridge_stats(),
             0,
             6,
             vec![],
-            common::bridge::default_equipment(),
+            common::apps::bridge::default_equipment(),
         ))
         .id();
 
@@ -567,31 +567,31 @@ fn run_cast_log_test(
     let caster_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(1, 0);
 
-    let mut app = common::bridge::bridge_app();
-    common::bridge::insert_ability(&mut app, ability);
+    let mut app = common::apps::bridge::bridge_app();
+    common::apps::bridge::insert_ability(&mut app, ability);
 
-    let caster = common::bridge::spawn_unit(
+    let caster = common::apps::bridge::spawn_unit(
         &mut app,
         Team::Player,
         caster_stats,
         0,
         6,
         vec![ability_id.clone()],
-        common::bridge::no_equipment(),
+        common::apps::bridge::no_equipment(),
         caster_pos,
     );
-    let target = common::bridge::spawn_unit(
+    let target = common::apps::bridge::spawn_unit(
         &mut app,
         Team::Enemy,
-        common::bridge::bridge_stats(),
+        common::apps::bridge::bridge_stats(),
         0,
         6,
         vec![],
-        common::bridge::no_equipment(),
+        common::apps::bridge::no_equipment(),
         target_pos,
     );
 
-    common::bridge::bootstrap(&mut app);
+    common::apps::bridge::bootstrap(&mut app);
 
     let caster_uid = entity_to_uid(caster);
     app.world_mut()
@@ -609,8 +609,8 @@ fn run_cast_log_test(
             .unwrap(),
     );
 
-    common::bridge::script_no_crit_fail(&mut app);
-    common::bridge::write_cast(&mut app, caster, ability_id, target, target_pos);
+    common::apps::bridge::script_no_crit_fail(&mut app);
+    common::apps::bridge::write_cast(&mut app, caster, ability_id, target, target_pos);
     app.update();
 
     assert_log(app.world().resource::<CombatLog>());
@@ -704,7 +704,7 @@ fn cast_emits_status_applied_log_entry() {
         },
     };
 
-    run_cast_log_test(ability_def, common::bridge::bridge_stats(), |_| {}, |log| {
+    run_cast_log_test(ability_def, common::apps::bridge::bridge_stats(), |_| {}, |log| {
         let status_events: Vec<_> = log.0.iter().filter_map(|e| {
             if let CombatEvent::StatusApplied { target: t, status } = e {
                 Some((*t, status.clone()))
@@ -745,7 +745,7 @@ fn cast_emits_mana_changed_log_entry() {
         },
     };
 
-    run_cast_log_test(ability_def, common::bridge::bridge_stats(), |unit| { unit.mana = Some((10, 10)); }, |log| {
+    run_cast_log_test(ability_def, common::apps::bridge::bridge_stats(), |unit| { unit.mana = Some((10, 10)); }, |log| {
         let mana_events: Vec<_> = log.0.iter().filter_map(|e| {
             if let CombatEvent::ManaChanged { actor: a, current, max } = e {
                 Some((*a, *current, *max))
@@ -765,22 +765,22 @@ fn process_action_system_routes_cast_into_engine() {
     use storyforge::content::abilities::{ResourceCost, TargetType};
     use combat_engine::ResourceKind;
 
-    let mut app = common::bridge::bridge_app();
+    let mut app = common::apps::bridge::bridge_app();
 
     let caster_pos = hex_from_offset(0, 0);
     let target_pos = hex_from_offset(1, 0);
 
-    let caster = common::bridge::spawn_unit(
+    let caster = common::apps::bridge::spawn_unit(
         &mut app,
         Team::Player,
-        common::bridge::bridge_stats(),
+        common::apps::bridge::bridge_stats(),
         0,
         6,
         vec!["zap".into()],
-        common::bridge::no_equipment(),
+        common::apps::bridge::no_equipment(),
         caster_pos,
     );
-    let target = common::bridge::spawn_target(&mut app, target_pos);
+    let target = common::apps::bridge::spawn_target(&mut app, target_pos);
 
     // Register a Cast-able ability with a mana cost in ActiveContent.
     let zap_id = AbilityId::from("zap");
@@ -804,20 +804,20 @@ fn process_action_system_routes_cast_into_engine() {
             key: None,
         },
     };
-    common::bridge::insert_ability(&mut app, zap_def);
+    common::apps::bridge::insert_ability(&mut app, zap_def);
 
-    common::bridge::bootstrap(&mut app);
+    common::apps::bridge::bootstrap(&mut app);
 
     // CombatantBundle default AP=1; bump to 2 so post-cast AP=1 is observable.
     // Mana isn't a default Bevy component on CombatantBundle — set on engine
     // state directly so PayCost has a pool to deduct from.
     let caster_uid = entity_to_uid(caster);
-    common::bridge::with_engine_unit(&mut app, caster, |unit| {
+    common::apps::bridge::with_engine_unit(&mut app, caster, |unit| {
         unit.action_points = 2;
         unit.mana = Some((10, 10));
     });
 
-    common::bridge::write_cast(&mut app, caster, zap_id, target, target_pos);
+    common::apps::bridge::write_cast(&mut app, caster, zap_id, target, target_pos);
 
     app.update();
 
@@ -841,9 +841,9 @@ fn projector_writes_mana_from_engine_state() {
     use storyforge::combat_engine::state::{CombatState, RoundPhase, Team as EngineTeam, Unit};
 
     let start = hex_from_offset(0, 0);
-    let mut app = common::bridge::projector_only_app();
+    let mut app = common::apps::bridge::projector_only_app();
 
-    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
+    let actor = common::apps::bridge::spawn_caster(&mut app, start, vec![]);
 
     // Add Mana component — not part of CombatantBundle by default.
     app.world_mut()
@@ -911,9 +911,9 @@ fn projector_writes_statuses_from_engine_state() {
     };
 
     let start = hex_from_offset(0, 0);
-    let mut app = common::bridge::projector_only_app();
+    let mut app = common::apps::bridge::projector_only_app();
 
-    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
+    let actor = common::apps::bridge::spawn_caster(&mut app, start, vec![]);
 
     let actor_uid = entity_to_uid(actor);
     app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
@@ -990,10 +990,10 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
 
     let start = hex_from_offset(0, 0);
     let start2 = hex_from_offset(1, 0);
-    let mut app = common::bridge::projector_only_app();
+    let mut app = common::apps::bridge::projector_only_app();
 
-    let actor = common::bridge::spawn_caster(&mut app, start, vec![]);
-    let aura_source = common::bridge::spawn_caster(&mut app, start2, vec![]);
+    let actor = common::apps::bridge::spawn_caster(&mut app, start, vec![]);
+    let aura_source = common::apps::bridge::spawn_caster(&mut app, start2, vec![]);
 
     let actor_uid = entity_to_uid(actor);
     let aura_source_uid = entity_to_uid(aura_source);
@@ -1163,31 +1163,31 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
         intelligence: 0, wisdom: 10, charisma: 10,
     };
 
-    let mut app = common::bridge::bridge_app();
-    common::bridge::insert_ability(&mut app, ability_def);
+    let mut app = common::apps::bridge::bridge_app();
+    common::apps::bridge::insert_ability(&mut app, ability_def);
 
-    let caster = common::bridge::spawn_unit(
+    let caster = common::apps::bridge::spawn_unit(
         &mut app,
         Team::Player,
         zero_str_stats,
         0,
         6,
         vec![ability_id.clone()],
-        common::bridge::no_equipment(),
+        common::apps::bridge::no_equipment(),
         caster_pos,
     );
-    let target = common::bridge::spawn_unit(
+    let target = common::apps::bridge::spawn_unit(
         &mut app,
         Team::Enemy,
-        common::bridge::bridge_stats(),
+        common::apps::bridge::bridge_stats(),
         0,
         6,
         vec![],
-        common::bridge::no_equipment(),
+        common::apps::bridge::no_equipment(),
         target_pos,
     );
 
-    common::bridge::bootstrap(&mut app);
+    common::apps::bridge::bootstrap(&mut app);
 
     let caster_uid = entity_to_uid(caster);
     {
@@ -1197,8 +1197,8 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
         unit.action_points = 2;
     }
 
-    common::bridge::script_d20(&mut app, d20);
-    common::bridge::write_cast(&mut app, caster, ability_id, target, target_pos);
+    common::apps::bridge::script_d20(&mut app, d20);
+    common::apps::bridge::write_cast(&mut app, caster, ability_id, target, target_pos);
     app.update();
 
     let log = app.world().resource::<CombatLog>();
@@ -1295,36 +1295,36 @@ fn cast_summon_creates_ecs_entity_synchronously() {
         ai_tuning_override: None,
     };
 
-    let mut app = common::bridge::bridge_app();
+    let mut app = common::apps::bridge::bridge_app();
     {
         let mut content = app.world_mut().resource_mut::<ActiveContent>();
         content.0.abilities.insert(ability_id.clone(), ability_def);
         content.0.unit_templates.insert(template_id.into(), template);
     }
 
-    let summoner = common::bridge::spawn_unit(
+    let summoner = common::apps::bridge::spawn_unit(
         &mut app,
         Team::Enemy,
-        common::bridge::bridge_stats(),
+        common::apps::bridge::bridge_stats(),
         0,
         4,
         vec![ability_id.clone()],
-        common::bridge::no_equipment(),
+        common::apps::bridge::no_equipment(),
         summoner_pos,
     );
 
-    common::bridge::bootstrap(&mut app);
+    common::apps::bridge::bootstrap(&mut app);
 
     // Ensure summoner has AP.
-    common::bridge::with_engine_unit(&mut app, summoner, |unit| {
+    common::apps::bridge::with_engine_unit(&mut app, summoner, |unit| {
         unit.action_points = 1;
     });
 
     // Script crit-fail d20 to non-1 (summon has no damage roll after that).
-    common::bridge::script_no_crit_fail(&mut app);
+    common::apps::bridge::script_no_crit_fail(&mut app);
 
     // Cast summon targeting self (summoner == target for Myself abilities).
-    common::bridge::write_cast(&mut app, summoner, ability_id, summoner, summoner_pos);
+    common::apps::bridge::write_cast(&mut app, summoner, ability_id, summoner, summoner_pos);
 
     app.update();
 
@@ -1390,22 +1390,22 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
         },
     };
 
-    let mut app = common::bridge::bridge_app();
-    common::bridge::insert_ability(&mut app, ability_def);
+    let mut app = common::apps::bridge::bridge_app();
+    common::apps::bridge::insert_ability(&mut app, ability_def);
 
     // Caster: str=0 so str_mod=0, damage is purely from the +60 bonus.
     let zero_str_stats = CombatStats {
         max_hp: 20, strength: 0, dexterity: 5, constitution: 10,
         intelligence: 0, wisdom: 10, charisma: 10,
     };
-    let caster = common::bridge::spawn_unit(
+    let caster = common::apps::bridge::spawn_unit(
         &mut app,
         Team::Player,
         zero_str_stats,
         0,
         6,
         vec![ability_id.clone()],
-        common::bridge::no_equipment(),
+        common::apps::bridge::no_equipment(),
         caster_pos,
     );
 
@@ -1425,19 +1425,19 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
     let boss = app.world_mut().spawn((
         CombatantBundle::new(
             Team::Enemy, boss_stats, 0, 6, vec![],
-            common::bridge::no_equipment(),
+            common::apps::bridge::no_equipment(),
         ),
         EnemyPhases { pending: vec![phase] },
         BevyName::new("Boss"),
     )).id();
     app.world_mut().resource_mut::<HexPositions>().insert(boss, boss_hex);
 
-    common::bridge::bootstrap(&mut app);
+    common::apps::bridge::bootstrap(&mut app);
 
     // Script d20 to 11 so crit-fail doesn't fire.
-    common::bridge::script_no_crit_fail(&mut app);
+    common::apps::bridge::script_no_crit_fail(&mut app);
 
-    common::bridge::write_cast(&mut app, caster, ability_id, boss, boss_hex);
+    common::apps::bridge::write_cast(&mut app, caster, ability_id, boss, boss_hex);
 
     app.update();
 
@@ -1582,7 +1582,7 @@ fn engine_trace_full_combat_record_replay() {
     let path = std::env::temp_dir().join(format!("engine_trace_e2e_{ts}.jsonl"));
 
     // ── Build app ────────────────────────────────────────────────────────────
-    let mut app = common::bridge::bridge_app();
+    let mut app = common::apps::bridge::bridge_app();
 
     let start_hex = hex_from_offset(0, 0);
     let step1_hex = hex_from_offset(1, 0);
@@ -1592,11 +1592,11 @@ fn engine_trace_full_combat_record_replay() {
         .world_mut()
         .spawn(CombatantBundle::new(
             Team::Player,
-            common::bridge::bridge_stats(),
+            common::apps::bridge::bridge_stats(),
             0,  // armor
             6,  // speed
             vec![],
-            common::bridge::default_equipment(),
+            common::apps::bridge::default_equipment(),
         ))
         .id();
 
@@ -1605,7 +1605,7 @@ fn engine_trace_full_combat_record_replay() {
         .insert(actor, start_hex);
 
     // Seed engine state.
-    common::bridge::bootstrap(&mut app);
+    common::apps::bridge::bootstrap(&mut app);
 
     // ── Open the trace writer + write InitLine manually ───────────────────────
     {
@@ -1750,13 +1750,13 @@ fn ai_log_engine_step_range_populated() {
     let ai_path = std::env::temp_dir().join(format!("ai_step_range_smoke_{ts}.jsonl"));
     let trace_path = std::env::temp_dir().join(format!("engine_step_range_trace_{ts}.jsonl"));
 
-    let mut app = common::bridge::bridge_app();
+    let mut app = common::apps::bridge::bridge_app();
 
     // Spawn a combatant and seed engine state.
     let start_hex = hex_from_offset(0, 0);
     let target_hex = hex_from_offset(1, 0);
-    let actor = common::bridge::spawn_caster(&mut app, start_hex, vec![]);
-    common::bridge::bootstrap(&mut app);
+    let actor = common::apps::bridge::spawn_caster(&mut app, start_hex, vec![]);
+    common::apps::bridge::bootstrap(&mut app);
 
     // Open both writers.
     app.world_mut()
@@ -1795,7 +1795,7 @@ fn ai_log_engine_step_range_populated() {
 
     // Dispatch Move — process_action_system advances step counter to 1,
     // then flush_pending_ai_log_system writes the entry with range [0, 1).
-    common::bridge::write_move(&mut app, actor, vec![target_hex]);
+    common::apps::bridge::write_move(&mut app, actor, vec![target_hex]);
     app.update();
 
     // Step counter should now be 1 (one Move step was applied).

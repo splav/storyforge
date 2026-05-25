@@ -21,8 +21,8 @@ use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
 use storyforge::combat_engine::{
     action::Action,
     content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
-    dice::{DiceExpr as EngineDiceExpr, ExpectedValue},
-    state::{CombatState, RoundPhase, Team as EngineTeam, Unit as EngineUnit},
+    dice::ExpectedValue,
+    state::{CombatState, RoundPhase},
     step::step,
 };
 use storyforge::combat::engine_bridge::entity_to_uid;

@@ -25,13 +25,3 @@
 pub mod fixtures;
 pub mod apps;
 pub mod scenarios;
-
-// Flat-path compatibility: pre-H3 consumers expect `common::X` for fixtures
-// and engine-app helpers, and `common::bridge::*` for bridge helpers.
-pub use fixtures::*;
-pub use apps::engine::*;
-pub use scenarios::statuses::*;
-
-// `common::bridge::*` legacy path. The bridge module also reachable as
-// `common::apps::bridge::*` post-H3.
-pub use apps::bridge;
