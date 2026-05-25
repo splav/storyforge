@@ -717,28 +717,180 @@ pub(crate) fn spawn_ecs_entity_from_engine_unit(
     Some(new_entity)
 }
 
-// ── translate_tick_events ─────────────────────────────────────────────────────
+// ── translate_events: unified bridge translator ───────────────────────────────
 
-/// Translate an engine tick-event stream into `CombatLog` entries and ECS side-
-/// effects (inserting `Dead`).
+/// Cast-flow context — marker that the current translate_events call is
+/// processing an `Action::Cast` event stream.
 ///
-/// Shared by `bootstrap_combat_state` (round-1 first-actor priming; subsequent
-/// turn starts come from the engine `step()` cascade) and `advance_turn_system`
-/// (dead-actor sirota-DoT skip loop).
-pub(crate) fn translate_tick_events(
-    events: &[Event],
-    id_map: &UnitIdMap,
-    pending_deaths: &mut PendingDeathInserts,
-    log: &mut CombatLog,
-) {
+/// Cast-specific events (`UnitHealed`, `StatusApplied`, `CritFailed`,
+/// `SpawnBlocked`) use `ctx.cast.is_some()` as a discriminant.
+/// `Event::UnitSpawned` is handled in a separate post-pass at the callsite
+/// because it requires `&mut Commands` which cannot be stored in `TranslateCtx`
+/// without propagating Bevy's system-scoped `Commands` lifetime.
+struct CastCtx {
+    // Marker struct — no fields needed; cast-specific behavior is gated on
+    // ctx.cast.is_some() inside translate_one.
+    _phantom: (),
+}
+
+/// Move-flow context — fields only needed when translating `Action::Move` events.
+struct MoveCtx<'a> {
+    actor: Entity,
+    combat_state: &'a CombatStateRes,
+    grid_offset: &'a HexGridOffset,
+    /// Aggregated start position for the single `UnitMoved` log entry.
+    first_from: Option<hexx::Hex>,
+    /// Aggregated end position for the single `UnitMoved` log entry.
+    last_to: Option<hexx::Hex>,
+    /// All waypoints (world-space) for the movement animation.
+    waypoints: Vec<Vec2>,
+    /// State machine for AoO pairing: `ReactionFired` immediately precedes the
+    /// paired `UnitDamaged` in the event stream (decision 6.3).
+    /// PRESERVE: do not fuse into `Event::AooDamaged` here — deferred to a
+    /// future S-task (the second fusion candidate after S5's DotDamaged).
+    pending_aoo_target: Option<UnitId>,
+}
+
+/// Bundle of all mutable state shared across `translate_events`.
+///
+/// The four formerly-separate translator functions each closed over a different
+/// subset of this state; now one exhaustive `match` in `translate_one` branches
+/// on `ctx.cast` / `ctx.move_` presence to recover the same context-dependent
+/// behaviour.
+///
+/// Lifetime `'a` is the lifetime of the Bevy system parameter borrows passed in
+/// from `process_action_system` / `bootstrap_combat_state`.
+struct TranslateCtx<'a> {
+    /// Shared by every translator.  Held as `&mut` so the `UnitSpawned` arm
+    /// can pass it to `spawn_ecs_entity_from_engine_unit` (which registers the
+    /// new entity).  Read-only arms dereference via `&*ctx.id_map`.
+    log: &'a mut CombatLog,
+    id_map: &'a mut UnitIdMap,
+    pending_deaths: &'a mut PendingDeathInserts,
+    pending_lifecycle: &'a mut PendingTurnLifecycle,
+    /// Cast-flow-specific state (None outside `Action::Cast` translation).
+    cast: Option<CastCtx>,
+    /// Move-flow-specific state (None outside `Action::Move` translation).
+    move_: Option<MoveCtx<'a>>,
+}
+
+/// Unified bridge event translator — one exhaustive `match` over every
+/// `Event` variant.
+///
+/// Replaces four formerly-separate translator functions:
+/// - `translate_tick_events`     (dot-damage, death, rage, mana-regen)
+/// - `translate_end_turn_events` (turn/round lifecycle, aura status changes)
+/// - `translate_cast_events`     (ability log entry, heal, status, crit-fail, spawn)
+/// - `translate_move_events`     (waypoint aggregation, AoO pairing, movement anim)
+///
+/// Context-dependent behaviour (cast vs move vs tick) is driven by the
+/// presence of `ctx.cast` / `ctx.move_` sub-structs:
+///
+/// - `UnitDamaged` in tick context: pierce-aware `armor_reduced` formula.
+///   In cast context: passes `mitigation` as-is (engine zeroes it for piercing
+///   casts). In move context: only handled when paired with a preceding
+///   `ReactionFired` (AoO state machine).
+/// - `UnitMoved`, `ReactionFired`: only meaningful in move context.
+/// - `CritFailed`, `UnitSpawned`, `SpawnBlocked`, `UnitHealed`, `StatusApplied`:
+///   only meaningful in cast context.
+/// - Turn/round/aura events: always meaningful (B5 can emit them in any flow).
+///
+/// After the loop, callers in move context must call `finalize_move` to emit
+/// the aggregated `UnitMoved` log entry and enqueue the movement animation.
+fn translate_events(events: &[Event], ctx: &mut TranslateCtx<'_>) {
     for ev in events {
-        match ev {
-            // Damaging tick: engine now emits a single fused DotDamaged instead
-            // of the old StatusTicked + UnitDamaged pair.
-            Event::DotDamaged { target, source, source_status, raw, mitigation, pierces, amount } => {
-                let Some(tgt_ent) = id_map.get_entity(*target) else { continue };
-                let Some(src_ent) = id_map.get_entity(*source) else { continue };
-                log.push(CombatEvent::DotDamaged {
+        translate_one(ev, ctx);
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
+    match ev {
+        // ── Move-specific: position tracking ─────────────────────────────────
+        Event::UnitMoved { from, to, .. } => {
+            // no-op: not produced during Cast or tick actions
+            if let Some(mv) = ctx.move_.as_mut() {
+                if mv.first_from.is_none() {
+                    mv.first_from = Some(*from);
+                    mv.waypoints.push(LAYOUT.hex_to_world_pos(*from) + mv.grid_offset.0);
+                }
+                mv.last_to = Some(*to);
+                mv.waypoints.push(LAYOUT.hex_to_world_pos(*to) + mv.grid_offset.0);
+            }
+        }
+
+        // ── Move-specific: AoO state machine ─────────────────────────────────
+        Event::ReactionFired { kind, against, .. } => {
+            // AoO reactions set the pending target for the next UnitDamaged pair.
+            // Non-AoO reactions have no bridge representation yet.
+            if matches!(kind, ReactionKind::OpportunityAttack) {
+                if let Some(mv) = ctx.move_.as_mut() {
+                    mv.pending_aoo_target = Some(*against);
+                }
+            }
+        }
+
+        // ── UnitDamaged: three context-dependent behaviours ───────────────────
+        //
+        // Move:  only AoO-paired damage (decision 6.3 — pending_aoo_target machine).
+        // Cast:  pass mitigation as-is (engine zeroes it for piercing casts).
+        // Tick:  pierce-aware formula (DoT always pierces armor — use pierces flag).
+        Event::UnitDamaged { target, amount, raw, mitigation, pierces, source } => {
+            if let Some(mv) = ctx.move_.as_mut() {
+                if mv.pending_aoo_target == Some(*target) {
+                    let Some(attacker_ent) = ctx.id_map.get_entity(*source) else {
+                        mv.pending_aoo_target = None;
+                        return;
+                    };
+                    let Some(target_ent) = ctx.id_map.get_entity(*target) else {
+                        mv.pending_aoo_target = None;
+                        return;
+                    };
+                    let killed = mv
+                        .combat_state
+                        .0
+                        .unit(*target)
+                        .map(|u| !u.is_alive())
+                        .unwrap_or(false);
+                    ctx.log.push(CombatEvent::OpportunityAttack {
+                        attacker: attacker_ent,
+                        target: target_ent,
+                        damage: *amount,
+                        killed,
+                    });
+                    mv.pending_aoo_target = None;
+                }
+                // Non-AoO damage on Move is not possible — silently ignore.
+            } else if ctx.cast.is_some() {
+                // Cast context: engine already zeroes mitigation for piercing casts.
+                let Some(tgt_ent) = ctx.id_map.get_entity(*target) else { return };
+                ctx.log.push(CombatEvent::DamageResult {
+                    target: tgt_ent,
+                    raw: raw.round() as i32,
+                    armor_reduced: *mitigation,
+                    final_damage: *amount,
+                });
+            } else {
+                // Tick context: apply pierce-aware formula.
+                if let Some(tgt_ent) = ctx.id_map.get_entity(*target) {
+                    let armor_reduced = if *pierces { 0 } else { *mitigation };
+                    ctx.log.push(CombatEvent::DamageResult {
+                        target: tgt_ent,
+                        raw: raw.round() as i32,
+                        armor_reduced,
+                        final_damage: *amount,
+                    });
+                }
+            }
+        }
+
+        // ── DoT damage (fused atomic, tick context only) ──────────────────────
+        Event::DotDamaged { target, source, source_status, raw, mitigation, pierces, amount } => {
+            // no-op: DotDamaged not produced during Cast or Move actions
+            if ctx.cast.is_none() && ctx.move_.is_none() {
+                let Some(tgt_ent) = ctx.id_map.get_entity(*target) else { return };
+                let Some(src_ent) = ctx.id_map.get_entity(*source) else { return };
+                ctx.log.push(CombatEvent::DotDamaged {
                     target: tgt_ent,
                     source: src_ent,
                     source_status: source_status.clone(),
@@ -748,71 +900,208 @@ pub(crate) fn translate_tick_events(
                     amount: *amount,
                 });
             }
-            // Zero-damage tick (buff-only status): still emits StatusTicked.
-            Event::StatusTicked { .. } => {
-                // No CombatLog entry for zero-damage ticks; silently consumed.
+        }
+
+        // ── Zero-damage status tick ───────────────────────────────────────────
+        Event::StatusTicked { .. } => {
+            // no-op: zero-damage ticks have no CombatLog entry in any context
+        }
+
+        // ── Status changes ────────────────────────────────────────────────────
+        Event::StatusRemoved { target, status } => {
+            if let Some(tgt_ent) = ctx.id_map.get_entity(*target) {
+                ctx.log.push(CombatEvent::StatusExpired {
+                    target: tgt_ent,
+                    status: status.clone(),
+                });
             }
-            // UnitDamaged from tick-cascade is now suppressed by engine (TickDot
-            // applies damage inline). Any UnitDamaged here is from non-tick sources
-            // (e.g. sirota-DoT reactions) — route to DamageResult as before.
-            Event::UnitDamaged { target, amount, raw, mitigation, pierces, .. } => {
-                if let Some(tgt_ent) = id_map.get_entity(*target) {
-                    let armor_reduced = if *pierces { 0 } else { *mitigation };
-                    log.push(CombatEvent::DamageResult {
-                        target: tgt_ent,
-                        raw: raw.round() as i32,
-                        armor_reduced,
-                        final_damage: *amount,
-                    });
-                }
-            }
-            Event::StatusRemoved { target, status } => {
-                if let Some(tgt_ent) = id_map.get_entity(*target) {
-                    log.push(CombatEvent::StatusExpired {
+        }
+        Event::StatusApplied { target, status } => {
+            // no-op: not produced during tick or move actions
+            if ctx.cast.is_some() {
+                if let Some(tgt_ent) = ctx.id_map.get_entity(*target) {
+                    ctx.log.push(CombatEvent::StatusApplied {
                         target: tgt_ent,
                         status: status.clone(),
                     });
                 }
             }
-            Event::UnitDied { unit } => {
-                if let Some(ent) = id_map.get_entity(*unit) {
-                    log.push(CombatEvent::UnitDied { entity: ent });
-                    pending_deaths.0.push(*unit);
+        }
+
+        // ── Aura events (turn/round-boundary, any context) ────────────────────
+        Event::AuraStatusGained { target, status_id, .. } => {
+            if let Some(tgt_ent) = ctx.id_map.get_entity(*target) {
+                ctx.log.push(CombatEvent::StatusApplied {
+                    target: tgt_ent,
+                    status: status_id.clone(),
+                });
+            }
+        }
+        Event::AuraStatusLost { target, status_id, .. } => {
+            if let Some(tgt_ent) = ctx.id_map.get_entity(*target) {
+                ctx.log.push(CombatEvent::StatusExpired {
+                    target: tgt_ent,
+                    status: status_id.clone(),
+                });
+            }
+        }
+
+        // ── Death ─────────────────────────────────────────────────────────────
+        Event::UnitDied { unit } => {
+            if let Some(ent) = ctx.id_map.get_entity(*unit) {
+                ctx.log.push(CombatEvent::UnitDied { entity: ent });
+                ctx.pending_deaths.0.push(*unit);
+            }
+        }
+
+        // ── Healing (cast only) ───────────────────────────────────────────────
+        Event::UnitHealed { target, amount } => {
+            // no-op: not produced during tick or move actions
+            if ctx.cast.is_some() {
+                let Some(tgt_ent) = ctx.id_map.get_entity(*target) else { return };
+                ctx.log.push(CombatEvent::HealResult {
+                    target: tgt_ent,
+                    amount: *amount,
+                });
+            }
+        }
+
+        // ── Resource changes ──────────────────────────────────────────────────
+        Event::RageGained { unit, current, max } => {
+            if let Some(ent) = ctx.id_map.get_entity(*unit) {
+                ctx.log.push(CombatEvent::RageGained {
+                    actor: ent,
+                    current: *current,
+                    max: *max,
+                });
+            }
+        }
+        Event::ManaRegenerated { unit, current, max } => {
+            if let Some(ent) = ctx.id_map.get_entity(*unit) {
+                ctx.log.push(CombatEvent::ManaChanged {
+                    actor: ent,
+                    current: *current,
+                    max: *max,
+                });
+            }
+        }
+        Event::EnergyRegenerated { .. } => {
+            // no-op: energy regen has no CombatLog entry yet
+        }
+
+        // ── Crit-fail (cast only) ─────────────────────────────────────────────
+        Event::CritFailed { actor: actor_uid, outcome } => {
+            // no-op: not produced during tick or move actions
+            if ctx.cast.is_some() {
+                let Some(actor_ent) = ctx.id_map.get_entity(*actor_uid) else { return };
+                match outcome {
+                    combat_engine::CritFailOutcome::Miss => {
+                        ctx.log.push(CombatEvent::CriticalMiss { actor: actor_ent });
+                    }
+                    _ => {
+                        ctx.log.push(CombatEvent::CritFailSideEffect {
+                            actor: actor_ent,
+                            outcome: CritFailOutcomeEcs::from(outcome),
+                        });
+                    }
                 }
             }
-            Event::RageGained { unit, current, max } => {
-                if let Some(ent) = id_map.get_entity(*unit) {
-                    log.push(CombatEvent::RageGained {
-                        actor: ent,
-                        current: *current,
-                        max: *max,
-                    });
-                }
+        }
+
+        // ── Spawn / despawn (cast only) ───────────────────────────────────────
+        Event::UnitSpawned { .. } => {
+            // no-op in translate_one: UnitSpawned requires &mut Commands which
+            // cannot be stored in TranslateCtx without propagating Bevy's system-
+            // scoped Commands lifetime through the borrow graph.  Instead, callers
+            // in cast context handle UnitSpawned in a separate post-pass after
+            // translate_events returns (same pattern as PhaseEntered).
+        }
+        Event::SpawnBlocked { summoner: summoner_uid, reason, .. } => {
+            // no-op: not produced during tick or move actions
+            if ctx.cast.is_some() {
+                let Some(summoner_entity) = ctx.id_map.get_entity(*summoner_uid) else { return };
+                ctx.log.push(CombatEvent::SummonBlocked {
+                    summoner: summoner_entity,
+                    reason: SpawnBlockedReasonEcs::from(reason),
+                });
             }
-            Event::ManaRegenerated { unit, current, max } => {
-                if let Some(ent) = id_map.get_entity(*unit) {
-                    log.push(CombatEvent::ManaChanged { actor: ent, current: *current, max: *max });
-                }
+        }
+
+        // ── Turn / round lifecycle (any context after B5) ─────────────────────
+        Event::TurnEnded { actor } => {
+            if let Some(ent) = ctx.id_map.get_entity(*actor) {
+                ctx.pending_lifecycle.remove_active.push(*actor);
+                ctx.log.push(CombatEvent::TurnEnded { actor: ent });
             }
-            Event::EnergyRegenerated { .. } => {}
-            Event::UnitHealed { .. }
-            | Event::StatusApplied { .. }
-            | Event::ReactionFired { .. }
-            | Event::UnitMoved { .. }
-            | Event::ActionStarted { .. }
-            | Event::ActionFinished { .. }
-            | Event::CritFailed { .. }
-            | Event::UnitSpawned { .. }
-            | Event::SpawnBlocked { .. }
-            | Event::TurnEnded { .. }
-            | Event::TurnStarted { .. }
-            | Event::TurnSkipped { .. }
-            | Event::RoundStarted { .. }
-            | Event::AuraStatusGained { .. }
-            | Event::AuraStatusLost { .. }
-            | Event::PhaseEntered { .. } => {}
+        }
+        Event::TurnSkipped { actor, reason } => {
+            if let Some(ent) = ctx.id_map.get_entity(*actor) {
+                ctx.pending_lifecycle.remove_active.push(*actor);
+                ctx.log.push(CombatEvent::TurnSkipped {
+                    actor: ent,
+                    reason: TurnSkipReasonEcs::from(reason),
+                });
+            }
+        }
+        Event::RoundStarted { round } => {
+            ctx.log.push(CombatEvent::RoundStarted { round: *round });
+            ctx.pending_lifecycle.round_started = true;
+        }
+        Event::TurnStarted { actor } => {
+            if let Some(ent) = ctx.id_map.get_entity(*actor) {
+                if !ctx.pending_lifecycle.round_started {
+                    // Mid-round handoff: insert ActiveCombatant on the new actor.
+                    // After RoundStarted, build_turn_order inserts it on re-entry.
+                    ctx.pending_lifecycle.insert_active.push(*actor);
+                }
+                ctx.log.push(CombatEvent::TurnStarted { actor: ent });
+            }
+        }
+
+        // ── Action bookkeeping ────────────────────────────────────────────────
+        Event::ActionStarted { .. } => {
+            // no-op: action bookkeeping events have no CombatLog entry
+        }
+        Event::ActionFinished { .. } => {
+            // no-op: action bookkeeping events have no CombatLog entry
+        }
+
+        // ── Phase transitions (handled at caller level) ───────────────────────
+        Event::PhaseEntered { .. } => {
+            // no-op: ECS writes for phase transitions are handled at the callsite
+            // via pending_phases.0.push(...) after the translate_events call
         }
     }
+}
+
+
+/// Emit the `CombatEvent::AbilityUsed` preamble for a cast action.
+/// Called once before `translate_events` in the cast flow.
+fn emit_ability_used(
+    actor: Entity,
+    ability: &combat_engine::AbilityId,
+    target: Entity,
+    target_pos: hexx::Hex,
+    active_content: &ActiveContent,
+    log: &mut CombatLog,
+) {
+    let (ability_name, is_aoe, cost_str) = active_content
+        .abilities
+        .get(ability)
+        .map(|def| {
+            let is_aoe = !matches!(def.aoe, crate::content::abilities::AoEShape::None);
+            (def.name.clone(), is_aoe, format!("AP={}", def.cost_ap))
+        })
+        .unwrap_or_else(|| (ability.0.clone(), false, String::new()));
+
+    log.push(CombatEvent::AbilityUsed {
+        actor,
+        ability_name,
+        target,
+        target_pos,
+        is_aoe,
+        cost_str,
+    });
 }
 
 // ── process_action_system ──────────────────────────────────────────────────────
@@ -876,18 +1165,41 @@ pub fn process_action_system(
                         if let Err(e) = trace_writer.write_step(&action_for_trace, &events, ctx.rng_calls, hash) {
                             warn!("Engine trace step write failed: {e}");
                         }
-                        translate_move_events(
-                            *actor,
-                            &events,
-                            &id_map,
-                            &combat_state,
-                            &mut log,
-                            &visuals.grid_offset,
-                            &visuals.tokens,
-                            &mut pending_deaths,
-                            &mut pending_lifecycle,
-                            &mut pending_animations,
-                        );
+                        let move_ctx = MoveCtx {
+                            actor: *actor,
+                            combat_state: &combat_state,
+                            grid_offset: &visuals.grid_offset,
+                            first_from: None,
+                            last_to: None,
+                            waypoints: Vec::new(),
+                            pending_aoo_target: None,
+                        };
+                        // Scoped block so ctx's borrow of `log` ends before finalize_move.
+                        let (final_from, final_to, final_waypoints, final_actor) = {
+                            let mut ctx = TranslateCtx {
+                                log: &mut log,
+                                id_map: &mut id_map,
+                                pending_deaths: &mut pending_deaths,
+                                pending_lifecycle: &mut pending_lifecycle,
+                                cast: None,
+                                move_: Some(move_ctx),
+                            };
+                            translate_events(&events, &mut ctx);
+                            let mv = ctx.move_.take().unwrap();
+                            (mv.first_from, mv.last_to, mv.waypoints, mv.actor)
+                        };
+                        // Emit aggregated UnitMoved and enqueue animation (ctx dropped above).
+                        if let (Some(from), Some(to)) = (final_from, final_to) {
+                            log.push(CombatEvent::UnitMoved { actor: final_actor, from, to });
+                        }
+                        if !final_waypoints.is_empty() {
+                            if let Some((token_entity, _)) = visuals.tokens.iter().find(|(_, t)| t.0 == final_actor) {
+                                pending_animations.0.push(PendingAnim::Movement {
+                                    token: token_entity,
+                                    waypoints: final_waypoints,
+                                });
+                            }
+                        }
                         // AoO on a move can cross a phase threshold; queue for apply system.
                         for ev in &events {
                             if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
@@ -936,21 +1248,42 @@ pub fn process_action_system(
                         if let Err(e) = trace_writer.write_step(&action_for_trace, &events, ctx.rng_calls, hash) {
                             warn!("Engine trace step write failed: {e}");
                         }
-                        translate_cast_events(
-                            *actor,
-                            ability,
-                            *target,
-                            *target_pos,
-                            &events,
-                            &mut id_map,
-                            &active_content,
-                            &mut commands,
-                            &mut log,
-                            &mut positions,
-                            &visuals,
-                            &mut pending_deaths,
-                            &mut pending_lifecycle,
-                        );
+                        emit_ability_used(*actor, ability, *target, *target_pos, &active_content, &mut log);
+                        {
+                            let cast_ctx = CastCtx { _phantom: () };
+                            let mut ctx = TranslateCtx {
+                                log: &mut log,
+                                id_map: &mut id_map,
+                                pending_deaths: &mut pending_deaths,
+                                pending_lifecycle: &mut pending_lifecycle,
+                                cast: Some(cast_ctx),
+                                move_: None,
+                            };
+                            translate_events(&events, &mut ctx);
+                        } // ctx drops here, releasing &mut id_map
+                        // Post-pass: handle UnitSpawned separately (needs &mut Commands
+                        // which cannot be stored in TranslateCtx — same pattern as PhaseEntered).
+                        for ev in &events {
+                            if let Event::UnitSpawned { uid, summoner: summoner_uid, pos, template_id, team } = ev {
+                                let Some(summoner_entity) = id_map.get_entity(*summoner_uid) else { continue };
+                                spawn_ecs_entity_from_engine_unit(
+                                    *uid,
+                                    summoner_entity,
+                                    *pos,
+                                    template_id,
+                                    *team,
+                                    &mut commands,
+                                    &mut id_map,
+                                    &mut positions,
+                                    &active_content,
+                                    &visuals.tag_cache,
+                                    &visuals.mats,
+                                    &visuals.token_mesh,
+                                    &visuals.grid_offset,
+                                    &mut log,
+                                );
+                            }
+                        }
                         // Queue phase transitions from cast events (most common case:
                         // boss crosses HP threshold from a direct damage spell).
                         for ev in &events {
@@ -966,9 +1299,9 @@ pub fn process_action_system(
                         // Note: death of the current actor during a cast is handled
                         // by the engine (B5): Effect::Death derives AdvanceTurn,
                         // emitting TurnEnded/TurnStarted in the cast event stream,
-                        // which translate_cast_events now forwards via
-                        // translate_end_turn_events. This AP=0&&MP=0 check is a
-                        // separate UX feature for voluntary resource-exhaustion ending.
+                        // which translate_events handles inline. This AP=0&&MP=0
+                        // check is a separate UX feature for voluntary
+                        // resource-exhaustion ending.
                         let is_grant_movement = active_content
                             .abilities
                             .get(ability)
@@ -987,7 +1320,15 @@ pub fn process_action_system(
                                     if let Err(e) = trace_writer.write_step(&auto_end, &end_events, end_ctx.rng_calls, end_hash) {
                                         warn!("Engine trace auto-end-turn step write failed: {e}");
                                     }
-                                    translate_end_turn_events(&end_events, &id_map, &mut log, &mut pending_deaths, &mut pending_lifecycle);
+                                    let mut end_ctx = TranslateCtx {
+                                        log: &mut log,
+                                        id_map: &mut id_map,
+                                        pending_deaths: &mut pending_deaths,
+                                        pending_lifecycle: &mut pending_lifecycle,
+                                        cast: None,
+                                        move_: None,
+                                    };
+                                    translate_events(&end_events, &mut end_ctx);
                                     // Phase transitions during auto-end-turn (e.g. DoT ticks).
                                     for ev in &end_events {
                                         if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
@@ -1028,13 +1369,15 @@ pub fn process_action_system(
                         if let Err(e) = trace_writer.write_step(&end_action, &events, ctx.rng_calls, hash) {
                             warn!("Engine trace step write failed: {e}");
                         }
-                        translate_end_turn_events(
-                            &events,
-                            &id_map,
-                            &mut log,
-                            &mut pending_deaths,
-                            &mut pending_lifecycle,
-                        );
+                        let mut ctx = TranslateCtx {
+                            log: &mut log,
+                            id_map: &mut id_map,
+                            pending_deaths: &mut pending_deaths,
+                            pending_lifecycle: &mut pending_lifecycle,
+                            cast: None,
+                            move_: None,
+                        };
+                        translate_events(&events, &mut ctx);
                         // DoT ticks at end of turn can cross a phase threshold.
                         for ev in &events {
                             if let Event::PhaseEntered { unit, phase_idx, .. } = ev {
@@ -1050,398 +1393,6 @@ pub fn process_action_system(
                     }
                 }
             }
-        }
-    }
-}
-
-// ── translate_end_turn_events ─────────────────────────────────────────────────
-
-/// Translate engine events from `Action::EndTurn` into `CombatLog` entries
-/// and ECS side-effects.
-///
-/// - `TurnEnded`     → `CombatEvent::TurnEnded`
-/// - `TurnSkipped`   → `CombatEvent::TurnSkipped`
-/// - `TurnStarted`   → `CombatEvent::TurnStarted` + `ActiveCombatant` insert (mid-round only)
-/// - `RoundStarted`  → `CombatEvent::RoundStarted` + `NextState<CombatPhase>::StartRound`
-/// - `AuraStatusGained`/`Lost` → `CombatEvent::StatusApplied`/`StatusExpired`
-/// - All other events forwarded to `translate_tick_events`.
-fn translate_end_turn_events(
-    events: &[Event],
-    id_map: &UnitIdMap,
-    log: &mut CombatLog,
-    pending_deaths: &mut PendingDeathInserts,
-    pending_lifecycle: &mut PendingTurnLifecycle,
-) {
-    let mut round_started = false;
-
-    for ev in events {
-        match ev {
-            Event::TurnEnded { actor } => {
-                if let Some(ent) = id_map.get_entity(*actor) {
-                    pending_lifecycle.remove_active.push(*actor);
-                    log.push(CombatEvent::TurnEnded { actor: ent });
-                }
-            }
-            Event::TurnSkipped { actor, reason } => {
-                if let Some(ent) = id_map.get_entity(*actor) {
-                    pending_lifecycle.remove_active.push(*actor);
-                    log.push(CombatEvent::TurnSkipped {
-                        actor: ent,
-                        reason: TurnSkipReasonEcs::from(reason),
-                    });
-                }
-            }
-            Event::RoundStarted { round } => {
-                log.push(CombatEvent::RoundStarted { round: *round });
-                round_started = true;
-            }
-            Event::TurnStarted { actor } => {
-                if let Some(ent) = id_map.get_entity(*actor) {
-                    if !round_started {
-                        // Mid-round handoff: insert ActiveCombatant on the new actor.
-                        // After RoundStarted, build_turn_order inserts it on re-entry.
-                        pending_lifecycle.insert_active.push(*actor);
-                    }
-                    log.push(CombatEvent::TurnStarted { actor: ent });
-                }
-            }
-            Event::AuraStatusGained { target, status_id, .. } => {
-                if let Some(tgt_ent) = id_map.get_entity(*target) {
-                    log.push(CombatEvent::StatusApplied {
-                        target: tgt_ent,
-                        status: status_id.clone(),
-                    });
-                }
-            }
-            Event::AuraStatusLost { target, status_id, .. } => {
-                if let Some(tgt_ent) = id_map.get_entity(*target) {
-                    log.push(CombatEvent::StatusExpired {
-                        target: tgt_ent,
-                        status: status_id.clone(),
-                    });
-                }
-            }
-            other => {
-                translate_tick_events(std::slice::from_ref(other), id_map, pending_deaths, log);
-            }
-        }
-    }
-    // Signal round boundary to the consumer system.
-    if round_started {
-        pending_lifecycle.round_started = true;
-    }
-}
-
-// ── translate_cast_events ─────────────────────────────────────────────────────
-
-/// Translate the engine `Event` stream from a single `Action::Cast` into
-/// Bevy-land side effects (CombatLog entries, Dead markers).
-///
-/// Crit-fail handling: `Event::CritFailed` is translated to
-/// `CombatEvent::CriticalMiss` (for `Miss` outcome) or
-/// `CombatEvent::CritFailSideEffect` (for `DoubleCost`, `SelfDamage`,
-/// `ApplyStatus` outcomes).
-///
-/// After B5: if a cast kills the current actor (e.g. SelfDamage crit-fail),
-/// turn lifecycle events (TurnEnded/TurnStarted/…) may appear in the stream.
-#[allow(clippy::too_many_arguments)]
-fn translate_cast_events(
-    actor: Entity,
-    ability: &combat_engine::AbilityId,
-    target: Entity,
-    target_pos: hexx::Hex,
-    events: &[Event],
-    id_map: &mut UnitIdMap,
-    active_content: &ActiveContent,
-    commands: &mut Commands,
-    log: &mut CombatLog,
-    positions: &mut HexPositions,
-    visuals: &VisualAssets,
-    pending_deaths: &mut PendingDeathInserts,
-    pending_lifecycle: &mut PendingTurnLifecycle,
-) {
-    // Emit AbilityUsed from content lookup; fall back to id-as-name if absent.
-    let (ability_name, is_aoe, cost_str) = active_content
-        .abilities
-        .get(ability)
-        .map(|def| {
-            let is_aoe = !matches!(def.aoe, crate::content::abilities::AoEShape::None);
-            (def.name.clone(), is_aoe, format!("AP={}", def.cost_ap))
-        })
-        .unwrap_or_else(|| (ability.0.clone(), false, String::new()));
-
-    log.push(CombatEvent::AbilityUsed {
-        actor,
-        ability_name,
-        target,
-        target_pos,
-        is_aoe,
-        cost_str,
-    });
-
-    for ev in events {
-        match ev {
-            Event::UnitDamaged { target: tgt_uid, raw, mitigation, amount, .. } => {
-                let Some(tgt_ent) = id_map.get_entity(*tgt_uid) else { continue };
-                log.push(CombatEvent::DamageResult {
-                    target: tgt_ent,
-                    raw: raw.round() as i32,
-                    armor_reduced: *mitigation,
-                    final_damage: *amount,
-                });
-            }
-            Event::UnitHealed { target: tgt_uid, amount } => {
-                let Some(tgt_ent) = id_map.get_entity(*tgt_uid) else { continue };
-                log.push(CombatEvent::HealResult {
-                    target: tgt_ent,
-                    amount: *amount,
-                });
-            }
-            Event::StatusApplied { target: tgt_uid, status } => {
-                if let Some(tgt_ent) = id_map.get_entity(*tgt_uid) {
-                    log.push(CombatEvent::StatusApplied {
-                        target: tgt_ent,
-                        status: status.clone(),
-                    });
-                }
-            }
-            Event::StatusRemoved { target: tgt_uid, status } => {
-                if let Some(tgt_ent) = id_map.get_entity(*tgt_uid) {
-                    log.push(CombatEvent::StatusExpired {
-                        target: tgt_ent,
-                        status: status.clone(),
-                    });
-                }
-            }
-            Event::UnitDied { unit } => {
-                if let Some(ent) = id_map.get_entity(*unit) {
-                    log.push(CombatEvent::UnitDied { entity: ent });
-                    pending_deaths.0.push(*unit);
-                }
-            }
-            Event::RageGained { unit, current, max } => {
-                if let Some(ent) = id_map.get_entity(*unit) {
-                    log.push(CombatEvent::RageGained {
-                        actor: ent,
-                        current: *current,
-                        max: *max,
-                    });
-                }
-            }
-            Event::ManaRegenerated { unit, current, max } => {
-                if let Some(ent) = id_map.get_entity(*unit) {
-                    log.push(CombatEvent::ManaChanged { actor: ent, current: *current, max: *max });
-                }
-            }
-            Event::CritFailed { actor: actor_uid, outcome } => {
-                let Some(actor_ent) = id_map.get_entity(*actor_uid) else { continue };
-                match outcome {
-                    combat_engine::CritFailOutcome::Miss => {
-                        log.push(CombatEvent::CriticalMiss { actor: actor_ent });
-                    }
-                    _ => {
-                        log.push(CombatEvent::CritFailSideEffect {
-                            actor: actor_ent,
-                            outcome: CritFailOutcomeEcs::from(outcome),
-                        });
-                    }
-                }
-            }
-            Event::UnitSpawned { uid, summoner: summoner_uid, pos, template_id, team } => {
-                let Some(summoner_entity) = id_map.get_entity(*summoner_uid) else { continue };
-                spawn_ecs_entity_from_engine_unit(
-                    *uid,
-                    summoner_entity,
-                    *pos,
-                    template_id,
-                    *team,
-                    commands,
-                    id_map,
-                    positions,
-                    active_content,
-                    &visuals.tag_cache,
-                    &visuals.mats,
-                    &visuals.token_mesh,
-                    &visuals.grid_offset,
-                    log,
-                );
-            }
-            Event::SpawnBlocked { summoner: summoner_uid, reason, .. } => {
-                let Some(summoner_entity) = id_map.get_entity(*summoner_uid) else { continue };
-                log.push(CombatEvent::SummonBlocked {
-                    summoner: summoner_entity,
-                    reason: SpawnBlockedReasonEcs::from(reason),
-                });
-            }
-            Event::ReactionFired { .. }
-            | Event::UnitMoved { .. }
-            | Event::ActionStarted { .. }
-            | Event::ActionFinished { .. }
-            | Event::EnergyRegenerated { .. }
-            | Event::StatusTicked { .. }
-            // DotDamaged is not produced during cast actions.
-            | Event::DotDamaged { .. }
-            // PhaseEntered: ECS writes handled at caller level (apply_phase_ecs_writes).
-            | Event::PhaseEntered { .. } => {}
-            // Turn/round/aura events: normally not produced by Cast, but after B5
-            // a cast that kills the current actor (e.g. SelfDamage crit-fail) or
-            // exhausts resources triggers engine auto-advance, emitting turn lifecycle
-            // events in this stream. Delegate to the shared turn lifecycle translator.
-            ev @ (Event::TurnEnded { .. }
-            | Event::TurnStarted { .. }
-            | Event::TurnSkipped { .. }
-            | Event::RoundStarted { .. }
-            | Event::AuraStatusGained { .. }
-            | Event::AuraStatusLost { .. }) => {
-                translate_end_turn_events(
-                    std::slice::from_ref(ev),
-                    id_map,
-                    log,
-                    pending_deaths,
-                    pending_lifecycle,
-                );
-            }
-        }
-    }
-}
-
-/// Translate the engine `Event` stream from a single `Action::Move` into
-/// Bevy-land side effects.
-///
-/// Corresponds to the side effects emitted by `movement_system`:
-/// - `CombatEvent::OpportunityAttack` per AoO that fired.
-/// - `CombatEvent::RageGained` for both the attacker and victim of each AoO.
-/// - `CombatEvent::UnitDied` if the mover dies mid-path.
-/// - `CombatEvent::UnitMoved` (single, aggregated from all per-step moves).
-/// - `Dead` component inserted on the mover if they died.
-/// - `PendingAnim::Movement` enqueued to `AnimationQueue`.
-/// - After B5: turn lifecycle events (TurnEnded/TurnStarted/…) appear when
-///   the mover dies mid-path and the engine auto-advances to the next actor.
-#[allow(clippy::too_many_arguments)]
-fn translate_move_events(
-    actor: Entity,
-    events: &[Event],
-    id_map: &UnitIdMap,
-    combat_state: &CombatStateRes,
-    log: &mut CombatLog,
-    grid_offset: &HexGridOffset,
-    tokens: &Query<(Entity, &UnitToken)>,
-    pending_deaths: &mut PendingDeathInserts,
-    pending_lifecycle: &mut PendingTurnLifecycle,
-    pending_animations: &mut PendingAnimations,
-) {
-    let mut first_from: Option<hexx::Hex> = None;
-    let mut last_to: Option<hexx::Hex> = None;
-    let mut waypoints: Vec<Vec2> = Vec::new();
-    // Most-recent ReactionFired target (decision 6.3: ReactionFired immediately
-    // precedes its Damage in the event stream).
-    let mut pending_aoo_target: Option<UnitId> = None;
-
-    for ev in events {
-        match ev {
-            Event::UnitMoved { from, to, .. } => {
-                if first_from.is_none() {
-                    first_from = Some(*from);
-                    waypoints.push(LAYOUT.hex_to_world_pos(*from) + grid_offset.0);
-                }
-                last_to = Some(*to);
-                waypoints.push(LAYOUT.hex_to_world_pos(*to) + grid_offset.0);
-            }
-            Event::ReactionFired {
-                kind: ReactionKind::OpportunityAttack,
-                against,
-                ..
-            } => {
-                pending_aoo_target = Some(*against);
-            }
-            Event::UnitDamaged { target, amount, source, .. } => {
-                // Pair with the most recent ReactionFired (decision 6.3).
-                if pending_aoo_target == Some(*target) {
-                    let Some(attacker_ent) = id_map.get_entity(*source) else {
-                        pending_aoo_target = None;
-                        continue;
-                    };
-                    let Some(target_ent) = id_map.get_entity(*target) else {
-                        pending_aoo_target = None;
-                        continue;
-                    };
-                    let killed = combat_state
-                        .0
-                        .unit(*target)
-                        .map(|u| !u.is_alive())
-                        .unwrap_or(false);
-                    log.push(CombatEvent::OpportunityAttack {
-                        attacker: attacker_ent,
-                        target: target_ent,
-                        damage: *amount,
-                        killed,
-                    });
-                    pending_aoo_target = None;
-                }
-                // Non-AoO damage on Move is not possible — silently ignore.
-            }
-            Event::RageGained { unit, current, max } => {
-                if let Some(actor_ent) = id_map.get_entity(*unit) {
-                    log.push(CombatEvent::RageGained {
-                        actor: actor_ent,
-                        current: *current,
-                        max: *max,
-                    });
-                }
-            }
-            Event::UnitDied { unit } => {
-                if let Some(entity) = id_map.get_entity(*unit) {
-                    log.push(CombatEvent::UnitDied { entity });
-                    pending_deaths.0.push(*unit);
-                }
-            }
-            // Heal / status / crit-fail / spawn / dot events not produced by Move.
-            // No-op pins for exhaustiveness.
-            Event::UnitHealed { .. }
-            | Event::StatusApplied { .. }
-            | Event::StatusRemoved { .. }
-            | Event::StatusTicked { .. }
-            | Event::DotDamaged { .. }
-            | Event::CritFailed { .. }
-            | Event::UnitSpawned { .. }
-            | Event::SpawnBlocked { .. } => {}
-            Event::ActionStarted { .. } | Event::ActionFinished { .. } => {}
-            Event::ManaRegenerated { .. } | Event::EnergyRegenerated { .. } => {}
-            // PhaseEntered: AoO damage handled at caller level (apply_phase_ecs_writes).
-            Event::PhaseEntered { .. } => {}
-            // Turn/round/aura events: normally not produced by Move, but after B5
-            // the mover dying mid-path triggers engine auto-advance, which emits
-            // TurnEnded/TurnStarted/TurnSkipped/RoundStarted/AuraStatus* in this stream.
-            // Delegate to the shared turn lifecycle translator.
-            ev @ (Event::TurnEnded { .. }
-            | Event::TurnStarted { .. }
-            | Event::TurnSkipped { .. }
-            | Event::RoundStarted { .. }
-            | Event::AuraStatusGained { .. }
-            | Event::AuraStatusLost { .. }) => {
-                translate_end_turn_events(
-                    std::slice::from_ref(ev),
-                    id_map,
-                    log,
-                    pending_deaths,
-                    pending_lifecycle,
-                );
-            }
-        }
-    }
-
-    // Emit single aggregated UnitMoved.
-    if let (Some(from), Some(to)) = (first_from, last_to) {
-        log.push(CombatEvent::UnitMoved { actor, from, to });
-    }
-
-    // Enqueue movement animation if there were any move steps.
-    if !waypoints.is_empty() {
-        if let Some((token_entity, _)) = tokens.iter().find(|(_, t)| t.0 == actor) {
-            pending_animations.0.push(PendingAnim::Movement {
-                token: token_entity,
-                waypoints,
-            });
         }
     }
 }
@@ -1611,6 +1562,7 @@ pub fn bootstrap_combat_state(
     mut log: ResMut<CombatLog>,
     mut pending_phases: ResMut<PendingPhaseTransitions>,
     mut pending_deaths: ResMut<PendingDeathInserts>,
+    mut pending_lifecycle: ResMut<PendingTurnLifecycle>,
 ) {
     // Idempotency guard: engine state evolves authoritatively via step() on
     // round 2+; re-importing would discard those mutations.
@@ -1718,7 +1670,15 @@ pub fn bootstrap_combat_state(
         let content = build_ecs_content_view(&active_content);
         let events = state.start_actor_turn(first_actor, &content);
 
-        translate_tick_events(&events, &*id_map, &mut pending_deaths, &mut log);
+        let mut tick_ctx = TranslateCtx {
+            log: &mut log,
+            id_map: &mut id_map,
+            pending_deaths: &mut pending_deaths,
+            pending_lifecycle: &mut pending_lifecycle,
+            cast: None,
+            move_: None,
+        };
+        translate_events(&events, &mut tick_ctx);
 
         // Queue ECS-only phase deltas (same pattern as process_action_system).
         for ev in &events {
