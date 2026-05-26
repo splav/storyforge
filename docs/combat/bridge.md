@@ -25,7 +25,7 @@ For combat start/teardown/restart flows, see [`lifecycle.md`](lifecycle.md).
               │  Bridge — engine_bridge.rs       │
               │  process_action_system           │
               │  project_state_to_ecs            │
-              │  translate_* helpers             │
+              │  translate_events / translate_one│
               │  bootstrap_combat_state          │
               └──┬──────────────┬──────────┬────┘
      step(state, │              │ events   │ projection
@@ -66,22 +66,49 @@ For combat start/teardown/restart flows, see [`lifecycle.md`](lifecycle.md).
 
 | System | Schedule | Role |
 |--------|----------|------|
-| `process_action_system` | `CombatStep::Execute`, first in chain | Consume `ActionInput` messages, call `step()`, translate events |
-| `project_state_to_ecs` | `CombatStep::Execute`, after `process_action_system` | Write engine state back to ECS components (D6 contract) |
-| `apply_phase_transitions_system` | `CombatStep::Execute`, after `project_state_to_ecs` | Apply Bevy-only phase deltas (Name, Abilities, AxisProfile) from `Event::PhaseEntered` |
+| `process_action_system` | `CombatStep::Execute`, first in chain | Consume `ActionInput` messages, call `step()`, translate events into `BridgeQueues` |
+| `apply_bridge_queues_pre_projection` | `CombatStep::Execute`, after `process_action_system` | Drain deaths + turn-lifecycle queues (Dead marker, ActiveCombatant) |
+| `project_state_to_ecs` | `CombatStep::Execute`, after pre-projection apply | Write engine state back to ECS components (D6 contract) |
+| `apply_bridge_queues_post_projection` | `CombatStep::Execute`, after `project_state_to_ecs` | Drain animations + phase queues; `apply_phase_ecs_writes` for `PhaseEntered` (Name, Abilities, AxisProfile) |
 
-### Event translators (called from process_action_system)
+### Event translation (called from process_action_system)
 
-| Function | Translates |
-|----------|-----------|
-| `translate_move_events` | `Event::Move`, `Event::AoO` → move animations + AoO popups |
-| `translate_cast_events` | `Event::Damage/Heal/StatusApplied/…` → damage flashes, status icons, popups |
-| `translate_end_turn_events` | `Event::TurnEnded/TurnStarted/RoundStarted/PhaseEntered` → turn-card refresh |
-| `translate_tick_events` | Status tick events (called from `bootstrap_combat_state` for round-start priming) |
+Post-Phase A, translation is unified into two functions:
+
+| Function | Role |
+|----------|------|
+| `translate_events(events, &mut ctx)` | Iterates `Vec<Event>`; calls `translate_one` for each |
+| `translate_one(event, &mut ctx)` | Single exhaustive `match` over all `Event` variants (lines 809–1073) |
+
+`TranslateCtx<'a>` bundles all mutable output sinks:
+- `log: &mut CombatLog` — text entries for the combat log
+- `id_map: &UnitIdMap` — engine ↔ ECS entity mapping
+- `queues: &mut BridgeQueues` — deferred side-effect queues
+- `cast: CastCtx` — per-cast accumulator (ability, caster entity)
+- `move_: MoveCtx` — per-move accumulator (path, entity)
+
+The four former functions (`translate_move_events`, `translate_cast_events`,
+`translate_end_turn_events`, `translate_tick_events`) were collapsed into
+`translate_one` in Phase A (`a7048f6`).
 
 Translators do NOT write engine-projected components. They produce
-`CombatLog` string events, `AnimationQueue` items, and popup entries for UI
-consumption.
+`CombatLog` entries, populate `BridgeQueues`, and build animation/popup data
+for UI consumption.
+
+### BridgeQueues
+
+`BridgeQueues` (Resource, post-Commit 1 consolidation `505ffa7`) groups the four
+formerly-separate `Pending*` Resources into one:
+
+| Sub-field | Drained by | Contents |
+|-----------|-----------|---------|
+| `deaths: Vec<UnitId>` | `apply_bridge_queues_pre_projection` | Units to mark `Dead` |
+| `turn_lifecycle: BridgeTurnLifecycle` | `apply_bridge_queues_pre_projection` | `ActiveCombatant` inserts/removes + round-start flag |
+| `animations: Vec<PendingAnim>` | `apply_bridge_queues_post_projection` | Movement animations → `AnimationQueue` |
+| `phases: Vec<(UnitId, usize)>` | `apply_bridge_queues_post_projection` | Phase-transition pairs → `apply_phase_ecs_writes` |
+
+Pre-projection queues fire before `project_state_to_ecs`; post-projection
+queues fire after, so Vital/AP components are fresh when animations read them.
 
 ---
 
@@ -143,16 +170,58 @@ Allowed write exceptions documented in
 implementation of the engine's `ContentView` trait. It reads from
 `Res<ActiveContent>` for ability and status definitions, and computes real
 `StatusBonuses` (including `armor_bonus`, `speed_bonus`) from the active
-scenario's status definitions.
+scenario's status definitions. `status_bonuses` is default-implemented on top
+of `status_def` (post-V4); no explicit override is needed.
 
 For the offline equivalent see `TomlContentView` in
 `crates/combat_engine/src/toml_content_view.rs`.
 
 ---
 
-## 6. Legality tooltips
+## 6. Content adapter — `src/content/to_engine.rs`
+
+Bevy content → engine type conversions were consolidated into
+`src/content/to_engine.rs` in Phase B-α/β (`0813083`, `12e2fd8`). Key helpers:
+
+| Helper | Produces |
+|--------|---------|
+| `ability_def(…)` | `AbilityDef` from `ActiveContent` ability entry |
+| `status_def(…)` | `StatusDef` from `ActiveContent` status entry |
+| `crit_fail_outcome(…)` | `CritFailOutcome` from `ActiveContent` |
+
+Bridge is now pure translation; all content-construction logic lives in
+`to_engine.rs`.
+
+---
+
+## 7. HexMap façade (two-layer)
+
+`HexPositions` tracks alive units only. `HexCorpses` tracks dead units'
+last positions. The `HexMap` façade composes both for queries that need
+the full picture (e.g. pathfinding obstacle checks, AoO range).
+
+- `HexCorpses.generation` is tracked by `ui_dirty_bridge` for UI invalidation
+  (C-corpse / C-ui).
+
+---
+
+## 8. Legality tooltips
 
 `src/combat/legality_adapter.rs` wires `combat_engine::check_legality`
 against live ECS queries to power UI tooltips ("why can't I use this?").
 The engine returns `Result<LegalAction, IllegalReason>`; the adapter
 formats the reason for the ability panel.
+
+---
+
+## 9. By-design surface (NOT debt)
+
+These items live in the bridge by design and should not reappear in "what's left" surveys.
+See also `engine-migration.md §5` for the authoritative list.
+
+| Item | Why it stays |
+|------|-------------|
+| `spawn_ecs_entity_from_engine_unit` in `process_action_system` | id_map insertion must be atomic with `UnitSpawned` event — a separate system creates a lookup race |
+| Engine-trace writer | Records `(Action, &[Event], rng_calls, hash)`; `Action` is not in the event stream |
+| `EcsContentView` | Bridge boundary: wires Bevy queries to the engine's `ContentView` trait |
+| `from_ecs` heavy bootstrap mapper | Engine must not know about ECS `Equipment`/`CombatStats`/`EnemyPhases`; mapping is correct in shape |

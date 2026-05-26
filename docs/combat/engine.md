@@ -34,16 +34,26 @@ Serde-derived so the engine trace can serialize/deserialize every call.
 
 The observable consequence stream emitted after each `step()`:
 
-`Damage`, `Heal`, `Died`, `StatusApplied`, `StatusTicked`, `StatusExpired`,
-`AoO`, `Move`, `TurnStarted`, `TurnEnded{cause}`, `TurnSkipped`,
-`RoundStarted`, `PhaseEntered`, `UnitSpawned`, `SpawnBlocked`,
-`PoolChanged{pool, delta, new_current, new_max, cause}` (Phase C-4, schema v41).
+`ActionStarted`, `UnitMoved`, `UnitDamaged`, `UnitHealed`, `UnitDied`,
+`StatusApplied`, `StatusTicked`, `StatusRemoved`, `DotDamaged` (atomic, post-S5),
+`ReactionFired`, `CritFailed`, `AoO`, `TurnStarted`,
+`TurnEnded { cause: TurnEndCause }`, `TurnSkipped`, `RoundStarted`,
+`AuraStatusGained`, `AuraStatusLost`, `PhaseEntered`,
+`UnitSpawned`, `SpawnBlocked`, `ActionFinished`,
+`PoolChanged { pool, delta, new_current, new_max, cause }`.
 
-`PoolChanged` is the unified pool-mutation surface for all five resource kinds
-(`Mana`, `Rage`, `Energy`, `Ap`, `Mp`). Legacy events `ManaRegenerated`,
-`EnergyRegenerated`, `RageGained` are dual-emitted alongside it until C6 removes them.
+`PoolChanged` is the **sole** pool-mutation surface (post-C6). Five pool kinds:
+`Mana`, `Rage`, `Energy`, `Ap`, `Mp`. Five causes: `Regen`, `Refill`, `Spent`,
+`Gained`, `MaxChanged`. Legacy events `ManaRegenerated`/`EnergyRegenerated`/`RageGained`
+were removed in C6.
 
-Also serde-derived — written verbatim into `engine.jsonl` (schema v41).
+`TurnEnded` carries `cause: TurnEndCause` — `Manual`, `ResourcesExhausted`
+(AP+MP=0 after Cast, emitted inline by engine — post-S6/B-γ), or `DeathOfActor`.
+
+`DotDamaged` is the atomic fusion of the former `(StatusTicked, UnitDamaged)` pair
+(post-S5). Buff-status ticks (zero damage) still emit `StatusTicked`.
+
+All variants are serde-derived — written verbatim into `engine.jsonl` (**schema v42**).
 
 ### ApplyCtx
 
@@ -102,49 +112,42 @@ on bootstrap).
 
 ```rust
 pub struct Unit {
-    pub id:                  UnitId,
-    pub team:                Team,
-    pub pos:                 Hex,
-    pub hp:                  i32,
-    pub max_hp:              i32,
-    pub armor:               i32,          // base equipment armor
-    pub armor_bonus:         i32,          // bonus from active statuses
-    pub damage_taken_bonus:  i32,          // vulnerability: positive = more damage taken
-    pub base_speed:          i32,
-    pub speed:               i32,          // effective = base + status speed bonuses
-    // Legacy scalar fields — write-only after C5; removed in C6.
-    pub action_points:       i32,
-    pub max_ap:              i32,
-    pub movement_points:     i32,
-    pub reactions_left:      i32,
-    pub reactions_max:       i32,          // populated from Reactions.max at bootstrap
-    pub rage:                Option<Pool>, // legacy — write-only after C5
-    pub mana:                Option<Pool>, // legacy — write-only after C5
-    pub energy:              Option<Pool>, // legacy — write-only after C5
-    pub summoner:            Option<UnitId>, // Some(_) if spawned via Effect::Spawn
-    pub statuses:            Vec<ActiveStatus>,
-    pub caster_context:      CasterContext, // weapon dice, modifiers, crit-fail outcome
-    pub auras:               Vec<AuraDef>,  // passive auras emitted by this unit
-    pub enemy_phases:        Vec<PhaseEntry>, // boss phase thresholds (empty for non-bosses)
-    pub aoo_dice:            Option<DiceExpr>, // None = cannot AoO
-    // Phase C: unified resource table (canonical source of truth after C5).
-    pub pools:               EnumMap<PoolKind, Option<(i32, i32)>>,  // (current, max)
-    pub regen_per_pool:      EnumMap<PoolKind, RegenRule>,
+    pub id:                 UnitId,
+    pub team:               Team,
+    pub pos:                Hex,
+    pub hp:                 i32,
+    pub max_hp:             i32,
+    pub armor:              i32,             // base equipment armor
+    pub armor_bonus:        i32,             // bonus from active statuses
+    pub damage_taken_bonus: i32,             // vulnerability: positive = more damage taken
+    pub base_speed:         i32,
+    pub speed:              i32,             // effective = base + status speed bonuses
+    pub reactions_left:     i32,
+    pub reactions_max:      i32,             // populated from Reactions.max at bootstrap
+    pub statuses:           Vec<ActiveStatus>,
+    pub summoner:           Option<UnitId>,  // Some(_) if spawned via Effect::Spawn
+    pub caster_context:     CasterContext,   // weapon dice, modifiers, crit-fail outcome
+    pub aoo_dice:           Option<DiceExpr>, // None = cannot AoO
+    pub auras:              Vec<AuraDef>,    // passive auras emitted by this unit
+    pub enemy_phases:       Vec<PhaseEntry>, // boss phase thresholds (empty for non-bosses)
+    pub pools:              EnumMap<PoolKind, Option<(i32, i32)>>,  // (current, max)
+    pub regen_per_pool:     EnumMap<PoolKind, RegenRule>,
 }
 ```
 
-**ResourceTable invariants (Phase C):**
+**ResourceTable invariants (post-Phase C):**
 - `pools[Mana/Rage/Energy]`: `Some` iff unit has that mechanic; `None` otherwise.
 - `pools[Ap]` / `pools[Mp]`: always `Some` for alive combatants.
 - Five pool kinds in declaration order: `Mana, Rage, Energy, Ap, Mp` (iteration order load-bearing for replay determinism).
 - HP is excluded: damage/heal/death paths are special-cased throughout the engine.
+- Legacy scalar fields (`action_points`, `mana`, `rage`, `energy`, etc.) were removed in Phase C-6.
 
 `armor_bonus`, `speed`, and `damage_taken_bonus` are derived aggregates —
 recomputed from `statuses` by `Effect::RefreshAggregates`.
 
-The bridge projector (`project_state_to_ecs`) reads from `pools` since C5;
-legacy scalar fields (`action_points`, `mana`, etc.) are mirrored for C6
-backward-compat and will be removed when C6 lands.
+The bridge projector (`project_state_to_ecs`) reads exclusively from `pools`
+(post-C5). `ContentView::status_bonuses` is default-implemented on top of
+`status_def` (post-V4) — no override required.
 
 ---
 
@@ -166,6 +169,15 @@ Replay guarantee: `crates/combat_engine/tests/replay.rs` (8 scenarios) asserts
 byte-equal events + matching `rng_calls` + matching `post_state_hash` for
 every step. Two intentional divergence sentinels prove the harness catches
 real drift.
+
+**Schema version history (trace.rs `SCHEMA_VERSION`):**
+
+| Version | Change |
+|---------|--------|
+| v39 | `ManaRegenerated` also emitted after `PayCost` (inline, replacing bridge-side diff) |
+| v40 | `DotDamaged` atomic (S5) + `TurnEnded{cause}` field (S6/B-γ) |
+| v41 | `PoolChanged` introduced (C4); dual-emit alongside legacy events; AP/MP refill now visible |
+| v42 | Legacy `Unit` fields + `ManaRegenerated`/`EnergyRegenerated`/`RageGained` removed (C6) |
 
 ---
 
