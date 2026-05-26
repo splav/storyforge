@@ -15,11 +15,9 @@ use storyforge::app_state::{AppState, CombatPhase};
 use storyforge::combat::{
     ai::world::reservations::Reservations,
     engine_bridge::{
-        apply_phase_transitions_system, apply_pending_deaths_system,
-        apply_pending_turn_lifecycle_system, apply_pending_animations_system,
-        bootstrap_combat_state, PendingPhaseTransitions, PendingDeathInserts,
-        PendingTurnLifecycle, PendingAnimations,
-        process_action_system, project_state_to_ecs, CombatStateRes, UnitIdMap,
+        apply_bridge_queues_pre_projection, apply_bridge_queues_post_projection,
+        bootstrap_combat_state,
+        BridgeQueues, process_action_system, project_state_to_ecs, CombatStateRes, UnitIdMap,
     },
 };
 use storyforge::combat::ai::world::tags::AbilityTagCache;
@@ -65,10 +63,7 @@ pub fn movement_app() -> App {
         .insert_resource(HexGridOffset(Vec2::ZERO))
         .init_resource::<CombatStateRes>()
         .init_resource::<UnitIdMap>()
-        .init_resource::<PendingPhaseTransitions>()
-        .init_resource::<PendingDeathInserts>()
-        .init_resource::<PendingTurnLifecycle>()
-        .init_resource::<PendingAnimations>()
+        .init_resource::<BridgeQueues>()
         .insert_resource(AbilityTagCache::default())
         .insert_resource(HexMaterials {
             empty: Handle::default(),
@@ -98,11 +93,9 @@ pub fn movement_app() -> App {
             Update,
             (
                 process_action_system,
-                apply_pending_deaths_system,
-                apply_pending_turn_lifecycle_system,
+                apply_bridge_queues_pre_projection,
                 project_state_to_ecs,
-                apply_pending_animations_system,
-                apply_phase_transitions_system,
+                apply_bridge_queues_post_projection,
             )
                 .chain()
                 .run_if(in_state(CombatPhase::AwaitCommand)),

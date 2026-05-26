@@ -19,11 +19,9 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
 use storyforge::combat::engine_bridge::{
-    apply_phase_transitions_system, apply_pending_deaths_system,
-    apply_pending_turn_lifecycle_system, apply_pending_animations_system,
+    apply_bridge_queues_pre_projection, apply_bridge_queues_post_projection,
     bootstrap_combat_state, entity_to_uid, process_action_system,
-    project_state_to_ecs, CombatStateRes, PendingPhaseTransitions,
-    PendingDeathInserts, PendingTurnLifecycle, PendingAnimations, UnitIdMap,
+    project_state_to_ecs, BridgeQueues, CombatStateRes, UnitIdMap,
 };
 use storyforge::combat::legality_adapter::BevyActions;
 use storyforge::combat::ai::world::tags::AbilityTagCache;
@@ -122,10 +120,7 @@ fn bridge_app() -> App {
             token: Handle::default(),
             ring: Handle::default(),
         })
-        .init_resource::<PendingPhaseTransitions>()
-        .init_resource::<PendingDeathInserts>()
-        .init_resource::<PendingTurnLifecycle>()
-        .init_resource::<PendingAnimations>()
+        .init_resource::<BridgeQueues>()
         .init_resource::<storyforge::combat::ai::log::engine_trace::EngineTraceWriter>()
         .init_resource::<storyforge::combat::ai::log::AiLogger>()
         .init_resource::<storyforge::combat::ai::log::PendingAiLogEntries>()
@@ -134,11 +129,9 @@ fn bridge_app() -> App {
             Update,
             (
                 process_action_system,
-                apply_pending_deaths_system,
-                apply_pending_turn_lifecycle_system,
+                apply_bridge_queues_pre_projection,
                 project_state_to_ecs,
-                apply_pending_animations_system,
-                apply_phase_transitions_system,
+                apply_bridge_queues_post_projection,
                 storyforge::combat::ai::log::flush_pending_ai_log_system,
             )
                 .chain(),

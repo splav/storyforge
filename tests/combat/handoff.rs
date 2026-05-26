@@ -388,7 +388,7 @@ fn current_actor_dies_mid_move_settles_on_next() {
 fn combat_2_starts_clean_after_combat_1() {
     use bevy::ecs::system::RunSystemOnce;
     use storyforge::combat::engine_bridge::{
-        reset_engine_mirrors_on_exit_combat, CombatStateRes, PendingPhaseTransitions, UnitIdMap,
+        reset_engine_mirrors_on_exit_combat, BridgeQueues, CombatStateRes, UnitIdMap,
     };
 
     let mut app = movement_app();
@@ -407,12 +407,12 @@ fn combat_2_starts_clean_after_combat_1() {
         assert!(!id_map.entity_to_id.is_empty(), "id_map must be populated after init");
     }
 
-    // Seed PendingPhaseTransitions with a fake entry.
+    // Seed BridgeQueues.phases with a fake entry.
     {
         use combat_engine::state::UnitId;
         app.world_mut()
-            .resource_mut::<PendingPhaseTransitions>()
-            .0
+            .resource_mut::<BridgeQueues>()
+            .phases
             .push((UnitId(999), 0));
     }
 
@@ -435,10 +435,14 @@ fn combat_2_starts_clean_after_combat_1() {
         "UnitIdMap must be empty after mirror teardown"
     );
 
-    let pending = app.world().resource::<PendingPhaseTransitions>();
+    let queues = app.world().resource::<BridgeQueues>();
     assert!(
-        pending.0.is_empty(),
-        "PendingPhaseTransitions must be empty after mirror teardown"
+        queues.phases.is_empty() && queues.deaths.is_empty()
+            && queues.animations.is_empty()
+            && queues.turn_lifecycle.remove_active.is_empty()
+            && queues.turn_lifecycle.insert_active.is_empty()
+            && !queues.turn_lifecycle.round_started,
+        "BridgeQueues must be fully empty after mirror teardown"
     );
 
     // Suppress unused-variable warnings for spawned entities.

@@ -8,10 +8,9 @@ use bevy::prelude::*;
 
 use crate::app_state::{AppState, CombatPhase};
 use crate::combat::engine_bridge::{
-    CombatStateRes, UnitIdMap, apply_phase_transitions_system, bootstrap_combat_state,
-    PendingPhaseTransitions, PendingDeathInserts, PendingTurnLifecycle, PendingAnimations,
-    apply_pending_deaths_system, apply_pending_turn_lifecycle_system,
-    apply_pending_animations_system, process_action_system, project_state_to_ecs,
+    BridgeQueues, CombatStateRes, UnitIdMap, bootstrap_combat_state,
+    apply_bridge_queues_pre_projection, apply_bridge_queues_post_projection,
+    process_action_system, project_state_to_ecs,
     reset_engine_mirrors_on_exit_combat, reset_engine_mirrors_on_restart,
 };
 use crate::ui;
@@ -26,13 +25,10 @@ pub struct CombatPipelinePlugin;
 
 impl Plugin for CombatPipelinePlugin {
     fn build(&self, app: &mut App) {
-        // Engine state resources (Phase 0: transitional, ECS still authoritative).
+        // Engine state resources.
         app.init_resource::<CombatStateRes>()
             .init_resource::<UnitIdMap>()
-            .init_resource::<PendingPhaseTransitions>()
-            .init_resource::<PendingDeathInserts>()
-            .init_resource::<PendingTurnLifecycle>()
-            .init_resource::<PendingAnimations>();
+            .init_resource::<BridgeQueues>();
 
         // Engine mirror teardown — combat plugin owns its own lifecycle:
         // - OnExit(AppState::Combat) covers normal Victory/Defeat → next combat.
@@ -87,11 +83,9 @@ impl Plugin for CombatPipelinePlugin {
             Update,
             (
                 process_action_system,
-                apply_pending_deaths_system,
-                apply_pending_turn_lifecycle_system,
+                apply_bridge_queues_pre_projection,
                 project_state_to_ecs,
-                apply_pending_animations_system,
-                apply_phase_transitions_system,
+                apply_bridge_queues_post_projection,
                 super::ai::log::flush_pending_ai_log_system,
             )
                 .chain()
