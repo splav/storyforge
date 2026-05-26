@@ -34,6 +34,14 @@ criterion = { version = "0.5", features = ["html_reports"] }
 name = "engine_move"
 harness = false
 
+[[bench]]
+name = "snapshot_rebuild"
+harness = false
+
+[[bench]]
+name = "engine_step_baseline"
+harness = false
+
 [profile.dev]
 opt-level = 1
 
