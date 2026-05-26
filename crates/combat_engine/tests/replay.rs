@@ -17,7 +17,7 @@ use hexx::Hex;
 
 use combat_engine::{
     AbilityDef, AbilityId, AbilityRange, AoEShape, DiceExpr, DiceRng, EffectDef,
-    PhaseEntry, StatusBonuses, StatusDef, StatusId, TargetType,
+    PhaseEntry, StatusDef, StatusId, TargetType,
     action::Action,
     content::ContentView,
     event::Event,

@@ -205,7 +205,7 @@ mod tests {
     use crate::combat::ai::test_helpers::ent;
     use combat_engine::AbilityId;
     use crate::game::hex::Hex;
-    use bevy::prelude::Entity;
+    
 
     fn stored(kind: GoalKind, anchor: Hex, radius: u32, ability: Option<&str>) -> StoredGoalContext {
         StoredGoalContext {

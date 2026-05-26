@@ -9,8 +9,7 @@ use combat_engine::{
     UnitTemplate,
     action::Action,
     content::{
-        AbilityDef, AbilityRange, AoEShape, ContentView, CritFailOutcome, EffectDef,
-        StatusBonuses, TargetType,
+        AbilityDef, AbilityRange, AoEShape, ContentView, CritFailOutcome, EffectDef, TargetType,
     },
     dice::{DiceExpr, DiceRng, DiceSource, ExpectedValue},
     state::{CombatState, RoundPhase, Team, Unit, UnitId},

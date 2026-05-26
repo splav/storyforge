@@ -403,7 +403,7 @@ mod tests {
     use crate::combat::ai::config::tuning::AiTuning;
     use crate::game::components::Team;
     use crate::game::hex::Hex;
-    use bevy::prelude::Entity;
+    
 
     fn default_tuning() -> AiTuning {
         AiTuning::default()

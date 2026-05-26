@@ -1,7 +1,7 @@
 //! Verifies that `aura_membership_set` returns a BTreeSet with stable iteration
 //! order across 10 calls on the same state (Phase 5 gate §7 item 3).
 
-use combat_engine::{AbilityId, AuraDef, StatusBonuses, StatusId, TeamRelation};
+use combat_engine::{AbilityId, AuraDef, StatusId, TeamRelation};
 use combat_engine::content::{ContentView, StatusDef};
 use combat_engine::state::{CombatState, RoundPhase, Team, Unit, UnitId};
 use hexx::Hex;

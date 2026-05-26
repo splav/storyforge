@@ -20,7 +20,7 @@ use storyforge::combat::ai::world::snapshot::{BattleSnapshot, UnitSnapshot};
 use storyforge::combat::ai::world::tags::{AiTags, StatusTagCache};
 use storyforge::combat_engine::{
     action::Action,
-    content::{ContentView as EngineContentView, StatusBonuses as EngineStatusBonuses},
+    content::ContentView as EngineContentView,
     dice::ExpectedValue,
     state::{CombatState, RoundPhase},
     step::step,

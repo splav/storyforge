@@ -107,7 +107,7 @@ mod tests {
     use super::*;
     use crate::combat::ai::adapt::AdaptationReason;
     use crate::combat::ai::outcome::AdaptationData;
-    use crate::combat::ai::plan::types::TurnPlan;
+    
     use crate::combat::ai::scoring::factors::{aggregate::score_plans_with_raw, PlanFactorValues};
     use crate::combat::ai::test_helpers::{
         empty_content, empty_maps, empty_plan, make_scoring_ctx, make_test_ctx, PoolBuilder,
