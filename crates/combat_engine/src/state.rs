@@ -1113,7 +1113,7 @@ mod tests {
         ));
         assert!(no_pool_regen, "dead applier must not emit regen events");
         let damaged = events.iter().any(|e| matches!(e,
-            Event::UnitDamaged { target, amount, .. }
+            Event::DotDamaged { target, amount, .. }
             if *target == victim && *amount == 4
         ));
         assert!(damaged, "tick still fires for dead applier");
