@@ -153,24 +153,48 @@ The bridge projector (`project_state_to_ecs`) reads exclusively from `pools`
 
 ## 4. Determinism contract
 
-- **`DiceRng`** is seeded once per combat from `CombatStateRes.random_seed`.
-  Engine calls only `roll_d()`. No `SystemTime`, no thread-local state.
-- **`engine_purity.rs` test** greps all `crates/combat_engine/src/**/*.rs`
-  for forbidden imports (`std::time`, `std::env`, `std::process`,
-  `thread_local!`) — zero finds = engine is pure.
-- **`aura_membership_set: BTreeSet`** (was HashSet) — the only known
-  iteration-order risk was fixed in Phase 5a.
-- **`post_state_hash(state)`** = BLAKE3 over canonical serialization of
-  `{round, phase, turn_queue, alive_units sorted by id}`. Written as a
-  canary in every `StepLine`; the replay binary compares hash per step to
-  localize drift.
+**Given:**
+- Same engine SCHEMA version (currently **v42**)
+- Same `ContentView` impl + content data (same TOML files, same `content_hash`)
+- Same RNG seed
+- Same sequence of `Action` dispatches
 
-Replay guarantee: `crates/combat_engine/tests/replay.rs` (8 scenarios) asserts
-byte-equal events + matching `rng_calls` + matching `post_state_hash` for
-every step. Two intentional divergence sentinels prove the harness catches
-real drift.
+**Then** every `step()` call produces:
+- Identical `Event` streams (same variants, same field values, same order)
+- Identical `post_state_hash` at every step (BLAKE3 of canonical state serialization:
+  `{round, phase, turn_queue, alive_units sorted by id}`)
+- Identical `rng_calls` count per step (from `ApplyCtx`)
 
-**Schema version history (trace.rs `SCHEMA_VERSION`):**
+**What's NOT guaranteed:**
+- Cross-SCHEMA replay: a v41 trace will not load correctly in a v42 engine — intentional clean break.
+- Mixing content versions: different `content_hash` → divergence.
+- Parallel mutation of `CombatState`: not safe; the engine is single-threaded by design.
+- Cross-compile bit-identity: determinism holds within a single compile. Float math
+  is deterministic given the same binary, but cross-compile (`--release` vs
+  `--features dev`, different opt-levels) bit-identity is not guaranteed.
+
+**Implementation invariants that uphold the contract:**
+- `DiceRng` is seeded once per combat from `CombatStateRes.random_seed`; engine
+  calls only `roll_d()` — no `SystemTime`, no thread-local state.
+- `aura_membership_set` uses `BTreeSet` (was `HashSet` pre-5a) — iteration order
+  is stable and insertion-order-independent.
+- `engine_purity.rs` test greps all `crates/combat_engine/src/**/*.rs` for
+  forbidden imports (`std::time`, `std::env`, `std::process`, `thread_local!`);
+  zero hits = engine is pure.
+
+**Verification:**
+- **Property test** `tests/combat_engine/determinism.rs` runs the engine twice on
+  5 representative scenarios and asserts bit-identical traces (events + hash + rng_calls):
+  1. `det_cast_ap_exhaustion_s6` — Cast drains last AP → S6 auto-EndTurn cascade
+  2. `det_dot_tick_during_dead_skip` — EndTurn with DoT tick on a dead-skipped unit
+  3. `det_move_with_aoo_reaction` — Move triggers AoO (real RNG dice roll)
+  4. `det_phase_transition` — Damage crosses boss phase threshold → EnterPhase cascade
+  5. `det_aoe_multi_target_cast` — AoE fireball hits 3 enemies (per-target ordering)
+- **Debug tool** `src/bin/replay_diff.rs` (`cargo run --bin replay_diff -- a.jsonl b.jsonl`)
+  performs structured per-step diff with first-divergence reporting across any two
+  trace files (events, hash, rng_calls).
+
+**Schema version history (`trace.rs` `SCHEMA_VERSION`):**
 
 | Version | Change |
 |---------|--------|
