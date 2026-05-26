@@ -42,6 +42,10 @@ harness = false
 name = "engine_step_baseline"
 harness = false
 
+[[bench]]
+name = "snapshot_rebuild_production"
+harness = false
+
 [profile.dev]
 opt-level = 1
 
