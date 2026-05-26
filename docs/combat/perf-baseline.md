@@ -1,7 +1,7 @@
 # Combat AI — Performance Baseline
 
 **Date:** 2026-05-26  
-**Commit:** this commit (benchmarks added in `feat(perf): baseline benchmarks for AI snapshot rebuild + engine step`)  
+**Commit:** `f4ac1e7` (feat(perf): baseline benchmarks for AI snapshot rebuild + engine step)  
 **Machine:** Darwin 25.5.0, Apple Silicon (8 cores)  
 **Build:** `cargo bench` — release profile, no `--features dev`  
 **Dice:** `ExpectedValue` (deterministic, no RNG variance in timing)
