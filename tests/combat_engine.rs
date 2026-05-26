@@ -50,3 +50,6 @@ mod phase;
 
 #[path = "combat_engine/legality_parity.rs"]
 mod legality_parity;
+
+#[path = "combat_engine/determinism.rs"]
+mod determinism;
