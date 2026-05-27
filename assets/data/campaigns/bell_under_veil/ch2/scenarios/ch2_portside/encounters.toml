@@ -1,0 +1,25 @@
+[[encounters]]
+id      = "ch2_portside"
+name    = "Портовый квартал"
+victory = { type = "all_enemies_dead" }
+
+# Стена из ящиков посредине поля — блокирует LOS по оси col=5.
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 3
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 4
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 5
+
+[[encounters.enemies]]
+template = "bandit_archer"
+hex_col  = 9
+hex_row  = 4
+
+[[encounters.enemies]]
+template = "bandit_thug"
+hex_col  = 8
+hex_row  = 3

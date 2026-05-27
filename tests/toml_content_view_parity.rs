@@ -144,6 +144,7 @@ fn abilities_eq(a: &AbilityDef, b: &AbilityDef) -> bool {
         && a.target_type == b.target_type
         && a.aoe         == b.aoe
         && a.friendly_fire == b.friendly_fire
+        && a.requires_los == b.requires_los
         && effect_eq(&a.effect, &b.effect)
         && statuses_eq(&a.statuses, &b.statuses)
 }

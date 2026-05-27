@@ -154,14 +154,15 @@ costs       = [{ resource = "energy", amount = 1 }]
 range       = 1
 
 [[abilities]]
-id          = "bow_shot"
-name        = "Выстрел из лука"
-target_type = "single_enemy"
-effect      = "damage"
-dice_count  = 1
-dice_sides  = 8
-range       = 4
-min_range   = 2
+id           = "bow_shot"
+name         = "Выстрел из лука"
+target_type  = "single_enemy"
+effect       = "damage"
+dice_count   = 1
+dice_sides   = 8
+range        = 5
+min_range    = 1
+requires_los = true
 
 [[abilities]]
 id          = "paralyzing_shot"

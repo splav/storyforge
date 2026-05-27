@@ -85,6 +85,30 @@ range         = 5
 statuses      = [{ id = "burning", on = "target", duration = 2 }]
 ```
 
+### Line-of-Sight requirement
+
+Set `requires_los = true` on ranged abilities (range > 1) that must have unobstructed
+line-of-sight to their target. If LOS is blocked by an obstacle hex, `check_legality`
+returns `Err(NoLineOfSight)` and the cast is refused — for both player and AI.
+
+```toml
+[[abilities]]
+id           = "bow_shot"
+name         = "Выстрел из лука"
+target_type  = "single_enemy"
+effect       = "damage"
+dice_count   = 1
+dice_sides   = 8
+range        = 5
+min_range    = 1
+requires_los = true       # blocked by obstacles from [[encounters.obstacles]]
+```
+
+Notes:
+- LOS check is **skipped** for melee abilities (`range.max == 1`).
+- LOS check is **skipped** when `requires_los = false` (the default).
+- Obstacles are declared per-encounter via `[[encounters.obstacles]]` (see below).
+
 ### Effect Types
 
 | Effect | Dice | Stat | Armor | Notes |
