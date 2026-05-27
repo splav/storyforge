@@ -6,7 +6,7 @@
 //! `UnitId(u64)` is an opaque new-type; the Entity↔UnitId mapping lives in
 //! `crate::combat::engine_bridge` (the Bevy boundary). (Decision 6.2.)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use hexx::Hex;
 
@@ -368,11 +368,16 @@ pub struct CombatState {
     /// Seed carried along for replay reproducibility.
     pub random_seed: u64,
     next_synthetic_uid: u64,
+    /// Static obstacles that block both movement and LOS.
+    /// Added in Wave 1 ch2 (schema v43). Serialized as sorted Vec in CombatStateRepr.
+    pub blocked_hexes: HashSet<hexx::Hex>,
 }
 
 /// Wire format for `CombatState` — identical layout except `idx` is absent.
 /// Used by `serde(into/from)` so the index cache is automatically rebuilt on
 /// deserialization without a custom `Deserialize` impl.
+///
+/// `blocked_hexes` is serialized as a sorted `Vec<Hex>` for deterministic output.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct CombatStateRepr {
     units: Vec<Unit>,
@@ -381,10 +386,15 @@ struct CombatStateRepr {
     pub turn_queue: TurnQueue,
     pub random_seed: u64,
     next_synthetic_uid: u64,
+    #[serde(default)]
+    blocked_hexes: Vec<hexx::Hex>,
 }
 
 impl From<CombatState> for CombatStateRepr {
     fn from(s: CombatState) -> Self {
+        // Sort blocked_hexes for deterministic serialization output.
+        let mut blocked_hexes: Vec<hexx::Hex> = s.blocked_hexes.into_iter().collect();
+        blocked_hexes.sort_by_key(|h| (h.x, h.y));
         CombatStateRepr {
             units: s.units,
             round: s.round,
@@ -392,6 +402,7 @@ impl From<CombatState> for CombatStateRepr {
             turn_queue: s.turn_queue,
             random_seed: s.random_seed,
             next_synthetic_uid: s.next_synthetic_uid,
+            blocked_hexes,
         }
     }
 }
@@ -406,6 +417,7 @@ impl From<CombatStateRepr> for CombatState {
             turn_queue: r.turn_queue,
             random_seed: r.random_seed,
             next_synthetic_uid: r.next_synthetic_uid,
+            blocked_hexes: r.blocked_hexes.into_iter().collect(),
         };
         s.rebuild_idx();
         s
@@ -436,6 +448,7 @@ impl CombatState {
             turn_queue: TurnQueue::default(),
             random_seed,
             next_synthetic_uid: SYNTHETIC_UID_BASE,
+            blocked_hexes: HashSet::new(),
         };
         state.rebuild_idx();
         state

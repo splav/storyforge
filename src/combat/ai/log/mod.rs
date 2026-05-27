@@ -212,7 +212,12 @@ use crate::game::hex::Hex;
 /// `Event::PoolChanged` is now the sole canonical pool-mutation event;
 /// dual-emit of `ManaRegenerated`/`EnergyRegenerated`/`RageGained` dropped.
 /// Old v41 logs are incompatible (clean break).
-pub const SCHEMA_VERSION: u32 = 42;
+///
+/// v42 → v43: `CombatState.blocked_hexes: HashSet<Hex>` added (Wave 1
+/// ch2 — static obstacles for movement and LOS). Serialized as sorted
+/// `Vec<Hex>` in CombatStateRepr for deterministic output. Old v42 logs
+/// are incompatible — clean break.
+pub const SCHEMA_VERSION: u32 = 43;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init
@@ -1494,9 +1499,10 @@ struct SchemaHeader {
 /// Rebuild logs from a v37+ playtest to use replay/mining tools.
 pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
     let header: SchemaHeader = serde_json::from_str(line)?;
-    // v37 is the minimum supported version. All earlier logs are hard breaks
-    // (Phase A3 clean break — no migration, per user direction).
-    const MIN_SUPPORTED: u32 = 37;
+    // v43 is the minimum supported version.
+    // v42 → v43: CombatState.blocked_hexes added (Wave 1 ch2). Clean break.
+    // All logs below v43 are rejected — rebuild from a v43+ playtest.
+    const MIN_SUPPORTED: u32 = 43;
     if header.schema_version < MIN_SUPPORTED {
         return Err(LogError::UnsupportedSchema {
             found: header.schema_version,

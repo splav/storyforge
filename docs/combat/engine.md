@@ -53,7 +53,7 @@ were removed in C6.
 `DotDamaged` is the atomic fusion of the former `(StatusTicked, UnitDamaged)` pair
 (post-S5). Buff-status ticks (zero damage) still emit `StatusTicked`.
 
-All variants are serde-derived — written verbatim into `engine.jsonl` (**schema v42**).
+All variants are serde-derived — written verbatim into `engine.jsonl` (**schema v43**).
 
 ### ApplyCtx
 
@@ -71,6 +71,7 @@ pub struct CombatState {
     turn_queue:        TurnQueue,
     random_seed:       u64,
     next_synthetic_uid: u64,        // counter for dynamically spawned units
+    pub blocked_hexes: HashSet<Hex>, // static obstacles (Wave 1 ch2, schema v43)
 }
 ```
 

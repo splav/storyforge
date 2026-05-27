@@ -508,3 +508,57 @@ fn combat_state_roundtrip() {
     let json2 = serde_json::to_string(&decoded).unwrap();
     assert_eq!(json, json2, "second serialization must be byte-equal");
 }
+
+#[test]
+fn state_with_blocked_hexes_serde_roundtrip() {
+    use combat_engine::state::CombatState;
+    use hexx::Hex;
+
+    let mut state = CombatState::new(vec![], 1, RoundPhase::ActorTurn, 0);
+    state.blocked_hexes.insert(Hex::new(3, 2));
+    state.blocked_hexes.insert(Hex::new(5, 4));
+    state.blocked_hexes.insert(Hex::new(1, 0));
+
+    let json = serde_json::to_string(&state).unwrap();
+    let decoded: CombatState = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(state.blocked_hexes, decoded.blocked_hexes);
+    // Verify both hexes survived the round-trip.
+    assert!(decoded.blocked_hexes.contains(&Hex::new(3, 2)));
+    assert!(decoded.blocked_hexes.contains(&Hex::new(5, 4)));
+    assert!(decoded.blocked_hexes.contains(&Hex::new(1, 0)));
+}
+
+#[test]
+fn state_blocked_hexes_serialization_is_deterministic() {
+    use combat_engine::state::CombatState;
+    use hexx::Hex;
+
+    // Insert in different orders; serialized JSON must be identical because
+    // CombatStateRepr sorts blocked_hexes before writing.
+    let mut state_a = CombatState::new(vec![], 1, RoundPhase::ActorTurn, 0);
+    state_a.blocked_hexes.insert(Hex::new(5, 4));
+    state_a.blocked_hexes.insert(Hex::new(1, 0));
+    state_a.blocked_hexes.insert(Hex::new(3, 2));
+
+    let mut state_b = CombatState::new(vec![], 1, RoundPhase::ActorTurn, 0);
+    state_b.blocked_hexes.insert(Hex::new(1, 0));
+    state_b.blocked_hexes.insert(Hex::new(3, 2));
+    state_b.blocked_hexes.insert(Hex::new(5, 4));
+
+    let json_a = serde_json::to_string(&state_a).unwrap();
+    let json_b = serde_json::to_string(&state_b).unwrap();
+    assert_eq!(json_a, json_b, "serialized blocked_hexes must be order-independent");
+}
+
+#[test]
+fn state_empty_blocked_hexes_roundtrip() {
+    // Verify that omitting blocked_hexes (default empty) still deserialises
+    // correctly even when the field is absent from old JSON.
+    use combat_engine::state::CombatState;
+
+    let state = CombatState::new(vec![], 1, RoundPhase::ActorTurn, 0);
+    let json = serde_json::to_string(&state).unwrap();
+    let decoded: CombatState = serde_json::from_str(&json).unwrap();
+    assert!(decoded.blocked_hexes.is_empty());
+}
