@@ -339,6 +339,7 @@ impl UnitBuilder {
                 combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
                 combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
             },
+            template_id: None,
         };
         let ai_cache = UnitAiCache {
             entity:              u.entity,
@@ -427,6 +428,7 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
             combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
             combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
         },
+        template_id: None,
     };
     let ai_cache = UnitAiCache {
         entity:              u.entity,

@@ -670,6 +670,7 @@ fn summoned_unit_can_act_in_ai_turn() {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
+        template_id: None,
     };
 
     let state = CombatState::new(

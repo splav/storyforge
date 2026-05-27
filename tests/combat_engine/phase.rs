@@ -54,6 +54,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
+        template_id: None,
     }
 }
 
@@ -99,6 +100,7 @@ fn make_attacker(id: u64) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
+        template_id: None,
     }
 }
 

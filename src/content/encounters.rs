@@ -12,26 +12,12 @@ pub struct EncounterDef {
     pub name: String,
     pub enemies: Vec<EnemyDef>,
     pub victory: VictoryCondition,
-    /// Static NPC objects that live only in ECS (`NonActingNpc` marker).
-    /// Engine knows nothing about them; they are spawned by `spawn_combatants`.
-    #[allow(dead_code)]
-    pub npcs: Vec<NpcDef>,
     /// Static obstacle hexes — blocks movement and LOS. Populated into
     /// `CombatState.blocked_hexes` on bootstrap.
     pub obstacles: Vec<hexx::Hex>,
 }
 
-/// A non-acting NPC object as it appears after TOML resolution.
-/// Lives only in ECS — never in `CombatState.units`.
-#[derive(Debug, Clone)]
-pub struct NpcDef {
-    pub name: String,
-    pub template: String,
-    pub hp_current: i32,
-    pub hp_max: i32,
-    pub hex_col: i32,
-    pub hex_row: i32,
-}
+
 
 #[derive(Debug, Clone, Default)]
 pub enum VictoryCondition {
@@ -159,8 +145,6 @@ struct EncounterRecord {
     #[serde(default)]
     victory: Option<VictoryRecord>,
     #[serde(default)]
-    npcs: Vec<NpcRecord>,
-    #[serde(default)]
     obstacles: Vec<ObstacleRecord>,
 }
 
@@ -189,16 +173,7 @@ struct VictoryRecord {
     conditions: Option<Vec<VictoryRecord>>,
 }
 
-#[derive(Deserialize)]
-struct NpcRecord {
-    name: String,
-    template: String,
-    #[serde(default)]
-    hp_current: Option<i32>,
-    hp_max: i32,
-    hex_col: i32,
-    hex_row: i32,
-}
+
 
 /// An enemy as it appears in `encounters.toml`.
 ///
@@ -420,22 +395,7 @@ fn resolve_enemy(
     }
 }
 
-fn resolve_npc(path: &str, enc_id: &str, rec: NpcRecord) -> NpcDef {
-    let hp_current = rec.hp_current.unwrap_or(rec.hp_max);
-    assert!(
-        !rec.template.is_empty(),
-        "{path}: encounter '{enc_id}' npc '{}' has empty template",
-        rec.name
-    );
-    NpcDef {
-        name: rec.name,
-        template: rec.template,
-        hp_current,
-        hp_max: rec.hp_max,
-        hex_col: rec.hex_col,
-        hex_row: rec.hex_row,
-    }
-}
+
 
 /// Recursively resolve a `VictoryRecord` into a `VictoryCondition`.
 fn resolve_victory(path: &str, enc_id: &str, v: VictoryRecord) -> VictoryCondition {
@@ -496,11 +456,6 @@ pub fn load_encounters_from_str(
                 .enemies
                 .into_iter()
                 .map(|e| resolve_enemy(path, &enc.id, e, templates))
-                .collect(),
-            npcs: enc
-                .npcs
-                .into_iter()
-                .map(|n| resolve_npc(path, &enc.id, n))
                 .collect(),
             obstacles: enc
                 .obstacles

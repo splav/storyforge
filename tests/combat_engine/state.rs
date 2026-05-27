@@ -10,8 +10,8 @@ use storyforge::content::content_view::ActiveContent;
 use storyforge::combat_engine::state::{CombatState, Team};
 use storyforge::game::bundles::CombatantBundle;
 use storyforge::game::components::{
-    ActionPoints, Combatant, CombatStats, Dead, Energy, Equipment, Faction, Mana, NonActingNpc,
-    Rage, Reactions, Speed, StatusEffects, Team as EcsTeam, Vital,
+    ActionPoints, Combatant, CombatStats, Dead, Energy, Equipment, Faction, Mana,
+    Rage, Reactions, Speed, StatusEffects, Team as EcsTeam, TemplateRef, Vital,
 };
 use storyforge::game::hex::{hex_from_offset, Hex};
 use storyforge::game::resources::{HexCorpses, HexPositions};
@@ -33,7 +33,7 @@ fn run_from_ecs(world: &mut World, round: u32, id_map: &mut UnitIdMap) -> Combat
                 Option<&Rage>,
                 Option<&Mana>,
                 Option<&Energy>,
-                Option<&NonActingNpc>,
+                Option<&TemplateRef>,
             ),
             With<Combatant>,
         >,

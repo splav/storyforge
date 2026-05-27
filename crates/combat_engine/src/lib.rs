@@ -125,6 +125,13 @@ pub fn modifier(stat: i32) -> i32 {
     stat >> 1 // арифметический сдвиг = floor для степеней двойки
 }
 
+/// Sentinel value for status durations that never expire.
+///
+/// Used for `initial_statuses` applied at bootstrap (e.g. permanent stun on
+/// non-acting party NPCs). `ExpireStatus` guards against this value and skips
+/// the decrement, so the status persists for the entire combat.
+pub const PERMANENT_DURATION: u32 = u32::MAX;
+
 /// Re-exported so crates that depend on `combat_engine` can use the `enum_map!`
 /// macro without declaring their own `enum-map` dependency.
 pub use enum_map;

@@ -23,8 +23,12 @@ pub struct PartyMemberDef {
     pub race: String,
     pub faction: Option<String>,
     pub path: Option<String>,
+    /// Class-based member: resolved via `content.classes`.
     pub class_id: String,
     pub hex_pos: hexx::Hex,
+    /// Template-based member: resolved via `content.unit_templates`.
+    /// When set, `class_id` is ignored by `spawn_combatants`.
+    pub template: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,9 +111,13 @@ struct PartyRecord {
     faction: Option<String>,
     #[serde(default)]
     path: Option<String>,
+    #[serde(default)]
     class: String,
     hex_col: i32,
     hex_row: i32,
+    /// Optional template id (unit_templates.toml). When set, `class` is ignored.
+    #[serde(default)]
+    template: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -148,6 +156,7 @@ fn convert_party_record(p: PartyRecord) -> PartyMemberDef {
         path: p.path,
         class_id: p.class,
         hex_pos: crate::game::hex::hex_from_offset(p.hex_col, p.hex_row),
+        template: p.template,
     }
 }
 

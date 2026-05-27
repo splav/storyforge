@@ -28,6 +28,10 @@ pub struct UnitTemplateDef {
     /// Populated from `ai_tuning_override` in `unit_templates.toml`.
     /// See step 2.7 of docs/ai_rework_plan.md.
     pub ai_tuning_override: Option<AiTuningOverride>,
+    /// Statuses applied at combat bootstrap with `PERMANENT_DURATION`.
+    /// Used for non-acting party NPCs that must skip every turn
+    /// (e.g. `stunned` on `wounded_magister`).
+    pub initial_statuses: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +69,8 @@ pub struct TemplateRecord {
     pub ability_ids: Vec<String>,
     #[serde(default)]
     pub ai_tuning_override: Option<AiTuningOverride>,
+    #[serde(default)]
+    pub initial_statuses: Vec<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -172,5 +178,6 @@ pub fn convert_template_record(r: TemplateRecord) -> UnitTemplateDef {
             .map(|s| AbilityId::from(s.as_str()))
             .collect(),
         ai_tuning_override: r.ai_tuning_override,
+        initial_statuses: r.initial_statuses,
     }
 }

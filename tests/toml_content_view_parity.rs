@@ -128,6 +128,10 @@ fn map_unit_template(content: &BridgeContentView, id: &str) -> Option<UnitTempla
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
+        initial_statuses: tpl.initial_statuses
+            .iter()
+            .map(|s| storyforge::combat_engine::StatusId::from(s.as_str()))
+            .collect(),
     })
 }
 

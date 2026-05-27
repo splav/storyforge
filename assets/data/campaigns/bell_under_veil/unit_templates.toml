@@ -32,8 +32,9 @@ ability_ids = ["melee_attack", "whisper_from_beyond", "thunderstrike"]
 
 # ── Шаблоны для главы II ──────────────────────────────────────────────────────
 
-# Раненый магистр — не-действующий NPC (NonActingNpc).
-# Нет способностей наступательных — только выживание.
+# Раненый магистр — временный союзник партии (party_add + initial_statuses).
+# Присоединяется к партии перед боем; permanent stunned = не действует.
+# Исчезает после боя через party_remove.
 [[unit_templates]]
 id    = "wounded_magister"
 name  = "Магистр"
@@ -44,7 +45,8 @@ speed = 0
 stats     = { max_hp = 6, strength = 0, dexterity = 0, constitution = 2, intelligence = 4, wisdom = 4, charisma = 2 }
 equipment = { main_hand = "staff", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
 
-ability_ids = []
+ability_ids      = []
+initial_statuses = ["stunned"]
 
 # Культистский солдат — рядовой враг для ch2.
 [[unit_templates]]

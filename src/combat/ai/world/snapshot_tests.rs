@@ -431,6 +431,7 @@ mod snapshot_api_tests {
                 combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
                 combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
             },
+            template_id: None,
         };
 
         let combat_state = CombatState::new(

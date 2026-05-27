@@ -1,6 +1,6 @@
 use crate::app_state::CombatPhase;
 use crate::content::encounters::VictoryCondition;
-use crate::game::components::{Combatant, Dead, Faction, NonActingNpc, Team, Vital, VictoryTarget};
+use crate::game::components::{Combatant, Dead, Faction, Team, Vital, VictoryTarget};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::CombatObjective;
 use bevy::prelude::*;
@@ -11,7 +11,7 @@ use bevy::prelude::*;
 /// (which removes `Dead`) no longer match `Added<Dead>` → no false positive.
 pub fn check_victory_system(
     added_dead: Query<(), Added<Dead>>,
-    combatants: Query<(&Vital, &Faction, Option<&VictoryTarget>, Option<&NonActingNpc>), With<Combatant>>,
+    combatants: Query<(&Vital, &Faction, Option<&VictoryTarget>), With<Combatant>>,
     named_vitals: Query<(&Name, &Vital)>,
     objective: Res<CombatObjective>,
     mut log: ResMut<CombatLog>,
@@ -26,24 +26,17 @@ pub fn check_victory_system(
 }
 
 /// Single-pass iteration over combatants → dispatch to `determine_outcome`.
-/// `NonActingNpc` entities are excluded from both `players_alive` and
-/// `enemies_alive` counts — they must not keep the party "alive" if all
-/// acting players are dead, nor affect enemy-alive detection.
 ///
 /// `named_vitals` supplies `(Name, Vital)` pairs for `KeepAlive` lookups.
 fn check_combat_end(
-    combatants: &Query<(&Vital, &Faction, Option<&VictoryTarget>, Option<&NonActingNpc>), With<Combatant>>,
+    combatants: &Query<(&Vital, &Faction, Option<&VictoryTarget>), With<Combatant>>,
     named_vitals: &Query<(&Name, &Vital)>,
     objective: &VictoryCondition,
 ) -> Option<bool> {
     let mut players_alive = false;
     let mut enemies_alive = false;
     let mut target_alive = false;
-    for (v, f, tag, npc) in combatants.iter() {
-        // Non-acting NPCs are not counted toward living parties.
-        if npc.is_some() {
-            continue;
-        }
+    for (v, f, tag) in combatants.iter() {
         if !v.is_alive() {
             continue;
         }

@@ -88,12 +88,14 @@ victory = { type = "all_of", conditions = [] }
 
 // ── NPC parsing ───────────────────────────────────────────────────────────────
 
+/// Legacy `[[encounters.npcs]]` sections in TOML are silently ignored.
+/// (NPCs are now modelled as party members via `party_add` in scenario.toml.)
 #[test]
-fn parses_npcs_section_with_hex_pos() {
+fn legacy_npcs_section_in_toml_is_ignored() {
     let toml = r#"
 [[encounters]]
-id = "enc_with_npcs"
-name = "NPC Test"
+id = "enc_with_legacy_npcs"
+name = "Legacy NPC Test"
 enemies = []
 
 [[encounters.npcs]]
@@ -104,28 +106,10 @@ hp_max = 6
 hex_col = 6
 hex_row = 4
 "#;
+    // Must parse without panic and produce a valid encounter (npcs field ignored).
     let encounters = load_encounters_from_str("test", "test.toml", toml, &no_templates());
-    let enc = &encounters[0];
-    assert_eq!(enc.npcs.len(), 1);
-    let npc = &enc.npcs[0];
-    assert_eq!(npc.name, "Magister");
-    assert_eq!(npc.template, "wounded_magister");
-    assert_eq!(npc.hp_current, 4);
-    assert_eq!(npc.hp_max, 6);
-    assert_eq!(npc.hex_col, 6);
-    assert_eq!(npc.hex_row, 4);
-}
-
-#[test]
-fn npcs_default_empty_when_section_omitted() {
-    let toml = r#"
-[[encounters]]
-id = "no_npcs"
-name = "No NPCs"
-enemies = []
-"#;
-    let encounters = load_encounters_from_str("test", "test.toml", toml, &no_templates());
-    assert!(encounters[0].npcs.is_empty());
+    assert_eq!(encounters.len(), 1);
+    assert_eq!(encounters[0].enemies.len(), 0);
 }
 
 /// `keep_alive` without `target_name` must panic with a clear message.
@@ -142,27 +126,7 @@ victory = { type = "keep_alive" }
     load_encounters_from_str("test", "test.toml", toml, &no_templates());
 }
 
-/// `hp_current` defaults to `hp_max` when omitted.
-#[test]
-fn npc_hp_current_defaults_to_hp_max() {
-    let toml = r#"
-[[encounters]]
-id = "enc"
-name = "Enc"
-enemies = []
 
-[[encounters.npcs]]
-name = "Guard"
-template = "guard_npc"
-hp_max = 10
-hex_col = 1
-hex_row = 1
-"#;
-    let encounters = load_encounters_from_str("test", "test.toml", toml, &no_templates());
-    let npc = &encounters[0].npcs[0];
-    assert_eq!(npc.hp_current, 10, "hp_current should default to hp_max");
-    assert_eq!(npc.hp_max, 10);
-}
 
 // ── Obstacle parsing (T1.2.5) ─────────────────────────────────────────────────
 

@@ -6,7 +6,7 @@ use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::config::role::infer_profile;
 use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
-use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Faction, Initiative, Mana, NonActingNpc, Rage, StartingHexPos, Team, UnitToken, VictoryTarget, Vital};
+use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Faction, Initiative, Mana, Rage, StartingHexPos, Team, TemplateRef, UnitToken, VictoryTarget, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
@@ -49,6 +49,37 @@ fn spawn_combatants(
 
     let party = active_party(scen, scenario.scene_index);
     for member in &party {
+        // Template-based member (e.g. non-acting NPC added via party_add with template field).
+        if let Some(template_id) = &member.template {
+            let tpl = content.unit_templates.get(template_id).unwrap_or_else(|| {
+                panic!("Template '{}' not found for party member '{}'", template_id, member.name)
+            });
+            let equipment = Equipment {
+                main_hand: Some(tpl.equipment.main_hand.clone()),
+                off_hand: tpl.equipment.off_hand.clone(),
+                chest: tpl.equipment.chest.clone(),
+                legs: tpl.equipment.legs.clone(),
+                feet: tpl.equipment.feet.clone(),
+            };
+            let effective = content.effective_stats(&tpl.stats, &equipment);
+            let armor = content.equipment_armor(&equipment);
+            let role = infer_profile(&tpl.ability_ids, effective.max_hp, armor, content, tag_cache);
+            let vital = Vital { hp: effective.max_hp, max_hp: effective.max_hp, armor };
+            commands.spawn((
+                Name::new(member.name.clone()),
+                Combatant,
+                Faction(Team::Player),
+                vital,
+                StartingHexPos(member.hex_pos),
+                role,
+                TemplateRef(template_id.clone()),
+            ));
+            // initial_statuses are applied engine-side in bootstrap_combat_state
+            // via CombatState::apply_initial_statuses (reads UnitTemplate from ContentView).
+            continue;
+        }
+
+        // Class-based member (regular hero).
         let cls = content.classes.get(&member.class_id).unwrap_or_else(|| {
             panic!("Class '{}' not found in classes.toml", member.class_id)
         });
@@ -114,19 +145,6 @@ fn spawn_combatants(
                 affects: aura.affects,
             });
         }
-    }
-
-    // Spawn non-acting NPCs — live only in ECS, excluded from initiative and engine state.
-    for npc in &enc.npcs {
-        let hex_pos = crate::game::hex::hex_from_offset(npc.hex_col, npc.hex_row);
-        commands.spawn((
-            Name::new(npc.name.clone()),
-            Combatant,
-            Faction(Team::Player),
-            NonActingNpc,
-            Vital { hp: npc.hp_current, max_hp: npc.hp_max, armor: 0 },
-            StartingHexPos(hex_pos),
-        ));
     }
 }
 

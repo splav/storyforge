@@ -223,6 +223,10 @@ pub struct UnitTemplate {
     /// Currently hardcoded at construction time; TOML wiring lands in C5.
     /// Copied onto `Unit.regen_per_pool` at spawn / bridge init.
     pub regen_per_pool: enum_map::EnumMap<crate::PoolKind, crate::RegenRule>,
+    /// Statuses applied to a spawned unit immediately after creation, each
+    /// with `PERMANENT_DURATION`. Used for non-acting party NPCs that must
+    /// skip every turn (e.g. `stunned` on `wounded_magister`).
+    pub initial_statuses: Vec<crate::StatusId>,
 }
 
 // ── Aura types (Phase 4 step 4c) ─────────────────────────────────────────────

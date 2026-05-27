@@ -3,7 +3,7 @@ use crate::app_state::CombatPhase;
 use crate::combat::ai::world::reservations::Reservations;
 use combat_engine::modifier;
 use crate::combat::DiceRngRes;
-use crate::game::components::{ActiveCombatant, CombatStats, Combatant, Initiative, NonActingNpc, Vital};
+use crate::game::components::{ActiveCombatant, CombatStats, Combatant, Initiative, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::resources::{CombatContext, PresetInitiative, TurnQueue};
 use bevy::prelude::*;
@@ -29,7 +29,7 @@ pub fn build_turn_order(
             &CombatStats,
             &Vital,
         ),
-        (With<Combatant>, Without<NonActingNpc>),
+        With<Combatant>,
     >,
 ) {
     ctx.round += 1;

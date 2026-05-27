@@ -107,6 +107,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
+        template_id: None,
     }
 }
 
@@ -1095,6 +1096,7 @@ fn test_template() -> UnitTemplate {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
+        initial_statuses: Vec::new(),
     }
 }
 
@@ -1338,6 +1340,7 @@ fn melee_template() -> UnitTemplate {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
+        initial_statuses: Vec::new(),
     }
 }
 

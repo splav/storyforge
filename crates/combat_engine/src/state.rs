@@ -132,15 +132,14 @@ pub struct Unit {
     /// Per-pool turn-start regen policy copied from `UnitTemplate.regen_per_pool`
     /// at spawn.
     pub regen_per_pool: enum_map::EnumMap<crate::PoolKind, crate::RegenRule>,
+
+    /// Id of the `UnitTemplate` this unit was spawned from (template-flow only).
+    /// `None` for class-based heroes and enemies without an explicit template.
+    /// Used by `CombatState::apply_initial_statuses` to look up statuses that
+    /// must be applied at combat start (engine-side, idempotent).
+    pub template_id: Option<String>,
 }
 
-/// Wire format for `Unit` — includes legacy fields for backward-compatible
-/// deserialization of pre-C6 JSONL fixtures (schema v37–v41) that serialized
-/// `action_points`, `max_ap`, `movement_points`, `mana`, `rage`, `energy`
-/// instead of `pools`. On deserialization, if `pools[Ap]` / `pools[Mp]` are
-/// `None` but legacy AP/MP fields are present, they are migrated into `pools`.
-/// On serialization, `Unit` is written as `UnitWire` with only the canonical
-/// `pools` field (legacy fields are omitted — forward-only output).
 #[derive(serde::Serialize, serde::Deserialize)]
 struct UnitWire {
     pub id: UnitId,
@@ -172,6 +171,10 @@ struct UnitWire {
     pub pools: enum_map::EnumMap<crate::PoolKind, Option<(i32, i32)>>,
     #[serde(default)]
     pub regen_per_pool: enum_map::EnumMap<crate::PoolKind, crate::RegenRule>,
+
+    // ── template id (optional; absent in older traces) ──────────────────────
+    #[serde(default)]
+    pub template_id: Option<String>,
 
     // ── legacy fields (pre-C6, for backward-compat deserialization only) ───
     // Silently ignored on read if `pools` is already populated.
@@ -262,6 +265,7 @@ impl From<UnitWire> for Unit {
             enemy_phases: w.enemy_phases,
             pools,
             regen_per_pool: w.regen_per_pool,
+            template_id: w.template_id,
         }
     }
 }
@@ -289,6 +293,7 @@ impl From<Unit> for UnitWire {
             enemy_phases: u.enemy_phases,
             pools: u.pools,
             regen_per_pool: u.regen_per_pool,
+            template_id: u.template_id,
             // Legacy fields never written — only read for backward compat.
             action_points: None,
             max_ap: None,
@@ -539,6 +544,35 @@ impl CombatState {
     /// Iterate alive units only.
     pub fn alive_units(&self) -> impl Iterator<Item = &Unit> {
         self.units.iter().filter(|u| u.is_alive())
+    }
+
+    /// Apply `initial_statuses` from each unit's template at combat bootstrap.
+    ///
+    /// Called once from `bootstrap_combat_state` after `from_ecs` populates the
+    /// engine state.  For every unit that carries a `template_id`, the method
+    /// looks up the template via `content` and applies each listed status with
+    /// `PERMANENT_DURATION` if the unit does not already have a status with that
+    /// id (idempotency guard — safe to call twice in tests).
+    ///
+    /// The unit is the applier of its own initial statuses (permanent stun has no
+    /// meaningful external source).
+    pub fn apply_initial_statuses(&mut self, content: &dyn ContentView) {
+        for unit in self.units.iter_mut() {
+            let Some(ref tid) = unit.template_id.clone() else { continue };
+            let Some(template) = content.unit_template(tid) else { continue };
+            for status_id in &template.initial_statuses {
+                // Idempotency: skip if the unit already has this status.
+                if unit.statuses.iter().any(|s| &s.id == status_id) {
+                    continue;
+                }
+                unit.statuses.push(ActiveStatus {
+                    id: status_id.clone(),
+                    rounds_remaining: crate::PERMANENT_DURATION,
+                    dot_per_tick: 0,
+                    applier: unit.id,
+                });
+            }
+        }
     }
 
     /// All living enemies of `actor_id`.
@@ -854,6 +888,7 @@ mod tests {
                 PoolKind::Ap     => RegenRule::RefillToMax,
                 PoolKind::Mp     => RegenRule::RefillToMax,
             },
+            template_id: None,
         }
     }
 

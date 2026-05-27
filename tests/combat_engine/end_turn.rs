@@ -101,6 +101,7 @@ fn make_unit(id: u64, alive: bool) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
+        template_id: None,
     }
 }
 

@@ -45,8 +45,8 @@ use crate::game::combat_log::{
 };
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, AuraSource, BonusMovement, CombatPath, CombatStats,
-    Combatant, Dead, Energy, Equipment, EnemyPhases, Faction, Mana, NonActingNpc, Rage, Reactions,
-    Speed, StatusEffects, SummonedBy, UnitToken, Vital,
+    Combatant, Dead, Energy, Equipment, EnemyPhases, Faction, Mana, Rage, Reactions,
+    Speed, StatusEffects, SummonedBy, TemplateRef, UnitToken, Vital,
 };
 use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
@@ -144,7 +144,7 @@ type CombatantRow<'a> = (
     Option<&'a Rage>,
     Option<&'a Mana>,
     Option<&'a Energy>,
-    Option<&'a NonActingNpc>,
+    Option<&'a TemplateRef>,
 );
 
 /// Populate a `CombatState` from the current ECS world; also rebuilds `id_map`.
@@ -179,9 +179,7 @@ pub fn from_ecs(
 
     let units: Vec<Unit> = combatants
         .iter()
-        .filter_map(|(entity, vital, speed, ap, reactions, faction, statuses, rage, mana, energy_opt, npc_opt)| {
-            // NonActingNpc entities live only in ECS; the engine does not track them.
-            if npc_opt.is_some() { return None; }
+        .filter_map(|(entity, vital, speed, ap, reactions, faction, statuses, rage, mana, energy_opt, template_ref)| {
             let is_dead = vital.hp <= 0;
             // Alive units live in HexPositions; dead units in HexCorpses.
             let pos = if is_dead {
@@ -271,6 +269,7 @@ pub fn from_ecs(
                 enemy_phases: Vec::new(),
                 pools: bridge_pools,
                 regen_per_pool: bridge_regen,
+                template_id: template_ref.map(|tr| tr.0.clone()),
             })
         })
         .collect();
@@ -414,6 +413,10 @@ fn build_engine_template_from_def(
             combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
             combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
         },
+        initial_statuses: tpl.initial_statuses
+            .iter()
+            .map(|s| combat_engine::StatusId::from(s.as_str()))
+            .collect(),
     }
 }
 
@@ -1539,6 +1542,12 @@ pub fn bootstrap_combat_state(
 
     let mut state = from_ecs(&combatants, &positions, &corpses, combat_context.round, &mut id_map, &active_content);
 
+    // ── Apply initial_statuses from unit templates (engine-side, idempotent) ──
+    {
+        let content_view = build_ecs_content_view(&active_content);
+        state.apply_initial_statuses(&content_view);
+    }
+
     // ── Static obstacle hexes from encounter definition ───────────────────────
     state.blocked_hexes = blocked_hexes.0.iter().copied().collect();
 
@@ -1793,6 +1802,7 @@ mod tests {
                 combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
                 combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
             },
+            template_id: None,
         };
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
 

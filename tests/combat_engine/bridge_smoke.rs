@@ -504,6 +504,7 @@ fn projector_writes_engine_mutation_to_ecs() {
                 combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
                 combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
             },
+            template_id: None,
         };
         let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -905,6 +906,7 @@ fn projector_writes_mana_from_engine_state() {
             combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
             combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
         },
+        template_id: None,
     };
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -979,6 +981,7 @@ fn projector_writes_statuses_from_engine_state() {
             combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
             combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
         },
+        template_id: None,
     };
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -1080,6 +1083,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
             combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
             combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
         },
+        template_id: None,
     };
     let aura_unit = Unit {
         id: aura_source_uid,
@@ -1114,6 +1118,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
             combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
             combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
         },
+        template_id: None,
     };
     let state = CombatState::new(vec![actor_unit, aura_unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
@@ -1343,6 +1348,7 @@ fn cast_summon_creates_ecs_entity_synchronously() {
         resources: ResourcesBlock::default(),
         ability_ids: vec![],
         ai_tuning_override: None,
+        initial_statuses: vec![],
     };
 
     let mut app = common::apps::bridge::bridge_app();

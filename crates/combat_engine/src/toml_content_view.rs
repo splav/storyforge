@@ -287,6 +287,9 @@ struct TemplateRecord {
     #[serde(default)]
     #[allow(dead_code)]
     path: Option<String>,
+    /// Statuses applied at bootstrap with PERMANENT_DURATION.
+    #[serde(default)]
+    initial_statuses: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -660,6 +663,10 @@ fn convert_template(
             crate::PoolKind::Ap     => crate::RegenRule::RefillToMax,
             crate::PoolKind::Mp     => crate::RegenRule::RefillToMax,
         },
+        initial_statuses: r.initial_statuses
+            .into_iter()
+            .map(|s| crate::StatusId::from(s.as_str()))
+            .collect(),
     };
 
     (r.id, tpl)

@@ -100,6 +100,7 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
+        template_id: None,
     }
 }
 

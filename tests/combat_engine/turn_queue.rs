@@ -74,6 +74,7 @@ fn make_unit(id: UnitId, alive: bool, reactions_max: i32) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
+        template_id: None,
     }
 }
 

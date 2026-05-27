@@ -28,12 +28,7 @@ pub struct VictoryTarget {
     pub marker_color: [f32; 3],
 }
 
-/// Marker: this entity is a non-acting NPC — present on the battlefield but
-/// excluded from the initiative queue and from engine `CombatState.units`.
-/// Can receive damage/healing from any side. Does not block player/enemy counts
-/// in `check_combat_end`.
-#[derive(Component, Clone, Copy, Default)]
-pub struct NonActingNpc;
+
 
 /// Pending phase transformations for an enemy, in declaration order.
 /// Each entry is applied at most once when its trigger fires, then removed.
@@ -63,6 +58,13 @@ pub struct PartyMember;
 
 #[derive(Component, Default)]
 pub struct Enemy;
+
+/// ECS marker carrying the unit-template id for template-based combatants.
+/// Set by `spawn_combatants` for party members spawned from a `UnitTemplate`
+/// (e.g. non-acting NPCs via `party_add { template = "..." }`).
+/// Read by `from_ecs` so the engine `Unit` can carry `template_id`.
+#[derive(Component, Debug, Clone)]
+pub struct TemplateRef(pub String);
 
 pub use combat_engine::state::Team;
 

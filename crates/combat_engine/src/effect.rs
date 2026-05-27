@@ -663,6 +663,10 @@ pub fn apply_effect(
         Effect::ExpireStatus { target, status } => {
             let expired = if let Some(u) = state.unit_mut(*target) {
                 if let Some(s) = u.statuses.iter_mut().find(|s| s.id == *status) {
+                    // Permanent statuses (PERMANENT_DURATION sentinel) never expire.
+                    if s.rounds_remaining == crate::PERMANENT_DURATION {
+                        return (vec![], ApplyCtx::default());
+                    }
                     s.rounds_remaining = s.rounds_remaining.saturating_sub(1);
                     s.rounds_remaining == 0
                 } else {
@@ -875,6 +879,10 @@ pub fn apply_effect(
                 enemy_phases: template.enemy_phases.clone(),
                 pools: spawn_pools,
                 regen_per_pool: template.regen_per_pool,
+                // Spawned mid-combat units carry the template id so their
+                // initial_statuses could be applied if needed. Not used
+                // today — apply_initial_statuses only runs at bootstrap.
+                template_id: None,
             };
 
             state.insert_unit(new_unit);
