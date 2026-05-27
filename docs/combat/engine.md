@@ -78,6 +78,13 @@ Cloneable — the AI sim clones state for beam-search rollback without
 disturbing live state. `CombatState::new(units, round, rng_seed)` is the
 primary constructor.
 
+### Non-acting NPCs
+
+NPC objects (`NonActingNpc` ECS marker) live **only in ECS**, not in
+`CombatState.units`. They are filtered out in `from_ecs` (bridge) and in
+`build_turn_order` (initiative system). The engine never sees them. Damage and
+healing to NPCs is applied bridge-side via direct `Vital` mutation.
+
 ---
 
 ## 2. ContentView trait

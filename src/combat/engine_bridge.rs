@@ -45,8 +45,8 @@ use crate::game::combat_log::{
 };
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, AuraSource, BonusMovement, CombatPath, CombatStats,
-    Combatant, Dead, Energy, Equipment, EnemyPhases, Faction, Mana, Rage, Reactions, Speed,
-    StatusEffects, SummonedBy, UnitToken, Vital,
+    Combatant, Dead, Energy, Equipment, EnemyPhases, Faction, Mana, NonActingNpc, Rage, Reactions,
+    Speed, StatusEffects, SummonedBy, UnitToken, Vital,
 };
 use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
@@ -144,6 +144,7 @@ type CombatantRow<'a> = (
     Option<&'a Rage>,
     Option<&'a Mana>,
     Option<&'a Energy>,
+    Option<&'a NonActingNpc>,
 );
 
 /// Populate a `CombatState` from the current ECS world; also rebuilds `id_map`.
@@ -178,7 +179,9 @@ pub fn from_ecs(
 
     let units: Vec<Unit> = combatants
         .iter()
-        .filter_map(|(entity, vital, speed, ap, reactions, faction, statuses, rage, mana, energy_opt)| {
+        .filter_map(|(entity, vital, speed, ap, reactions, faction, statuses, rage, mana, energy_opt, npc_opt)| {
+            // NonActingNpc entities live only in ECS; the engine does not track them.
+            if npc_opt.is_some() { return None; }
             let is_dead = vital.hp <= 0;
             // Alive units live in HexPositions; dead units in HexCorpses.
             let pos = if is_dead {
