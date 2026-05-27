@@ -29,3 +29,32 @@ equipment = { main_hand = "staff", chest = "mage_robe", legs = "cloth_pants", fe
 resources = { mana = 10 }
 
 ability_ids = ["melee_attack", "whisper_from_beyond", "thunderstrike"]
+
+# ── Шаблоны для главы II ──────────────────────────────────────────────────────
+
+# Раненый магистр — не-действующий NPC (NonActingNpc).
+# Нет способностей наступательных — только выживание.
+[[unit_templates]]
+id    = "wounded_magister"
+name  = "Магистр"
+race  = "human"
+path  = "faith"
+speed = 0
+
+stats     = { max_hp = 6, strength = 0, dexterity = 0, constitution = 2, intelligence = 4, wisdom = 4, charisma = 2 }
+equipment = { main_hand = "staff", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
+
+ability_ids = []
+
+# Культистский солдат — рядовой враг для ch2.
+[[unit_templates]]
+id    = "cultist_grunt"
+name  = "Культист"
+race  = "human"
+path  = "pact"
+speed = 4
+
+stats     = { max_hp = 10, strength = 4, dexterity = 2, constitution = 2, intelligence = -2, wisdom = -2, charisma = -4 }
+equipment = { main_hand = "short_sword", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
+
+ability_ids = ["melee_attack"]

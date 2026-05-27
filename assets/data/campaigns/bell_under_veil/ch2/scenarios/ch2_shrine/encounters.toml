@@ -1,0 +1,29 @@
+# Глава II, Бой 1. Тронутое святилище.
+# Двойная победа: убить всех врагов + сохранить жизнь Магистру (NonActingNpc).
+
+[[encounters]]
+id   = "ch2_shrine"
+name = "Тронутое святилище"
+
+victory = { type = "all_of", conditions = [
+    { type = "all_enemies_dead" },
+    { type = "keep_alive", target_name = "Магистр", marker_color = [0.3, 0.6, 1.0] },
+] }
+
+[[encounters.npcs]]
+name       = "Магистр"
+template   = "wounded_magister"
+hp_current = 6
+hp_max     = 6
+hex_col    = 6
+hex_row    = 4
+
+[[encounters.enemies]]
+template = "cultist_grunt"
+hex_col  = 2
+hex_row  = 2
+
+[[encounters.enemies]]
+template = "cultist_grunt"
+hex_col  = 8
+hex_row  = 5

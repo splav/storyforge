@@ -6,7 +6,7 @@ use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::config::role::infer_profile;
 use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
-use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Initiative, Mana, Rage, StartingHexPos, UnitToken, VictoryTarget};
+use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Faction, Initiative, Mana, NonActingNpc, Rage, StartingHexPos, Team, UnitToken, VictoryTarget, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
@@ -114,6 +114,19 @@ fn spawn_combatants(
                 affects: aura.affects,
             });
         }
+    }
+
+    // Spawn non-acting NPCs — live only in ECS, excluded from initiative and engine state.
+    for npc in &enc.npcs {
+        let hex_pos = crate::game::hex::hex_from_offset(npc.hex_col, npc.hex_row);
+        commands.spawn((
+            Name::new(npc.name.clone()),
+            Combatant,
+            Faction(Team::Player),
+            NonActingNpc,
+            Vital { hp: npc.hp_current, max_hp: npc.hp_max, armor: 0 },
+            StartingHexPos(hex_pos),
+        ));
     }
 }
 

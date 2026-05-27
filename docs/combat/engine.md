@@ -96,6 +96,13 @@ NPC objects (`NonActingNpc` ECS marker) live **only in ECS**, not in
 `build_turn_order` (initiative system). The engine never sees them. Damage and
 healing to NPCs is applied bridge-side via direct `Vital` mutation.
 
+NPCs are declared in `[[encounters.npcs]]` TOML sections and spawned by
+`spawn_combatants` (`src/scenario/combat_scene.rs`) with
+`Faction(Team::Player) + NonActingNpc + Vital` — no `Initiative`, `Abilities`,
+or `AiMemory`. They are despawned by `despawn_combatants` (same `With<Combatant>`
+query as regular units). Typically used with `KeepAlive` in an `AllOf` victory
+condition (see `ch2_shrine` fixture).
+
 ---
 
 ## 2. ContentView trait
