@@ -12,6 +12,7 @@ use bevy::prelude::*;
 pub fn check_victory_system(
     added_dead: Query<(), Added<Dead>>,
     combatants: Query<(&Vital, &Faction, Option<&VictoryTarget>, Option<&NonActingNpc>), With<Combatant>>,
+    named_vitals: Query<(&Name, &Vital)>,
     objective: Res<CombatObjective>,
     mut log: ResMut<CombatLog>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
@@ -19,7 +20,7 @@ pub fn check_victory_system(
     if added_dead.is_empty() {
         return;
     }
-    if let Some(outcome) = check_combat_end(&combatants, &objective.0) {
+    if let Some(outcome) = check_combat_end(&combatants, &named_vitals, &objective.0) {
         end_combat(outcome, &mut log, &mut next_phase);
     }
 }
@@ -28,8 +29,11 @@ pub fn check_victory_system(
 /// `NonActingNpc` entities are excluded from both `players_alive` and
 /// `enemies_alive` counts — they must not keep the party "alive" if all
 /// acting players are dead, nor affect enemy-alive detection.
+///
+/// `named_vitals` supplies `(Name, Vital)` pairs for `KeepAlive` lookups.
 fn check_combat_end(
     combatants: &Query<(&Vital, &Faction, Option<&VictoryTarget>, Option<&NonActingNpc>), With<Combatant>>,
+    named_vitals: &Query<(&Name, &Vital)>,
     objective: &VictoryCondition,
 ) -> Option<bool> {
     let mut players_alive = false;
@@ -51,16 +55,27 @@ fn check_combat_end(
             target_alive = true;
         }
     }
-    determine_outcome(players_alive, enemies_alive, target_alive, objective)
+
+    let is_named_alive = |name: &str| -> bool {
+        named_vitals
+            .iter()
+            .any(|(n, v)| n.as_str() == name && v.is_alive())
+    };
+
+    determine_outcome(players_alive, enemies_alive, target_alive, objective, &is_named_alive)
 }
 
 /// Pure victory/defeat decision. `Some(true)` = victory, `Some(false)` = defeat,
 /// `None` = combat continues. Party wipe always beats objective progress.
+///
+/// `is_named_alive(name)` is called by `KeepAlive` to check if a specific named
+/// unit is still alive.  Pass a closure that looks up ECS `Name` + `Vital`.
 pub(crate) fn determine_outcome(
     players_alive: bool,
     enemies_alive: bool,
     target_alive: bool,
     objective: &VictoryCondition,
+    is_named_alive: &dyn Fn(&str) -> bool,
 ) -> Option<bool> {
     if !players_alive {
         return Some(false);
@@ -71,6 +86,32 @@ pub(crate) fn determine_outcome(
         }
         VictoryCondition::KillTarget { .. } => {
             if target_alive { None } else { Some(true) }
+        }
+        VictoryCondition::KeepAlive { target_name, .. } => {
+            if !is_named_alive(target_name) {
+                Some(false) // protected unit died → immediate defeat
+            } else if !enemies_alive {
+                Some(true) // target survived and no enemies remain → condition satisfied
+            } else {
+                None // combat ongoing, target alive — continue
+            }
+        }
+        VictoryCondition::AllOf(conditions) => {
+            let mut all_victory = true;
+            for cond in conditions {
+                match determine_outcome(
+                    players_alive,
+                    enemies_alive,
+                    target_alive,
+                    cond,
+                    is_named_alive,
+                ) {
+                    Some(false) => return Some(false), // short-circuit on any defeat
+                    Some(true) => {}                   // this sub-condition satisfied
+                    None => all_victory = false,       // still in progress
+                }
+            }
+            if all_victory { Some(true) } else { None }
         }
     }
 }
@@ -88,24 +129,29 @@ fn end_combat(
 mod tests {
     use super::*;
 
+    /// Default `is_named_alive` stub — all named units alive (conservative default).
+    fn always_alive(_name: &str) -> bool { true }
+    /// Stub that returns false for every name (no named unit alive).
+    fn never_alive(_name: &str) -> bool { false }
+
     // ── determine_outcome ───────────────────────────────────────────────
 
     #[test]
     fn outcome_defeat_when_no_players_alive() {
         let obj = VictoryCondition::AllEnemiesDead;
-        assert_eq!(determine_outcome(false, true, true, &obj), Some(false));
+        assert_eq!(determine_outcome(false, true, true, &obj, &always_alive), Some(false));
     }
 
     #[test]
     fn outcome_all_enemies_dead_victory() {
         let obj = VictoryCondition::AllEnemiesDead;
-        assert_eq!(determine_outcome(true, false, false, &obj), Some(true));
+        assert_eq!(determine_outcome(true, false, false, &obj, &always_alive), Some(true));
     }
 
     #[test]
     fn outcome_all_enemies_dead_continues_while_enemies_alive() {
         let obj = VictoryCondition::AllEnemiesDead;
-        assert_eq!(determine_outcome(true, true, false, &obj), None);
+        assert_eq!(determine_outcome(true, true, false, &obj, &always_alive), None);
     }
 
     #[test]
@@ -116,7 +162,7 @@ mod tests {
             description: None,
         };
         // Enemies still alive but target down → victory.
-        assert_eq!(determine_outcome(true, true, false, &obj), Some(true));
+        assert_eq!(determine_outcome(true, true, false, &obj, &always_alive), Some(true));
     }
 
     #[test]
@@ -126,7 +172,7 @@ mod tests {
             marker_color: [1.0, 0.0, 0.0],
             description: None,
         };
-        assert_eq!(determine_outcome(true, false, true, &obj), None);
+        assert_eq!(determine_outcome(true, false, true, &obj, &always_alive), None);
     }
 
     #[test]
@@ -137,7 +183,7 @@ mod tests {
             marker_color: [1.0, 0.0, 0.0],
             description: None,
         };
-        assert_eq!(determine_outcome(false, false, false, &obj), Some(false));
+        assert_eq!(determine_outcome(false, false, false, &obj, &always_alive), Some(false));
     }
 
     // ── NonActingNpc does not count as player ────────────────────────────
@@ -149,7 +195,7 @@ mod tests {
         let obj = VictoryCondition::AllEnemiesDead;
         // NPC is alive but filtered out → players_alive = false, enemies_alive = true
         // This is defeat (party wipe from engine's perspective).
-        assert_eq!(determine_outcome(false, true, false, &obj), Some(false));
+        assert_eq!(determine_outcome(false, true, false, &obj, &always_alive), Some(false));
     }
 
     /// A living NPC must not satisfy "enemies alive" for AllEnemiesDead objective.
@@ -160,6 +206,89 @@ mod tests {
         let obj = VictoryCondition::AllEnemiesDead;
         // If only NPC and hero alive (npc filtered out of enemies count),
         // enemies_alive = false → victory.
-        assert_eq!(determine_outcome(true, false, false, &obj), Some(true));
+        assert_eq!(determine_outcome(true, false, false, &obj, &always_alive), Some(true));
+    }
+
+    // ── KeepAlive ────────────────────────────────────────────────────────
+
+    #[test]
+    fn outcome_keep_alive_target_dead_is_defeat() {
+        let obj = VictoryCondition::KeepAlive {
+            target_name: "Магистр".into(),
+            marker_color: [0.3, 0.6, 1.0],
+        };
+        // Target dead → immediate defeat regardless of combat state.
+        assert_eq!(determine_outcome(true, true, false, &obj, &never_alive), Some(false));
+    }
+
+    #[test]
+    fn outcome_keep_alive_target_alive_with_enemies_alive_is_none() {
+        let obj = VictoryCondition::KeepAlive {
+            target_name: "Магистр".into(),
+            marker_color: [0.3, 0.6, 1.0],
+        };
+        // Target alive but enemies remain → leaf cannot win alone → None.
+        assert_eq!(determine_outcome(true, true, false, &obj, &always_alive), None);
+    }
+
+    #[test]
+    fn outcome_keep_alive_target_alive_no_enemies_is_victory() {
+        // KeepAlive standalone: target alive + no enemies → victory.
+        let obj = VictoryCondition::KeepAlive {
+            target_name: "Магистр".into(),
+            marker_color: [0.3, 0.6, 1.0],
+        };
+        assert_eq!(determine_outcome(true, false, false, &obj, &always_alive), Some(true));
+    }
+
+    // ── AllOf ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn outcome_allof_short_circuits_on_first_defeat() {
+        // First sub-condition is a KeepAlive with dead target → defeat immediately.
+        let obj = VictoryCondition::AllOf(vec![
+            VictoryCondition::KeepAlive {
+                target_name: "Магистр".into(),
+                marker_color: [0.3, 0.6, 1.0],
+            },
+            VictoryCondition::AllEnemiesDead,
+        ]);
+        // Магистр is dead → short-circuit defeat.
+        assert_eq!(determine_outcome(true, false, false, &obj, &never_alive), Some(false));
+    }
+
+    #[test]
+    fn outcome_nested_allof_evaluates_recursively() {
+        // AllOf([AllEnemiesDead, KeepAlive("Магистр")]) with all satisfied.
+        let is_magistr_alive = |name: &str| name == "Магистр";
+        let obj = VictoryCondition::AllOf(vec![
+            VictoryCondition::AllEnemiesDead,
+            VictoryCondition::KeepAlive {
+                target_name: "Магистр".into(),
+                marker_color: [0.3, 0.6, 1.0],
+            },
+        ]);
+        // Enemies dead + Магистр alive → both satisfied → victory.
+        assert_eq!(
+            determine_outcome(true, false, false, &obj, &is_magistr_alive),
+            Some(true)
+        );
+    }
+
+    // ── objective_text ───────────────────────────────────────────────────
+
+    #[test]
+    fn objective_text_renders_allof_with_and_separator() {
+        let obj = VictoryCondition::AllOf(vec![
+            VictoryCondition::AllEnemiesDead,
+            VictoryCondition::KeepAlive {
+                target_name: "Магистр".into(),
+                marker_color: [0.0, 0.0, 0.0],
+            },
+        ]);
+        let text = obj.objective_text();
+        assert!(text.contains(" и "), "AllOf text must use ' и ' separator: {text}");
+        assert!(text.contains("Победить всех врагов"), "must include AllEnemiesDead text");
+        assert!(text.contains("Магистр"), "must include KeepAlive target name");
     }
 }

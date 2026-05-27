@@ -78,6 +78,16 @@ Cloneable — the AI sim clones state for beam-search rollback without
 disturbing live state. `CombatState::new(units, round, rng_seed)` is the
 primary constructor.
 
+### VictoryCondition recursion
+
+`VictoryCondition` is a recursive enum evaluated by `determine_outcome`:
+- `AllEnemiesDead` — victory when no enemies remain alive.
+- `KillTarget { enemy_name }` — victory when the named enemy dies.
+- `KeepAlive { target_name }` — defeat immediately if the named unit dies;
+  victory when target still alive and no enemies remain.
+- `AllOf(Vec<VictoryCondition>)` — all sub-conditions must hold; short-circuits
+  on the first `Some(false)`; victory when every sub-condition returns `Some(true)`.
+
 ### Non-acting NPCs
 
 NPC objects (`NonActingNpc` ECS marker) live **only in ECS**, not in

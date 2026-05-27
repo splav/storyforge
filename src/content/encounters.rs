@@ -26,6 +26,16 @@ pub enum VictoryCondition {
         marker_color: [f32; 3],
         description: Option<String>,
     },
+    /// Combat fails immediately if the named unit (matched by `Name`) is dead.
+    /// Leaf condition — succeeds only when paired inside `AllOf`; alone it
+    /// only produces defeat signals, never a standalone victory.
+    KeepAlive {
+        target_name: String,
+        marker_color: [f32; 3],
+    },
+    /// Conjunction — all sub-conditions must hold. Short-circuits on first
+    /// defeat. Victory when every sub-condition resolves to `Some(true)`.
+    AllOf(Vec<VictoryCondition>),
 }
 
 impl VictoryCondition {
@@ -35,6 +45,16 @@ impl VictoryCondition {
             VictoryCondition::AllEnemiesDead => "Победить всех врагов".into(),
             VictoryCondition::KillTarget { description: Some(d), .. } => d.clone(),
             VictoryCondition::KillTarget { enemy_name, .. } => format!("убить {enemy_name}"),
+            VictoryCondition::KeepAlive { target_name, .. } => {
+                format!("сохранить жизнь {target_name}")
+            }
+            VictoryCondition::AllOf(conditions) => {
+                conditions
+                    .iter()
+                    .map(|c| c.objective_text())
+                    .collect::<Vec<_>>()
+                    .join(" и ")
+            }
         }
     }
 }
