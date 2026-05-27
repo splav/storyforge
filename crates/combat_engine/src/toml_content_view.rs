@@ -159,6 +159,8 @@ struct AbilityRecord {
     summon_template: Option<String>,
     #[serde(default)]
     summon_max_active: Option<u32>,
+    #[serde(default)]
+    requires_los: bool,
 }
 
 #[derive(Deserialize)]
@@ -428,6 +430,7 @@ fn convert_ability(r: AbilityRecord, path: &str) -> AbilityDef {
         friendly_fire: r.friendly_fire,
         effect,
         statuses,
+        requires_los: r.requires_los,
     }
 }
 

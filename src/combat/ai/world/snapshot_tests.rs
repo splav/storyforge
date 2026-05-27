@@ -73,6 +73,7 @@ mod affordability_tests {
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         }
     }
@@ -497,6 +498,7 @@ mod computation_tests {
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         }
     }

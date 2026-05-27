@@ -159,6 +159,27 @@ pub struct AbilityDef {
     pub effect: EffectDef,
     /// Statuses applied alongside `effect`.
     pub statuses: Vec<StatusApplication>,
+    /// If true and `range.max > 1`, require line-of-sight between actor and
+    /// target.  LOS is checked via `ActionState::is_blocked_los`.
+    /// Default: false (melee and self-cast abilities never need LOS).
+    pub requires_los: bool,
+}
+
+impl Default for AbilityDef {
+    fn default() -> Self {
+        AbilityDef {
+            key: None,
+            cost_ap: 1,
+            costs: vec![],
+            range: AbilityRange { min: 0, max: 1 },
+            target_type: TargetType::SingleEnemy,
+            aoe: AoEShape::None,
+            friendly_fire: false,
+            effect: EffectDef::None,
+            statuses: vec![],
+            requires_los: false,
+        }
+    }
 }
 
 /// Engine-side minimal status definition — legality + aggregate-relevant fields.

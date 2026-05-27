@@ -146,6 +146,7 @@ mod tests {
                     duration_rounds: 2,
                 }],
                 key: None,
+                requires_los: false,
             },
         }
     }

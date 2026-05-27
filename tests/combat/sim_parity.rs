@@ -103,6 +103,7 @@ fn parity_haste_speed_real_vs_sim() {
             on: StatusOn::Target,
         }],
             key: None,
+            requires_los: false,
         },
     };
 
@@ -243,6 +244,7 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
             on: StatusOn::Target,
         }],
             key: None,
+            requires_los: false,
         },
     };
 
@@ -264,6 +266,7 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
             friendly_fire: false,
             statuses: Vec::new(),
             key: None,
+            requires_los: false,
         },
     };
 
@@ -534,6 +537,7 @@ fn parity_rage_real_vs_sim() {
             friendly_fire: false,
             statuses: Vec::new(),
             key: None,
+            requires_los: false,
         },
     };
 
@@ -644,6 +648,7 @@ fn parity_rage_aoe_real_vs_sim() {
             friendly_fire: false,
             statuses: Vec::new(),
             key: None,
+            requires_los: false,
         },
     };
 

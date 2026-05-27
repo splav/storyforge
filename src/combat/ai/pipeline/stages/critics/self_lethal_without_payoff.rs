@@ -540,6 +540,7 @@ mod tests {
                 friendly_fire: true,
                 effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
                 statuses: Vec::new(),
+                requires_los: false,
             },
         };
 
@@ -601,6 +602,7 @@ mod tests {
                 friendly_fire: true,
                 effect: EffectDef::Damage { dice: DiceExpr::new(1, 6, 0) },
                 statuses: Vec::new(),
+                requires_los: false,
             },
         };
 

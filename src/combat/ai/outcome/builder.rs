@@ -754,6 +754,7 @@ mod tests {
                 friendly_fire: false,
                 statuses: vec![],
                 key: None,
+                requires_los: false,
             },
         }
     }
@@ -778,6 +779,7 @@ mod tests {
                 friendly_fire: true,
                 statuses: vec![],
                 key: None,
+                requires_los: false,
             },
         }
     }
@@ -809,6 +811,7 @@ mod tests {
                 on: StatusOn::Target,
             }],
                 key: None,
+                requires_los: false,
             },
         };
         let status = StatusDef {
@@ -849,6 +852,7 @@ mod tests {
                 friendly_fire: false,
                 statuses: vec![],
                 key: None,
+                requires_los: false,
             },
         }
     }

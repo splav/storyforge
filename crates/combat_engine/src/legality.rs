@@ -94,6 +94,9 @@ pub enum IllegalReason {
     TargetDead,
     /// `EndTurn` issued by an actor who is not the current queue cursor.
     NotCurrent,
+    /// Ranged ability with `requires_los = true` but the line from actor to
+    /// target passes through a blocked hex.
+    NoLineOfSight,
 }
 
 /// Backend adapter — implementors translate game-state reads for the
@@ -137,6 +140,17 @@ pub trait ActionState {
     /// Grid-bounds predicate.  Engine is grid-topology-agnostic; backends
     /// supply the appropriate check (e.g. even-r hex bounds for `storyforge`).
     fn is_in_bounds(&self, pos: Hex) -> bool;
+
+    /// Returns `true` if the direct hex-line from `from` to `to` is blocked
+    /// by an obstacle (i.e., LOS is obstructed).
+    ///
+    /// Default implementation returns `false` (no obstacles known) — backends
+    /// that support `blocked_hexes` must override this.  The parity contract
+    /// (all three backends agree) is enforced by `tests/los_parity.rs`.
+    fn is_blocked_los(&self, from: Hex, to: Hex) -> bool {
+        let _ = (from, to);
+        false
+    }
 }
 
 /// Decide whether `action` is legal against `state`.  Single-pass, no side
@@ -194,6 +208,12 @@ pub fn check_legality<S: ActionState>(
         }
         if dist < def.range.min {
             disadvantage = true;
+        }
+
+        // LOS check: ranged abilities with requires_los=true reject actions
+        // where any intermediate hex on the line is blocked.
+        if def.requires_los && def.range.max > 1 && state.is_blocked_los(actor.pos, action.target_pos) {
+            return Err(IllegalReason::NoLineOfSight);
         }
     }
 

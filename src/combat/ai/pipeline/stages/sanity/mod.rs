@@ -823,6 +823,7 @@ mod tests {
                 friendly_fire: true,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         }
     }

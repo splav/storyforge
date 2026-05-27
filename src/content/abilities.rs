@@ -202,6 +202,8 @@ struct AbilityRecord {
     summon_max_active: Option<u32>,
     #[serde(default)]
     ai_tags_override: Option<Vec<String>>,
+    #[serde(default)]
+    requires_los: bool,
 }
 
 #[derive(Deserialize)]
@@ -337,6 +339,7 @@ pub fn parse_abilities(path: &str, src: &str) -> Vec<AbilityDef> {
                     friendly_fire: r.friendly_fire,
                     effect,
                     statuses,
+                    requires_los: r.requires_los,
                 },
             }
         })

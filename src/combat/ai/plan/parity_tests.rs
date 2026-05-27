@@ -94,6 +94,7 @@ mod tests {
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         }
     }
@@ -362,6 +363,7 @@ mod tests {
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         };
         content.abilities.insert(def.id.clone(), def.clone());

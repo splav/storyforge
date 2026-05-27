@@ -101,6 +101,7 @@ fn make_ability(
             friendly_fire: false,
             effect,
             statuses,
+            requires_los: false,
         },
     }
 }

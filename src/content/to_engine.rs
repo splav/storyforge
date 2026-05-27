@@ -86,6 +86,7 @@ pub fn ability_def(def: &AbilityDef) -> combat_engine::AbilityDef {
                 },
             })
             .collect(),
+        requires_los: def.requires_los,
     }
 }
 

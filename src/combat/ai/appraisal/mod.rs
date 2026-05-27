@@ -155,6 +155,7 @@ pub(crate) mod tests {
                 friendly_fire: false,
                 statuses: vec![],
                 key: None,
+                requires_los: false,
             },
         }
     }

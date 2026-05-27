@@ -149,6 +149,7 @@ mod tests {
                 on,
             }],
                 key: None,
+                requires_los: false,
             },
         }
     }

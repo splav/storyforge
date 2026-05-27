@@ -58,6 +58,7 @@
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         }
     }
@@ -408,6 +409,7 @@
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         }
     }
@@ -434,6 +436,7 @@
                     on: StatusOn::Target,
                 }],
                 key: None,
+                requires_los: false,
             },
         }
     }
@@ -456,6 +459,7 @@
                 friendly_fire: true,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         }
     }
@@ -842,6 +846,7 @@
                 friendly_fire: true,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         };
 
@@ -968,6 +973,7 @@
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         };
 
@@ -1058,6 +1064,7 @@
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         };
 
@@ -1117,6 +1124,7 @@
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         };
 
@@ -1171,6 +1179,7 @@
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         };
 

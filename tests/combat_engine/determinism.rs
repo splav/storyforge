@@ -201,6 +201,7 @@ fn det_cast_ap_exhaustion_s6() {
         friendly_fire: false,
         effect: EffectDef::Damage { dice: storyforge::combat_engine::dice::DiceExpr::new(1, 6, 0) }, // scenario 1
         statuses: vec![],
+        requires_los: false,
     };
     let content = DeterminismContent::empty().with_ability("strike", ability);
 
@@ -318,6 +319,7 @@ fn det_phase_transition() {
             dice: storyforge::combat_engine::dice::DiceExpr::new(0, 1, 20),
         },
         statuses: vec![],
+        requires_los: false,
     };
     let content = DeterminismContent::empty().with_ability("heavy_blow", ability);
 
@@ -376,6 +378,7 @@ fn det_aoe_multi_target_cast() {
             dice: storyforge::combat_engine::dice::DiceExpr::new(1, 6, 0),
         },
         statuses: vec![],
+        requires_los: false,
     };
     let content = DeterminismContent::empty().with_ability("fireball", ability);
 

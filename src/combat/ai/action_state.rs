@@ -140,6 +140,7 @@ mod tests {
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         }
     }
@@ -162,6 +163,7 @@ mod tests {
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         }
     }

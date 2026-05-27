@@ -651,6 +651,7 @@ fn cast_emits_damage_result_log_entry() {
             friendly_fire: false,
             statuses: vec![],
             key: None,
+            requires_los: false,
         },
     };
 
@@ -702,6 +703,7 @@ fn cast_emits_status_applied_log_entry() {
             friendly_fire: false,
             statuses: vec![StatusApplication { status: status_id.clone(), duration_rounds: 2, on: StatusOn::Target }],
             key: None,
+            requires_los: false,
         },
     };
 
@@ -743,6 +745,7 @@ fn cast_emits_mana_changed_log_entry() {
             friendly_fire: false,
             statuses: vec![],
             key: None,
+            requires_los: false,
         },
     };
 
@@ -808,6 +811,7 @@ fn process_action_system_routes_cast_into_engine() {
             friendly_fire: false,
             statuses: Vec::new(),
             key: None,
+            requires_los: false,
         },
     };
     common::apps::bridge::insert_ability(&mut app, zap_def);
@@ -1196,6 +1200,7 @@ fn run_crit_fail_log_test(d20: i32, expect_crit_fail: bool) {
             friendly_fire: false,
             statuses: vec![],
             key: None,
+            requires_los: false,
         },
     };
 
@@ -1316,6 +1321,7 @@ fn cast_summon_creates_ecs_entity_synchronously() {
             friendly_fire: false,
             statuses: vec![],
             key: None,
+            requires_los: false,
         },
     };
 
@@ -1431,6 +1437,7 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
             friendly_fire: false,
             statuses: vec![],
             key: None,
+            requires_los: false,
         },
     };
 
@@ -1922,6 +1929,7 @@ fn cast_via_bridge_exhausting_ap_mp_emits_turn_lifecycle_in_log() {
             friendly_fire: false,
             statuses: vec![],
             key: None,
+            requires_los: false,
         },
     };
     common::apps::bridge::insert_ability(&mut app, ability_def);
@@ -2062,6 +2070,7 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
             friendly_fire: false,
             statuses: vec![],
             key: None,
+            requires_los: false,
         },
     };
     common::apps::bridge::insert_ability(&mut app, ability_def);

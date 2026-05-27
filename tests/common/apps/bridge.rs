@@ -359,6 +359,7 @@ impl MeleeContent {
                 friendly_fire: false,
                 statuses: vec![],
                 key: None,
+                requires_los: false,
             },
         };
         let mut cv = ContentView::default();

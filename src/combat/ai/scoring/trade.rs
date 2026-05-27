@@ -367,6 +367,7 @@ mod tests {
                 friendly_fire: false,
                 statuses: Vec::new(),
                 key: None,
+                requires_los: false,
             },
         }
     }
@@ -393,6 +394,7 @@ mod tests {
                 on: StatusOn::Target,
             }],
                 key: None,
+                requires_los: false,
             },
         }
     }
