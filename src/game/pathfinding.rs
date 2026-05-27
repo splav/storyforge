@@ -133,9 +133,9 @@ pub struct ReachableMap {
     came_from: HashMap<Hex, Hex>,
 }
 
-/// Movement environment for `reach_from` — the two tile-sets that shape the
-/// BFS. Both AI (snapshot-backed) and UI (Bevy-backed) call the same
-/// pathfinding core with this struct; only env construction differs.
+/// Movement environment for `reach_from` — the tile-sets that shape the BFS.
+/// Both AI (snapshot-backed) and UI (Bevy-backed) call the same pathfinding
+/// core with this struct; only env construction differs.
 ///
 /// - `enemy_positions` — cells the actor cannot **pass through** (alive enemy
 ///   occupants). Allies are absent here: allies block stopping but allow
@@ -143,21 +143,28 @@ pub struct ReachableMap {
 /// - `stop_blockers` — cells the actor cannot **stop on**. Every non-actor
 ///   occupant (enemy or ally) plus environmental blockers (corpses, reserved
 ///   tiles for the AI side, etc.).
+/// - `blocked_hexes` — static obstacles. Blocks **both** pass-through and
+///   stopping. Populated from `CombatState.blocked_hexes` (walls, crates, …).
+///   Empty by default (no obstacles in ch1 scenarios).
 pub struct MovementEnv {
     pub enemy_positions: HashSet<Hex>,
     pub stop_blockers: HashSet<Hex>,
+    /// Static obstacles — blocks both pass-through and stopping.
+    pub blocked_hexes: HashSet<Hex>,
 }
 
 /// BFS reach from `start` using a prepared `MovementEnv`. Thin wrapper over
-/// `reachable_with_paths` that wires the env's two sets into `is_passable` /
+/// `reachable_with_paths` that wires the env's sets into `is_passable` /
 /// `can_stop_on`. Keeps the BFS closures in one place so a future change to
 /// movement rules (e.g. difficult terrain) lands once.
+///
+/// `blocked_hexes` blocks both pass-through and stopping (static obstacles).
 pub fn reach_from(start: Hex, max_steps: i32, env: &MovementEnv) -> ReachableMap {
     reachable_with_paths(
         start,
         max_steps,
-        |h| is_passable(h, &env.enemy_positions),
-        |h| can_stop_on(h, &env.stop_blockers, None),
+        |h| !env.blocked_hexes.contains(&h) && is_passable(h, &env.enemy_positions),
+        |h| !env.blocked_hexes.contains(&h) && can_stop_on(h, &env.stop_blockers, None),
     )
 }
 
@@ -260,7 +267,7 @@ mod tests {
         let beyond_ally = hex_from_offset(5, 3);
         let mut stop_only = HashSet::new();
         stop_only.insert(ally_tile);
-        let env = MovementEnv { enemy_positions: HashSet::new(), stop_blockers: stop_only };
+        let env = MovementEnv { enemy_positions: HashSet::new(), stop_blockers: stop_only, blocked_hexes: HashSet::new() };
         let reach = reach_from(start, 3, &env);
         assert!(!reach.destinations.contains(&ally_tile), "cannot stop on ally");
         assert!(
@@ -277,12 +284,124 @@ mod tests {
         enemies.insert(enemy_tile);
         let mut blockers = HashSet::new();
         blockers.insert(enemy_tile);
-        let env2 = MovementEnv { enemy_positions: enemies, stop_blockers: blockers };
+        let env2 = MovementEnv { enemy_positions: enemies, stop_blockers: blockers, blocked_hexes: HashSet::new() };
         let reach2 = reach_from(start, 2, &env2);
         assert!(!reach2.destinations.contains(&enemy_tile));
         assert!(
             !reach2.destinations.contains(&behind_enemy),
             "enemy blocks pass-through, so tiles straight behind stay out of reach at MP=2",
+        );
+    }
+
+    // ── blocked_hexes tests (T1.2.2) ─────────────────────────────────────────
+
+    /// A hex in `blocked_hexes` cannot be passed through or stopped on.
+    /// With MP=1 the only forward step is blocked, so the tile behind it stays
+    /// unreachable. We also verify the obstacle itself is excluded.
+    #[test]
+    fn obstacle_blocks_movement_through() {
+        use std::collections::HashSet;
+        let start = hex_from_offset(3, 3);
+        let obstacle = hex_from_offset(4, 3);
+        // With MP=1 the BFS can reach only neighbors of start; obstacle is 1
+        // step away and is blocked, so it must not appear in destinations.
+        let mut blocked = HashSet::new();
+        blocked.insert(obstacle);
+        let env = MovementEnv {
+            enemy_positions: HashSet::new(),
+            stop_blockers: HashSet::new(),
+            blocked_hexes: blocked,
+        };
+        let reach_mp1 = reach_from(start, 1, &env);
+        assert!(
+            !reach_mp1.destinations.contains(&obstacle),
+            "obstacle tile must not be a destination (pass-through blocked)",
+        );
+        // With a full row of obstacles the BFS cannot get past them.
+        // Place obstacles at all 6 neighbors of start — nothing reachable.
+        let mut all_blocked: HashSet<Hex> = HashSet::new();
+        for nb in start.all_neighbors() {
+            all_blocked.insert(nb);
+        }
+        let env_all = MovementEnv {
+            enemy_positions: HashSet::new(),
+            stop_blockers: HashSet::new(),
+            blocked_hexes: all_blocked,
+        };
+        let reach_all = reach_from(start, 3, &env_all);
+        assert!(
+            reach_all.destinations.is_empty(),
+            "when all neighbors are blocked nothing must be reachable",
+        );
+    }
+
+    /// A hex in `blocked_hexes` cannot be stopped on (even without enemy/ally).
+    #[test]
+    fn obstacle_blocks_stopping_on() {
+        use std::collections::HashSet;
+        let start = hex_from_offset(3, 3);
+        let obstacle = hex_from_offset(4, 3);
+        let mut blocked = HashSet::new();
+        blocked.insert(obstacle);
+        let env = MovementEnv {
+            enemy_positions: HashSet::new(),
+            stop_blockers: HashSet::new(),
+            blocked_hexes: blocked,
+        };
+        let reach = reach_from(start, 2, &env);
+        assert!(
+            !reach.destinations.contains(&obstacle),
+            "obstacle must not appear in destinations (cannot stop on it)",
+        );
+    }
+
+    /// An obstacle on one hex does not prevent reaching a neighbor on a different
+    /// path (non-collinear route). The BFS routes around it if MP allows.
+    #[test]
+    fn obstacle_does_not_block_diagonal_path() {
+        use std::collections::HashSet;
+        // Grid layout (even-r offset): start at (3,3). Obstacle at (4,3).
+        // The neighbor at (4,2) is reachable directly without passing through (4,3).
+        let start = hex_from_offset(3, 3);
+        let obstacle = hex_from_offset(4, 3);
+        let side_neighbor = hex_from_offset(4, 2); // neighbor of start, not blocked
+        let mut blocked = HashSet::new();
+        blocked.insert(obstacle);
+        let env = MovementEnv {
+            enemy_positions: HashSet::new(),
+            stop_blockers: HashSet::new(),
+            blocked_hexes: blocked,
+        };
+        let reach = reach_from(start, 2, &env);
+        assert!(
+            reach.destinations.contains(&side_neighbor),
+            "unblocked neighbor must still be reachable even with adjacent obstacle",
+        );
+    }
+
+    /// Empty `blocked_hexes` does not change the movement behaviour compared to
+    /// the previous env layout with only enemy/stop_blockers.
+    #[test]
+    fn empty_blocked_hexes_does_not_change_behavior() {
+        use std::collections::HashSet;
+        let start = hex_from_offset(3, 3);
+        let ally_tile = hex_from_offset(4, 3);
+        let beyond_ally = hex_from_offset(5, 3);
+        let mut stop_only = HashSet::new();
+        stop_only.insert(ally_tile);
+        let env = MovementEnv {
+            enemy_positions: HashSet::new(),
+            stop_blockers: stop_only,
+            blocked_hexes: HashSet::new(),
+        };
+        let reach = reach_from(start, 3, &env);
+        assert!(
+            !reach.destinations.contains(&ally_tile),
+            "ally tile still not stoppable with empty blocked_hexes",
+        );
+        assert!(
+            reach.destinations.contains(&beyond_ally),
+            "tile beyond ally still reachable with empty blocked_hexes",
         );
     }
 }

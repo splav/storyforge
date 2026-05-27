@@ -22,6 +22,8 @@ use std::collections::HashSet;
 /// - **Stopping**: every non-actor occupant blocks — live enemy, live
 ///   ally, and corpse (hp=0 unit still in the snapshot). The actor's own
 ///   tile stays legal so a zero-MP reach includes it.
+/// - **blocked_hexes**: static obstacles (walls, crates) — block both
+///   pass-through and stopping, sourced from `snap.state.blocked_hexes`.
 ///
 /// Single source of truth is `snap.state.units()` now that corpses live there
 /// instead of in a parallel `blocked_tiles` channel.
@@ -40,7 +42,11 @@ pub fn reach_from(snap: &BattleSnapshot, actor: UnitView<'_>) -> ReachableMap {
         })
         .collect();
 
-    let env = MovementEnv { enemy_positions, stop_blockers };
+    let env = MovementEnv {
+        enemy_positions,
+        stop_blockers,
+        blocked_hexes: snap.state.blocked_hexes.clone(),
+    };
     let mp = actor.pools[combat_engine::PoolKind::Mp].map(|(c, _)| c).unwrap_or(0);
     reach_from_env(actor.pos, mp, &env)
 }

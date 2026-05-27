@@ -12,9 +12,11 @@ use crate::game::components::{
 use crate::game::hex::{hex_circle, hex_line, Hex, LAYOUT};
 use crate::game::pathfinding::{reach_from, MovementEnv};
 use crate::game::hex_map::HexMap;
+use crate::combat::engine_bridge::CombatStateRes;
 use crate::game::resources::{HexCorpses, HexPositions, SelectionState, TurnQueue, UiDirty, UiDirtyFlags};
 use crate::ui::animation::MovePath;
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 use std::collections::HashSet;
 
 // ── System: UI dirty bridge ───────────────────────────────────────────────────
@@ -149,6 +151,36 @@ pub struct CachedOverlay {
 
 // ── System: Update visuals ────────────────────────────────────────────────────
 
+/// Bundled label + border queries for `update_hex_visuals`.
+/// Grouped into a `SystemParam` to stay within Bevy's 16-param system limit.
+#[derive(SystemParam)]
+pub struct HexLabelParams<'w, 's> {
+    pub borders: Query<
+        'w,
+        's,
+        (&'static mut Visibility, &'static mut MeshMaterial2d<ColorMaterial>),
+        (With<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>, Without<HexManaLabel>),
+    >,
+    pub name_labels: Query<
+        'w,
+        's,
+        (&'static HexCellLink, &'static mut Text2d, &'static mut Visibility),
+        (With<HexNameLabel>, Without<HexBorder>, Without<HexHpLabel>, Without<HexManaLabel>),
+    >,
+    pub hp_labels: Query<
+        'w,
+        's,
+        (&'static HexCellLink, &'static mut Text2d, &'static mut Visibility),
+        (With<HexHpLabel>, Without<HexBorder>, Without<HexNameLabel>, Without<HexManaLabel>),
+    >,
+    pub mana_labels: Query<
+        'w,
+        's,
+        (&'static HexCellLink, &'static mut Text2d, &'static mut Visibility),
+        (With<HexManaLabel>, Without<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>),
+    >,
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn update_hex_visuals(
     dirty: Res<UiDirty>,
@@ -156,27 +188,13 @@ pub fn update_hex_visuals(
     sel: Res<SelectionState>,
     hover: Res<HexHover>,
     content: Res<ActiveContent>,
+    engine_state: Res<CombatStateRes>,
     map: HexMap,
     mats: Res<HexMaterials>,
     cells: Query<(Entity, &Hex, &Children)>,
     combatant_q: Query<HexCombatantQ>,
     ap_q: Query<&ActionPoints>,
-    mut borders: Query<
-        (&mut Visibility, &mut MeshMaterial2d<ColorMaterial>),
-        (With<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>, Without<HexManaLabel>),
-    >,
-    mut name_labels: Query<
-        (&HexCellLink, &mut Text2d, &mut Visibility),
-        (With<HexNameLabel>, Without<HexBorder>, Without<HexHpLabel>, Without<HexManaLabel>),
-    >,
-    mut hp_labels: Query<
-        (&HexCellLink, &mut Text2d, &mut Visibility),
-        (With<HexHpLabel>, Without<HexBorder>, Without<HexNameLabel>, Without<HexManaLabel>),
-    >,
-    mut mana_labels: Query<
-        (&HexCellLink, &mut Text2d, &mut Visibility),
-        (With<HexManaLabel>, Without<HexBorder>, Without<HexNameLabel>, Without<HexHpLabel>),
-    >,
+    mut labels: HexLabelParams,
     mut cell_mats: Query<&mut MeshMaterial2d<ColorMaterial>, (With<Hex>, Without<HexBorder>)>,
     mut overlay: Local<CachedOverlay>,
 ) {
@@ -261,7 +279,11 @@ pub fn update_hex_visuals(
                         .filter(|(&e, _)| e != actor)
                         .map(|(_, &p)| p)
                         .collect();
-                    let env = MovementEnv { enemy_positions, stop_blockers };
+                    let env = MovementEnv {
+                        enemy_positions,
+                        stop_blockers,
+                        blocked_hexes: engine_state.0.blocked_hexes.clone(),
+                    };
                     reach_from(actor_pos, ap.movement_points, &env).destinations
                 } else {
                     HashSet::new()
@@ -348,7 +370,7 @@ pub fn update_hex_visuals(
         }
 
         for child in children.iter() {
-            if let Ok((mut vis, mut bmat)) = borders.get_mut(child) {
+            if let Ok((mut vis, mut bmat)) = labels.borders.get_mut(child) {
                 if is_active || is_target || is_aoe || is_in_move || is_in_range || is_disadv {
                     *vis = Visibility::Visible;
                     bmat.0 = if is_active {
@@ -375,7 +397,7 @@ pub fn update_hex_visuals(
         return;
     }
 
-    for (link, mut text, mut vis) in &mut name_labels {
+    for (link, mut text, mut vis) in &mut labels.name_labels {
         if let Some(c) = super::render::label_occupant(link, &cells, &map)
             .and_then(|e| combatant_q.get(e).ok())
         {
@@ -391,7 +413,7 @@ pub fn update_hex_visuals(
         }
     }
 
-    for (link, mut text, mut vis) in &mut hp_labels {
+    for (link, mut text, mut vis) in &mut labels.hp_labels {
         if let Some(c) = super::render::label_occupant(link, &cells, &map)
             .and_then(|e| combatant_q.get(e).ok())
         {
@@ -402,7 +424,7 @@ pub fn update_hex_visuals(
         }
     }
 
-    for (link, mut text, mut vis) in &mut mana_labels {
+    for (link, mut text, mut vis) in &mut labels.mana_labels {
         if let Some(c) = super::render::label_occupant(link, &cells, &map)
             .and_then(|e| combatant_q.get(e).ok())
         {
