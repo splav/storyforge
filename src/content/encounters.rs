@@ -12,6 +12,22 @@ pub struct EncounterDef {
     pub name: String,
     pub enemies: Vec<EnemyDef>,
     pub victory: VictoryCondition,
+    /// Static NPC objects that live only in ECS (`NonActingNpc` marker).
+    /// Engine knows nothing about them; they are spawned by `spawn_combatants`.
+    #[allow(dead_code)]
+    pub npcs: Vec<NpcDef>,
+}
+
+/// A non-acting NPC object as it appears after TOML resolution.
+/// Lives only in ECS — never in `CombatState.units`.
+#[derive(Debug, Clone)]
+pub struct NpcDef {
+    pub name: String,
+    pub template: String,
+    pub hp_current: i32,
+    pub hp_max: i32,
+    pub hex_col: i32,
+    pub hex_row: i32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -139,6 +155,8 @@ struct EncounterRecord {
     enemies: Vec<EnemyRecord>,
     #[serde(default)]
     victory: Option<VictoryRecord>,
+    #[serde(default)]
+    npcs: Vec<NpcRecord>,
 }
 
 #[derive(Deserialize)]
@@ -148,9 +166,25 @@ struct VictoryRecord {
     #[serde(default)]
     enemy_name: Option<String>,
     #[serde(default)]
+    target_name: Option<String>,
+    #[serde(default)]
     marker_color: Option<[f32; 3]>,
     #[serde(default)]
     description: Option<String>,
+    /// Sub-conditions for `all_of` — recursive TOML inline tables.
+    #[serde(default)]
+    conditions: Option<Vec<VictoryRecord>>,
+}
+
+#[derive(Deserialize)]
+struct NpcRecord {
+    name: String,
+    template: String,
+    #[serde(default)]
+    hp_current: Option<i32>,
+    hp_max: i32,
+    hex_col: i32,
+    hex_row: i32,
 }
 
 /// An enemy as it appears in `encounters.toml`.
@@ -373,6 +407,58 @@ fn resolve_enemy(
     }
 }
 
+fn resolve_npc(path: &str, enc_id: &str, rec: NpcRecord) -> NpcDef {
+    let hp_current = rec.hp_current.unwrap_or(rec.hp_max);
+    assert!(
+        !rec.template.is_empty(),
+        "{path}: encounter '{enc_id}' npc '{}' has empty template",
+        rec.name
+    );
+    NpcDef {
+        name: rec.name,
+        template: rec.template,
+        hp_current,
+        hp_max: rec.hp_max,
+        hex_col: rec.hex_col,
+        hex_row: rec.hex_row,
+    }
+}
+
+/// Recursively resolve a `VictoryRecord` into a `VictoryCondition`.
+fn resolve_victory(path: &str, enc_id: &str, v: VictoryRecord) -> VictoryCondition {
+    match v.kind.as_str() {
+        "all_enemies_dead" => VictoryCondition::AllEnemiesDead,
+        "kill_target" => VictoryCondition::KillTarget {
+            enemy_name: v.enemy_name.unwrap_or_else(|| {
+                panic!(
+                    "{path}: encounter '{enc_id}' victory=kill_target missing enemy_name",
+                )
+            }),
+            marker_color: v.marker_color.unwrap_or(DEFAULT_TARGET_MARKER),
+            description: v.description,
+        },
+        "keep_alive" => VictoryCondition::KeepAlive {
+            target_name: v.target_name.unwrap_or_else(|| {
+                panic!(
+                    "{path}: encounter '{enc_id}' victory=keep_alive missing target_name",
+                )
+            }),
+            marker_color: v.marker_color.unwrap_or(DEFAULT_TARGET_MARKER),
+        },
+        "all_of" => {
+            let sub = v.conditions.unwrap_or_default();
+            VictoryCondition::AllOf(
+                sub.into_iter()
+                    .map(|c| resolve_victory(path, enc_id, c))
+                    .collect(),
+            )
+        }
+        other => panic!(
+            "{path}: encounter '{enc_id}' has unknown victory type '{other}'",
+        ),
+    }
+}
+
 /// Parse an `encounters.toml` body. `path` scopes error messages. Template refs
 /// resolve against the scenario's already-merged unit template map (`templates`).
 pub fn load_encounters_from_str(
@@ -388,31 +474,20 @@ pub fn load_encounters_from_str(
         .into_iter()
         .map(|enc| EncounterDef {
             id: enc.id.clone(),
-            name: enc.name,
+            name: enc.name.clone(),
             victory: match enc.victory {
                 None => VictoryCondition::AllEnemiesDead,
-                Some(v) => match v.kind.as_str() {
-                    "all_enemies_dead" => VictoryCondition::AllEnemiesDead,
-                    "kill_target" => VictoryCondition::KillTarget {
-                        enemy_name: v.enemy_name.unwrap_or_else(|| {
-                            panic!(
-                                "{path}: encounter '{}' victory=kill_target missing enemy_name",
-                                enc.id
-                            )
-                        }),
-                        marker_color: v.marker_color.unwrap_or(DEFAULT_TARGET_MARKER),
-                        description: v.description,
-                    },
-                    other => panic!(
-                        "{path}: encounter '{}' has unknown victory type '{}'",
-                        enc.id, other
-                    ),
-                },
+                Some(v) => resolve_victory(path, &enc.id, v),
             },
             enemies: enc
                 .enemies
                 .into_iter()
                 .map(|e| resolve_enemy(path, &enc.id, e, templates))
+                .collect(),
+            npcs: enc
+                .npcs
+                .into_iter()
+                .map(|n| resolve_npc(path, &enc.id, n))
                 .collect(),
         })
         .collect()
