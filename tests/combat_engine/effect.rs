@@ -1135,6 +1135,41 @@ fn spawn_creates_unit_with_correct_template_stats() {
     assert!(summoner_pos.distance_to(spawned.pos) <= 2);
 }
 
+
+/// F2 follow-up: mid-combat `Effect::Spawn` must apply `template.initial_statuses`
+/// to the freshly summoned unit, mirroring the bootstrap path. This was a
+/// known gap until shared helper `apply_template_initial_statuses` was wired in.
+#[test]
+fn spawn_applies_initial_statuses_to_summoned_unit() {
+    use storyforge::combat_engine::{PERMANENT_DURATION, StatusId};
+
+    let summoner = make_unit(1, 20, 20);
+    let mut state = state_with(vec![summoner]);
+
+    // Template with a permanent stun in initial_statuses.
+    let mut tpl = test_template();
+    tpl.initial_statuses = vec![StatusId::from("stunned")];
+    let content = StubContent::neutral().with_template("frozen_imp", tpl);
+
+    let (_derived, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "frozen_imp".into(), max_active: None },
+        &content,
+    );
+
+    let uid = ctx.spawn_uid.expect("spawn_uid set on success");
+    let spawned = state.unit(uid).expect("new unit present");
+    let status = spawned.statuses.iter().find(|s| s.id == StatusId::from("stunned"))
+        .expect("summoned unit must carry initial status 'stunned'");
+    assert_eq!(
+        status.rounds_remaining,
+        PERMANENT_DURATION,
+        "initial status must be permanent (sentinel duration)"
+    );
+    assert_eq!(spawned.template_id.as_deref(), Some("frozen_imp"),
+        "spawned unit must record template_id for future apply paths");
+}
+
 #[test]
 fn spawn_blocked_when_template_missing() {
     let summoner = make_unit(1, 20, 20);

@@ -879,13 +879,19 @@ pub fn apply_effect(
                 enemy_phases: template.enemy_phases.clone(),
                 pools: spawn_pools,
                 regen_per_pool: template.regen_per_pool,
-                // Spawned mid-combat units carry the template id so their
-                // initial_statuses could be applied if needed. Not used
-                // today — apply_initial_statuses only runs at bootstrap.
-                template_id: None,
+                // Track template id so initial_statuses can be applied below
+                // (parity with bootstrap path via apply_template_initial_statuses).
+                template_id: Some(template_id.clone()),
             };
 
             state.insert_unit(new_unit);
+
+            // Apply `template.initial_statuses` to the freshly spawned unit
+            // (e.g. permanent stun on a summoned non-acting ally). Mirrors the
+            // bootstrap path in `CombatState::apply_initial_statuses`.
+            if let Some(unit) = state.unit_mut(new_uid) {
+                crate::state::apply_template_initial_statuses(unit, &template);
+            }
 
             (vec![], ApplyCtx {
                 spawn_uid: Some(new_uid),

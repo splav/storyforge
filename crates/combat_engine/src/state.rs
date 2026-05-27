@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 use hexx::Hex;
 
-use crate::content::ContentView;
+use crate::content::{ContentView, UnitTemplate};
 use crate::event::Event;
 use crate::turn_queue::TurnQueue;
 use crate::StatusId;
@@ -560,20 +560,11 @@ impl CombatState {
         for unit in self.units.iter_mut() {
             let Some(ref tid) = unit.template_id.clone() else { continue };
             let Some(template) = content.unit_template(tid) else { continue };
-            for status_id in &template.initial_statuses {
-                // Idempotency: skip if the unit already has this status.
-                if unit.statuses.iter().any(|s| &s.id == status_id) {
-                    continue;
-                }
-                unit.statuses.push(ActiveStatus {
-                    id: status_id.clone(),
-                    rounds_remaining: crate::PERMANENT_DURATION,
-                    dot_per_tick: 0,
-                    applier: unit.id,
-                });
-            }
+            apply_template_initial_statuses(unit, &template);
         }
     }
+
+
 
     /// All living enemies of `actor_id`.
     pub fn enemies_of(&self, actor_id: UnitId) -> impl Iterator<Item = &Unit> {
@@ -708,6 +699,28 @@ impl CombatState {
         }
 
         events
+    }
+}
+
+
+/// Apply `template.initial_statuses` to `unit` with `PERMANENT_DURATION`.
+///
+/// Shared helper between `CombatState::apply_initial_statuses` (bootstrap path)
+/// and `Effect::Spawn` (mid-combat summon path) so that any unit created from
+/// a `UnitTemplate` receives its initial statuses via a single code path.
+///
+/// Idempotent: skips statuses already present on the unit (same id).
+pub(crate) fn apply_template_initial_statuses(unit: &mut Unit, template: &UnitTemplate) {
+    for status_id in &template.initial_statuses {
+        if unit.statuses.iter().any(|s| &s.id == status_id) {
+            continue;
+        }
+        unit.statuses.push(ActiveStatus {
+            id: status_id.clone(),
+            rounds_remaining: crate::PERMANENT_DURATION,
+            dot_per_tick: 0,
+            applier: unit.id,
+        });
     }
 }
 
