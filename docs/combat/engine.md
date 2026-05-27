@@ -234,6 +234,32 @@ drift by construction).
 See [`bridge.md`](bridge.md) for the live path,
 [`../ai/ai.md`](../ai/ai.md) for AI architecture.
 
+### ActionState parity contract
+
+`ActionState` has three backends:
+
+| Backend | Where | Context |
+|---------|-------|---------|
+| `BevyActions` | `src/combat/legality_adapter.rs` | Live ECS (UI tooltip, player input) |
+| `SnapshotActionState` | `src/combat/ai/action_state.rs` | AI sim (beam-search, offline replay) |
+| `EngineCheckState` | `crates/combat_engine/src/step.rs` | Engine-side `step(Cast)` pre-validate |
+
+**Parity contract:** all three backends must agree on every `ActionState` method
+for the same logical inputs. Any divergence means AI predicts something different
+from what the engine actually executes.
+
+**LOS specifically:** `is_blocked_los(from, to)` is implemented in all three backends
+by delegating to the single canonical function `combat_engine::geom::has_los`.
+The storyforge `src/game/hex::has_los` is a re-export of the same function.
+This makes parity structural — no separate implementations exist to drift.
+
+**Verification:** `tests/los_parity.rs` contains four tests:
+- `bevy_actions_is_blocked_los_matches_has_los`
+- `snapshot_actions_is_blocked_los_matches_has_los`
+- `engine_action_state_is_blocked_los_matches_has_los`
+- `prop_all_three_backends_agree_on_los` — 200 randomized cases asserting all three
+  backends return identical results.
+
 ---
 
 ## 6. Effect catalog (reference)

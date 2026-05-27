@@ -9,7 +9,7 @@ use combat_engine::{AbilityDef, AbilityId, StatusDef, StatusId};
 use crate::combat::ai::world::snapshot::BattleSnapshot;
 use crate::content::content_view::ContentView;
 use crate::game::components::Team;
-use crate::game::hex::{in_bounds, Hex};
+use crate::game::hex::{has_los, in_bounds, Hex};
 use bevy::prelude::Entity;
 
 /// `ActionState` impl over a `BattleSnapshot`. Holds references only;
@@ -102,6 +102,11 @@ impl ActionState for SnapshotActionState<'_> {
 
     fn is_in_bounds(&self, pos: Hex) -> bool {
         in_bounds(pos)
+    }
+
+    fn is_blocked_los(&self, from: Hex, to: Hex) -> bool {
+        let blocked = &self.snap.state.blocked_hexes;
+        !has_los(from, to, |h| blocked.contains(&h))
     }
 }
 

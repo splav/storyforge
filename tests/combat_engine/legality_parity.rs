@@ -508,6 +508,7 @@ fn legality_parity_bevy_vs_engine() {
                     positions: &positions,
                     actors: &actor_q,
                     targets: &target_q,
+                    blocked_hexes: &combat_state.0.blocked_hexes,
                 };
                 let engine_content = TestEngineContent(&content.0);
                 let engine_adapter = EngineCheckState {
@@ -744,6 +745,7 @@ fn multi_taunter_both_are_legal_targets() {
                     positions: &positions,
                     actors: &actor_q,
                     targets: &target_q,
+                    blocked_hexes: &combat_state.0.blocked_hexes,
                 };
                 let engine_content = TestEngineContent(&content.0);
                 let engine_adapter = EngineCheckState {

@@ -11,13 +11,14 @@
 //! `combat_engine::step()`.
 
 use bevy::prelude::*;
+use std::collections::HashSet;
 
 use combat_engine::legality::{ActionState, ActorView};
 use combat_engine::{AbilityDef, AbilityId, StatusDef, StatusId};
 
 use crate::content::content_view::ActiveContent;
 use crate::game::components::{Team, ValidationActorQ, ValidationTargetQ};
-use crate::game::hex::{in_bounds, Hex};
+use crate::game::hex::{has_los, in_bounds, Hex};
 use crate::game::resources::HexPositions;
 
 /// `ActionState` impl over live ECS queries.  Holds references with a single
@@ -32,6 +33,8 @@ pub struct BevyActions<'w, 's, 'a> {
     pub positions: &'a HexPositions,
     pub actors: &'a Query<'w, 's, ValidationActorQ>,
     pub targets: &'a Query<'w, 's, ValidationTargetQ>,
+    /// Hexes blocked by static obstacles — used for LOS checks on ranged abilities.
+    pub blocked_hexes: &'a HashSet<Hex>,
 }
 
 impl ActionState for BevyActions<'_, '_, '_> {
@@ -115,5 +118,10 @@ impl ActionState for BevyActions<'_, '_, '_> {
 
     fn is_in_bounds(&self, pos: Hex) -> bool {
         in_bounds(pos)
+    }
+
+    fn is_blocked_los(&self, from: Hex, to: Hex) -> bool {
+        let blocked = self.blocked_hexes;
+        !has_los(from, to, |h| blocked.contains(&h))
     }
 }

@@ -130,6 +130,7 @@ pub fn modifier(stat: i32) -> i32 {
 pub use enum_map;
 
 pub mod action;
+pub mod geom;
 pub mod toml_content_view;
 pub mod content;
 pub mod content_hash;
@@ -145,6 +146,7 @@ pub mod trace;
 pub mod turn_queue;
 
 pub use dice::{DiceExpr, DiceRng};
+pub use geom::has_los;
 pub use content::{AbilityDef, AbilityRange, AoEShape, AuraDef, AuraEffects, CasterContext, Cost, CritFailOutcome, EffectDef, PhaseEntry, PhaseTransition, StatusApplication, StatusBonuses, StatusDef, StatusOn, TargetType, TeamRelation, UnitTemplate};
 pub use effect::{final_damage_f32, SpawnBlockedReason};
 pub use targeting::aoe_cells;

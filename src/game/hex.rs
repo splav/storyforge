@@ -1,6 +1,10 @@
 pub use hexx::Hex;
 use hexx::{HexLayout, HexOrientation, OffsetHexMode};
 
+// Re-export the canonical has_los from combat_engine so all callers use one
+// implementation and parity with the engine backend is structural.
+pub use combat_engine::has_los;
+
 use bevy::math::Vec2;
 use std::collections::HashSet;
 use std::sync::LazyLock;
@@ -74,18 +78,6 @@ pub fn hex_line(from: Hex, target: Hex, length: u32) -> Vec<Hex> {
         .map(|i| target + step * i)
         .take_while(|&h| in_bounds(h))
         .collect()
-}
-
-/// Returns `true` if there is an unobstructed line of sight from `from` to `to`.
-/// `blocks_los(hex)` should return `true` for cells that block vision.
-/// Only intermediate cells are checked — `from` and `to` themselves are not.
-pub fn has_los(from: Hex, to: Hex, blocks_los: impl Fn(Hex) -> bool) -> bool {
-    if from == to {
-        return true;
-    }
-    let cells: Vec<Hex> = from.line_to(to).collect();
-    // Skip first (from) and last (to)
-    cells[1..cells.len() - 1].iter().all(|h| !blocks_los(*h))
 }
 
 /// All in-bounds cells within hex-distance ≤ `radius` that have LOS from `from`.
