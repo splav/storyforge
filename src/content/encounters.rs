@@ -16,6 +16,9 @@ pub struct EncounterDef {
     /// Engine knows nothing about them; they are spawned by `spawn_combatants`.
     #[allow(dead_code)]
     pub npcs: Vec<NpcDef>,
+    /// Static obstacle hexes — blocks movement and LOS. Populated into
+    /// `CombatState.blocked_hexes` on bootstrap.
+    pub obstacles: Vec<hexx::Hex>,
 }
 
 /// A non-acting NPC object as it appears after TOML resolution.
@@ -157,6 +160,16 @@ struct EncounterRecord {
     victory: Option<VictoryRecord>,
     #[serde(default)]
     npcs: Vec<NpcRecord>,
+    #[serde(default)]
+    obstacles: Vec<ObstacleRecord>,
+}
+
+/// A static obstacle tile as declared in `encounters.toml`.
+/// Blocked for both movement pass-through and stopping.
+#[derive(Deserialize)]
+struct ObstacleRecord {
+    hex_col: i32,
+    hex_row: i32,
 }
 
 #[derive(Deserialize)]
@@ -488,6 +501,11 @@ pub fn load_encounters_from_str(
                 .npcs
                 .into_iter()
                 .map(|n| resolve_npc(path, &enc.id, n))
+                .collect(),
+            obstacles: enc
+                .obstacles
+                .into_iter()
+                .map(|o| crate::game::hex::hex_from_offset(o.hex_col, o.hex_row))
                 .collect(),
         })
         .collect()

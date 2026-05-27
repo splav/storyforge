@@ -1,6 +1,8 @@
-//! Tests for T1.1.4: TOML parsing for `keep_alive`, `all_of` and `[[encounters.npcs]]`.
+//! Tests for T1.1.4 and T1.2.5: TOML parsing for `keep_alive`, `all_of`,
+//! `[[encounters.npcs]]`, and `[[encounters.obstacles]]`.
 
 use storyforge::content::encounters::{load_encounters_from_str, VictoryCondition};
+use storyforge::game::hex::hex_from_offset;
 use std::collections::HashMap;
 
 fn no_templates() -> HashMap<String, storyforge::content::unit_templates::UnitTemplateDef> {
@@ -160,4 +162,126 @@ hex_row = 1
     let npc = &encounters[0].npcs[0];
     assert_eq!(npc.hp_current, 10, "hp_current should default to hp_max");
     assert_eq!(npc.hp_max, 10);
+}
+
+// ── Obstacle parsing (T1.2.5) ─────────────────────────────────────────────────
+
+/// Three obstacles parse into `EncounterDef.obstacles` with correct hex positions.
+#[test]
+fn parses_obstacles_section() {
+    let toml = r#"
+[[encounters]]
+id = "enc"
+name = "Enc"
+enemies = []
+
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 3
+
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 4
+
+[[encounters.obstacles]]
+hex_col = 6
+hex_row = 2
+"#;
+    let encounters = load_encounters_from_str("test", "test.toml", toml, &no_templates());
+    let obs = &encounters[0].obstacles;
+    assert_eq!(obs.len(), 3);
+    assert!(obs.contains(&hex_from_offset(5, 3)));
+    assert!(obs.contains(&hex_from_offset(5, 4)));
+    assert!(obs.contains(&hex_from_offset(6, 2)));
+}
+
+/// An encounter without an `[[obstacles]]` section parses with an empty vec.
+#[test]
+fn obstacles_section_optional() {
+    let toml = r#"
+[[encounters]]
+id = "no_obs"
+name = "No Obstacles"
+enemies = []
+"#;
+    let encounters = load_encounters_from_str("test", "test.toml", toml, &no_templates());
+    assert!(encounters[0].obstacles.is_empty(), "obstacles must default to empty");
+}
+
+/// `bootstrap_combat_state` seeds `CombatState.blocked_hexes` from the
+/// `CombatBlockedHexes` resource (which is set by `spawn_combatants` from
+/// `EncounterDef.obstacles`). We verify the round-trip via the Bevy App harness.
+#[test]
+fn bootstrap_combat_state_populates_blocked_hexes() {
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::*;
+    use storyforge::combat::engine_bridge::{bootstrap_combat_state, CombatStateRes};
+    use storyforge::game::resources::CombatBlockedHexes;
+
+    // Use the shared bridge_app harness which registers all required resources.
+    // We have to replicate it inline here because the test module cannot import
+    // the `common` harness used by `tests/combat.rs`.
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .init_resource::<CombatStateRes>()
+        .init_resource::<storyforge::combat::engine_bridge::UnitIdMap>()
+        .init_resource::<storyforge::game::resources::HexPositions>()
+        .init_resource::<storyforge::game::resources::HexCorpses>()
+        .init_resource::<storyforge::game::resources::TurnQueue>()
+        .init_resource::<storyforge::game::resources::CombatContext>()
+        .init_resource::<CombatBlockedHexes>()
+        .init_resource::<storyforge::content::content_view::ActiveContent>()
+        .init_resource::<storyforge::combat::DiceRngRes>()
+        .init_resource::<storyforge::game::combat_log::CombatLog>()
+        .init_resource::<storyforge::ui::animation::AnimationQueue>()
+        .insert_resource(storyforge::ui::hex_grid::HexGridOffset(bevy::math::Vec2::ZERO))
+        .insert_resource(storyforge::combat::ai::world::tags::AbilityTagCache::default())
+        .insert_resource(storyforge::ui::hex_grid::HexMaterials {
+            empty: Handle::default(),
+            player: Handle::default(),
+            enemy: Handle::default(),
+            dead: Handle::default(),
+            in_range: Handle::default(),
+            in_range_dim: Handle::default(),
+            move_range: Handle::default(),
+            border_active: Handle::default(),
+            border_target: Handle::default(),
+            border_in_range: Handle::default(),
+            border_in_range_dim: Handle::default(),
+            border_move: Handle::default(),
+            aoe_preview: Handle::default(),
+            border_aoe: Handle::default(),
+            token_player: Handle::default(),
+            token_enemy: Handle::default(),
+            token_dead: Handle::default(),
+        })
+        .insert_resource(storyforge::ui::hex_grid::TokenMesh {
+            token: Handle::default(),
+            ring: Handle::default(),
+        })
+        .init_resource::<storyforge::combat::engine_bridge::BridgeQueues>()
+        .init_resource::<storyforge::combat::ai::log::engine_trace::EngineTraceWriter>()
+        .init_resource::<storyforge::combat::ai::log::AiLogger>()
+        .init_resource::<storyforge::combat::ai::log::PendingAiLogEntries>();
+
+    // Pre-populate CombatBlockedHexes with 2 obstacle hexes.
+    let hex_a = hex_from_offset(3, 2);
+    let hex_b = hex_from_offset(5, 4);
+    app.world_mut()
+        .resource_mut::<CombatBlockedHexes>()
+        .0 = vec![hex_a, hex_b];
+
+    // Run bootstrap (no combatants → state.units is empty, bootstrap fills blocked_hexes).
+    app.world_mut()
+        .run_system_once(bootstrap_combat_state)
+        .expect("bootstrap_combat_state should run");
+
+    let state = app.world().resource::<CombatStateRes>();
+    assert_eq!(
+        state.0.blocked_hexes.len(),
+        2,
+        "CombatState.blocked_hexes must contain both obstacle hexes after bootstrap",
+    );
+    assert!(state.0.blocked_hexes.contains(&hex_a));
+    assert!(state.0.blocked_hexes.contains(&hex_b));
 }

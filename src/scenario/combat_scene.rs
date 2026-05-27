@@ -10,7 +10,7 @@ use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPh
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
-    CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
+    CombatBlockedHexes, CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
 };
 use crate::combat::enemy_popup::PopupCursor;
 use crate::ui::animation::AnimationQueue;
@@ -28,6 +28,7 @@ fn spawn_combatants(
     db: &GameDb,
     scenario: &ScenarioState,
     objective: &mut CombatObjective,
+    blocked_hexes: &mut CombatBlockedHexes,
     tag_cache: &AbilityTagCache,
 ) {
     let scen = db.scenarios.get(&scenario.scenario_id).unwrap();
@@ -43,6 +44,7 @@ fn spawn_combatants(
     });
 
     objective.0 = enc.victory.clone();
+    blocked_hexes.0 = enc.obstacles.clone();
     let content = &scen.content;
 
     let party = active_party(scen, scenario.scene_index);
@@ -142,13 +144,14 @@ pub fn spawn_combat_scene(
     windows: Query<&Window>,
     mut ctx: ResMut<CombatContext>,
     mut objective: ResMut<CombatObjective>,
+    mut blocked_hexes: ResMut<CombatBlockedHexes>,
     mut log: ResMut<CombatLog>,
     mut cursor: ResMut<ConsoleCursor>,
     mut popup_cursor: ResMut<PopupCursor>,
     mut anim_queue: ResMut<AnimationQueue>,
     tag_cache: Res<AbilityTagCache>,
 ) {
-    spawn_combatants(&mut commands, &db, &scenario, &mut objective, &tag_cache);
+    spawn_combatants(&mut commands, &db, &scenario, &mut objective, &mut blocked_hexes, &tag_cache);
     spawn_background(&mut commands, &db, &scenario, &asset_server, &windows);
     reset_combat_state(&mut ctx, &mut log, &mut cursor, &mut popup_cursor, &mut anim_queue);
 }
@@ -230,6 +233,7 @@ pub fn restart_combat_system(
     mut ctx: ResMut<CombatContext>,
     mut objective: ResMut<CombatObjective>,
     mut reset_bundle: (
+        ResMut<CombatBlockedHexes>,
         ResMut<CombatLog>,
         ResMut<ConsoleCursor>,
         ResMut<PopupCursor>,
@@ -242,7 +246,7 @@ pub fn restart_combat_system(
         return;
     }
 
-    let (log, cursor, popup_cursor, anim_queue) = &mut reset_bundle;
+    let (blocked_hexes, log, cursor, popup_cursor, anim_queue) = &mut reset_bundle;
 
     // 1. Save initiative by name.
     preset.0.clear();
@@ -268,7 +272,7 @@ pub fn restart_combat_system(
     // reads the same RestartCombat message via its own independent reader.
 
     // 3. Spawn fresh combatants + reset state.
-    spawn_combatants(&mut commands, &db, &scenario, &mut objective, &tag_cache);
+    spawn_combatants(&mut commands, &db, &scenario, &mut objective, blocked_hexes, &tag_cache);
     reset_combat_state(&mut ctx, log, cursor, popup_cursor, anim_queue);
 
     // 4. → StartRound, где assign_hex_positions создаст токены,

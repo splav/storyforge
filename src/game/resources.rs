@@ -23,6 +23,13 @@ pub struct CombatContext {
 #[derive(Resource, Default, Clone)]
 pub struct CombatObjective(pub crate::content::encounters::VictoryCondition);
 
+/// Static obstacle hexes for the currently active combat encounter.
+/// Populated from `EncounterDef.obstacles` in `spawn_combatants` and
+/// pushed into `CombatState.blocked_hexes` during `bootstrap_combat_state`.
+/// Cleared on restart/exit together with the engine mirrors.
+#[derive(Resource, Default, Clone)]
+pub struct CombatBlockedHexes(pub Vec<hexx::Hex>);
+
 #[derive(Resource, Default)]
 pub struct TurnQueue {
     pub order: Vec<Entity>,

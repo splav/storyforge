@@ -34,7 +34,7 @@ use storyforge::game::components::Team;
 use storyforge::game::hex::hex_from_offset;
 use storyforge::game::messages::ActionInput;
 use storyforge::game::combat_log::CombatLog;
-use storyforge::game::resources::{CombatContext, HexCorpses, HexPositions, TurnQueue};
+use storyforge::game::resources::{CombatBlockedHexes, CombatContext, HexCorpses, HexPositions, TurnQueue};
 use storyforge::ui::animation::AnimationQueue;
 use storyforge::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 use combat_engine::action::Action;
@@ -53,6 +53,7 @@ fn correlation_app() -> App {
         .init_resource::<HexCorpses>()
         .init_resource::<TurnQueue>()
         .init_resource::<CombatContext>()
+        .init_resource::<CombatBlockedHexes>()
         .init_resource::<ActiveContent>()
         .init_resource::<DiceRngRes>()
         .init_resource::<CombatLog>()

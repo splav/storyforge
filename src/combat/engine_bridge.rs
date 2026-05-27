@@ -51,7 +51,7 @@ use crate::game::components::{
 use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
 use crate::game::messages::{ActionInput, RestartCombat};
-use crate::game::resources::{CombatContext, HexCorpses, HexPositions, TurnQueue};
+use crate::game::resources::{CombatBlockedHexes, CombatContext, HexCorpses, HexPositions, TurnQueue};
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
@@ -1525,6 +1525,7 @@ pub fn bootstrap_combat_state(
     aura_q: Query<(Entity, &AuraSource), Without<Dead>>,
     phases_q: Query<(Entity, &EnemyPhases), With<Combatant>>,
     active_content: Res<ActiveContent>,
+    blocked_hexes: Res<CombatBlockedHexes>,
     mut log: ResMut<CombatLog>,
     mut queues: ResMut<BridgeQueues>,
 ) {
@@ -1537,6 +1538,9 @@ pub fn bootstrap_combat_state(
     use crate::content::encounters::AuraAffects;
 
     let mut state = from_ecs(&combatants, &positions, &corpses, combat_context.round, &mut id_map, &active_content);
+
+    // ── Static obstacle hexes from encounter definition ───────────────────────
+    state.blocked_hexes = blocked_hexes.0.iter().copied().collect();
 
     // ── Populate per-unit combat fields ──────────────────────────────────────
 

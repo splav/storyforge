@@ -71,7 +71,7 @@ use storyforge::game::hex::hex_from_offset;
 use storyforge::game::hex_map::HexMap;
 use storyforge::game::messages::ActionInput;
 use storyforge::game::resources::{
-    CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions, PresetInitiative,
+    CombatBlockedHexes, CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions, PresetInitiative,
     SelectionState, TurnQueue,
 };
 use storyforge::ui::animation::AnimationQueue;
@@ -114,6 +114,7 @@ fn build_app() -> App {
         .add_sub_state::<CombatPhase>()
         .init_resource::<CombatContext>()
         .init_resource::<CombatObjective>()
+        .init_resource::<CombatBlockedHexes>()
         .init_resource::<TurnQueue>()
         .init_resource::<CombatLog>()
         .init_resource::<GameDb>()

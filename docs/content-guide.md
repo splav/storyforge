@@ -279,6 +279,67 @@ aura = { status = "disoriented", radius = 2, affects = "enemies" }
 
 `speed = 0` → enemy doesn't move. AI plans from its starting tile only; `movement_system` rejects any `MoveUnit` on such an actor. Status `speed_bonus` is clamped to 0+, so debuffs can't move an immobile unit either. **Note:** a positive speed status (e.g. haste) would allow movement — keep objective-anchor units free from such buffs.
 
+### Obstacles (`[[encounters.obstacles]]`)
+
+Static impassable tiles — boxes, rubble, walls, etc. Block both **movement pass-through** and **stopping** for all units. Also block LOS for abilities with `requires_los = true`.
+
+Each entry needs only a hex position. The encounter can have zero or more obstacles.
+
+```toml
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 3
+
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 4
+
+[[encounters.obstacles]]
+hex_col = 5
+hex_row = 5
+```
+
+Internally, these are stored in `CombatState.blocked_hexes` (a `HashSet<Hex>`) on combat bootstrap. They persist for the entire encounter and are cleared automatically on encounter exit or restart.
+
+### Non-acting NPCs (`[[encounters.npcs]]`)
+
+Static NPC objects that live only in ECS — the engine never knows about them (not in `CombatState.units`). They are not in the turn queue and do not act. Useful for escort/protect scenarios (pair with `keep_alive` victory).
+
+```toml
+[[encounters.npcs]]
+name       = "Магистр"
+template   = "wounded_magister"  # unit_templates id (for visuals / stats)
+hp_current = 6                   # optional — defaults to hp_max
+hp_max     = 6
+hex_col    = 6
+hex_row    = 4
+```
+
+### Victory (`victory`)
+
+```toml
+# Default — all enemies dead.
+# (omit the field entirely or set explicitly)
+victory = { type = "all_enemies_dead" }
+
+# Kill one specific enemy (may have multiple enemies alive).
+victory = { type = "kill_target", enemy_name = "Старшина", marker_color = [0.90, 0.15, 0.15] }
+
+# Protect an NPC — combat is lost immediately if the NPC dies.
+# This is a leaf condition — must be combined via all_of to also produce a win.
+victory = { type = "keep_alive", target_name = "Магистр", marker_color = [0.3, 0.6, 1.0] }
+
+# Conjunction — all sub-conditions must hold simultaneously.
+# Defeat short-circuits: the first sub-condition that returns defeat ends the fight.
+# Victory fires when every sub-condition has resolved to true.
+victory = { type = "all_of", conditions = [
+    { type = "all_enemies_dead" },
+    { type = "keep_alive", target_name = "Магистр", marker_color = [0.3, 0.6, 1.0] },
+] }
+```
+
+`all_of` nests arbitrarily.
+
 ## Scenario (`scenario.toml` inside a scenario folder)
 
 The scenario file does NOT contain its id — folder name is the id.

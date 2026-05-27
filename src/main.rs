@@ -8,7 +8,7 @@ use storyforge::persistence::{detect_paths, settings_repo, PersistencePlugin};
 use storyforge::combat::DiceRngRes;
 use storyforge::game::messages::{ActionInput, RestartCombat, StartCombat};
 use storyforge::game::combat_log::CombatLog;
-use storyforge::game::resources::{CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty};
+use storyforge::game::resources::{CombatBlockedHexes, CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions, PresetInitiative, SelectionState, TurnQueue, UiDirty};
 use storyforge::combat::ai::config::tuning::AiTuning;
 use storyforge::scenario;
 use storyforge::ui;
@@ -32,6 +32,7 @@ fn main() {
         .add_sub_state::<CombatPhase>()
         .init_resource::<CombatContext>()
         .init_resource::<CombatObjective>()
+        .init_resource::<CombatBlockedHexes>()
         .init_resource::<storyforge::content::content_view::ActiveContent>()
         .init_resource::<TurnQueue>()
         .init_resource::<PresetInitiative>()
