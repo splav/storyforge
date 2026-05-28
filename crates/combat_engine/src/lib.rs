@@ -78,12 +78,12 @@ pub enum ResourceKind {
 /// hashing depends on `enum_map::Iter` order, which follows variant
 /// declaration order. Adding a variant in the middle is a SCHEMA bump.
 ///
-/// `Hp` is the first variant (added Stage 1 of HP-as-pool migration). During
-/// Stages 1–2 it is dual-written alongside `Unit.hp` / `Unit.max_hp` fields.
-/// After Stage 3, `pools[Hp]` becomes the canonical source of truth.
+/// `Hp` is the first variant (HP-as-pool migration, completed Stage 3c).
+/// `pools[Hp]` is the **canonical source of truth** for HP — legacy
+/// `Unit.hp` / `Unit.max_hp` fields were removed in Stage 3c (v44).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, enum_map::Enum, serde::Serialize, serde::Deserialize)]
 pub enum PoolKind {
-    Hp,       // Stage 1: dual-write safety net; becomes canonical in Stage 3
+    Hp,       // Canonical HP pool since Stage 3c (v44); legacy fields removed.
     Mana,
     Rage,
     Energy,

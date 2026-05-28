@@ -66,6 +66,17 @@ pub enum RoundPhase {
 
 // ── Unit ─────────────────────────────────────────────────────────────────────
 
+/// A single combat participant in `CombatState`.
+///
+/// **HP layout (post Stage 3c / v44):** HP is stored exclusively in
+/// `pools[PoolKind::Hp]` — `(current_hp, max_hp)`. The legacy `hp` and
+/// `max_hp` fields were removed; use the `Unit::hp()` / `Unit::max_hp()`
+/// accessors. All other resource pools (`Mana`, `Rage`, `Energy`, `Ap`, `Mp`)
+/// follow the same `pools` layout.
+///
+/// Serialization goes through `UnitWire` (serde `into`). Pre-v44 traces
+/// that contain legacy `hp`/`max_hp` fields are back-compat read via
+/// `#[serde(default)]` on those fields in `UnitWire`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(into = "UnitWire")]
 pub struct Unit {
@@ -381,16 +392,23 @@ impl Unit {
         }
     }
 
+    /// Returns `true` iff the unit's HP pool is `Some` and current HP > 0.
+    /// Invariant: `pools[Hp]` is always `Some` for combat units; `None` is
+    /// only possible for non-combatant entities (currently unused).
     pub fn is_alive(&self) -> bool {
         self.pools[crate::PoolKind::Hp].map_or(false, |(cur, _)| cur > 0)
     }
 
-    /// Current HP — reads from `pools[PoolKind::Hp]` (canonical since Stage 3c).
+    /// Current HP — reads from `pools[PoolKind::Hp]`, the canonical source of
+    /// truth since Stage 3c. Returns 0 if the pool is absent (should not
+    /// occur for live combat units).
     pub fn hp(&self) -> i32 {
         self.pools[crate::PoolKind::Hp].map_or(0, |(c, _)| c)
     }
 
-    /// Max HP — reads from `pools[PoolKind::Hp]` (canonical since Stage 3c).
+    /// Max HP — reads from `pools[PoolKind::Hp]`, the canonical source of
+    /// truth since Stage 3c. Returns 0 if the pool is absent (should not
+    /// occur for live combat units).
     pub fn max_hp(&self) -> i32 {
         self.pools[crate::PoolKind::Hp].map_or(0, |(_, m)| m)
     }

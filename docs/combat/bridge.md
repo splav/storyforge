@@ -145,7 +145,7 @@ Two bridge-side systems deleted in V3:
 | Component | Field(s) written |
 |-----------|-----------------|
 | `HexPositions` | the full position map |
-| `Vital` | `.hp` |
+| `Vital` | `.hp` (sourced from `unit.hp()` → `pools[PoolKind::Hp].current`) |
 | `ActionPoints` | `.action_points`, `.movement_points` |
 | `Reactions` | `.remaining`, `.max` |
 | `Rage` | `.current` |

@@ -42,10 +42,11 @@ The observable consequence stream emitted after each `step()`:
 `UnitSpawned`, `SpawnBlocked`, `ActionFinished`,
 `PoolChanged { pool, delta, new_current, new_max, cause }`.
 
-`PoolChanged` is the **sole** pool-mutation surface (post-C6). Five pool kinds:
-`Mana`, `Rage`, `Energy`, `Ap`, `Mp`. Five causes: `Regen`, `Refill`, `Spent`,
+`PoolChanged` is the **sole** pool-mutation surface for non-HP pools (post-C6). Six pool kinds
+in state: `Hp`, `Mana`, `Rage`, `Energy`, `Ap`, `Mp`. Five causes: `Regen`, `Refill`, `Spent`,
 `Gained`, `MaxChanged`. Legacy events `ManaRegenerated`/`EnergyRegenerated`/`RageGained`
-were removed in C6.
+were removed in C6. HP mutations continue to use `UnitDamaged`/`UnitHealed`/`UnitDied` events
+(HP is tracked in `pools[Hp]` state, but damage/heal events are dedicated).
 
 `TurnEnded` carries `cause: TurnEndCause` — `Manual`, `ResourcesExhausted`
 (AP+MP=0 after Cast, emitted inline by engine — post-S6/B-γ), or `DeathOfActor`.
@@ -53,7 +54,7 @@ were removed in C6.
 `DotDamaged` is the atomic fusion of the former `(StatusTicked, UnitDamaged)` pair
 (post-S5). Buff-status ticks (zero damage) still emit `StatusTicked`.
 
-All variants are serde-derived — written verbatim into `engine.jsonl` (**schema v43**).
+All variants are serde-derived — written verbatim into `engine.jsonl` (**schema v44**).
 
 ### ApplyCtx
 
@@ -65,7 +66,7 @@ divergence).
 
 ```rust
 pub struct CombatState {
-    units:             Vec<Unit>,   // tombstones kept; hp == 0 means dead
+    units:             Vec<Unit>,   // tombstones kept; pools[Hp].current == 0 means dead
     round:             u32,
     phase:             RoundPhase,
     turn_queue:        TurnQueue,
@@ -140,8 +141,6 @@ pub struct Unit {
     pub id:                 UnitId,
     pub team:               Team,
     pub pos:                Hex,
-    pub hp:                 i32,
-    pub max_hp:             i32,
     pub armor:              i32,             // base equipment armor
     pub armor_bonus:        i32,             // bonus from active statuses
     pub damage_taken_bonus: i32,             // vulnerability: positive = more damage taken
@@ -160,12 +159,14 @@ pub struct Unit {
 }
 ```
 
-**ResourceTable invariants (post-Phase C):**
+Use `unit.hp()` / `unit.max_hp()` accessors — they read from `pools[PoolKind::Hp]`.
+
+**ResourceTable invariants (post HP-as-pool Stage 3c / schema v44):**
+- `pools[Hp]`: always `Some` for combat units; `(current_hp, max_hp)`. Sole canonical HP representation — legacy `hp` / `max_hp` fields removed.
 - `pools[Mana/Rage/Energy]`: `Some` iff unit has that mechanic; `None` otherwise.
 - `pools[Ap]` / `pools[Mp]`: always `Some` for alive combatants.
-- Five pool kinds in declaration order: `Mana, Rage, Energy, Ap, Mp` (iteration order load-bearing for replay determinism).
-- HP is excluded: damage/heal/death paths are special-cased throughout the engine.
-- Legacy scalar fields (`action_points`, `mana`, `rage`, `energy`, etc.) were removed in Phase C-6.
+- Six pool kinds in declaration order: `Hp, Mana, Rage, Energy, Ap, Mp` (iteration order load-bearing for replay determinism).
+- Legacy scalar fields (`action_points`, `mana`, `rage`, `energy`, `hp`, `max_hp`, etc.) were removed in Phase C-6 / Stage 3c.
 
 `armor_bonus`, `speed`, and `damage_taken_bonus` are derived aggregates —
 recomputed from `statuses` by `Effect::RefreshAggregates`.
@@ -179,7 +180,7 @@ The bridge projector (`project_state_to_ecs`) reads exclusively from `pools`
 ## 4. Determinism contract
 
 **Given:**
-- Same engine SCHEMA version (currently **v42**)
+- Same engine SCHEMA version (currently **v44**)
 - Same `ContentView` impl + content data (same TOML files, same `content_hash`)
 - Same RNG seed
 - Same sequence of `Action` dispatches
@@ -227,6 +228,8 @@ The bridge projector (`project_state_to_ecs`) reads exclusively from `pools`
 | v40 | `DotDamaged` atomic (S5) + `TurnEnded{cause}` field (S6/B-γ) |
 | v41 | `PoolChanged` introduced (C4); dual-emit alongside legacy events; AP/MP refill now visible |
 | v42 | Legacy `Unit` fields + `ManaRegenerated`/`EnergyRegenerated`/`RageGained` removed (C6) |
+| v43 | `PoolKind::Hp` added (first variant); `pools` EnumMap shape → 6 pools; `blocked_hexes` + `template_id` added |
+| v44 | `Unit.hp` / `Unit.max_hp` legacy fields removed; `UnitWire.hp` / `UnitWire.max_hp` removed from output; `pools[Hp]` sole canonical HP representation (HP-as-pool Stage 3c) |
 
 ---
 

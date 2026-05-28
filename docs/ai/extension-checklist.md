@@ -206,6 +206,13 @@ Engine-trace (`engine.jsonl`) — отдельный поток JSONL, неза�
 
 Принцип per-stream versioning (D4 Phase 5): AI log и engine trace bumpаются независимо. Нет shared constant.
 
+### Engine trace recent bumps
+
+| From → To | Trigger |
+|---|---|
+| v42 → v43 | `PoolKind::Hp` added (first variant); `pools` EnumMap → 6 entries; `Unit.template_id` + `CombatState.blocked_hexes` added |
+| v43 → v44 | `Unit.hp` / `Unit.max_hp` legacy fields removed; `UnitWire.hp` / `UnitWire.max_hp` dropped from serialized output; `pools[PoolKind::Hp]` is sole canonical HP representation (HP-as-pool Stage 3c) |
+
 ## Новое поле `ActionOutcomeEstimate`
 
 Добавление новой оси в outcome vector — для future consumer'ов (critics, geometry).

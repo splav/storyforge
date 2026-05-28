@@ -81,15 +81,14 @@ plans with **raw** + normalised factors, and the committed decision.
   v16 logs deserialize with all three fields defaulting via `#[serde(default)]`
   (`difficulty` → `None`, `ai_memory` → `None`, `reservations` → empty).
 
-*Current schema: v34.* The replay accepts only `SCHEMA_VERSION` and
-`SCHEMA_VERSION - 1` (currently v33–v34); older logs are rejected. Schema
+*Current schema: v44.* The replay accepts only `SCHEMA_VERSION` and
+`SCHEMA_VERSION - 1` (currently v43–v44); older logs are rejected. Schema
 bumps are frequent enough that maintaining backward-compat for arbitrary
 older corpora is not worth the complexity — instead the workflow is
-**continuous re-capture** (see `--capture-golden` below). v33 differs from
-v34 only in pre-Phase-0 helper relocations; `score_trace_log` is fully
-typed in both. In verbose mode (`--verbose`), the chosen plan shows a
-`score_trace:` breakdown — base, rescore_mode, multipliers, addends, masks,
-gates, and computed final. See `docs/ai/pipeline.md` for the trace algebra.
+**continuous re-capture** (see `--capture-golden` below). In verbose mode
+(`--verbose`), the chosen plan shows a `score_trace:` breakdown — base,
+rescore_mode, multipliers, addends, masks, gates, and computed final. See
+`docs/ai/pipeline.md` for the trace algebra.
 
 ## Running
 
