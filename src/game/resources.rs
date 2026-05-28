@@ -212,6 +212,50 @@ fn validate_content(scen_id: &str, c: &ContentView) {
     }
 }
 
+/// Recursively walk a `VictoryCondition` tree and validate every name reference
+/// (`KillTarget.enemy_name`, `KeepAlive.target_name`) actually exists in the
+/// encounter's enemies or in the active party for that combat scene.
+///
+/// Closes F10 (silent instant-defeat from typo'd KeepAlive target_name) and
+/// F17 (silent instant-victory from typo'd KillTarget enemy_name) at content
+/// load time, so a misspelled name fails fast with a clear error.
+fn validate_victory_names(
+    cond: &crate::content::encounters::VictoryCondition,
+    enc: &crate::content::encounters::EncounterDef,
+    party_names: &std::collections::HashSet<&str>,
+    label: &str,
+) {
+    use crate::content::encounters::VictoryCondition;
+    match cond {
+        VictoryCondition::AllEnemiesDead => {}
+        VictoryCondition::KillTarget { enemy_name, .. } => {
+            let matches = enc.enemies.iter().filter(|e| &e.name == enemy_name).count();
+            assert!(
+                matches == 1,
+                "{label} victory KillTarget references '{enemy_name}' \
+                 (matches in encounter enemies: {matches} — must be exactly one)",
+            );
+        }
+        VictoryCondition::KeepAlive { target_name, .. } => {
+            let in_enemies = enc.enemies.iter().any(|e| &e.name == target_name);
+            let in_party = party_names.contains(target_name.as_str());
+            assert!(
+                in_enemies || in_party,
+                "{label} victory KeepAlive references '{target_name}' — \
+                 must match an enemy or an active-party member; \
+                 enemy names: {:?}; party names: {:?}",
+                enc.enemies.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+                party_names,
+            );
+        }
+        VictoryCondition::AllOf(conds) => {
+            for c in conds {
+                validate_victory_names(c, enc, party_names, label);
+            }
+        }
+    }
+}
+
 fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
     let c = &scen.content;
 
@@ -273,16 +317,8 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
             }
         }
 
-        // Victory kill_target.
-        if let crate::content::encounters::VictoryCondition::KillTarget { enemy_name, .. } =
-            &enc.victory
-        {
-            let matches = enc.enemies.iter().filter(|e| &e.name == enemy_name).count();
-            assert!(
-                matches == 1,
-                "{label} victory=kill_target references '{enemy_name}' (matches: {matches} — must be exactly one)",
-            );
-        }
+        // Victory name references (KillTarget / KeepAlive / nested AllOf) are
+        // validated below in the combat-scene loop where active party is known.
     }
 
     // Party members (starting + party_add from story scenes).
@@ -325,6 +361,14 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
                         enemy.name, enemy.hex_pos,
                     );
                 }
+
+                // Victory name references — checked here so active_party is in scope.
+                let party_names: std::collections::HashSet<&str> =
+                    party.iter().map(|m| m.name.as_str()).collect();
+                let vic_label = format!(
+                    "scenario '{scen_id}' scene {scene_idx} encounter '{encounter_id}'"
+                );
+                validate_victory_names(&enc.victory, enc, &party_names, &vic_label);
             }
         }
     }
