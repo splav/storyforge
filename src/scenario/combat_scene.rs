@@ -72,12 +72,11 @@ fn spawn_combatants(
             let initial_hp = tpl.initial_pools.get("hp").copied()
                 .unwrap_or(effective.max_hp)
                 .clamp(1, effective.max_hp);
-            // Mirror class-branch hero spawn — `hero_bundle` provides every
-            // component the engine `from_ecs` query and AI snapshot cache build
-            // need (Combatant, Faction, Vital, Speed, ActionPoints, Reactions,
-            // Abilities, CombatStats, Equipment). `AiMemory` enables per-unit
-            // AI tracking. Without these the entity appears in UI but is
-            // invisible to AI scoring/target-selection.
+            // Template-based party member shares the same bundle as class-based
+            // heroes — engine `from_ecs` and AI snapshot cache need Abilities,
+            // CombatStats, Equipment to fully see the unit. `from_ecs` now
+            // tolerates missing Speed/AP/Reactions with warn-and-default, but
+            // ability/stats lookup is engine-private — no defaults fit.
             let mut ec = commands.spawn((
                 Name::new(member.name.clone()),
                 hero_bundle(effective.clone(), armor, tpl.speed, tpl.ability_ids.clone(), equipment),
@@ -86,8 +85,7 @@ fn spawn_combatants(
                 AiMemory::default(),
                 TemplateRef(template_id.clone()),
             ));
-            // Override Vital.hp from `initial_pools[hp]` if specified — must
-            // come after hero_bundle which spawned with hp=max_hp by default.
+            // Override Vital.hp from `initial_pools[hp]` — bundle spawns with hp=max_hp.
             ec.insert(Vital { hp: initial_hp, max_hp: effective.max_hp, armor });
             // Pool components — for templates that declare them.
             if tpl.resources.mana_max > 0 { ec.insert(Mana::new(tpl.resources.mana_max)); }

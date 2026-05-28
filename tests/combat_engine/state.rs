@@ -25,9 +25,9 @@ fn run_from_ecs(world: &mut World, round: u32, id_map: &mut UnitIdMap) -> Combat
             (
                 Entity,
                 &Vital,
-                &Speed,
-                &ActionPoints,
-                &Reactions,
+                Option<&Speed>,
+                Option<&ActionPoints>,
+                Option<&Reactions>,
                 &Faction,
                 Option<&StatusEffects>,
                 Option<&Rage>,

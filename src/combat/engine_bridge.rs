@@ -133,12 +133,18 @@ pub struct CombatStateRes(pub CombatState);
 ///
 /// Deadness is read off `Vital.hp <= 0`, not `Has<Dead>` — matches the
 /// projector's convention so both directions agree on a single predicate.
+///
+/// **Required:** `Vital`, `Faction` — semantically essential (no defaults).
+/// **Optional (with defaults):** `Speed=0`, `ActionPoints={1,1,0}`,
+/// `Reactions={1,1}`. Defaults match "minimal NPC" semantics (immobile,
+/// one action, one reaction). When any default kicks in `from_ecs` emits
+/// a `warn!` so the missing component is loud, not silent.
 type CombatantRow<'a> = (
     Entity,
     &'a Vital,
-    &'a Speed,
-    &'a ActionPoints,
-    &'a Reactions,
+    Option<&'a Speed>,
+    Option<&'a ActionPoints>,
+    Option<&'a Reactions>,
     &'a Faction,
     Option<&'a StatusEffects>,
     Option<&'a Rage>,
@@ -209,6 +215,35 @@ pub fn from_ecs(
             // Dead units: keep with hp=0 (tombstone).
             let hp = if is_dead { 0 } else { vital.hp };
 
+            // ── Fail-loud defaults for optional components ───────────────────
+            // Speed / ActionPoints / Reactions are optional in `CombatantRow`
+            // so minimal NPC entities (just Combatant + Faction + Vital) are
+            // accepted into engine state. Missing components fall back to
+            // "immobile, single-action" defaults, BUT we emit a `warn!` so
+            // the gap is loud, not silent — catches forgotten components in
+            // template spawns (see the wounded_scout regression).
+            let speed_val = match speed {
+                Some(s) => s.0,
+                None => {
+                    bevy::log::warn!("Combatant entity {:?} has no Speed — defaulting to 0", entity);
+                    0
+                }
+            };
+            let (ap_cur, ap_max, mp_cur) = match ap {
+                Some(a) => (a.action_points, a.max_ap, a.movement_points),
+                None => {
+                    bevy::log::warn!("Combatant entity {:?} has no ActionPoints — defaulting to (1,1,0)", entity);
+                    (1, 1, 0)
+                }
+            };
+            let reactions_max = match reactions {
+                Some(r) => r.max,
+                None => {
+                    bevy::log::warn!("Combatant entity {:?} has no Reactions — defaulting to 1", entity);
+                    1
+                }
+            };
+
             let rage_pool: Option<Pool> = rage.map(|r| (r.current, r.max));
             let mana_pool: Option<Pool> = mana.map(|m| (m.current, m.max));
             let energy_pool: Option<Pool> = energy_opt.map(|e| (e.current, e.max));
@@ -218,8 +253,8 @@ pub fn from_ecs(
                 combat_engine::PoolKind::Mana   => mana_pool,
                 combat_engine::PoolKind::Rage   => rage_pool,
                 combat_engine::PoolKind::Energy => energy_pool,
-                combat_engine::PoolKind::Ap     => Some((ap.action_points, ap.max_ap)),
-                combat_engine::PoolKind::Mp     => Some((ap.movement_points, ap.movement_points)),
+                combat_engine::PoolKind::Ap     => Some((ap_cur, ap_max)),
+                combat_engine::PoolKind::Mp     => Some((mp_cur, mp_cur)),
             };
             let bridge_regen = combat_engine::enum_map::enum_map! {
                 // Hp has no turn-start regen in gameplay.
@@ -252,16 +287,16 @@ pub fn from_ecs(
                 vital.armor,
                 armor_bonus,
                 damage_taken_bonus,
-                speed.0,
-                speed.0 + speed_bonus,
+                speed_val,
+                speed_val + speed_bonus,
                 // Bootstrap-initial: a unit always enters combat with a full reaction
                 // budget. We intentionally ignore `Reactions.remaining` here — the ECS
                 // default starts at 0 (matching `Effect::Spawn`'s reactions_left=0 for
                 // mid-combat summons), so reading it would yield 0 and break round-1
                 // AoO. Engine's `start_round` (called on `Effect::BumpRound`) refills
                 // reactions_left = reactions_max on every subsequent round.
-                reactions.max as i32,
-                reactions.max as i32,
+                reactions_max as i32,
+                reactions_max as i32,
                 statuses_vec,
                 None,
                 // Per-combat fields populated by bootstrap_combat_state after from_ecs.
