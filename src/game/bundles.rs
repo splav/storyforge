@@ -68,3 +68,23 @@ pub fn enemy_bundle(
         CombatantBundle::new(Team::Enemy, stats, armor, speed, abilities, equipment),
     )
 }
+
+/// Minimal non-acting NPC present on the field (e.g. a wounded ally to protect).
+/// Carries only what the engine projection needs to see a unit (Faction+Vital,
+/// plus trivial Speed/AP/Reactions to avoid `from_ecs` warns). `Abilities`,
+/// `CombatStats`, and `Equipment` are intentionally omitted — the AI snapshot
+/// (`AiCombatantQ`) now defaults them (threat 0, no attacks). Apply a
+/// perma-stun status separately so it never takes a turn. Caller adds `Name`
+/// and position components.
+pub fn npc_bundle(team: Team, vital: Vital) -> impl Bundle {
+    (
+        Combatant,
+        Faction(team),
+        vital,
+        Speed(0),
+        Initiative(0),
+        ActionPoints { action_points: 1, max_ap: 1, movement_points: 0 },
+        Reactions::default(),
+        StatusEffects::default(),
+    )
+}

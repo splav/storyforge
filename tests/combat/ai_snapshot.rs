@@ -84,3 +84,72 @@ fn build_snapshot_includes_dead_combatant() {
         "dead entity must be in AiCache (hp=0 marker for death-aware accessors)",
     );
 }
+
+/// Regression: a minimal combatant spawned via `npc_bundle` (no Abilities /
+/// CombatStats / Equipment) must appear in `build_snapshot` — it was silently
+/// dropped before AiCombatantQ fields were made Optional.
+///
+/// The NPC entry is expected to have threat ≈ 0 and an empty abilities list,
+/// matching the default-fallback semantics introduced by this change.
+#[test]
+fn build_snapshot_includes_minimal_npc() {
+    use storyforge::game::bundles::npc_bundle;
+    use storyforge::game::components::{Team, Vital};
+
+    let mut app = movement_app();
+    app.insert_resource(DifficultyProfile::default());
+
+    // A normal enemy so the scenario is non-trivial.
+    let normal = spawn_at(&mut app, hex_from_offset(3, 3), test_enemy(base_stats()), "Normal");
+
+    // A minimal NPC: Faction + Vital only (no Abilities / CombatStats / Equipment).
+    let vital = Vital::new(&storyforge::game::components::CombatStats {
+        max_hp: 5,
+        strength: 5,
+        dexterity: 5,
+        constitution: 5,
+        intelligence: 0,
+        wisdom: 5,
+        charisma: 5,
+    }, 0);
+    let npc = spawn_at(&mut app, hex_from_offset(4, 3), npc_bundle(Team::Player, vital), "MinimalNpc");
+
+    init_engine_state(&mut app);
+
+    #[allow(clippy::type_complexity)]
+    fn snapshot_system(
+        combatants: Query<AiCombatantQ, With<Combatant>>,
+        statuses:   Query<&StatusEffects>,
+        hex_map:    HexMap,
+        roles:      Query<&AxisProfile>,
+        content:    Res<storyforge::content::content_view::ActiveContent>,
+        difficulty: Res<DifficultyProfile>,
+        state_res:  Res<CombatStateRes>,
+        id_map:     Res<UnitIdMap>,
+    ) -> Vec<(Entity, f32, Vec<combat_engine::AbilityId>)> {
+        let keep_alive_entities = std::collections::HashSet::new();
+        let snap = build_snapshot(
+            1, &combatants, &statuses, &hex_map, &roles,
+            &content, &difficulty,
+            state_res.0.clone(),
+            &id_map,
+            &keep_alive_entities,
+        );
+        snap.cache.units.iter().map(|u| (u.entity, u.threat, u.abilities.clone())).collect()
+    }
+
+    let entries: Vec<(Entity, f32, Vec<combat_engine::AbilityId>)> = app
+        .world_mut()
+        .run_system_once(snapshot_system)
+        .expect("snapshot_system failed");
+
+    let entities: Vec<Entity> = entries.iter().map(|(e, _, _)| *e).collect();
+
+    assert!(entities.contains(&normal), "normal enemy must be in snapshot");
+    assert!(entities.contains(&npc),    "minimal NPC must be in snapshot (was silently dropped before this fix)");
+
+    // NPC has no abilities — threat must be 0 and abilities list empty.
+    let npc_entry = entries.iter().find(|(e, _, _)| *e == npc).unwrap();
+    assert_eq!(npc_entry.1, 0.0, "minimal NPC threat must be 0");
+    assert!(npc_entry.2.is_empty(), "minimal NPC abilities must be empty");
+}

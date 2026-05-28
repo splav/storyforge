@@ -302,16 +302,20 @@ pub struct HexCombatantQ {
 }
 
 /// Enemy AI: full combatant data for scoring, pathfinding, ability selection.
+/// Optional combat-kit fields (`abilities`, `speed`, `ap`, `stats`, `equipment`)
+/// default in `build_snapshot` so a minimal combatant (Faction+Vital only) is
+/// still visible to the AI — parity with engine `from_ecs`. Non-acting NPCs are
+/// a valid config; defaulting here is intentional, not a bug, so NO warn.
 #[derive(QueryData)]
 pub struct AiCombatantQ {
     pub entity: Entity,
     pub faction: &'static Faction,
-    pub abilities: &'static Abilities,
+    pub abilities: Option<&'static Abilities>,
     pub vital: &'static Vital,
-    pub speed: &'static Speed,
-    pub ap: &'static ActionPoints,
-    pub stats: &'static CombatStats,
-    pub equipment: &'static Equipment,
+    pub speed: Option<&'static Speed>,
+    pub ap: Option<&'static ActionPoints>,
+    pub stats: Option<&'static CombatStats>,
+    pub equipment: Option<&'static Equipment>,
     pub mana: Option<&'static Mana>,
     pub rage: Option<&'static Rage>,
     pub energy: Option<&'static Energy>,

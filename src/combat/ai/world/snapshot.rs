@@ -8,7 +8,7 @@ use crate::content::abilities::{AbilityDef, AoEShape, CasterContext, EffectDef, 
 use crate::content::races::CritFailEffect;
 use combat_engine::{AbilityId, ResourceKind, StatusId};
 use crate::game::components::{
-    AiCombatantQ, Combatant, StatusEffects, Team,
+    Abilities, AiCombatantQ, Combatant, StatusEffects, Team,
 };
 use crate::game::hex::Hex;
 use crate::game::hex_map::HexMap;
@@ -483,8 +483,13 @@ pub fn build_snapshot(
             // markers for death-aware AI accessors like `dead_units`).
             let _pos = hex_map.position_of(c.entity)?;
             let role = roles.get(c.entity).copied().unwrap_or_default();
-            let caster_ctx = CasterContext::new(c.stats, Some(c.equipment), &content.weapons);
-            let threat = estimate_st_damage(&caster_ctx, c.abilities, content);
+            let empty_abilities = Abilities::default();
+            let abilities: &Abilities = c.abilities.unwrap_or(&empty_abilities);
+            let caster_ctx = match c.stats {
+                Some(s) => CasterContext::new(s, c.equipment, &content.weapons),
+                None    => CasterContext::default(),
+            };
+            let threat = estimate_st_damage(&caster_ctx, abilities, content);
 
             let mut tags = compute_tags(&c, statuses_q, content);
 
@@ -495,8 +500,7 @@ pub fn build_snapshot(
                 tags |= AiTags::OPPONENT_OBJECTIVE;
             }
 
-            let max_attack_range: u32 = c
-                .abilities
+            let max_attack_range: u32 = abilities
                 .0
                 .iter()
                 .filter_map(|id| content.abilities.get(id))
@@ -508,7 +512,7 @@ pub fn build_snapshot(
                 .max()
                 .unwrap_or(0);
 
-            let has_melee_weapon_attack = c.abilities.0.iter().any(|id| {
+            let has_melee_weapon_attack = abilities.0.iter().any(|id| {
                 content.abilities.get(id).is_some_and(|def| {
                     matches!(def.effect, EffectDef::WeaponAttack) && def.range.max == 1
                 })
@@ -525,9 +529,9 @@ pub fn build_snapshot(
 
             let damage_horizon = estimate_damage_horizon(
                 &caster_ctx,
-                c.abilities,
+                abilities,
                 content,
-                c.ap.max_ap,
+                c.ap.map_or(1, |a| a.max_ap),
                 c.mana.map(|m| (m.current, m.max)),
                 c.rage.map(|r| (r.current, r.max)),
                 c.energy.map(|e| (e.current, e.max)),
@@ -554,7 +558,7 @@ pub fn build_snapshot(
                 // unit quirk is introduced. For now, always None — see
                 // UnitTemplateDef.ai_tuning_override and ai_rework_plan.md §2.7.
                 ai_tuning_override: None,
-                abilities:           c.abilities.0.clone(),
+                abilities:           abilities.0.clone(),
                 caster_ctx:          caster_ctx.clone(),
             })
         })
@@ -791,7 +795,9 @@ fn compute_tags(
         c.energy.map(|e| e.current).unwrap_or(0),
     );
 
-    for id in &c.abilities.0 {
+    let empty = Abilities::default();
+    let abilities = c.abilities.unwrap_or(&empty);
+    for id in &abilities.0 {
         let Some(def) = content.abilities.get(id) else { continue };
         if def.range.max > max_range {
             max_range = def.range.max;
