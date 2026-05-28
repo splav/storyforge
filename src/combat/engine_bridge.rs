@@ -46,12 +46,15 @@ use crate::game::combat_log::{
 use crate::game::components::{
     Abilities, ActionPoints, ActiveCombatant, AuraSource, BonusMovement, CombatPath, CombatStats,
     Combatant, Dead, Energy, Equipment, EnemyPhases, Faction, Mana, Rage, Reactions,
-    Speed, StatusEffects, SummonedBy, TemplateRef, UnitToken, Vital,
+    Speed, StatusEffects, SummonedBy, TemplateRef, UnitToken, Vital, VictoryTarget,
 };
 use crate::game::bundles::enemy_bundle;
 use crate::game::hex::LAYOUT;
 use crate::game::messages::{ActionInput, RestartCombat};
-use crate::game::resources::{CombatBlockedHexes, CombatContext, HexCorpses, HexPositions, TurnQueue};
+use crate::game::resources::{
+    CombatBlockedHexes, CombatContext, CombatObjective, HexCorpses, HexPositions,
+    PhaseDeadline, PhaseDeadlineState, TurnQueue, UiDirty, UiDirtyFlags,
+};
 use crate::ui::animation::{AnimationQueue, PendingAnim};
 use crate::ui::hex_grid::{HexGridOffset, HexMaterials, TokenMesh};
 
@@ -349,16 +352,18 @@ impl<'a> EngineContentView for EcsContentView<'a> {
 /// their respective halves before/after `project_state_to_ecs`.
 ///
 /// Sub-fields:
-/// * `deaths`         — units to mark `Dead` (pre-projection)
-/// * `turn_lifecycle` — `ActiveCombatant` inserts/removes + round-start flag (pre-projection)
-/// * `animations`     — movement animations to push into `AnimationQueue` (post-projection)
-/// * `phases`         — `(UnitId, phase_idx)` phase-transition pairs (post-projection)
+/// * `deaths`          — units to mark `Dead` (pre-projection)
+/// * `turn_lifecycle`  — `ActiveCombatant` inserts/removes + round-start flag (pre-projection)
+/// * `animations`      — movement animations to push into `AnimationQueue` (post-projection)
+/// * `phases`          — `(UnitId, phase_idx)` phase-transition pairs (post-projection)
+/// * `phase_overrides` — victory-override/deadline intents queued by phase transitions (post-projection)
 #[derive(Resource, Default)]
 pub struct BridgeQueues {
     pub deaths: Vec<UnitId>,
     pub turn_lifecycle: BridgeTurnLifecycle,
     pub animations: Vec<PendingAnim>,
     pub phases: Vec<(UnitId, usize)>,
+    pub phase_overrides: Vec<PhaseOverrideIntent>,
 }
 
 /// Turn-lifecycle sub-queue inside [`BridgeQueues`].
@@ -373,6 +378,17 @@ pub struct BridgeTurnLifecycle {
     /// is scheduled and `insert_active` is suppressed because `build_turn_order`
     /// will set `ActiveCombatant` on the new actor during re-entry.
     pub round_started: bool,
+}
+
+/// Deferred victory-override / deadline intent emitted when a boss phase fires.
+/// Consumed by `apply_phase_overrides_system` so `apply_phase_ecs_writes` (which
+/// already has a 7-tuple query) need not also take the objective/deadline resources.
+pub struct PhaseOverrideIntent {
+    pub entity: Entity,
+    /// Resolved post-phase name of the phasing unit (for VictoryTarget marker match).
+    pub new_name: String,
+    pub victory_override: Option<crate::content::encounters::VictoryCondition>,
+    pub turn_limit: Option<u32>,
 }
 
 /// Build a fully-populated engine `UnitTemplate` from a bridge `UnitTemplateDef`.
@@ -497,8 +513,10 @@ pub(crate) fn build_ecs_content_view<'a>(
 ///      (re-infers `AxisProfile`; removes `Dead` if `heal_to_full` revived).
 ///   3. Pops `pending[phase_idx]` (spec §8: exactly one pop per event).
 ///   4. Pushes `CombatEvent::PhaseEntered` with `prev_name`/`next_name`/`flavor`.
+///   5. If the phase carries `victory_override` or `turn_limit`, pushes a
+///      `PhaseOverrideIntent` into `overrides` for deferred application.
 ///
-/// Called from `apply_phase_transitions_system` which runs AFTER `project_state_to_ecs`
+/// Called from `apply_bridge_queues_post_projection` which runs AFTER `project_state_to_ecs`
 /// to avoid a query conflict over `&mut Vital` between the two systems.
 /// `process_action_system` and `bootstrap_combat_state` record `(unit, phase_idx)`
 /// pairs into `PendingPhaseTransitions`; this helper drains them.
@@ -519,6 +537,7 @@ fn apply_phase_ecs_writes(
     )>,
     content: &ActiveContent,
     tag_cache: &AbilityTagCache,
+    overrides: &mut Vec<PhaseOverrideIntent>,
 ) {
     let Some(ent) = id_map.get_entity(unit) else { return };
     let Ok((mut phases, mut vital, mut stats, mut abilities, role_opt, mut name, is_dead)) =
@@ -564,9 +583,19 @@ fn apply_phase_ecs_writes(
     log.push(CombatEvent::PhaseEntered {
         actor: ent,
         prev_name,
-        next_name,
+        next_name: next_name.clone(),
         flavor: phase.flavor.clone(),
     });
+
+    // Queue victory-override/deadline intent if the phase carries either field.
+    if phase.victory_override.is_some() || phase.turn_limit.is_some() {
+        overrides.push(PhaseOverrideIntent {
+            entity: ent,
+            new_name: next_name,
+            victory_override: phase.victory_override.clone(),
+            turn_limit: phase.turn_limit,
+        });
+    }
 
     // Pop exactly once per event (spec §8).
     phases.pending.remove(phase_idx);
@@ -672,10 +701,41 @@ pub fn apply_bridge_queues_post_projection(
         anim_queue.0.push_back(anim);
     }
 
-    // Phase transitions
+    // Phase transitions — move phases out first so we can borrow phase_overrides independently.
     let transitions = std::mem::take(&mut queues.phases);
     for (unit, phase_idx) in transitions {
-        apply_phase_ecs_writes(unit, phase_idx, &id_map, &mut commands, &mut log, &mut q, &active_content, &tag_cache);
+        apply_phase_ecs_writes(unit, phase_idx, &id_map, &mut commands, &mut log, &mut q, &active_content, &tag_cache, &mut queues.phase_overrides);
+    }
+}
+
+/// Applies victory-override / deadline intents queued by phase transitions.
+/// Runs in Execute right after `apply_bridge_queues_post_projection`.
+pub fn apply_phase_overrides_system(
+    mut queues: ResMut<BridgeQueues>,
+    mut objective: ResMut<CombatObjective>,
+    mut deadline: ResMut<PhaseDeadline>,
+    ctx: Res<CombatContext>,
+    mut ui_dirty: ResMut<UiDirty>,
+    mut commands: Commands,
+) {
+    for intent in std::mem::take(&mut queues.phase_overrides) {
+        if let Some(ov) = intent.victory_override {
+            if let crate::content::encounters::VictoryCondition::KillTarget { enemy_name, marker_color, .. } = &ov {
+                // Attach the target marker so check_victory_system's target_alive
+                // bool + the UI ring track the new objective. Validation guarantees
+                // enemy_name == the phasing unit's post-phase name.
+                debug_assert_eq!(enemy_name, &intent.new_name,
+                    "override KillTarget target must equal phasing unit name");
+                if enemy_name == &intent.new_name {
+                    commands.entity(intent.entity).insert(VictoryTarget { marker_color: *marker_color });
+                }
+            }
+            objective.0 = ov;
+            ui_dirty.0 |= UiDirtyFlags::PHASE_HINT;
+        }
+        if let Some(limit) = intent.turn_limit {
+            deadline.0 = Some(PhaseDeadlineState { phase_started_round: ctx.round, limit });
+        }
     }
 }
 

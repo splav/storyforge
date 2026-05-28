@@ -1417,6 +1417,8 @@ fn phase_transition_via_cast_writes_ecs_and_emits_log_entry() {
         ability_ids: None,
         heal_to_full: true,
         flavor: Some("Boss enters phase two!".into()),
+        victory_override: None,
+        turn_limit: None,
     };
     let boss = app.world_mut().spawn((
         CombatantBundle::new(

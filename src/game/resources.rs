@@ -30,6 +30,20 @@ pub struct CombatObjective(pub crate::content::encounters::VictoryCondition);
 #[derive(Resource, Default, Clone)]
 pub struct CombatBlockedHexes(pub Vec<hexx::Hex>);
 
+/// Active round-based phase deadline. Set when a boss phase carrying a
+/// `turn_limit` activates; checked each Finalize by `check_phase_deadline_system`.
+/// `None` when no timed phase is active. Reset to `None` on combat (re)start.
+#[derive(Resource, Default)]
+pub struct PhaseDeadline(pub Option<PhaseDeadlineState>);
+
+#[derive(Clone, Debug)]
+pub struct PhaseDeadlineState {
+    /// `CombatContext.round` value at the moment the phase activated.
+    pub phase_started_round: u32,
+    /// Number of rounds the player has to satisfy the new objective.
+    pub limit: u32,
+}
+
 #[derive(Resource, Default)]
 pub struct TurnQueue {
     pub order: Vec<Entity>,
@@ -383,6 +397,27 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
                     "scenario '{scen_id}' scene {scene_idx} encounter '{encounter_id}'"
                 );
                 validate_victory_names(&enc.victory, enc, &party_names, &vic_label);
+
+                // Phase victory_override validation: names + KillTarget self-reference guard.
+                for enemy in &enc.enemies {
+                    for (i, ph) in enemy.phases.iter().enumerate() {
+                        if let Some(ov) = &ph.victory_override {
+                            validate_victory_names(ov, enc, &party_names, &vic_label);
+                            // Marker-attachment guard: an overriding KillTarget MUST name
+                            // the phasing enemy itself (its post-phase name), otherwise the
+                            // VictoryTarget marker won't attach and the combat is unwinnable.
+                            if let crate::content::encounters::VictoryCondition::KillTarget { enemy_name, .. } = ov {
+                                let phase_name = ph.name.as_deref().unwrap_or(enemy.name.as_str());
+                                assert!(
+                                    enemy_name == phase_name,
+                                    "{vic_label} enemy '{}' phase {i}: victory_override KillTarget targets \
+                                     '{enemy_name}' but must target the phasing enemy itself ('{phase_name}')",
+                                    enemy.name,
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
     }

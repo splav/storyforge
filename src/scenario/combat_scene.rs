@@ -10,7 +10,8 @@ use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPh
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
-    CombatBlockedHexes, CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
+    CombatBlockedHexes, CombatContext, CombatObjective, GameDb, HexCorpses, HexPositions,
+    PhaseDeadline, PresetInitiative, ScenarioState, SelectionState, TurnQueue,
 };
 use crate::combat::enemy_popup::PopupCursor;
 use crate::ui::animation::AnimationQueue;
@@ -225,6 +226,7 @@ fn reset_combat_state(
     cursor: &mut ConsoleCursor,
     popup_cursor: &mut PopupCursor,
     anim_queue: &mut AnimationQueue,
+    deadline: &mut PhaseDeadline,
 ) {
     ctx.round = 0;
     ctx.encounter = None;
@@ -233,6 +235,7 @@ fn reset_combat_state(
     cursor.0 = 0;
     popup_cursor.0 = 0;
     anim_queue.0.clear();
+    deadline.0 = None;
 }
 
 // ── Systems ─────────────────────────────────────────────────────────────────
@@ -250,11 +253,12 @@ pub fn spawn_combat_scene(
     mut cursor: ResMut<ConsoleCursor>,
     mut popup_cursor: ResMut<PopupCursor>,
     mut anim_queue: ResMut<AnimationQueue>,
+    mut deadline: ResMut<PhaseDeadline>,
     tag_cache: Res<AbilityTagCache>,
 ) {
     spawn_combatants(&mut commands, &db, &scenario, &mut objective, &mut blocked_hexes, &tag_cache);
     spawn_background(&mut commands, &db, &scenario, &asset_server, &windows);
-    reset_combat_state(&mut ctx, &mut log, &mut cursor, &mut popup_cursor, &mut anim_queue);
+    reset_combat_state(&mut ctx, &mut log, &mut cursor, &mut popup_cursor, &mut anim_queue, &mut deadline);
 }
 
 fn spawn_background(
@@ -339,6 +343,7 @@ pub fn restart_combat_system(
         ResMut<ConsoleCursor>,
         ResMut<PopupCursor>,
         ResMut<AnimationQueue>,
+        ResMut<PhaseDeadline>,
     ),
     mut sel: ResMut<SelectionState>,
     mut next_phase: ResMut<NextState<CombatPhase>>,
@@ -347,7 +352,7 @@ pub fn restart_combat_system(
         return;
     }
 
-    let (blocked_hexes, log, cursor, popup_cursor, anim_queue) = &mut reset_bundle;
+    let (blocked_hexes, log, cursor, popup_cursor, anim_queue, deadline) = &mut reset_bundle;
 
     // 1. Save initiative by name.
     preset.0.clear();
@@ -374,7 +379,7 @@ pub fn restart_combat_system(
 
     // 3. Spawn fresh combatants + reset state.
     spawn_combatants(&mut commands, &db, &scenario, &mut objective, blocked_hexes, &tag_cache);
-    reset_combat_state(&mut ctx, log, cursor, popup_cursor, anim_queue);
+    reset_combat_state(&mut ctx, log, cursor, popup_cursor, anim_queue, deadline);
 
     // 4. → StartRound, где assign_hex_positions создаст токены,
     //    а build_turn_order возьмёт инициативу из PresetInitiative.

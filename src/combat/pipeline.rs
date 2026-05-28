@@ -8,6 +8,7 @@ use bevy::prelude::*;
 
 use crate::app_state::{AppState, CombatPhase};
 use crate::combat::engine_bridge::{
+    self as engine_bridge,
     BridgeQueues, CombatStateRes, UnitIdMap, bootstrap_combat_state,
     apply_bridge_queues_pre_projection, apply_bridge_queues_post_projection,
     process_action_system, project_state_to_ecs,
@@ -28,7 +29,8 @@ impl Plugin for CombatPipelinePlugin {
         // Engine state resources.
         app.init_resource::<CombatStateRes>()
             .init_resource::<UnitIdMap>()
-            .init_resource::<BridgeQueues>();
+            .init_resource::<BridgeQueues>()
+            .init_resource::<crate::game::resources::PhaseDeadline>();
 
         // Engine mirror teardown — combat plugin owns its own lifecycle:
         // - OnExit(AppState::Combat) covers normal Victory/Defeat → next combat.
@@ -86,6 +88,7 @@ impl Plugin for CombatPipelinePlugin {
                 apply_bridge_queues_pre_projection,
                 project_state_to_ecs,
                 apply_bridge_queues_post_projection,
+                engine_bridge::apply_phase_overrides_system,
                 super::ai::log::flush_pending_ai_log_system,
             )
                 .chain()
@@ -96,6 +99,7 @@ impl Plugin for CombatPipelinePlugin {
             (
                 enemy_popup::queue_enemy_popup,
                 advance_turn::check_victory_system,
+                advance_turn::check_phase_deadline_system,
             )
                 .chain()
                 .in_set(CombatStep::Finalize),

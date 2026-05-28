@@ -119,9 +119,13 @@ pub struct PhaseDef {
     pub stats: Option<CombatStats>,
     pub ability_ids: Option<Vec<AbilityId>>,
     pub heal_to_full: bool,
-    /// Narrative blurb shown in the transition popup/log. What the player sees
-    /// when this phase kicks in — one or two short sentences.
+    /// Narrative blurb shown in the transition popup/log.
     pub flavor: Option<String>,
+    /// When set, replaces the active `CombatObjective` the moment this phase fires.
+    pub victory_override: Option<VictoryCondition>,
+    /// Number of rounds (from phase activation) the player has to fulfil the
+    /// new objective. Expires → defeat (boss escaped / time ran out).
+    pub turn_limit: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -237,6 +241,10 @@ struct PhaseRecord {
     heal_to_full: bool,
     #[serde(default)]
     flavor: Option<String>,
+    #[serde(default)]
+    victory_override: Option<VictoryRecord>,
+    #[serde(default)]
+    turn_limit: Option<u32>,
 }
 
 // ── Resolution helpers ──────────────────────────────────────────────────────
@@ -302,6 +310,8 @@ fn resolve_phase(
         ability_ids,
         heal_to_full: p.heal_to_full,
         flavor: p.flavor,
+        victory_override: p.victory_override.map(|v| resolve_victory(path, enc_id, v)),
+        turn_limit: p.turn_limit,
     }
 }
 
@@ -464,4 +474,52 @@ pub fn load_encounters_from_str(
                 .collect(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `PhaseRecord` with `victory_override` and `turn_limit` resolves into a
+    /// `PhaseDef` whose new fields are correctly populated.
+    #[test]
+    fn phase_record_resolves_victory_override_and_turn_limit() {
+        let toml_src = r#"
+hp_below_pct = 50
+name = "Phase Two"
+heal_to_full = false
+turn_limit = 3
+
+[victory_override]
+type = "kill_target"
+enemy_name = "Phase Two"
+"#;
+        let record: PhaseRecord = toml::from_str(toml_src)
+            .expect("PhaseRecord must deserialize from TOML");
+
+        let phase = resolve_phase("test", "enc1", record, &Default::default());
+
+        assert_eq!(phase.turn_limit, Some(3));
+        let ov = phase.victory_override.expect("victory_override must be Some");
+        match ov {
+            VictoryCondition::KillTarget { enemy_name, .. } => {
+                assert_eq!(enemy_name, "Phase Two");
+            }
+            other => panic!("expected KillTarget, got {other:?}"),
+        }
+    }
+
+    /// A `PhaseDef` with no `victory_override`/`turn_limit` resolves to `None` for both.
+    #[test]
+    fn phase_record_without_override_fields_resolves_to_none() {
+        let toml_src = r#"
+hp_below_pct = 75
+heal_to_full = false
+"#;
+        let record: PhaseRecord = toml::from_str(toml_src)
+            .expect("PhaseRecord must deserialize from TOML");
+        let phase = resolve_phase("test", "enc1", record, &Default::default());
+        assert!(phase.victory_override.is_none());
+        assert!(phase.turn_limit.is_none());
+    }
 }

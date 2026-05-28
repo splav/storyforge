@@ -2,7 +2,7 @@ use crate::app_state::CombatPhase;
 use crate::content::encounters::VictoryCondition;
 use crate::game::components::{Combatant, Dead, Faction, Team, Vital, VictoryTarget};
 use crate::game::combat_log::{CombatEvent, CombatLog};
-use crate::game::resources::CombatObjective;
+use crate::game::resources::{CombatContext, CombatObjective, PhaseDeadline};
 use bevy::prelude::*;
 
 /// Event-driven victory/defeat detection. Runs after any system that may
@@ -116,6 +116,30 @@ fn end_combat(
 ) {
     log.push(CombatEvent::CombatEnded { victory });
     next_phase.set(if victory { CombatPhase::Victory } else { CombatPhase::Defeat });
+}
+
+/// Round-based phase deadline: once `limit` rounds have elapsed since a phase
+/// override activated, resolve the current objective. If it is already a victory
+/// (player killed the target in time) → victory; otherwise the boss escaped → defeat.
+/// Not gated by `Added<Dead>` — must fire purely on round count.
+pub fn check_phase_deadline_system(
+    deadline: Res<PhaseDeadline>,
+    ctx: Res<CombatContext>,
+    combatants: Query<(&Vital, &Faction, Option<&VictoryTarget>), With<Combatant>>,
+    named_vitals: Query<(&Name, &Vital)>,
+    objective: Res<CombatObjective>,
+    mut log: ResMut<CombatLog>,
+    mut next_phase: ResMut<NextState<CombatPhase>>,
+) {
+    let Some(state) = &deadline.0 else { return };
+    if ctx.round.saturating_sub(state.phase_started_round) < state.limit {
+        return;
+    }
+    let victory = matches!(
+        check_combat_end(&combatants, &named_vitals, &objective.0),
+        Some(true)
+    );
+    end_combat(victory, &mut log, &mut next_phase);
 }
 
 #[cfg(test)]
