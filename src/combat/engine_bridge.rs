@@ -213,6 +213,8 @@ pub fn from_ecs(
             let mana_pool: Option<Pool> = mana.map(|m| (m.current, m.max));
             let energy_pool: Option<Pool> = energy_opt.map(|e| (e.current, e.max));
             let bridge_pools = combat_engine::enum_map::enum_map! {
+                // Stage 1 dual-write: pools[Hp] mirrors Vital hp/max_hp.
+                combat_engine::PoolKind::Hp     => Some((hp, vital.max_hp)),
                 combat_engine::PoolKind::Mana   => mana_pool,
                 combat_engine::PoolKind::Rage   => rage_pool,
                 combat_engine::PoolKind::Energy => energy_pool,
@@ -220,6 +222,8 @@ pub fn from_ecs(
                 combat_engine::PoolKind::Mp     => Some((ap.movement_points, ap.movement_points)),
             };
             let bridge_regen = combat_engine::enum_map::enum_map! {
+                // Hp has no turn-start regen in gameplay.
+                combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
                 combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
@@ -407,6 +411,8 @@ fn build_engine_template_from_def(
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         regen_per_pool: combat_engine::enum_map::enum_map! {
+            // Hp has no turn-start regen in gameplay.
+            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
             combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
@@ -1789,6 +1795,7 @@ mod tests {
             auras: Vec::new(),
             enemy_phases: Vec::new(),
             pools: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Hp     => Some((20, 20)),
                 combat_engine::PoolKind::Mana   => None,
                 combat_engine::PoolKind::Rage   => None,
                 combat_engine::PoolKind::Energy => None,
@@ -1796,6 +1803,7 @@ mod tests {
                 combat_engine::PoolKind::Mp     => Some((3, 3)),
             },
             regen_per_pool: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
                 combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),

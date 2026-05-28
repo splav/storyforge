@@ -93,6 +93,8 @@ impl<'a> ActionState for EngineCheckState<'a> {
         let rage_cur   = u.pools[PoolKind::Rage].map(|(c, _)| c);
         let energy_cur = u.pools[PoolKind::Energy].map(|(c, _)| c);
         let pools = enum_map::enum_map! {
+            // Hp is not a resource-cost kind for legality checks; excluded.
+            PoolKind::Hp     => None,
             PoolKind::Mana   => mana_cur,
             PoolKind::Rage   => rage_cur,
             PoolKind::Energy => energy_cur,

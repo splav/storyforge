@@ -41,11 +41,12 @@ fn uid(n: u64) -> UnitId { UnitId(n) }
 
 fn make_unit(id: UnitId, alive: bool, reactions_max: i32) -> Unit {
     use storyforge::combat_engine::{PoolKind, RegenRule};
+    let hp = if alive { 10 } else { 0 };
     Unit {
         id,
         team: Team::Player,
         pos: Hex::ZERO,
-        hp: if alive { 10 } else { 0 },
+        hp,
         max_hp: 10,
         armor: 0,
         armor_bonus: 0,
@@ -61,6 +62,7 @@ fn make_unit(id: UnitId, alive: bool, reactions_max: i32) -> Unit {
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => Some((hp, 10)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
             PoolKind::Energy => None,
@@ -68,6 +70,7 @@ fn make_unit(id: UnitId, alive: bool, reactions_max: i32) -> Unit {
             PoolKind::Mp     => Some((3, 3)),
         },
         regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),

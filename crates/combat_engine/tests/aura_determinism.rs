@@ -44,6 +44,7 @@ fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         pools: combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => Some((10, 10)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
             PoolKind::Energy => None,
@@ -51,6 +52,7 @@ fn make_unit(id: u64, team: Team, pos: Hex) -> Unit {
             PoolKind::Mp     => Some((3, 3)),
         },
         regen_per_pool: combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),

@@ -491,6 +491,7 @@ fn projector_writes_engine_mutation_to_ecs() {
             auras: Vec::new(),
             enemy_phases: Vec::new(),
             pools: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Hp     => Some((10, 10)),
                 combat_engine::PoolKind::Mana   => None,
                 combat_engine::PoolKind::Rage   => None,
                 combat_engine::PoolKind::Energy => None,
@@ -498,6 +499,7 @@ fn projector_writes_engine_mutation_to_ecs() {
                 combat_engine::PoolKind::Mp     => Some((6, 6)),
             },
             regen_per_pool: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
                 combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
@@ -893,6 +895,7 @@ fn projector_writes_mana_from_engine_state() {
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         pools: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Hp     => Some((20, 20)),
             combat_engine::PoolKind::Mana   => Some((10, 10)),
             combat_engine::PoolKind::Rage   => None,
             combat_engine::PoolKind::Energy => None,
@@ -900,6 +903,7 @@ fn projector_writes_mana_from_engine_state() {
             combat_engine::PoolKind::Mp     => Some((6, 6)),
         },
         regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
             combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
@@ -968,6 +972,7 @@ fn projector_writes_statuses_from_engine_state() {
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         pools: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Hp     => Some((20, 20)),
             combat_engine::PoolKind::Mana   => None,
             combat_engine::PoolKind::Rage   => None,
             combat_engine::PoolKind::Energy => None,
@@ -975,6 +980,7 @@ fn projector_writes_statuses_from_engine_state() {
             combat_engine::PoolKind::Mp     => Some((6, 6)),
         },
         regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
             combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
@@ -1070,6 +1076,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         pools: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Hp     => Some((20, 20)),
             combat_engine::PoolKind::Mana   => None,
             combat_engine::PoolKind::Rage   => None,
             combat_engine::PoolKind::Energy => None,
@@ -1077,6 +1084,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
             combat_engine::PoolKind::Mp     => Some((6, 6)),
         },
         regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
             combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
@@ -1105,6 +1113,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         pools: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Hp     => Some((20, 20)),
             combat_engine::PoolKind::Mana   => None,
             combat_engine::PoolKind::Rage   => None,
             combat_engine::PoolKind::Energy => None,
@@ -1112,6 +1121,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
             combat_engine::PoolKind::Mp     => Some((6, 6)),
         },
         regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
             combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),

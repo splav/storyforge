@@ -69,6 +69,8 @@ impl ActionState for BevyActions<'_, '_, '_> {
             pools: {
                 use combat_engine::{enum_map, PoolKind};
                 enum_map::enum_map! {
+                    // Hp is not a resource-cost kind for legality checks.
+                    PoolKind::Hp     => None,
                     PoolKind::Mana   => a.mana.map(|m| m.current),
                     PoolKind::Rage   => a.rage.map(|r| r.current),
                     PoolKind::Energy => a.energy.map(|e| e.current),

@@ -320,6 +320,9 @@ pub fn apply_effect(
             // Apply HP reduction.
             let hp_after = if let Some(u) = state.unit_mut(*target) {
                 u.hp = (u.hp - final_dmg.round() as i32).max(0);
+                // Stage 1 dual-write: keep pools[Hp] in sync with hp/max_hp.
+                u.pools[crate::PoolKind::Hp] = Some((u.hp, u.max_hp));
+                u.assert_hp_pool_sync();
                 u.hp
             } else {
                 0
@@ -395,6 +398,9 @@ pub fn apply_effect(
                 if let Some(u) = state.unit_mut(*target) {
                     let before = u.hp;
                     u.hp = (u.hp + remaining).min(u.max_hp);
+                    // Stage 1 dual-write: keep pools[Hp] in sync with hp/max_hp.
+                    u.pools[crate::PoolKind::Hp] = Some((u.hp, u.max_hp));
+                    u.assert_hp_pool_sync();
                     u.hp - before
                 } else {
                     0
@@ -420,6 +426,9 @@ pub fn apply_effect(
                 match kind {
                     ResourceKind::Hp => {
                         u.hp = (u.hp - amount).max(0);
+                        // Stage 1 dual-write: keep pools[Hp] in sync with hp/max_hp.
+                        u.pools[crate::PoolKind::Hp] = Some((u.hp, u.max_hp));
+                        u.assert_hp_pool_sync();
                     }
                     ResourceKind::Mana => {
                         if let Some((pc, max)) = u.pools[crate::PoolKind::Mana].as_mut() {
@@ -538,6 +547,9 @@ pub fn apply_effect(
 
             if let Some(u) = state.unit_mut(*unit) {
                 u.hp = 0;
+                // Stage 1 dual-write: keep pools[Hp] in sync with hp/max_hp.
+                u.pools[crate::PoolKind::Hp] = Some((0, u.max_hp));
+                u.assert_hp_pool_sync();
             }
 
             let mut derived: Vec<Effect> = statuses_to_clean
@@ -623,6 +635,9 @@ pub fn apply_effect(
                 // can fuse into a single DotDamaged event without emitting UnitDamaged).
                 let hp_after = if let Some(u) = state.unit_mut(*target) {
                     u.hp = (u.hp - final_amount).max(0);
+                    // Stage 1 dual-write: keep pools[Hp] in sync with hp/max_hp.
+                    u.pools[crate::PoolKind::Hp] = Some((u.hp, u.max_hp));
+                    u.assert_hp_pool_sync();
                     u.hp
                 } else {
                     0
@@ -756,6 +771,9 @@ pub fn apply_effect(
                 u.max_hp = *max_hp;
                 // Clamp current hp to new max in case it exceeds it.
                 u.hp = u.hp.min(u.max_hp);
+                // Stage 1 dual-write: keep pools[Hp] in sync with hp/max_hp.
+                u.pools[crate::PoolKind::Hp] = Some((u.hp, u.max_hp));
+                u.assert_hp_pool_sync();
             }
             (vec![], ApplyCtx::default())
         }
@@ -852,6 +870,8 @@ pub fn apply_effect(
 
             let new_uid = state.alloc_synthetic_uid();
             let spawn_pools = enum_map::enum_map! {
+                // Stage 1 dual-write: pools[Hp] mirrors hp/max_hp fields.
+                crate::PoolKind::Hp     => Some((template.max_hp, template.max_hp)),
                 crate::PoolKind::Mana   => if template.mana_max   > 0 { Some((template.mana_max,   template.mana_max))   } else { None },
                 crate::PoolKind::Rage   => if template.rage_max   > 0 { Some((0,                   template.rage_max))   } else { None },
                 crate::PoolKind::Energy => if template.energy_max > 0 { Some((template.energy_max, template.energy_max)) } else { None },

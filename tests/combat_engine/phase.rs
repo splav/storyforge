@@ -41,6 +41,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => Some((hp, max_hp)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
             PoolKind::Energy => None,
@@ -48,6 +49,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
             PoolKind::Mp     => Some((3, 3)),
         },
         regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),
@@ -87,6 +89,7 @@ fn make_attacker(id: u64) -> Unit {
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => Some((30, 30)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
             PoolKind::Energy => None,
@@ -94,6 +97,7 @@ fn make_attacker(id: u64) -> Unit {
             PoolKind::Mp     => Some((3, 3)),
         },
         regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),

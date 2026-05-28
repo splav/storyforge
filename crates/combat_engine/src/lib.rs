@@ -72,16 +72,18 @@ pub enum ResourceKind {
 
 // ── Phase C pool infrastructure ───────────────────────────────────────────────
 
-/// Five spendable / regenerable resource pools per unit.
+/// Six spendable / regenerable resource pools per unit.
 ///
 /// **Iteration order is load-bearing.** Determinism contract: replay-trace
 /// hashing depends on `enum_map::Iter` order, which follows variant
 /// declaration order. Adding a variant in the middle is a SCHEMA bump.
 ///
-/// HP is excluded: its damage / heal / death paths are special-cased throughout
-/// the engine and do not fit the uniform pool model.
+/// `Hp` is the first variant (added Stage 1 of HP-as-pool migration). During
+/// Stages 1–2 it is dual-written alongside `Unit.hp` / `Unit.max_hp` fields.
+/// After Stage 3, `pools[Hp]` becomes the canonical source of truth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, enum_map::Enum, serde::Serialize, serde::Deserialize)]
 pub enum PoolKind {
+    Hp,       // Stage 1: dual-write safety net; becomes canonical in Stage 3
     Mana,
     Rage,
     Energy,

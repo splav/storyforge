@@ -122,6 +122,7 @@ fn map_unit_template(content: &BridgeContentView, id: &str) -> Option<UnitTempla
         auras:        Vec::new(),
         enemy_phases: Vec::new(),
         regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),

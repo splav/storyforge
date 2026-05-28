@@ -295,6 +295,9 @@ impl CombatEvent {
             CombatEvent::PoolChanged { actor, pool, current, max, cause } => {
                 use combat_engine::{PoolKind, PoolChangeCause};
                 let pool_name = match pool {
+                    // Hp pool changes are not shown in the combat log; HP
+                    // events surface via UnitDamaged/UnitHealed entries.
+                    PoolKind::Hp     => return None,
                     PoolKind::Mana   => "мана",
                     PoolKind::Rage   => "ярость",
                     PoolKind::Energy => "энергия",

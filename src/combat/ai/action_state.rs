@@ -53,6 +53,8 @@ impl ActionState for SnapshotActionState<'_> {
             hp: u.hp,
             ap: u.pools[PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
             pools: enum_map::enum_map! {
+                // Hp is not a resource-cost kind for legality checks; excluded.
+                PoolKind::Hp     => None,
                 PoolKind::Mana   => u.pools[PoolKind::Mana].map(|(c, _)| c),
                 PoolKind::Rage   => u.pools[PoolKind::Rage].map(|(c, _)| c),
                 PoolKind::Energy => u.pools[PoolKind::Energy].map(|(c, _)| c),

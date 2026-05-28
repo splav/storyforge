@@ -244,6 +244,12 @@ impl From<UnitWire> for Unit {
                 pools[PoolKind::Energy] = Some(v);
             }
         }
+        // Stage 1 dual-write: ensure pools[Hp] is populated from hp/max_hp.
+        // Older traces pre-dating Stage 1 won't have Hp in pools (it defaults
+        // to None via #[serde(default)]); always overwrite from the authoritative
+        // hp/max_hp fields to establish the invariant on deserialization.
+        pools[crate::PoolKind::Hp] = Some((w.hp, w.max_hp));
+
         Unit {
             id: w.id,
             team: w.team,
@@ -314,6 +320,45 @@ impl<'de> serde::Deserialize<'de> for Unit {
 impl Unit {
     pub fn is_alive(&self) -> bool {
         self.hp > 0
+    }
+
+    /// Convenience accessor for current HP.
+    ///
+    /// After the HP-as-pool migration completes (Stage 3), this will read from
+    /// `pools[PoolKind::Hp]`. Currently mirrors `self.hp` (the legacy field).
+    pub fn hp(&self) -> i32 {
+        self.hp
+    }
+
+    /// Convenience accessor for max HP.
+    ///
+    /// After the HP-as-pool migration completes (Stage 3), this will read from
+    /// `pools[PoolKind::Hp].unwrap().1`. Currently mirrors `self.max_hp`.
+    pub fn max_hp(&self) -> i32 {
+        self.max_hp
+    }
+
+    /// Debug assertion: `pools[Hp]` must mirror `self.hp` / `self.max_hp`.
+    ///
+    /// Called after each HP-mutating effect during debug builds to catch
+    /// dual-write gaps introduced during the Stage 1 migration.
+    #[inline]
+    pub fn assert_hp_pool_sync(&self) {
+        #[cfg(debug_assertions)]
+        {
+            let pool = self.pools[crate::PoolKind::Hp]
+                .expect("pools[Hp] must be Some for every unit after Stage 1 dual-write");
+            assert_eq!(
+                pool.0, self.hp,
+                "pools[Hp].0 ({}) != self.hp ({}) — dual-write gap",
+                pool.0, self.hp
+            );
+            assert_eq!(
+                pool.1, self.max_hp,
+                "pools[Hp].1 ({}) != self.max_hp ({}) — dual-write gap",
+                pool.1, self.max_hp
+            );
+        }
     }
 
     /// Check whether this unit should enter a new phase after its HP dropped

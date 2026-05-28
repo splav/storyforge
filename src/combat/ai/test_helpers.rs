@@ -326,6 +326,8 @@ impl UnitBuilder {
             auras: Vec::new(),
             enemy_phases: Vec::new(),
             pools: combat_engine::enum_map::enum_map! {
+                // Stage 1 dual-write: pools[Hp] mirrors hp/max_hp fields.
+                combat_engine::PoolKind::Hp     => Some((u.hp, u.max_hp)),
                 combat_engine::PoolKind::Mana   => u.mana,
                 combat_engine::PoolKind::Rage   => u.rage,
                 combat_engine::PoolKind::Energy => u.energy,
@@ -333,6 +335,7 @@ impl UnitBuilder {
                 combat_engine::PoolKind::Mp     => Some((u.movement_points, u.movement_points)),
             },
             regen_per_pool: combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
                 combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
@@ -415,6 +418,8 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         pools: combat_engine::enum_map::enum_map! {
+            // Stage 1 dual-write: pools[Hp] mirrors hp/max_hp fields.
+            combat_engine::PoolKind::Hp     => Some((u.hp, u.max_hp)),
             combat_engine::PoolKind::Mana   => u.mana,
             combat_engine::PoolKind::Rage   => u.rage,
             combat_engine::PoolKind::Energy => u.energy,
@@ -422,6 +427,7 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
             combat_engine::PoolKind::Mp     => Some((u.movement_points, u.movement_points)),
         },
         regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
             combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),

@@ -51,7 +51,11 @@ use crate::{
 /// `Unit` struct. `Event::PoolChanged` is the sole canonical pool-mutation
 /// event; legacy `ManaRegenerated`/`EnergyRegenerated`/`RageGained` aliases
 /// dropped. Old v41 traces are incompatible (clean break).
-pub const SCHEMA_VERSION: u32 = 42;
+/// v43: HP-as-pool Stage 1 — `PoolKind::Hp` variant added as first element.
+/// `pools` EnumMap shape changed (6 pools instead of 5); serialized
+/// representation and `enum_map::Iter` order both shift. Old v42 traces are
+/// incompatible — clean break.
+pub const SCHEMA_VERSION: u32 = 43;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

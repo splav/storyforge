@@ -657,6 +657,7 @@ fn summoned_unit_can_act_in_ai_turn() {
         auras: vec![],
         enemy_phases: vec![],
         pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => Some((20, 20)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
             PoolKind::Energy => None,
@@ -664,6 +665,7 @@ fn summoned_unit_can_act_in_ai_turn() {
             PoolKind::Mp     => Some((4, 4)),
         },
         regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),

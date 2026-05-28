@@ -262,6 +262,7 @@ fn magister_skips_turns() {
             auras: vec![],
             enemy_phases: vec![],
             pools: storyforge::combat_engine::enum_map::enum_map! {
+                PoolKind::Hp     => Some((10, 10)),
                 PoolKind::Mana   => None,
                 PoolKind::Rage   => None,
                 PoolKind::Energy => None,
@@ -269,6 +270,7 @@ fn magister_skips_turns() {
                 PoolKind::Mp     => Some((3, 3)),
             },
             regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+                PoolKind::Hp     => RegenRule::None,
                 PoolKind::Mana   => RegenRule::Increment(1),
                 PoolKind::Rage   => RegenRule::None,
                 PoolKind::Energy => RegenRule::Increment(1),
@@ -397,6 +399,7 @@ fn apply_initial_statuses_engine_side() {
         auras: vec![],
         enemy_phases: vec![],
         pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => Some((10, 10)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
             PoolKind::Energy => None,
@@ -404,6 +407,7 @@ fn apply_initial_statuses_engine_side() {
             PoolKind::Mp     => Some((3, 3)),
         },
         regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),
@@ -441,6 +445,7 @@ fn apply_initial_statuses_engine_side() {
                     auras: vec![],
                     enemy_phases: vec![],
                     regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+                        PoolKind::Hp     => RegenRule::None,
                         PoolKind::Mana   => RegenRule::Increment(1),
                         PoolKind::Rage   => RegenRule::None,
                         PoolKind::Energy => RegenRule::Increment(1),

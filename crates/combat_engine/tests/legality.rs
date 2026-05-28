@@ -52,6 +52,7 @@ impl ActionState for TestState {
                 hp: 10,
                 ap: 5,
                 pools: combat_engine::enum_map::enum_map! {
+                    combat_engine::PoolKind::Hp     => None,
                     combat_engine::PoolKind::Mana   => None,
                     combat_engine::PoolKind::Rage   => None,
                     combat_engine::PoolKind::Energy => None,
@@ -222,6 +223,7 @@ fn default_action_state_returns_no_los_blocking() {
                     team: Team::Player,
                     hp: 10, ap: 5,
                     pools: combat_engine::enum_map::enum_map! {
+                        combat_engine::PoolKind::Hp     => None,
                         combat_engine::PoolKind::Mana   => None,
                         combat_engine::PoolKind::Rage   => None,
                         combat_engine::PoolKind::Energy => None,

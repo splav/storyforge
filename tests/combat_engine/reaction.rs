@@ -51,6 +51,7 @@ fn make_unit(id: u64, team: Team, reactions: i32) -> Unit {
         auras: Vec::new(),
         enemy_phases: Vec::new(),
         pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => Some((20, 20)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
             PoolKind::Energy => None,
@@ -58,6 +59,7 @@ fn make_unit(id: u64, team: Team, reactions: i32) -> Unit {
             PoolKind::Mp     => Some((4, 4)),
         },
         regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
             PoolKind::Energy => RegenRule::Increment(1),
