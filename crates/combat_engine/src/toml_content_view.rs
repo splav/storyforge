@@ -290,6 +290,9 @@ struct TemplateRecord {
     /// Statuses applied at bootstrap with PERMANENT_DURATION.
     #[serde(default)]
     initial_statuses: Vec<String>,
+    /// Optional starting pool values. Keys: hp, mana, rage, energy, ap, mp.
+    #[serde(default)]
+    initial_pools: std::collections::HashMap<String, i32>,
 }
 
 #[derive(Deserialize)]
@@ -668,6 +671,17 @@ fn convert_template(
             .into_iter()
             .map(|s| crate::StatusId::from(s.as_str()))
             .collect(),
+        initial_pools: {
+            let map = &r.initial_pools;
+            enum_map::enum_map! {
+                crate::PoolKind::Hp     => map.get("hp").copied(),
+                crate::PoolKind::Mana   => map.get("mana").copied(),
+                crate::PoolKind::Rage   => map.get("rage").copied(),
+                crate::PoolKind::Energy => map.get("energy").copied(),
+                crate::PoolKind::Ap     => map.get("ap").copied(),
+                crate::PoolKind::Mp     => map.get("mp").copied(),
+            }
+        },
     };
 
     (r.id, tpl)

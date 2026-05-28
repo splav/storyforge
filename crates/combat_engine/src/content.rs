@@ -227,6 +227,10 @@ pub struct UnitTemplate {
     /// with `PERMANENT_DURATION`. Used for non-acting party NPCs that must
     /// skip every turn (e.g. `stunned` on `wounded_magister`).
     pub initial_statuses: Vec<crate::StatusId>,
+    /// Optional starting pool values. `None` → default per-kind policy
+    /// (Hp/Mana/Energy/Ap/Mp = max; Rage = 0). Clamped to [0, pool_max] at spawn.
+    /// Populated from TOML `initial_pools = { hp = 6 }` on the template record.
+    pub initial_pools: enum_map::EnumMap<crate::PoolKind, Option<i32>>,
 }
 
 // ── Aura types (Phase 4 step 4c) ─────────────────────────────────────────────

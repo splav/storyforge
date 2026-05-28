@@ -69,7 +69,10 @@ fn spawn_combatants(
             let effective = content.effective_stats(&tpl.stats, &equipment);
             let armor = content.equipment_armor(&equipment);
             let role = infer_profile(&tpl.ability_ids, effective.max_hp, armor, content, tag_cache);
-            let vital = Vital { hp: effective.max_hp, max_hp: effective.max_hp, armor };
+            let initial_hp = tpl.initial_pools.get("hp").copied()
+                .unwrap_or(effective.max_hp)
+                .clamp(1, effective.max_hp);
+            let vital = Vital { hp: initial_hp, max_hp: effective.max_hp, armor };
             let mut ec = commands.spawn((
                 Name::new(member.name.clone()),
                 Combatant,

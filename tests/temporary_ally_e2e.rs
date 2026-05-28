@@ -94,12 +94,13 @@ fn spawn_enemy_at(app: &mut App, hex: hexx::Hex) -> Entity {
 /// Mirrors what `spawn_combatants` does for template-based party members.
 /// `initial_statuses` are applied engine-side by `bootstrap_combat_state` via
 /// `CombatState::apply_initial_statuses` — no bridge-side StatusEffects injection.
+/// HP reflects `initial_pools = { hp = 4 }` with `max_hp = 8` from TOML.
 fn spawn_magister(app: &mut App, hex: hexx::Hex) -> Entity {
     let entity = app.world_mut().spawn((
         Name::new("Магистр"),
         Combatant,
         Faction(Team::Player),
-        Vital { hp: 6, max_hp: 6, armor: 0 },
+        Vital { hp: 4, max_hp: 8, armor: 0 },
         Speed(0),
         ActionPoints { action_points: 1, max_ap: 1, movement_points: 0 },
         Reactions { remaining: 1, max: 1 },
@@ -182,6 +183,30 @@ fn magister_spawns_into_combat_state_units() {
         3,
         "all 3 units (hero + magister + enemy) must be in engine state"
     );
+}
+
+/// Магистр starts combat with hp()=4 / max_hp()=8 — reflecting `initial_pools = { hp = 4 }`
+/// and `max_hp = 8` in the template. Verifies the bridge `from_ecs` path carries Vital.hp
+/// correctly into engine `pools[Hp]`.
+#[test]
+fn magister_enters_combat_with_initial_hp_from_template() {
+    let mut app = movement_app();
+    spawn_hero(&mut app, hexx::Hex::new(1, 1));
+    let magister_entity = spawn_magister(&mut app, hexx::Hex::new(6, 4));
+    spawn_enemy_at(&mut app, hexx::Hex::new(2, 2));
+
+    app.world_mut()
+        .run_system_once(build_turn_order)
+        .expect("build_turn_order failed");
+    init_engine_state(&mut app);
+
+    let id_map = app.world().resource::<UnitIdMap>();
+    let magister_uid = id_map.get_id(magister_entity)
+        .expect("Магистр must be in UnitIdMap");
+    let state = app.world().resource::<CombatStateRes>();
+    let unit = state.0.unit(magister_uid).expect("Магистр in engine state");
+    assert_eq!(unit.hp(),     4, "wounded magister must enter combat with hp=4 (initial_pools)");
+    assert_eq!(unit.max_hp(), 8, "wounded magister must have max_hp=8 from template stats");
 }
 
 /// At combat start, Магистр has `stunned` status with `PERMANENT_DURATION` in engine.
@@ -449,6 +474,14 @@ fn apply_initial_statuses_engine_side() {
                         PoolKind::Mp     => RegenRule::RefillToMax,
                     },
                     initial_statuses: vec![EngineStatusId::from("stunned")],
+                    initial_pools: storyforge::combat_engine::enum_map::enum_map! {
+                        PoolKind::Hp     => None,
+                        PoolKind::Mana   => None,
+                        PoolKind::Rage   => None,
+                        PoolKind::Energy => None,
+                        PoolKind::Ap     => None,
+                        PoolKind::Mp     => None,
+                    },
                 })
             } else {
                 None

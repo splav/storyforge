@@ -1287,6 +1287,7 @@ fn cast_summon_creates_ecs_entity_synchronously() {
         ability_ids: vec![],
         ai_tuning_override: None,
         initial_statuses: vec![],
+        initial_pools: std::collections::HashMap::new(),
     };
 
     let mut app = common::apps::bridge::bridge_app();

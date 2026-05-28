@@ -1097,6 +1097,14 @@ fn test_template() -> UnitTemplate {
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
         initial_statuses: Vec::new(),
+        initial_pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => None,
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => None,
+            PoolKind::Mp     => None,
+        },
     }
 }
 
@@ -1168,6 +1176,57 @@ fn spawn_applies_initial_statuses_to_summoned_unit() {
     );
     assert_eq!(spawned.template_id.as_deref(), Some("frozen_imp"),
         "spawned unit must record template_id for future apply paths");
+}
+
+/// `initial_pools[Hp]` override: template with max_hp=10 and initial_pools[hp]=5
+/// must spawn a unit with hp()=5, max_hp()=10.
+#[test]
+fn spawn_respects_initial_pools_override() {
+    use storyforge::combat_engine::PoolKind;
+
+    let summoner = make_unit(1, 20, 20);
+    let mut state = state_with(vec![summoner]);
+
+    let mut tpl = test_template();
+    tpl.max_hp = 10;
+    tpl.initial_pools[PoolKind::Hp] = Some(5);
+    let content = StubContent::neutral().with_template("wounded", tpl);
+
+    let (_derived, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "wounded".into(), max_active: None },
+        &content,
+    );
+
+    let uid = ctx.spawn_uid.expect("spawn_uid set on success");
+    let spawned = state.unit(uid).expect("new unit present");
+    assert_eq!(spawned.hp(), 5,  "initial_pools[hp]=5 must be applied");
+    assert_eq!(spawned.max_hp(), 10, "max_hp must remain 10");
+}
+
+/// `initial_pools[Hp]` clamp: value > max_hp must be clamped to max_hp.
+#[test]
+fn spawn_clamps_initial_pools_to_max() {
+    use storyforge::combat_engine::PoolKind;
+
+    let summoner = make_unit(1, 20, 20);
+    let mut state = state_with(vec![summoner]);
+
+    let mut tpl = test_template();
+    tpl.max_hp = 10;
+    tpl.initial_pools[PoolKind::Hp] = Some(999);
+    let content = StubContent::neutral().with_template("overheal", tpl);
+
+    let (_derived, ctx) = apply_effect(
+        &mut state,
+        &Effect::Spawn { summoner: UnitId(1), template_id: "overheal".into(), max_active: None },
+        &content,
+    );
+
+    let uid = ctx.spawn_uid.expect("spawn_uid set on success");
+    let spawned = state.unit(uid).expect("new unit present");
+    assert_eq!(spawned.hp(), 10, "initial_pools value must be clamped to max_hp");
+    assert_eq!(spawned.max_hp(), 10);
 }
 
 #[test]
@@ -1377,6 +1436,14 @@ fn melee_template() -> UnitTemplate {
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
         initial_statuses: Vec::new(),
+        initial_pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => None,
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => None,
+            PoolKind::Mp     => None,
+        },
     }
 }
 

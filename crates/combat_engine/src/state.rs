@@ -837,6 +837,41 @@ pub(crate) fn apply_template_initial_statuses(unit: &mut Unit, template: &UnitTe
     }
 }
 
+/// Resolve starting pool value for `kind` given a template, applying the
+/// optional `initial_pools` override and clamping to `[0, pool_max]`.
+///
+/// Returns `None` if this pool kind is absent for the template (i.e. max is 0
+/// for non-Hp pools). `Hp` is always `Some`.
+///
+/// Default policy when no override is set:
+/// - `Rage` → 0 (empty start).
+/// - All others → max.
+pub(crate) fn template_starting_pool(
+    template: &crate::content::UnitTemplate,
+    kind: crate::PoolKind,
+) -> Option<(i32, i32)> {
+    let max = match kind {
+        crate::PoolKind::Hp     => template.max_hp,
+        crate::PoolKind::Mana   => template.mana_max,
+        crate::PoolKind::Rage   => template.rage_max,
+        crate::PoolKind::Energy => template.energy_max,
+        crate::PoolKind::Ap     => template.max_ap,
+        crate::PoolKind::Mp     => template.base_speed,
+    };
+    // Non-Hp pools are absent when max == 0.
+    if max == 0 && kind != crate::PoolKind::Hp {
+        return None;
+    }
+    let default_current = match kind {
+        crate::PoolKind::Rage => 0,
+        _                     => max,
+    };
+    let current = template.initial_pools[kind]
+        .unwrap_or(default_current)
+        .clamp(0, max);
+    Some((current, max))
+}
+
 impl CombatState {
     // ── Aura query helpers (Phase 4 step 4c) ─────────────────────────────────
 

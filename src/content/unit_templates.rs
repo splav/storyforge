@@ -32,6 +32,10 @@ pub struct UnitTemplateDef {
     /// Used for non-acting party NPCs that must skip every turn
     /// (e.g. `stunned` on `wounded_magister`).
     pub initial_statuses: Vec<String>,
+    /// Optional starting pool overrides (per-kind). `None` for a kind →
+    /// default policy (Hp/Mana/Energy/Ap/Mp = max; Rage = 0).
+    /// Populated from TOML `initial_pools = { hp = 6 }`.
+    pub initial_pools: std::collections::HashMap<String, i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +75,11 @@ pub struct TemplateRecord {
     pub ai_tuning_override: Option<AiTuningOverride>,
     #[serde(default)]
     pub initial_statuses: Vec<String>,
+    /// Optional starting pool values. TOML format: `initial_pools = { hp = 6 }`.
+    /// Keys are lowercase pool kind names (hp, mana, rage, energy, ap, mp).
+    /// Absent keys → default per-kind policy (see `template_starting_pool`).
+    #[serde(default)]
+    pub initial_pools: std::collections::HashMap<String, i32>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -179,5 +188,6 @@ pub fn convert_template_record(r: TemplateRecord) -> UnitTemplateDef {
             .collect(),
         ai_tuning_override: r.ai_tuning_override,
         initial_statuses: r.initial_statuses,
+        initial_pools: r.initial_pools,
     }
 }

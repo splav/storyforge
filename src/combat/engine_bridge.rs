@@ -421,6 +421,17 @@ fn build_engine_template_from_def(
             .iter()
             .map(|s| combat_engine::StatusId::from(s.as_str()))
             .collect(),
+        initial_pools: {
+            let map = &tpl.initial_pools;
+            combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Hp     => map.get("hp").copied(),
+                combat_engine::PoolKind::Mana   => map.get("mana").copied(),
+                combat_engine::PoolKind::Rage   => map.get("rage").copied(),
+                combat_engine::PoolKind::Energy => map.get("energy").copied(),
+                combat_engine::PoolKind::Ap     => map.get("ap").copied(),
+                combat_engine::PoolKind::Mp     => map.get("mp").copied(),
+            }
+        },
     }
 }
 

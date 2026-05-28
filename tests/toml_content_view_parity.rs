@@ -133,6 +133,17 @@ fn map_unit_template(content: &BridgeContentView, id: &str) -> Option<UnitTempla
             .iter()
             .map(|s| storyforge::combat_engine::StatusId::from(s.as_str()))
             .collect(),
+        initial_pools: {
+            let map = &tpl.initial_pools;
+            storyforge::combat_engine::enum_map::enum_map! {
+                PoolKind::Hp     => map.get("hp").copied(),
+                PoolKind::Mana   => map.get("mana").copied(),
+                PoolKind::Rage   => map.get("rage").copied(),
+                PoolKind::Energy => map.get("energy").copied(),
+                PoolKind::Ap     => map.get("ap").copied(),
+                PoolKind::Mp     => map.get("mp").copied(),
+            }
+        },
     })
 }
 

@@ -873,12 +873,12 @@ pub fn apply_effect(
                 template.auras.clone(),
                 template.enemy_phases.clone(),
                 enum_map::enum_map! {
-                    crate::PoolKind::Hp     => Some((template.max_hp, template.max_hp)),
-                    crate::PoolKind::Mana   => if template.mana_max   > 0 { Some((template.mana_max,   template.mana_max))   } else { None },
-                    crate::PoolKind::Rage   => if template.rage_max   > 0 { Some((0,                   template.rage_max))   } else { None },
-                    crate::PoolKind::Energy => if template.energy_max > 0 { Some((template.energy_max, template.energy_max)) } else { None },
-                    crate::PoolKind::Ap     => Some((template.max_ap,     template.max_ap)),
-                    crate::PoolKind::Mp     => Some((template.base_speed, template.base_speed)),
+                    crate::PoolKind::Hp     => crate::state::template_starting_pool(&template, crate::PoolKind::Hp),
+                    crate::PoolKind::Mana   => crate::state::template_starting_pool(&template, crate::PoolKind::Mana),
+                    crate::PoolKind::Rage   => crate::state::template_starting_pool(&template, crate::PoolKind::Rage),
+                    crate::PoolKind::Energy => crate::state::template_starting_pool(&template, crate::PoolKind::Energy),
+                    crate::PoolKind::Ap     => crate::state::template_starting_pool(&template, crate::PoolKind::Ap),
+                    crate::PoolKind::Mp     => crate::state::template_starting_pool(&template, crate::PoolKind::Mp),
                 },
                 template.regen_per_pool,
                 // Track template id so initial_statuses can be applied below

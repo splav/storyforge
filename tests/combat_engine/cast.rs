@@ -1113,6 +1113,14 @@ fn imp_template() -> UnitTemplate {
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
         initial_statuses: Vec::new(),
+        initial_pools: storyforge::combat_engine::enum_map::enum_map! {
+            PoolKind::Hp     => None,
+            PoolKind::Mana   => None,
+            PoolKind::Rage   => None,
+            PoolKind::Energy => None,
+            PoolKind::Ap     => None,
+            PoolKind::Mp     => None,
+        },
     }
 }
 

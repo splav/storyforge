@@ -42,11 +42,12 @@ race  = "human"
 path  = "faith"
 speed = 0
 
-stats     = { max_hp = 6, strength = 0, dexterity = 0, constitution = 2, intelligence = 4, wisdom = 4, charisma = 2 }
+stats     = { max_hp = 8, strength = 0, dexterity = 0, constitution = 2, intelligence = 4, wisdom = 4, charisma = 2 }
 equipment = { main_hand = "staff", chest = "mage_robe", legs = "cloth_pants", feet = "cloth_shoes" }
 
 ability_ids      = []
 initial_statuses = ["stunned"]
+initial_pools    = { hp = 4 }    # раненый — стартует с половиной HP
 
 # Культистский солдат — рядовой враг для ch2.
 [[unit_templates]]

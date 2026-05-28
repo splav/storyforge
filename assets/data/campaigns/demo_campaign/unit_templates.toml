@@ -30,11 +30,12 @@ race    = "human"
 faction = "aurum"
 speed   = 0
 
-stats     = { max_hp = 6, strength = 2, dexterity = 0, constitution = 2, intelligence = 0, wisdom = 0, charisma = 0 }
+stats     = { max_hp = 12, strength = 2, dexterity = 0, constitution = 2, intelligence = 0, wisdom = 0, charisma = 0 }
 equipment = { main_hand = "short_sword", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
 
 ability_ids      = []
 initial_statuses = ["stunned"]
+initial_pools    = { hp = 6 }    # раненый — стартует с половиной HP
 
 # Слабый мелкий призывной юнит. Шаблон используется способностью `summon_storm_spirit`.
 [[unit_templates]]
