@@ -10,7 +10,7 @@ race    = "human"
 faction = "aurum"
 class   = "warrior"
 hex_col = 1
-hex_row = 2
+hex_row = 5
 
 [[party]]
 name    = "Lyra"
@@ -19,7 +19,7 @@ faction = "askeria"
 path    = "will"
 class   = "mage"
 hex_col = 1
-hex_row = 4
+hex_row = 6
 
 [[scenes]]
 type = "story"
@@ -38,8 +38,8 @@ lines = [
 name     = "Раненый разведчик"
 race     = "human"
 template = "wounded_scout"
-hex_col  = 4
-hex_row  = 3
+hex_col  = 0
+hex_row  = 1
 
 [[scenes]]
 type = "combat"
@@ -68,7 +68,7 @@ name    = "Kael"
 race    = "human"
 class   = "ranger"
 hex_col = 0
-hex_row = 3
+hex_row = 5
 
 [[scenes]]
 type = "combat"
