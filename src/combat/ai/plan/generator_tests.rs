@@ -729,6 +729,82 @@
         }
     }
 
+
+    /// F6: AI plan generator must not propose a Cast through a static obstacle
+    /// when the ability has `requires_los = true`. Previously verified only at
+    /// `check_legality` unit level; this exercises the full pipeline.
+    ///
+    /// Two-phase: a negative control (no obstacle → Cast IS proposed) sandwich
+    /// confirms the planner *is* willing to cast at this target absent LOS
+    /// blockage, ensuring the positive assertion isn't a false-positive caused
+    /// by some other gate excluding the cast unconditionally.
+    #[test]
+    fn generate_plans_excludes_los_blocked_cast() {
+        use crate::combat::ai::world::tags::cache::build_caches;
+
+        // Use "strike" (already in unit() builder's known-ability list) and
+        // reconfigure it as a ranged LOS-required attack via the content map.
+        let make_setup = || {
+            let actor = unit(1, Team::Enemy, hex_from_offset(0, 0), 20, 1);
+            let enemy = unit(2, Team::Player, hex_from_offset(4, 0), 20, 1);
+            let actor_id = actor.entity;
+            let enemy_id = enemy.entity;
+
+            let mut def = strike_def("strike", 5, 1);
+            def.engine.requires_los = true;
+            let mut content = empty_content();
+            content.abilities.insert(def.id.clone(), def.clone());
+
+            let mut difficulty = DifficultyProfile::hard();
+            difficulty.plan_max_depth = 1;
+
+            (actor, enemy, actor_id, enemy_id, content, difficulty)
+        };
+
+        let snap_has_cast_at = |snap: &crate::combat::ai::world::snapshot::BattleSnapshot,
+                                content: &crate::content::content_view::ContentView,
+                                difficulty: &DifficultyProfile,
+                                actor_id, target_id| {
+            let (status_tag_cache, ability_tag_cache) = build_caches(content);
+            let ctx = AiWorld {
+                content,
+                difficulty,
+                tuning: &content.ai_tuning,
+                crit_fail_chance: 0.0,
+                ability_tags: &ability_tag_cache,
+                status_tags: &status_tag_cache,
+            };
+            let plans = generate_plans(actor_id, &ctx, snap, &empty_maps());
+            plans.iter().any(|p| p.steps.iter().any(|s| {
+                matches!(s, PlanStep::Cast { target, .. } if *target == target_id)
+            }))
+        };
+
+        // ── Phase 1 — negative control: WITHOUT obstacle, planner must
+        //    propose at least one Cast at the enemy. Otherwise the positive
+        //    assertion below would be vacuous.
+        {
+            let (actor, enemy, actor_id, enemy_id, content, difficulty) = make_setup();
+            let snap = snapshot_from(vec![actor, enemy], 1);
+            assert!(
+                snap_has_cast_at(&snap, &content, &difficulty, actor_id, enemy_id),
+                "control: planner must propose at least one Cast at the enemy when LOS is clear",
+            );
+        }
+
+        // ── Phase 2 — positive assertion: WITH obstacle on the line,
+        //    planner must NOT propose a Cast at the obstructed enemy.
+        {
+            let (actor, enemy, actor_id, enemy_id, content, difficulty) = make_setup();
+            let mut snap = snapshot_from(vec![actor, enemy], 1);
+            snap.state.blocked_hexes.insert(hex_from_offset(2, 0));
+            assert!(
+                !snap_has_cast_at(&snap, &content, &difficulty, actor_id, enemy_id),
+                "planner leaked a Cast through obstacle when requires_los=true",
+            );
+        }
+    }
+
     /// Regression: AI must respect `blocks_mana_abilities` at planning time.
     /// Pre-arch-D the planner only checked `can_afford` (AP + resource amount),
     /// missing the status flag — so a unit under `broken_faith` would plan
