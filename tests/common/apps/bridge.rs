@@ -74,25 +74,7 @@ pub fn bridge_app() -> App {
         .init_resource::<AnimationQueue>()
         .insert_resource(HexGridOffset(Vec2::ZERO))
         .insert_resource(AbilityTagCache::default())
-        .insert_resource(HexMaterials {
-            empty: Handle::default(),
-            player: Handle::default(),
-            enemy: Handle::default(),
-            dead: Handle::default(),
-            in_range: Handle::default(),
-            in_range_dim: Handle::default(),
-            move_range: Handle::default(),
-            border_active: Handle::default(),
-            border_target: Handle::default(),
-            border_in_range: Handle::default(),
-            border_in_range_dim: Handle::default(),
-            border_move: Handle::default(),
-            aoe_preview: Handle::default(),
-            border_aoe: Handle::default(),
-            token_player: Handle::default(),
-            token_enemy: Handle::default(),
-            token_dead: Handle::default(),
-        })
+        .insert_resource(HexMaterials::default())
         .insert_resource(TokenMesh {
             token: Handle::default(),
             ring: Handle::default(),

@@ -200,25 +200,7 @@ fn bootstrap_combat_state_populates_blocked_hexes() {
         .init_resource::<storyforge::ui::animation::AnimationQueue>()
         .insert_resource(storyforge::ui::hex_grid::HexGridOffset(bevy::math::Vec2::ZERO))
         .insert_resource(storyforge::combat::ai::world::tags::AbilityTagCache::default())
-        .insert_resource(storyforge::ui::hex_grid::HexMaterials {
-            empty: Handle::default(),
-            player: Handle::default(),
-            enemy: Handle::default(),
-            dead: Handle::default(),
-            in_range: Handle::default(),
-            in_range_dim: Handle::default(),
-            move_range: Handle::default(),
-            border_active: Handle::default(),
-            border_target: Handle::default(),
-            border_in_range: Handle::default(),
-            border_in_range_dim: Handle::default(),
-            border_move: Handle::default(),
-            aoe_preview: Handle::default(),
-            border_aoe: Handle::default(),
-            token_player: Handle::default(),
-            token_enemy: Handle::default(),
-            token_dead: Handle::default(),
-        })
+        .insert_resource(storyforge::ui::hex_grid::HexMaterials::default())
         .insert_resource(storyforge::ui::hex_grid::TokenMesh {
             token: Handle::default(),
             ring: Handle::default(),

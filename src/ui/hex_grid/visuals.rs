@@ -216,11 +216,24 @@ pub fn update_hex_visuals(
                         .filter(|ab| ab.target_type != TargetType::Myself && ab.range.max > 0),
                 );
             if let Some((actor_pos, ab)) = info {
+                // LOS filter: for abilities that require line-of-sight, exclude
+                // cells the hex-line algorithm would block via `state.blocked_hexes`.
+                // Without this the overlay shows cells that look reachable but
+                // get rejected by check_legality at cast time (UI lie).
+                let needs_los = ab.requires_los && ab.range.max > 1;
+                let blocked = &engine_state.0.blocked_hexes;
                 cells
                     .iter()
                     .filter(|(_, &hc, _)| {
                         let d = actor_pos.unsigned_distance_to(hc);
-                        d >= ab.range.min && d <= ab.range.max
+                        if d < ab.range.min || d > ab.range.max {
+                            return false;
+                        }
+                        if needs_los {
+                            crate::game::hex::has_los(actor_pos, hc, |mid| blocked.contains(&mid))
+                        } else {
+                            true
+                        }
                     })
                     .map(|(_, &hc, _)| hc)
                     .collect()
@@ -338,10 +351,14 @@ pub fn update_hex_visuals(
         // corpse tile shows when a unit died on an otherwise empty hex.
         let fill_entity = map.any_at(pos);
 
+        let is_obstacle = engine_state.0.blocked_hexes.contains(&pos);
+
         if let Ok(mut mat) = cell_mats.get_mut(cell_entity) {
             mat.0 = match fill_entity {
                 None => {
-                    if is_aoe {
+                    if is_obstacle {
+                        mats.obstacle.clone()
+                    } else if is_aoe {
                         mats.aoe_preview.clone()
                     } else if is_in_move {
                         mats.move_range.clone()
