@@ -6,7 +6,7 @@ use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::config::role::infer_profile;
 use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
-use crate::game::components::{ActionPoints, AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Faction, Initiative, Mana, Rage, Reactions, Speed, StartingHexPos, Team, TemplateRef, UnitToken, VictoryTarget, KeepAliveTarget, Vital};
+use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Initiative, Mana, Rage, StartingHexPos, TemplateRef, UnitToken, VictoryTarget, KeepAliveTarget, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
@@ -72,24 +72,24 @@ fn spawn_combatants(
             let initial_hp = tpl.initial_pools.get("hp").copied()
                 .unwrap_or(effective.max_hp)
                 .clamp(1, effective.max_hp);
-            let vital = Vital { hp: initial_hp, max_hp: effective.max_hp, armor };
-            // Speed / ActionPoints / Reactions are required by engine `from_ecs`
-            // CombatantRow query — without them the entity won't make it into
-            // `CombatState.units` (was an actual bug: wounded_scout in demo
-            // appeared in UI but engine/AI couldn't see him).
+            // Mirror class-branch hero spawn — `hero_bundle` provides every
+            // component the engine `from_ecs` query and AI snapshot cache build
+            // need (Combatant, Faction, Vital, Speed, ActionPoints, Reactions,
+            // Abilities, CombatStats, Equipment). `AiMemory` enables per-unit
+            // AI tracking. Without these the entity appears in UI but is
+            // invisible to AI scoring/target-selection.
             let mut ec = commands.spawn((
                 Name::new(member.name.clone()),
-                Combatant,
-                Faction(Team::Player),
-                vital,
+                hero_bundle(effective.clone(), armor, tpl.speed, tpl.ability_ids.clone(), equipment),
                 StartingHexPos(member.hex_pos),
                 role,
+                AiMemory::default(),
                 TemplateRef(template_id.clone()),
-                Speed(tpl.speed),
-                ActionPoints { action_points: 1, max_ap: 1, movement_points: tpl.speed },
-                Reactions { remaining: 1, max: 1 },
             ));
-            // Pool components — needed by `from_ecs` to populate engine pools.
+            // Override Vital.hp from `initial_pools[hp]` if specified — must
+            // come after hero_bundle which spawned with hp=max_hp by default.
+            ec.insert(Vital { hp: initial_hp, max_hp: effective.max_hp, armor });
+            // Pool components — for templates that declare them.
             if tpl.resources.mana_max > 0 { ec.insert(Mana::new(tpl.resources.mana_max)); }
             if tpl.resources.rage_max > 0 { ec.insert(Rage::new(tpl.resources.rage_max)); }
             if tpl.resources.energy_max > 0 { ec.insert(Energy::new(tpl.resources.energy_max)); }
