@@ -15,7 +15,8 @@ use crate::combat::ai::outcome::PlanAnnotation;
 use crate::combat::ai::plan::types::TurnPlan;
 use crate::combat::ai::world::tags::AiTags;
 use crate::combat::ai::orchestration::ScoringCtx;
-use crate::game::hex::has_los;
+use crate::game::hex::{has_los, in_bounds};
+use hexx::Hex;
 use std::collections::HashSet;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -52,8 +53,8 @@ impl PlanCritic for BlindspotRanged {
             return None;
         }
 
-        // LoS blockers: occupied tiles of LIVING units, excluding the actor's
-        // final position and the target enemy itself (mirrors sanity rule).
+        // LoS blockers: live unit positions + static obstacles. Both block the
+        // intermediate hexes of `has_los`; the function itself skips endpoints.
         let occupied: HashSet<_> = ctx
             .snap
             .state
@@ -62,15 +63,42 @@ impl PlanCritic for BlindspotRanged {
             .filter(|u| u.is_alive())
             .map(|u| u.pos)
             .collect();
+        let obstacles = &ctx.snap.state.blocked_hexes;
 
         let final_pos = plan.final_pos;
-        let can_see_any = enemies.iter().any(|e| {
-            has_los(final_pos, e.pos, |mid| {
-                occupied.contains(&mid) && mid != final_pos && mid != e.pos
-            })
-        });
 
-        if can_see_any {
+        // `ignore` is treated as transparent — used so the kite-yard probe
+        // doesn't get blocked by the actor's own final_pos (he moves away).
+        let visible_from = |from: Hex, ignore: Option<Hex>| -> bool {
+            enemies.iter().any(|e| {
+                has_los(from, e.pos, |mid| {
+                    (occupied.contains(&mid) || obstacles.contains(&mid))
+                        && mid != from
+                        && mid != e.pos
+                        && Some(mid) != ignore
+                })
+            })
+        };
+
+        // 1. LOS from the final position — actor can shoot this turn.
+        if visible_from(final_pos, None) {
+            return None;
+        }
+
+        // 2. 1-step lookahead — hide-then-shoot tactic. If any walkable
+        //    neighbour has LOS to an enemy, the actor can step out next
+        //    turn and fire, then step back. A neighbour is walkable iff
+        //    in-bounds, not an obstacle, and not currently occupied by a
+        //    living unit (so the actor could move into it). The actor's
+        //    own final_pos is treated as transparent for the probe — he
+        //    won't be standing there when he kites out.
+        let neighbour_has_los = final_pos.all_neighbors().iter().any(|&n| {
+            in_bounds(n)
+                && !obstacles.contains(&n)
+                && !occupied.contains(&n)
+                && visible_from(n, Some(final_pos))
+        });
+        if neighbour_has_los {
             return None;
         }
 
@@ -174,6 +202,11 @@ mod tests {
         let h2 = StageTestHarness::new(ranged_actor);
         assert_stage_critic_passes(&h2, plan, BlindspotRanged);
     }
+
+
+    // ── 1-step lookahead: kite-yard prevents the critic from firing ───────────
+
+    
 
     #[test]
     fn name_is_stable() {
