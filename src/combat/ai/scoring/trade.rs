@@ -37,6 +37,7 @@
 use crate::combat::ai::scoring::horizon::expected_aoo_damage;
 use crate::combat::ai::plan::TurnPlan;
 use crate::combat::ai::world::snapshot::{BattleSnapshot, UnitView};
+use crate::combat::ai::world::tags::AiTags;
 use crate::content::abilities::{EffectCalcExt, StatusOn, TargetType};
 use crate::content::content_view::ContentView;
 
@@ -64,8 +65,15 @@ pub const TRADE_WEIGHT: f32 = 0.5;
 /// contract; the formula is
 ///
 /// ```text
-/// unit_value(u) = lifetime_rounds(u) × (offense + heal + cc).
+/// unit_value(u) = lifetime_rounds(u) × (offense + heal + cc)
+///              + objective_bonus(u)
 /// ```
+///
+/// where `objective_bonus` adds `tuning.thresholds.objective_value_bonus` when
+/// `u` carries `AiTags::OPPONENT_OBJECTIVE` — i.e. the opponent has a
+/// `KeepAlive` condition on that unit. A permanently-stunned NPC would
+/// otherwise score 0 (no offense/heal/cc), which makes AI ignore it even
+/// though killing it triggers defeat for its side.
 ///
 /// Returns `0.0` for dead / inert units — **no floor**. The floor
 /// [`UNIT_VALUE_FLOOR`] is applied at the Phase 3 denominator call-site,
@@ -81,7 +89,13 @@ pub fn unit_value(u: UnitView<'_>, content: &ContentView) -> f32 {
     let life = lifetime_rounds(u);
     let contrib =
         offense_projection(u) + heal_projection(u, content) + cc_projection(u, content);
-    (life * contrib).max(0.0)
+    let base = (life * contrib).max(0.0);
+    let objective_bonus = if u.cache.tags.contains(AiTags::OPPONENT_OBJECTIVE) {
+        content.ai_tuning.thresholds.objective_value_bonus
+    } else {
+        0.0
+    };
+    base + objective_bonus
 }
 
 /// Expected acting rounds remaining. See [`FIXED_LIFETIME_ROUNDS`].
@@ -885,5 +899,45 @@ mod tests {
     #[test]
     fn _ent_helper_available() {
         let _ = ent(42);
+    }
+
+    // ── OPPONENT_OBJECTIVE bonus ──────────────────────────────────────────────
+
+    /// A unit with `AiTags::OPPONENT_OBJECTIVE` but no offensive kit must have
+    /// `unit_value` ≥ that of an active melee hero. This is the central knob:
+    /// the bonus must be large enough to outweigh typical hero values so AI
+    /// prioritizes killing the KeepAlive target in trade economy.
+    #[test]
+    fn objective_tag_outranks_active_hero_with_zero_kit() {
+        let c = content();
+
+        // Active melee hero: threat=8, no mana/rage. unit_value ≈ 2.0 × 8 = 16.
+        let hero = UnitBuilder::new(1, Team::Enemy, hex_from_offset(0, 0))
+            .threat(8.0)
+            .build();
+
+        // Stunned NPC: no abilities, threat=0 — kit value is 0.
+        // Gets OPPONENT_OBJECTIVE tag (normally set from KeepAliveTarget component).
+        let npc = UnitBuilder::new(2, Team::Player, hex_from_offset(1, 0))
+            .threat(0.0)
+            .tags(AiTags::OPPONENT_OBJECTIVE)
+            .build();
+
+        let s = snapshot_from(vec![hero.clone(), npc.clone()], 1);
+        let vh = unit_value(s.unit(hero.entity).unwrap(), &c);
+        let vn = unit_value(s.unit(npc.entity).unwrap(), &c);
+
+        assert!(
+            vn >= vh,
+            "OPPONENT_OBJECTIVE NPC value {vn} should be >= active hero value {vh}",
+        );
+        // Sanity: hero is worth something (formula hasn't broken).
+        assert!(vh > 0.0, "active hero must have non-zero unit_value");
+        // Sanity: bonus is actually applied (NPC kit contributes 0).
+        assert!(
+            vn >= c.ai_tuning.thresholds.objective_value_bonus,
+            "NPC value {vn} must be at least objective_value_bonus {}",
+            c.ai_tuning.thresholds.objective_value_bonus,
+        );
     }
 }

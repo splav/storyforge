@@ -41,6 +41,10 @@ goal_finish_p_kill = 0.6
 #   bonus ≈ 0.4 * 1.6 = 0.64 — ~10-25% of a typical factor_sum (1-3).
 # Calibrated via golden per-entry diff review; starting value 0.4.
 repair_bonus_scale = 0.4
+# Additive bonus to unit_value for units with AiTags::OPPONENT_OBJECTIVE (KeepAlive targets).
+# 80.0 means a stunned KeepAlive NPC (offense=0, heal=0, cc=0) scores higher in trade economy
+# than a typical melee hero (lifetime=2 × threat≈8 ≈ 16), so AI always prefers killing it.
+objective_value_bonus = 80.0
 
 [tables]
 # Per-axis weights for the 10 utility factors.

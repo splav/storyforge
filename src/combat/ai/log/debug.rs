@@ -217,6 +217,7 @@ fn fmt_tags(tags: AiTags) -> String {
     if tags.contains(AiTags::HAS_AOE) { v.push("HAS_AOE"); }
     if tags.contains(AiTags::RANGED) { v.push("RANGED"); }
     if tags.contains(AiTags::MELEE_ONLY) { v.push("MELEE"); }
+    if tags.contains(AiTags::OPPONENT_OBJECTIVE) { v.push("OPPONENT_OBJECTIVE"); }
     if v.is_empty() { "none".into() } else { v.join("|") }
 }
 

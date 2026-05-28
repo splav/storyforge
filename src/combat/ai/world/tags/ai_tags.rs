@@ -15,5 +15,8 @@ bitflags::bitflags! {
         // those are now lazy methods on UnitView / UnitSnapshot.
         const RANGED     = 0b0100_0000;
         const MELEE_ONLY = 0b1000_0000;
+        /// The opponent team has a KeepAlive victory condition on this unit.
+        /// Killing it means defeat for the opponent — high-value target for the actor's side.
+        const OPPONENT_OBJECTIVE = 0b0001_0000_0000;
     }
 }

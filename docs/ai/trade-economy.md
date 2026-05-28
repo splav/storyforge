@@ -9,8 +9,12 @@ Plan-level signed modifier, параллельный `summon_bonus` и `repair_b
 HP-equivalent actor-agnostic ценность юнита:
 
 ```
-unit_value(u) = lifetime_rounds(u) × (offense + heal + cc)
+unit_value(u) = lifetime_rounds(u) × (offense + heal + cc) + objective_bonus(u)
 ```
+
+где `objective_bonus(u)` = `tuning.thresholds.objective_value_bonus` (default 80.0) если юнит несёт `AiTags::OPPONENT_OBJECTIVE`, иначе 0.
+
+**Objective bonus** необходим для stunned/inert NPC, у которых offense=0, heal=0, cc=0 — без бонуса `unit_value` ≈ 0, и AI экономически безразличен к их гибели. Бонус 80.0 ставит stunned KeepAlive NPC выше стандартного melee hero (lifetime=2 × threat≈8 ≈ 16) в trade economy.
 
 | Слагаемое | Формула | Источник |
 |---|---|---|

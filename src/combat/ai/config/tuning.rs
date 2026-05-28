@@ -199,6 +199,13 @@ pub struct Thresholds {
     /// critically wounded ally (hp ≈ 15 %) is required; tune downward to make
     /// healers more proactive.
     pub hard_rescue_threshold: f32,
+    /// Additive bonus added to `unit_value` for units tagged `AiTags::OPPONENT_OBJECTIVE`
+    /// (i.e. the opponent has a KeepAlive condition on them).
+    /// Killing such a unit ends combat via defeat for the opponent — AI needs to
+    /// weight them above active heroes even when their offense/heal/cc is zero
+    /// (e.g. a permanently-stunned NPC). Calibrated at 80.0 so a KeepAlive NPC
+    /// outweighs a standard melee hero in trade economy.
+    pub objective_value_bonus: f32,
 }
 
 impl Default for Thresholds {
@@ -224,6 +231,7 @@ impl Default for Thresholds {
             goal_finish_p_kill: 0.6,
             repair_bonus_scale: 0.4,
             hard_rescue_threshold: 0.7,
+            objective_value_bonus: 80.0,
         }
     }
 }

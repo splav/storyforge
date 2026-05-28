@@ -217,7 +217,14 @@ use crate::game::hex::Hex;
 /// ch2 — static obstacles for movement and LOS). Serialized as sorted
 /// `Vec<Hex>` in CombatStateRepr for deterministic output. Old v42 logs
 /// are incompatible — clean break.
-pub const SCHEMA_VERSION: u32 = 43;
+///
+/// v43 → v44: `AiTags::OPPONENT_OBJECTIVE` bit added (0x100). Units
+/// tagged with this bit carry `AiTags::OPPONENT_OBJECTIVE` in the
+/// `UnitSnapshot.tags` u16 field. Old v43 logs whose `tags` field
+/// pre-dates this bit will deserialize correctly — `from_bits_truncate`
+/// ignores unknown bits, so backward read is safe. `unit_value` now
+/// adds `tuning.thresholds.objective_value_bonus` for such units.
+pub const SCHEMA_VERSION: u32 = 44;
 
 /// Carries the fight folder name (== session_id D11) into systems that need
 /// to include it in their writes — both AI log entries and engine trace init
@@ -1499,7 +1506,9 @@ struct SchemaHeader {
 /// Rebuild logs from a v37+ playtest to use replay/mining tools.
 pub fn parse_actor_tick(line: &str) -> Result<ActorTickEvent, LogError> {
     let header: SchemaHeader = serde_json::from_str(line)?;
-    // v43 is the minimum supported version.
+    // v43 is the minimum supported version (SCHEMA_VERSION − 1).
+    // v43 → v44: AiTags::OPPONENT_OBJECTIVE bit (0x100) added; unit_value objective bonus.
+    //   Schema-additive: v43 tags fields deserialize via from_bits_truncate (new bit reads as 0).
     // v42 → v43: CombatState.blocked_hexes added (Wave 1 ch2). Clean break.
     // All logs below v43 are rejected — rebuild from a v43+ playtest.
     const MIN_SUPPORTED: u32 = 43;

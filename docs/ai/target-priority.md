@@ -2,18 +2,23 @@
 
 *Источники: `src/combat/ai/scoring/target_priority.rs`, `src/combat/ai/scoring/position_eval.rs`, `src/combat/ai/world/influence.rs`.*
 
-## Target Priority (`scoring/target_priority.rs`)
+## Target Priority (`scoring/target_selection.rs`)
+
+`target_selection_score` — composite приоритет цели (0..1), применяется в генераторе планов и `highest_priority_enemy`.
 
 | Фактор | Вес | Формула |
 |--------|-----|---------|
-| Threat | 0.20 | `target.threat / max_threat` |
-| Killability | 0.20 | `1 − eff_hp / eff_max_hp` |
-| Threat density | 0.20 | `(threat / eff_hp) / max_density` |
-| Vulnerability | 0.15 | `+0.3` если LOW_HP, `+0.2` если damage_taken_bonus > 0 |
-| Proximity | 0.15 | `1 / (1 + distance)` |
-| Role value | 0.10 | Support=1.0, Control=0.8, Ranged=0.7, Melee=0.5, Tank=0.3 |
+| Threat | 0.15 | `target.threat / max_threat` |
+| Killability | 0.15 | `1 − eff_hp / eff_max_hp` |
+| Threat density | 0.10 | `(threat / eff_hp) / max_density` |
+| Vulnerability | 0.10 | `+0.3` если LOW_HP, `+0.2` если damage_taken_bonus > 0 |
+| Role value | 0.05 | Support=1.0, Control=0.8, Ranged=0.7, Melee=0.5, Tank=0.3 |
+| Proximity | 0.10 | `1 / (1 + distance)` |
+| **Objective priority** | **0.35** | `1.0` если `AiTags::OPPONENT_OBJECTIVE` (цель KeepAlive), иначе 0.0 |
 
 `eff_hp = hp + armor + armor_bonus`.
+
+**Objective priority (0.35)** превышает threat+density (0.15+0.10=0.25) — KeepAlive NPC всегда выигрывает у max-threat hero на том же расстоянии. Tag `OPPONENT_OBJECTIVE` выставляется в `build_snapshot` по наличию компонента `KeepAliveTarget`.
 
 ## Position Evaluation (`scoring/position_eval.rs`)
 

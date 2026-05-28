@@ -277,14 +277,18 @@ fn bench_snapshot_rebuild_production(c: &mut Criterion) {
         Res<'w, DifficultyProfile>,
         Res<'w, CombatStateRes>,
         Res<'w, UnitIdMap>,
+        Query<'w, 'static, Entity, With<storyforge::game::components::KeepAliveTarget>>,
     )>;
 
     let mut state: SnapSystemState = SystemState::new(app.world_mut());
 
     c.bench_function("snapshot_rebuild_production", |b| {
         b.iter(|| {
-            let (combatants, statuses, hex_map, roles, content, difficulty, state_res, id_map) =
+            let (combatants, statuses, hex_map, roles, content, difficulty, state_res, id_map, keep_alive_q) =
                 state.get(app.world());
+
+            let keep_alive_entities: std::collections::HashSet<bevy::prelude::Entity> =
+                keep_alive_q.iter().collect();
 
             let snap = build_snapshot(
                 black_box(1),
@@ -296,6 +300,7 @@ fn bench_snapshot_rebuild_production(c: &mut Criterion) {
                 black_box(&difficulty),
                 black_box(state_res.0.clone()),
                 black_box(&id_map),
+                black_box(&keep_alive_entities),
             );
             black_box(snap);
         });

@@ -61,12 +61,34 @@ pub fn target_selection_score(
     let dist = active.pos.unsigned_distance_to(target.pos) as f32;
     let proximity = 1.0 / (1.0 + dist);
 
-    let raw = threat * 0.20
-        + killability * 0.20
-        + density * 0.20
-        + vulnerability * 0.15
-        + role_value * 0.10
-        + proximity * 0.15;
+    // objective_priority: 1.0 when target carries AiTags::OPPONENT_OBJECTIVE
+    // (the opponent has a KeepAlive victory condition on this unit — killing
+    // it ends combat via defeat for the opponent's side).
+    let objective_priority = if target.cache.tags.contains(AiTags::OPPONENT_OBJECTIVE) {
+        1.0
+    } else {
+        0.0
+    };
+
+    // Axis weights (sum = 1.0):
+    //   threat             0.15  — raw damage output potential
+    //   killability        0.15  — how close to death the target is
+    //   density            0.10  — damage-per-HP ratio (efficiency)
+    //   vulnerability      0.10  — low-HP / damage-taken bonuses
+    //   role_value         0.05  — strategic role importance
+    //   proximity          0.10  — closeness of the target
+    //   objective_priority 0.35  — KeepAlive victory condition on target
+    //
+    // objective_priority (0.35) exceeds threat+density (0.15+0.10=0.25), so an
+    // OPPONENT_OBJECTIVE unit always outranks a max-threat max-density hero at
+    // the same distance. At equal proximity the KeepAlive target wins by ≥0.10.
+    let raw = threat * 0.15
+        + killability * 0.15
+        + density * 0.10
+        + vulnerability * 0.10
+        + role_value * 0.05
+        + proximity * 0.10
+        + objective_priority * 0.35;
     raw.clamp(0.0, 1.0)
 }
 
@@ -113,5 +135,38 @@ mod tests {
         let ps = target_selection_score(va, vs, &s);
         let pb = target_selection_score(va, vb, &s);
         assert!(ps > pb, "support should be higher priority than bruiser");
+    }
+
+    /// An OPPONENT_OBJECTIVE-tagged target (e.g. stunned KeepAlive NPC) must
+    /// score higher in target_selection than an active full-threat hero at the
+    /// same distance. The objective_priority axis (weight 0.35) dominates
+    /// threat+density (0.15+0.10=0.25) so the KeepAlive target wins even
+    /// against the worst case (max-threat, max-density hero).
+    #[test]
+    fn objective_target_outranks_active_hero_in_focus() {
+        // Active attacker at origin.
+        let active = unit(0, Team::Enemy, hex_from_offset(0, 0));
+        // Full-threat melee hero equidistant from active.
+        let hero   = unit(1, Team::Player, hex_from_offset(3, 0));
+
+        // Stunned NPC: zero threat, OPPONENT_OBJECTIVE tagged, equidistant.
+        let npc = UnitBuilder::new(2, Team::Player, hex_from_offset(3, 0))
+            .threat(0.0)
+            .tags(AiTags::OPPONENT_OBJECTIVE)
+            .build();
+
+        let s = snapshot_from(vec![active.clone(), hero.clone(), npc.clone()], 1);
+        let va   = s.unit(active.entity).unwrap();
+        let vh   = s.unit(hero.entity).unwrap();
+        let vnpc = s.unit(npc.entity).unwrap();
+
+        let score_hero = target_selection_score(va, vh, &s);
+        let score_npc  = target_selection_score(va, vnpc, &s);
+
+        assert!(
+            score_npc > score_hero,
+            "OPPONENT_OBJECTIVE NPC score {score_npc:.3} must beat max-threat hero score {score_hero:.3} \
+             at the same distance",
+        );
     }
 }

@@ -59,11 +59,13 @@ fn build_snapshot_includes_dead_combatant() {
         state_res:  Res<CombatStateRes>,
         id_map:     Res<UnitIdMap>,
     ) -> Vec<Entity> {
+        let keep_alive_entities = std::collections::HashSet::new();
         let snap = build_snapshot(
             1, &combatants, &statuses, &hex_map, &roles,
             &content, &difficulty,
             state_res.0.clone(),
             &id_map,
+            &keep_alive_entities,
         );
         snap.cache.units.iter().map(|u| u.entity).collect()
     }

@@ -6,7 +6,7 @@ use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::config::role::infer_profile;
 use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
-use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Faction, Initiative, Mana, Rage, StartingHexPos, Team, TemplateRef, UnitToken, VictoryTarget, Vital};
+use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Faction, Initiative, Mana, Rage, StartingHexPos, Team, TemplateRef, UnitToken, VictoryTarget, KeepAliveTarget, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
@@ -47,6 +47,11 @@ fn spawn_combatants(
     blocked_hexes.0 = enc.obstacles.clone();
     let content = &scen.content;
 
+    // Pre-compute the set of names that have a KeepAlive condition at any depth
+    // inside the victory tree. Used during spawning to insert KeepAliveTarget
+    // without a deferred second pass.
+    let keep_alive_names = collect_keep_alive_names(&enc.victory);
+
     let party = active_party(scen, scenario.scene_index);
     for member in &party {
         // Template-based member (e.g. non-acting NPC added via party_add with template field).
@@ -65,7 +70,7 @@ fn spawn_combatants(
             let armor = content.equipment_armor(&equipment);
             let role = infer_profile(&tpl.ability_ids, effective.max_hp, armor, content, tag_cache);
             let vital = Vital { hp: effective.max_hp, max_hp: effective.max_hp, armor };
-            commands.spawn((
+            let mut ec = commands.spawn((
                 Name::new(member.name.clone()),
                 Combatant,
                 Faction(Team::Player),
@@ -74,6 +79,9 @@ fn spawn_combatants(
                 role,
                 TemplateRef(template_id.clone()),
             ));
+            if keep_alive_names.contains(member.name.as_str()) {
+                ec.insert(KeepAliveTarget { marker_color: keep_alive_marker_color(&enc.victory, &member.name) });
+            }
             // initial_statuses are applied engine-side in bootstrap_combat_state
             // via CombatState::apply_initial_statuses (reads UnitTemplate from ContentView).
             continue;
@@ -104,6 +112,9 @@ fn spawn_combatants(
         if cls.mana_max > 0 { ec.insert(Mana::new(cls.mana_max)); }
         if cls.energy_max > 0 { ec.insert(Energy::new(cls.energy_max)); }
         if let Some(ref p) = member.path { ec.insert(CombatPath(p.clone())); }
+        if keep_alive_names.contains(member.name.as_str()) {
+            ec.insert(KeepAliveTarget { marker_color: keep_alive_marker_color(&enc.victory, &member.name) });
+        }
     }
 
     for enemy in &enc.enemies {
@@ -120,7 +131,7 @@ fn spawn_combatants(
         let display_name = format!("{} {}", race_name, &enemy.name);
         let role = infer_profile(&enemy.ability_ids, effective.max_hp, armor, content, tag_cache);
         let mut ec = commands.spawn((
-            Name::new(display_name),
+            Name::new(display_name.clone()),
             enemy_bundle(effective, armor, enemy.speed, enemy.ability_ids.clone(), equipment),
             StartingHexPos(enemy.hex_pos),
             role,
@@ -135,6 +146,13 @@ fn spawn_combatants(
                 ec.insert(VictoryTarget { marker_color: *marker_color });
             }
         }
+        // KeepAlive targets may be enemies too (unusual but valid — e.g. "protect boss NPC").
+        // Match against both raw enemy.name and the display_name (race + name).
+        if keep_alive_names.contains(enemy.name.as_str())
+            || keep_alive_names.contains(display_name.as_str())
+        {
+            ec.insert(KeepAliveTarget { marker_color: keep_alive_marker_color(&enc.victory, &enemy.name) });
+        }
         if !enemy.phases.is_empty() {
             ec.insert(EnemyPhases { pending: enemy.phases.clone() });
         }
@@ -146,6 +164,46 @@ fn spawn_combatants(
             });
         }
     }
+}
+
+/// Recursively collect all `target_name` strings from any `KeepAlive` node
+/// at any depth inside the victory condition tree.
+fn collect_keep_alive_names(cond: &VictoryCondition) -> std::collections::HashSet<&str> {
+    let mut names = std::collections::HashSet::new();
+    walk_victory_names(cond, &mut names);
+    names
+}
+
+fn walk_victory_names<'a>(cond: &'a VictoryCondition, names: &mut std::collections::HashSet<&'a str>) {
+    match cond {
+        VictoryCondition::KeepAlive { target_name, .. } => {
+            names.insert(target_name.as_str());
+        }
+        VictoryCondition::AllOf(children) => {
+            for child in children {
+                walk_victory_names(child, names);
+            }
+        }
+        VictoryCondition::AllEnemiesDead | VictoryCondition::KillTarget { .. } => {}
+    }
+}
+
+/// Find the `marker_color` for a given `target_name` anywhere in the victory tree.
+/// Returns a neutral amber color `[0.9, 0.7, 0.1]` if the name is not found
+/// (should not happen in valid data — `validate_scenario` guards this).
+fn keep_alive_marker_color(cond: &VictoryCondition, name: &str) -> [f32; 3] {
+    fn search(cond: &VictoryCondition, name: &str) -> Option<[f32; 3]> {
+        match cond {
+            VictoryCondition::KeepAlive { target_name, marker_color } if target_name == name => {
+                Some(*marker_color)
+            }
+            VictoryCondition::AllOf(children) => {
+                children.iter().find_map(|c| search(c, name))
+            }
+            _ => None,
+        }
+    }
+    search(cond, name).unwrap_or([0.9, 0.7, 0.1])
 }
 
 /// Сбрасывает все ресурсы боя в начальное состояние.

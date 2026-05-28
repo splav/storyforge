@@ -23,7 +23,7 @@ use crate::content::settings::GameSettings;
 use crate::combat::DiceRngRes;
 use combat_engine::DiceRng;
 use crate::game::components::{
-    ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, StatusEffects, Team,
+    ActiveCombatant, AiCombatantQ, AiCombatantQItem, Combatant, KeepAliveTarget, StatusEffects, Team,
 };
 use crate::game::messages::ActionInput;
 use crate::game::hex_map::HexMap;
@@ -31,7 +31,7 @@ use crate::game::resources::CombatContext;
 use crate::combat::engine_bridge::{CombatStateRes, UnitIdMap};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // ── Bundled message writers (keeps system params under Bevy's 16-param limit) ──
 
@@ -79,6 +79,7 @@ pub fn enemy_ai_system(
     mut memories: Query<&mut AiMemory>,
     names: Query<&Name>,
     session: Option<Res<CombatLogSession>>,
+    keep_alive_q: Query<Entity, With<KeepAliveTarget>>,
 ) {
     let Ok(actor) = active_q.single() else { return };
     let Ok(c) = combatants.get(actor) else { return };
@@ -86,11 +87,13 @@ pub fn enemy_ai_system(
         return;
     }
     let session_id = session.as_ref().map(|s| s.session_id.as_str()).unwrap_or("");
+    let keep_alive_entities: HashSet<Entity> = keep_alive_q.iter().collect();
     run_ai_turn(
         actor, &c, &env, &mut rng, &mut reservations,
         &mut logger, &trace_writer, &mut pending_ai_log, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
         session_id,
+        &keep_alive_entities,
     );
 }
 
@@ -117,6 +120,7 @@ fn run_ai_turn(
     debug_state: &mut AiDebugState,
     names: &Query<&Name>,
     session_id: &str,
+    keep_alive_entities: &HashSet<Entity>,
 ) {
     let content: &ContentView = &env.content;
     let settings = &env.settings;
@@ -141,6 +145,7 @@ fn run_ai_turn(
         combat_ctx.round, combatants, statuses, &env.hex_map, roles, content, difficulty,
         env.combat_state.0.clone(),
         &env.id_map,
+        keep_alive_entities,
     );
 
     let Some(actor_view) = snap.unit(actor) else {
@@ -391,6 +396,7 @@ pub fn pact_ai_system(
     mut memories: Query<&mut AiMemory>,
     names: Query<&Name>,
     session: Option<Res<CombatLogSession>>,
+    keep_alive_q: Query<Entity, With<KeepAliveTarget>>,
 ) {
     let Ok(actor) = active_q.single() else { return };
     let Ok(c) = combatants.get(actor) else { return };
@@ -401,11 +407,13 @@ pub fn pact_ai_system(
         return;
     }
     let session_id = session.as_ref().map(|s| s.session_id.as_str()).unwrap_or("");
+    let keep_alive_entities: HashSet<Entity> = keep_alive_q.iter().collect();
     run_ai_turn(
         actor, &c, &env, &mut rng, &mut reservations,
         &mut logger, &trace_writer, &mut pending_ai_log, &mut msgs,
         &combatants, &statuses, &roles, &mut memories, &mut debug_state, &names,
         session_id,
+        &keep_alive_entities,
     );
 }
 

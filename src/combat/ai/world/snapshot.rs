@@ -467,6 +467,7 @@ pub fn build_snapshot(
     difficulty: &DifficultyProfile,
     combat_state: combat_engine::state::CombatState,
     id_map: &UnitIdMap,
+    keep_alive_entities: &std::collections::HashSet<Entity>,
 ) -> BattleSnapshot {
     let horizon_rounds = difficulty.damage_horizon_rounds;
     // Build AiCache directly from ECS components.
@@ -485,7 +486,14 @@ pub fn build_snapshot(
             let caster_ctx = CasterContext::new(c.stats, Some(c.equipment), &content.weapons);
             let threat = estimate_st_damage(&caster_ctx, c.abilities, content);
 
-            let tags = compute_tags(&c, statuses_q, content);
+            let mut tags = compute_tags(&c, statuses_q, content);
+
+            // AiTags::OPPONENT_OBJECTIVE: set when the opponent has a KeepAlive
+            // victory condition on this unit. Killing it ends combat via defeat
+            // for the opponent side — the AI should prioritize it highly.
+            if keep_alive_entities.contains(&c.entity) {
+                tags |= AiTags::OPPONENT_OBJECTIVE;
+            }
 
             let max_attack_range: u32 = c
                 .abilities

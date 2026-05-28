@@ -28,6 +28,18 @@ pub struct VictoryTarget {
     pub marker_color: [f32; 3],
 }
 
+/// Marker: this combatant is a KeepAlive target for the current encounter.
+/// If it dies, combat ends in defeat. `marker_color` drives a ring under its token.
+/// Set by `spawn_combatants` when any `VictoryCondition::KeepAlive` (at any depth
+/// inside `AllOf`) names this unit.
+///
+/// AI reads `AiTags::OPPONENT_OBJECTIVE` (set from this component in `build_snapshot`)
+/// to prioritize killing this unit.
+#[derive(Component, Clone, Copy)]
+pub struct KeepAliveTarget {
+    pub marker_color: [f32; 3],
+}
+
 
 
 /// Pending phase transformations for an enemy, in declaration order.

@@ -24,7 +24,7 @@ fn replay_bin() -> PathBuf {
 
 /// Relative to `CARGO_MANIFEST_DIR`. Bump the filename when `SCHEMA_VERSION`
 /// bumps; see `docs/ai/extension-checklist.md` § SCHEMA_VERSION bump.
-const BASELINE_REL: &str = "tests/baselines/baseline_v43.jsonl";
+const BASELINE_REL: &str = "tests/baselines/baseline_v44.jsonl";
 
 fn baseline_abs() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(BASELINE_REL)
