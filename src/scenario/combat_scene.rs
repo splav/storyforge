@@ -6,7 +6,7 @@ use crate::combat::ai::intent::AiMemory;
 use crate::combat::ai::config::role::infer_profile;
 use crate::combat::ai::world::tags::AbilityTagCache;
 use crate::game::bundles::{enemy_bundle, hero_bundle};
-use crate::game::components::{AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Faction, Initiative, Mana, Rage, StartingHexPos, Team, TemplateRef, UnitToken, VictoryTarget, KeepAliveTarget, Vital};
+use crate::game::components::{ActionPoints, AuraSource, CombatPath, Combatant, Energy, EnemyPhases, Equipment, Faction, Initiative, Mana, Rage, Reactions, Speed, StartingHexPos, Team, TemplateRef, UnitToken, VictoryTarget, KeepAliveTarget, Vital};
 use crate::game::combat_log::{CombatEvent, CombatLog};
 use crate::game::messages::RestartCombat;
 use crate::game::resources::{
@@ -73,6 +73,10 @@ fn spawn_combatants(
                 .unwrap_or(effective.max_hp)
                 .clamp(1, effective.max_hp);
             let vital = Vital { hp: initial_hp, max_hp: effective.max_hp, armor };
+            // Speed / ActionPoints / Reactions are required by engine `from_ecs`
+            // CombatantRow query — without them the entity won't make it into
+            // `CombatState.units` (was an actual bug: wounded_scout in demo
+            // appeared in UI but engine/AI couldn't see him).
             let mut ec = commands.spawn((
                 Name::new(member.name.clone()),
                 Combatant,
@@ -81,7 +85,14 @@ fn spawn_combatants(
                 StartingHexPos(member.hex_pos),
                 role,
                 TemplateRef(template_id.clone()),
+                Speed(tpl.speed),
+                ActionPoints { action_points: 1, max_ap: 1, movement_points: tpl.speed },
+                Reactions { remaining: 1, max: 1 },
             ));
+            // Pool components — needed by `from_ecs` to populate engine pools.
+            if tpl.resources.mana_max > 0 { ec.insert(Mana::new(tpl.resources.mana_max)); }
+            if tpl.resources.rage_max > 0 { ec.insert(Rage::new(tpl.resources.rage_max)); }
+            if tpl.resources.energy_max > 0 { ec.insert(Energy::new(tpl.resources.energy_max)); }
             if keep_alive_names.contains(member.name.as_str()) {
                 ec.insert(KeepAliveTarget { marker_color: keep_alive_marker_color(&enc.victory, &member.name) });
             }
