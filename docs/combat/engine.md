@@ -241,6 +241,20 @@ drift by construction).
 See [`bridge.md`](bridge.md) for the live path,
 [`../ai/ai.md`](../ai/ai.md) for AI architecture.
 
+### Legality rules (range, LOS, taunt)
+
+`check_legality(action, &state)` (in `legality.rs`) is the single rule-layer
+function shared by all three backends. Rejection reasons live in
+`IllegalReason` and cover:
+
+- **Range** — actor distance to target must lie within `AbilityDef.range` (min..max). Engine is grid-topology-agnostic; `ActionState::is_in_bounds` supplies the bounds predicate per backend.
+- **Line of sight (LOS)** — if `AbilityDef.requires_los == true` and `range.max > 1`, the hex-line from actor to target must not pass through any obstacle. Rejection: `IllegalReason::NoLineOfSight`. Melee (`range = 1..1`) skips this check — adjacent hexes have no intermediates to block. Single canonical algorithm `combat_engine::geom::has_los`; same blocker set (`state.blocked_hexes`) for all three backends. See parity contract below.
+- **Target type** — `SingleEnemy` / `SingleAlly` / `Myself` are gated by `ActionState::target_team`. `Taunt` (`forces_targeting` status on an enemy) restricts the legal targets of `SingleEnemy` casts to that enemy only.
+- **Resource costs** — AP, MP, mana/rage/energy availability against ability `costs`.
+- **Actor liveness + ability knowledge** — actor must be alive, target must be present and (for non-AoE) alive, actor must know the ability.
+
+LOS is the only rule that distinguishes melee from ranged. All other rules apply uniformly regardless of distance.
+
 ### ActionState parity contract
 
 `ActionState` has three backends:

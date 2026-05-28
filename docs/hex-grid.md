@@ -67,8 +67,19 @@ Returns `HashSet<(i32, i32)>` of valid destinations.
 
 - Allies are passable (can walk through, cannot stop on)
 - Enemies block movement
+- **Static obstacles (`blocked_hexes`) block movement *and* line-of-sight** — see below
 - Speed component defines max steps per turn
 - BonusMovement adds to Speed (from GrantMovement abilities); removed after move
+
+### Static obstacles (`blocked_hexes`) — Wave 1 ch2
+
+Statically-defined hexes occupied by terrain features (walls, crates, debris) that:
+
+- **Block movement** — `MovementEnv.blocked_hexes` is fed into the `is_passable` and `can_stop_on` closures of `reach_from`. Pathfinding cannot route through these hexes and cannot stop on them.
+- **Block line-of-sight** — `has_los(from, to, |h| blocked_hexes.contains(&h))` is the single LOS algorithm shared by all three `ActionState` backends. Used by `check_legality` to reject ranged casts with `requires_los = true` when the line is obstructed.
+- Owned by the engine — stored on `CombatState.blocked_hexes: HashSet<Hex>`. Bridge mirrors it in `CombatBlockedHexes` resource for UI/AI consumers.
+- Populated at combat bootstrap from `EncounterDef.obstacles` (TOML `[[encounters.obstacles]]`). Cleared on combat restart/exit. Not mutable mid-combat in Wave 1 (no destructible terrain).
+- Cost-of-step penalty for AI is **not** currently applied — obstacles are binary block/no-block. Future hazard subsystem (Wave 3) will introduce severity-based soft penalties for traversable danger hexes.
 
 ## Visual Tokens
 
