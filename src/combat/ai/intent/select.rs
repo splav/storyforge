@@ -303,7 +303,7 @@ pub fn select_intent(
         let most_wounded = snap
             .allies_of(active.team)
             .filter(|u| u.hp_pct() < threshold)
-            .min_by_key(|u| u.hp);
+            .min_by_key(|u| u.hp());
         if let Some(ally) = most_wounded {
             let ally_pct = ally.hp_pct();
             let urgency = 1.0 - ally_pct;

@@ -358,7 +358,7 @@ fn parity_armor_buff_mitigation_real_vs_sim() {
         expected_dealt,
     );
 
-    let target_hp = sim.unit(target_id).unwrap().hp;
+    let target_hp = sim.unit(target_id).unwrap().hp();
     assert_eq!(target_hp, 20 - expected_dealt as i32,
         "target HP should be 20 - {} = {}", expected_dealt as i32, 20 - expected_dealt as i32);
 }

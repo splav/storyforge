@@ -49,7 +49,7 @@ pub(crate) fn compute_offensive(
     let enemy_damage_value = if outcome.enemy_damage_per_entity.is_empty() {
         // Single-target path.
         snap.unit(target).map_or(0.0, |t| {
-            let damage_progress = (outcome.enemy_damage / t.hp.max(1) as f32).min(1.0);
+            let damage_progress = (outcome.enemy_damage / t.hp().max(1) as f32).min(1.0);
             policy::damage::value(outcome.enemy_damage, damage_progress)
         })
     } else {
@@ -59,7 +59,7 @@ pub(crate) fn compute_offensive(
             .iter()
             .map(|(e, dmg)| {
                 snap.unit(*e).map_or(0.0, |t| {
-                    let damage_progress = (*dmg / t.hp.max(1) as f32).min(1.0);
+                    let damage_progress = (*dmg / t.hp().max(1) as f32).min(1.0);
                     policy::damage::value(*dmg, damage_progress)
                 })
             })
@@ -71,12 +71,12 @@ pub(crate) fn compute_offensive(
         .iter()
         .map(|(e, dmg)| {
             snap.unit(*e)
-                .map_or(0.0, |t| policy::friendly_fire::penalty(*dmg, t.max_hp))
+                .map_or(0.0, |t| policy::friendly_fire::penalty(*dmg, t.max_hp()))
         })
         .sum();
 
     let self_penalty = if outcome.self_damage > 0.0 {
-        policy::friendly_fire::penalty(outcome.self_damage, active.max_hp)
+        policy::friendly_fire::penalty(outcome.self_damage, active.max_hp())
     } else {
         0.0
     };
@@ -94,7 +94,7 @@ pub(crate) fn compute_offensive(
         snap.unit(target).map_or(0.0, |t| {
             let danger = ctx.maps.danger.get(t.pos);
             let horizon_sum: f32 = t.cache.damage_horizon.iter().sum::<f32>().max(t.cache.threat);
-            let raw = policy::heal::value(outcome.hp_restored, t.max_hp, t.hp, danger, horizon_sum);
+            let raw = policy::heal::value(outcome.hp_restored, t.max_hp(), t.hp(), danger, horizon_sum);
             crit_fail_adjusted(raw, def, &active.cache.crit_fail_effect, ctx.world.crit_fail_chance)
         })
     } else {

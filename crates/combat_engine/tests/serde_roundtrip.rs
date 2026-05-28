@@ -498,7 +498,7 @@ fn combat_state_roundtrip() {
     assert_eq!(state.units().len(), decoded.units().len());
     let orig_u1 = state.unit(UnitId(1)).unwrap();
     let dec_u1  = decoded.unit(UnitId(1)).unwrap();
-    assert_eq!(orig_u1.hp, dec_u1.hp);
+    assert_eq!(orig_u1.hp(), dec_u1.hp());
     assert_eq!(orig_u1.statuses.len(), dec_u1.statuses.len());
     assert_eq!(orig_u1.damage_taken_bonus, dec_u1.damage_taken_bonus);
     // idx rebuilt: both units must be reachable by UnitId lookup.

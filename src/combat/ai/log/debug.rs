@@ -516,8 +516,8 @@ fn actor_debug(active: UnitView<'_>) -> ActorDebug {
     ActorDebug {
         role_label: active.cache.role.dominant_label(),
         pos: hex_to_offset(active.pos),
-        hp: active.hp,
-        max_hp: active.max_hp,
+        hp: active.hp(),
+        max_hp: active.max_hp(),
         threat: active.cache.threat,
         tags: active.cache.tags,
         action_points: active.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),

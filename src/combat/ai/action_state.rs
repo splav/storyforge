@@ -50,7 +50,7 @@ impl ActionState for SnapshotActionState<'_> {
         Some(ActorView {
             pos: u.pos,
             team: u.team,
-            hp: u.hp,
+            hp: u.hp(),
             ap: u.pools[PoolKind::Ap].map(|(c, _)| c).unwrap_or(0),
             pools: enum_map::enum_map! {
                 // Hp is not a resource-cost kind for legality checks; excluded.
@@ -63,7 +63,7 @@ impl ActionState for SnapshotActionState<'_> {
             },
             causes_disadvantage,
             blocks_mana_abilities,
-            is_alive: u.hp > 0,
+            is_alive: u.hp() > 0,
         })
     }
 

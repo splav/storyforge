@@ -162,7 +162,7 @@ pub fn hypothetical(
     };
 
     // ── Kill facts ──
-    let p_kill_now = if enemy_damage >= target.hp.max(1) as f32 { 1.0 } else { 0.0 };
+    let p_kill_now = if enemy_damage >= target.hp().max(1) as f32 { 1.0 } else { 0.0 };
     let p_kill_soon = if p_kill_now == 0.0 {
         estimate_kill_soon(def, target, caster, content)
     } else {
@@ -231,12 +231,12 @@ pub fn estimate_kill_soon(
     };
     let net = calc.expected().round() - armor + target.damage_taken_bonus as f32;
     // kill_now case — no kill_soon when net already kills
-    if net >= target.hp as f32 {
+    if net >= target.hp() as f32 {
         return 0.0;
     }
     let pending_dot = already_pending_dot(target);
     let new_dot = dot_tick_sum_for_ability(def, target, content);
-    if net + pending_dot + new_dot >= target.hp as f32 { 1.0 } else { 0.0 }
+    if net + pending_dot + new_dot >= target.hp() as f32 { 1.0 } else { 0.0 }
 }
 
 /// Max danger value along the path tiles of a single Move step.
@@ -270,7 +270,7 @@ fn dot_tick_sum_for_ability(
     status_applications(def, content)
         .map(|(sd, dur)| {
             let per_tick = sd.dot_dice.as_ref().map(|d| d.expected()).unwrap_or(0.0)
-                + sd.hp_percent_dot as f32 / 100.0 * target.max_hp as f32;
+                + sd.hp_percent_dot as f32 / 100.0 * target.max_hp() as f32;
             per_tick * dur
         })
         .filter(|&v| v > 0.0)
@@ -493,7 +493,7 @@ pub(crate) fn estimate_hp_restored(
     if !calc.is_heal {
         return 0.0;
     }
-    let missing = (target.max_hp - target.hp) as f32;
+    let missing = (target.max_hp() - target.hp()) as f32;
     if missing <= 0.0 {
         return 0.0;
     }

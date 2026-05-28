@@ -148,8 +148,8 @@ fn from_ecs_round_trip_10_units() {
         assert_eq!(unit.pos, *expected_hex, "pos mismatch for entity {entity:?}");
 
         // HP matches (alive units start at max_hp).
-        assert_eq!(unit.hp, 20);
-        assert_eq!(unit.max_hp, 20);
+        assert_eq!(unit.hp(), 20);
+        assert_eq!(unit.max_hp(), 20);
 
         // No statuses.
         assert!(unit.statuses.is_empty());
@@ -218,7 +218,7 @@ fn dead_unit_is_tombstone_with_hp_zero() {
 
     let dead_id = id_map.get_id(dead).unwrap();
     let dead_unit = combat_state.unit(dead_id).unwrap();
-    assert_eq!(dead_unit.hp, 0, "dead unit should be tombstone with hp=0");
+    assert_eq!(dead_unit.hp(), 0, "dead unit should be tombstone with hp=0");
     assert!(!dead_unit.is_alive());
 
     let alive_id = id_map.get_id(alive).unwrap();

@@ -175,7 +175,7 @@ fn damage_nonlethal_derives_rage_source_then_target() {
     );
 
     // No armor → final_damage = max(1, 5) = 5; hp 20 - 5 = 15 (alive).
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 15);
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 15);
     assert!(ctx.damage.is_some());
 
     // Derived: GainRage{source=1}, GainRage{target=2} — no Death.
@@ -198,7 +198,7 @@ fn damage_lethal_derives_rage_source_rage_target_death_target_in_order() {
         &StubContent::neutral(),
     );
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 0);
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 0);
     assert_eq!(derived.len(), 3);
     assert!(matches!(derived[0], Effect::GainRage { target } if target == UnitId(1)));
     assert!(matches!(derived[1], Effect::GainRage { target } if target == UnitId(2)));
@@ -219,7 +219,7 @@ fn damage_armor_reduces_final_damage() {
         &Effect::Damage { target: UnitId(2), raw: 5.0, source: UnitId(1), pierces: false },
         &StubContent::neutral(),
     );
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 15);
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 15);
 
     // Now damage with raw=3, armor_bonus=5 on target.
     let mut heavy = make_unit(3, 20, 20);
@@ -231,7 +231,7 @@ fn damage_armor_reduces_final_damage() {
         &StubContent::neutral(),
     );
     // final_damage_f32(3.0, 5.0, 0.0, false) = max(1, 3-5) = 1
-    assert_eq!(state.unit(UnitId(3)).unwrap().hp, 19);
+    assert_eq!(state.unit(UnitId(3)).unwrap().hp(), 19);
 }
 
 /// Armor-piercing ignores armor.
@@ -247,7 +247,7 @@ fn damage_pierces_ignores_armor() {
         &StubContent::neutral(),
     );
     // pierces=true → armor ignored: final = max(1, 8) = 8; hp = 20-8 = 12
-    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 12);
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 12);
 }
 
 // ── GainRage ──────────────────────────────────────────────────────────────────
@@ -408,7 +408,7 @@ fn heal_no_dot_restores_hp() {
 
     assert!(derived.is_empty(), "no status removed → no derived effects");
     assert_eq!(ctx.heal_amount, Some(5), "5 HP restored");
-    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 8, "3 + 5 = 8");
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 8, "3 + 5 = 8");
 
     // Sanity: heals above cap clamp.
     u.hp = 8;
@@ -418,7 +418,7 @@ fn heal_no_dot_restores_hp() {
         &Effect::Heal { target: UnitId(1), amount: 10 },
         &StubContent::neutral(),
     );
-    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 10, "clamped at max");
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 10, "clamped at max");
     assert_eq!(ctx.heal_amount, Some(2), "only 2 HP actually restored (10 - 8)");
 }
 
@@ -445,7 +445,7 @@ fn heal_full_neutralizes_dot_then_restores_hp() {
 
     let unit = state.unit(UnitId(1)).unwrap();
     assert!(unit.statuses.is_empty(), "poison neutralized + removed");
-    assert_eq!(unit.hp, 6, "3 + (5 - 2 DoT) = 6");
+    assert_eq!(unit.hp(), 6, "3 + (5 - 2 DoT) = 6");
     assert_eq!(ctx.heal_amount, Some(3), "3 HP actually restored");
     assert_eq!(derived.len(), 1, "RefreshAggregates derived from status removal");
     assert!(matches!(derived[0], Effect::RefreshAggregates { unit: UnitId(1) }));
@@ -472,7 +472,7 @@ fn heal_partial_dot_consumes_all_heal_no_hp_restored() {
     let unit = state.unit(UnitId(1)).unwrap();
     assert_eq!(unit.statuses.len(), 1, "poison still active");
     assert_eq!(unit.statuses[0].dot_per_tick, 5, "8 - 3 = 5 dot remaining");
-    assert_eq!(unit.hp, 3, "no HP restored — pool consumed by DoT");
+    assert_eq!(unit.hp(), 3, "no HP restored — pool consumed by DoT");
     assert_eq!(ctx.heal_amount, Some(0));
     assert!(derived.is_empty(), "no status removed → no RefreshAggregates");
 }
@@ -564,7 +564,7 @@ fn pay_cost_hp_decrements_directly() {
         },
         &StubContent::neutral(),
     );
-    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 6);
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 6);
 }
 
 #[test]
@@ -725,7 +725,7 @@ fn tick_dot_with_dot_per_tick_damages_target_via_pierce() {
     );
 
     // HP reduced by 3 (armor ignored, pierce = true).
-    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 7, "HP should be reduced by 3");
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 7, "HP should be reduced by 3");
 
     // dot_damage ctx carries the fused breakdown.
     let dot = ctx.dot_damage.as_ref().expect("dot_damage must be populated");
@@ -755,7 +755,7 @@ fn tick_dot_with_percent_dot_uses_ceil() {
     );
 
     // HP reduced by 1 (ceil of 10% of 7).
-    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 6, "HP should be reduced by 1 (ceil)");
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 6, "HP should be reduced by 1 (ceil)");
 
     let dot = ctx.dot_damage.as_ref().expect("dot_damage must be populated");
     assert_eq!(dot.final_amount, 1);
@@ -780,7 +780,7 @@ fn tick_dot_with_both_dot_and_percent_returns_two_damages() {
     );
 
     // HP reduced by flat(2) + percent(2) = 4.
-    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 6, "HP should be reduced by 4 (2 flat + 2 percent)");
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 6, "HP should be reduced by 4 (2 flat + 2 percent)");
 
     // Single fused DotDamageCtx with total raw.
     let dot = ctx.dot_damage.as_ref().expect("dot_damage must be populated");
@@ -1068,7 +1068,7 @@ fn death_cascade_from_damage_clears_statuses() {
         queue.extend(more);
     }
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 0);
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 0);
     assert!(state.unit(UnitId(1)).unwrap().statuses.is_empty());
 }
 
@@ -1125,8 +1125,8 @@ fn spawn_creates_unit_with_correct_template_stats() {
     let uid = ctx.spawn_uid.expect("spawn_uid set on success");
     let pos = ctx.spawn_pos.expect("spawn_pos set on success");
     let spawned = state.unit(uid).expect("new unit present");
-    assert_eq!(spawned.hp, 8);
-    assert_eq!(spawned.max_hp, 8);
+    assert_eq!(spawned.hp(), 8);
+    assert_eq!(spawned.max_hp(), 8);
     assert_eq!(spawned.armor, 1);
     assert_eq!(spawned.base_speed, 4);
     // max_ap is encoded in pools[Ap]

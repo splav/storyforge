@@ -319,11 +319,11 @@ pub fn apply_effect(
 
             // Apply HP reduction.
             let hp_after = if let Some(u) = state.unit_mut(*target) {
-                u.hp = (u.hp - final_dmg.round() as i32).max(0);
+                u.hp = (u.hp() - final_dmg.round() as i32).max(0);
                 // Stage 1 dual-write: keep pools[Hp] in sync with hp/max_hp.
-                u.pools[crate::PoolKind::Hp] = Some((u.hp, u.max_hp));
+                u.pools[crate::PoolKind::Hp] = Some((u.hp(), u.max_hp()));
                 u.assert_hp_pool_sync();
-                u.hp
+                u.hp()
             } else {
                 0
             };
@@ -339,7 +339,7 @@ pub fn apply_effect(
                 Effect::GainRage { target: *target },
             ];
 
-            let max_hp = state.unit(*target).map(|u| u.max_hp).unwrap_or(0);
+            let max_hp = state.unit(*target).map(|u| u.max_hp()).unwrap_or(0);
             if let Some((phase_idx, _transition)) =
                 state.unit(*target).and_then(|u| u.check_phase_trigger(hp_after, max_hp))
             {
@@ -396,12 +396,12 @@ pub fn apply_effect(
 
             let hp_restored = if remaining > 0 {
                 if let Some(u) = state.unit_mut(*target) {
-                    let before = u.hp;
-                    u.hp = (u.hp + remaining).min(u.max_hp);
+                    let before = u.hp();
+                    u.hp = (u.hp() + remaining).min(u.max_hp());
                     // Stage 1 dual-write: keep pools[Hp] in sync with hp/max_hp.
-                    u.pools[crate::PoolKind::Hp] = Some((u.hp, u.max_hp));
+                    u.pools[crate::PoolKind::Hp] = Some((u.hp(), u.max_hp()));
                     u.assert_hp_pool_sync();
-                    u.hp - before
+                    u.hp() - before
                 } else {
                     0
                 }
@@ -425,9 +425,9 @@ pub fn apply_effect(
             if let Some(u) = state.unit_mut(*actor) {
                 match kind {
                     ResourceKind::Hp => {
-                        u.hp = (u.hp - amount).max(0);
+                        u.hp = (u.hp() - amount).max(0);
                         // Stage 1 dual-write: keep pools[Hp] in sync with hp/max_hp.
-                        u.pools[crate::PoolKind::Hp] = Some((u.hp, u.max_hp));
+                        u.pools[crate::PoolKind::Hp] = Some((u.hp(), u.max_hp()));
                         u.assert_hp_pool_sync();
                     }
                     ResourceKind::Mana => {
@@ -612,7 +612,7 @@ pub fn apply_effect(
                 let Some(s) = u.statuses.iter().find(|s| s.id == *status) else {
                     return (derived, ApplyCtx::default());
                 };
-                (s.dot_per_tick, s.applier, u.max_hp)
+                (s.dot_per_tick, s.applier, u.max_hp())
             };
 
             let percent = content.status_def(status).map(|sd| sd.hp_percent_dot).unwrap_or(0);
@@ -634,11 +634,11 @@ pub fn apply_effect(
                 // Apply HP reduction directly (bypass Effect::Damage derivation so we
                 // can fuse into a single DotDamaged event without emitting UnitDamaged).
                 let hp_after = if let Some(u) = state.unit_mut(*target) {
-                    u.hp = (u.hp - final_amount).max(0);
+                    u.hp = (u.hp() - final_amount).max(0);
                     // Stage 1 dual-write: keep pools[Hp] in sync with hp/max_hp.
-                    u.pools[crate::PoolKind::Hp] = Some((u.hp, u.max_hp));
+                    u.pools[crate::PoolKind::Hp] = Some((u.hp(), u.max_hp()));
                     u.assert_hp_pool_sync();
-                    u.hp
+                    u.hp()
                 } else {
                     0
                 };
@@ -647,7 +647,7 @@ pub fn apply_effect(
                 derived.push(Effect::GainRage { target: applier });
                 derived.push(Effect::GainRage { target: *target });
 
-                let cur_max_hp = state.unit(*target).map(|u| u.max_hp).unwrap_or(0);
+                let cur_max_hp = state.unit(*target).map(|u| u.max_hp()).unwrap_or(0);
                 if let Some((phase_idx, _transition)) =
                     state.unit(*target).and_then(|u| u.check_phase_trigger(hp_after, cur_max_hp))
                 {
@@ -723,7 +723,7 @@ pub fn apply_effect(
 
         Effect::EnterPhase { unit, phase_idx: _ } => {
             // Re-read the current max_hp before any mutation for the event.
-            let prev_max_hp = state.unit(*unit).map(|u| u.max_hp).unwrap_or(0);
+            let prev_max_hp = state.unit(*unit).map(|u| u.max_hp()).unwrap_or(0);
 
             // Re-call check_phase_trigger with current hp/max_hp to recover the
             // transition data.  Bridge's `EnemyPhases.pending` pop happens later
@@ -733,7 +733,7 @@ pub fn apply_effect(
             // causing the same phase (with heal_to_full) to re-fire indefinitely.
             let transition = state
                 .unit(*unit)
-                .and_then(|u| u.check_phase_trigger(u.hp, prev_max_hp))
+                .and_then(|u| u.check_phase_trigger(u.hp(), prev_max_hp))
                 .map(|(_, t)| t);
 
             // Consume the just-triggered phase entry from engine state.

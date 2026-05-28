@@ -67,7 +67,7 @@ impl PlanCritic for OvercommitIntoDanger {
         let enemies: Vec<_> = ctx.snap.enemies_of(active.team).collect();
         let aoo_dmg = expected_aoo_damage(active, plan, &enemies);
         let aoo_multiplier = if aoo_dmg > 0.0 {
-            let ratio = (aoo_dmg / active.hp.max(1) as f32).min(1.0);
+            let ratio = (aoo_dmg / active.hp().max(1) as f32).min(1.0);
             Some((1.0 - t.aoo_penalty_k * ratio * ratio).max(t.aoo_risk_floor))
         } else {
             None
@@ -91,7 +91,7 @@ impl PlanCritic for OvercommitIntoDanger {
 
         let ratio = match source {
             OvercommitSource::SurvivalPath => surv,
-            OvercommitSource::AooBleed => (aoo_dmg / active.hp.max(1) as f32).min(1.0),
+            OvercommitSource::AooBleed => (aoo_dmg / active.hp().max(1) as f32).min(1.0),
         };
 
         Some(CriticHit {

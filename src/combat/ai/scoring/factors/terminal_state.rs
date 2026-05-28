@@ -154,14 +154,14 @@ pub(crate) fn compute_next_turn_lethality(
 
     // If the actor died during the plan, threat at end_pos is irrelevant.
     let actor_hp_at_end = match end_snap.unit(actor_id) {
-        Some(u) if u.hp > 0 => u.hp,
+        Some(u) if u.hp() > 0 => u.hp(),
         _ => return 0.0,
     };
 
     let final_pos = plan.final_pos;
     let dpr_sum: f32 = end_snap
         .enemies_of(ctx.active.team)
-        .filter(|e| e.hp > 0)
+        .filter(|e| e.hp() > 0)
         .filter(|e| {
             let reach = (e.speed.max(0) as u32).saturating_add(e.cache.max_attack_range);
             final_pos.unsigned_distance_to(e.pos) <= reach
@@ -196,7 +196,7 @@ pub(crate) fn compute_line_actionability(
 
     // Bail out if actor is dead at end of plan.
     let actor_at_end = match end_snap.unit(ctx.active.entity()) {
-        Some(u) if u.hp > 0 => u,
+        Some(u) if u.hp() > 0 => u,
         _ => return 0.0,
     };
 
@@ -216,7 +216,7 @@ pub(crate) fn compute_line_actionability(
 
     let reachable_enemies = end_snap
         .enemies_of(ctx.active.team)
-        .filter(|e| e.hp > 0)
+        .filter(|e| e.hp() > 0)
         .filter(|e| plan.final_pos.unsigned_distance_to(e.pos) <= max_range)
         .count();
 
@@ -251,7 +251,7 @@ pub(crate) fn compute_density_value(
     let radius: u32 = 2;
     let count = end_snap
         .enemies_of(ctx.active.team)
-        .filter(|e| e.hp > 0)
+        .filter(|e| e.hp() > 0)
         .filter(|e| plan.final_pos.unsigned_distance_to(e.pos) <= radius)
         .count();
 

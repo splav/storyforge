@@ -184,7 +184,7 @@ impl StoredGoalContext {
             });
         }
         // 2. Actor HP dropped — self-preserve re-eval needed, goal alive.
-        if actor.hp < self.actor_hp_at_store {
+        if actor.hp() < self.actor_hp_at_store {
             return Some(PlanContinuationCheck {
                 severity: classify_mismatch("actor_hp_drop", &no_delta_ctx),
                 reason_code: "actor_hp_drop",
@@ -223,7 +223,7 @@ impl StoredGoalContext {
                             reason_code: "target_entity_changed",
                         });
                     }
-                    if t.hp < self.target_hp_at_store {
+                    if t.hp() < self.target_hp_at_store {
                         return Some(PlanContinuationCheck {
                             severity: classify_mismatch("target_hp_drop", &no_delta_ctx),
                             reason_code: "target_hp_drop",
@@ -312,11 +312,11 @@ pub fn extract_goal_context(
         confidence,
         created_round: round,
         expected_actor_pos: chosen_final_pos,
-        actor_hp_at_store: actor.hp,
+        actor_hp_at_store: actor.hp(),
         actor_rage_at_store,
         actor_status_hash,
         actor_statuses_at_store,
-        target_hp_at_store: target_snap.map(|t| t.hp).unwrap_or(0),
+        target_hp_at_store: target_snap.map(|t| t.hp()).unwrap_or(0),
         target_pos_at_store: target_snap.map(|t| t.pos).unwrap_or_default(),
     })
 }

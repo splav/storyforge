@@ -257,8 +257,8 @@ fn preempt_death_phase_revives_unit() {
 
     let boss_unit = state.unit(boss).unwrap();
     assert!(boss_unit.is_alive(), "boss must be alive after phase revival");
-    assert_eq!(boss_unit.max_hp, 120, "max_hp should be updated to 120");
-    assert_eq!(boss_unit.hp, 120, "hp should equal new max_hp after heal_to_full");
+    assert_eq!(boss_unit.max_hp(), 120, "max_hp should be updated to 120");
+    assert_eq!(boss_unit.hp(), 120, "hp should equal new max_hp after heal_to_full");
 }
 
 /// Phase cascade sets max_hp, and heal_to_full restores hp to new max.
@@ -301,9 +301,9 @@ fn phase_cascade_sets_max_hp_and_emits_phase_entered_event() {
     for sub in &cascade {
         apply_effect(&mut state, sub, &content);
     }
-    assert_eq!(state.unit(boss).unwrap().max_hp, 150, "max_hp should be 150 after cascade");
+    assert_eq!(state.unit(boss).unwrap().max_hp(), 150, "max_hp should be 150 after cascade");
     // hp stays at 40 (no heal_to_full).
-    assert_eq!(state.unit(boss).unwrap().hp, 40, "hp stays at 40 (no heal_to_full)");
+    assert_eq!(state.unit(boss).unwrap().hp(), 40, "hp stays at 40 (no heal_to_full)");
 
     // effect_to_event should produce PhaseEntered.
     let event = effect_to_event(enter_phase_effect, &state, None, &ctx);
@@ -357,7 +357,7 @@ fn multi_threshold_each_damage_fires_own_phase() {
     let has_death1 = derived1.iter().any(|e| matches!(e, Effect::Death { .. }));
     assert!(has_phase0, "Phase 0 should fire after first Damage");
     assert!(!has_death1, "No Death for phase 0 trigger");
-    assert_eq!(state.unit(boss).unwrap().hp, 45);
+    assert_eq!(state.unit(boss).unwrap().hp(), 45);
 
     // Apply Phase 0 cascade (SetMaxHp only; heal_to_full=false).
     // EnterPhase apply consumes `enemy_phases[0]` automatically — no manual pop.
@@ -370,8 +370,8 @@ fn multi_threshold_each_damage_fires_own_phase() {
         }
     }
     // After Phase 0 cascade: max_hp=120, hp=45 (no heal).
-    assert_eq!(state.unit(boss).unwrap().max_hp, 120);
-    assert_eq!(state.unit(boss).unwrap().hp, 45);
+    assert_eq!(state.unit(boss).unwrap().max_hp(), 120);
+    assert_eq!(state.unit(boss).unwrap().hp(), 45);
 
     // Second Damage (20 raw → hp 45→25; 25*100=2500, 120*25=3000, 2500 <= 3000 → phase 1 fires).
     // But TwoPhaseContent phase 1 checks `max_hp` passed to check_phase_trigger.

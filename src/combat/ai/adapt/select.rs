@@ -46,7 +46,7 @@ pub fn pending_dot_before_next_action(active: UnitView<'_>, content: &ContentVie
         total = total.saturating_add(s.dot_per_tick.max(0));
         if let Some(sd) = content.statuses.get(&s.id) {
             if sd.hp_percent_dot > 0 {
-                let tick = (active.max_hp as f32 * sd.hp_percent_dot as f32 / 100.0).ceil() as i32;
+                let tick = (active.max_hp() as f32 * sd.hp_percent_dot as f32 / 100.0).ceil() as i32;
                 total = total.saturating_add(tick.max(0));
             }
         }
@@ -81,10 +81,10 @@ fn plan_has_self_rescue(
     let Some(actor_post) = post.unit(active.entity()) else {
         return false;
     };
-    if actor_post.hp <= 0 {
+    if actor_post.hp() <= 0 {
         return false;
     }
-    actor_post.hp > pending_dot_before_next_action(actor_post, content)
+    actor_post.hp() > pending_dot_before_next_action(actor_post, content)
 }
 
 /// Pure mode-selection pass — step 11.0.
@@ -135,14 +135,14 @@ pub fn select_evaluation_modes(
         }
 
         let pending_dot = pending_dot_before_next_action(active, content);
-        if pending_dot >= active.hp {
+        if pending_dot >= active.hp() {
             let any_rescue = plans
                 .iter()
                 .any(|p| plan_has_self_rescue(p, active, ctx.snap, content));
             if !any_rescue {
                 let reason = AdaptationReason::ProtectSelfFutile {
                     pending_dot,
-                    actor_hp: active.hp,
+                    actor_hp: active.hp(),
                 };
                 for i in 0..plans.len() {
                     adaptation.modes[i] = EvaluationMode::LastStand;
@@ -159,9 +159,9 @@ pub fn select_evaluation_modes(
 
     // ── Per-plan rule: ExpectedSelfLethal ─────────────────────────────────
     let enemies: Vec<UnitView<'_>> = ctx.snap.enemies_of(active.team).collect();
-    let hp_cutoff = active.hp as f32;
+    let hp_cutoff = active.hp() as f32;
     for (i, plan) in plans.iter().enumerate() {
-        if active.hp <= 0 {
+        if active.hp() <= 0 {
             break;
         }
         let aoo_dmg = expected_aoo_damage(active, plan, &enemies);
@@ -251,14 +251,14 @@ pub fn apply_adaptation(
         // panic_override), but that requires a broader rescue-audit and
         // is deferred until replay evidence demands it.
         let pending_dot = pending_dot_before_next_action(active, content);
-        if pending_dot >= active.hp {
+        if pending_dot >= active.hp() {
             let any_rescue = plans
                 .iter()
                 .any(|p| plan_has_self_rescue(p, active, ctx.snap, content));
             if !any_rescue {
                 let reason = AdaptationReason::ProtectSelfFutile {
                     pending_dot,
-                    actor_hp: active.hp,
+                    actor_hp: active.hp(),
                 };
                 for i in 0..plans.len() {
                     adaptation.modes[i] = EvaluationMode::LastStand;
@@ -285,10 +285,10 @@ pub fn apply_adaptation(
     // cc > damage), so the plan competes honestly against defensive
     // alternatives.
     let enemies: Vec<UnitView<'_>> = ctx.snap.enemies_of(active.team).collect();
-    let hp_cutoff = active.hp as f32;
+    let hp_cutoff = active.hp() as f32;
     let mut any_switched = false;
     for (i, plan) in plans.iter().enumerate() {
-        if active.hp <= 0 {
+        if active.hp() <= 0 {
             break; // Dead actor has no plans to adapt — guard against weird snapshots.
         }
         let aoo_dmg = expected_aoo_damage(active, plan, &enemies);

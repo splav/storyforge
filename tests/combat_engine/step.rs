@@ -279,7 +279,7 @@ fn step_actor_death_mid_path_truncates_remaining_aoos() {
 
     // Mover must be dead at step1.
     let mover_after = state.unit(UnitId(1)).unwrap();
-    assert_eq!(mover_after.hp, 0, "mover should be dead after lethal AoO");
+    assert_eq!(mover_after.hp(), 0, "mover should be dead after lethal AoO");
     assert_eq!(mover_after.pos, step1, "mover should be at step1 (hit position)");
 
     // Exactly one ReactionFired.

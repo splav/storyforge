@@ -106,7 +106,7 @@ impl<'a> ActionState for EngineCheckState<'a> {
         Some(ActorView {
             pos: u.pos,
             team: u.team,
-            hp: u.hp,
+            hp: u.hp(),
             ap: ap_cur,
             pools,
             causes_disadvantage,

@@ -37,13 +37,13 @@ impl PlanSnapshot {
         expected_actor_pos: Hex,
     ) -> Self {
         Self {
-            actor_hp: actor.hp,
+            actor_hp: actor.hp(),
             actor_rage: actor.pools[combat_engine::PoolKind::Rage].map(|(r, _)| r).unwrap_or(0),
             actor_status_hash: status_hash_engine(&actor.statuses),
             actor_statuses_at_capture: actor.statuses.iter().map(|s| s.id.clone()).collect(),
             expected_actor_pos,
             target: target.map(|t| t.entity()),
-            target_hp: target.map(|t| t.hp).unwrap_or(0),
+            target_hp: target.map(|t| t.hp()).unwrap_or(0),
             target_pos: target.map(|t| t.pos).unwrap_or_default(),
         }
     }
@@ -58,7 +58,7 @@ impl PlanSnapshot {
         if actor.pos != self.expected_actor_pos {
             return Some("actor_pos_mismatch");
         }
-        if actor.hp < self.actor_hp {
+        if actor.hp() < self.actor_hp {
             return Some("actor_hp_drop");
         }
         if actor.pools[combat_engine::PoolKind::Rage].map(|(r, _)| r).unwrap_or(0) != self.actor_rage {
@@ -74,7 +74,7 @@ impl PlanSnapshot {
                     if t.entity() != expected {
                         return Some("target_entity_changed");
                     }
-                    if t.hp < self.target_hp {
+                    if t.hp() < self.target_hp {
                         return Some("target_hp_drop");
                     }
                     if t.pos != self.target_pos {

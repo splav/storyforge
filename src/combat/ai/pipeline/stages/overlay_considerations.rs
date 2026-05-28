@@ -71,7 +71,7 @@ impl PlanStage for OverlayConsiderationsStage {
             return;
         }
 
-        let actor_max_hp = ctx.scoring.active.max_hp as f32;
+        let actor_max_hp = ctx.scoring.active.max_hp() as f32;
 
         let n_plans = pool.plans.len();
         for plan_idx in 0..n_plans {
@@ -303,7 +303,7 @@ fn compute_leverage(
 fn target_current_hp_or_max(snap: &BattleSnapshot, target_opt: Option<Entity>) -> f32 {
     target_opt
         .and_then(|t| snap.unit(t))
-        .map(|u| u.hp.max(0) as f32)
+        .map(|u| u.hp().max(0) as f32)
         .unwrap_or(0.0)
 }
 
@@ -391,7 +391,7 @@ fn sum_enemy_damage(outcomes: &[ActionOutcomeEstimate]) -> f32 {
 fn ally_hp_deficit_for_target(snap: &BattleSnapshot, ally_opt: Option<Entity>) -> f32 {
     ally_opt
         .and_then(|a| snap.unit(a))
-        .map(|u| (u.max_hp.max(0) - u.hp.max(0)).max(0) as f32)
+        .map(|u| (u.max_hp().max(0) - u.hp().max(0)).max(0) as f32)
         .unwrap_or(0.0)
 }
 

@@ -98,7 +98,7 @@ fn damage_subtracts_armor_and_decrements_hp() {
     let outcome = sim.apply_step(&step, &ctx(4, 0), &content, false);
 
     let t = sim.unit(target_id).unwrap();
-    assert_eq!(t.hp, 14, "20 - 6 dealt = 14, got hp={}", t.hp);
+    assert_eq!(t.hp(), 14, "20 - 6 dealt = 14, got hp={}", t.hp());
     assert!((outcome.damage - 6.0).abs() < 0.01, "raw damage {}", outcome.damage);
     assert_eq!(outcome.hits, 1);
     assert!(outcome.killed.is_empty());
@@ -134,7 +134,7 @@ fn damage_respects_min_one_floor_against_heavy_armor() {
     let outcome = sim.apply_step(&step, &ctx(0, 0), &content, false);
 
     let t = sim.unit(target_id).unwrap();
-    assert_eq!(t.hp, 19, "expected 1-damage floor to land, got hp={}", t.hp);
+    assert_eq!(t.hp(), 19, "expected 1-damage floor to land, got hp={}", t.hp());
     assert!(
         (outcome.damage - 1.0).abs() < 0.01,
         "expected damage floor 1.0, got {}",
@@ -176,7 +176,7 @@ fn lethal_damage_removes_unit_and_records_kill() {
     // `enemies_of` / `actor_unit` filter by `is_alive`, so plan-walking
     // code still sees the target as "gone" without a retain'd vec.
     let corpse = sim.unit(target_id).expect("corpse retained in snapshot");
-    assert_eq!(corpse.hp, 0);
+    assert_eq!(corpse.hp(), 0);
     assert!(!corpse.is_alive());
     assert_eq!(
         sim.enemies_of(Team::Enemy).count(), 0,
@@ -212,7 +212,7 @@ fn heal_caps_at_missing_hp() {
     let outcome = sim.apply_step(&step, &ctx(0, 2), &content, false);
 
     let a = sim.unit(ally_id).unwrap();
-    assert_eq!(a.hp, 20, "heal must clamp to max_hp");
+    assert_eq!(a.hp(), 20, "heal must clamp to max_hp");
     assert!((outcome.heal - 5.0).abs() < 0.01, "effective heal {}", outcome.heal);
 }
 
@@ -406,7 +406,7 @@ fn heal_cleanses_dot_before_restoring_hp() {
 
     let t = sim.unit(ally_id).unwrap();
     // Heal 5: cleanse spends 3 on poison (status removed), 2 remain → HP 10+2=12.
-    assert_eq!(t.hp, 12, "cleanse consumes 3, then +2 HP → 12, got {}", t.hp);
+    assert_eq!(t.hp(), 12, "cleanse consumes 3, then +2 HP → 12, got {}", t.hp());
     assert!(
         t.statuses.iter().all(|s| s.id.0 != "poison"),
         "poison should be cleansed"
@@ -526,7 +526,7 @@ fn status_applied_this_step_armor_affects_next_step() {
 
     let t_after = sim.unit(target_id).unwrap();
     // raw 8 − armor_bonus 5 = 3 dealt. HP: 20 − 3 = 17.
-    assert_eq!(t_after.hp, 17, "armor should reduce damage from 8 to 3, got hp={}", t_after.hp);
+    assert_eq!(t_after.hp(), 17, "armor should reduce damage from 8 to 3, got hp={}", t_after.hp());
     assert!(
         (atk_outcome.damage - 3.0).abs() < 0.01,
         "reported damage after mitigation {}",
@@ -572,8 +572,8 @@ fn aoe_circle_hits_all_enemies_in_radius() {
     );
 
     assert_eq!(outcome.hits, 2, "radius-1 centered at (3,0) covers both (3,0) and (4,0)");
-    assert!(sim.unit(t1_id).unwrap().hp < 20);
-    assert!(sim.unit(t2_id).unwrap().hp < 20);
+    assert!(sim.unit(t1_id).unwrap().hp() < 20);
+    assert!(sim.unit(t2_id).unwrap().hp() < 20);
 }
 
 // ── GrantMovement ───────────────────────────────────────────────────────
@@ -652,7 +652,7 @@ fn apply_move_records_aoo_self_damage() {
     let outcome = sim.apply_move(&[away]);
 
     assert_eq!(outcome.self_damage, 5.0, "raw 5, no armor → self_damage 5");
-    assert_eq!(sim.actor_unit().unwrap().hp, 15, "hp 20 − 5 AoO = 15");
+    assert_eq!(sim.actor_unit().unwrap().hp(), 15, "hp 20 − 5 AoO = 15");
 }
 
 /// After a provoked AoO, the triggering enemy's reactions_left is decremented.
@@ -693,7 +693,7 @@ fn apply_move_no_aoo_when_already_used_reaction() {
     let outcome = sim.apply_move(&[hex_from_offset(2, 3)]);
 
     assert_eq!(outcome.self_damage, 0.0, "no reaction available → no AoO");
-    assert_eq!(sim.actor_unit().unwrap().hp, 20, "hp unchanged");
+    assert_eq!(sim.actor_unit().unwrap().hp(), 20, "hp unchanged");
 }
 
 /// A lethal AoO sets actor hp to 0; self_damage reports HP actually lost
@@ -733,7 +733,7 @@ fn apply_move_kills_actor_with_lethal_aoo() {
     // hp clamped to 0, not negative.
     // After U4, snapshot.units is frozen at pre-step state; read via engine state.
     let dead = sim.unit(actor_id).expect("corpse retained in engine state");
-    assert_eq!(dead.hp, 0, "hp clamped to 0");
+    assert_eq!(dead.hp(), 0, "hp clamped to 0");
 }
 
 /// Path that stays adjacent to the enemy does not trigger AoO.
@@ -763,7 +763,7 @@ fn apply_move_no_aoo_when_path_stays_adjacent() {
     let outcome = sim.apply_move(&[dest]);
 
     assert_eq!(outcome.self_damage, 0.0, "no adjacency-leave → no AoO");
-    assert_eq!(sim.actor_unit().unwrap().hp, 20, "hp unchanged");
+    assert_eq!(sim.actor_unit().unwrap().hp(), 20, "hp unchanged");
 }
 
 /// AoO fires at most once per enemy per step even if the path briefly
@@ -829,7 +829,7 @@ fn apply_move_aoo_mitigated_by_armor_bonus() {
     let outcome = sim.apply_move(&[hex_from_offset(2, 3)]);
 
     assert_eq!(outcome.self_damage, 3.0, "armor_bonus 5 reduces raw 8 AoO to 3");
-    assert_eq!(sim.actor_unit().unwrap().hp, 17, "hp 20 − 3 = 17");
+    assert_eq!(sim.actor_unit().unwrap().hp(), 17, "hp 20 − 3 = 17");
 }
 
 // ── Rage gain on damage (drift #3) ─────────────────────────────────────

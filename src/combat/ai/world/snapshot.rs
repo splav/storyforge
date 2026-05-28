@@ -237,17 +237,17 @@ impl<'a> UnitView<'a> {
     /// Effective HP: raw HP plus armor + armor_bonus — the real damage budget
     /// needed to drop this unit.
     pub fn eff_hp(&self) -> i32 {
-        self.state.hp + self.state.armor + self.state.armor_bonus
+        self.state.hp() + self.state.armor + self.state.armor_bonus
     }
 
     /// Effective max HP, clamped ≥ 1 to protect against division.
     pub fn eff_max_hp(&self) -> i32 {
-        (self.state.max_hp + self.state.armor + self.state.armor_bonus).max(1)
+        (self.state.max_hp() + self.state.armor + self.state.armor_bonus).max(1)
     }
 
     /// Current HP as a fraction of max HP. Clamped max ≥ 1 to avoid div-by-zero.
     pub fn hp_pct(&self) -> f32 {
-        self.state.hp as f32 / self.state.max_hp.max(1) as f32
+        self.state.hp() as f32 / self.state.max_hp().max(1) as f32
     }
 
     /// Killability signal: `1 − eff_hp / eff_max_hp`. 1.0 = dead, 0.0 = full.

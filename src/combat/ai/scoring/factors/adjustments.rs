@@ -21,7 +21,7 @@ pub(crate) fn apply_reservation_adjustments(
         let reserved_dmg = reservations.reserved_damage(target_ent);
         if reserved_dmg > 0.0 {
             if let Some(target_unit) = snap.unit(target_ent) {
-                let hp_left = target_unit.hp as f32 - reserved_dmg;
+                let hp_left = target_unit.hp() as f32 - reserved_dmg;
                 if hp_left <= 0.0 {
                     // Team-mates already reserved lethal damage. Our hit is
                     // waste (apart from a crit-fail hedge). Scale damage AND

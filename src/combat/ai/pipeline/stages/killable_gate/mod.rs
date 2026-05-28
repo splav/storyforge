@@ -119,7 +119,7 @@ pub fn apply_killable_gate(
     let Some(t) = snap.unit(target) else {
         return GateStats::default();
     };
-    let hp_f = t.hp.max(0) as f32;
+    let hp_f = t.hp().max(0) as f32;
 
     // Live pool: survivors of adaptation + any prior hard mask.
     // Sanity soft penalties leave scores finite → plan stays in consideration.

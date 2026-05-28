@@ -143,9 +143,9 @@ mod tests {
         let dealt =
             final_damage_f32(raw as f32, expected_armor as f32, 0.0, false);
         assert!(
-            (t.hp as f32 - (20.0 - dealt)).abs() < 0.01,
+            (t.hp() as f32 - (20.0 - dealt)).abs() < 0.01,
             "hp={} expected {}",
-            t.hp,
+            t.hp(),
             20.0 - dealt
         );
     }
@@ -184,9 +184,9 @@ mod tests {
         let dealt = final_damage_f32(raw as f32, 10.0, 0.0, /* pierces */ true);
         let t = sim.unit(target_id).unwrap();
         assert!(
-            (t.hp as f32 - (20.0 - dealt)).abs() < 0.01,
+            (t.hp() as f32 - (20.0 - dealt)).abs() < 0.01,
             "hp={} expected {}",
-            t.hp,
+            t.hp(),
             20.0 - dealt
         );
     }
@@ -221,7 +221,7 @@ mod tests {
 
         let t = sim.unit(target_id).unwrap();
         // Missing = 6; heal EV = 11; capped → +6.
-        assert_eq!(t.hp, 20, "heal capped at max_hp");
+        assert_eq!(t.hp(), 20, "heal capped at max_hp");
     }
 
     /// `OutcomePrimary::Heal` with DoT — cleanse consumes part of heal before
@@ -266,7 +266,7 @@ mod tests {
 
         // amount = 4 + 2 = 6; dot_consumed = 4; remaining = 2; hp 10+2=12.
         let t = sim.unit(target_id).unwrap();
-        assert_eq!(t.hp, 12, "hp={}", t.hp);
+        assert_eq!(t.hp(), 12, "hp={}", t.hp());
         assert!(t.statuses.iter().all(|s| s.id.0 != "poison"), "poison cleansed");
     }
 
@@ -327,7 +327,7 @@ mod tests {
         let a = sim.unit(actor_id).unwrap();
         // Phase 3 TODO: once engine emits RestoreResources effect, assert +1 on each.
         assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP cost paid");
-        assert_eq!(a.hp, 15, "engine defers RestoreResources to Phase 3; HP unchanged");
+        assert_eq!(a.hp(), 15, "engine defers RestoreResources to Phase 3; HP unchanged");
         assert_eq!(a.pools[combat_engine::PoolKind::Mana], Some((3, 10)), "mana unchanged");
         assert_eq!(a.pools[combat_engine::PoolKind::Rage], Some((1, 5)), "rage unchanged");
         assert_eq!(a.pools[combat_engine::PoolKind::Energy], Some((0, 8)), "energy unchanged");
@@ -425,7 +425,7 @@ mod tests {
         assert_eq!(a.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 0, "AP paid");
         assert_eq!(a.pools[combat_engine::PoolKind::Rage], Some((2, 10)), "rage paid");
         // Primary has no HP effect on target.
-        assert_eq!(t.hp, before_hp, "target HP unchanged by None primary");
+        assert_eq!(t.hp(), before_hp, "target HP unchanged by None primary");
         // Status landed (non-None status is applied even with None primary).
         assert!(
             t.statuses.iter().any(|s| s.id.0 == "taunted"),
@@ -564,7 +564,7 @@ mod tests {
                             *pierces_armor,
                         );
                         let expected_hp = (before_hp as f32 - dealt).max(0.0) as i32;
-                        let actual_hp = after.map(|u| u.hp).unwrap_or(0);
+                        let actual_hp = after.map(|u| u.hp()).unwrap_or(0);
                         assert_eq!(
                             actual_hp, expected_hp,
                             "[{label}] hp mismatch for {:?}: before={before_hp} dealt={dealt} expected={expected_hp} actual={actual_hp}",
@@ -576,7 +576,7 @@ mod tests {
                         let missing = (20 - before_hp).max(0);
                         let effective = (*amount).min(missing);
                         let expected_hp = before_hp + effective;
-                        let actual_hp = after.map(|u| u.hp).unwrap_or(0);
+                        let actual_hp = after.map(|u| u.hp()).unwrap_or(0);
                         assert_eq!(
                             actual_hp, expected_hp,
                             "[{label}] heal hp mismatch: expected={expected_hp} actual={actual_hp}",
@@ -672,16 +672,16 @@ mod tests {
                 for &killed_ent in &step_outcome.killed {
                     let corpse = sim2.snapshot.unit(killed_ent).expect("corpse stays in snapshot");
                     assert_eq!(
-                        corpse.hp, 0,
+                        corpse.hp(), 0,
                         "[{label}] killed entity {:?} has hp={}",
-                        killed_ent, corpse.hp,
+                        killed_ent, corpse.hp(),
                     );
                     assert!(!corpse.is_alive(), "[{label}] killed entity still alive?");
                 }
                 // Any entity with hp=0 after damage must appear in killed list.
                 for &ent in &expected_outcome.affected {
                     if matches!(&expected_outcome.primary, OutcomePrimary::Damage { .. })
-                        && sim2.snapshot.unit(ent).is_some_and(|u| u.hp == 0)
+                        && sim2.snapshot.unit(ent).is_some_and(|u| u.hp() == 0)
                     {
                         assert!(
                             step_outcome.killed.contains(&ent),

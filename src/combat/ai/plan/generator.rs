@@ -509,7 +509,7 @@ fn rank_targets(
                 .snapshot
                 .allies_of(actor.team)
                 .filter(|u| is_legal(u.entity(), u.pos))
-                .map(|u| (u.entity(), u.pos, (u.max_hp - u.hp).max(0) as f32))
+                .map(|u| (u.entity(), u.pos, (u.max_hp() - u.hp()).max(0) as f32))
                 .collect();
             picks.sort_by(|a, b| b.2.total_cmp(&a.2));
             picks.truncate(TARGETS_BY_THREAT + TARGETS_BY_KILLABILITY);

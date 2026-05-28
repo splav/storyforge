@@ -1419,13 +1419,13 @@ pub fn project_state_to_ecs(
             continue;
         };
 
-        if unit.hp <= 0 {
+        if unit.hp() <= 0 {
             // Transition to corpse layer (idempotent — engine.unit.pos is stable).
             positions.remove(&entity);
             corpses.insert(entity, unit.pos);
             // Still sync hp=0 so Vital reflects death; skip AP/MP/Rage/Mana/Energy/Status.
             if let Ok((mut vital, _, _, _, _, _, _, _)) = combatants.get_mut(entity) {
-                vital.hp = unit.hp;
+                vital.hp = unit.hp();
             }
             continue;
         }
@@ -1437,7 +1437,7 @@ pub fn project_state_to_ecs(
         if let Ok((mut vital, mut ap, mut reactions, has_bonus, rage_opt, mana_opt, energy_opt, status_effects_opt)) =
             combatants.get_mut(entity)
         {
-            vital.hp = unit.hp;
+            vital.hp = unit.hp();
 
             // AP / MP — sourced from pools[Ap] / pools[Mp] (C5).
             // Invariant: both are Some for every alive combatant.

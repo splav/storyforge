@@ -279,7 +279,7 @@ pub fn trade_delta(
     } else {
         0.0
     };
-    let self_lethal_aoo = aoo_dmg >= active.hp as f32 && active.hp > 0;
+    let self_lethal_aoo = aoo_dmg >= active.hp() as f32 && active.hp() > 0;
 
     let self_lost = if self_in_killed {
         0.0

@@ -653,7 +653,7 @@ fn main() {
                 let fresh_key = ai_decision_key(&result.decision);
                 println!(
                     "CHANGED r{} {} HP={}/{}: logged={:?} -> fresh={:?}",
-                    event.round, event.actor_name, active.hp, active.max_hp,
+                    event.round, event.actor_name, active.hp(), active.max_hp(),
                     logged_key, fresh_key,
                 );
                 if verbose {
@@ -663,7 +663,7 @@ fn main() {
                 let key = logged_decision_key(&event.decision);
                 println!(
                     "=  r{} {} HP={}/{}: {:?}",
-                    event.round, event.actor_name, active.hp, active.max_hp, key,
+                    event.round, event.actor_name, active.hp(), active.max_hp(), key,
                 );
             }
         }

@@ -51,7 +51,7 @@ impl PlanCritic for SelfLethalWithoutPayoff {
         ctx: &ScoringCtx,
     ) -> Option<CriticHit> {
         let active = ctx.active;
-        let max_hp = active.max_hp.max(1) as f32;
+        let max_hp = active.max_hp().max(1) as f32;
 
         // ── Accumulate self-damage from step outcomes ─────────────────────────
         // `outcome.self_damage` captures AoE self-hits recorded during the

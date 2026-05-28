@@ -282,8 +282,8 @@ impl From<Unit> for UnitWire {
             id: u.id,
             team: u.team,
             pos: u.pos,
-            hp: u.hp,
-            max_hp: u.max_hp,
+            hp: u.hp(),
+            max_hp: u.max_hp(),
             armor: u.armor,
             armor_bonus: u.armor_bonus,
             damage_taken_bonus: u.damage_taken_bonus,
@@ -1108,7 +1108,7 @@ mod tests {
         ));
         assert!(!standalone_damaged, "standalone UnitDamaged must NOT appear for a DoT tick (regression guard)");
 
-        assert_eq!(state.unit(victim).unwrap().hp, 17, "HP should be reduced by 3");
+        assert_eq!(state.unit(victim).unwrap().hp(), 17, "HP should be reduced by 3");
         assert_eq!(state.unit(victim).unwrap().statuses[0].rounds_remaining, 2, "rounds_remaining decremented");
     }
 
@@ -1140,7 +1140,7 @@ mod tests {
         assert!(!dot, "DotDamaged must NOT appear for a zero-damage buff tick");
 
         // HP untouched.
-        assert_eq!(state.unit(victim).unwrap().hp, 10, "HP must be unchanged for zero-damage tick");
+        assert_eq!(state.unit(victim).unwrap().hp(), 10, "HP must be unchanged for zero-damage tick");
     }
 
     /// Two different DoT statuses on the same victim (both from the same applier)
@@ -1172,7 +1172,7 @@ mod tests {
         assert!(burning_ev, "DotDamaged(burning, 2) expected");
 
         // HP reduced by both: 20 - 3 - 2 = 15.
-        assert_eq!(state.unit(victim).unwrap().hp, 15, "HP reduced by both DoT ticks");
+        assert_eq!(state.unit(victim).unwrap().hp(), 15, "HP reduced by both DoT ticks");
     }
 
     #[test]
@@ -1195,7 +1195,7 @@ mod tests {
         ));
         assert!(removed, "StatusRemoved expected on last tick");
         assert!(state.unit(victim).unwrap().statuses.is_empty(), "status cleared from unit");
-        assert_eq!(state.unit(victim).unwrap().hp, 17);
+        assert_eq!(state.unit(victim).unwrap().hp(), 17);
     }
 
     #[test]
@@ -1223,7 +1223,7 @@ mod tests {
             if *target == victim && *amount == 4
         ));
         assert!(damaged, "tick still fires for dead applier");
-        assert_eq!(state.unit(victim).unwrap().hp, 16);
+        assert_eq!(state.unit(victim).unwrap().hp(), 16);
     }
 
     #[test]
@@ -1243,7 +1243,7 @@ mod tests {
 
         let died = events.iter().any(|e| matches!(e, Event::UnitDied { unit } if *unit == victim));
         assert!(died, "UnitDied expected when DoT is lethal");
-        assert_eq!(state.unit(victim).unwrap().hp, 0);
+        assert_eq!(state.unit(victim).unwrap().hp(), 0);
         assert!(state.unit(victim).unwrap().statuses.is_empty(), "death clears local statuses");
     }
 
