@@ -334,7 +334,21 @@ fn validate_scenario(scen_id: &str, scen: &ScenarioDef) {
         if let Some(ref p) = member.path {
             assert!(c.paths.contains_key(p), "scenario '{scen_id}' party '{}': unknown path", member.name);
         }
-        assert!(c.classes.contains_key(&member.class_id), "scenario '{scen_id}' party '{}': unknown class '{}'", member.name, member.class_id);
+        if let Some(ref tpl) = member.template {
+            // Template-based party member (e.g. non-acting NPC ally): stats /
+            // class / equipment come from unit_templates, `class_id` is unused.
+            assert!(
+                c.unit_templates.contains_key(tpl),
+                "scenario '{scen_id}' party '{}': unknown template '{tpl}'",
+                member.name,
+            );
+        } else {
+            assert!(
+                c.classes.contains_key(&member.class_id),
+                "scenario '{scen_id}' party '{}': unknown class '{}'",
+                member.name, member.class_id,
+            );
+        }
     }
 
     // Scene encounter refs + party-vs-enemy hex collisions.

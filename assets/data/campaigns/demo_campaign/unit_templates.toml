@@ -19,6 +19,23 @@ resources = { mana = 8 }
 
 ability_ids = ["melee_attack", "thunderstrike", "heal"]
 
+# Раненый разведчик — временный союзник партии (party_add + initial_statuses).
+# Присоединяется в первом story-сцене, на бой 1 лежит без сознания
+# (permanent stunned), исчезает через party_remove после боя.
+# Цель боя 1 — убить зверокровов и сохранить разведчика живым.
+[[unit_templates]]
+id      = "wounded_scout"
+name    = "Раненый разведчик"
+race    = "human"
+faction = "aurum"
+speed   = 0
+
+stats     = { max_hp = 6, strength = 2, dexterity = 0, constitution = 2, intelligence = 0, wisdom = 0, charisma = 0 }
+equipment = { main_hand = "short_sword", chest = "leather_vest", legs = "leather_pants", feet = "leather_boots" }
+
+ability_ids      = []
+initial_statuses = ["stunned"]
+
 # Слабый мелкий призывной юнит. Шаблон используется способностью `summon_storm_spirit`.
 [[unit_templates]]
 id    = "storm_spirit"

@@ -26,9 +26,20 @@ type = "story"
 lines = [
   { speaker = "Рассказчик", text = "Отряд пробирается через тёмный лес." },
   { speaker = "Рассказчик", text = "В воздухе висит запах дыма." },
-  { speaker = "Aldric", text = "Впереди движение. Зверокровы?" },
-  { speaker = "Lyra", text = "Только их силуэты. К оружию." },
+  { speaker = "Aldric", text = "Впереди движение. Зверокровы — и они кого-то добивают." },
+  { speaker = "Lyra", text = "Разведчик. Похож на людей аурума. Он ещё жив." },
+  { speaker = "Aldric", text = "К оружию. Им не дадим его прикончить." },
 ]
+# Раненый разведчик присоединяется к партии перед боем 1.
+# Permanent stunned (из шаблона) — он не действует; партия должна
+# успеть зачистить зверокровов, пока его не добили. После боя
+# уходит через party_remove (см. сцену после combat).
+[[scenes.party_add]]
+name     = "Раненый разведчик"
+race     = "human"
+template = "wounded_scout"
+hex_col  = 4
+hex_row  = 3
 
 [[scenes]]
 type = "combat"
@@ -37,16 +48,21 @@ location = "hills"
 on_victory_flags = ["beastblood_routed"]
 
 # После первого боя Kael появляется и присоединяется. party_add применяется
-# на Continue после последней реплики, перед следующей сценой.
+# на Continue после последней реплики, перед следующей сценой. Разведчик
+# уходит из партии через party_remove — он не идёт дальше в горы.
 [[scenes]]
 type = "story"
 lines = [
   { speaker = "Рассказчик", text = "Зверокровы отступили в чащу." },
-  { speaker = "Kael", text = "Я шёл по их следу с утра. Вы избавили меня от лишней работы.", requires_flag = "beastblood_routed" },
+  { speaker = "Lyra", text = "Разведчик жив. На ногах удержится." },
+  { speaker = "Aldric", text = "Скажешь своим — пусть знают, что в этом лесу неспокойно.", requires_flag = "beastblood_routed" },
+  { speaker = "Рассказчик", text = "Разведчик кивает и скрывается за деревьями." },
+  { speaker = "Kael", text = "Я шёл по следу с утра. Вы избавили меня от лишней работы.", requires_flag = "beastblood_routed" },
   { speaker = "Lyra", text = "Вдали грохочет буря — и это не гром." },
   { speaker = "Kael", text = "Грозорождённые. Они разбили лагерь в холмах. Без проводника не дойдёте." },
   { speaker = "Aldric", text = "Тогда веди." },
 ]
+party_remove = ["Раненый разведчик"]
 [[scenes.party_add]]
 name    = "Kael"
 race    = "human"
