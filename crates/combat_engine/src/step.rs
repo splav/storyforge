@@ -162,9 +162,8 @@ impl<'a> ActionState for EngineCheckState<'a> {
         true
     }
 
-    fn is_blocked_los(&self, from: hexx::Hex, to: hexx::Hex) -> bool {
-        let blocked = &self.state.blocked_hexes;
-        !crate::geom::has_los(from, to, |h| blocked.contains(&h))
+    fn blocked_hexes(&self) -> &std::collections::HashSet<hexx::Hex> {
+        &self.state.blocked_hexes
     }
 }
 

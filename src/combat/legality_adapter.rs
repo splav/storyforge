@@ -18,7 +18,7 @@ use combat_engine::{AbilityDef, AbilityId, StatusDef, StatusId};
 
 use crate::content::content_view::ActiveContent;
 use crate::game::components::{Team, ValidationActorQ, ValidationTargetQ};
-use crate::game::hex::{has_los, in_bounds, Hex};
+use crate::game::hex::{in_bounds, Hex};
 use crate::game::resources::HexPositions;
 
 /// `ActionState` impl over live ECS queries.  Holds references with a single
@@ -120,8 +120,7 @@ impl ActionState for BevyActions<'_, '_, '_> {
         in_bounds(pos)
     }
 
-    fn is_blocked_los(&self, from: Hex, to: Hex) -> bool {
-        let blocked = self.blocked_hexes;
-        !has_los(from, to, |h| blocked.contains(&h))
+    fn blocked_hexes(&self) -> &std::collections::HashSet<Hex> {
+        self.blocked_hexes
     }
 }

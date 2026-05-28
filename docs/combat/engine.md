@@ -255,17 +255,24 @@ See [`bridge.md`](bridge.md) for the live path,
 for the same logical inputs. Any divergence means AI predicts something different
 from what the engine actually executes.
 
-**LOS specifically:** `is_blocked_los(from, to)` is implemented in all three backends
-by delegating to the single canonical function `combat_engine::geom::has_los`.
-The storyforge `src/game/hex::has_los` is a re-export of the same function.
-This makes parity structural — no separate implementations exist to drift.
+**LOS specifically:** `is_blocked_los(from, to)` lives **only** in the trait as a
+default implementation that calls `combat_engine::geom::has_los` over the abstract
+getter `blocked_hexes(&self) -> &HashSet<Hex>`. Each backend overrides only the
+getter (one-line `&self.…blocked_hexes`); the LOS algorithm itself has a single
+physical copy. The storyforge `src/game/hex::has_los` is a re-export of the same
+function for legacy callers.
+
+**Parity is structural by construction:** same `blocked_hexes` set → identical
+`is_blocked_los` result. No three-way divergence is possible without overriding
+`is_blocked_los` directly (which production backends do not).
 
 **Verification:** `tests/los_parity.rs` contains four tests:
 - `bevy_actions_is_blocked_los_matches_has_los`
 - `snapshot_actions_is_blocked_los_matches_has_los`
 - `engine_action_state_is_blocked_los_matches_has_los`
-- `prop_all_three_backends_agree_on_los` — 200 randomized cases asserting all three
-  backends return identical results.
+- `prop_all_three_backends_agree_on_los` — 200 randomized cases asserting two
+  backends agree (Bevy backend skipped from the loop for runtime cost; parity
+  is structural per above, the dedicated Bevy test exercises the override).
 
 ---
 

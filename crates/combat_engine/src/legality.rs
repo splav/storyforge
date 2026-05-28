@@ -99,12 +99,6 @@ pub enum IllegalReason {
     NoLineOfSight,
 }
 
-/// Backend adapter — implementors translate game-state reads for the
-/// engine-side legality function.  Each backend lives at its callsite:
-///
-/// - `src/combat/legality_adapter.rs::BevyActions` (live ECS, player UI).
-/// - `src/combat/ai/plan/generator.rs::SnapshotActions` (AI plan generation).
-/// - `crates/combat_engine/src/step.rs` (engine `step(Cast)` pre-validate).
 pub trait ActionState {
     /// Identifier type for actors and targets.  `Entity` for Bevy backends,
     /// `UnitId` for the engine impl.
@@ -141,15 +135,26 @@ pub trait ActionState {
     /// supply the appropriate check (e.g. even-r hex bounds for `storyforge`).
     fn is_in_bounds(&self, pos: Hex) -> bool;
 
+    /// Hexes blocked by static obstacles (preграды).  Default: empty set —
+    /// for backends without obstacles (mock/stub adapters in tests).
+    ///
+    /// This is the **single point** of divergence between backends for LOS
+    /// purposes; `is_blocked_los` is computed uniformly via `has_los`.
+    fn blocked_hexes(&self) -> &std::collections::HashSet<Hex> {
+        static EMPTY: std::sync::OnceLock<std::collections::HashSet<Hex>> =
+            std::sync::OnceLock::new();
+        EMPTY.get_or_init(std::collections::HashSet::new)
+    }
+
     /// Returns `true` if the direct hex-line from `from` to `to` is blocked
     /// by an obstacle (i.e., LOS is obstructed).
     ///
-    /// Default implementation returns `false` (no obstacles known) — backends
-    /// that support `blocked_hexes` must override this.  The parity contract
-    /// (all three backends agree) is enforced by `tests/los_parity.rs`.
+    /// **Do not override** — this is the canonical LOS impl shared by all
+    /// backends.  Override `blocked_hexes` instead to expose obstacles.
+    /// Parity is structural: same input set → same output (by construction).
     fn is_blocked_los(&self, from: Hex, to: Hex) -> bool {
-        let _ = (from, to);
-        false
+        let blocked = self.blocked_hexes();
+        !crate::geom::has_los(from, to, |h| blocked.contains(&h))
     }
 }
 

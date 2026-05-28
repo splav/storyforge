@@ -187,9 +187,19 @@ fn engine_action_state_is_blocked_los_matches_has_los() {
     assert!(!engine_blocked_los(a, a, &blocked), "self-LOS should never be blocked");
 }
 
-/// Property test: all three backends agree on is_blocked_los for random inputs.
+/// Property test: backends agree on is_blocked_los for random inputs.
 ///
-/// Uses a deterministic PRNG (no external crate needed) to generate > 150 cases.
+/// Since the refactor that moved `is_blocked_los` to a default-impl in the
+/// trait (over abstract `blocked_hexes()` getter), parity is structural —
+/// each backend overrides only the getter, the LOS algorithm is a single
+/// shared default-impl calling `combat_engine::geom::has_los`. The Bevy
+/// backend therefore cannot diverge unless it overrides `is_blocked_los`
+/// directly (which production code does not). This test stays as a
+/// regression guard against accidental future overrides on engine/snapshot
+/// sides; the Bevy override is exercised by the dedicated fixed-case test
+/// `bevy_actions_is_blocked_los_matches_has_los`.
+///
+/// Uses a deterministic PRNG (no external crate needed) to generate 200 cases.
 #[test]
 fn prop_all_three_backends_agree_on_los() {
     // Simple LCG for reproducible pseudo-random numbers without external deps.
