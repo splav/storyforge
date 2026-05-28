@@ -69,26 +69,24 @@ fn uid(n: u64) -> UnitId { UnitId(n) }
 fn make_unit(id: u64, alive: bool) -> Unit {
     use storyforge::combat_engine::{PoolKind, RegenRule};
     let hp = if alive { 20 } else { 0 };
-    Unit {
-        id: UnitId(id),
-        team: Team::Player,
-        pos: Hex::ZERO,
-        hp,
-        max_hp: 20,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 3,
-        speed: 3,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: storyforge::combat_engine::enum_map::enum_map! {
+    Unit::new(
+        UnitId(id),
+        Team::Player,
+        Hex::ZERO,
+        0,  // armor
+        0,  // armor_bonus
+        0,  // damage_taken_bonus
+        3,  // base_speed
+        3,  // speed
+        1,  // reactions_left
+        1,  // reactions_max
+        vec![],
+        None,
+        Default::default(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((hp, 20)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -96,7 +94,7 @@ fn make_unit(id: u64, alive: bool) -> Unit {
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((3, 3)),
         },
-        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -104,8 +102,8 @@ fn make_unit(id: u64, alive: bool) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        template_id: None,
-    }
+        None,
+    )
 }
 
 fn make_state(units: Vec<Unit>, order: Vec<UnitId>, index: usize) -> CombatState {

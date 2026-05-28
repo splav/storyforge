@@ -179,7 +179,7 @@ fn aoo_does_not_fire_from_dead_enemy() {
     mover.pos = mover_pos;
     let mut enemy = make_unit(2, Team::Enemy, 1);
     enemy.pos = enemy_pos;
-    enemy.hp = 0; // dead
+    enemy.pools[storyforge::combat_engine::PoolKind::Hp] = Some((0, 20)); // dead
 
     let state = state_with(vec![mover, enemy]);
     let content = StubContent::with_weapon(DiceExpr::new(1, 6, 0));

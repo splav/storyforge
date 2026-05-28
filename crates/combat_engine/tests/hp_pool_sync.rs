@@ -21,28 +21,26 @@ fn uid(n: u64) -> UnitId {
     UnitId(n)
 }
 
-/// Build a unit at full HP with pools[Hp] correctly initialised.
+/// Build a unit at the given HP / max_hp via the canonical `Unit::new` constructor.
 fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
-    Unit {
-        id: uid(id),
-        team: Team::Player,
-        pos: Hex::ZERO,
-        hp,
-        max_hp,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 4,
-        speed: 4,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: vec![],
-        enemy_phases: vec![],
-        pools: combat_engine::enum_map::enum_map! {
+    Unit::new(
+        uid(id),
+        Team::Player,
+        Hex::ZERO,
+        0,  // armor
+        0,  // armor_bonus
+        0,  // damage_taken_bonus
+        4,  // base_speed
+        4,  // speed
+        1,  // reactions_left
+        1,  // reactions_max
+        vec![],
+        None,
+        Default::default(),
+        None,
+        vec![],
+        vec![],
+        combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((hp, max_hp)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -50,7 +48,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((4, 4)),
         },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
+        combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -58,24 +56,30 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        template_id: None,
-    }
+        None,
+    )
 }
 
-/// Assert that `pools[Hp]` mirrors `hp`/`max_hp` on every unit in the state.
+/// Assert that `pools[Hp]` is Some and hp()/max_hp() return consistent values for every unit.
 fn assert_all_hp_sync(state: &CombatState) {
     for u in state.units() {
         let pool = u.pools[PoolKind::Hp]
-            .expect("pools[Hp] must be Some on every unit after Stage 1");
+            .expect("pools[Hp] must be Some on every unit (Stage 3c invariant)");
         assert_eq!(
-            pool.0, u.hp,
-            "unit {} pools[Hp].0 ({}) != hp ({}) after effect",
-            u.id.0, pool.0, u.hp
+            pool.0,
+            u.hp(),
+            "unit {} pools[Hp].0 ({}) != hp() ({}) after effect",
+            u.id.0,
+            pool.0,
+            u.hp()
         );
         assert_eq!(
-            pool.1, u.max_hp,
-            "unit {} pools[Hp].1 ({}) != max_hp ({}) after effect",
-            u.id.0, pool.1, u.max_hp
+            pool.1,
+            u.max_hp(),
+            "unit {} pools[Hp].1 ({}) != max_hp() ({}) after effect",
+            u.id.0,
+            pool.1,
+            u.max_hp()
         );
     }
 }
@@ -124,7 +128,7 @@ fn hp_pool_dual_write_invariant_after_damage() {
     );
 
     let u = state.unit(target).expect("target exists");
-    assert_eq!(u.hp, 15, "hp after damage");
+    assert_eq!(u.hp(), 15, "hp after damage");
     assert_all_hp_sync(&state);
 }
 
@@ -151,7 +155,7 @@ fn hp_pool_dual_write_invariant_after_heal() {
     );
 
     let u = state.unit(target).expect("target exists");
-    assert_eq!(u.hp, 13, "hp after heal");
+    assert_eq!(u.hp(), 13, "hp after heal");
     assert_all_hp_sync(&state);
 }
 
@@ -177,7 +181,7 @@ fn hp_pool_dual_write_invariant_after_death() {
     );
 
     let u = state.unit(target).expect("tombstone exists");
-    assert_eq!(u.hp, 0, "hp after death");
+    assert_eq!(u.hp(), 0, "hp after death");
     // max_hp must be preserved, current must be 0.
     let pool = u.pools[PoolKind::Hp].expect("pool[Hp] must be Some after death");
     assert_eq!(pool.0, 0, "pools[Hp].0 == 0 after death");
@@ -203,7 +207,7 @@ fn hp_pool_dual_write_invariant_after_set_max_hp() {
     );
 
     let u = state.unit(unit_id).expect("unit exists");
-    assert_eq!(u.hp, 15, "hp clamped to new max");
-    assert_eq!(u.max_hp, 15, "max_hp updated");
+    assert_eq!(u.hp(), 15, "hp clamped to new max");
+    assert_eq!(u.max_hp(), 15, "max_hp updated");
     assert_all_hp_sync(&state);
 }

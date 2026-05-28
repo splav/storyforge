@@ -306,27 +306,24 @@ impl UnitBuilder {
         };
         let aoo_dice = u.aoo_expected_damage
             .map(|raw| combat_engine::DiceExpr::new(0, 1, raw.round() as i32));
-        let engine_unit = combat_engine::state::Unit {
-            id: uid,
+        let engine_unit = combat_engine::state::Unit::new(
+            uid,
             team,
-            pos: u.pos,
-            hp: u.hp,
-            max_hp: u.max_hp,
-            armor: u.armor,
-            armor_bonus: u.armor_bonus,
-            damage_taken_bonus: u.damage_taken_bonus,
-            base_speed: u.base_speed,
-            speed: u.speed,
-            reactions_left: u.reactions_left,
-            reactions_max: 1,
+            u.pos,
+            u.armor,
+            u.armor_bonus,
+            u.damage_taken_bonus,
+            u.base_speed,
+            u.speed,
+            u.reactions_left,
+            1,
             statuses,
-            summoner: u.summoner.map(|e| combat_engine::state::UnitId(e.to_bits())),
+            u.summoner.map(|e| combat_engine::state::UnitId(e.to_bits())),
             caster_context,
             aoo_dice,
-            auras: Vec::new(),
-            enemy_phases: Vec::new(),
-            pools: combat_engine::enum_map::enum_map! {
-                // Stage 1 dual-write: pools[Hp] mirrors hp/max_hp fields.
+            Vec::new(),
+            Vec::new(),
+            combat_engine::enum_map::enum_map! {
                 combat_engine::PoolKind::Hp     => Some((u.hp, u.max_hp)),
                 combat_engine::PoolKind::Mana   => u.mana,
                 combat_engine::PoolKind::Rage   => u.rage,
@@ -334,7 +331,7 @@ impl UnitBuilder {
                 combat_engine::PoolKind::Ap     => Some((u.action_points, u.max_ap)),
                 combat_engine::PoolKind::Mp     => Some((u.movement_points, u.movement_points)),
             },
-            regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::enum_map::enum_map! {
                 combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
                 combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
@@ -342,8 +339,8 @@ impl UnitBuilder {
                 combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
                 combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
             },
-            template_id: None,
-        };
+            None,
+        );
         let ai_cache = UnitAiCache {
             entity:              u.entity,
             role:                u.role,
@@ -398,27 +395,24 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
     };
     let aoo_dice = u.aoo_expected_damage
         .map(|raw| EngineDiceExpr::new(0, 1, raw.round() as i32));
-    let engine_unit = combat_engine::state::Unit {
-        id: uid,
+    let engine_unit = combat_engine::state::Unit::new(
+        uid,
         team,
-        pos: u.pos,
-        hp: u.hp,
-        max_hp: u.max_hp,
-        armor: u.armor,
-        armor_bonus: u.armor_bonus,
-        damage_taken_bonus: u.damage_taken_bonus,
-        base_speed: u.base_speed,
-        speed: u.speed,
-        reactions_left: u.reactions_left,
-        reactions_max: 1,
+        u.pos,
+        u.armor,
+        u.armor_bonus,
+        u.damage_taken_bonus,
+        u.base_speed,
+        u.speed,
+        u.reactions_left,
+        1,
         statuses,
-        summoner: u.summoner.map(|e| combat_engine::state::UnitId(e.to_bits())),
+        u.summoner.map(|e| combat_engine::state::UnitId(e.to_bits())),
         caster_context,
         aoo_dice,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: combat_engine::enum_map::enum_map! {
-            // Stage 1 dual-write: pools[Hp] mirrors hp/max_hp fields.
+        Vec::new(),
+        Vec::new(),
+        combat_engine::enum_map::enum_map! {
             combat_engine::PoolKind::Hp     => Some((u.hp, u.max_hp)),
             combat_engine::PoolKind::Mana   => u.mana,
             combat_engine::PoolKind::Rage   => u.rage,
@@ -426,7 +420,7 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
             combat_engine::PoolKind::Ap     => Some((u.action_points, u.max_ap)),
             combat_engine::PoolKind::Mp     => Some((u.movement_points, u.movement_points)),
         },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
+        combat_engine::enum_map::enum_map! {
             combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
             combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
@@ -434,8 +428,8 @@ fn unit_snapshot_to_pair(u: &UnitSnapshot) -> (combat_engine::state::Unit, UnitA
             combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
             combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
         },
-        template_id: None,
-    };
+        None,
+    );
     let ai_cache = UnitAiCache {
         entity:              u.entity,
         role:                u.role,

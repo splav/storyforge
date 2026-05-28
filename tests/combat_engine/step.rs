@@ -229,8 +229,6 @@ fn step_actor_death_mid_path_truncates_remaining_aoos() {
     // Mover: 1 hp — first AoO (raw=5) kills it.
     let mut mover = make_unit(1, Team::Player, 0, 0);
     mover.pos = start;
-    mover.hp = 1;
-    mover.max_hp = 20;
     mover.pools[combat_engine::PoolKind::Hp] = Some((1, 20));
     mover.pools[combat_engine::PoolKind::Mp] = Some((4, 6));
 
@@ -423,7 +421,6 @@ fn step_two_flankers_only_first_fires_when_lethal() {
     // Mover: 1 hp — lethal on any hit.
     let mut mover = make_unit(1, Team::Player, 0, 0);
     mover.pos = start;
-    mover.hp = 1;
     mover.pools[combat_engine::PoolKind::Hp] = Some((1, 20));
     mover.pools[combat_engine::PoolKind::Mp] = Some((6, 6));
 
@@ -467,7 +464,7 @@ fn step_two_flankers_only_first_fires_when_lethal() {
 
     // Mover dead at destination.
     let mover_after = state.unit(UnitId(1)).unwrap();
-    assert_eq!(mover_after.hp, 0, "mover should be dead");
+    assert_eq!(mover_after.hp(), 0, "mover should be dead");
     assert_eq!(mover_after.pos, dest, "mover at destination (MovePosition applied before AoO)");
 
     // Second enemy's reaction is untouched.
@@ -647,7 +644,6 @@ fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
     // enemyB — Enemy, current actor, only 1 hp so the AoO is lethal.
     let mut enemy_b = make_unit(2, Team::Enemy, 0, 0);
     enemy_b.pos = enemy_b_start;
-    enemy_b.hp = 1;
     enemy_b.pools[combat_engine::PoolKind::Hp] = Some((1, 20));
     enemy_b.pools[combat_engine::PoolKind::Mp] = Some((6, 6));
 
@@ -668,7 +664,7 @@ fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
     // ── State assertions ──────────────────────────────────────────────────────
 
     // EnemyB must be dead.
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 0, "enemyB must be dead after lethal AoO");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 0, "enemyB must be dead after lethal AoO");
 
     // Queue must have advanced past the dead actor and settled on heroA.
     assert_eq!(

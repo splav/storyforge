@@ -744,7 +744,7 @@ mod tests {
     /// `snapshot.unit_snapshot()` (which reads frozen `snap.units`).
     fn resource_of_view(u: &crate::combat::ai::world::snapshot::UnitView<'_>, kind: ResourceKind) -> i32 {
         match kind {
-            ResourceKind::Hp => u.hp,
+            ResourceKind::Hp => u.hp(),
             ResourceKind::Mana => u.pools[combat_engine::PoolKind::Mana].map(|(c, _)| c).unwrap_or(0),
             ResourceKind::Rage => u.pools[combat_engine::PoolKind::Rage].map(|(c, _)| c).unwrap_or(0),
             ResourceKind::Energy => u.pools[combat_engine::PoolKind::Energy].map(|(c, _)| c).unwrap_or(0),

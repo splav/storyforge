@@ -169,7 +169,7 @@ pub fn select_evaluation_modes(
             adaptation.modes[i] = EvaluationMode::LastStand;
             adaptation.reasons[i] = Some(AdaptationReason::ExpectedSelfLethal {
                 aoo_dmg,
-                actor_hp: active.hp,
+                actor_hp: active.hp(),
             });
         }
     }
@@ -185,7 +185,7 @@ pub fn select_evaluation_modes(
 /// See the module docstring for the five invariants this pass upholds.
 /// The code structure below maps 1:1 to them:
 /// - single function body, no recursion → **ONE PASS**
-/// - triggers read `active.hp`, `expected_aoo_damage`, `plan_is_defensive`,
+/// - triggers read `active.hp()`, `expected_aoo_damage`, `plan_is_defensive`,
 ///   `intent` — all snapshot/input facts → **FACTS ONLY**
 /// - no score multiplication, no masking; only mode map + rescore →
 ///   **NO PENALTIES / NO MASKS**
@@ -296,7 +296,7 @@ pub fn apply_adaptation(
             adaptation.modes[i] = EvaluationMode::LastStand;
             adaptation.reasons[i] = Some(AdaptationReason::ExpectedSelfLethal {
                 aoo_dmg,
-                actor_hp: active.hp,
+                actor_hp: active.hp(),
             });
             any_switched = true;
         }

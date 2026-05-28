@@ -97,7 +97,7 @@ impl<'a> SimState<'a> {
     /// Mirrors `BattleSnapshot::enemies_of()` but reads from `combat_state`.
     pub fn enemies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         self.combat_state.units().iter().filter_map(move |u| {
-            if u.team == team || u.hp <= 0 { return None; }
+            if u.team == team || u.hp() <= 0 { return None; }
             let entity = self.snapshot.entity_for_uid(u.id)?;
             let cache = self.snapshot.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
@@ -171,7 +171,7 @@ impl<'a> SimState<'a> {
         if path.is_empty() { return outcome; }
 
         let Some(actor_snap) = self.actor_unit() else { return outcome };
-        let actor_hp_before = actor_snap.hp;
+        let actor_hp_before = actor_snap.hp();
         let actor_uid = entity_to_uid(self.actor);
 
         // ContentView still builds per-call from snapshot (cheap; tied to
@@ -193,7 +193,7 @@ impl<'a> SimState<'a> {
             }
         }
 
-        let actor_hp_after = self.actor_unit().map(|u| u.hp).unwrap_or(0);
+        let actor_hp_after = self.actor_unit().map(|u| u.hp()).unwrap_or(0);
         let hp_delta = (actor_hp_before - actor_hp_after).max(0);
         outcome.self_damage = hp_delta as f32;
 
@@ -217,7 +217,7 @@ impl<'a> SimState<'a> {
 
         let actor_uid = entity_to_uid(self.actor);
         let target_uid = entity_to_uid(target);
-        let actor_hp_before = self.actor_unit().map(|u| u.hp).unwrap_or(0);
+        let actor_hp_before = self.actor_unit().map(|u| u.hp()).unwrap_or(0);
 
         // Build a content view enriched with ability + status defs so the
         // engine's legality check (`check_legality`) can resolve `ability_def`.
@@ -278,7 +278,7 @@ impl<'a> SimState<'a> {
                 }
 
                 // self_damage: actor HP lost this step (e.g. from crit-fail SelfDamage).
-                let actor_hp_after = self.actor_unit().map(|u| u.hp).unwrap_or(0);
+                let actor_hp_after = self.actor_unit().map(|u| u.hp()).unwrap_or(0);
                 let hp_delta = (actor_hp_before - actor_hp_after).max(0);
                 outcome.self_damage = hp_delta as f32;
             }

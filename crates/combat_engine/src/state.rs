@@ -72,9 +72,6 @@ pub struct Unit {
     pub id: UnitId,
     pub team: Team,
     pub pos: Hex,
-    /// Current HP. 0 = dead (unit stays in `units` vec as tombstone).
-    pub hp: i32,
-    pub max_hp: i32,
     /// Base armor value (equipment). Bonus from statuses is tracked separately
     /// and folded in by `refresh_aggregates`.
     pub armor: i32,
@@ -117,12 +114,13 @@ pub struct Unit {
     pub enemy_phases: Vec<crate::content::PhaseEntry>,
 
     /// Unified resource table. Canonical source of truth for all resource pools
-    /// (Mana, Rage, Energy, Ap, Mp) since Phase C-6.
+    /// (Hp, Mana, Rage, Energy, Ap, Mp) since Stage 3c.
     ///
-    /// Iteration order: `Mana, Rage, Energy, Ap, Mp` (declaration order of
+    /// Iteration order: `Hp, Mana, Rage, Energy, Ap, Mp` (declaration order of
     /// `PoolKind`). Load-bearing for replay-trace determinism.
     ///
     /// **Invariants:**
+    /// - `pools[Hp]`: Some for every combat unit; `(current, max)`.
     /// - `pools[Mana]`/`pools[Rage]`/`pools[Energy]`: Some iff the unit has
     ///   that resource mechanic.
     /// - `pools[Ap]`/`pools[Mp]`: Some for every alive combat unit; None
@@ -145,8 +143,6 @@ struct UnitWire {
     pub id: UnitId,
     pub team: Team,
     pub pos: Hex,
-    pub hp: i32,
-    pub max_hp: i32,
     pub armor: i32,
     pub armor_bonus: i32,
     #[serde(default)]
@@ -166,7 +162,8 @@ struct UnitWire {
     #[serde(default)]
     pub enemy_phases: Vec<crate::content::PhaseEntry>,
 
-    // ── canonical pools (C-6+) ──────────────────────────────────────────────
+    // ── canonical pools (Stage 3c+) ─────────────────────────────────────────
+    // pools[Hp] is the canonical HP representation.
     #[serde(default)]
     pub pools: enum_map::EnumMap<crate::PoolKind, Option<(i32, i32)>>,
     #[serde(default)]
@@ -191,6 +188,14 @@ struct UnitWire {
     rage: Option<(i32, i32)>,
     #[serde(default, deserialize_with = "de_legacy_pool")]
     energy: Option<(i32, i32)>,
+
+    // ── legacy hp fields (pre-Stage-3c, for backward-compat only) ──────────
+    // If pools[Hp] is absent (old traces), these fields are used to populate it.
+    // On new traces, hp/max_hp are absent; pools[Hp] is canonical.
+    #[serde(default)]
+    hp: Option<i32>,
+    #[serde(default)]
+    max_hp: Option<i32>,
 }
 
 /// Deserializes a legacy pool field from either a JSON array `[cur, max]`
@@ -244,18 +249,18 @@ impl From<UnitWire> for Unit {
                 pools[PoolKind::Energy] = Some(v);
             }
         }
-        // Stage 1 dual-write: ensure pools[Hp] is populated from hp/max_hp.
-        // Older traces pre-dating Stage 1 won't have Hp in pools (it defaults
-        // to None via #[serde(default)]); always overwrite from the authoritative
-        // hp/max_hp fields to establish the invariant on deserialization.
-        pools[crate::PoolKind::Hp] = Some((w.hp, w.max_hp));
+        // Stage 3c backward-compat: populate pools[Hp] from legacy hp/max_hp
+        // fields if pools[Hp] is absent (pre-Stage-3c traces).
+        if pools[PoolKind::Hp].is_none() {
+            if let (Some(hp), Some(max_hp)) = (w.hp, w.max_hp) {
+                pools[PoolKind::Hp] = Some((hp, max_hp));
+            }
+        }
 
         Unit {
             id: w.id,
             team: w.team,
             pos: w.pos,
-            hp: w.hp,
-            max_hp: w.max_hp,
             armor: w.armor,
             armor_bonus: w.armor_bonus,
             damage_taken_bonus: w.damage_taken_bonus,
@@ -282,8 +287,6 @@ impl From<Unit> for UnitWire {
             id: u.id,
             team: u.team,
             pos: u.pos,
-            hp: u.hp(),
-            max_hp: u.max_hp(),
             armor: u.armor,
             armor_bonus: u.armor_bonus,
             damage_taken_bonus: u.damage_taken_bonus,
@@ -307,6 +310,8 @@ impl From<Unit> for UnitWire {
             mana: None,
             rage: None,
             energy: None,
+            hp: None,
+            max_hp: None,
         }
     }
 }
@@ -320,12 +325,10 @@ impl<'de> serde::Deserialize<'de> for Unit {
 impl Unit {
     /// Canonical constructor — the **only** place in the codebase that builds a
     /// `Unit` struct literal.  All other constructors and test helpers must call
-    /// this function so that Stage 3c (removing the legacy `hp`/`max_hp` fields)
-    /// only requires edits here.
+    /// this function.
     ///
     /// `pools` must have `pools[PoolKind::Hp] = Some((hp, max_hp))` before
-    /// calling; the constructor mirrors those values into the legacy fields so
-    /// that `assert_hp_pool_sync` passes on every unit that exits this gate.
+    /// calling; this invariant is enforced by a debug-mode assertion.
     ///
     /// # Panics (debug only)
     /// Panics if `pools[PoolKind::Hp]` is `None`.
@@ -351,14 +354,14 @@ impl Unit {
         regen_per_pool: enum_map::EnumMap<crate::PoolKind, crate::RegenRule>,
         template_id: Option<String>,
     ) -> Self {
-        let (hp, max_hp) = pools[crate::PoolKind::Hp]
-            .expect("Unit::new requires pools[PoolKind::Hp] = Some((hp, max_hp))");
+        debug_assert!(
+            pools[crate::PoolKind::Hp].is_some(),
+            "Unit::new requires pools[PoolKind::Hp] = Some((hp, max_hp))"
+        );
         Unit {
             id,
             team,
             pos,
-            hp,
-            max_hp,
             armor,
             armor_bonus,
             damage_taken_bonus,
@@ -382,41 +385,28 @@ impl Unit {
         self.pools[crate::PoolKind::Hp].map_or(false, |(cur, _)| cur > 0)
     }
 
-    /// Convenience accessor for current HP.
-    ///
-    /// After the HP-as-pool migration completes (Stage 3), this will read from
-    /// `pools[PoolKind::Hp]`. Currently mirrors `self.hp` (the legacy field).
+    /// Current HP — reads from `pools[PoolKind::Hp]` (canonical since Stage 3c).
     pub fn hp(&self) -> i32 {
-        self.hp
+        self.pools[crate::PoolKind::Hp].map_or(0, |(c, _)| c)
     }
 
-    /// Convenience accessor for max HP.
-    ///
-    /// After the HP-as-pool migration completes (Stage 3), this will read from
-    /// `pools[PoolKind::Hp].unwrap().1`. Currently mirrors `self.max_hp`.
+    /// Max HP — reads from `pools[PoolKind::Hp]` (canonical since Stage 3c).
     pub fn max_hp(&self) -> i32 {
-        self.max_hp
+        self.pools[crate::PoolKind::Hp].map_or(0, |(_, m)| m)
     }
 
-    /// Debug assertion: `pools[Hp]` must mirror `self.hp` / `self.max_hp`.
+    /// Debug assertion: `pools[Hp]` must be `Some` for every live unit.
     ///
-    /// Called after each HP-mutating effect during debug builds to catch
-    /// dual-write gaps introduced during the Stage 1 migration.
+    /// After Stage 3c the legacy `hp`/`max_hp` fields are gone and
+    /// `pools[Hp]` is the sole source of truth. This assertion guards
+    /// against accidental `None` after an HP-mutating effect.
     #[inline]
     pub fn assert_hp_pool_sync(&self) {
         #[cfg(debug_assertions)]
         {
-            let pool = self.pools[crate::PoolKind::Hp]
-                .expect("pools[Hp] must be Some for every unit after Stage 1 dual-write");
-            assert_eq!(
-                pool.0, self.hp,
-                "pools[Hp].0 ({}) != self.hp ({}) — dual-write gap",
-                pool.0, self.hp
-            );
-            assert_eq!(
-                pool.1, self.max_hp,
-                "pools[Hp].1 ({}) != self.max_hp ({}) — dual-write gap",
-                pool.1, self.max_hp
+            assert!(
+                self.pools[crate::PoolKind::Hp].is_some(),
+                "pools[Hp] must be Some for every unit (Stage 3c invariant)"
             );
         }
     }

@@ -42,26 +42,24 @@ fn uid(n: u64) -> UnitId { UnitId(n) }
 fn make_unit(id: UnitId, alive: bool, reactions_max: i32) -> Unit {
     use storyforge::combat_engine::{PoolKind, RegenRule};
     let hp = if alive { 10 } else { 0 };
-    Unit {
+    Unit::new(
         id,
-        team: Team::Player,
-        pos: Hex::ZERO,
-        hp,
-        max_hp: 10,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 3,
-        speed: 3,
-        reactions_left: 0,
+        Team::Player,
+        Hex::ZERO,
+        0,  // armor
+        0,  // armor_bonus
+        0,  // damage_taken_bonus
+        3,  // base_speed
+        3,  // speed
+        0,  // reactions_left
         reactions_max,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: storyforge::combat_engine::enum_map::enum_map! {
+        vec![],
+        None,
+        Default::default(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((hp, 10)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -69,7 +67,7 @@ fn make_unit(id: UnitId, alive: bool, reactions_max: i32) -> Unit {
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((3, 3)),
         },
-        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -77,8 +75,8 @@ fn make_unit(id: UnitId, alive: bool, reactions_max: i32) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        template_id: None,
-    }
+        None,
+    )
 }
 
 // ── TurnQueue: default / new / current / is_empty ────────────────────────────

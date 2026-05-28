@@ -170,7 +170,6 @@ fn step_cast_returns_err_illegal_for_unknown_ability() {
 fn step_cast_returns_err_illegal_for_dead_target() {
     let actor = make_unit(1, Team::Player, 0, 0);
     let mut target = make_unit(2, Team::Enemy, 1, 0);
-    target.hp = 0; // corpse
     target.pools[combat_engine::PoolKind::Hp] = Some((0, 10));
 
     let mut state = state_with(vec![actor, target]);
@@ -227,7 +226,7 @@ fn step_cast_returns_ok_when_legal() {
 
     // State is unchanged — no AP spent, no HP lost.
     assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 2, "actor AP unchanged");
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "target HP unchanged");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "target HP unchanged");
 }
 
 // ── Step 6c tests: cost payment ───────────────────────────────────────────────
@@ -330,7 +329,7 @@ fn cast_damage_hits_target_with_str_mod() {
     let (events, _ctx) = step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal cast should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 3, "hp = 10 - (4+3) = 3");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 3, "hp = 10 - (4+3) = 3");
     assert!(events.iter().any(|e| matches!(e, Event::UnitDamaged { target: UnitId(2), .. })));
 }
 
@@ -368,7 +367,7 @@ fn cast_spell_damage_pierces_armor() {
         .expect("legal cast should succeed");
 
     // Armor ignored (pierces=true) → hp = 10 - 6 = 4.
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 4, "piercing spell ignores armor=10");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 4, "piercing spell ignores armor=10");
 }
 
 /// WeaponAttack: raw = roll(1d8) + str_mod = 5 + 2 = 7. Target hp = 10-7 = 3.
@@ -406,7 +405,7 @@ fn cast_weapon_attack_uses_weapon_dice() {
     step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal cast should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 3, "hp = 10 - (5+2) = 3");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 3, "hp = 10 - (5+2) = 3");
 }
 
 /// WeaponAttack with no weapon_dice → no Damage effect, target hp unchanged.
@@ -436,7 +435,7 @@ fn cast_weapon_attack_no_damage_when_no_weapon() {
     step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal cast should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "no weapon → no damage");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "no weapon → no damage");
 }
 
 /// AoE Circle radius=1, fixed dice (0d1+2 → raw=2), str_mod=0.
@@ -461,15 +460,12 @@ fn cast_aoe_damages_targets_in_per_target_order() {
     // to set unit.pos directly.
     let mut ea = make_unit(10, Team::Enemy, 0, 0);
     ea.pos = target_pos;
-    ea.hp = 5;
     ea.pools[combat_engine::PoolKind::Hp] = Some((5, 10));
     let mut eb = make_unit(11, Team::Enemy, 0, 0);
     eb.pos = neighbors[0];
-    eb.hp = 5;
     eb.pools[combat_engine::PoolKind::Hp] = Some((5, 10));
     let mut ec = make_unit(12, Team::Enemy, 0, 0);
     ec.pos = neighbors[1];
-    ec.hp = 5;
     ec.pools[combat_engine::PoolKind::Hp] = Some((5, 10));
 
     let mut state = state_with(vec![actor, ea, eb, ec]);
@@ -504,9 +500,9 @@ fn cast_aoe_damages_targets_in_per_target_order() {
         .expect("legal AoE cast should succeed");
 
     // All three enemies take 2 damage: hp 5→3.
-    assert_eq!(state.unit(UnitId(10)).unwrap().hp, 3, "EA hp = 5-2 = 3");
-    assert_eq!(state.unit(UnitId(11)).unwrap().hp, 3, "EB hp = 5-2 = 3");
-    assert_eq!(state.unit(UnitId(12)).unwrap().hp, 3, "EC hp = 5-2 = 3");
+    assert_eq!(state.unit(UnitId(10)).unwrap().hp(), 3, "EA hp = 5-2 = 3");
+    assert_eq!(state.unit(UnitId(11)).unwrap().hp(), 3, "EB hp = 5-2 = 3");
+    assert_eq!(state.unit(UnitId(12)).unwrap().hp(), 3, "EC hp = 5-2 = 3");
 
     // Per-target ordering: collect UnitDamaged positions and verify no
     // interleaving (each target's hit lands as a contiguous block relative
@@ -571,8 +567,6 @@ fn cast_heal_restores_target_hp() {
 
     let actor = make_unit(1, Team::Player, 0, 0);
     let mut target = make_unit(2, Team::Player, 1, 0);
-    target.hp = 3;
-    target.max_hp = 10;
     target.pools[combat_engine::PoolKind::Hp] = Some((3, 10));
 
     let mut state = state_with(vec![actor, target]);
@@ -604,7 +598,7 @@ fn cast_heal_restores_target_hp() {
     step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal heal cast should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 9, "hp = 3 + (3+2+1) = 9");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 9, "hp = 3 + (3+2+1) = 9");
 }
 
 /// AoE heal (fixed dice 0d1+4 = 4, int_mod=0, spell_power=0).
@@ -620,18 +614,12 @@ fn cast_aoe_heal_restores_multiple_targets() {
 
     let mut a1 = make_unit(10, Team::Player, 0, 0);
     a1.pos = target_pos;
-    a1.hp = 3;
-    a1.max_hp = 10;
     a1.pools[combat_engine::PoolKind::Hp] = Some((3, 10));
     let mut a2 = make_unit(11, Team::Player, 0, 0);
     a2.pos = neighbors[0];
-    a2.hp = 3;
-    a2.max_hp = 10;
     a2.pools[combat_engine::PoolKind::Hp] = Some((3, 10));
     let mut a3 = make_unit(12, Team::Player, 0, 0);
     a3.pos = neighbors[1];
-    a3.hp = 3;
-    a3.max_hp = 10;
     a3.pools[combat_engine::PoolKind::Hp] = Some((3, 10));
 
     let mut state = state_with(vec![actor, a1, a2, a3]);
@@ -661,9 +649,9 @@ fn cast_aoe_heal_restores_multiple_targets() {
     step(&mut state, action, &mut ExpectedValue, &content)
         .expect("legal AoE heal should succeed");
 
-    assert_eq!(state.unit(UnitId(10)).unwrap().hp, 7, "a1 hp = 3 + 4 = 7");
-    assert_eq!(state.unit(UnitId(11)).unwrap().hp, 7, "a2 hp = 3 + 4 = 7");
-    assert_eq!(state.unit(UnitId(12)).unwrap().hp, 7, "a3 hp = 3 + 4 = 7");
+    assert_eq!(state.unit(UnitId(10)).unwrap().hp(), 7, "a1 hp = 3 + 4 = 7");
+    assert_eq!(state.unit(UnitId(11)).unwrap().hp(), 7, "a2 hp = 3 + 4 = 7");
+    assert_eq!(state.unit(UnitId(12)).unwrap().hp(), 7, "a3 hp = 3 + 4 = 7");
 }
 
 /// Status with `on: Target` is applied to the targeted enemy.
@@ -790,7 +778,7 @@ fn cast_crit_fail_miss_skips_damage() {
 
     step(&mut state, action, &mut rng, &content).expect("should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "target hp unchanged on miss crit-fail");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "target hp unchanged on miss crit-fail");
     assert_eq!(state.unit(UnitId(1)).unwrap().pools[storyforge::combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0), 1, "AP still paid");
 }
 
@@ -834,7 +822,7 @@ fn cast_crit_fail_double_cost() {
 
     let actor_unit = state.unit(UnitId(1)).unwrap();
     assert_eq!(actor_unit.pools[storyforge::combat_engine::PoolKind::Mana], Some((4, 10)), "mana = 10 - 3*2 = 4");
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "target hp unchanged");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "target hp unchanged");
 }
 
 /// d20 = 1 + SelfDamage(0d1+3) → caster takes 3 raw damage; target unaffected.
@@ -876,8 +864,8 @@ fn cast_crit_fail_self_damage() {
 
     step(&mut state, action, &mut rng, &content).expect("should succeed");
 
-    assert_eq!(state.unit(UnitId(1)).unwrap().hp, 7, "caster hp = 10 - 3 = 7");
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 10, "target hp unchanged");
+    assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 7, "caster hp = 10 - 3 = 7");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 10, "target hp unchanged");
 }
 
 /// d20 = 1 + ApplyStatus("exhaustion") → caster gets exhaustion for 3 rounds.
@@ -1043,7 +1031,7 @@ fn cast_proceeds_normally_when_d20_not_one() {
 
     step(&mut state, action, &mut rng, &content).expect("should succeed");
 
-    assert_eq!(state.unit(UnitId(2)).unwrap().hp, 7, "target hp = 10 - 3 = 7");
+    assert_eq!(state.unit(UnitId(2)).unwrap().hp(), 7, "target hp = 10 - 3 = 7");
 }
 
 /// AoE status (on: Target, friendly_fire: false) applied to each enemy in range.
@@ -1184,8 +1172,8 @@ fn cast_summon_ability_pushes_spawn_effect_and_creates_unit() {
 
     // New unit stats match the template.
     let new_unit = state.unit(new_uid).expect("new unit present in state");
-    assert_eq!(new_unit.max_hp, 8);
-    assert_eq!(new_unit.hp, 8);
+    assert_eq!(new_unit.max_hp(), 8);
+    assert_eq!(new_unit.hp(), 8);
     assert_eq!(new_unit.armor, 1);
     assert_eq!(new_unit.summoner, Some(summoner_id));
 

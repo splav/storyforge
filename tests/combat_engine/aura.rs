@@ -423,11 +423,10 @@ fn source_death_removes_coverage_from_membership_set() {
     let before = state.aura_membership_set(&content);
     assert_eq!(before.len(), 2, "both targets in membership set before death");
 
-    // Kill source (pool-first, field-mirror — mirrors Stage 3a Death arm).
+    // Kill source — set pool HP to 0.
     {
         let u = state.unit_mut(src).unwrap();
         u.pools[combat_engine::PoolKind::Hp].as_mut().unwrap().0 = 0;
-        u.hp = 0;
     }
 
     // Snapshot after death.

@@ -377,26 +377,24 @@ fn apply_initial_statuses_engine_side() {
     let unit_id = UnitId(1);
 
     // Build a unit with template_id = "test_template" and no initial statuses.
-    let unit = Unit {
-        id: unit_id,
-        team: EngineTeam::Player,
-        pos: storyforge::game::hex::hex_from_offset(0, 0),
-        hp: 10,
-        max_hp: 10,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 3,
-        speed: 3,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: vec![],
-        enemy_phases: vec![],
-        pools: storyforge::combat_engine::enum_map::enum_map! {
+    let unit = Unit::new(
+        unit_id,
+        EngineTeam::Player,
+        storyforge::game::hex::hex_from_offset(0, 0),
+        0,  // armor
+        0,  // armor_bonus
+        0,  // damage_taken_bonus
+        3,  // base_speed
+        3,  // speed
+        1,  // reactions_left
+        1,  // reactions_max
+        vec![],
+        None,
+        Default::default(),
+        None,
+        vec![],
+        vec![],
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((10, 10)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -404,7 +402,7 @@ fn apply_initial_statuses_engine_side() {
             PoolKind::Ap     => Some((1, 1)),
             PoolKind::Mp     => Some((3, 3)),
         },
-        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -412,8 +410,8 @@ fn apply_initial_statuses_engine_side() {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        template_id: Some("test_template".to_string()),
-    };
+        Some("test_template".to_string()),
+    );
 
     let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
 

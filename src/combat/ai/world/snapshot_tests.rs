@@ -398,34 +398,32 @@ mod snapshot_api_tests {
             .ap(2)
             .build();
 
-        let engine_unit = EngineUnit {
-            id: uid,
-            team: EngineTeam::Player,
+        let engine_unit = EngineUnit::new(
+            uid,
+            EngineTeam::Player,
             pos,
-            hp: 15,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            base_speed: 3,
-            speed: 3,
-            reactions_left: 0,
-            reactions_max: 1,
-            statuses: vec![],
-            summoner: None,
-            caster_context: Default::default(),
-            aoo_dice: None,
-            auras: Vec::new(),
-            enemy_phases: Vec::new(),
-            pools: combat_engine::enum_map::enum_map! {
-                combat_engine::PoolKind::Hp     => Some((10, 10)),
+            0,  // armor
+            0,  // armor_bonus
+            0,  // damage_taken_bonus
+            3,  // base_speed
+            3,  // speed
+            0,  // reactions_left
+            1,  // reactions_max
+            vec![],
+            None,
+            Default::default(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Hp     => Some((15, 15)),
                 combat_engine::PoolKind::Mana   => None,
                 combat_engine::PoolKind::Rage   => None,
                 combat_engine::PoolKind::Energy => None,
                 combat_engine::PoolKind::Ap     => Some((2, 2)),
                 combat_engine::PoolKind::Mp     => Some((3, 3)),
             },
-            regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::enum_map::enum_map! {
                 combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
                 combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
@@ -433,8 +431,8 @@ mod snapshot_api_tests {
                 combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
                 combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
             },
-            template_id: None,
-        };
+            None,
+        );
 
         let combat_state = CombatState::new(
             vec![engine_unit],
@@ -447,7 +445,7 @@ mod snapshot_api_tests {
         snap.state = combat_state;
 
         let view = snap.unit(entity).expect("view must resolve for known entity");
-        assert_eq!(view.hp, snap_unit.hp, "view.hp must match UnitSnapshot.hp");
+        assert_eq!(view.hp(), snap_unit.hp, "view.hp must match UnitSnapshot.hp");
         assert_eq!(view.pos, snap_unit.pos, "view.pos must match UnitSnapshot.pos");
         // AP is read from pools[Ap] on engine Unit.
         let view_ap = view.pools[combat_engine::PoolKind::Ap].map(|(c, _)| c).unwrap_or(0);

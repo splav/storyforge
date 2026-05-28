@@ -1773,26 +1773,24 @@ mod tests {
         let active = ActiveContent(ContentView::load_global_for_tests());
         let view = build_ecs_content_view(&active);
 
-        let unit = Unit {
-            id: UnitId(1),
-            team: Team::Player,
-            pos: Hex::ZERO,
-            hp: 20,
-            max_hp: 20,
-            armor: 3,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            base_speed: 3,
-            speed: 3,
-            reactions_left: 1,
-            reactions_max: 1,
-            statuses: Vec::new(),
-            summoner: None,
-            caster_context: combat_engine::CasterContext::default(),
-            aoo_dice: None,
-            auras: Vec::new(),
-            enemy_phases: Vec::new(),
-            pools: combat_engine::enum_map::enum_map! {
+        let unit = Unit::new(
+            UnitId(1),
+            Team::Player,
+            Hex::ZERO,
+            3,  // armor
+            0,  // armor_bonus
+            0,  // damage_taken_bonus
+            3,  // base_speed
+            3,  // speed
+            1,  // reactions_left
+            1,  // reactions_max
+            Vec::new(),
+            None,
+            combat_engine::CasterContext::default(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            combat_engine::enum_map::enum_map! {
                 combat_engine::PoolKind::Hp     => Some((20, 20)),
                 combat_engine::PoolKind::Mana   => None,
                 combat_engine::PoolKind::Rage   => None,
@@ -1800,7 +1798,7 @@ mod tests {
                 combat_engine::PoolKind::Ap     => Some((1, 1)),
                 combat_engine::PoolKind::Mp     => Some((3, 3)),
             },
-            regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::enum_map::enum_map! {
                 combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
                 combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
@@ -1808,8 +1806,8 @@ mod tests {
                 combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
                 combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
             },
-            template_id: None,
-        };
+            None,
+        );
         let mut state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
 
         // Mirror the production path: ApplyStatus derives RefreshAggregates.

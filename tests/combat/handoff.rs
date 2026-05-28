@@ -640,23 +640,26 @@ fn summoned_unit_can_act_in_ai_turn() {
         "synthetic_uid must differ from summon_entity.to_bits() for this test to be meaningful"
     );
 
-    // Build minimal engine Unit structs (all fields optional/defaulted).
+    // Build minimal engine Unit structs via Unit::new (Stage 3c: no hp/max_hp fields).
     use storyforge::combat_engine::{PoolKind, RegenRule};
-    let make_engine_unit = |id: UnitId, team: Team| Unit {
+    let make_engine_unit = |id: UnitId, team: Team| Unit::new(
         id,
         team,
-        pos: Hex::new(0, 0),
-        hp: 20, max_hp: 20,
-        armor: 0, armor_bonus: 0, damage_taken_bonus: 0,
-        base_speed: 4, speed: 4,
-        reactions_left: 1, reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: vec![],
-        enemy_phases: vec![],
-        pools: storyforge::combat_engine::enum_map::enum_map! {
+        Hex::new(0, 0),
+        0,  // armor
+        0,  // armor_bonus
+        0,  // damage_taken_bonus
+        4,  // base_speed
+        4,  // speed
+        1,  // reactions_left
+        1,  // reactions_max
+        vec![],
+        None,
+        Default::default(),
+        None,
+        vec![],
+        vec![],
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((20, 20)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -664,7 +667,7 @@ fn summoned_unit_can_act_in_ai_turn() {
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((4, 4)),
         },
-        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -672,8 +675,8 @@ fn summoned_unit_can_act_in_ai_turn() {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        template_id: None,
-    };
+        None,
+    );
 
     let state = CombatState::new(
         vec![

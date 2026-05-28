@@ -173,7 +173,7 @@ pub fn generate_plans(
                 // depth iterations either.
                 let actor_is_dead = ext_sim
                     .actor_unit()
-                    .map(|a| a.hp <= 0)
+                    .map(|a| a.hp() <= 0)
                     .unwrap_or(true);
 
                 let (final_pos, residual_ap, residual_mp) = match ext_sim.actor_unit() {

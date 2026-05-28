@@ -226,7 +226,7 @@ impl<'a> UnitView<'a> {
 
     /// `hp > 0`.
     pub fn is_alive(&self) -> bool {
-        self.state.hp > 0
+        self.state.hp() > 0
     }
 
     /// Read-only view of active statuses (engine `ActiveStatus` slice).
@@ -261,7 +261,7 @@ impl<'a> UnitView<'a> {
     pub fn resource_amount(&self, kind: combat_engine::ResourceKind) -> i32 {
         use combat_engine::PoolKind;
         match kind {
-            combat_engine::ResourceKind::Hp     => self.state.hp,
+            combat_engine::ResourceKind::Hp     => self.state.hp(),
             combat_engine::ResourceKind::Mana   => self.state.pools[PoolKind::Mana].map(|(c, _)| c).unwrap_or(0),
             combat_engine::ResourceKind::Rage   => self.state.pools[PoolKind::Rage].map(|(c, _)| c).unwrap_or(0),
             combat_engine::ResourceKind::Energy => self.state.pools[PoolKind::Energy].map(|(c, _)| c).unwrap_or(0),
@@ -705,7 +705,7 @@ impl BattleSnapshot {
     pub fn enemies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         let opponent = opponent_team(team);
         self.state.units().iter().filter_map(move |u| {
-            if u.team != opponent || u.hp <= 0 { return None; }
+            if u.team != opponent || u.hp() <= 0 { return None; }
             let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
@@ -715,7 +715,7 @@ impl BattleSnapshot {
     /// Live allies of `team` (mirrors `enemies_of` contract).
     pub fn allies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         self.state.units().iter().filter_map(move |u| {
-            if u.team != team || u.hp <= 0 { return None; }
+            if u.team != team || u.hp() <= 0 { return None; }
             let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
@@ -737,7 +737,7 @@ impl BattleSnapshot {
     pub fn dead_enemies_of(&self, team: Team) -> impl Iterator<Item = UnitView<'_>> {
         let opponent = opponent_team(team);
         self.state.units().iter().filter_map(move |u| {
-            if u.team != opponent || u.hp > 0 { return None; }
+            if u.team != opponent || u.hp() > 0 { return None; }
             let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })
@@ -747,7 +747,7 @@ impl BattleSnapshot {
     /// Every dead unit in the snapshot regardless of team.
     pub fn dead_units(&self) -> impl Iterator<Item = UnitView<'_>> {
         self.state.units().iter().filter_map(|u| {
-            if u.hp > 0 { return None; }
+            if u.hp() > 0 { return None; }
             let entity = *self.uid_to_entity.get(&u.id)?;
             let cache = self.cache.unit(entity)?;
             Some(UnitView { state: u, cache })

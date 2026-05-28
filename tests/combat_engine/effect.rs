@@ -307,8 +307,7 @@ fn decrement_reactions_clamps_at_zero() {
 
 #[test]
 fn death_sets_hp_to_zero_and_unit_is_dead() {
-    let mut u = make_unit(1, 0, 20); // hp already 0 (set by preceding Damage)
-    u.hp = 0;
+    let mut u = make_unit(1, 0, 20); // hp=0 from constructor
     let mut state = state_with(vec![u]);
 
     let (derived, _) = apply_effect(
@@ -409,7 +408,6 @@ fn heal_no_dot_restores_hp() {
     assert_eq!(state.unit(UnitId(1)).unwrap().hp(), 8, "3 + 5 = 8");
 
     // Sanity: heals above cap clamp.
-    u.hp = 8;
     u.pools[storyforge::combat_engine::PoolKind::Hp] = Some((8, 10));
     state = state_with(vec![u]);
     let (_, ctx) = apply_effect(
@@ -505,7 +503,7 @@ fn heal_neutralizes_multiple_dots_in_order() {
     assert_eq!(unit.statuses.len(), 1, "poison removed, burning remains");
     assert_eq!(unit.statuses[0].id, StatusId::from("burning"));
     assert_eq!(unit.statuses[0].dot_per_tick, 1, "burning weakened to 1");
-    assert_eq!(unit.hp, 1, "no HP restored — pool consumed by DoTs");
+    assert_eq!(unit.hp(), 1, "no HP restored — pool consumed by DoTs");
     assert_eq!(ctx.heal_amount, Some(0));
 }
 

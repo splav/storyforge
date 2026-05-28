@@ -182,7 +182,7 @@ fn attack_component_intent(
     // Accepts `&Unit` (engine state) — `UnitView` derefs to `Unit`.
     let damage_value = |def: &crate::content::abilities::AbilityDef, target: &combat_engine::state::Unit| -> f32 {
         let h = estimate_hypothetical(def, target, &active.cache.caster_ctx, content);
-        let damage_progress = (h.enemy_damage / target.hp.max(1) as f32).min(1.0);
+        let damage_progress = (h.enemy_damage / target.hp().max(1) as f32).min(1.0);
         policy::damage::value(h.enemy_damage, damage_progress)
     };
 

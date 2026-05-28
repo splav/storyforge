@@ -55,7 +55,12 @@ use crate::{
 /// `pools` EnumMap shape changed (6 pools instead of 5); serialized
 /// representation and `enum_map::Iter` order both shift. Old v42 traces are
 /// incompatible — clean break.
-pub const SCHEMA_VERSION: u32 = 43;
+/// v44: HP-as-pool Stage 3c — `Unit.hp`/`Unit.max_hp` legacy fields removed.
+/// `pools[Hp]` is now the sole canonical HP representation. `UnitWire.hp`/
+/// `UnitWire.max_hp` removed from serialized output (backward-compat read via
+/// `#[serde(default)]` still populates `pools[Hp]` for pre-v44 traces).
+/// Old v43 traces are incompatible — clean break.
+pub const SCHEMA_VERSION: u32 = 44;
 
 // ── Record types ─────────────────────────────────────────────────────────────
 

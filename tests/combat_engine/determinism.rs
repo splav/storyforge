@@ -67,26 +67,24 @@ impl ContentView for DeterminismContent {
 // ── Unit builder ─────────────────────────────────────────────────────────────
 
 fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
-    Unit {
-        id: UnitId(id),
+    Unit::new(
+        UnitId(id),
         team,
-        pos: hex_from_offset(pos_col, pos_row),
-        hp: 20,
-        max_hp: 20,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 6,
-        speed: 6,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: vec![],
-        enemy_phases: vec![],
-        pools: storyforge::combat_engine::enum_map::enum_map! {
+        hex_from_offset(pos_col, pos_row),
+        0,  // armor
+        0,  // armor_bonus
+        0,  // damage_taken_bonus
+        6,  // base_speed
+        6,  // speed
+        1,  // reactions_left
+        1,  // reactions_max
+        vec![],
+        None,
+        Default::default(),
+        None,
+        vec![],
+        vec![],
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((20, 20)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -94,7 +92,7 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((6, 6)),
         },
-        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -102,8 +100,8 @@ fn make_unit(id: u64, team: Team, pos_col: i32, pos_row: i32) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        template_id: None,
-    }
+        None,
+    )
 }
 
 // ── Trace harness ────────────────────────────────────────────────────────────
@@ -230,7 +228,7 @@ fn det_dot_tick_during_dead_skip() {
     let a = make_unit(1, Team::Player, 0, 0);
 
     let mut b = make_unit(2, Team::Enemy, 1, 0);
-    b.hp = 0;  // dead
+    b.pools[PoolKind::Hp] = Some((0, 20));  // dead
 
     let mut c = make_unit(3, Team::Enemy, 2, 0);
     c.statuses.push(ActiveStatus {
@@ -301,8 +299,6 @@ fn det_phase_transition() {
     caster.pools[PoolKind::Mp] = Some((0, 6));
 
     let mut boss = make_unit(2, Team::Enemy, 1, 0);
-    boss.hp = 60;
-    boss.max_hp = 100;
     boss.pools[PoolKind::Hp] = Some((60, 100));
     // Phase triggers at 50% HP (hp ≤ 50)
     boss.enemy_phases = vec![PhaseEntry { pct: 50, new_max_hp: 0, heal_to_full: false }];

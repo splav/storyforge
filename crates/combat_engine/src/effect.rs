@@ -319,12 +319,9 @@ pub fn apply_effect(
 
             // Apply HP reduction.
             let hp_after = if let Some(u) = state.unit_mut(*target) {
-                // Stage 3a: pool-first, field-mirror.
                 let p = u.pools[crate::PoolKind::Hp].as_mut().unwrap();
                 p.0 = (p.0 - final_dmg.round() as i32).max(0);
-                u.hp = p.0;
-                u.assert_hp_pool_sync();
-                u.hp
+                u.hp()
             } else {
                 0
             };
@@ -397,13 +394,10 @@ pub fn apply_effect(
 
             let hp_restored = if remaining > 0 {
                 if let Some(u) = state.unit_mut(*target) {
-                    // Stage 3a: pool-first, field-mirror.
                     let p = u.pools[crate::PoolKind::Hp].as_mut().unwrap();
                     let before = p.0;
                     p.0 = (p.0 + remaining).min(p.1);
-                    u.hp = p.0;
-                    u.assert_hp_pool_sync();
-                    u.hp - before
+                    u.hp() - before
                 } else {
                     0
                 }
@@ -427,11 +421,8 @@ pub fn apply_effect(
             if let Some(u) = state.unit_mut(*actor) {
                 match kind {
                     ResourceKind::Hp => {
-                        // Stage 3a: pool-first, field-mirror.
                         let p = u.pools[crate::PoolKind::Hp].as_mut().unwrap();
                         p.0 = (p.0 - amount).max(0);
-                        u.hp = p.0;
-                        u.assert_hp_pool_sync();
                     }
                     ResourceKind::Mana => {
                         if let Some((pc, max)) = u.pools[crate::PoolKind::Mana].as_mut() {
@@ -549,10 +540,7 @@ pub fn apply_effect(
                 .unwrap_or_default();
 
             if let Some(u) = state.unit_mut(*unit) {
-                // Stage 3a: pool-first, field-mirror.
                 u.pools[crate::PoolKind::Hp].as_mut().unwrap().0 = 0;
-                u.hp = 0;
-                u.assert_hp_pool_sync();
             }
 
             let mut derived: Vec<Effect> = statuses_to_clean
@@ -637,12 +625,9 @@ pub fn apply_effect(
                 // Apply HP reduction directly (bypass Effect::Damage derivation so we
                 // can fuse into a single DotDamaged event without emitting UnitDamaged).
                 let hp_after = if let Some(u) = state.unit_mut(*target) {
-                    // Stage 3a: pool-first, field-mirror.
                     let p = u.pools[crate::PoolKind::Hp].as_mut().unwrap();
                     p.0 = (p.0 - final_amount).max(0);
-                    u.hp = p.0;
-                    u.assert_hp_pool_sync();
-                    u.hp
+                    u.hp()
                 } else {
                     0
                 };
@@ -772,13 +757,9 @@ pub fn apply_effect(
 
         Effect::SetMaxHp { unit, max_hp } => {
             if let Some(u) = state.unit_mut(*unit) {
-                // Stage 3a: pool-first, field-mirror.
                 let p = u.pools[crate::PoolKind::Hp].as_mut().unwrap();
                 p.1 = *max_hp;
                 p.0 = p.0.min(p.1);
-                u.max_hp = p.1;
-                u.hp = p.0;
-                u.assert_hp_pool_sync();
             }
             (vec![], ApplyCtx::default())
         }

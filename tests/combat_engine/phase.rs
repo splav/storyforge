@@ -21,26 +21,24 @@ fn uid(n: u64) -> UnitId { UnitId(n) }
 
 fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
     use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit {
-        id: uid(id),
-        team: Team::Enemy,
-        pos: hexx::Hex::ZERO,
-        hp,
-        max_hp,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 3,
-        speed: 3,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: storyforge::combat_engine::enum_map::enum_map! {
+    Unit::new(
+        uid(id),
+        Team::Enemy,
+        hexx::Hex::ZERO,
+        0,  // armor
+        0,  // armor_bonus
+        0,  // damage_taken_bonus
+        3,  // base_speed
+        3,  // speed
+        1,  // reactions_left
+        1,  // reactions_max
+        vec![],
+        None,
+        Default::default(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((hp, max_hp)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -48,7 +46,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((3, 3)),
         },
-        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -56,8 +54,8 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        template_id: None,
-    }
+        None,
+    )
 }
 
 /// Build a boss unit with pre-set phase triggers.
@@ -69,26 +67,13 @@ fn make_boss(id: u64, hp: i32, max_hp: i32, phases: Vec<PhaseEntry>) -> Unit {
 
 fn make_attacker(id: u64) -> Unit {
     use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit {
-        id: uid(id),
-        team: Team::Player,
-        pos: hexx::Hex::new(2, 0),
-        hp: 30,
-        max_hp: 30,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 3,
-        speed: 3,
-        reactions_left: 0,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: storyforge::combat_engine::enum_map::enum_map! {
+    Unit::new(
+        uid(id),
+        Team::Player,
+        hexx::Hex::new(2, 0),
+        0, 0, 0, 3, 3, 0, 1,
+        vec![], None, Default::default(), None, Vec::new(), Vec::new(),
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((30, 30)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -96,7 +81,7 @@ fn make_attacker(id: u64) -> Unit {
             PoolKind::Ap     => Some((3, 3)),
             PoolKind::Mp     => Some((3, 3)),
         },
-        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -104,8 +89,8 @@ fn make_attacker(id: u64) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        template_id: None,
-    }
+        None,
+    )
 }
 
 fn make_state(units: Vec<Unit>, order: Vec<UnitId>) -> CombatState {
@@ -184,7 +169,7 @@ fn phase_trigger_fires_at_threshold() {
     let has_death = derived.iter().any(|e| matches!(e, Effect::Death { unit } if *unit == boss));
     assert!(has_enter_phase, "EnterPhase should be derived when threshold crossed; got {derived:?}");
     assert!(!has_death, "Death must NOT be derived when phase fires");
-    assert_eq!(state.unit(boss).unwrap().hp, 35, "hp should be 35 after 25 damage");
+    assert_eq!(state.unit(boss).unwrap().hp(), 35, "hp should be 35 after 25 damage");
 }
 
 /// Non-triggering damage (hp stays above threshold) does NOT produce EnterPhase.
@@ -231,7 +216,7 @@ fn preempt_death_phase_revives_unit() {
     );
     let content = PhaseContent::new(boss, 50, 120, true);
 
-    // Phase triggers here (hp goes to 0 clamped by `u.hp = (u.hp - dmg).max(0)`):
+    // Phase triggers here (hp goes to 0 clamped by `u.hp() = (u.hp() - dmg).max(0)`):
     // actual engine code: hp = (60 - 70).max(0) = 0; 0 * 100 <= 100 * 50 → trigger.
     let (derived, _) = apply_effect(
         &mut state,

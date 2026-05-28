@@ -124,7 +124,7 @@ fn parity_pure_move_no_enemies() {
     assert_eq!(engine_mp, 3, "engine: MP after 3-hex move");
     assert_eq!(sim_mp,    3, "sim: MP after 3-hex move");
 
-    assert_eq!(engine_unit.hp, sim_unit.hp, "hp parity: no enemies → no damage");
+    assert_eq!(engine_unit.hp(), sim_unit.hp(), "hp parity: no enemies → no damage");
 }
 
 // ── Scenario 2: move with no-disengage (enemy at start AND destination) ───────
@@ -177,8 +177,8 @@ fn parity_move_no_aoo_stays_adjacent() {
     let sim_actor    = sim_snap.unit(actor_id).unwrap();
 
     // No damage — enemy never disengage-triggered.
-    assert_eq!(engine_actor.hp, 20, "engine: actor hp unchanged (no AoO)");
-    assert_eq!(sim_actor.hp,    20, "sim: actor hp unchanged (no AoO)");
+    assert_eq!(engine_actor.hp(), 20, "engine: actor hp unchanged (no AoO)");
+    assert_eq!(sim_actor.hp(),    20, "sim: actor hp unchanged (no AoO)");
 
     // Enemy reactions_left unchanged.
     assert_eq!(engine_state.unit(enemy_uid).unwrap().reactions_left, 1,
@@ -241,7 +241,7 @@ fn parity_aoo_chain_two_enemies() {
     let engine_actor = engine_state.unit(actor_uid).expect("actor in engine");
     let sim_actor    = sim_snap.unit(actor_id).expect("actor in sim");
 
-    assert_eq!(engine_actor.hp, sim_actor.hp,
+    assert_eq!(engine_actor.hp(), sim_actor.hp(),
         "actor hp must match: each path took 4+4=8 damage from two AoOs, hp 20→12");
     assert_eq!(engine_actor.pos, sim_actor.pos, "actor final position must match");
 
@@ -328,7 +328,7 @@ fn parity_aoo_kills_mover_mid_path_truncates() {
     assert!(engine_result.is_ok(), "engine should return Ok under truncation semantics");
 
     let engine_actor = engine_state.unit(actor_uid).unwrap();
-    assert_eq!(engine_actor.hp, 0, "engine: mover dead after lethal AoO");
+    assert_eq!(engine_actor.hp(), 0, "engine: mover dead after lethal AoO");
     assert_eq!(engine_actor.pos, step1, "engine: mover at step1 (hit position)");
 
     // Exactly one enemy spent its reaction; the other did not.
@@ -339,7 +339,7 @@ fn parity_aoo_kills_mover_mid_path_truncates() {
 
     // Sim parity: mover position and hp match engine.
     let sim_actor = sim_snap.unit(actor_id).expect("actor present in sim snapshot");
-    assert_eq!(sim_actor.hp, engine_actor.hp,
+    assert_eq!(sim_actor.hp(), engine_actor.hp(),
         "sim: actor hp must match engine");
     assert_eq!(sim_actor.pos, engine_actor.pos,
         "sim: actor position must match engine");

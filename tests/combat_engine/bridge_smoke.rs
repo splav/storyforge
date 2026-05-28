@@ -102,7 +102,7 @@ fn process_action_move_writes_engine_state_and_projects_to_ecs() {
 /// - A synthetic `ActiveContent` is injected with the ability and weapon.
 /// - Player moves to a hex not adjacent to the enemy (disengagement).
 ///
-/// Assertion: player's `Vital.hp` is less than `max_hp` after two updates,
+/// Assertion: player's `Vital.hp()` is less than `max_hp` after two updates,
 /// proving the engine fired AoO using real dice from `EcsContentView`.
 ///
 /// With `ExpectedValue` (the dice source used by `process_action_system`),
@@ -471,34 +471,32 @@ fn projector_writes_engine_mutation_to_ecs() {
     // Seed CombatStateRes with one unit at start position.
     {
         use storyforge::combat_engine::state::{CombatState, RoundPhase, Team as EngineTeam, Unit};
-        let unit = Unit {
-            id: new_actor_uid,
-            team: EngineTeam::Player,
-            pos: start,
-            hp: 20,
-            max_hp: 20,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            base_speed: 6,
-            speed: 6,
-            reactions_left: 1,
-            reactions_max: 1,
-            statuses: vec![],
-            summoner: None,
-            caster_context: Default::default(),
-            aoo_dice: None,
-            auras: Vec::new(),
-            enemy_phases: Vec::new(),
-            pools: combat_engine::enum_map::enum_map! {
-                combat_engine::PoolKind::Hp     => Some((10, 10)),
+        let unit = Unit::new(
+            new_actor_uid,
+            EngineTeam::Player,
+            start,
+            0,  // armor
+            0,  // armor_bonus
+            0,  // damage_taken_bonus
+            6,  // base_speed
+            6,  // speed
+            1,  // reactions_left
+            1,  // reactions_max
+            vec![],
+            None,
+            Default::default(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            combat_engine::enum_map::enum_map! {
+                combat_engine::PoolKind::Hp     => Some((20, 20)),
                 combat_engine::PoolKind::Mana   => None,
                 combat_engine::PoolKind::Rage   => None,
                 combat_engine::PoolKind::Energy => None,
                 combat_engine::PoolKind::Ap     => Some((2, 2)),
                 combat_engine::PoolKind::Mp     => Some((6, 6)),
             },
-            regen_per_pool: combat_engine::enum_map::enum_map! {
+            combat_engine::enum_map::enum_map! {
                 combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
                 combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
                 combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
@@ -506,8 +504,8 @@ fn projector_writes_engine_mutation_to_ecs() {
                 combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
                 combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
             },
-            template_id: None,
-        };
+            None,
+        );
         let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
         app.world_mut().resource_mut::<CombatStateRes>().0 = state;
     }
@@ -522,7 +520,9 @@ fn projector_writes_engine_mutation_to_ecs() {
         let mut res = app.world_mut().resource_mut::<CombatStateRes>();
         let unit = res.0.unit_mut(new_actor_uid).expect("unit must be in engine state");
         unit.pos = target_pos;
-        unit.hp = target_hp;
+        // Mutate HP via the pool (pools[Hp] is the canonical source since Stage 3c).
+        let max_hp = unit.max_hp();
+        unit.pools[combat_engine::PoolKind::Hp] = Some((target_hp, max_hp));
         unit.pools[combat_engine::PoolKind::Mp] = Some((target_mp, target_mp));
         unit.reactions_left = target_reactions;
     }
@@ -541,7 +541,7 @@ fn projector_writes_engine_mutation_to_ecs() {
     let entity_ref = app.world().entity(new_actor);
 
     let ecs_hp = entity_ref.get::<Vital>().expect("actor must have Vital").hp;
-    assert_eq!(ecs_hp, target_hp, "Vital.hp must match engine hp after projection");
+    assert_eq!(ecs_hp, target_hp, "Vital.hp() must match engine hp after projection");
 
     let ecs_mp = entity_ref
         .get::<ActionPoints>()
@@ -875,26 +875,13 @@ fn projector_writes_mana_from_engine_state() {
     app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
 
     // Seed engine state with mana pool at full.
-    let unit = Unit {
-        id: actor_uid,
-        team: EngineTeam::Player,
-        pos: start,
-        hp: 20,
-        max_hp: 20,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 6,
-        speed: 6,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: combat_engine::enum_map::enum_map! {
+    let unit = Unit::new(
+        actor_uid,
+        EngineTeam::Player,
+        start,
+        0, 0, 0, 6, 6, 1, 1,
+        vec![], None, Default::default(), None, Vec::new(), Vec::new(),
+        combat_engine::enum_map::enum_map! {
             combat_engine::PoolKind::Hp     => Some((20, 20)),
             combat_engine::PoolKind::Mana   => Some((10, 10)),
             combat_engine::PoolKind::Rage   => None,
@@ -902,7 +889,7 @@ fn projector_writes_mana_from_engine_state() {
             combat_engine::PoolKind::Ap     => Some((1, 1)),
             combat_engine::PoolKind::Mp     => Some((6, 6)),
         },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
+        combat_engine::enum_map::enum_map! {
             combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
             combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
@@ -910,8 +897,8 @@ fn projector_writes_mana_from_engine_state() {
             combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
             combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
         },
-        template_id: None,
-    };
+        None,
+    );
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
 
@@ -952,26 +939,13 @@ fn projector_writes_statuses_from_engine_state() {
     app.world_mut().resource_mut::<UnitIdMap>().insert(actor, actor_uid);
 
     // Seed engine state with no statuses yet.
-    let unit = Unit {
-        id: actor_uid,
-        team: EngineTeam::Player,
-        pos: start,
-        hp: 20,
-        max_hp: 20,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 6,
-        speed: 6,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: combat_engine::enum_map::enum_map! {
+    let unit = Unit::new(
+        actor_uid,
+        EngineTeam::Player,
+        start,
+        0, 0, 0, 6, 6, 1, 1,
+        vec![], None, Default::default(), None, Vec::new(), Vec::new(),
+        combat_engine::enum_map::enum_map! {
             combat_engine::PoolKind::Hp     => Some((20, 20)),
             combat_engine::PoolKind::Mana   => None,
             combat_engine::PoolKind::Rage   => None,
@@ -979,7 +953,7 @@ fn projector_writes_statuses_from_engine_state() {
             combat_engine::PoolKind::Ap     => Some((1, 1)),
             combat_engine::PoolKind::Mp     => Some((6, 6)),
         },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
+        combat_engine::enum_map::enum_map! {
             combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
             combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
@@ -987,8 +961,8 @@ fn projector_writes_statuses_from_engine_state() {
             combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
             combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
         },
-        template_id: None,
-    };
+        None,
+    );
     let state = CombatState::new(vec![unit], 1, RoundPhase::ActorTurn, 0);
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
 
@@ -1056,26 +1030,11 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         });
 
     // Seed engine state: actor has no statuses.
-    let actor_unit = Unit {
-        id: actor_uid,
-        team: EngineTeam::Player,
-        pos: start,
-        hp: 20,
-        max_hp: 20,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 6,
-        speed: 6,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: combat_engine::enum_map::enum_map! {
+    let make_unit = |id, team, pos| Unit::new(
+        id, team, pos,
+        0, 0, 0, 6, 6, 1, 1,
+        vec![], None, Default::default(), None, Vec::new(), Vec::new(),
+        combat_engine::enum_map::enum_map! {
             combat_engine::PoolKind::Hp     => Some((20, 20)),
             combat_engine::PoolKind::Mana   => None,
             combat_engine::PoolKind::Rage   => None,
@@ -1083,7 +1042,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
             combat_engine::PoolKind::Ap     => Some((1, 1)),
             combat_engine::PoolKind::Mp     => Some((6, 6)),
         },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
+        combat_engine::enum_map::enum_map! {
             combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
             combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
             combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
@@ -1091,46 +1050,15 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
             combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
             combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
         },
-        template_id: None,
-    };
-    let aura_unit = Unit {
-        id: aura_source_uid,
-        team: EngineTeam::Player,
-        pos: start2,
-        hp: 20,
-        max_hp: 20,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 6,
-        speed: 6,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: combat_engine::enum_map::enum_map! {
-            combat_engine::PoolKind::Hp     => Some((20, 20)),
-            combat_engine::PoolKind::Mana   => None,
-            combat_engine::PoolKind::Rage   => None,
-            combat_engine::PoolKind::Energy => None,
-            combat_engine::PoolKind::Ap     => Some((1, 1)),
-            combat_engine::PoolKind::Mp     => Some((6, 6)),
-        },
-        regen_per_pool: combat_engine::enum_map::enum_map! {
-            combat_engine::PoolKind::Hp     => combat_engine::RegenRule::None,
-            combat_engine::PoolKind::Mana   => combat_engine::RegenRule::Increment(1),
-            combat_engine::PoolKind::Rage   => combat_engine::RegenRule::None,
-            combat_engine::PoolKind::Energy => combat_engine::RegenRule::Increment(1),
-            combat_engine::PoolKind::Ap     => combat_engine::RegenRule::RefillToMax,
-            combat_engine::PoolKind::Mp     => combat_engine::RegenRule::RefillToMax,
-        },
-        template_id: None,
-    };
-    let state = CombatState::new(vec![actor_unit, aura_unit], 1, RoundPhase::ActorTurn, 0);
+        None,
+    );
+    let state = CombatState::new(
+        vec![
+            make_unit(actor_uid, EngineTeam::Player, start),
+            make_unit(aura_source_uid, EngineTeam::Player, start2),
+        ],
+        1, RoundPhase::ActorTurn, 0,
+    );
     app.world_mut().resource_mut::<CombatStateRes>().0 = state;
 
     // Engine: Cast has applied "burning" to actor (self-applied).
@@ -2151,7 +2079,7 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
         .0
         .unit(enemy_uid)
         .unwrap()
-        .hp;
+        .hp();
 
     // Inject hero's poison onto the enemy engine unit directly.
     // applier=hero_uid means it ticks at hero's turn start, NOT enemy's.
@@ -2182,7 +2110,7 @@ fn cast_with_dot_status_ticks_next_actor_dot_on_handoff() {
         .0
         .unit(enemy_uid)
         .unwrap()
-        .hp;
+        .hp();
 
     assert_eq!(
         enemy_hp_after, enemy_hp_before,
