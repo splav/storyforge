@@ -874,40 +874,36 @@ pub fn apply_effect(
             };
 
             let new_uid = state.alloc_synthetic_uid();
-            let spawn_pools = enum_map::enum_map! {
-                // Stage 1 dual-write: pools[Hp] mirrors hp/max_hp fields.
-                crate::PoolKind::Hp     => Some((template.max_hp, template.max_hp)),
-                crate::PoolKind::Mana   => if template.mana_max   > 0 { Some((template.mana_max,   template.mana_max))   } else { None },
-                crate::PoolKind::Rage   => if template.rage_max   > 0 { Some((0,                   template.rage_max))   } else { None },
-                crate::PoolKind::Energy => if template.energy_max > 0 { Some((template.energy_max, template.energy_max)) } else { None },
-                crate::PoolKind::Ap     => Some((template.max_ap,     template.max_ap)),
-                crate::PoolKind::Mp     => Some((template.base_speed, template.base_speed)),
-            };
-            let new_unit = Unit {
-                id: new_uid,
-                team: summoner_team,
+            let new_unit = Unit::new(
+                new_uid,
+                summoner_team,
                 pos,
-                hp: template.max_hp,
-                max_hp: template.max_hp,
-                armor: template.armor,
-                armor_bonus: 0,
-                damage_taken_bonus: 0,
-                base_speed: template.base_speed,
-                speed: template.base_speed,
-                reactions_left: 0,
-                reactions_max: 1,
-                statuses: Vec::new(),
-                summoner: Some(*summoner),
-                caster_context: template.caster_context.clone(),
-                aoo_dice: template.aoo_dice,
-                auras: template.auras.clone(),
-                enemy_phases: template.enemy_phases.clone(),
-                pools: spawn_pools,
-                regen_per_pool: template.regen_per_pool,
+                template.armor,
+                0,
+                0,
+                template.base_speed,
+                template.base_speed,
+                0,
+                1,
+                Vec::new(),
+                Some(*summoner),
+                template.caster_context.clone(),
+                template.aoo_dice,
+                template.auras.clone(),
+                template.enemy_phases.clone(),
+                enum_map::enum_map! {
+                    crate::PoolKind::Hp     => Some((template.max_hp, template.max_hp)),
+                    crate::PoolKind::Mana   => if template.mana_max   > 0 { Some((template.mana_max,   template.mana_max))   } else { None },
+                    crate::PoolKind::Rage   => if template.rage_max   > 0 { Some((0,                   template.rage_max))   } else { None },
+                    crate::PoolKind::Energy => if template.energy_max > 0 { Some((template.energy_max, template.energy_max)) } else { None },
+                    crate::PoolKind::Ap     => Some((template.max_ap,     template.max_ap)),
+                    crate::PoolKind::Mp     => Some((template.base_speed, template.base_speed)),
+                },
+                template.regen_per_pool,
                 // Track template id so initial_statuses can be applied below
                 // (parity with bootstrap path via apply_template_initial_statuses).
-                template_id: Some(template_id.clone()),
-            };
+                Some(template_id.clone()),
+            );
 
             state.insert_unit(new_unit);
 

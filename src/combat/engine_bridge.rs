@@ -245,36 +245,34 @@ pub fn from_ecs(
                 }
             }
 
-            Some(Unit {
-                id: uid,
+            Some(Unit::new(
+                uid,
                 team,
                 pos,
-                hp,
-                max_hp: vital.max_hp,
-                armor: vital.armor,
+                vital.armor,
                 armor_bonus,
                 damage_taken_bonus,
-                base_speed: speed.0,
-                speed: speed.0 + speed_bonus,
+                speed.0,
+                speed.0 + speed_bonus,
                 // Bootstrap-initial: a unit always enters combat with a full reaction
                 // budget. We intentionally ignore `Reactions.remaining` here — the ECS
                 // default starts at 0 (matching `Effect::Spawn`'s reactions_left=0 for
                 // mid-combat summons), so reading it would yield 0 and break round-1
                 // AoO. Engine's `start_round` (called on `Effect::BumpRound`) refills
                 // reactions_left = reactions_max on every subsequent round.
-                reactions_left: reactions.max as i32,
-                reactions_max: reactions.max as i32,
-                statuses: statuses_vec,
-                summoner: None,
+                reactions.max as i32,
+                reactions.max as i32,
+                statuses_vec,
+                None,
                 // Per-combat fields populated by bootstrap_combat_state after from_ecs.
-                caster_context: combat_engine::CasterContext::default(),
-                aoo_dice: None,
-                auras: Vec::new(),
-                enemy_phases: Vec::new(),
-                pools: bridge_pools,
-                regen_per_pool: bridge_regen,
-                template_id: template_ref.map(|tr| tr.0.clone()),
-            })
+                combat_engine::CasterContext::default(),
+                None,
+                Vec::new(),
+                Vec::new(),
+                bridge_pools,
+                bridge_regen,
+                template_ref.map(|tr| tr.0.clone()),
+            ))
         })
         .collect();
 

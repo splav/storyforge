@@ -74,26 +74,24 @@ impl ContentView for StubContent {
 
 fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
     use storyforge::combat_engine::{PoolKind, RegenRule};
-    Unit {
-        id: UnitId(id),
-        team: Team::Player,
-        pos: hex_from_offset(0, 0),
-        hp,
-        max_hp,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 4,
-        speed: 4,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: storyforge::combat_engine::enum_map::enum_map! {
+    Unit::new(
+        UnitId(id),
+        Team::Player,
+        hex_from_offset(0, 0),
+        0,
+        0,
+        0,
+        4,
+        4,
+        1,
+        1,
+        vec![],
+        None,
+        Default::default(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((hp, max_hp)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -101,7 +99,7 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((4, 4)),
         },
-        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -109,8 +107,8 @@ fn make_unit(id: u64, hp: i32, max_hp: i32) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        template_id: None,
-    }
+        None,
+    )
 }
 
 fn unit_with_rage(id: u64, rage_current: i32, rage_max: i32) -> Unit {

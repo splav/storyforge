@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use storyforge::combat_engine::{
-    DiceRng, PoolKind, RegenRule,
+    DiceRng,
     action::Action,
     state::{CombatState, RoundPhase, Team, Unit, UnitId},
     step::step,
@@ -25,26 +25,25 @@ use storyforge::game::hex::hex_from_offset;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn make_unit(id: u64) -> Unit {
-    Unit {
-        id: UnitId(id),
-        team: Team::Player,
-        pos: hex_from_offset(id as i32, 0),
-        hp: 20,
-        max_hp: 20,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 6,
-        speed: 6,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: vec![],
-        enemy_phases: vec![],
-        pools: storyforge::combat_engine::enum_map::enum_map! {
+    use storyforge::combat_engine::{PoolKind, RegenRule};
+    Unit::new(
+        UnitId(id),
+        Team::Player,
+        hex_from_offset(id as i32, 0),
+        0,
+        0,
+        0,
+        6,
+        6,
+        1,
+        1,
+        vec![],
+        None,
+        Default::default(),
+        None,
+        vec![],
+        vec![],
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((20, 20)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -52,7 +51,7 @@ fn make_unit(id: u64) -> Unit {
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((6, 6)),
         },
-        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -60,8 +59,8 @@ fn make_unit(id: u64) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        template_id: None,
-    }
+        None,
+    )
 }
 
 fn make_init(state: &CombatState, seed: u64) -> InitLine {

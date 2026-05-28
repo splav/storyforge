@@ -242,26 +242,24 @@ fn magister_skips_turns() {
     let magister_id = UnitId(2);
 
     let make_unit = |id: UnitId, team: EngineTeam, col: i32, row: i32| -> Unit {
-        Unit {
+        Unit::new(
             id,
             team,
-            pos: storyforge::game::hex::hex_from_offset(col, row),
-            hp: 10,
-            max_hp: 10,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            base_speed: 3,
-            speed: 3,
-            reactions_left: 1,
-            reactions_max: 1,
-            statuses: vec![],
-            summoner: None,
-            caster_context: Default::default(),
-            aoo_dice: None,
-            auras: vec![],
-            enemy_phases: vec![],
-            pools: storyforge::combat_engine::enum_map::enum_map! {
+            storyforge::game::hex::hex_from_offset(col, row),
+            0,
+            0,
+            0,
+            3,
+            3,
+            1,
+            1,
+            vec![],
+            None,
+            Default::default(),
+            None,
+            vec![],
+            vec![],
+            storyforge::combat_engine::enum_map::enum_map! {
                 PoolKind::Hp     => Some((10, 10)),
                 PoolKind::Mana   => None,
                 PoolKind::Rage   => None,
@@ -269,7 +267,7 @@ fn magister_skips_turns() {
                 PoolKind::Ap     => Some((1, 1)),
                 PoolKind::Mp     => Some((3, 3)),
             },
-            regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+            storyforge::combat_engine::enum_map::enum_map! {
                 PoolKind::Hp     => RegenRule::None,
                 PoolKind::Mana   => RegenRule::Increment(1),
                 PoolKind::Rage   => RegenRule::None,
@@ -277,8 +275,8 @@ fn magister_skips_turns() {
                 PoolKind::Ap     => RegenRule::RefillToMax,
                 PoolKind::Mp     => RegenRule::RefillToMax,
             },
-            template_id: None,
-        }
+            None,
+        )
     };
 
     let hero = make_unit(hero_id, EngineTeam::Player, 0, 0);

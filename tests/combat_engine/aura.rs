@@ -27,26 +27,24 @@ fn uid(n: u64) -> UnitId { UnitId(n) }
 fn make_unit(id: UnitId, team: Team, pos: Hex, alive: bool) -> Unit {
     use storyforge::combat_engine::{PoolKind, RegenRule};
     let hp = if alive { 10 } else { 0 };
-    Unit {
+    Unit::new(
         id,
         team,
         pos,
-        hp,
-        max_hp: 10,
-        armor: 0,
-        armor_bonus: 0,
-        damage_taken_bonus: 0,
-        base_speed: 3,
-        speed: 3,
-        reactions_left: 1,
-        reactions_max: 1,
-        statuses: vec![],
-        summoner: None,
-        caster_context: Default::default(),
-        aoo_dice: None,
-        auras: Vec::new(),
-        enemy_phases: Vec::new(),
-        pools: storyforge::combat_engine::enum_map::enum_map! {
+        0,
+        0,
+        0,
+        3,
+        3,
+        1,
+        1,
+        vec![],
+        None,
+        Default::default(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => Some((hp, 10)),
             PoolKind::Mana   => None,
             PoolKind::Rage   => None,
@@ -54,7 +52,7 @@ fn make_unit(id: UnitId, team: Team, pos: Hex, alive: bool) -> Unit {
             PoolKind::Ap     => Some((2, 2)),
             PoolKind::Mp     => Some((20, 20)),
         },
-        regen_per_pool: storyforge::combat_engine::enum_map::enum_map! {
+        storyforge::combat_engine::enum_map::enum_map! {
             PoolKind::Hp     => RegenRule::None,
             PoolKind::Mana   => RegenRule::Increment(1),
             PoolKind::Rage   => RegenRule::None,
@@ -62,8 +60,8 @@ fn make_unit(id: UnitId, team: Team, pos: Hex, alive: bool) -> Unit {
             PoolKind::Ap     => RegenRule::RefillToMax,
             PoolKind::Mp     => RegenRule::RefillToMax,
         },
-        template_id: None,
-    }
+        None,
+    )
 }
 
 /// Build a `CombatState` from a unit list; turn-queue set to `order` at index 0.

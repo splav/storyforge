@@ -318,6 +318,66 @@ impl<'de> serde::Deserialize<'de> for Unit {
 }
 
 impl Unit {
+    /// Canonical constructor — the **only** place in the codebase that builds a
+    /// `Unit` struct literal.  All other constructors and test helpers must call
+    /// this function so that Stage 3c (removing the legacy `hp`/`max_hp` fields)
+    /// only requires edits here.
+    ///
+    /// `pools` must have `pools[PoolKind::Hp] = Some((hp, max_hp))` before
+    /// calling; the constructor mirrors those values into the legacy fields so
+    /// that `assert_hp_pool_sync` passes on every unit that exits this gate.
+    ///
+    /// # Panics (debug only)
+    /// Panics if `pools[PoolKind::Hp]` is `None`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: UnitId,
+        team: Team,
+        pos: Hex,
+        armor: i32,
+        armor_bonus: i32,
+        damage_taken_bonus: i32,
+        base_speed: i32,
+        speed: i32,
+        reactions_left: i32,
+        reactions_max: i32,
+        statuses: Vec<ActiveStatus>,
+        summoner: Option<UnitId>,
+        caster_context: crate::content::CasterContext,
+        aoo_dice: Option<crate::dice::DiceExpr>,
+        auras: Vec<crate::content::AuraDef>,
+        enemy_phases: Vec<crate::content::PhaseEntry>,
+        pools: enum_map::EnumMap<crate::PoolKind, Option<(i32, i32)>>,
+        regen_per_pool: enum_map::EnumMap<crate::PoolKind, crate::RegenRule>,
+        template_id: Option<String>,
+    ) -> Self {
+        let (hp, max_hp) = pools[crate::PoolKind::Hp]
+            .expect("Unit::new requires pools[PoolKind::Hp] = Some((hp, max_hp))");
+        Unit {
+            id,
+            team,
+            pos,
+            hp,
+            max_hp,
+            armor,
+            armor_bonus,
+            damage_taken_bonus,
+            base_speed,
+            speed,
+            reactions_left,
+            reactions_max,
+            statuses,
+            summoner,
+            caster_context,
+            aoo_dice,
+            auras,
+            enemy_phases,
+            pools,
+            regen_per_pool,
+            template_id,
+        }
+    }
+
     pub fn is_alive(&self) -> bool {
         self.pools[crate::PoolKind::Hp].map_or(false, |(cur, _)| cur > 0)
     }
@@ -912,42 +972,41 @@ mod tests {
 
     fn make_unit(id: UnitId, action_points: i32, max_ap: i32, mana: Option<Pool>) -> Unit {
         use crate::{PoolKind, RegenRule};
-        let pools = enum_map::enum_map! {
-            PoolKind::Mana   => mana,
-            PoolKind::Rage   => None,
-            PoolKind::Energy => None,
-            PoolKind::Ap     => Some((action_points, max_ap)),
-            PoolKind::Mp     => Some((3, 3)),
-        };
-        Unit {
+        Unit::new(
             id,
-            team: Team::Player,
-            pos: Hex::ZERO,
-            hp: 10,
-            max_hp: 10,
-            armor: 0,
-            armor_bonus: 0,
-            damage_taken_bonus: 0,
-            base_speed: 3,
-            speed: 3,
-            reactions_left: 1,
-            reactions_max: 1,
-            statuses: vec![],
-            summoner: None,
-            caster_context: Default::default(),
-            aoo_dice: None,
-            auras: Vec::new(),
-            enemy_phases: Vec::new(),
-            pools,
-            regen_per_pool: enum_map::enum_map! {
+            Team::Player,
+            Hex::ZERO,
+            0,
+            0,
+            0,
+            3,
+            3,
+            1,
+            1,
+            vec![],
+            None,
+            Default::default(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            enum_map::enum_map! {
+                PoolKind::Hp     => Some((10, 10)),
+                PoolKind::Mana   => mana,
+                PoolKind::Rage   => None,
+                PoolKind::Energy => None,
+                PoolKind::Ap     => Some((action_points, max_ap)),
+                PoolKind::Mp     => Some((3, 3)),
+            },
+            enum_map::enum_map! {
+                PoolKind::Hp     => RegenRule::None,
                 PoolKind::Mana   => RegenRule::Increment(1),
                 PoolKind::Rage   => RegenRule::None,
                 PoolKind::Energy => RegenRule::Increment(1),
                 PoolKind::Ap     => RegenRule::RefillToMax,
                 PoolKind::Mp     => RegenRule::RefillToMax,
             },
-            template_id: None,
-        }
+            None,
+        )
     }
 
     fn make_status(id: &str, applier: UnitId, rounds: u32, dot: i32) -> ActiveStatus {
