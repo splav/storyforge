@@ -17,6 +17,7 @@ Before implementing:
 - If you see legacy or smelling code:
    * if you are touching it anyway - propose best way to improve and ask
    * if not - write about it in report after finishing task
+- Always use planner to make an architecture plan for implementer
 - Always show your architecture plan to a critic agent
 
 ### 2. Думать обо всей архитектуре в целом
