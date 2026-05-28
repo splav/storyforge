@@ -239,6 +239,23 @@ ability_ids = ["melee_attack", "thunderstrike", "heal"]
 
 AI-роль не задаётся в контенте — `AxisProfile` (tank/melee/ranged/control/support) выводится из набора способностей, HP и брони через `infer_profile` при спауне юнита.
 
+### Initial statuses (permanent statuses applied at every spawn)
+
+Optional `initial_statuses` lists status ids that are applied to every unit spawned from this template, with `combat_engine::PERMANENT_DURATION` (sentinel — `ExpireStatus` guards and never decrements). Used for **non-acting allies** like the wounded magister in ch2 bой 2: a permanent `stunned` makes the engine skip every one of his turns through the standard `skip_stunned_turn_system`, while still letting party AI heal him and `keep_alive` victory track his HP.
+
+```toml
+[[unit_templates]]
+id    = "wounded_magister"
+name  = "Магистр"
+race  = "human"
+# ... stats / equipment as usual ...
+initial_statuses = ["stunned"]   # always spawns stunned, turn auto-skips
+```
+
+Applies to all spawn paths: bootstrap (party / enemy entities) and mid-combat `Effect::Spawn` (summons). Each status starts with no source-applier semantics — the unit itself is recorded as `applier`.
+
+Pair with the **temporary party member** pattern in Scenario → `party_add` below to wire an NPC-style ally into combat through the standard party flow without ad-hoc encounter sections.
+
 ## Encounters (`encounters.toml` inside a scenario folder)
 
 ```toml
@@ -325,20 +342,6 @@ hex_row = 5
 
 Internally, these are stored in `CombatState.blocked_hexes` (a `HashSet<Hex>`) on combat bootstrap. They persist for the entire encounter and are cleared automatically on encounter exit or restart.
 
-### Non-acting NPCs (`[[encounters.npcs]]`)
-
-Static NPC objects that live only in ECS — the engine never knows about them (not in `CombatState.units`). They are not in the turn queue and do not act. Useful for escort/protect scenarios (pair with `keep_alive` victory).
-
-```toml
-[[encounters.npcs]]
-name       = "Магистр"
-template   = "wounded_magister"  # unit_templates id (for visuals / stats)
-hp_current = 6                   # optional — defaults to hp_max
-hp_max     = 6
-hex_col    = 6
-hex_row    = 4
-```
-
 ### Victory (`victory`)
 
 ```toml
@@ -349,7 +352,10 @@ victory = { type = "all_enemies_dead" }
 # Kill one specific enemy (may have multiple enemies alive).
 victory = { type = "kill_target", enemy_name = "Старшина", marker_color = [0.90, 0.15, 0.15] }
 
-# Protect an NPC — combat is lost immediately if the NPC dies.
+# Protect a named unit — combat is lost immediately if the unit dies.
+# `target_name` must match an enemy in this encounter OR a party member
+# (regular hero or template-based NPC ally added via `party_add`).
+# Validated at scenario load — a typo fails fast.
 # This is a leaf condition — must be combined via all_of to also produce a win.
 victory = { type = "keep_alive", target_name = "Магистр", marker_color = [0.3, 0.6, 1.0] }
 
@@ -411,6 +417,43 @@ on_victory_flags = ["beastblood_routed"]
   - **If `lines = []`** (or omitted), the scene is **invisible** — `advance_scenario` skips past it. Use this idiom for a pure party-change beat without dialogue.
 
 - **`combat`** — fight. `encounter` refers to this scenario's `encounters.toml`. `on_victory_flags` are set when the encounter is won; `requires_flag` on future dialogue lines checks against this flag set.
+
+### Party members: class-based vs template-based
+
+A `[[party]]` or `party_add` entry can be one of two shapes:
+
+- **Class-based hero** (regular playable character) — provides `class = "warrior"`. The hero gets full stats / equipment / abilities from the class, owns its own turn, is player-controllable.
+
+- **Template-based NPC ally** (non-acting or pre-statted unit) — provides `template = "wounded_magister"` instead of `class`. The unit is spawned from a `[[unit_templates]]` entry (stats, equipment, abilities, plus any `initial_statuses` like permanent `stunned`). Lives in `CombatState.units` as a full party member, but if its template carries permanent stun the engine auto-skips its turns via the standard `skip_stunned_turn_system`. Still healable by party AI; `keep_alive` victory tracks its HP.
+
+```toml
+# Story scene that introduces a wounded NPC ally before combat.
+[[scenes]]
+type = "story"
+lines = [
+  { speaker = "Рассказчик", text = "Перед вами лежит без сознания Магистр." },
+]
+[[scenes.party_add]]
+name     = "Магистр"
+template = "wounded_magister"    # template path — not class
+hex_col  = 6
+hex_row  = 4
+# `class` omitted; `race` / `faction` / `path` inferred from template.
+
+# Combat scene with keep_alive on the temporary ally.
+[[scenes]]
+type      = "combat"
+encounter = "shrine_defence"
+
+# Subsequent story scene removes the NPC from the party once the bout is over.
+[[scenes]]
+type = "story"
+lines = []                       # invisible, pure party-change beat
+[[scenes.party_remove]]
+name = "Магистр"
+```
+
+This pattern fully replaces the legacy `[[encounters.npcs]]` section — no per-encounter NPC wiring; every unit goes through the unified party flow.
 
 ### Derived state (no runtime storage)
 
