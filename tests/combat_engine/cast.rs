@@ -173,6 +173,7 @@ fn step_cast_returns_err_illegal_for_dead_target() {
     let actor = make_unit(1, Team::Player, 0, 0);
     let mut target = make_unit(2, Team::Enemy, 1, 0);
     target.hp = 0; // corpse
+    target.pools[combat_engine::PoolKind::Hp] = Some((0, 10));
 
     let mut state = state_with(vec![actor, target]);
     let content = StubContent::with_ability("fireball", single_enemy_ability());
@@ -463,12 +464,15 @@ fn cast_aoe_damages_targets_in_per_target_order() {
     let mut ea = make_unit(10, Team::Enemy, 0, 0);
     ea.pos = target_pos;
     ea.hp = 5;
+    ea.pools[combat_engine::PoolKind::Hp] = Some((5, 10));
     let mut eb = make_unit(11, Team::Enemy, 0, 0);
     eb.pos = neighbors[0];
     eb.hp = 5;
+    eb.pools[combat_engine::PoolKind::Hp] = Some((5, 10));
     let mut ec = make_unit(12, Team::Enemy, 0, 0);
     ec.pos = neighbors[1];
     ec.hp = 5;
+    ec.pools[combat_engine::PoolKind::Hp] = Some((5, 10));
 
     let mut state = state_with(vec![actor, ea, eb, ec]);
 
@@ -571,6 +575,7 @@ fn cast_heal_restores_target_hp() {
     let mut target = make_unit(2, Team::Player, 1, 0);
     target.hp = 3;
     target.max_hp = 10;
+    target.pools[combat_engine::PoolKind::Hp] = Some((3, 10));
 
     let mut state = state_with(vec![actor, target]);
 
@@ -619,14 +624,17 @@ fn cast_aoe_heal_restores_multiple_targets() {
     a1.pos = target_pos;
     a1.hp = 3;
     a1.max_hp = 10;
+    a1.pools[combat_engine::PoolKind::Hp] = Some((3, 10));
     let mut a2 = make_unit(11, Team::Player, 0, 0);
     a2.pos = neighbors[0];
     a2.hp = 3;
     a2.max_hp = 10;
+    a2.pools[combat_engine::PoolKind::Hp] = Some((3, 10));
     let mut a3 = make_unit(12, Team::Player, 0, 0);
     a3.pos = neighbors[1];
     a3.hp = 3;
     a3.max_hp = 10;
+    a3.pools[combat_engine::PoolKind::Hp] = Some((3, 10));
 
     let mut state = state_with(vec![actor, a1, a2, a3]);
 

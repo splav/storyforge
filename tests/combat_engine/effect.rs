@@ -412,6 +412,7 @@ fn heal_no_dot_restores_hp() {
 
     // Sanity: heals above cap clamp.
     u.hp = 8;
+    u.pools[storyforge::combat_engine::PoolKind::Hp] = Some((8, 10));
     state = state_with(vec![u]);
     let (_, ctx) = apply_effect(
         &mut state,

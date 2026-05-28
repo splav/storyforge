@@ -233,6 +233,7 @@ fn step_actor_death_mid_path_truncates_remaining_aoos() {
     mover.pos = start;
     mover.hp = 1;
     mover.max_hp = 20;
+    mover.pools[combat_engine::PoolKind::Hp] = Some((1, 20));
     mover.pools[combat_engine::PoolKind::Mp] = Some((4, 6));
 
     // Two enemies adjacent to `start` but NOT on the path [(1,0),(2,0)],
@@ -425,6 +426,7 @@ fn step_two_flankers_only_first_fires_when_lethal() {
     let mut mover = make_unit(1, Team::Player, 0, 0);
     mover.pos = start;
     mover.hp = 1;
+    mover.pools[combat_engine::PoolKind::Hp] = Some((1, 20));
     mover.pools[combat_engine::PoolKind::Mp] = Some((6, 6));
 
     let aoo = DiceExpr::new(0, 6, 5);
@@ -648,6 +650,7 @@ fn current_actor_dies_mid_move_via_aoo_settles_on_next_alive() {
     let mut enemy_b = make_unit(2, Team::Enemy, 0, 0);
     enemy_b.pos = enemy_b_start;
     enemy_b.hp = 1;
+    enemy_b.pools[combat_engine::PoolKind::Hp] = Some((1, 20));
     enemy_b.pools[combat_engine::PoolKind::Mp] = Some((6, 6));
 
     let mut state = state_with(vec![hero_a, enemy_b]);

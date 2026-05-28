@@ -319,7 +319,7 @@ impl<'de> serde::Deserialize<'de> for Unit {
 
 impl Unit {
     pub fn is_alive(&self) -> bool {
-        self.hp > 0
+        self.pools[crate::PoolKind::Hp].map_or(false, |(cur, _)| cur > 0)
     }
 
     /// Convenience accessor for current HP.
