@@ -152,7 +152,15 @@ pub fn rescore_with_per_plan_modes(
         // Pass the mode directly: when LastStand, compute_plan_intent_sum routes
         // to evaluate_last_stand_step; for Default it uses the global intent.
         f.set_plan(PlanFactor::Intent, compute_plan_intent_sum(p, global, ctx, *mode));
-        f.set_plan(PlanFactor::TempoGain, compute_plan_tempo_gain(p, global, ctx));
+        // Under Flee there is no offensive target, so approach-tempo is meaningless;
+        // the retreat gradient lives in the intent column (evaluate_flee_step).
+        // Zeroing here prevents FocusTarget tempo from rewarding APPROACH for a fleeing unit.
+        let tempo = if *mode == EvaluationMode::Flee {
+            0.0
+        } else {
+            compute_plan_tempo_gain(p, global, ctx)
+        };
+        f.set_plan(PlanFactor::TempoGain, tempo);
     }
     aggregate_factors_to_score(plans, raw, ctx)
 }

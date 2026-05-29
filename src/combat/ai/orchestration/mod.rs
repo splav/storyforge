@@ -700,6 +700,74 @@ mod tests {
         }
     }
 
+    /// A unit with `forced_mode = Flee` placed adjacent to an enemy (distance 1)
+    /// with clear terrain behind it must pick a plan whose `final_pos` is STRICTLY
+    /// farther from the enemy than its start tile, and by at least 2 hexes — i.e.,
+    /// it meaningfully retreats rather than edging or approaching.
+    ///
+    /// This test exercises the full `pick_action` pipeline (Changes 1 + 2), ensuring
+    /// neither TempoGain leak causes the approaching direction to win.
+    #[test]
+    fn flee_actor_picks_retreat_over_approach() {
+        // Layout (row 0, cols -5 .. +5):
+        //   enemy at (0,0),  actor at (1,0),  open retreat space at (2,0)..(5,0)
+        // The actor's start is 1 hex from the enemy.  Speed = 4 so it can reach
+        // (5,0) in one turn.  We assert final_pos distance > 1 AND >= 1+2 = 3.
+        let enemy_pos  = hex_from_offset(0, 0);
+        let actor_pos  = hex_from_offset(1, 0);
+
+        let content = crate::content::content_view::ContentView::load_global_for_tests();
+        let (status_tag_cache, ability_tag_cache) =
+            crate::combat::ai::world::tags::cache::build_caches(&content);
+        let difficulty = DifficultyProfile::default();
+
+        // Flee actor: no abilities (Flee regime drops offensive casts at generation
+        // anyway, but no abilities ensures the only plans are pure-move plans).
+        let actor = UnitBuilder::new(1, Team::Enemy, actor_pos)
+            .speed(4)
+            .forced_mode(Some(crate::combat::ai::adapt::EvaluationMode::Flee))
+            .build();
+        // Enemy is close — maximally tempting for any approach-rewarding factor.
+        let enemy = UnitBuilder::new(2, Team::Player, enemy_pos).build();
+
+        let snap = snapshot_from(vec![actor.clone(), enemy.clone()], 1);
+        let maps = empty_maps();
+        let reservations = Reservations::default();
+        let memory = crate::combat::ai::intent::AiMemory::default();
+        let mut rng = DiceRng::with_seed(0);
+
+        let world = AiWorld {
+            content: &content,
+            difficulty: &difficulty,
+            tuning: &content.ai_tuning,
+            crit_fail_chance: 0.0,
+            ability_tags: &ability_tag_cache,
+            status_tags: &status_tag_cache,
+        };
+
+        let result = pick_action(
+            actor.entity, actor_pos, &world, &snap, &maps, &mut rng,
+            &memory, &reservations, false, &HashMap::new(),
+        );
+
+        let best_plan = &result.pool.plans[result.best_idx];
+        let start_dist = actor_pos.unsigned_distance_to(enemy_pos);
+        let final_dist = best_plan.final_pos.unsigned_distance_to(enemy_pos);
+
+        assert!(
+            final_dist > start_dist,
+            "Flee actor must move AWAY from enemy: \
+             final_pos={:?} (dist={}) should be > start dist={} (enemy at {:?})",
+            best_plan.final_pos, final_dist, start_dist, enemy_pos,
+        );
+        assert!(
+            final_dist >= start_dist + 2,
+            "Flee actor must retreat by at least 2 hexes (speed=4 allows it): \
+             final_pos={:?} dist={}, start_dist={}, enemy={:?}",
+            best_plan.final_pos, final_dist, start_dist, enemy_pos,
+        );
+    }
+
     #[test]
     fn pick_action_override_propagates_to_annotation() {
         // Actor with melee_attack; override it to MOBILITY.

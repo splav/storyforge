@@ -163,8 +163,13 @@ impl PlanStage for ItemScoringStage {
                     };
                     let intent_factor =
                         compute_plan_intent_sum(plan, &intent, ctx.scoring, item_mode);
-                    let tempo_factor =
-                        compute_plan_tempo_gain(plan, &intent, ctx.scoring);
+                    // item_mode gates tempo: a fleeing unit must not be rewarded for
+                    // approaching the FocusTarget (mirrors the fix in aggregate.rs).
+                    let tempo_factor = if item_mode == EvaluationMode::Flee {
+                        0.0
+                    } else {
+                        compute_plan_tempo_gain(plan, &intent, ctx.scoring)
+                    };
 
                     let (eligible, reject_reason) = match item.kind {
                         IntentKind::ProtectSelf => {
