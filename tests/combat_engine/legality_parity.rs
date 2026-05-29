@@ -364,7 +364,7 @@ fn legality_parity_bevy_vs_engine() {
             id: TAUNT_STATUS.into(),
             rounds_remaining: 3,
             dot_per_tick: 0,
-            applier: taunter,
+            applier: Some(taunter),
         });
 
     // dead_enemy: Enemy with hp=0 and Dead marker (matches real bridge behavior).
@@ -436,7 +436,7 @@ fn legality_parity_bevy_vs_engine() {
             id: MANA_BLOCK_STATUS.into(),
             rounds_remaining: 2,
             dot_per_tick: 0,
-            applier: actor_mana_blocked,
+            applier: Some(actor_mana_blocked),
         });
 
     // ── Register hex positions ────────────────────────────────────────────────
@@ -672,7 +672,7 @@ fn multi_taunter_both_are_legal_targets() {
             id: TAUNT_STATUS.into(),
             rounds_remaining: 2,
             dot_per_tick: 0,
-            applier: taunter1,
+            applier: Some(taunter1),
         });
 
     // taunter2: Enemy with taunt status.
@@ -689,7 +689,7 @@ fn multi_taunter_both_are_legal_targets() {
             id: TAUNT_STATUS.into(),
             rounds_remaining: 2,
             dot_per_tick: 0,
-            applier: taunter2,
+            applier: Some(taunter2),
         });
 
     // bystander: Enemy, no taunt status.

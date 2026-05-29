@@ -291,7 +291,9 @@ pub struct ActiveStatus {
     pub id: StatusId,
     pub rounds_remaining: u32,
     /// Entity whose EndTurn ticks this counter down.
-    pub applier: Entity,
+    /// `None` when the status was applied by an environment object (trap/hazard)
+    /// with no unit applier.
+    pub applier: Option<Entity>,
     /// Урон за тик (яд). 0 = нет DoT. Уменьшается исцелением.
     pub dot_per_tick: i32,
 }

@@ -209,7 +209,7 @@ impl<'a> crate::targeting::TargetState for EngineTargetState<'a> {
 /// `RestoreResources`) or `WeaponAttack` without `weapon_dice`.
 fn effect_for_target(
     effect: &EffectDef,
-    source: crate::state::UnitId,
+    source: crate::state::EffectSource,
     target: crate::state::UnitId,
     caster: &CasterContext,
     rng: &mut dyn DiceSource,
@@ -223,16 +223,16 @@ fn effect_for_target(
     match effect {
         EffectDef::Damage { dice } => {
             let raw = (roll!(*dice) + caster.str_mod) as f32;
-            Some(Effect::Damage { target, raw, source: crate::state::EffectSource::Unit(source), pierces: false })
+            Some(Effect::Damage { target, raw, source, pierces: false })
         }
         EffectDef::SpellDamage { dice } => {
             let raw = (roll!(*dice) + caster.int_mod + caster.spell_power) as f32;
-            Some(Effect::Damage { target, raw, source: crate::state::EffectSource::Unit(source), pierces: true })
+            Some(Effect::Damage { target, raw, source, pierces: true })
         }
         EffectDef::WeaponAttack => {
             let dice = caster.weapon_dice?;
             let raw = (roll!(dice) + caster.str_mod) as f32;
-            Some(Effect::Damage { target, raw, source: crate::state::EffectSource::Unit(source), pierces: false })
+            Some(Effect::Damage { target, raw, source, pierces: false })
         }
         EffectDef::Heal { dice } => {
             let amount = (roll!(*dice) + caster.int_mod + caster.spell_power).max(0);
@@ -510,7 +510,12 @@ fn step_inner(
                     // Step 6d/6e: per-target effect fanout (damage or heal).
                     for &affected_id in &affected {
                         if let Some(eff) = effect_for_target(
-                            &def.effect, *actor, affected_id, &caster, rng, legal.disadvantage,
+                            &def.effect,
+                            crate::state::EffectSource::Unit(*actor),
+                            affected_id,
+                            &caster,
+                            rng,
+                            legal.disadvantage,
                         ) {
                             effect_queue.push_back(eff);
                         }
@@ -710,6 +715,104 @@ fn step_inner(
 
                     for ef in sub_derived.into_iter().rev() {
                         sub_queue.push_front(ef);
+                    }
+                }
+            }
+
+            // ── Trap trigger (arrival) ────────────────────────────────────────
+            //
+            // AoO fires on the leaving edge (before arrival), traps fire on
+            // arrival — so AoO always precedes the trap for the same step.
+            // Symmetric across teams: any unit entering a hazard hex triggers it.
+            //
+            // Reuse the same sub-queue + liveness discipline as the AoO path
+            // above so that a lethal trap correctly derives Death/AdvanceTurn and
+            // the existing "skip remaining MovePositions when mover died" guard
+            // truncates the rest of the path without special-casing here.
+            if state.unit(mover_id).is_some_and(|u| u.is_alive()) {
+                if let Some(trap_idx) = state.environment.iter().position(|e| {
+                    e.hex == new_pos
+                        && matches!(e.kind, crate::state::EnvKind::Hazard)
+                        && !e.triggered
+                }) {
+                    // Mark triggered + revealed before resolving effects so
+                    // that any re-entrant scan (e.g. from a recursive path)
+                    // cannot fire the same trap twice.
+                    state.environment[trap_idx].triggered = true;
+                    state.environment[trap_idx].revealed  = true;
+
+                    let trap_id  = state.environment[trap_idx].id;
+                    let trap_ability = state.environment[trap_idx].ability.clone();
+
+                    // Emit discovery events before damage/status so the log
+                    // reads: HazardTriggered → EnvRevealed → damage/status.
+                    events.push(Event::HazardTriggered { env_id: trap_id, victim: mover_id });
+                    events.push(Event::EnvRevealed    { env_id: trap_id });
+
+                    // Resolve the ability definition; skip defensively if missing.
+                    if let Some(def) = content.ability_def(&trap_ability).cloned() {
+                        let env_source = crate::state::EffectSource::Env(trap_id);
+                        let caster     = crate::content::CasterContext::default();
+
+                        // Build effects for the mover: damage component (if any)
+                        // + StatusOn::Target statuses.  AoE / StatusOn::MySelf
+                        // are not meaningful for a single-target ground trap.
+                        let mut trap_sub: std::collections::VecDeque<Effect> =
+                            std::collections::VecDeque::new();
+
+                        if let Some(dmg_eff) = effect_for_target(
+                            &def.effect, env_source, mover_id, &caster, rng, false,
+                        ) {
+                            trap_sub.push_back(dmg_eff);
+                        }
+
+                        for status_app in &def.statuses {
+                            if matches!(status_app.on, crate::content::StatusOn::Target) {
+                                trap_sub.push_back(Effect::ApplyStatus {
+                                    target:       mover_id,
+                                    status:       status_app.status.clone(),
+                                    rounds:       status_app.duration_rounds,
+                                    dot_per_tick: 0,
+                                    applier:      env_source,
+                                });
+                            }
+                        }
+
+                        // Drain the trap sub-queue with the same discipline as
+                        // the AoO sub-queue: strict target-liveness check (skip
+                        // silently for the mover, error for others), depth cap
+                        // shared with AoO reactions.
+                        while let Some(sub_eff) = trap_sub.pop_front() {
+                            if let Effect::Damage { target, .. } = &sub_eff {
+                                if !state.unit(*target).is_some_and(|u| u.is_alive()) {
+                                    if *target == mover_id {
+                                        continue;
+                                    }
+                                    return Err(ActionError::TargetGone);
+                                }
+                            }
+
+                            reaction_depth += 1;
+                            if reaction_depth > REACTION_DEPTH_LIMIT {
+                                return Err(ActionError::ReactionDepthExceeded);
+                            }
+
+                            let (sub_derived, mut sub_ctx) =
+                                apply_effect(state, &sub_eff, content);
+
+                            if let Some(ev) =
+                                effect_to_event(&sub_eff, state, Some(pos_before), &sub_ctx)
+                            {
+                                events.push(ev);
+                            }
+
+                            events.append(&mut sub_ctx.pool_events);
+                            events.append(&mut sub_ctx.turn_skip_events);
+
+                            for ef in sub_derived.into_iter().rev() {
+                                trap_sub.push_front(ef);
+                            }
+                        }
                     }
                 }
             }

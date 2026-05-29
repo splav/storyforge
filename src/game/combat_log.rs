@@ -182,9 +182,11 @@ pub enum CombatEvent {
         killed: bool,
     },
     /// *engine mirror* — `Event::DotDamaged` (fused DoT tick + damage).
+    /// `source` is `None` when the originating status was applied by an
+    /// environment object (trap/hazard) rather than a unit.
     DotDamaged {
         target: Entity,
-        source: Entity,
+        source: Option<Entity>,
         source_status: StatusId,
         raw: f32,
         mitigation: i32,
@@ -233,6 +235,9 @@ pub enum CombatEvent {
         max: i32,
         cause: combat_engine::PoolChangeCause,
     },
+    /// *engine mirror* — `Event::HazardTriggered`.
+    /// Emitted when a unit steps onto a trap/hazard hex and it fires.
+    HazardTriggered { victim: Entity },
 }
 
 // ── Formatter ─────────────────────────────────────────────────────────────────
@@ -419,6 +424,9 @@ impl CombatEvent {
                 } else {
                     "=== ПОРАЖЕНИЕ ===".into()
                 }
+            }
+            CombatEvent::HazardTriggered { victim } => {
+                format!("  ⚠ {} сработал ловушку", name(*victim))
             }
         };
         Some(line)

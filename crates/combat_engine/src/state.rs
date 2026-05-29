@@ -29,6 +29,34 @@ pub struct UnitId(pub u64);
          serde::Serialize, serde::Deserialize)]
 pub struct EnvId(pub u32);
 
+/// Broad category of environment object.  One variant for now; more expected
+/// (e.g. `Terrain`, `Interactive`) as the env system grows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum EnvKind {
+    Hazard,
+}
+
+/// A passive environment object placed on the grid (trap, hazard, etc.).
+///
+/// `ability` identifies which `AbilityDef` to resolve when the trap fires;
+/// the damage/status fanout is driven by that definition.
+///
+/// `triggered` is set to `true` the first time a unit enters the hex while
+/// the object is active.  Triggered objects never fire again.
+///
+/// `revealed` flips to `true` when the object becomes visible (either because
+/// it triggered or because it was discovered another way).  UI uses this flag
+/// to decide whether to render the indicator; the engine does not read it.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EnvObject {
+    pub id: EnvId,
+    pub hex: hexx::Hex,
+    pub kind: EnvKind,
+    pub ability: crate::AbilityId,
+    pub triggered: bool,
+    pub revealed: bool,
+}
+
 /// Who produced a damage or status effect — either a living unit or an
 /// environment object (trap, hazard, etc.).
 ///
@@ -578,6 +606,10 @@ pub struct CombatState {
     /// Static obstacles that block both movement and LOS.
     /// Added in Wave 1 ch2 (schema v43). Serialized as sorted Vec in CombatStateRepr.
     pub blocked_hexes: HashSet<hexx::Hex>,
+    /// Active environmental objects (traps, hazards) placed on the grid.
+    /// Added in commit B of the environmental-traps feature.
+    /// Serialized as a Vec sorted by id for deterministic output (CombatStateRepr).
+    pub environment: Vec<EnvObject>,
 }
 
 /// Wire format for `CombatState` — identical layout except `idx` is absent.
@@ -595,6 +627,8 @@ struct CombatStateRepr {
     next_synthetic_uid: u64,
     #[serde(default)]
     blocked_hexes: Vec<hexx::Hex>,
+    #[serde(default)]
+    environment: Vec<EnvObject>,
 }
 
 impl From<CombatState> for CombatStateRepr {
@@ -602,6 +636,9 @@ impl From<CombatState> for CombatStateRepr {
         // Sort blocked_hexes for deterministic serialization output.
         let mut blocked_hexes: Vec<hexx::Hex> = s.blocked_hexes.into_iter().collect();
         blocked_hexes.sort_by_key(|h| (h.x, h.y));
+        // Sort environment by id for deterministic serialization output.
+        let mut environment = s.environment;
+        environment.sort_by_key(|e| e.id);
         CombatStateRepr {
             units: s.units,
             round: s.round,
@@ -610,6 +647,7 @@ impl From<CombatState> for CombatStateRepr {
             random_seed: s.random_seed,
             next_synthetic_uid: s.next_synthetic_uid,
             blocked_hexes,
+            environment,
         }
     }
 }
@@ -625,6 +663,7 @@ impl From<CombatStateRepr> for CombatState {
             random_seed: r.random_seed,
             next_synthetic_uid: r.next_synthetic_uid,
             blocked_hexes: r.blocked_hexes.into_iter().collect(),
+            environment: r.environment,
         };
         s.rebuild_idx();
         s
@@ -656,6 +695,7 @@ impl CombatState {
             random_seed,
             next_synthetic_uid: SYNTHETIC_UID_BASE,
             blocked_hexes: HashSet::new(),
+            environment: Vec::new(),
         };
         state.rebuild_idx();
         state

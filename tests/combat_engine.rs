@@ -18,6 +18,9 @@ mod turn_queue;
 #[path = "combat_engine/cast.rs"]
 mod cast;
 
+#[path = "combat_engine/trap.rs"]
+mod trap;
+
 #[path = "combat_engine/dice.rs"]
 mod dice;
 

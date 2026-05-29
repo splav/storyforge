@@ -120,7 +120,7 @@ fn stunned_enemy_no_opportunity() {
         .push(ActiveStatus {
             id: "stun".into(),
             rounds_remaining: 1,
-            applier: hero,
+            applier: Some(hero),
             dot_per_tick: 0,
         });
     app.world_mut().entity_mut(hero).insert(ActiveCombatant);

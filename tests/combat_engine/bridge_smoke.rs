@@ -216,7 +216,7 @@ fn aoo_does_not_fire_from_stunned_enemy() {
         .push(ActiveStatus {
             id: stun_id,
             rounds_remaining: 1,
-            applier: player,
+            applier: Some(player),
             dot_per_tick: 0,
         });
 
@@ -990,7 +990,7 @@ fn projector_writes_statuses_from_engine_state() {
     assert_eq!(s.id, StatusId::from("poison"), "status id must match");
     assert_eq!(s.rounds_remaining, 3, "rounds_remaining must match");
     assert_eq!(s.dot_per_tick, 2, "dot_per_tick must match");
-    assert_eq!(s.applier, actor, "applier entity must resolve to actor");
+    assert_eq!(s.applier, Some(actor), "applier entity must resolve to actor");
 }// Projector preserves aura-applied ECS statuses that the engine doesn't know about.
 ///
 /// The aura entry (written by `apply_auras_system` in TurnStart, after
@@ -1026,7 +1026,7 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
             id: StatusId::from("aura_buff"),
             rounds_remaining: 1,
             dot_per_tick: 0,
-            applier: aura_source,
+            applier: Some(aura_source),
         });
 
     // Seed engine state: actor has no statuses.
@@ -1095,14 +1095,14 @@ fn projector_preserves_aura_applied_status_during_cast_projection() {
         .iter()
         .find(|s| s.id.0 == "aura_buff")
         .unwrap();
-    assert_eq!(aura_entry.applier, aura_source, "aura_buff applier must be aura_source entity");
+    assert_eq!(aura_entry.applier, Some(aura_source), "aura_buff applier must be aura_source entity");
 
     let burning_entry = status_effects
         .0
         .iter()
         .find(|s| s.id.0 == "burning")
         .unwrap();
-    assert_eq!(burning_entry.applier, actor, "burning applier maps from actor_uid to actor entity");
+    assert_eq!(burning_entry.applier, Some(actor), "burning applier maps from actor_uid to actor entity");
 }
 
 // ── Phase 2 step 7d: crit-fail event → CombatLog translation tests ───────────

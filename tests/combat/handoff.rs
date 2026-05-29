@@ -262,7 +262,7 @@ fn status_does_not_tick_twice_per_turn() {
         id: "test_buff".into(),
         rounds_remaining: 3,
         dot_per_tick: 0,
-        applier: hero,  // applier == hero → ticks on hero's start_actor_turn
+        applier: Some(hero),  // applier == hero → ticks on hero's start_actor_turn
     }]));
 
     init_engine_state(&mut app); // bootstrap: start_actor_turn(hero) → tick 3→2

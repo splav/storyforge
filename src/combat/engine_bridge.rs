@@ -207,7 +207,16 @@ pub fn from_ecs(
                             id: s.id.clone(),
                             rounds_remaining: s.rounds_remaining,
                             dot_per_tick: s.dot_per_tick,
-                            applier: combat_engine::state::EffectSource::Unit(entity_to_uid(s.applier)),
+                            // ECS-origin statuses always have a unit applier.
+                            // `None` applier would mean an env-applied status was
+                            // round-tripped through ECS, which does not occur in
+                            // normal gameplay; map defensively to a fixed Env(0).
+                            applier: match s.applier {
+                                Some(e) => combat_engine::state::EffectSource::Unit(entity_to_uid(e)),
+                                None    => combat_engine::state::EffectSource::Env(
+                                    combat_engine::state::EnvId(0)
+                                ),
+                            },
                         })
                         .collect()
                 })
@@ -961,9 +970,26 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         Event::UnitDamaged { target, amount, raw, mitigation, pierces, source } => {
             if let Some(mv) = ctx.move_.as_mut() {
                 if mv.pending_aoo_target == Some(*target) {
+                    // AoO arm: source is always a unit (reactions are unit-only).
                     let source_uid = match source {
                         combat_engine::state::EffectSource::Unit(u) => *u,
-                        combat_engine::state::EffectSource::Env(_) => unreachable!("env source not yet produced (commit A)"),
+                        // An Env source cannot be an AoO attacker; fall through to
+                        // the non-AoO env-damage branch below.
+                        combat_engine::state::EffectSource::Env(_) => {
+                            // Clear pending — this is not the expected AoO damage.
+                            mv.pending_aoo_target = None;
+                            // Fall through to env-damage log below.
+                            let armor_reduced = if *pierces { 0 } else { *mitigation };
+                            if let Some(tgt_ent) = ctx.id_map.get_entity(*target) {
+                                ctx.log.push(CombatEvent::DamageResult {
+                                    target: tgt_ent,
+                                    raw: raw.round() as i32,
+                                    armor_reduced,
+                                    final_damage: *amount,
+                                });
+                            }
+                            return;
+                        }
                     };
                     let Some(attacker_ent) = ctx.id_map.get_entity(source_uid) else {
                         mv.pending_aoo_target = None;
@@ -986,8 +1012,19 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
                         killed,
                     });
                     mv.pending_aoo_target = None;
+                } else {
+                    // Non-AoO damage during Move: only env (trap) damage reaches
+                    // here.  Log it so HP/UI stay consistent; no attacker entity.
+                    let armor_reduced = if *pierces { 0 } else { *mitigation };
+                    if let Some(tgt_ent) = ctx.id_map.get_entity(*target) {
+                        ctx.log.push(CombatEvent::DamageResult {
+                            target: tgt_ent,
+                            raw: raw.round() as i32,
+                            armor_reduced,
+                            final_damage: *amount,
+                        });
+                    }
                 }
-                // Non-AoO damage on Move is not possible — silently ignore.
             } else if ctx.cast.is_some() {
                 // Cast context: engine already zeroes mitigation for piercing casts.
                 let Some(tgt_ent) = ctx.id_map.get_entity(*target) else { return };
@@ -1016,14 +1053,14 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
             // no-op: DotDamaged not produced during Cast or Move actions
             if ctx.cast.is_none() && ctx.move_.is_none() {
                 let Some(tgt_ent) = ctx.id_map.get_entity(*target) else { return };
-                let source_uid = match source {
-                    combat_engine::state::EffectSource::Unit(u) => *u,
-                    combat_engine::state::EffectSource::Env(_) => unreachable!("env source not yet produced (commit A)"),
+                // For env-applied DoTs there is no unit attacker; source is None.
+                let src_ent_opt: Option<Entity> = match source {
+                    combat_engine::state::EffectSource::Unit(u) => ctx.id_map.get_entity(*u),
+                    combat_engine::state::EffectSource::Env(_) => None,
                 };
-                let Some(src_ent) = ctx.id_map.get_entity(source_uid) else { return };
                 ctx.log.push(CombatEvent::DotDamaged {
                     target: tgt_ent,
-                    source: src_ent,
+                    source: src_ent_opt,
                     source_status: source_status.clone(),
                     raw: *raw,
                     mitigation: *mitigation,
@@ -1197,6 +1234,17 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
                 });
             }
         }
+
+        // ── Hazard / env events ────────────────────────────────────────────────
+        // Commit B: trap triggered — log the damage hit.  The trap tile itself
+        // is not rendered until commit C (ECS env mirror + UI).
+        Event::HazardTriggered { victim, .. } => {
+            if let Some(victim_ent) = ctx.id_map.get_entity(*victim) {
+                ctx.log.push(CombatEvent::HazardTriggered { victim: victim_ent });
+            }
+        }
+        // EnvRevealed: no-op in commit B; tile visibility lands in commit C.
+        Event::EnvRevealed { .. } => {}
     }
 }
 
@@ -1593,26 +1641,43 @@ pub fn project_state_to_ecs(
                 let engine_known: std::collections::HashSet<(&combat_engine::StatusId, combat_engine::state::EffectSource)> =
                     unit.statuses.iter().map(|s| (&s.id, s.applier)).collect();
 
+                // Preserve ECS statuses that are NOT in the engine's status list.
+                // For ECS statuses with a unit applier we key on
+                // `EffectSource::Unit(entity_to_uid(applier_entity))`.
+                // Env-applied statuses (applier: None) are never round-tripped from
+                // ECS back to engine, so we always keep them in `preserved`.
                 let preserved: Vec<crate::game::components::ActiveStatus> = status_effects
                     .0
                     .iter()
                     .filter(|ecs_s| {
-                        !engine_known.contains(&(&ecs_s.id, combat_engine::state::EffectSource::Unit(entity_to_uid(ecs_s.applier))))
+                        match ecs_s.applier {
+                            Some(applier_ent) => !engine_known.contains(&(
+                                &ecs_s.id,
+                                combat_engine::state::EffectSource::Unit(entity_to_uid(applier_ent)),
+                            )),
+                            // applier: None means env-applied; never in engine_known.
+                            None => true,
+                        }
                     })
                     .cloned()
                     .collect();
 
                 let mut new_list: Vec<crate::game::components::ActiveStatus> = preserved;
                 for engine_s in &unit.statuses {
-                    let applier_entity = match engine_s.applier {
-                        combat_engine::state::EffectSource::Unit(uid) => id_map.get_entity(uid).unwrap_or(entity),
-                        combat_engine::state::EffectSource::Env(_) => unreachable!("env source not yet produced (commit A)"),
+                    // R2: map engine EffectSource back to an optional ECS Entity.
+                    // EffectSource::Unit → Some(entity); EffectSource::Env → None
+                    // (no unit entity represents an environment applier).
+                    let applier_opt: Option<Entity> = match engine_s.applier {
+                        combat_engine::state::EffectSource::Unit(uid) => {
+                            Some(id_map.get_entity(uid).unwrap_or(entity))
+                        }
+                        combat_engine::state::EffectSource::Env(_) => None,
                     };
                     new_list.push(crate::game::components::ActiveStatus {
                         id: engine_s.id.clone(),
                         rounds_remaining: engine_s.rounds_remaining,
                         dot_per_tick: engine_s.dot_per_tick,
-                        applier: applier_entity,
+                        applier: applier_opt,
                     });
                 }
 

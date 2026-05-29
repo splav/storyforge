@@ -104,6 +104,20 @@ pub enum Event {
         prev_max_hp: i32,
         new_max_hp: i32,
     },
+    /// A hazard on the grid triggered when `victim` stepped onto its hex.
+    ///
+    /// Emitted BEFORE the damage/status events that flow from the trap's
+    /// `AbilityDef` fanout, so the event stream reads:
+    ///   HazardTriggered → (optional EnvRevealed) → UnitDamaged / StatusApplied …
+    HazardTriggered { env_id: crate::state::EnvId, victim: crate::state::UnitId },
+
+    /// An environment object became visible (either by triggering or by
+    /// other means).  Emitted alongside `HazardTriggered` when the object
+    /// was not yet revealed before the trigger.
+    ///
+    /// Commit C will use this to render the trap tile in the UI.
+    EnvRevealed { env_id: crate::state::EnvId },
+
     /// Unified pool-change event. Fires for every mutation of a unit's
     /// resource pool (regen, refill, spend, gain, max-shift). Sole canonical
     /// pool-mutation event since Phase C-6.
