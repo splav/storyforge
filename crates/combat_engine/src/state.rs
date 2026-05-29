@@ -41,19 +41,21 @@ pub enum EnvKind {
 /// `ability` identifies which `AbilityDef` to resolve when the trap fires;
 /// the damage/status fanout is driven by that definition.
 ///
-/// `triggered` is set to `true` the first time a unit enters the hex while
-/// the object is active.  Triggered objects never fire again.
+/// **One-shot.** A hazard fires once and is then **removed** from
+/// `CombatState.environment` (it deals its effect and disappears — no
+/// lingering "spent" marker). There is therefore no `triggered` flag.
 ///
-/// `revealed` flips to `true` when the object becomes visible (either because
-/// it triggered or because it was discovered another way).  UI uses this flag
-/// to decide whether to render the indicator; the engine does not read it.
+/// `revealed` gates visibility of an *armed* object: `false` = hidden (not
+/// rendered; absent from AI snapshots, so the AI can be baited onto it),
+/// `true` = known to the party (rendered in UI, present in AI planning so the
+/// AI avoids it). It is flipped by the reveal mechanic (e.g. a scout spotting
+/// traps) — NOT by firing, since a fired trap is gone.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EnvObject {
     pub id: EnvId,
     pub hex: hexx::Hex,
     pub kind: EnvKind,
     pub ability: crate::AbilityId,
-    pub triggered: bool,
     pub revealed: bool,
 }
 

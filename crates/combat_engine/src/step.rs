@@ -731,23 +731,19 @@ fn step_inner(
             // truncates the rest of the path without special-casing here.
             if state.unit(mover_id).is_some_and(|u| u.is_alive()) {
                 if let Some(trap_idx) = state.environment.iter().position(|e| {
-                    e.hex == new_pos
-                        && matches!(e.kind, crate::state::EnvKind::Hazard)
-                        && !e.triggered
+                    e.hex == new_pos && matches!(e.kind, crate::state::EnvKind::Hazard)
                 }) {
-                    // Mark triggered + revealed before resolving effects so
-                    // that any re-entrant scan (e.g. from a recursive path)
-                    // cannot fire the same trap twice.
-                    state.environment[trap_idx].triggered = true;
-                    state.environment[trap_idx].revealed  = true;
+                    // One-shot: remove the trap from the board BEFORE resolving
+                    // effects. It deals its damage/status once and disappears —
+                    // no lingering marker, and a re-entrant scan can't fire it
+                    // again. (`EnvRevealed` is reserved for the future reveal
+                    // mechanic — Kael spotting an *armed* trap — not firing.)
+                    let trap = state.environment.remove(trap_idx);
+                    let trap_id = trap.id;
+                    let trap_ability = trap.ability;
 
-                    let trap_id  = state.environment[trap_idx].id;
-                    let trap_ability = state.environment[trap_idx].ability.clone();
-
-                    // Emit discovery events before damage/status so the log
-                    // reads: HazardTriggered → EnvRevealed → damage/status.
+                    // Log/animation hook; damage/status events follow from the fanout.
                     events.push(Event::HazardTriggered { env_id: trap_id, victim: mover_id });
-                    events.push(Event::EnvRevealed    { env_id: trap_id });
 
                     // Resolve the ability definition; skip defensively if missing.
                     if let Some(def) = content.ability_def(&trap_ability).cloned() {

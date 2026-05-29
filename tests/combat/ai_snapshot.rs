@@ -168,7 +168,6 @@ fn ai_snapshot_excludes_hidden_traps_includes_revealed() {
                 hex: hex_from_offset(2, 3),
                 kind: EnvKind::Hazard,
                 ability: combat_engine::AbilityId::from("spike_trap"),
-                triggered: false,
                 revealed: false,  // hidden — must NOT appear in snapshot
             },
             EnvObject {
@@ -176,7 +175,6 @@ fn ai_snapshot_excludes_hidden_traps_includes_revealed() {
                 hex: hex_from_offset(5, 3),
                 kind: EnvKind::Hazard,
                 ability: combat_engine::AbilityId::from("spike_trap"),
-                triggered: true,
                 revealed: true,   // revealed — must appear in snapshot
             },
         ];

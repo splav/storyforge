@@ -56,7 +56,6 @@ fn spawn_combatants(
             hex: def.hex,
             kind: combat_engine::state::EnvKind::Hazard,
             ability: def.ability.clone(),
-            triggered: false,
             revealed: false,
         })
         .collect();

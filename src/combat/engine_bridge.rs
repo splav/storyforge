@@ -718,8 +718,9 @@ pub fn apply_bridge_queues_post_projection(
         anim_queue.0.push_back(anim);
     }
 
-    // EnvRevealed: trigger HEX_FILL so the trap tile renders on the same frame
-    // the trap fires. The flag is set by translate_one(EnvRevealed).
+    // EnvRevealed: trigger HEX_FILL so a newly-revealed (still-armed) trap tile
+    // renders. Reserved for the reveal mechanic (e.g. a scout spotting traps);
+    // firing a trap removes it, so triggering does not emit EnvRevealed.
     if std::mem::take(&mut queues.env_revealed) {
         dirty.0 |= UiDirtyFlags::HEX_FILL;
     }
@@ -1248,14 +1249,14 @@ fn translate_one(ev: &Event, ctx: &mut TranslateCtx<'_>) {
         }
 
         // ── Hazard / env events ────────────────────────────────────────────────
-        // Commit B: trap triggered — log the damage hit.  The trap tile itself
-        // is not rendered until commit C (ECS env mirror + UI).
+        // A trap fired (one-shot) and was removed from the board — log the hit.
         Event::HazardTriggered { victim, .. } => {
             if let Some(victim_ent) = ctx.id_map.get_entity(*victim) {
                 ctx.log.push(CombatEvent::HazardTriggered { victim: victim_ent });
             }
         }
-        // EnvRevealed: flag the bridge so post-projection drains it into UiDirty.
+        // EnvRevealed: an armed trap became visible (reveal mechanic). Flag the
+        // bridge so post-projection drains it into UiDirty. Not emitted on fire.
         Event::EnvRevealed { .. } => {
             ctx.queues.env_revealed = true;
         }

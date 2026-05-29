@@ -68,7 +68,7 @@ fn trap_ability(n: u32, status: Option<&str>) -> AbilityDef {
 
 fn hazard(id: u32, col: i32) -> EnvObject {
     EnvObject { id: EnvId(id), hex: hex_from_offset(col, 0), kind: EnvKind::Hazard,
-                ability: AbilityId::from("trap"), triggered: false, revealed: false }
+                ability: AbilityId::from("trap"), revealed: false }
 }
 
 /// Run a single-actor move over `cols` and return (state, events).
@@ -85,17 +85,17 @@ fn hp(s: &CombatState, id: u64) -> i32 { s.unit(UnitId(id)).map(|u| u.hp()).unwr
 
 // ── Tests ───────────────────────────────────────────────────────────────────────
 
-/// Entering a hazard deals its damage, marks it triggered+revealed, and emits
-/// HazardTriggered/EnvRevealed — for any team (symmetry).
+/// Entering a hazard deals its damage, removes the trap (one-shot), and emits
+/// HazardTriggered — for any team (symmetry). Firing is NOT a reveal.
 #[test]
-fn trap_triggers_reveals_and_emits_events() {
+fn trap_triggers_damages_and_disappears() {
     for team in [Team::Player, Team::Enemy] {
         let (s, ev) = run(unit(1, team, 0, 10, None), vec![hazard(7, 1)], &[1],
                           &Stub::new("trap", trap_ability(2, None)));
         assert_eq!(hp(&s, 1), 8, "trap (2 dmg) for {team:?}");
-        assert!(s.environment[0].triggered && s.environment[0].revealed);
+        assert!(s.environment.is_empty(), "trap disappears after firing");
         assert!(ev.iter().any(|e| matches!(e, Event::HazardTriggered { victim, .. } if *victim == UnitId(1))));
-        assert!(ev.iter().any(|e| matches!(e, Event::EnvRevealed { env_id } if *env_id == EnvId(7))));
+        assert!(!ev.iter().any(|e| matches!(e, Event::EnvRevealed { .. })), "firing must not emit EnvRevealed");
     }
 }
 
@@ -109,17 +109,21 @@ fn trap_fires_on_pass_through() {
     assert_eq!(s.unit(UnitId(1)).unwrap().pos, hex_from_offset(2, 0), "continues past a non-lethal trap");
 }
 
-/// A triggered trap never fires again.
+/// A fired trap is removed; re-entering its hex does nothing.
 #[test]
-fn trap_fires_once() {
+fn trap_gone_after_firing() {
     let content = Stub::new("trap", trap_ability(2, None));
-    // Pass through (1,0)->(2,0): triggers. Then step back onto (1,0): no damage.
     let mut state = CombatState::new(vec![unit(1, Team::Player, 0, 10, None)], 1, RoundPhase::ActorTurn, 0);
     state.environment = vec![hazard(1, 1)];
-    for path in [vec![hex_from_offset(1, 0), hex_from_offset(2, 0)], vec![hex_from_offset(1, 0)]] {
-        step(&mut state, Action::Move { actor: UnitId(1), path }, &mut ExpectedValue, &content).expect("move");
-    }
-    assert_eq!(hp(&state, 1), 8, "second entry on a triggered trap is a no-op");
+    // Pass through (1,0)->(2,0): fires + removes the trap.
+    step(&mut state, Action::Move { actor: UnitId(1), path: vec![hex_from_offset(1, 0), hex_from_offset(2, 0)] },
+         &mut ExpectedValue, &content).expect("first move");
+    assert_eq!(hp(&state, 1), 8);
+    assert!(state.environment.is_empty(), "trap removed after firing");
+    // Step back onto the now-clear hex: no damage.
+    step(&mut state, Action::Move { actor: UnitId(1), path: vec![hex_from_offset(1, 0)] },
+         &mut ExpectedValue, &content).expect("second move");
+    assert_eq!(hp(&state, 1), 8, "no trap remains to fire");
 }
 
 /// Env-sourced damage grants no rage to the source (no phantom unit/panic);
